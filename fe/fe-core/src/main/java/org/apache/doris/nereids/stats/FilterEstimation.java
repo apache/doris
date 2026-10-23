@@ -882,9 +882,12 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         StatisticsBuilder statisticsBuilder = new StatisticsBuilder(context.statistics).setRowCount(rowCount);
         // update key col stats
         for (Slot slot : not.child().getInputSlots()) {
-            ColumnStatistic originColStats = context.statistics.findColumnStatistics(slot);
-            ColumnStatistic childColStats = childStats.findColumnStatistics(slot);
             if (context.isKeySlot(slot)) {
+                // read the statistics of this slot here, and not for every input slot of the child:
+                // the child of NOT also contains slots this estimation does not care about, e.g. the
+                // alias slot of an unnested subquery, and their statistics need not be recorded
+                ColumnStatistic originColStats = context.statistics.findColumnStatistics(slot);
+                ColumnStatistic childColStats = childStats.findColumnStatistics(slot);
                 ColumnStatisticBuilder colBuilder = new ColumnStatisticBuilder(childColStats);
                 // update column stats for
                 // 1. not (A=B)
@@ -956,7 +959,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
     }
 
     private boolean isOnBase(Expression child, EstimationContext context) {
-        ColumnStatistic colStats = context.statistics.findColumnStatistics(child);
+        ColumnStatistic colStats = context.statistics.findColumnStatisticsOrNull(child);
         if (colStats != null && !colStats.isUnKnown() && colStats.getOriginal() != null) {
             ColumnStatistic original = colStats.getOriginal();
             return doubleNearlyEqual(original.count, colStats.count)
@@ -1171,9 +1174,6 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         statsBuilder.setRowCount(rowCount);
         if (like.left() instanceof Slot) {
             ColumnStatistic origin = context.statistics.findColumnStatistics(like.left());
-            Preconditions.checkArgument(origin != null,
-                    "col stats not found. slot=%s in %s",
-                    like.left().toSql(), like.toSql());
             ColumnStatisticBuilder colBuilder = new ColumnStatisticBuilder(origin);
             colBuilder.setNdv(origin.ndv * DEFAULT_LIKE_COMPARISON_SELECTIVITY).setNumNulls(0);
             colBuilder.setHotValues(null);

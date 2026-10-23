@@ -48,6 +48,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
+import org.roaringbitmap.RoaringBitmap;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -88,6 +89,26 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
     @Override
     public Plan visitLogicalCTEAnchor(LogicalCTEAnchor<? extends Plan, ? extends Plan> cteAnchor,
             CascadesContext cascadesContext) {
+        // Derive the operative slots of the producer before the statistics of the consumer are
+        // derived below: StatsCalculator.computeOlapScan fetches the column stats of the slots that
+        // are marked as operative, and without this derivation every column of every scan of the
+        // producer would be fetched. The derived producer is the plan whose statistics are derived
+        // and which is rewritten below, so that those statistics are not computed on a discarded
+        // copy of it.
+        //
+        // The producer subtree does not tell by itself which of its columns are read: the demand
+        // comes from its consumers, and a forwarding project of the producer creates none, because a
+        // projection of a bare slot is not an expression the derivation counts as a demand. Seed the
+        // slots of the producer that the estimation above this anchor uses, so that exactly those
+        // columns are demanded instead of being only probed from the cache.
+        //
+        // The demand is collected from the consumer side first, with a fresh derivation context: an
+        // anchor is always at the top of the plan (see PullUpCteAnchor), so nothing above this anchor
+        // demands anything and the context of the enclosing derivation would be empty anyway.
+        OperativeColumnDerive.DeriveContext consumerDemand = deriveConsumerDemand(cteAnchor, cascadesContext);
+        OperativeColumnDerive.DeriveContext deriveContext = new OperativeColumnDerive.DeriveContext();
+        seedProducerOperativeSlots(cteAnchor, cascadesContext, consumerDemand, deriveContext);
+        Plan derivedProducer = cteAnchor.child(0).accept(new OperativeColumnDerive(), deriveContext);
         LogicalPlan outer;
         if (cascadesContext.getStatementContext().getRewrittenCteConsumer().containsKey(cteAnchor.getCteId())) {
             outer = cascadesContext.getStatementContext().getRewrittenCteConsumer().get(cteAnchor.getCteId());
@@ -97,7 +118,7 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
                     cascadesContext.getCurrentJobContext().getRequiredProperties());
             AtomicReference<LogicalPlan> outerResult = new AtomicReference<>();
             StatsDerive statsDerive = new StatsDerive(false);
-            cteAnchor.child(0).accept(statsDerive, new StatsDerive.DeriveContext());
+            derivedProducer.accept(statsDerive, new StatsDerive.DeriveContext());
             outerCascadesCtx.withPlanProcess(cascadesContext.showPlanProcess(), () -> {
                 outerResult.set((LogicalPlan) cteAnchor.child(1).accept(this, outerCascadesCtx));
             });
@@ -110,7 +131,9 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
         if (cteConsumers.isEmpty()) {
             return outer;
         }
-        Plan producer = cteAnchor.child(0).accept(this, cascadesContext);
+        // the derived producer is rewritten, so that the statistics derived above are not computed on a
+        // discarded copy of the producer
+        Plan producer = derivedProducer.accept(this, cascadesContext);
         // ConstantPropagation is currently the only rule which renames the exprIds of a producer output, and it
         // publishes what it renamed (see StatementContext#addProducerExprIdRemap); a rule which renames an output
         // of a producer body has to do the same, otherwise the consumers, which are rewritten before the producer,
@@ -315,4 +338,81 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
         }
         return child;
     }
+
+    /**
+     * Collects the demand that the plan above {@code cteAnchor} places on the columns of the CTE,
+     * resolved across the retained CTEs it depends on.
+     *
+     * <p>A demand is stated on the outputs of the consumer of this CTE, but a retained CTE may feed
+     * another one, e.g.
+     * <pre>
+     * WITH c1 AS (SELECT a FROM wide),
+     *      c2 AS (SELECT a FROM c1 UNION ALL SELECT a FROM c1)
+     * SELECT a FROM c2 INTERSECT SELECT a FROM c2
+     * </pre>
+     * where the set operation demands {@code c2}, whose producer reads {@code c1}. A consumer copies
+     * the slots of the producer it reads and {@link OperativeColumnDerive} translates a demand on a
+     * consumer output to the slot of that producer, so one walk resolves one hop of the chain; the
+     * walk is repeated with the ids found so far until no new slot is demanded, which lets the
+     * demand reach the producer of this anchor before its statistics are derived.
+     */
+    static OperativeColumnDerive.DeriveContext deriveConsumerDemand(
+            LogicalCTEAnchor<?, ?> cteAnchor, CascadesContext cascadesContext) {
+        RoaringBitmap demand = new RoaringBitmap();
+        int hops = 1 + cteAnchor.child(1)
+                .<LogicalCTEAnchor<?, ?>>collectToList(LogicalCTEAnchor.class::isInstance).size();
+        for (int hop = 0; hop < hops; hop++) {
+            OperativeColumnDerive.DeriveContext context = new OperativeColumnDerive.DeriveContext();
+            context.operativeSlotIds.or(demand);
+            cteAnchor.child(1).accept(new OperativeColumnDerive(), context);
+            if (context.operativeSlotIds.equals(demand)) {
+                break;
+            }
+            demand = context.operativeSlotIds;
+        }
+        OperativeColumnDerive.DeriveContext result = new OperativeColumnDerive.DeriveContext();
+        result.operativeSlotIds.or(demand);
+        return result;
+    }
+
+    /**
+     * Marks the slots of the producer of {@code cteAnchor} that the estimation of its consumers uses
+     * as operative, i.e. the union over all the consumers of the slots of the producer they demand.
+     *
+     * <p>The producer subtree alone does not tell which of its columns are read: the demand comes
+     * from the consumers, each of which copies the slot of the producer it reads, and the producer
+     * only forwards that slot through projections, which create no demand of their own. Without this
+     * seeding the derivation marks the whole output of the producer as not operative, and the
+     * statistics derivation only probes those columns from the cache: a miss leaves them unknown and
+     * the estimation of the consumer, e.g. the local distinct inference of a set operation over the
+     * CTE, then works on unknown statistics.
+     *
+     * <p>A rule may rename the exprIds of the outputs of the producer body, and it publishes what it
+     * renamed (see StatementContext#getProducerExprIdRemap), so the slot of the producer that a
+     * consumer keeps is resolved through that remap, which follows the whole rename chain, and the
+     * producer is derived with the exprId it outputs now.
+     */
+    static void seedProducerOperativeSlots(LogicalCTEAnchor<?, ?> cteAnchor,
+            CascadesContext cascadesContext, OperativeColumnDerive.DeriveContext consumerDemand,
+            OperativeColumnDerive.DeriveContext deriveContext) {
+        Map<ExprId, ExprId> producerExprIdRemap = cascadesContext.getStatementContext()
+                .getProducerExprIdRemap(cteAnchor.getCteId());
+        cteAnchor.child(1).foreach(plan -> {
+            if (plan instanceof LogicalCTEConsumer) {
+                LogicalCTEConsumer consumer = (LogicalCTEConsumer) plan;
+                if (consumer.getCteId().equals(cteAnchor.getCteId())) {
+                    for (Entry<Slot, Slot> consumerToProducer : consumer.getConsumerToProducerOutputMap().entrySet()) {
+                        if (consumerDemand.operativeSlotIds
+                                .contains(consumerToProducer.getKey().getExprId().asInt())) {
+                            ExprId producerExprId = ExprIdRewriter.lastExprId(
+                                    producerExprIdRemap, consumerToProducer.getValue().getExprId());
+                            deriveContext.addOperativeSlotId(producerExprId.asInt());
+                        }
+                    }
+                }
+            }
+            return false;
+        });
+    }
+
 }

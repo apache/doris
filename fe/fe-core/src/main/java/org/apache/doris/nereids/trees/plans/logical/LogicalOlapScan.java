@@ -449,7 +449,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation
      */
     public LogicalOlapScan withPartitionPrunablePredicates(
             Optional<PartitionPrunablePredicate> partitionPrunablePredicates) {
-        return AbstractPlan.copyWithSameId(this, () ->
+        return copyOperativeSlotsState(AbstractPlan.copyWithSameId(this, () ->
                 new LogicalOlapScan(relationId, (Table) table, qualifier,
                 groupExpression, Optional.of(getLogicalProperties()),
                 selectedPartitionIds, partitionPruned, hasPartitionPredicate, selectedTabletIds,
@@ -457,7 +457,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation
                 hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
                 colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
                 scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
-                partitionPrunablePredicates, scanParams));
+                partitionPrunablePredicates, scanParams)));
     }
 
     @Override
@@ -539,7 +539,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation
 
     @Override
     public LogicalOlapScan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return AbstractPlan.copyWithSameId(this, () ->
+        return copyOperativeSlotsState(AbstractPlan.copyWithSameId(this, () ->
                 new LogicalOlapScan(relationId, (Table) table, qualifier,
                 groupExpression, Optional.of(getLogicalProperties()),
                 selectedPartitionIds, partitionPruned, hasPartitionPredicate, selectedTabletIds,
@@ -547,20 +547,20 @@ public class LogicalOlapScan extends LogicalCatalogRelation
                 hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
                 colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
                 scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
-                partitionPrunablePredicates, scanParams));
+                partitionPrunablePredicates, scanParams)));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return AbstractPlan.copyWithSameId(this, () ->
+        return copyOperativeSlotsState(AbstractPlan.copyWithSameId(this, () ->
                 new LogicalOlapScan(relationId, (Table) table, qualifier, groupExpression, logicalProperties,
                 selectedPartitionIds, partitionPruned, hasPartitionPredicate, selectedTabletIds,
                 selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
                 hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
                 colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
                 scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
-                partitionPrunablePredicates, scanParams));
+                partitionPrunablePredicates, scanParams)));
     }
 
     /**
@@ -575,7 +575,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation
      */
     public LogicalOlapScan withSelectedPartitionIds(List<Long> selectedPartitionIds,
             boolean hasPartitionPredicate) {
-        return AbstractPlan.copyWithSameId(this, () ->
+        return copyOperativeSlotsState(AbstractPlan.copyWithSameId(this, () ->
                 new LogicalOlapScan(relationId, (Table) table, qualifier,
                 Optional.empty(), Optional.of(getLogicalProperties()),
                 selectedPartitionIds, true, hasPartitionPredicate, selectedTabletIds,
@@ -583,7 +583,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation
                 hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
                 colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
                 scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
-                partitionPrunablePredicates, scanParams));
+                partitionPrunablePredicates, scanParams)));
     }
 
     /**
@@ -592,21 +592,21 @@ public class LogicalOlapScan extends LogicalCatalogRelation
      * @return scan with materialized index id
      */
     public LogicalOlapScan withMaterializedIndexSelected(long indexId) {
-        return AbstractPlan.copyWithSameId(this, () ->
+        return copyOperativeSlotsState(AbstractPlan.copyWithSameId(this, () ->
                 new LogicalOlapScan(relationId, (Table) table, qualifier,
                 Optional.empty(), Optional.of(getLogicalProperties()),
                 selectedPartitionIds, partitionPruned, hasPartitionPredicate, selectedTabletIds,
                 indexId, true, PreAggStatus.unset(), manuallySpecifiedPartitions, hints, cacheSlotWithSlotName,
                 cachedOutput, tableSample, directMvScan, colToSubPathsMap, manuallySpecifiedTabletIds,
                 operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit, scoreRangeInfo,
-                annOrderKeys, annLimit, tableAlias, partitionPrunablePredicates, scanParams));
+                annOrderKeys, annLimit, tableAlias, partitionPrunablePredicates, scanParams)));
     }
 
     /**
      * withSelectedTabletIds
      */
     public LogicalOlapScan withSelectedTabletIds(List<Long> selectedTabletIds) {
-        return AbstractPlan.copyWithSameId(this, () ->
+        return copyOperativeSlotsState(AbstractPlan.copyWithSameId(this, () ->
                 new LogicalOlapScan(relationId, (Table) table, qualifier,
                 Optional.empty(), Optional.of(getLogicalProperties()),
                 selectedPartitionIds, partitionPruned, hasPartitionPredicate, selectedTabletIds,
@@ -614,14 +614,14 @@ public class LogicalOlapScan extends LogicalCatalogRelation
                 hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
                 colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns, scoreOrderKeys,
                 scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias, partitionPrunablePredicates,
-                scanParams));
+                scanParams)));
     }
 
     /**
      * withPreAggStatus
      */
     public LogicalOlapScan withPreAggStatus(PreAggStatus preAggStatus) {
-        return AbstractPlan.copyWithSameId(this, () ->
+        return copyOperativeSlotsState(AbstractPlan.copyWithSameId(this, () ->
                 new LogicalOlapScan(relationId, (Table) table, qualifier,
                 Optional.empty(), Optional.of(getLogicalProperties()),
                 selectedPartitionIds, partitionPruned, hasPartitionPredicate, selectedTabletIds,
@@ -629,14 +629,14 @@ public class LogicalOlapScan extends LogicalCatalogRelation
                 hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
                 colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
                 scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
-                partitionPrunablePredicates, scanParams));
+                partitionPrunablePredicates, scanParams)));
     }
 
     /**
      * constructor
      */
     public LogicalOlapScan withColToSubPathsMap(Map<String, Set<List<String>>> colToSubPathsMap) {
-        return AbstractPlan.copyWithSameId(this, () ->
+        return copyOperativeSlotsState(AbstractPlan.copyWithSameId(this, () ->
                 new LogicalOlapScan(relationId, (Table) table, qualifier,
                 Optional.empty(), Optional.empty(),
                 selectedPartitionIds, partitionPruned, hasPartitionPredicate, selectedTabletIds,
@@ -644,14 +644,14 @@ public class LogicalOlapScan extends LogicalCatalogRelation
                 hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
                 colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
                 scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
-                partitionPrunablePredicates, scanParams));
+                partitionPrunablePredicates, scanParams)));
     }
 
     /**
      * constructor
      */
     public LogicalOlapScan withManuallySpecifiedTabletIds(List<Long> manuallySpecifiedTabletIds) {
-        return AbstractPlan.copyWithSameId(this, () ->
+        return copyOperativeSlotsState(AbstractPlan.copyWithSameId(this, () ->
                 new LogicalOlapScan(relationId, (Table) table, qualifier,
                 Optional.empty(), Optional.of(getLogicalProperties()),
                 selectedPartitionIds, partitionPruned, hasPartitionPredicate, selectedTabletIds,
@@ -659,12 +659,12 @@ public class LogicalOlapScan extends LogicalCatalogRelation
                 hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
                 colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
                 scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
-                partitionPrunablePredicates, scanParams));
+                partitionPrunablePredicates, scanParams)));
     }
 
     @Override
     public LogicalOlapScan withRelationId(RelationId relationId) {
-        return AbstractPlan.copyWithSameId(this, () ->
+        return copyOperativeSlotsState(AbstractPlan.copyWithSameId(this, () ->
                 new LogicalOlapScan(relationId, (Table) table, qualifier,
                 Optional.empty(), Optional.empty(),
                 selectedPartitionIds, partitionPruned, hasPartitionPredicate, selectedTabletIds,
@@ -672,12 +672,12 @@ public class LogicalOlapScan extends LogicalCatalogRelation
                 hints, Maps.newHashMap(), Optional.empty(), tableSample, directMvScan,
                 colToSubPathsMap, selectedTabletIds, operativeSlots, virtualColumns, scoreOrderKeys,
                 scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias, partitionPrunablePredicates,
-                scanParams));
+                scanParams)));
     }
 
     @Override
     public LogicalOlapScan withTableAlias(String tableAlias) {
-        return AbstractPlan.copyWithSameId(this, () ->
+        return copyOperativeSlotsState(AbstractPlan.copyWithSameId(this, () ->
                 new LogicalOlapScan(relationId, (Table) table, qualifier,
                 Optional.empty(), Optional.of(getLogicalProperties()),
                 selectedPartitionIds, partitionPruned, hasPartitionPredicate, selectedTabletIds,
@@ -685,7 +685,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation
                 hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
                 colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
                 scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
-                partitionPrunablePredicates, scanParams));
+                partitionPrunablePredicates, scanParams)));
     }
 
     /**
@@ -697,14 +697,14 @@ public class LogicalOlapScan extends LogicalCatalogRelation
     public LogicalOlapScan withVirtualColumns(List<NamedExpression> virtualColumns) {
         List<Slot> output = outputWithVirtualColumns(virtualColumns);
         LogicalProperties finalLogicalProperties = new LogicalProperties(() -> output, this::computeDataTrait);
-        return AbstractPlan.copyWithSameId(this, () ->
+        return copyOperativeSlotsState(AbstractPlan.copyWithSameId(this, () ->
                 new LogicalOlapScan(relationId, (Table) table, qualifier,
                 groupExpression, Optional.of(finalLogicalProperties),
                 selectedPartitionIds, partitionPruned, hasPartitionPredicate, selectedTabletIds,
                 selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
                 hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan, colToSubPathsMap,
                 manuallySpecifiedTabletIds, operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit,
-                scoreRangeInfo, annOrderKeys, annLimit, tableAlias, partitionPrunablePredicates, scanParams));
+                scoreRangeInfo, annOrderKeys, annLimit, tableAlias, partitionPrunablePredicates, scanParams)));
     }
 
     /**
@@ -787,7 +787,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation
      * Return a new scan with the specified partition pruning state.
      */
     public LogicalOlapScan withPartitionPruned(boolean partitionPruned) {
-        return AbstractPlan.copyWithSameId(this, () ->
+        return copyOperativeSlotsState(AbstractPlan.copyWithSameId(this, () ->
                 new LogicalOlapScan(relationId, (Table) table, qualifier,
                 Optional.empty(), Optional.of(getLogicalProperties()),
                 selectedPartitionIds, partitionPruned, hasPartitionPredicate, selectedTabletIds,
@@ -795,7 +795,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation
                 hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
                 colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
                 scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
-                partitionPrunablePredicates, scanParams));
+                partitionPrunablePredicates, scanParams)));
     }
 
     public List<Long> getSelectedTabletIds() {
@@ -1235,7 +1235,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation
 
     @Override
     public CatalogRelation withOperativeSlots(Collection<Slot> operativeSlots) {
-        return AbstractPlan.copyWithSameId(this, () ->
+        LogicalOlapScan scan = AbstractPlan.copyWithSameId(this, () ->
                 new LogicalOlapScan(relationId, (Table) table, qualifier,
                 groupExpression, Optional.of(getLogicalProperties()),
                 selectedPartitionIds, partitionPruned, hasPartitionPredicate, selectedTabletIds,
@@ -1243,6 +1243,8 @@ public class LogicalOlapScan extends LogicalCatalogRelation
                 hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan, colToSubPathsMap,
                 manuallySpecifiedTabletIds, operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit,
                 scoreRangeInfo, annOrderKeys, annLimit, tableAlias, partitionPrunablePredicates, scanParams));
+        scan.markOperativeSlotsDerived();
+        return scan;
     }
 
     @VisibleForTesting
@@ -1317,19 +1319,19 @@ public class LogicalOlapScan extends LogicalCatalogRelation
 
     /** withCachedOutput */
     public LogicalOlapScan withCachedOutput(List<Slot> outputSlots) {
-        return AbstractPlan.copyWithSameId(this, () ->
+        return copyOperativeSlotsState(AbstractPlan.copyWithSameId(this, () ->
                 new LogicalOlapScan(relationId, (Table) table, qualifier,
                 groupExpression, Optional.empty(),
                 selectedPartitionIds, partitionPruned, hasPartitionPredicate, selectedTabletIds,
                 selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
                 hints, cacheSlotWithSlotName, Optional.of(outputSlots), tableSample, directMvScan, colToSubPathsMap,
                 manuallySpecifiedTabletIds, operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit,
-                scoreRangeInfo, annOrderKeys, annLimit, tableAlias, partitionPrunablePredicates, scanParams));
+                scoreRangeInfo, annOrderKeys, annLimit, tableAlias, partitionPrunablePredicates, scanParams)));
     }
 
     /** withTableScanParams */
     public LogicalOlapScan withTableScanParams(TableScanParams scanParams) {
-        return AbstractPlan.copyWithSameId(this, () ->
+        return copyOperativeSlotsState(AbstractPlan.copyWithSameId(this, () ->
                 new LogicalOlapScan(relationId, (Table) table, qualifier,
                         groupExpression, Optional.empty(),
                         selectedPartitionIds, partitionPruned, hasPartitionPredicate, selectedTabletIds,
@@ -1337,7 +1339,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation
                         hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan, colToSubPathsMap,
                         manuallySpecifiedTabletIds, operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit,
                         scoreRangeInfo, annOrderKeys, annLimit, tableAlias, partitionPrunablePredicates,
-                        Optional.of(scanParams)));
+                        Optional.of(scanParams))));
     }
 
     @Override

@@ -66,7 +66,7 @@ public class JoinEstimation {
 
     private static EqualPredicate normalizeEqualPredJoinCondition(EqualPredicate equal, Statistics rightStats) {
         boolean changeOrder = equal.left().getInputSlots().stream()
-                .anyMatch(slot -> rightStats.findColumnStatistics(slot) != null);
+                .anyMatch(slot -> rightStats.findColumnStatisticsOrNull(slot) != null);
         if (changeOrder) {
             return equal.commute();
         } else {
@@ -117,9 +117,9 @@ public class JoinEstimation {
             Statistics rightStats, Join join) {
         for (Expression expr : join.getEqualPredicates()) {
             for (Slot slot : expr.getInputSlots()) {
-                ColumnStatistic colStats = leftStats.findColumnStatistics(slot);
+                ColumnStatistic colStats = leftStats.findColumnStatisticsOrNull(slot);
                 if (colStats == null) {
-                    colStats = rightStats.findColumnStatistics(slot);
+                    colStats = rightStats.findColumnStatisticsOrNull(slot);
                 }
                 if (colStats == null || colStats.isUnKnown) {
                     return true;
@@ -241,9 +241,9 @@ public class JoinEstimation {
             if (cond instanceof EqualTo) {
                 EqualTo equal = (EqualTo) cond;
                 if (equal.left() instanceof Slot && equal.right() instanceof Slot) {
-                    ColumnStatistic buildColStats = buildStats.findColumnStatistics(equal.left());
+                    ColumnStatistic buildColStats = buildStats.findColumnStatisticsOrNull(equal.left());
                     if (buildColStats == null) {
-                        buildColStats = buildStats.findColumnStatistics(equal.right());
+                        buildColStats = buildStats.findColumnStatisticsOrNull(equal.right());
                     }
                     if (buildColStats != null) {
                         if (buildColStats.count == 0) {
@@ -298,13 +298,13 @@ public class JoinEstimation {
             Statistics rightStats, Join join, EqualPredicate equalTo) {
         Expression eqLeft = equalTo.left();
         Expression eqRight = equalTo.right();
-        ColumnStatistic probColStats = leftStats.findColumnStatistics(eqLeft);
+        ColumnStatistic probColStats = leftStats.findColumnStatisticsOrNull(eqLeft);
         ColumnStatistic buildColStats;
         if (probColStats == null) {
-            probColStats = leftStats.findColumnStatistics(eqRight);
-            buildColStats = rightStats.findColumnStatistics(eqLeft);
+            probColStats = leftStats.findColumnStatisticsOrNull(eqRight);
+            buildColStats = rightStats.findColumnStatisticsOrNull(eqLeft);
         } else {
-            buildColStats = rightStats.findColumnStatistics(eqRight);
+            buildColStats = rightStats.findColumnStatisticsOrNull(eqRight);
         }
         if (probColStats == null || buildColStats == null) {
             return Double.POSITIVE_INFINITY;
@@ -471,13 +471,13 @@ public class JoinEstimation {
             Statistics rightStats, Join join, EqualPredicate equalTo) {
         Expression eqLeft = equalTo.left();
         Expression eqRight = equalTo.right();
-        ColumnStatistic probColStats = leftStats.findColumnStatistics(eqLeft);
+        ColumnStatistic probColStats = leftStats.findColumnStatisticsOrNull(eqLeft);
         ColumnStatistic buildColStats;
         if (probColStats == null) {
-            probColStats = leftStats.findColumnStatistics(eqRight);
-            buildColStats = rightStats.findColumnStatistics(eqLeft);
+            probColStats = leftStats.findColumnStatisticsOrNull(eqRight);
+            buildColStats = rightStats.findColumnStatisticsOrNull(eqLeft);
         } else {
-            buildColStats = rightStats.findColumnStatistics(eqRight);
+            buildColStats = rightStats.findColumnStatisticsOrNull(eqRight);
         }
         if (probColStats == null || buildColStats == null) {
             return Double.POSITIVE_INFINITY;
