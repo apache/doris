@@ -146,8 +146,8 @@ public class StatementContext implements Closeable {
 
     @GuardedBy("this")
     private final Map<String, Supplier<Object>> contextCacheMap = Maps.newLinkedHashMap();
-    private boolean rowBinlogReferenceTsoRequired;
-    private Long rowBinlogReferenceTso;
+    private boolean changelogReferenceTsoRequired;
+    private Long changelogReferenceTso;
 
     private OriginStatement originStatement;
     // NOTICE: we set the plan parsed by DorisParser to parsedStatement and if the
@@ -165,6 +165,9 @@ public class StatementContext implements Closeable {
     private boolean isDelete = false;
 
     private boolean hasNondeterministic = false;
+
+    // Alias UDF calls disappear after expansion; retain their definition dependency.
+    private boolean hasAliasUdf = false;
 
     // hasUnknownColStats true if any column stats in the tables used by this sql is
     // unknown
@@ -194,6 +197,11 @@ public class StatementContext implements Closeable {
     private final Map<CTEId, List<Pair<Multimap<Slot, Slot>, Group>>> cteIdToConsumerGroup = new HashMap<>();
     private final Map<CTEId, LogicalPlan> rewrittenCteProducer = new HashMap<>();
     private final Map<CTEId, LogicalPlan> rewrittenCteConsumer = new HashMap<>();
+    // The exprIds which a rule renamed while it rewrote the body of a CTE producer, keyed by the previous exprId.
+    // The consumers of that CTE map their slots to the outputs of the producer by exprId and are rewritten before
+    // the producer subtree, so every rule which renames an output of a producer body has to publish it here, and
+    // RewriteCteChildren refreshes the consumer maps with it. ConstantPropagation is currently the only publisher.
+    private final Map<CTEId, Map<ExprId, ExprId>> producerExprIdRemap = new HashMap<>();
     private final Set<String> viewDdlSqlSet = Sets.newHashSet();
     private final SqlCacheContext sqlCacheContext;
 
@@ -339,8 +347,9 @@ public class StatementContext implements Closeable {
     private final Map<BaseTableInfo, Collection<Partition>> mvCanRewritePartitionsMap = new HashMap<>();
 
     // When the Env-wide MTMVCacheManager is disabled (mtmv_cache_manage_num=0), reuse rewrite plans
-    // in the same statement so multiple rewrite paths do not rebuild the same MV plan.
-    private final Map<Pair<Long, Boolean>, MTMVCache> queryLocalMtmvCaches = new HashMap<>();
+    // in the same statement so multiple rewrite paths do not rebuild the same MV plan. Each value
+    // carries the MV's cache generation because a planning retry can reuse this statement context.
+    private final Map<Pair<Long, Boolean>, Pair<Long, MTMVCache>> queryLocalMtmvCaches = new HashMap<>();
 
     /// for dictionary sink.
     private List<Backend> usedBackendsDistributing; // report used backends after done distribute planning.
@@ -628,6 +637,14 @@ public class StatementContext implements Closeable {
         return hasNondeterministic;
     }
 
+    public void recordAliasUdf() {
+        hasAliasUdf = true;
+    }
+
+    public boolean hasAliasUdf() {
+        return hasAliasUdf;
+    }
+
     public ConnectContext getConnectContext() {
         return connectContext;
     }
@@ -807,27 +824,27 @@ public class StatementContext implements Closeable {
         return supplier.get();
     }
 
-    public synchronized void requireRowBinlogReferenceTso() {
-        rowBinlogReferenceTsoRequired = true;
+    public synchronized void requireChangelogReferenceTso() {
+        changelogReferenceTsoRequired = true;
         getSqlCacheContext().ifPresent(cache -> cache.setHasUnsupportedTables(true));
     }
 
-    public synchronized boolean isRowBinlogReferenceTsoRequired() {
-        return rowBinlogReferenceTsoRequired;
+    public synchronized boolean isChangelogReferenceTsoRequired() {
+        return changelogReferenceTsoRequired;
     }
 
-    public synchronized long getOrRegisterRowBinlogReferenceTso(Supplier<Long> tsoSupplier) {
-        if (rowBinlogReferenceTso == null) {
-            rowBinlogReferenceTso = tsoSupplier.get();
+    public synchronized long getOrRegisterChangelogReferenceTso(Supplier<Long> tsoSupplier) {
+        if (changelogReferenceTso == null) {
+            changelogReferenceTso = tsoSupplier.get();
         }
-        return rowBinlogReferenceTso;
+        return changelogReferenceTso;
     }
 
-    public synchronized long getRowBinlogReferenceTso() {
-        if (rowBinlogReferenceTso == null) {
-            throw new AnalysisException("Row binlog reference TSO was not initialized");
+    public synchronized long getChangelogReferenceTso() {
+        if (changelogReferenceTso == null) {
+            throw new AnalysisException("Changelog reference TSO was not initialized");
         }
-        return rowBinlogReferenceTso;
+        return changelogReferenceTso;
     }
 
     public synchronized BitSet getOrCacheDisableRules(SessionVariable sessionVariable) {
@@ -878,8 +895,8 @@ public class StatementContext implements Closeable {
         this.connectorStatementScope = null;
         this.connectorWriteSchemas.clear();
         this.connectorWriteMetadataIdentities.clear();
-        rowBinlogReferenceTsoRequired = false;
-        rowBinlogReferenceTso = null;
+        changelogReferenceTsoRequired = false;
+        changelogReferenceTso = null;
     }
 
     /**
@@ -946,6 +963,19 @@ public class StatementContext implements Closeable {
         return rewrittenCteConsumer;
     }
 
+    /**
+     * Record that a rule renamed exprIds while it rewrote the body of a CTE producer. Rules may rename more than
+     * once, so the mappings are accumulated instead of replaced, and a reader has to follow the chain to its end.
+     */
+    public void addProducerExprIdRemap(CTEId cteId, Map<ExprId, ExprId> renamedExprIds) {
+        producerExprIdRemap.computeIfAbsent(cteId, k -> new HashMap<>()).putAll(renamedExprIds);
+    }
+
+    /** The exprIds renamed while rewriting the body of a CTE producer, keyed by their previous exprId. */
+    public Map<ExprId, ExprId> getProducerExprIdRemap(CTEId cteId) {
+        return producerExprIdRemap.getOrDefault(cteId, Collections.emptyMap());
+    }
+
     /** Clear CTE-related rewrite and memo state before rebuilding it from a new plan tree. */
     public void clearCteEnvironment() {
         cteIdToConsumers.clear();
@@ -956,6 +986,7 @@ public class StatementContext implements Closeable {
         cteIdToConsumerGroup.clear();
         rewrittenCteProducer.clear();
         rewrittenCteConsumer.clear();
+        producerExprIdRemap.clear();
     }
 
     /**
@@ -970,7 +1001,8 @@ public class StatementContext implements Closeable {
                 new HashMap<>(consumerIdToLimitRows),
                 copyMapOfLists(cteIdToConsumerGroup),
                 new HashMap<>(rewrittenCteProducer),
-                new HashMap<>(rewrittenCteConsumer));
+                new HashMap<>(rewrittenCteConsumer),
+                copyMapOfMaps(producerExprIdRemap));
     }
 
     /** Restore CTE-related environment from snapshot. */
@@ -998,6 +1030,17 @@ public class StatementContext implements Closeable {
 
         rewrittenCteConsumer.clear();
         rewrittenCteConsumer.putAll(snapshot.rewrittenCteConsumer);
+
+        producerExprIdRemap.clear();
+        producerExprIdRemap.putAll(snapshot.producerExprIdRemap);
+    }
+
+    private static <K, V, W> Map<K, Map<V, W>> copyMapOfMaps(Map<K, Map<V, W>> source) {
+        Map<K, Map<V, W>> copied = new HashMap<>();
+        for (Map.Entry<K, Map<V, W>> entry : source.entrySet()) {
+            copied.put(entry.getKey(), new HashMap<>(entry.getValue()));
+        }
+        return copied;
     }
 
     private static <K, V> Map<K, Set<V>> copyMapOfSets(Map<K, Set<V>> source) {
@@ -1026,6 +1069,7 @@ public class StatementContext implements Closeable {
         private final Map<CTEId, List<Pair<Multimap<Slot, Slot>, Group>>> cteIdToConsumerGroup;
         private final Map<CTEId, LogicalPlan> rewrittenCteProducer;
         private final Map<CTEId, LogicalPlan> rewrittenCteConsumer;
+        private final Map<CTEId, Map<ExprId, ExprId>> producerExprIdRemap;
 
         /**
          * cte related structures in StatementContext
@@ -1038,7 +1082,8 @@ public class StatementContext implements Closeable {
                 Map<RelationId, Long> consumerIdToLimitRows,
                 Map<CTEId, List<Pair<Multimap<Slot, Slot>, Group>>> cteIdToConsumerGroup,
                 Map<CTEId, LogicalPlan> rewrittenCteProducer,
-                Map<CTEId, LogicalPlan> rewrittenCteConsumer) {
+                Map<CTEId, LogicalPlan> rewrittenCteConsumer,
+                Map<CTEId, Map<ExprId, ExprId>> producerExprIdRemap) {
             this.cteIdToConsumers = cteIdToConsumers;
             this.cteIdToOutputIds = cteIdToOutputIds;
             this.cteIdToProducer = cteIdToProducer;
@@ -1047,6 +1092,7 @@ public class StatementContext implements Closeable {
             this.cteIdToConsumerGroup = cteIdToConsumerGroup;
             this.rewrittenCteProducer = rewrittenCteProducer;
             this.rewrittenCteConsumer = rewrittenCteConsumer;
+            this.producerExprIdRemap = producerExprIdRemap;
         }
     }
 
@@ -1677,12 +1723,13 @@ public class StatementContext implements Closeable {
         this.materializationRewrittenSuccessSet.add(materializationQualifier);
     }
 
-    public MTMVCache getQueryLocalMtmvCache(long mtmvId, boolean guarded) {
-        return queryLocalMtmvCaches.get(Pair.of(mtmvId, guarded));
+    public MTMVCache getQueryLocalMtmvCache(long mtmvId, boolean guarded, long generation) {
+        Pair<Long, MTMVCache> entry = queryLocalMtmvCaches.get(Pair.of(mtmvId, guarded));
+        return entry != null && entry.first == generation ? entry.second : null;
     }
 
-    public void putQueryLocalMtmvCache(long mtmvId, boolean guarded, MTMVCache cache) {
-        queryLocalMtmvCaches.put(Pair.of(mtmvId, guarded), cache);
+    public void putQueryLocalMtmvCache(long mtmvId, boolean guarded, long generation, MTMVCache cache) {
+        queryLocalMtmvCaches.put(Pair.of(mtmvId, guarded), Pair.of(generation, cache));
     }
 
     public Multimap<List<String>, Pair<RelationId, Set<String>>> getTableUsedPartitionNameMap() {

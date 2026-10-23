@@ -59,15 +59,6 @@ Occur to_occur(TSearchOccur::type occur) {
     }
 }
 
-NodePtr lower_direct_index_leaf(const std::string& clause_type, FieldRef field,
-                                const std::string& value) {
-    if (clause_type == "TERM" || clause_type == "EXACT") {
-        return make_node(
-                Compare {.field = std::move(field), .op = CompareOp::kEqual, .value = value});
-    }
-    return make_node(Unknown {.field = std::move(field)});
-}
-
 // Normalizes the literal text between a wildcard's '*' and '?' operators, so that a normalizer
 // never reads them and they stay operators.
 Status normalize_wildcard(const FieldProps& props, FieldCatalog& catalog,
@@ -102,10 +93,6 @@ Status lower_pattern_leaf(const std::string& clause_type, const FieldProps& prop
         *out = make_node(Expand {.field = std::move(field),
                                  .kind = ExpandKind::kRegexp,
                                  .pattern = "^(" + value + ")$"});
-        return Status::OK();
-    }
-    if (clause_type == "WILDCARD" && value == "*") {
-        *out = make_node(Exists {.field = std::move(field)});
         return Status::OK();
     }
     const bool prefix = clause_type == "PREFIX";
@@ -172,11 +159,20 @@ Status lower_leaf(const TSearchClause& clause, const LoweringOptions& options,
             catalog.resolve(clause.field_name, search_clause_query_type(clause_type), &props));
     FieldRef field {.name = clause.field_name, .binding = props.binding};
     if (!props.bound) {
-        *out = make_node(Unknown {.field = std::move(field)});
+        *out = make_node(Empty {.field = std::move(field)});
+        return Status::OK();
+    }
+    if (clause_type == "WILDCARD" && value == "*") {
+        *out = make_node(Exists {.field = std::move(field)});
         return Status::OK();
     }
     if (props.direct_index) {
-        *out = lower_direct_index_leaf(clause_type, std::move(field), value);
+        if (clause_type != "TERM" && clause_type != "EXACT") {
+            return Status::NotSupported("SEARCH clause {} is unsupported for field {}", clause_type,
+                                        field.name);
+        }
+        *out = make_node(
+                Compare {.field = std::move(field), .op = CompareOp::kEqual, .value = value});
         return Status::OK();
     }
     if (is_pattern_clause(clause_type)) {

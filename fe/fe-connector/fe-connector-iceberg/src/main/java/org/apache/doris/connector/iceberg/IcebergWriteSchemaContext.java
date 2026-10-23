@@ -222,7 +222,9 @@ final class IcebergWriteSchemaContext {
 
     private static PartitionSpec bindPartitionSpec(
             PartitionSpec partitionSpec, Schema schema, String tableName) {
-        if (!partitionSpec.isPartitioned()) {
+        // A v1 table replaces each dropped partition field with a void one, so a spec that is not partitioned can
+        // still have fields. Bind those as well: the pinned definition must stay equal to the table's spec.
+        if (partitionSpec.fields().isEmpty()) {
             return PartitionSpec.builderFor(schema).withSpecId(partitionSpec.specId()).build();
         }
         try {
@@ -250,6 +252,10 @@ final class IcebergWriteSchemaContext {
     private static void validateWriterMetadataSources(
             Schema schema, PartitionSpec partitionSpec, SortOrder sortOrder, String tableName) {
         for (PartitionField field : partitionSpec.fields()) {
+            // A void field writes NULL without reading its source, which a v1 table may drop after the field.
+            if (field.transform().isVoid()) {
+                continue;
+            }
             // Iceberg permits a nested primitive field as a partition source; field IDs are schema-wide.
             if (schema.findField(field.sourceId()) == null) {
                 throw new DorisConnectorException("Iceberg partition field " + field.fieldId()

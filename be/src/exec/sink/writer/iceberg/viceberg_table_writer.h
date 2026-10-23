@@ -79,6 +79,8 @@ public:
 private:
     FRIEND_TEST(VIcebergTableWriterTest, RejectMissingPartitionSource);
     FRIEND_TEST(VIcebergTableWriterTest, ResolvesNestedPartitionSource);
+    FRIEND_TEST(VIcebergTableWriterTest, RejectsRequiredNullBeforeWriterCreation);
+    FRIEND_TEST(VIcebergTableWriterTest, RejectsNestedRequiredNullBeforeWriterCreation);
     // The lifecycle fixture inspects snapshots to verify that cross-thread writer ownership stays stable.
     friend class VIcebergTableWriterLifecycleTest;
 

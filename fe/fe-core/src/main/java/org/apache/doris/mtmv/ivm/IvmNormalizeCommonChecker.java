@@ -97,7 +97,7 @@ final class IvmNormalizeCommonChecker {
 
     /**
      * Rejects an MV output column whose name a Doris hidden column already owns. Both models lay hidden
-     * columns on the MV they build -- the unique-key model its row-id, any model that enables row binlog
+     * columns on the MV they build -- the unique-key model its row-id, any model that enables changelog
      * its own commit tso and row lsn -- so a user column taking a reserved prefix would be filtered out of
      * the schema the user reads, leaving an MV that holds fewer columns than its query produced.
      */

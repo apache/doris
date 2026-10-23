@@ -30,6 +30,7 @@
 #include "common/cast_set.h"
 #include "common/config.h"
 #include "common/consts.h"
+#include "common/logging.h"
 #include "common/metrics/doris_metrics.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
@@ -400,7 +401,8 @@ FileScannerV2::FileScannerV2(RuntimeState* state, FileScanLocalState* local_stat
                              const std::unordered_map<std::string, int>* colname_to_slot_id)
         : Scanner(state, local_state, limit, profile),
           _split_source(std::move(split_source)),
-          _kv_cache(kv_cache) {
+          _kv_cache(kv_cache),
+          _parquet_profile_cache(local_state->_parquet_profile_cache.get()) {
     (void)colname_to_slot_id;
     if (state->get_query_ctx() != nullptr &&
         state->get_query_ctx()->file_scan_range_params_map.count(local_state->parent_id()) > 0) {
@@ -511,6 +513,8 @@ Status FileScannerV2::_get_block_impl(RuntimeState* state, Block* block, bool* e
                                 _current_range, config::ignore_not_found_file_in_external_table))) {
                 RETURN_IF_ERROR(_table_reader->abort_split());
                 COUNTER_UPDATE(_not_found_file_counter, 1);
+                LOG(INFO) << "Skip missing file: query_id=" << print_id(_state->query_id())
+                          << ", path=" << _current_range.path << ", reason=NOT_FOUND";
                 _state->update_num_finished_scan_range(1);
                 _has_prepared_split = false;
                 block->clear_column_data(cast_set<int64_t>(_projected_columns.size()));
@@ -600,6 +604,8 @@ Status FileScannerV2::_prepare_next_split(bool* eos) {
                                               config::ignore_not_found_file_in_external_table))) {
             RETURN_IF_ERROR(_table_reader->abort_split());
             COUNTER_UPDATE(_not_found_file_counter, 1);
+            LOG(INFO) << "Skip missing file: query_id=" << print_id(_state->query_id())
+                      << ", path=" << _current_range.path << ", reason=NOT_FOUND";
             _state->update_num_finished_scan_range(1);
             continue;
         }
@@ -660,6 +666,7 @@ Status FileScannerV2::_init_table_reader(const TFileRangeDesc& range) {
             .io_ctx = _io_ctx,
             .runtime_state = _state,
             .scanner_profile = _local_state != nullptr ? _local_state->scanner_profile() : _profile,
+            .parquet_profile_cache = _parquet_profile_cache,
             .file_slot_descs = &_file_slot_descs,
             .push_down_agg_type = _local_state != nullptr ? _local_state->get_push_down_agg_type()
                                                           : TPushAggOp::type::NONE,

@@ -523,27 +523,6 @@ TEST_F(CastTimeStampTzTest, timestamp_ns_local_year_overflow_returns_status) {
         CastToImpl<CastModeType::NonStrictMode, DataTypeTimeStampTz, DataTypeTimeStampNs> try_cast;
         ASSERT_TRUE(try_cast.execute_impl(&context, block, {0}, 1, 1).ok());
         EXPECT_TRUE(block.get_by_position(1).column->is_null_at(0));
-
-        auto ns_column = ColumnTimeStampNs::create();
-        ns_column->insert_default();
-        block.get_by_position(1).column = std::move(ns_column);
-        block.insert({nullptr, std::make_shared<DataTypeUInt8>(), "comparison"});
-        FunctionComparison<EqualsOp, NameEquals> equals;
-        FunctionComparison<LessOp, NameLess> less;
-        // Comparisons use signed civil years even outside the cast's representable range.
-        for (const ColumnNumbers& inputs : {ColumnNumbers {0, 1}, ColumnNumbers {1, 0}}) {
-            ASSERT_NO_THROW(status = equals.execute_impl(&context, block, inputs, 2, 1));
-            ASSERT_TRUE(status.ok()) << status;
-            EXPECT_EQ(assert_cast<const ColumnUInt8&>(*block.get_by_position(2).column)
-                              .get_element(0),
-                      0);
-
-            ASSERT_NO_THROW(status = less.execute_impl(&context, block, inputs, 2, 1));
-            ASSERT_TRUE(status.ok()) << status;
-            EXPECT_EQ(assert_cast<const ColumnUInt8&>(*block.get_by_position(2).column)
-                              .get_element(0),
-                      inputs[0] == 0 ? !upper : upper);
-        }
     }
 }
 

@@ -209,10 +209,10 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
             }
         }
 
-        // Row binlog needs row-bearing deletes to emit DELETE events. Predicate deletes only write
+        // Changelog needs row-bearing deletes to emit DELETE events. Predicate deletes only write
         // delete predicates, so use `DeleteFromUsingCommand` even when MOW light delete is enabled.
         if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()
-                && (!olapTable.getEnableMowLightDelete() || olapTable.needRowBinlog())) {
+                && (!olapTable.getEnableMowLightDelete() || olapTable.hasChangelog())) {
             new DeleteFromUsingCommand(nameParts, tableAlias, isTempPart, partitions, logicalQuery,
                     Optional.empty(), false).run(ctx, executor);
             return;

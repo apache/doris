@@ -80,6 +80,23 @@ public class SessionVariablesTest extends TestWithFeService {
     }
 
     @Test
+    public void testForwardIndexDiskUsageLimits() {
+        // A forwarded index_disk_usage query is planned by the master, so the scan limits the
+        // client set must travel with the statement.
+        SessionVariable follower = new SessionVariable();
+        follower.indexDiskUsageMaxTablets = 7;
+        follower.indexDiskUsagePositionDetailMaxTablets = 3;
+        Map<String, String> vars = follower.getForwardVariables();
+        Assertions.assertEquals("7", vars.get(SessionVariable.INDEX_DISK_USAGE_MAX_TABLETS));
+        Assertions.assertEquals("3", vars.get(SessionVariable.INDEX_DISK_USAGE_POSITION_DETAIL_MAX_TABLETS));
+
+        SessionVariable master = new SessionVariable();
+        master.setForwardedSessionVariables(vars);
+        Assertions.assertEquals(7, master.indexDiskUsageMaxTablets);
+        Assertions.assertEquals(3, master.indexDiskUsagePositionDetailMaxTablets);
+    }
+
+    @Test
     public void testForwardQueryCacheVariables() {
         // A forwarded statement is planned by the master in a fresh
         // ConnectContext that only sees what getForwardVariables() sends, so
@@ -110,6 +127,24 @@ public class SessionVariablesTest extends TestWithFeService {
         Assertions.assertTrue(master.isQueryCacheForceRefresh());
         Assertions.assertEquals(4096, master.getQueryCacheEntryMaxBytes());
         Assertions.assertEquals(64, master.getQueryCacheEntryMaxRows());
+    }
+
+    @Test
+    public void testCloudGetVersionWaitForPendingTxn() throws Exception {
+        SessionVariable session = new SessionVariable();
+        SessionVariable forwarded = new SessionVariable();
+        Assertions.assertFalse(session.cloudGetVersionWaitForPendingTxn);
+        for (boolean waitForPendingTxn : new boolean[] {true, false}) {
+            VariableMgr.setVar(session, new SetVar(SetType.SESSION,
+                    SessionVariable.CLOUD_GET_VERSION_WAIT_FOR_PENDING_TXN,
+                    new StringLiteral(Boolean.toString(waitForPendingTxn))));
+            Assertions.assertEquals(waitForPendingTxn, session.cloudGetVersionWaitForPendingTxn);
+            Map<String, String> vars = session.getForwardVariables();
+            Assertions.assertEquals(Boolean.toString(waitForPendingTxn),
+                    vars.get(SessionVariable.CLOUD_GET_VERSION_WAIT_FOR_PENDING_TXN));
+            forwarded.setForwardedSessionVariables(vars);
+            Assertions.assertEquals(waitForPendingTxn, forwarded.cloudGetVersionWaitForPendingTxn);
+        }
     }
 
     @Test

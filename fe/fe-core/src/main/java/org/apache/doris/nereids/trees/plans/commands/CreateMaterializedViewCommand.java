@@ -108,6 +108,7 @@ import java.util.stream.Collectors;
  */
 public class CreateMaterializedViewCommand extends Command implements ForwardWithSync {
     private static final String SYNC_MV_PLANER_DISABLE_RULES = "HAVING_TO_FILTER";
+    private final boolean ifNotExists;
     private final TableNameInfo name;
 
     private final LogicalPlan logicalPlan;
@@ -119,9 +120,10 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
     private KeysType mvKeysType;
     private OriginStatement originStatement;
 
-    public CreateMaterializedViewCommand(TableNameInfo name, LogicalPlan logicalPlan,
+    public CreateMaterializedViewCommand(boolean ifNotExists, TableNameInfo name, LogicalPlan logicalPlan,
                                          Map<String, String> properties) {
         super(PlanType.CREATE_MATERIALIZED_VIEW_COMMAND);
+        this.ifNotExists = ifNotExists;
         this.name = name;
         this.logicalPlan = logicalPlan;
         this.properties = properties;
@@ -142,6 +144,10 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
     @Override
     public StmtType stmtType() {
         return StmtType.CREATE;
+    }
+
+    public boolean isIfNotExists() {
+        return ifNotExists;
     }
 
     public String getMVName() {

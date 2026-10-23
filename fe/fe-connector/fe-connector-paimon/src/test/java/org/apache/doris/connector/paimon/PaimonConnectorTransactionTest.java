@@ -30,8 +30,8 @@ import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.io.CompactIncrement;
 import org.apache.paimon.io.DataIncrement;
 import org.apache.paimon.io.DataOutputViewStreamWrapper;
+import org.apache.paimon.schema.FileSystemSchemaManager;
 import org.apache.paimon.schema.Schema;
-import org.apache.paimon.schema.SchemaManager;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.DelegatedFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
@@ -85,7 +85,7 @@ public class PaimonConnectorTransactionTest {
         org.apache.paimon.fs.Path location =
                 new org.apache.paimon.fs.Path("file://" + warehouse + "/db.db/tbl");
         LocalFileIO fileIO = LocalFileIO.create();
-        new SchemaManager(fileIO, location).createTable(new Schema(
+        new FileSystemSchemaManager(fileIO, location).createTable(new Schema(
                 Collections.singletonList(ID), Collections.emptyList(), Collections.emptyList(),
                 Collections.emptyMap(), ""));
         table = FileStoreTableFactory.create(fileIO, location);

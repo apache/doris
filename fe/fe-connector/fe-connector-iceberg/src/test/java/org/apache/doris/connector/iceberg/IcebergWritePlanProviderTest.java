@@ -504,6 +504,68 @@ public class IcebergWritePlanProviderTest {
                 table, "db1.nested_partition", Optional.empty(), false, false));
     }
 
+    /** A v1 table whose region partition field was dropped, which Iceberg keeps as void(region). */
+    private static Table v1TableWithVoidRegion(InMemoryCatalog catalog, String name, boolean identityCategory,
+            boolean dropRegion) {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "region", Types.StringType.get()),
+                Types.NestedField.optional(3, "category", Types.StringType.get()));
+        PartitionSpec.Builder spec = PartitionSpec.builderFor(schema).identity("region");
+        if (identityCategory) {
+            spec.identity("category");
+        }
+        Table table = catalog.createTable(TableIdentifier.of("db1", name), schema, spec.build(),
+                Collections.singletonMap("format-version", "1"));
+        table.updateSpec().removeField("region").commit();
+        if (dropRegion) {
+            table.updateSchema().deleteColumn("region").commit();
+        }
+        return table;
+    }
+
+    @Test
+    public void writeSchemaPinsV1VoidPartitionFields() {
+        // Spark keeps writing a v1 table after a partition field becomes void, also once its source is dropped.
+        // MUTATION: pinning an unpartitioned stand-in for a void-only spec -> the revalidation rejects it; checking
+        // the source column of a void field -> create rejects the dropped region -> red.
+        InMemoryCatalog catalog = freshCatalog();
+        List<Table> tables = Arrays.asList(
+                v1TableWithVoidRegion(catalog, "void_only", false, false),
+                v1TableWithVoidRegion(catalog, "void_only_dropped", false, true),
+                v1TableWithVoidRegion(catalog, "void_and_identity_dropped", true, true));
+        for (Table table : tables) {
+            IcebergWriteSchemaContext writeContext = IcebergWriteSchemaContext.create(
+                    table, table.name(), Optional.empty(), false, false);
+
+            Assertions.assertEquals(PartitionSpecParser.toJson(table.spec()), writeContext.getPartitionSpecJson(),
+                    table.name());
+            Assertions.assertDoesNotThrow(() -> writeContext.validateCurrentSchema(table, true), table.name());
+        }
+    }
+
+    @Test
+    public void writeRoutingSkipsV1VoidPartitionFields() {
+        // A void field is NULL for every row, so routing by the other fields still keeps one partition on one
+        // writer, and the void field's source may be gone. MUTATION: routing the void field -> no route column for
+        // the dropped region -> random write -> red.
+        Table table = v1TableWithVoidRegion(freshCatalog(), "void_and_identity", true, true);
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "void_and_identity");
+
+        ConnectorWriteDistribution distribution = providerFor(table, contextWithStorage())
+                .getWriteDistribution(sessionFor(table, contextWithStorage()), handle);
+        Assertions.assertNotNull(distribution);
+        Assertions.assertEquals(Collections.singletonList("category"), distribution.getRouteColumns());
+        Assertions.assertEquals(Collections.singletonMap("transforms", "identity"),
+                distribution.getPartitionFunctionOptions());
+
+        ConnectorWritePartitionSpec partitioning = providerFor(table, contextWithStorage())
+                .getWritePartitioning(sessionFor(table, contextWithStorage()), handle);
+        Assertions.assertEquals(table.spec().specId(), partitioning.getSpecId());
+        Assertions.assertEquals(1, partitioning.getFields().size());
+        Assertions.assertEquals("category", partitioning.getFields().get(0).getSourceColumnName());
+    }
+
     @Test
     public void branchWriteRejectsCurrentRequiredFieldAbsentWithoutDefault() {
         InMemoryCatalog catalog = freshCatalog();

@@ -51,10 +51,13 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.Transaction;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.exceptions.NotFoundException;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
 import org.apache.iceberg.io.CloseableIterable;
+import org.apache.iceberg.io.OutputFile;
+import org.apache.iceberg.io.PositionOutputStream;
 import org.apache.iceberg.types.Types;
 import org.apache.thrift.TException;
 import org.apache.thrift.TSerializer;
@@ -942,6 +945,48 @@ public class IcebergConnectorTransactionTest {
     }
 
     @Test
+    public void insertCommitsNullForV1VoidPartitionFields() {
+        // A v1 table replaces a dropped partition field with void(region) and may drop region afterwards; Spark
+        // keeps writing it. MUTATION: pinning an unpartitioned stand-in for the void-only spec -> commit rejects the
+        // pinned spec; checking the source of the void field -> create rejects the dropped region -> red.
+        for (boolean identityCategory : new boolean[] {false, true}) {
+            InMemoryCatalog catalog = freshCatalog();
+            TableIdentifier id = TableIdentifier.of("db1", "t1");
+            Schema schema = new Schema(
+                    Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                    Types.NestedField.optional(2, "region", Types.StringType.get()),
+                    Types.NestedField.optional(3, "category", Types.StringType.get()));
+            PartitionSpec.Builder spec = PartitionSpec.builderFor(schema).identity("region");
+            if (identityCategory) {
+                spec.identity("category");
+            }
+            Table table = catalog.createTable(id, schema, spec.build(), props("format-version", "1"));
+            table.updateSpec().removeField("region").commit();
+            table.updateSchema().deleteColumn("region").commit();
+
+            IcebergWriteSchemaContext schemaContext =
+                    IcebergWriteSchemaContext.create(table, table.name(), Optional.empty(), false, false);
+            IcebergConnectorTransaction txn = txnFor(opsReturning(table), new RecordingConnectorContext());
+            txn.beginWrite(SESSION, "db1", "t1", new IcebergWriteContext(
+                    WriteOperation.INSERT, false, Collections.emptyMap(), Optional.empty(), -1L, schemaContext));
+            // BE writes a void-only spec as unpartitioned and reports NULL for a void field of a partitioned one.
+            txn.addCommitData(commitBytes(identityCategory
+                    ? dataFileItem("s3://b/db1/t1/region=null/category=x/f1.parquet", 2L, 1024L,
+                            Arrays.asList("null", "x"))
+                    : dataFileItem("s3://b/db1/t1/f1.parquet", 2L, 1024L)));
+            txn.commit();
+
+            List<DataFile> files = currentDataFiles(catalog.loadTable(id));
+            Assertions.assertEquals(1, files.size());
+            Assertions.assertEquals(table.spec().specId(), files.get(0).specId());
+            Assertions.assertNull(files.get(0).partition().get(0, Object.class));
+            if (identityCategory) {
+                Assertions.assertEquals("x", files.get(0).partition().get(1, String.class));
+            }
+        }
+    }
+
+    @Test
     public void overwriteStaticPartitionUsesRowFilter() {
         InMemoryCatalog catalog = freshCatalog();
         TableIdentifier id = TableIdentifier.of("db1", "t1");
@@ -1274,12 +1319,39 @@ public class IcebergConnectorTransactionTest {
     }
 
     @Test
-    public void rollbackAndCloseAreNoOps() {
+    public void rollbackWithoutBeginAndCloseAreNoOps() {
         IcebergConnectorTransaction txn = txnFor(opsReturning(null), new RecordingConnectorContext());
         Assertions.assertDoesNotThrow(() -> {
             txn.rollback();
             txn.close();
         });
+    }
+
+    @Test
+    public void rollbackDeletesReportedFilesAndClearsCommitData() throws IOException {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Table table = catalog.createTable(id, SCHEMA, PartitionSpec.unpartitioned());
+        String path = "s3://b/db1/t1/uncommitted.parquet";
+        OutputFile output = table.io().newOutputFile(path);
+        try (PositionOutputStream stream = output.create()) {
+            stream.write(1);
+        }
+        Assertions.assertTrue(table.io().newInputFile(path).exists());
+
+        IcebergConnectorTransaction txn =
+                txnFor(opsReturning(table), new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1", insertCtx());
+        txn.addCommitData(commitBytes(dataFileItem(path, 1L, 1L)));
+
+        txn.rollback();
+
+        Assertions.assertThrows(NotFoundException.class,
+                () -> table.io().newInputFile(path).exists(),
+                "rollback must delete data files reported by completed BE fragments");
+        Assertions.assertTrue(txn.getCommitDataList().isEmpty(),
+                "rollback must not leave fragments that a later lifecycle call could commit");
+        txn.close();
     }
 
     @Test

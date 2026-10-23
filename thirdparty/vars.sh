@@ -222,11 +222,11 @@ CYRUS_SASL_NAME=cyrus-sasl-2.1.27.tar.gz
 CYRUS_SASL_SOURCE=cyrus-sasl-2.1.27
 CYRUS_SASL_MD5SUM="a33820c66e0622222c5aefafa1581083"
 
-# librdkafka-2.11.0
-LIBRDKAFKA_DOWNLOAD="https://github.com/confluentinc/librdkafka/archive/refs/tags/v2.11.0.tar.gz"
-LIBRDKAFKA_NAME=librdkafka-2.11.0.tar.gz
-LIBRDKAFKA_SOURCE=librdkafka-2.11.0
-LIBRDKAFKA_MD5SUM="bc611d0340e269abaa8886d42ff9c558"
+# librdkafka-2.16.0
+LIBRDKAFKA_DOWNLOAD="https://github.com/confluentinc/librdkafka/archive/refs/tags/v2.16.0.tar.gz"
+LIBRDKAFKA_NAME=librdkafka-2.16.0.tar.gz
+LIBRDKAFKA_SOURCE=librdkafka-2.16.0
+LIBRDKAFKA_MD5SUM="6d2c62921241863d2bc95c58be27af6f"
 
 # zstd
 ZSTD_DOWNLOAD="https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz"
@@ -617,11 +617,11 @@ PUGIXML_SOURCE=pugixml-1.15
 PUGIXML_MD5SUM="3b894c29455eb33a40b165c6e2de5895"
 
 # lance-c
-# Includes lance-c #91/#94: search filters and synchronous index prewarm.
-LANCE_C_DOWNLOAD="https://codeload.github.com/lance-format/lance-c/tar.gz/8e9e09ecc795c91ce7f97513db94c2d91eec799d"
-LANCE_C_NAME="lance-c-8e9e09ecc795c91ce7f97513db94c2d91eec799d.tar.gz"
-LANCE_C_SOURCE="lance-c-8e9e09ecc795c91ce7f97513db94c2d91eec799d"
-LANCE_C_MD5SUM="9e32aa626caf1cea3bfe62d12d60a2c8"
+# Includes lance-c #97: resolve index/column name collisions without serializing prewarm.
+LANCE_C_DOWNLOAD="https://codeload.github.com/lance-format/lance-c/tar.gz/4fafcd64525b274b113208390bbcca86bbbc093b"
+LANCE_C_NAME="lance-c-4fafcd64525b274b113208390bbcca86bbbc093b.tar.gz"
+LANCE_C_SOURCE="lance-c-4fafcd64525b274b113208390bbcca86bbbc093b"
+LANCE_C_MD5SUM="65e924fb62137c5dd4d58af3fb33923a"
 
 # paimon-rust
 PAIMON_RUST_DOWNLOAD="https://github.com/apache/paimon-rust/archive/refs/tags/v0.4.0-rc1.tar.gz"

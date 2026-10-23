@@ -24,7 +24,7 @@ import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.BinlogConfig;
+import org.apache.doris.catalog.ChangelogConfig;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -325,12 +325,12 @@ public class CreateTableInfo {
         return sortOrderFields;
     }
 
-    private boolean isEffectiveRowBinlogEnabled() throws org.apache.doris.common.AnalysisException {
+    private boolean isEffectiveChangelogEnabled() throws org.apache.doris.common.AnalysisException {
         Database db = Env.getCurrentInternalCatalog().getDbNullable(dbName);
-        BinlogConfig binlogConfig = db == null
-                ? BinlogConfig.fromProperties(properties)
-                : db.getBinlogConfigsForCreateTable(properties).second;
-        return binlogConfig.isEnableForStreaming();
+        ChangelogConfig changelogConfig = db == null
+                ? ChangelogConfig.fromProperties(properties)
+                : db.getChangelogConfigForCreateTable(properties);
+        return changelogConfig.isEnable();
     }
 
     public void setRollups(List<RollupDefinition> rollups) {
@@ -593,7 +593,7 @@ public class CreateTableInfo {
 
             try {
                 if (Config.random_add_order_by_keys_for_mow && isEnableMergeOnWrite && sortOrderFields.isEmpty()
-                        && !isEffectiveRowBinlogEnabled()
+                        && !isEffectiveChangelogEnabled()
                         && PropertyAnalyzer.analyzeUseLightSchemaChange(new HashMap<>(properties))) {
                     // exclude columns whose data type can not be order key, see {@link ColumnDefinition#validate}
                     List<ColumnDefinition> orderKeysCandidates = columns.stream().filter(c -> {
@@ -1642,22 +1642,22 @@ public class CreateTableInfo {
     }
 
     /**
-     * Add hidden columns required by row binlog.
+     * Add hidden columns required by changelog.
      */
-    public void createRowBinlogHiddenColumnsIfNecessary(BinlogConfig binlogConfig) {
-        addRowBinlogHiddenColumns(columns, keysType, isEnableMergeOnWrite, binlogConfig);
+    public void createChangelogHiddenColumnsIfNecessary(ChangelogConfig changelogConfig) {
+        addChangelogHiddenColumns(columns, keysType, isEnableMergeOnWrite, changelogConfig);
     }
 
     /**
-     * Append the hidden columns a row-binlog table carries. Callers that build the column list
+     * Append the hidden columns a changelog table carries. Callers that build the column list
      * outside the create-table flow (an analyzed MTMV schema) go through here as well, so both
      * sides of {@code MTMVPlanUtil#checkColumnIfChange} agree on the physical layout.
      *
      * <p>Idempotent: a column that is already present is kept once.
      */
-    public static void addRowBinlogHiddenColumns(List<ColumnDefinition> columns, KeysType keysType,
-            boolean isEnableMergeOnWrite, BinlogConfig binlogConfig) {
-        if (binlogConfig == null || !binlogConfig.isRowFormat()) {
+    public static void addChangelogHiddenColumns(List<ColumnDefinition> columns, KeysType keysType,
+            boolean isEnableMergeOnWrite, ChangelogConfig changelogConfig) {
+        if (!changelogConfig.isEnable()) {
             return;
         }
         if (keysType.equals(KeysType.DUP_KEYS)) {

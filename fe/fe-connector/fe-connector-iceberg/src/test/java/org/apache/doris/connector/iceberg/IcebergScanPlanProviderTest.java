@@ -3021,6 +3021,77 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
+    public void getScanNodePropertiesUnderTopnPreservesMixedCaseFullSchemaNames() throws Exception {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "ID", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "Name", Types.StringType.get()));
+        Table table = createTable("mixed_topn", schema, PartitionSpec.unpartitioned());
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table));
+
+        Map<String, String> props = provider.getScanNodeProperties(
+                null, new IcebergTableHandle("db1", "mixed_topn").withTopnLazyMaterialize(true),
+                Collections.singletonList(new IcebergColumnHandle("ID", 1)), Optional.empty());
+        TFileScanRangeParams params = new TFileScanRangeParams();
+        provider.populateScanLevelParams(params, props);
+
+        List<TFieldPtr> fields = params.getHistorySchemaInfo().get(0).getRootField().getFields();
+        Assertions.assertEquals("ID", fields.get(0).getFieldPtr().getName());
+        Assertions.assertEquals("Name", fields.get(1).getFieldPtr().getName());
+    }
+
+    @Test
+    public void pinnedMixedCasePartitionUsesOneNameAcrossAllCarriers() throws Exception {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "City", Types.StringType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("City").build();
+        Table table = createTable("mixed_pin", schema, spec,
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "2"));
+        table.newAppend()
+                .appendFile(partitionedFile(spec, "s3://b/db/mixed_pin/City=Beijing/a.parquet",
+                        "Beijing"))
+                .commit();
+        long snapshotId = table.currentSnapshot().snapshotId();
+        long schemaId = table.currentSnapshot().schemaId();
+        table.updateSchema().renameColumn("City", "city").commit();
+
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "mixed_pin")
+                .withSnapshot(snapshotId, null, schemaId);
+        List<ConnectorColumnHandle> columns =
+                Collections.singletonList(new IcebergColumnHandle("City", 2));
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table));
+
+        Map<String, String> props = provider.getScanNodeProperties(
+                null, handle, columns, Optional.empty());
+        Assertions.assertEquals("City", props.get(ScanNodePropertyKeys.PATH_PARTITION_KEYS));
+        TFileScanRangeParams params = new TFileScanRangeParams();
+        provider.populateScanLevelParams(params, props);
+        Assertions.assertEquals("City", params.getHistorySchemaInfo().get(0).getRootField()
+                .getFields().get(1).getFieldPtr().getName());
+
+        List<ConnectorScanRange> ranges = provider.planScan(
+                new FakeScanSession("UTC", Collections.emptyMap()),
+                ConnectorScanRequest.builder(handle, columns).build());
+        Assertions.assertEquals(1, ranges.size());
+        TFileRangeDesc desc = populate(ranges.get(0));
+        Assertions.assertEquals(Collections.singletonList("City"), desc.getColumnsFromPathKeys());
+        Assertions.assertEquals(Collections.singletonList("Beijing"), desc.getColumnsFromPath());
+
+        ConnectorSplitSource splits = provider.streamSplits(
+                new FakeScanSession("UTC", Collections.emptyMap()),
+                ConnectorScanRequest.builder(handle, columns).build());
+        Assertions.assertTrue(splits.hasNext());
+        TFileRangeDesc streamingDesc = populate(splits.next());
+        splits.close();
+        Assertions.assertEquals(Collections.singletonList("City"),
+                streamingDesc.getColumnsFromPathKeys());
+        Assertions.assertEquals(Collections.singletonList("Beijing"),
+                streamingDesc.getColumnsFromPath());
+    }
+
+    @Test
     public void getScanNodePropertiesPinTakesPrecedenceOverTopnLazyMat() throws Exception {
         // A time-travel pin + Top-N lazy mat must take the PIN branch (pinned schema, full columns), not the
         // latest-schema topn branch: BE reads at the pinned snapshot, so lazily re-fetched columns resolve

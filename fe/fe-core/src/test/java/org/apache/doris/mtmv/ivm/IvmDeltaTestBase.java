@@ -18,7 +18,7 @@
 package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.BinlogConfig;
+import org.apache.doris.catalog.ChangelogConfig;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -53,6 +53,7 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -65,11 +66,13 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -104,7 +107,7 @@ abstract class IvmDeltaTestBase {
     protected LogicalOlapScan buildScan() {
         OlapTable table = PlanConstructor.newOlapTable(0, "t1", 0);
         addTestPartition(table);
-        enableRowBinlog(table);
+        enableChangelog(table);
         table.setQualifiedDbName("test_db");
         registerTestStreams(table);
         LogicalOlapScan scan = new LogicalOlapScan(PlanConstructor.getNextRelationId(), table,
@@ -116,7 +119,7 @@ abstract class IvmDeltaTestBase {
     protected LogicalOlapTableStreamScan buildDeltaScan() {
         OlapTable table = PlanConstructor.newOlapTable(0, "t1", 0);
         addTestPartition(table);
-        enableRowBinlog(table);
+        enableChangelog(table);
         table.setQualifiedDbName("test_db");
         return new LogicalOlapTableStreamScan(PlanConstructor.getNextRelationId(), buildStreamWrapper(table),
                 ImmutableList.of("test_db"), ImmutableList.of(), ImmutableList.of(),
@@ -127,7 +130,7 @@ abstract class IvmDeltaTestBase {
     protected LogicalOlapTableStreamScan buildDeltaScanForTable(long tableId, String tableName) {
         OlapTable table = PlanConstructor.newOlapTable(tableId, tableName, 0);
         addTestPartition(table);
-        enableRowBinlog(table);
+        enableChangelog(table);
         table.setQualifiedDbName("test_db");
         return new LogicalOlapTableStreamScan(PlanConstructor.getNextRelationId(), buildStreamWrapper(table),
                 ImmutableList.of("test_db"), ImmutableList.of(), ImmutableList.of(),
@@ -138,11 +141,29 @@ abstract class IvmDeltaTestBase {
     protected LogicalOlapScan buildScanForTable(long tableId, String tableName) {
         OlapTable table = PlanConstructor.newOlapTable(tableId, tableName, 0);
         addTestPartition(table);
-        enableRowBinlog(table);
+        enableChangelog(table);
         table.setQualifiedDbName("test_db");
         registerTestStreams(table);
         return new LogicalOlapScan(PlanConstructor.getNextRelationId(), table,
                 ImmutableList.of("test_db"));
+    }
+
+    /** Builds the regular post-refresh snapshot scan of a delta scan's base table. */
+    protected LogicalPlan buildPostSnapshotScan(LogicalOlapTableStreamScan streamScan) {
+        OlapTable baseTable = streamScan.getTable().getBaseTable();
+        LogicalOlapScan scan = new LogicalOlapScan(
+                PlanConstructor.getNextRelationId(),
+                baseTable,
+                ImmutableList.of("test_db"),
+                ImmutableList.of(),
+                baseTable.getPartitionIds(),
+                baseTable.getBaseIndexId(),
+                PreAggStatus.unset(),
+                ImmutableList.of(),
+                ImmutableList.of(),
+                Optional.empty(),
+                ImmutableList.of());
+        return BindRelation.checkAndAddDeleteSignFilter(scan, ConnectContext.get(), baseTable);
     }
 
     private OlapTableStreamWrapper buildStreamWrapper(OlapTable baseTable) {
@@ -223,7 +244,7 @@ abstract class IvmDeltaTestBase {
      * column (TinyInt). Schema: id (INT key), name (STRING key), binlog_op (TINYINT).
      */
     // buildScanWithOpColumn removed — mock binlog_op column (IVM_MOCK_BINLOG_OPERATION_COL)
-    // is no longer used; delta scans use real __DORIS_BINLOG_OP__ via the stream path.
+    // is no longer used; delta scans use real __DORIS_CHANGELOG_OP__ via the stream path.
 
     protected LogicalResultSink<LogicalProject<LogicalOlapScan>> buildScanPlan(LogicalOlapScan scan) {
         // Mimic `SELECT *`: only visible columns reach the plan, hidden columns such as
@@ -408,9 +429,8 @@ abstract class IvmDeltaTestBase {
                 true, Optional.empty(), scan);
     }
 
-    protected void enableRowBinlog(OlapTable table) {
-        table.getBinlogConfig().setEnable(true);
-        table.getBinlogConfig().setBinlogFormat(BinlogConfig.BinlogFormat.ROW);
+    protected void enableChangelog(OlapTable table) {
+        table.setChangelogConfig(new ChangelogConfig(true, ChangelogConfig.TTL_SECONDS, false));
         if (table.getKeysType() == KeysType.DUP_KEYS) {
             addRowLsnColumn(table);
         }
@@ -532,7 +552,7 @@ abstract class IvmDeltaTestBase {
         OlapTable table = PlanConstructor.newOlapTable(tableId, tableName, 0);
         addTestPartition(table);
         addTestPartition(table, "p2", tableId * 100 + 2);
-        enableRowBinlog(table);
+        enableChangelog(table);
         table.setQualifiedDbName("test_db");
         registerTestStreams(table);
         return new LogicalOlapScan(PlanConstructor.getNextRelationId(), table,

@@ -438,7 +438,7 @@ TEST_F(QueryCacheTest, runtime_decision_force_refresh) {
               fallback_before);
 }
 
-TEST_F(QueryCacheTest, runtime_decision_binlog_scan) {
+TEST_F(QueryCacheTest, runtime_decision_changelog_scan) {
     std::unique_ptr<QueryCache> cache(QueryCache::create_global_cache(1024 * 1024));
     auto scan_ranges = make_scan_ranges(42, "100");
     auto cache_param = make_cache_param(42);
@@ -451,9 +451,9 @@ TEST_F(QueryCacheTest, runtime_decision_binlog_scan) {
     int64_t fallback_before =
             DorisMetrics::instance()->query_cache_incremental_fallback_total->value();
     QueryCacheRuntime runtime(cache_param, cache.get());
-    runtime.disable_for_binlog_scan();
+    runtime.disable_for_changelog_scan();
     auto decision = runtime.get_or_make_decision(scan_ranges);
-    // A binlog scan must neither serve the cached entry nor write back, and
+    // A changelog scan must neither serve the cached entry nor write back, and
     // its deliberate MISS (empty reason) must not count as a fallback.
     EXPECT_EQ(decision->mode, QueryCacheInstanceDecision::Mode::MISS);
     EXPECT_FALSE(decision->key_valid);

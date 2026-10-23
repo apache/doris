@@ -230,9 +230,9 @@ public class Alter {
             currentAlterOps.checkMTMVAllow(alterOps);
         }
 
-        // For row binlog tables, only allow operations explicitly marked as safe.
-        if (olapTable.needRowBinlog()) {
-            currentAlterOps.checkRowBinlogAllow(alterOps);
+        // For changelog tables, only allow operations explicitly marked as safe.
+        if (olapTable.hasChangelog()) {
+            currentAlterOps.checkChangelogAllow(alterOps);
         }
 
         // check cluster capacity and db quota, only need to check once.
@@ -291,6 +291,11 @@ public class Alter {
             }
             // TODO(Drogon): check error
             ((SchemaChangeHandler) schemaChangeHandler).updateBinlogConfig(db, olapTable, alterOps);
+        } else if (currentAlterOps.checkChangelogConfigChange(alterOps)) {
+            if (!Config.enable_feature_changelog) {
+                throw new DdlException("Changelog feature is not enabled");
+            }
+            ((SchemaChangeHandler) schemaChangeHandler).updateChangelogConfig(db, olapTable, alterOps);
         } else if (currentAlterOps.hasSchemaChangeOp()) {
             // schema change, or change properties that need schema change(dynamic partition, storage_medium...)
             schemaChangeHandler.process(sql, alterOps, db, olapTable);

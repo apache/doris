@@ -28,6 +28,7 @@ import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.catalog.BinlogConfig;
+import org.apache.doris.catalog.ChangelogConfig;
 import org.apache.doris.catalog.ColocateGroupSchema;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
@@ -76,6 +77,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TabletBinlogConfig;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.Type;
@@ -385,7 +387,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                         int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
                         for (Tablet tablet : index.getTablets()) {
                             TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, schemaHash,
-                                    medium, index.isRowBinlog());
+                                    medium, index.isChangelog());
                             long tabletId = tablet.getId();
                             invertedIndex.addTablet(tabletId, tabletMeta);
                             for (Replica replica : tablet.getReplicas()) {
@@ -1374,7 +1376,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
                     for (Tablet tablet : mIndex.getTablets()) {
                         TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, schemaHash,
-                                medium, mIndex.isRowBinlog());
+                                medium, mIndex.isChangelog());
                         long tabletId = tablet.getId();
                         invertedIndex.addTablet(tabletId, tabletMeta);
                         for (Replica replica : tablet.getReplicas()) {
@@ -1527,6 +1529,16 @@ public class InternalCatalog implements CatalogIf<Database> {
                                              boolean writeEditLog,
                                              List<Pair<PartitionPersistInfo, Partition>> batchPartitions)
             throws DdlException {
+        addPartition(db, tableName, addPartitionOp, isCreateTable, generatedPartitionId,
+                writeEditLog, batchPartitions, false);
+    }
+
+    public void addPartition(Database db, String tableName, AddPartitionOp addPartitionOp,
+                                             boolean isCreateTable, long generatedPartitionId,
+                                             boolean writeEditLog,
+                                             List<Pair<PartitionPersistInfo, Partition>> batchPartitions,
+                                             boolean enforceAutoPartitionLimit)
+            throws DdlException {
         // in cloud mode, isCreateTable == true, create dynamic partition use, so partitionId must have been generated.
         // isCreateTable == false, other case, partitionId generate in below, must be set 0
         if (!FeConstants.runningUnitTest && Config.isCloudMode()
@@ -1541,7 +1553,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         Map<Long, MaterializedIndexMeta> indexIdToMeta;
         Set<String> bfColumns;
         String partitionName = singlePartitionDesc.getPartitionName();
-        BinlogConfig binlogConfig;
+        TabletBinlogConfig binlogConfig;
         TInvertedIndexFileStorageFormat partitionInvertedIndexFileStorageFormat;
 
         // check
@@ -1726,8 +1738,8 @@ public class InternalCatalog implements CatalogIf<Database> {
             indexIdToMeta = olapTable.getCopiedIndexIdToMeta(true);
             bfColumns = olapTable.getCopiedBfColumns();
 
-            // get BinlogConfig
-            binlogConfig = new BinlogConfig(olapTable.getBinlogConfig());
+            // get the binlog config of the new tablets
+            binlogConfig = olapTable.getTabletBinlogConfig();
             partitionInvertedIndexFileStorageFormat = olapTable.getPartitionInvertedIndexFileStorageFormat();
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
@@ -1809,6 +1821,18 @@ public class InternalCatalog implements CatalogIf<Database> {
                     }
                 }
 
+                // Check at publication under the table write lock. A request may have passed the
+                // batch precheck before another request published its own auto partitions.
+                if (enforceAutoPartitionLimit) {
+                    int partitionNum = olapTable.getPartitionNum();
+                    int autoPartitionLimit = Config.max_auto_partition_num;
+                    if (partitionNum >= autoPartitionLimit) {
+                        throw new DdlException(String.format(
+                                "partition numbers %d exceeded limit of variable max_auto_partition_num %d",
+                                (long) partitionNum + 1, autoPartitionLimit));
+                    }
+                }
+
                 // check if meta changed
                 // rollup index may be added or dropped during add partition operation.
                 // schema may be changed during add partition operation.
@@ -1818,7 +1842,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 } else if (olapTable.getPartitionInvertedIndexFileStorageFormat()
                         != partitionInvertedIndexFileStorageFormat) {
                     metaChanged = true;
-                } else if (olapTable.needRowBinlog() && !olapTable.getBinlogConfig().equals(binlogConfig)) {
+                } else if (olapTable.hasChangelog() && !olapTable.getTabletBinlogConfig().equals(binlogConfig)) {
                     // Do not install tablets created with an older retention policy after ALTER.
                     metaChanged = true;
                 } else {
@@ -2052,7 +2076,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 for (Tablet tablet : index.getTablets()) {
                     TabletMeta tabletMeta = new TabletMeta(info.getDbId(), info.getTableId(), partition.getId(),
                             index.getId(), schemaHash, info.getDataProperty().getStorageMedium(),
-                            index.isRowBinlog());
+                            index.isChangelog());
                     long tabletId = tablet.getId();
                     invertedIndex.addTablet(tabletId, tabletMeta);
                     for (Replica replica : tablet.getReplicas()) {
@@ -2101,11 +2125,11 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
 
         if (!isTempPartition) {
-            // Dropping a normal partition removes visible rows through metadata, not row binlog entries.
+            // Dropping a normal partition removes visible rows through metadata, not changelog entries.
             Partition partition = olapTable.getPartition(partitionName);
             Env.getCurrentEnv().getMtmvService().getRelationManager().markIvmBaselineRebuildForPartitionChange(
                     new BaseTableInfo(olapTable), Collections.singletonMap(partitionName, partition.getId()),
-                    "Base table partition was dropped without row binlog");
+                    "Base table partition was dropped without changelog");
         }
         dropPartitionWithoutCheck(db, olapTable, partitionName, isTempPartition, isForceDrop);
     }
@@ -2218,7 +2242,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                                                    TTabletType tabletType,
                                                    String storagePolicy,
                                                    IdGeneratorBuffer idGeneratorBuffer,
-                                                   BinlogConfig binlogConfig,
+                                                   TabletBinlogConfig binlogConfig,
                                                    boolean isStorageMediumSpecified)
             throws DdlException {
         // create base index first.
@@ -2229,7 +2253,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         Partition partition = new Partition(partitionId, partitionName, baseIndex, distributionInfo);
 
         // add to index map
-        // Use LinkedHashMap so the base index is processed before the row binlog companion index:
+        // Use LinkedHashMap so the base index is processed before the changelog companion index:
         // the companion tablets are derived from base tablets, which must be created first.
         Map<Long, MaterializedIndex> indexMap = Maps.newLinkedHashMap();
         indexMap.put(tbl.getBaseIndexId(), baseIndex);
@@ -2241,7 +2265,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
 
             MaterializedIndex rollup = new MaterializedIndex(indexId, IndexState.NORMAL);
-            rollup.setIsRowBinlog(indexIdToMeta.get(indexId).isRowBinlogIndex());
+            rollup.setIsChangelog(indexIdToMeta.get(indexId).isChangelogIndex());
             indexMap.put(indexId, rollup);
         }
 
@@ -2259,19 +2283,19 @@ public class InternalCatalog implements CatalogIf<Database> {
             long indexId = entry.getKey();
             MaterializedIndex index = entry.getValue();
             MaterializedIndexMeta indexMeta = indexIdToMeta.get(indexId);
-            boolean isRowBinlogIndex = indexMeta.isRowBinlogIndex();
+            boolean isChangelogIndex = indexMeta.isChangelogIndex();
 
             // create tablets
             int schemaHash = indexMeta.getSchemaHash();
             TabletMeta tabletMeta = new TabletMeta(dbId, tbl.getId(), partitionId, indexId,
-                    schemaHash, dataProperty.getStorageMedium(), isRowBinlogIndex);
-            if (isRowBinlogIndex) {
-                createRowBinlogTablets(index, baseIndex, version, tabletMeta, tabletIdSet, idGeneratorBuffer);
+                    schemaHash, dataProperty.getStorageMedium(), isChangelogIndex);
+            if (isChangelogIndex) {
+                createChangelogTablets(index, baseIndex, version, tabletMeta, tabletIdSet, idGeneratorBuffer);
             } else {
                 realStorageMedium = createTablets(index, ReplicaState.NORMAL, distributionInfo, version, replicaAlloc,
                     tabletMeta, tabletIdSet, idGeneratorBuffer, dataProperty.isStorageMediumSpecified());
             }
-            if (!isRowBinlogIndex && realStorageMedium != null
+            if (!isChangelogIndex && realStorageMedium != null
                     && !realStorageMedium.equals(dataProperty.getStorageMedium())) {
                 dataProperty.setStorageMedium(realStorageMedium);
                 LOG.info("real medium not eq default "
@@ -2292,7 +2316,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 clusterKeyUids = OlapTable.getClusterKeyUids(schema);
             }
             KeysType keysType = indexMeta.getKeysType();
-            boolean enableUniqueKeyMergeOnWrite = !isRowBinlogIndex && tbl.getEnableUniqueKeyMergeOnWrite();
+            boolean enableUniqueKeyMergeOnWrite = !isChangelogIndex && tbl.getEnableUniqueKeyMergeOnWrite();
             List<Index> indexes = indexId == tbl.getBaseIndexId() ? tbl.getCopiedIndexes() : null;
             int totalTaskNum = index.getTablets().size() * totalReplicaNum;
             MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<Long, Long>(totalTaskNum);
@@ -2302,11 +2326,11 @@ public class InternalCatalog implements CatalogIf<Database> {
                 long tabletId = tablet.getId();
                 Tablet baseTablet = null;
                 TStorageMedium taskMedium = realStorageMedium;
-                if (isRowBinlogIndex) {
-                    baseTablet = baseIndex.getTablet(tablet.getRowBinlogBaseTabletId());
+                if (isChangelogIndex) {
+                    baseTablet = baseIndex.getTablet(tablet.getChangelogBaseTabletId());
                     Preconditions.checkNotNull(baseTablet,
-                            "row binlog tablet %s's base tablet %s can not be found in meta",
-                            tabletId, tablet.getRowBinlogBaseTabletId());
+                            "changelog tablet %s's base tablet %s can not be found in meta",
+                            tabletId, tablet.getChangelogBaseTabletId());
                     // The companion tablet shares the partition data medium with its base tablet (same disk).
                     taskMedium = dataProperty.getStorageMedium();
                 }
@@ -2334,9 +2358,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                             tbl.storageDictPageSize(),
                             tbl.getColumnSeqMapping(),
                             tbl.getVerticalCompactionNumColumnsPerGroup());
-                    if (isRowBinlogIndex) {
-                        // BE locates the companion binlog tablet via base_tablet_id and writes it to the same disk.
-                        task.setTabletRole(TTabletRole.TABLET_ROLE_ROW_BINLOG);
+                    if (isChangelogIndex) {
+                        // BE locates the companion changelog tablet via base_tablet_id and writes it to the same disk.
+                        task.setTabletRole(TTabletRole.TABLET_ROLE_CHANGELOG);
                         task.setBaseTablet(baseTablet.getId(), tbl.getBaseIndexMeta().getSchemaHash());
                     }
 
@@ -2469,15 +2493,41 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
 
         boolean tableHasExist = false;
+        ChangelogConfig createTableChangelogConfig;
+        try {
+            // Check the binlog properties as written: the effective binlog config is put back over them below.
+            PropertyAnalyzer.analyzeBinlogConfig(Maps.newHashMap(createTableInfo.getProperties()));
+            createTableChangelogConfig = db.getChangelogConfigForCreateTable(createTableInfo.getProperties());
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
         Pair<BinlogConfig, BinlogConfig> binlogConfigs =
                 db.getBinlogConfigsForCreateTable(createTableInfo.getProperties());
         BinlogConfig dbBinlogConfig = binlogConfigs.first;
         BinlogConfig createTableBinlogConfig = binlogConfigs.second;
+        if (createTableInfo.isTemp()) {
+            // A temporary table never has changelog: asking for it fails, the database default is ignored.
+            if (Boolean.parseBoolean(
+                    createTableInfo.getProperties().get(PropertyAnalyzer.PROPERTIES_CHANGELOG_ENABLE))) {
+                throw new DdlException("Cannot create temporary table with changelog enable");
+            }
+            createTableChangelogConfig = new ChangelogConfig();
+            createTableInfo.getProperties().keySet()
+                    .removeIf(key -> key.startsWith(PropertyAnalyzer.PROPERTIES_CHANGELOG_PREFIX));
+        }
         // Check the effective config, including database defaults, before adding hidden columns
         // or allocating any table/tablet metadata.
-        if (!Config.enable_feature_binlog && createTableBinlogConfig.isEnableForStreaming()) {
+        if (!Config.enable_feature_changelog && createTableChangelogConfig.isEnable()) {
             throw new DdlException("Cannot create table " + tableShowName
-                    + " with ROW binlog when enable_feature_binlog=false");
+                    + " with changelog when enable_feature_changelog=false");
+        }
+        // CCR binlog and changelog are mutually exclusive.
+        if (createTableChangelogConfig.isEnable() && dbBinlogConfig.isEnableForCCR()) {
+            throw new DdlException("Can not create table " + tableShowName + " with changelog in database "
+                    + db.getFullName() + " because the database enables binlog");
+        }
+        if (createTableChangelogConfig.isEnable() && createTableBinlogConfig.isEnableForCCR()) {
+            throw new DdlException("Table " + tableShowName + " can not enable both binlog and changelog");
         }
         if (dbBinlogConfig.isEnableForCCR() && !createTableBinlogConfig.isEnableForCCR()
                 && !createTableInfo.isTemp()) {
@@ -2487,7 +2537,10 @@ public class InternalCatalog implements CatalogIf<Database> {
             throw new DdlException("Cannot create temporary table with binlog enable");
         }
         createTableInfo.getProperties().putAll(createTableBinlogConfig.toProperties());
-        createTableInfo.createRowBinlogHiddenColumnsIfNecessary(createTableBinlogConfig);
+        if (createTableChangelogConfig.isEnable()) {
+            createTableInfo.getProperties().putAll(createTableChangelogConfig.toProperties());
+        }
+        createTableInfo.createChangelogHiddenColumnsIfNecessary(createTableChangelogConfig);
 
         // get keys type
         KeysDesc keysDesc = createTableInfo.getKeysDesc();
@@ -3007,36 +3060,42 @@ public class InternalCatalog implements CatalogIf<Database> {
                         throw new AnalysisException("Binlog<CCR> is not supported in cloud mode");
                     }
                 }
-
-                if (binlogConfig.isEnableForStreaming()) {
-                    if (!(keysType == KeysType.DUP_KEYS
-                            || (keysType == KeysType.UNIQUE_KEYS && enableUniqueKeyMergeOnWrite))) {
-                        throw new AnalysisException("Only duplicate and mow table model support binlog<Row>, "
-                                + "if you want to use mor or aggregate table model, "
-                                + "please use binlog with snapshot");
-                    }
-                    if (keysType == KeysType.UNIQUE_KEYS && enableUniqueKeyMergeOnWrite
-                            && !CollectionUtils.isEmpty(keysDesc.getOrderByKeysColumnNames())) {
-                        throw new AnalysisException(
-                                "Unique merge-on-write tables with cluster keys do not support binlog<Row>");
-                    }
-                    if (keysType == KeysType.DUP_KEYS && binlogConfig.getNeedHistoricalValue()) {
-                        throw new AnalysisException("Duplicate table model don't support record historical value");
-                    }
-                    for (Column column : baseSchema) {
-                        if (column.isAutoInc()) {
-                            throw new AnalysisException("auto-inc column can't be created on table with binlog<Row>");
-                        } else if (column.getDataType().isVariantType()) {
-                            throw new AnalysisException("variant column can't be created on table with binlog<Row>");
-                        }
-                    }
-                }
                 olapTable.setBinlogConfig(binlogConfig);
             }
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
-        BinlogConfig binlogConfigForTask = new BinlogConfig(olapTable.getBinlogConfig());
+
+        // set changelog config
+        try {
+            ChangelogConfig changelogConfig = ChangelogConfig.fromProperties(
+                    PropertyAnalyzer.analyzeChangelogConfig(properties));
+            if (changelogConfig.isEnable()) {
+                if (!(keysType == KeysType.DUP_KEYS
+                        || (keysType == KeysType.UNIQUE_KEYS && enableUniqueKeyMergeOnWrite))) {
+                    throw new AnalysisException("Only duplicate and mow table model support changelog");
+                }
+                if (keysType == KeysType.UNIQUE_KEYS && enableUniqueKeyMergeOnWrite
+                        && !CollectionUtils.isEmpty(keysDesc.getOrderByKeysColumnNames())) {
+                    throw new AnalysisException(
+                            "Unique merge-on-write tables with cluster keys do not support changelog");
+                }
+                if (keysType == KeysType.DUP_KEYS && changelogConfig.getNeedHistoricalValue()) {
+                    throw new AnalysisException("Duplicate table model don't support record historical value");
+                }
+                for (Column column : baseSchema) {
+                    if (column.isAutoInc()) {
+                        throw new AnalysisException("auto-inc column can't be created on table with changelog");
+                    } else if (column.getDataType().isVariantType()) {
+                        throw new AnalysisException("variant column can't be created on table with changelog");
+                    }
+                }
+                olapTable.setChangelogConfig(changelogConfig);
+            }
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+        TabletBinlogConfig binlogConfigForTask = olapTable.getTabletBinlogConfig();
 
         Map<String, List<String>> columnSequenceMapping;
         try {
@@ -3136,8 +3195,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         olapTable.setIndexMeta(baseIndexId, tableName, baseSchema, schemaVersion, schemaHash, shortKeyColumnCount,
                 baseIndexStorageType, keysType, olapTable.getIndexes());
 
-        if (olapTable.getBinlogConfig().isEnableForStreaming()) {
-            olapTable.createNewRowBinlogMeta(idGeneratorBuffer, db.getId());
+        if (olapTable.hasChangelog()) {
+            olapTable.createChangelogIndexMeta(idGeneratorBuffer, db.getId());
         }
 
         for (AlterOp alterOp : createTableInfo.getAddRollupOps()) {
@@ -3625,30 +3684,30 @@ public class InternalCatalog implements CatalogIf<Database> {
         return storageMedium;
     }
 
-    // Create the companion row-binlog tablets aligned to base tablets. Each companion reuses its
+    // Create the companion changelog tablets aligned to base tablets. Each companion reuses its
     // base replica backends so BE can place it on the same disk (located via base_tablet_id in the
     // CreateReplicaTask).
-    private void createRowBinlogTablets(MaterializedIndex rowBinlogIndex, MaterializedIndex baseIndex,
+    private void createChangelogTablets(MaterializedIndex changelogIndex, MaterializedIndex baseIndex,
             long version, TabletMeta tabletMeta, Set<Long> tabletIdSet, IdGeneratorBuffer idGeneratorBuffer) {
         TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
         List<Tablet> baseTablets = baseIndex.getTablets();
-        List<Tablet> rowBinlogTablets = new ArrayList<>(baseTablets.size());
+        List<Tablet> changelogTablets = new ArrayList<>(baseTablets.size());
         for (Tablet baseTablet : baseTablets) {
-            Tablet rowBinlogTablet = EnvFactory.getInstance().createTablet(idGeneratorBuffer.getNextId());
-            baseTablet.setRowBinlogTabletId(rowBinlogTablet.getId());
-            rowBinlogTablet.setRowBinlogBaseTabletId(baseTablet.getId());
-            invertedIndex.addTablet(rowBinlogTablet.getId(), tabletMeta);
-            rowBinlogTablets.add(rowBinlogTablet);
-            tabletIdSet.add(rowBinlogTablet.getId());
+            Tablet changelogTablet = EnvFactory.getInstance().createTablet(idGeneratorBuffer.getNextId());
+            baseTablet.setChangelogTabletId(changelogTablet.getId());
+            changelogTablet.setChangelogBaseTabletId(baseTablet.getId());
+            invertedIndex.addTablet(changelogTablet.getId(), tabletMeta);
+            changelogTablets.add(changelogTablet);
+            tabletIdSet.add(changelogTablet.getId());
 
             for (Replica baseReplica : baseTablet.getReplicas()) {
                 long replicaId = idGeneratorBuffer.getNextId();
                 Replica replica = new LocalReplica(replicaId, baseReplica.getBackendIdWithoutException(),
                         ReplicaState.NORMAL, version, tabletMeta.getOldSchemaHash());
-                rowBinlogTablet.addReplica(replica);
+                changelogTablet.addReplica(replica);
             }
         }
-        rowBinlogIndex.appendTablets(rowBinlogTablets);
+        changelogIndex.appendTablets(changelogTablets);
     }
 
     /*
@@ -3734,7 +3793,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         HashMap<Long, Long> updateRecords = new HashMap<>();
 
-        BinlogConfig binlogConfig;
+        TabletBinlogConfig binlogConfig;
         olapTable.readLock();
         try {
             olapTable.checkNormalStateForAlter();
@@ -3778,7 +3837,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
             copiedTbl = olapTable.selectiveCopy(origPartitions.keySet(), IndexExtState.VISIBLE, false);
 
-            binlogConfig = new BinlogConfig(olapTable.getBinlogConfig());
+            binlogConfig = olapTable.getTabletBinlogConfig();
         } finally {
             olapTable.readUnlock();
         }
@@ -3868,7 +3927,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             } else if (olapTable.getPartitionInvertedIndexFileStorageFormat()
                     != copiedTbl.getPartitionInvertedIndexFileStorageFormat()) {
                 metaChanged = true;
-            } else if (olapTable.needRowBinlog() && !olapTable.getBinlogConfig().equals(binlogConfig)) {
+            } else if (olapTable.hasChangelog() && !olapTable.getTabletBinlogConfig().equals(binlogConfig)) {
                 metaChanged = true;
             } else {
                 // compare schemaHash
@@ -3915,10 +3974,10 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
 
             if (!origPartitions.isEmpty()) {
-                // Truncate replaces partitions through metadata, so existing row-binlog streams become incomplete.
+                // Truncate replaces partitions through metadata, so existing changelog streams become incomplete.
                 Env.getCurrentEnv().getMtmvService().getRelationManager().markIvmBaselineRebuildForPartitionChange(
                         new BaseTableInfo(olapTable), origPartitions,
-                        "Base table was truncated without row binlog");
+                        "Base table was truncated without changelog");
             }
             //replace
             Map<Long, RecyclePartitionParam> recyclePartitionParamMap  =  new HashMap<>();
@@ -4019,7 +4078,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
                     for (Tablet tablet : mIndex.getTablets()) {
                         TabletMeta tabletMeta = new TabletMeta(db.getId(), olapTable.getId(), partitionId, indexId,
-                                schemaHash, medium, mIndex.isRowBinlog());
+                                schemaHash, medium, mIndex.isChangelog());
                         long tabletId = tablet.getId();
                         invertedIndex.addTablet(tabletId, tabletMeta);
                         for (Replica replica : tablet.getReplicas()) {
