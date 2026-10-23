@@ -819,12 +819,12 @@ scan[1] = table=null.null.u shapeIdentity=null.null.u#ti:1 render=null.null.u#ti
 desc = a group by over a value computed on the nullable side of an outer join
 valid = true
 skipReason =
-WITH_LITERAL.canonical = A{gb:NullExtended(Coalesce(col(db.u.name),lit(0:INT)))}(J{LEFT_OUTER_JOIN,c:[EqualTo(col(db.t.id),col(db.u.id))]}(S{null.null.t#ti:0,v1,r0};S{null.null.u#ti:1,v1,r0}))
-WITH_LITERAL.shape = A{gb:NullExtended(Coalesce(col(db.u.name),lit(0:INT)))}(J{LEFT_OUTER_JOIN,c:[EqualTo(col(db.t.id),col(db.u.id))]}(S{null.null.t#ti:0};S{null.null.u#ti:1}))
-WITH_LITERAL.fingerprint = a0babe5a208a33c323cef8138f2e2112c7b5e790389ffffb61d0739fbbe188da
-NO_LITERAL.canonical = A{gb:NullExtended(Coalesce(col(db.u.name),lit(0:INT)))}(J{LEFT_OUTER_JOIN,c:[EqualTo(col(db.t.id),col(db.u.id))]}(S{null.null.t#ti:0,v1,r0};S{null.null.u#ti:1,v1,r0}))
-NO_LITERAL.shape = A{gb:NullExtended(Coalesce(col(db.u.name),lit(0:INT)))}(J{LEFT_OUTER_JOIN,c:[EqualTo(col(db.t.id),col(db.u.id))]}(S{null.null.t#ti:0};S{null.null.u#ti:1}))
-NO_LITERAL.fingerprint = a0babe5a208a33c323cef8138f2e2112c7b5e790389ffffb61d0739fbbe188da
+WITH_LITERAL.canonical = A{gb:Bound(Coalesce(col(db.u.name),lit(0:INT)))}(J{LEFT_OUTER_JOIN,c:[EqualTo(col(db.t.id),col(db.u.id))]}(S{null.null.t#ti:0,v1,r0};S{null.null.u#ti:1,v1,r0}))
+WITH_LITERAL.shape = A{gb:Bound(Coalesce(col(db.u.name),lit(0:INT)))}(J{LEFT_OUTER_JOIN,c:[EqualTo(col(db.t.id),col(db.u.id))]}(S{null.null.t#ti:0};S{null.null.u#ti:1}))
+WITH_LITERAL.fingerprint = 638ab2eae3e2cccb98c5d4ecb69218e614405a1c7f0f083532ddd3f631f25a34
+NO_LITERAL.canonical = A{gb:Bound(Coalesce(col(db.u.name),lit(0:INT)))}(J{LEFT_OUTER_JOIN,c:[EqualTo(col(db.t.id),col(db.u.id))]}(S{null.null.t#ti:0,v1,r0};S{null.null.u#ti:1,v1,r0}))
+NO_LITERAL.shape = A{gb:Bound(Coalesce(col(db.u.name),lit(0:INT)))}(J{LEFT_OUTER_JOIN,c:[EqualTo(col(db.t.id),col(db.u.id))]}(S{null.null.t#ti:0};S{null.null.u#ti:1}))
+NO_LITERAL.fingerprint = 638ab2eae3e2cccb98c5d4ecb69218e614405a1c7f0f083532ddd3f631f25a34
 scans = 2
 scan[0] = table=null.null.t shapeIdentity=null.null.t#ti:0 render=null.null.t#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 scan[1] = table=null.null.u shapeIdentity=null.null.u#ti:1 render=null.null.u#ti:1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
