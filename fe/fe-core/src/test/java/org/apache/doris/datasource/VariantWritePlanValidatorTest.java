@@ -19,7 +19,13 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.nereids.CTEContext;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.jobs.executor.Analyzer;
+import org.apache.doris.nereids.rules.analysis.AnalyzeCTE;
+import org.apache.doris.nereids.rules.analysis.BindExpression;
+import org.apache.doris.nereids.rules.analysis.BindRelation;
+import org.apache.doris.nereids.rules.analysis.CheckPolicy;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
@@ -636,6 +642,44 @@ public class VariantWritePlanValidatorTest {
     }
 
     @Test
+    public void testSubqueryAndIsTrueOperandsOfPredicatesAreNotWrittenValues() {
+        // When BindSink validates the source, before SubqueryToApply, a scalar subquery keeps the cast a predicate
+        // applies to it as its type coercion, IN over a subquery is an InSubquery, and IS TRUE / IS FALSE are AND,
+        // NOT and IS NULL over the operand cast to BOOLEAN: still only the comparison is written. MUTATION: tracing
+        // the type coercion of a compared scalar subquery, or the operand of an InSubquery or an IS NULL as a
+        // value -> rejected.
+        String keys = "(SELECT 1 AS k UNION ALL SELECT 2) ks";
+        assertAccepted(variantTargetWithId(), ImmutableList.of(
+                "SELECT 1, (SELECT v['s'] FROM " + VARIANT_SOURCE + ") LIKE 'a%'",
+                "SELECT 1, v['n'] IN (SELECT k FROM " + keys + ") FROM " + VARIANT_SOURCE,
+                "SELECT 1, v['flag'] IS TRUE FROM " + VARIANT_SOURCE,
+                "SELECT 1, v['flag'] IS NOT FALSE FROM " + VARIANT_SOURCE),
+                VariantWritePlanValidatorTest::bindSource);
+
+        // The value compared is still traced: a loss in the query of the subquery or in the operand is rejected.
+        assertRejected(variantTargetWithId(), "payload", ImmutableList.of(
+                "SELECT 1, (SELECT IF(TRUE, v, 1) FROM " + VARIANT_SOURCE + ") LIKE 'a%'",
+                "SELECT 1, IF(TRUE, v, 1) IN (SELECT k FROM " + keys + ") FROM " + VARIANT_SOURCE,
+                "SELECT 1, IF(TRUE, v, 1) IS TRUE FROM " + VARIANT_SOURCE),
+                VariantWritePlanValidatorTest::bindSource);
+    }
+
+    @Test
+    public void testRecursiveCteNullableOutputsKeepTheFieldsTraced() {
+        // AnalyzeCTE wraps every output of both terms of a recursive CTE as Alias(Nullable(slot)), which keeps the
+        // value, so the matched field is still written as a BOOLEAN. Both terms build the struct the same way: in
+        // this test the analyzer cannot bind a column of r in the recursive term. MUTATION: tracing all of the
+        // argument of Nullable -> the first statement is rejected.
+        String recursive = "WITH RECURSIVE r AS (SELECT named_struct('matched', %1$s, 'payload', %2$s) AS s FROM "
+                + VARIANT_SOURCE + " UNION ALL SELECT named_struct('matched', %1$s, 'payload', %2$s) FROM r, "
+                + VARIANT_SOURCE + ") SELECT 1, s FROM r";
+        assertAccepted(flaggedTarget(), formatEach(ImmutableList.of(recursive), "IF(TRUE, v['n'], 1) > 1", "v"),
+                VariantWritePlanValidatorTest::bindSource);
+        assertRejected(flaggedTarget(), "flagged", formatEach(ImmutableList.of(recursive), "TRUE", "IF(TRUE, v, 1)"),
+                VariantWritePlanValidatorTest::bindSource);
+    }
+
+    @Test
     public void testCteOutputIsTracedAgainForMoreOfIt() {
         // flagged reads the payload field of s only, raw writes all of s into a Variant: the producer of s is traced
         // again for raw although it was traced for flagged. MUTATION: reusing the trace of a CTE output whatever
@@ -659,8 +703,13 @@ public class VariantWritePlanValidatorTest {
 
     private static void assertAccepted(List<Column> targets, List<String> sqlStatements) {
         ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        assertAccepted(targets, sqlStatements, sql -> PlanChecker.from(connectContext).analyze(sql).getPlan());
+    }
+
+    private static void assertAccepted(
+            List<Column> targets, List<String> sqlStatements, Function<String, Plan> analyzer) {
         for (String sql : sqlStatements) {
-            Plan analyzedPlan = PlanChecker.from(connectContext).analyze(sql).getPlan();
+            Plan analyzedPlan = analyzer.apply(sql);
             Assertions.assertDoesNotThrow(
                     () -> VariantWritePlanValidator.validateNoLossyCoercion(targets, analyzedPlan), sql);
         }
@@ -668,8 +717,14 @@ public class VariantWritePlanValidatorTest {
 
     private static void assertRejected(List<Column> targets, String targetColumn, List<String> sqlStatements) {
         ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        assertRejected(targets, targetColumn, sqlStatements,
+                sql -> PlanChecker.from(connectContext).analyze(sql).getPlan());
+    }
+
+    private static void assertRejected(List<Column> targets, String targetColumn, List<String> sqlStatements,
+            Function<String, Plan> analyzer) {
         for (String sql : sqlStatements) {
-            Plan analyzedPlan = PlanChecker.from(connectContext).analyze(sql).getPlan();
+            Plan analyzedPlan = analyzer.apply(sql);
             AnalysisException exception = Assertions.assertThrows(
                     AnalysisException.class,
                     () -> VariantWritePlanValidator.validateNoLossyCoercion(targets, analyzedPlan),
@@ -677,6 +732,17 @@ public class VariantWritePlanValidatorTest {
             Assertions.assertTrue(exception.getMessage().contains("input column '" + targetColumn + "'"),
                     sql + ": " + exception.getMessage());
         }
+    }
+
+    /** The plan of {@code sql} as BindSink validates it: bound, with subqueries still expressions. */
+    private static Plan bindSource(String sql) {
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(
+                MemoTestUtils.createConnectContext(), sql);
+        cascadesContext.newTableCollector(true).collect();
+        Analyzer.buildCustomAnalyzer(cascadesContext, ImmutableList.of(
+                Analyzer.topDown(new AnalyzeCTE()),
+                Analyzer.bottomUp(new BindRelation(), new CheckPolicy(), new BindExpression()))).analyze();
+        return cascadesContext.getRewritePlan();
     }
 
     /**

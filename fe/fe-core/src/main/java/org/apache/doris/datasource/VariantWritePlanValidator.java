@@ -29,6 +29,8 @@ import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
+import org.apache.doris.nereids.trees.expressions.InSubquery;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
@@ -42,6 +44,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateNamedStruct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateStruct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -94,14 +97,15 @@ public final class VariantWritePlanValidator {
      * inputs of EXCEPT and INTERSECT only decide which rows of the first input stay, and the partition
      * and order keys of a window and the ORDER BY of an aggregate function only arrange the rows whose
      * values are used. For the same reason, the second argument of NULLIF, the index or key of
-     * element_at and the cast a predicate applies to an operand are not inspected: they are only
-     * compared or choose the element returned.</p>
+     * element_at and the cast a predicate applies to an operand, also when a scalar subquery records it
+     * as its type coercion, are not inspected: they are only compared or choose the element returned.</p>
      *
      * <p>Of a value, only the parts that reach a Variant leaf of the target are inspected. The BOOLEAN
      * field of a STRUCT&lt;matched BOOLEAN, payload VARIANT&gt; target is written as a BOOLEAN, so a
      * Variant cast to a scalar while computing it loses nothing in a Variant. Struct, array and map
-     * constructors, field and element access, casts and the results of IF, CASE, NULLIF and NVL pass
-     * those parts on to their arguments; any other expression inspects all of its arguments.</p>
+     * constructors, field and element access, casts, the nullable wrapper of recursive CTE outputs and
+     * the results of IF, CASE, NULLIF and NVL pass those parts on to their arguments; any other
+     * expression inspects all of its arguments.</p>
      */
     public static void validateNoLossyCoercion(List<Column> targetColumns, Plan sourcePlan) {
         validateNoLossyCoercion(targetColumns, sourcePlan, Optional.empty());
@@ -472,7 +476,7 @@ public final class VariantWritePlanValidator {
      * window or the ORDER BY of an aggregate function such as GROUP_CONCAT, which only arrange the rows whose
      * values are used; and the arguments of a constructor or the fields of an element_at container that are
      * not required. The implicit cast a predicate applies to an operand is left out as well, since only its
-     * comparison is written; the operand under it is not.
+     * comparison is written; the operand under it, or the query of a scalar subquery operand, is not.
      */
     private static List<Pair<Expression, Demand>> valueNodes(Expression expression, Demand demand) {
         List<Pair<Expression, Demand>> nodes = new ArrayList<>();
@@ -496,7 +500,7 @@ public final class VariantWritePlanValidator {
             }
         } else if (expression instanceof WindowExpression) {
             collectValueNodes(((WindowExpression) expression).getFunction(), valueDemand, nodes);
-        } else if (expression instanceof Alias || expression instanceof Cast) {
+        } else if (expression instanceof Alias || expression instanceof Cast || expression instanceof Nullable) {
             collectValueNodes(expression.child(0), valueDemand, nodes);
         } else if (expression instanceof CreateNamedStruct) {
             // The arguments alternate field names and field values.
@@ -520,8 +524,7 @@ public final class VariantWritePlanValidator {
             collectValueNodes(expression.child(0), containerDemand((ElementAt) expression, valueDemand), nodes);
         } else if (isPredicate(expression)) {
             for (Expression operand : expression.children()) {
-                boolean comparisonCast = operand instanceof Cast && !((Cast) operand).isExplicitType();
-                collectValueNodes(comparisonCast ? operand.child(0) : operand, Demand.ALL, nodes);
+                collectValueNodes(withoutComparisonCast(operand), Demand.ALL, nodes);
             }
         } else {
             for (Expression child : expression.children()) {
@@ -556,13 +559,38 @@ public final class VariantWritePlanValidator {
         return Demand.ALL;
     }
 
-    /** Whether {@code expression} is a predicate, whose result only tells how its operands compare. */
+    /**
+     * Whether {@code expression} is a predicate, whose result only tells how its operands compare or whether one
+     * is NULL. IS TRUE and IS FALSE are analyzed into AND, NOT and IS NULL over the operand cast to BOOLEAN.
+     */
     private static boolean isPredicate(Expression expression) {
         return expression instanceof ComparisonPredicate
                 || expression instanceof InPredicate
+                || expression instanceof InSubquery
                 || expression instanceof StringRegexPredicate
+                || expression instanceof IsNull
                 || expression instanceof CompoundPredicate
                 || expression instanceof Not;
+    }
+
+    /**
+     * {@code operand} of a predicate without the implicit cast the predicate applies to it. A scalar subquery
+     * records that cast as the type coercion of its output rather than under a Cast, so the subquery is traced
+     * without it; the query that produces the value is traced either way.
+     */
+    private static Expression withoutComparisonCast(Expression operand) {
+        if (operand instanceof Cast) {
+            return ((Cast) operand).isExplicitType() ? operand : operand.child(0);
+        }
+        if (operand instanceof ScalarSubquery && ((ScalarSubquery) operand).getTypeCoercionExpr().isPresent()) {
+            ScalarSubquery subquery = (ScalarSubquery) operand;
+            // ScalarSubquery.withTypeCoercion casts the output as it was coerced so far.
+            Expression coercedBefore = subquery.getTypeCoercionExpr().get().child(0);
+            return new ScalarSubquery(subquery.getQueryPlan(), subquery.getCorrelateSlots(),
+                    coercedBefore instanceof Cast ? Optional.of(coercedBefore) : Optional.empty(),
+                    subquery.limitOneIsEliminated());
+        }
+        return operand;
     }
 
     private static void validateLossyCast(List<Pair<Expression, Demand>> valueNodes, String targetColumn) {
