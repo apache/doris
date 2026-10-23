@@ -5093,11 +5093,17 @@ void MetaServiceImpl::get_cluster_status(google::protobuf::RpcController* contro
         return;
     }
     bool has_filter = request->has_status();
+    const std::string requester_cloud_unique_id =
+            request->cloud_unique_ids().empty() ? std::string() : request->cloud_unique_ids(0);
+    bool requester_cluster_found = false;
+    bool requester_cluster_ambiguous = false;
+    std::string requester_cluster_id;
 
     RPC_RATE_LIMIT(get_cluster_status)
 
-    auto get_clusters_info = [this, &request, &response,
-                              &has_filter](const std::string& instance_id) {
+    auto get_clusters_info = [this, &request, &response, &has_filter, &requester_cloud_unique_id,
+                              &requester_cluster_found, &requester_cluster_ambiguous,
+                              &requester_cluster_id](const std::string& instance_id) {
         InstanceKeyInfo key_info {instance_id};
         std::string key;
         std::string val;
@@ -5134,6 +5140,20 @@ void MetaServiceImpl::get_cluster_status(google::protobuf::RpcController* contro
             if (cluster.type() != ClusterPB::COMPUTE) {
                 continue;
             }
+            if (!requester_cloud_unique_id.empty()) {
+                const bool contains_requester =
+                        std::ranges::any_of(cluster.nodes(), [&](const auto& node) {
+                            return node.cloud_unique_id() == requester_cloud_unique_id;
+                        });
+                if (contains_requester) {
+                    if (!requester_cluster_found) {
+                        requester_cluster_found = true;
+                        requester_cluster_id = cluster.cluster_id();
+                    } else if (requester_cluster_id != cluster.cluster_id()) {
+                        requester_cluster_ambiguous = true;
+                    }
+                }
+            }
             ClusterPB pb;
             pb.set_cluster_name(cluster.cluster_name());
             pb.set_cluster_id(cluster.cluster_id());
@@ -5149,6 +5169,9 @@ void MetaServiceImpl::get_cluster_status(google::protobuf::RpcController* contro
             if (cluster.has_mtime()) {
                 pb.set_mtime(cluster.mtime());
             }
+            if (cluster.has_cluster_status_mtime()) {
+                pb.set_cluster_status_mtime(cluster.cluster_status_mtime());
+            }
             detail.add_clusters()->CopyFrom(pb);
         }
         if (detail.clusters().size() == 0) {
@@ -5159,14 +5182,11 @@ void MetaServiceImpl::get_cluster_status(google::protobuf::RpcController* contro
 
     std::for_each(instance_ids.begin(), instance_ids.end(), get_clusters_info);
 
-    // Resolve the requesting node's cluster_id from cloud_unique_id
-    if (!request->cloud_unique_ids().empty()) {
-        const auto& cloud_unique_id = request->cloud_unique_ids(0);
-        std::vector<NodeInfo> nodes;
-        std::string node_err = resource_mgr_->get_node(cloud_unique_id, &nodes);
-        if (node_err.empty() && !nodes.empty()) {
-            response->set_requester_cluster_id(nodes[0].cluster_id);
-        }
+    // Resolve the requesting node from the same durable InstanceInfoPB snapshots used for the
+    // response. The resource-manager node cache is asynchronously refreshed and can identify a
+    // moved BE as belonging to its previous cluster.
+    if (requester_cluster_found && !requester_cluster_ambiguous) {
+        response->set_requester_cluster_id(requester_cluster_id);
     }
 
     msg = proto_to_json(*response);
