@@ -26,7 +26,6 @@
 #include "exec/runtime_filter/runtime_filter_mgr.h"
 #include "exec/runtime_filter/runtime_filter_producer.h"
 #include "exprs/vexpr_context.h"
-#include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 
 namespace doris {
@@ -50,9 +49,6 @@ public:
     // create and register runtime filters producers
     Status init(RuntimeState* state, const VExprContextSPtrs& build_expr_ctxs,
                 const std::vector<TRuntimeFilterDesc>& runtime_filter_descs);
-    Status init(RuntimeState* state, const VExprContextSPtrs& build_expr_ctxs,
-                const std::vector<TRuntimeFilterDesc>& runtime_filter_descs,
-                const RowDescriptor& row_desc);
 
     // send local size to remote to sync global rf size if needed
     MOCK_FUNCTION Status
@@ -63,7 +59,7 @@ public:
     MOCK_FUNCTION Status skip_process(RuntimeState* state);
 
     // build rf
-    Status build(RuntimeState* state, Block* block, bool use_shared_table,
+    Status build(RuntimeState* state, const Block* block, bool use_shared_table,
                  std::map<int, std::shared_ptr<RuntimeFilterWrapper>>& runtime_filters);
 
     // publish rf
@@ -74,11 +70,8 @@ public:
     std::shared_ptr<RuntimeFilterWrapper> detect_local_in_filter(RuntimeState* state);
 
 protected:
-    virtual Status _init_expr(const VExprContextSPtrs& build_expr_ctxs,
-                              const std::vector<TRuntimeFilterDesc>& runtime_filter_descs);
-    Status _init(RuntimeState* state, const VExprContextSPtrs& build_expr_ctxs,
-                 const std::vector<TRuntimeFilterDesc>& runtime_filter_descs,
-                 const RowDescriptor* row_desc);
+    virtual void _init_expr(const VExprContextSPtrs& build_expr_ctxs,
+                            const std::vector<TRuntimeFilterDesc>& runtime_filter_descs);
     Status _init_filters(RuntimeState* state, uint64_t local_hash_table_size);
     Status _insert(const Block* block, size_t start);
     Status _publish(RuntimeState* state);
@@ -96,9 +89,6 @@ protected:
     const bool _is_broadcast_join;
 
     std::vector<std::shared_ptr<VExprContext>> _filter_expr_contexts;
-    // Indices of _filter_expr_contexts that correspond to decoupled RFs (expr_order == -1).
-    // These need explicit evaluate on the build block before _insert().
-    std::vector<size_t> _decoupled_filter_indices;
 };
 #include "common/compile_check_end.h"
 } // namespace doris
