@@ -31,7 +31,6 @@ import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
-import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
@@ -42,10 +41,8 @@ import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * Generate an inlined alternative plan for CTE optimization.
@@ -68,7 +65,6 @@ public class CTEInliner extends DefaultPlanRewriter<Void> {
     private final StatementContext statementContext;
     // Map from CTEId to the CTE producer node (extracted from CTEAnchor.left())
     private final Map<CTEId, LogicalCTEProducer<?>> cteProducers = new HashMap<>();
-    private final Set<CTEId> cteIdsToRemove = new HashSet<>();
     private final boolean unionAllOnly;
 
     public CTEInliner(StatementContext statementContext) {
@@ -85,7 +81,6 @@ public class CTEInliner extends DefaultPlanRewriter<Void> {
      * Returns null if no CTEs can be inlined.
      */
     public Plan generateInlinedPlan(Plan plan) {
-        clearRewriteCandidates();
         // First pass: collect all CTE producers that can be inlined
         collectCTEProducers(plan);
 
@@ -95,44 +90,6 @@ public class CTEInliner extends DefaultPlanRewriter<Void> {
 
         // Second pass: inline all collected CTEs
         return plan.accept(this, null);
-    }
-
-    /**
-     * Recursively remove unused CTE anchors and inline CTEs whose live consumer count
-     * is small enough after rewrite rules change the plan shape.
-     */
-    public InlineResult inlineByCurrentConsumerCount(Plan plan) {
-        Plan currentPlan = plan;
-        boolean changed = false;
-        while (collectConsumerDrivenCandidates(currentPlan)) {
-            changed = true;
-            currentPlan = currentPlan.accept(this, null);
-        }
-        return new InlineResult(currentPlan, changed);
-    }
-
-    /** Result of one consumer-count-driven CTE normalization round. */
-    public static class InlineResult {
-        private final Plan plan;
-        private final boolean changed;
-
-        public InlineResult(Plan plan, boolean changed) {
-            this.plan = plan;
-            this.changed = changed;
-        }
-
-        public Plan getPlan() {
-            return plan;
-        }
-
-        public boolean isChanged() {
-            return changed;
-        }
-    }
-
-    private void clearRewriteCandidates() {
-        cteProducers.clear();
-        cteIdsToRemove.clear();
     }
 
     private void collectCTEProducers(Plan plan) {
@@ -156,40 +113,6 @@ public class CTEInliner extends DefaultPlanRewriter<Void> {
         });
     }
 
-    private boolean collectConsumerDrivenCandidates(Plan plan) {
-        clearRewriteCandidates();
-        Map<CTEId, LogicalCTEProducer<?>> allCteProducers = new HashMap<>();
-        Map<CTEId, Integer> cteConsumerCounts = new HashMap<>();
-        plan.foreach(p -> {
-            if (p instanceof LogicalCTEAnchor) {
-                LogicalCTEAnchor<?, ?> anchor = (LogicalCTEAnchor<?, ?>) p;
-                allCteProducers.put(anchor.getCteId(), (LogicalCTEProducer<?>) anchor.left());
-            } else if (p instanceof LogicalCTEConsumer) {
-                LogicalCTEConsumer consumer = (LogicalCTEConsumer) p;
-                cteConsumerCounts.merge(consumer.getCteId(), 1, Integer::sum);
-            }
-        });
-
-        int threshold = statementContext.getConnectContext().getSessionVariable().inlineCTEReferencedThreshold;
-        for (Map.Entry<CTEId, LogicalCTEProducer<?>> entry : allCteProducers.entrySet()) {
-            CTEId cteId = entry.getKey();
-            LogicalCTEProducer<?> producer = entry.getValue();
-            int consumerCount = cteConsumerCounts.getOrDefault(cteId, 0);
-            if (consumerCount == 0) {
-                cteIdsToRemove.add(cteId);
-            } else if (producer.child() instanceof LogicalEmptyRelation
-                    || (consumerCount <= threshold && canInline(producer))) {
-                cteProducers.put(cteId, producer);
-            }
-        }
-        return !cteProducers.isEmpty() || !cteIdsToRemove.isEmpty();
-    }
-
-    private boolean canInline(LogicalCTEProducer<?> producer) {
-        return !statementContext.isForceMaterializeCTE(producer.getCteId())
-                && !containsNondeterministicFunction(producer);
-    }
-
     private boolean containsNondeterministicFunction(LogicalCTEProducer<?> producer) {
         List<Expression> nondeterministicFunctions = new ArrayList<>();
         producer.accept(NondeterministicFunctionCollector.INSTANCE, nondeterministicFunctions);
@@ -204,14 +127,13 @@ public class CTEInliner extends DefaultPlanRewriter<Void> {
     @Override
     public Plan visitLogicalCTEAnchor(LogicalCTEAnchor<? extends Plan, ? extends Plan> cteAnchor, Void context) {
         CTEId cteId = cteAnchor.getCteId();
-        if (cteProducers.containsKey(cteId) || cteIdsToRemove.contains(cteId)) {
-            // Inline or remove: skip anchor and producer, process the right (consumer) subtree
+        if (cteProducers.containsKey(cteId)) {
+            // Inline: skip anchor and producer, process the right (consumer) subtree
             return cteAnchor.right().accept(this, null);
         } else {
-            // Keep the structure and continue trimming nested CTEs in both children.
-            Plan left = cteAnchor.left().accept(this, null);
+            // Force materialize: keep the structure, only process the right subtree
             Plan right = cteAnchor.right().accept(this, null);
-            return cteAnchor.withChildren(left, right);
+            return cteAnchor.withChildren(cteAnchor.left(), right);
         }
     }
 
