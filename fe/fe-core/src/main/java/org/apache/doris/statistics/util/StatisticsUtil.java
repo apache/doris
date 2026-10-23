@@ -69,6 +69,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.rpc.RpcException;
@@ -211,6 +212,11 @@ public class StatisticsUtil {
         SessionVariable sessionVariable = connectContext.getSessionVariable();
         sessionVariable.setMaxExecMemByte(Config.statistics_sql_mem_limit_in_bytes);
         sessionVariable.cpuResourceLimit = Config.cpu_resource_limit_per_analyze_task;
+        // every internal statement quotes its values with escapeSQL, which relies on the backslash
+        // escapes of the standard sql mode; the global default may include NO_BACKSLASH_ESCAPES, which
+        // would store the doubled backslashes verbatim (a pinned structure would no longer match its
+        // live query after a restart)
+        sessionVariable.setSqlMode(sessionVariable.getSqlMode() & ~SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES);
         sessionVariable.setEnableInsertStrict(true);
         sessionVariable.setInsertMaxFilterRatio(1.0);
         sessionVariable.enablePageCache = false;
