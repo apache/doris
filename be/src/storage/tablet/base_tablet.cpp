@@ -172,10 +172,16 @@ Status _read_row_store_with_read_ahead(
     RETURN_IF_ERROR(segment_v2::SegmentReadAhead::create_for_query(
             segment->file_reader(), ExecEnv::GetInstance(), read_ahead_context, read_options,
             &read_ahead));
-    DORIS_CHECK(read_ahead != nullptr);
 
     std::vector<segment_v2::rowid_t> rowids {static_cast<segment_v2::rowid_t>(row_location.row_id)};
     std::unique_ptr<segment_v2::ColumnIterator> column_iterator;
+    // A switch can close after the point request creates its context. The factory then returns
+    // no read-ahead object; reuse the loaded segment with the original synchronous reader.
+    if (read_ahead == nullptr) {
+        RETURN_IF_ERROR(_init_segment_column_iterator(rowset, segment, column, &column_iterator,
+                                                      stats, io_ctx));
+        return column_iterator->read_by_rowids(rowids.data(), rowids.size(), result);
+    }
     return segment_v2::read_column_by_rowids_with_read_ahead(
             *segment, column, rowids, result, read_options, column_iterator, *read_ahead);
 }
