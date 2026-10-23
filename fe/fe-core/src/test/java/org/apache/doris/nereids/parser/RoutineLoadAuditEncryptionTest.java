@@ -195,6 +195,35 @@ public class RoutineLoadAuditEncryptionTest {
     }
 
     @Test
+    public void testChangedPropertyBoundariesMaskEntireStatementInBothModes() {
+        String sql = "/* 😀 */ ALTER ROUTINE LOAD FOR db.job FROM KAFKA "
+                + "('property.client.id' = 'client\\', \"property.sasl.password\" = \"synthetic-secret\" -- '\n)";
+        for (long mode : new long[] {SqlModeHelper.MODE_DEFAULT, SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES}) {
+            SqlModeHelper.withSqlMode(mode, () -> {
+                AlterRoutineLoadCommand command = (AlterRoutineLoadCommand) new NereidsParser().parseSingle(sql);
+                Assertions.assertEquals(mode == SqlModeHelper.MODE_DEFAULT ? 1 : 2,
+                        command.getDataSourceMapProperties().size());
+                String clientId = command.getDataSourceMapProperties().get("property.client.id");
+                Assertions.assertEquals(mode == SqlModeHelper.MODE_DEFAULT, clientId.contains("synthetic-secret"));
+                Assertions.assertEquals("/* masked ALTER ROUTINE LOAD: ambiguous SQL mode */",
+                        command.geneEncryptionSQL(sql));
+                Assertions.assertEquals(mode == SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES,
+                        SqlModeHelper.hasNoBackSlashEscapes());
+                Assertions.assertEquals(clientId, command.getDataSourceMapProperties().get("property.client.id"));
+                return null;
+            });
+        }
+    }
+
+    @Test
+    public void testInvalidAlternateModeDoesNotExposeEscapedValue() {
+        String sql = "ALTER ROUTINE LOAD FOR db.job FROM KAFKA "
+                + "('property.client.id' = 'client\\'id', 'property.sasl.password' = 'synthetic-secret')";
+        Assertions.assertEquals("/* masked ALTER ROUTINE LOAD: ambiguous SQL mode */",
+                SqlModeHelper.withSqlMode(SqlModeHelper.MODE_DEFAULT, () -> encrypt(sql)));
+    }
+
+    @Test
     public void testNestedCommentSplitMismatchStillSubmitsAlterAudit() throws Exception {
         String alter = "ALTER ROUTINE LOAD FOR db.job FROM KAFKA "
                 + "('property.sasl.password' = 'synthetic-secret')";

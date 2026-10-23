@@ -79,6 +79,7 @@ import org.apache.doris.mtmv.MTMVRefreshInfo;
 import org.apache.doris.mtmv.MTMVRefreshSchedule;
 import org.apache.doris.mtmv.MTMVRefreshTriggerInfo;
 import org.apache.doris.mtmv.ivm.IvmDryRunLimit;
+import org.apache.doris.nereids.DorisLexer;
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.DorisParser.AddBackendClauseContext;
 import org.apache.doris.nereids.DorisParser.AddBrokerClauseContext;
@@ -9450,6 +9451,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             stop = statement.stop.getStopIndex();
         }
         String sql = ctx.start.getInputStream().getText(new org.antlr.v4.runtime.misc.Interval(start, stop));
+        if (hasRoutineLoadSqlModeAmbiguity(sql)) {
+            // The master can see credential properties inside a value from the follower's parse.
+            // Different token boundaries invalidate selective masking based on that parse tree.
+            return "/* masked ALTER ROUTINE LOAD: ambiguous SQL mode */";
+        }
         TreeMap<Pair<Integer, Integer>, String> replacements = new TreeMap<>(new Pair.PairComparator<>());
         if (ctx.propertyItemList() != null) {
             for (DorisParser.PropertyItemContext property : ctx.propertyItemList().properties) {
@@ -9467,6 +9473,32 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
         }
         return BaseViewInfo.rewriteSql(replacements, sql);
+    }
+
+    private boolean hasRoutineLoadSqlModeAmbiguity(String sql) {
+        // Both lexer modes have identical rules when there is no backslash to interpret.
+        if (sql.indexOf('\\') < 0) {
+            return false;
+        }
+        DorisLexer defaultMode = new DorisLexer(CaseInsensitiveStream.fromString(sql));
+        DorisLexer noBackslashMode = new DorisLexer(CaseInsensitiveStream.fromString(sql));
+        noBackslashMode.isNoBackslashEscapes = true;
+        // Alternate-mode lexer diagnostics must not write the original SQL to stderr.
+        defaultMode.removeErrorListeners();
+        noBackslashMode.removeErrorListeners();
+        while (true) {
+            Token defaultToken = defaultMode.nextToken();
+            Token noBackslashToken = noBackslashMode.nextToken();
+            if (defaultToken.getType() != noBackslashToken.getType()
+                    || defaultToken.getChannel() != noBackslashToken.getChannel()
+                    || defaultToken.getStartIndex() != noBackslashToken.getStartIndex()
+                    || defaultToken.getStopIndex() != noBackslashToken.getStopIndex()) {
+                return true;
+            }
+            if (defaultToken.getType() == Token.EOF) {
+                return false;
+            }
+        }
     }
 
     @Override

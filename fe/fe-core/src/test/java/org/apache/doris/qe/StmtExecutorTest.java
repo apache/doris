@@ -1374,17 +1374,26 @@ public class StmtExecutorTest extends TestWithFeService {
         }
     }
 
-    @Test
-    public void testForwardedRoutineLoadAuditMasksMasterKeyInterpretation() throws Exception {
-        String alter = "ALTER ROUTINE LOAD FOR testDb.job FROM KAFKA "
-                + "('property.sasl.\\password' = 'synthetic-secret', 'property.client.id' = 'client-value')";
-        String batch = "SET sql_mode=''; " + alter;
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testForwardedRoutineLoadAuditMasksMasterKeyInterpretation(boolean changesPropertyBoundaries)
+            throws Exception {
+        String alter = changesPropertyBoundaries
+                ? "ALTER ROUTINE LOAD FOR testDb.job FROM KAFKA "
+                        + "('property.client.id' = 'client\\', \"property.sasl.password\" = \"synthetic-secret\" -- '\n)"
+                : "ALTER ROUTINE LOAD FOR testDb.job FROM KAFKA "
+                        + "('property.sasl.\\password' = 'synthetic-secret', 'property.client.id' = 'client-value')";
+        String batch = (changesPropertyBoundaries ? "SET sql_mode='NO_BACKSLASH_ESCAPES'; " : "SET sql_mode=''; ")
+                + alter;
+        String expected = changesPropertyBoundaries ? "/* masked ALTER ROUTINE LOAD: ambiguous SQL mode */"
+                : alter.replace("'synthetic-secret'", "'******'");
         ConnectContext follower = Mockito.spy(new ConnectContext());
         follower.setCurrentUserIdentity(UserIdentity.ROOT);
         follower.setEnv(Env.getCurrentEnv());
         follower.setRemoteIP("127.0.0.1");
         follower.setStartTime();
-        follower.getSessionVariable().setSqlMode(SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES);
+        follower.getSessionVariable().setSqlMode(changesPropertyBoundaries
+                ? SqlModeHelper.MODE_DEFAULT : SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES);
         follower.setThreadLocalInfo();
         Mockito.doReturn(null).when(follower).getCurrentCatalog();
         try {
@@ -1393,12 +1402,40 @@ public class StmtExecutorTest extends TestWithFeService {
             LogicalPlanAdapter followerStatement = (LogicalPlanAdapter) statements.get(1);
             followerStatement.setOrigStmt(new OriginStatement(alter, 0));
             AlterRoutineLoadCommand followerCommand = (AlterRoutineLoadCommand) followerStatement.getLogicalPlan();
-            Assertions.assertEquals("synthetic-secret",
-                    followerCommand.getDataSourceMapProperties().get("property.sasl.\\password"));
+            Assertions.assertEquals(changesPropertyBoundaries ? 1 : 2,
+                    followerCommand.getDataSourceMapProperties().size());
+            Assertions.assertTrue(followerCommand.getDataSourceMapProperties().containsValue(changesPropertyBoundaries
+                    ? "client', \"property.sasl.password\" = \"synthetic-secret\" -- " : "synthetic-secret"));
             LogicalPlanAdapter setStatement = (LogicalPlanAdapter) statements.get(0);
             follower.setStatementContext(setStatement.getStatementContext());
             ((SetOptionsCommand) setStatement.getLogicalPlan()).run(follower, null);
-            Assertions.assertEquals(SqlModeHelper.MODE_DEFAULT, follower.getSessionVariable().getSqlMode());
+            Assertions.assertEquals(changesPropertyBoundaries ? SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES : 0L,
+                    follower.getSessionVariable().getSqlMode());
+
+            // Reuse the original command in real startup logs under the mode selected by SET.
+            AlterRoutineLoadCommand loggedCommand = Mockito.spy(followerCommand);
+            Mockito.doNothing().when(loggedCommand).run(Mockito.any(), Mockito.any());
+            LogicalPlanAdapter loggedStatement = new LogicalPlanAdapter(loggedCommand, new StatementContext());
+            loggedStatement.setOrigStmt(new OriginStatement(alter, 0));
+            boolean originalPrintRequest = Config.enable_print_request_before_execution;
+            long originalLogMode = connectContext.getSessionVariable().getSqlMode();
+            connectContext.getSessionVariable().setSqlMode(follower.getSessionVariable().getSqlMode());
+            connectContext.setThreadLocalInfo();
+            connectContext.getState().reset();
+            Config.enable_print_request_before_execution = true;
+            try (TestLogAppender appender = TestLogAppender.attach(StmtExecutor.class)) {
+                StmtExecutor logExecutor = new StmtExecutor(connectContext, loggedStatement);
+                logExecutor.execute();
+                Mockito.verify(loggedCommand).run(connectContext, logExecutor);
+                Assertions.assertTrue(appender.contains(org.apache.logging.log4j.Level.INFO, expected));
+                Assertions.assertTrue(appender.contains(org.apache.logging.log4j.Level.DEBUG, expected));
+                Assertions.assertFalse(appender.contains(org.apache.logging.log4j.Level.INFO, "synthetic-secret"));
+                Assertions.assertFalse(appender.contains(org.apache.logging.log4j.Level.DEBUG, "synthetic-secret"));
+            } finally {
+                Config.enable_print_request_before_execution = originalPrintRequest;
+                connectContext.getSessionVariable().setSqlMode(originalLogMode);
+                follower.setThreadLocalInfo();
+            }
 
             Env env = Mockito.mock(Env.class);
             Mockito.when(env.getSelfNode()).thenReturn(new SystemInfoService.HostInfo("127.0.0.1", 9010));
@@ -1415,7 +1452,7 @@ public class StmtExecutorTest extends TestWithFeService {
                 master.getSessionVariable().setForwardedSessionVariables(restored.getSessionVariables());
                 master.setThreadLocalInfo();
                 try {
-                    Assertions.assertFalse(SqlModeHelper.hasNoBackSlashEscapes());
+                    Assertions.assertEquals(changesPropertyBoundaries, SqlModeHelper.hasNoBackSlashEscapes());
                     AlterRoutineLoadCommand masterCommand = (AlterRoutineLoadCommand)
                             new NereidsParser().parseSingle(restored.getSql());
                     KafkaDataSourceProperties properties = new KafkaDataSourceProperties(
@@ -1425,7 +1462,8 @@ public class StmtExecutorTest extends TestWithFeService {
                     properties.analyze();
                     Assertions.assertEquals("synthetic-secret", properties.getCustomKafkaProperties()
                             .get("sasl.password"));
-                    Assertions.assertEquals("client-value", properties.getCustomKafkaProperties().get("client.id"));
+                    Assertions.assertEquals(changesPropertyBoundaries ? "client\\" : "client-value",
+                            properties.getCustomKafkaProperties().get("client.id"));
                 } finally {
                     follower.setThreadLocalInfo();
                 }
@@ -1437,7 +1475,7 @@ public class StmtExecutorTest extends TestWithFeService {
                 AuditLogHelper.logAuditLog(follower, alter, followerStatement, null, false);
                 ArgumentCaptor<AuditEvent> captor = ArgumentCaptor.forClass(AuditEvent.class);
                 Mockito.verify(statusMgr).submitFinishQueryToAudit(captor.capture());
-                Assertions.assertEquals(alter.replace("'synthetic-secret'", "'******'"), captor.getValue().stmt);
+                Assertions.assertEquals(expected, captor.getValue().stmt);
                 Assertions.assertEquals("OK", captor.getValue().state);
             }
         } finally {
