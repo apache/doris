@@ -18,7 +18,8 @@
 // BM25 statistics open the CLucene searcher of a segment the searcher cache does not hold yet.
 // Once its meta is read, the searcher's stream must drop the opening query's I/O context and stop
 // reading as index meta, as the query path's searcher does: CSIndexInput.readInternal fails any
-// postings read that still reads as meta.
+// read of index data that still reads as meta. Loads must not put the searchers into the cache
+// first, or the statistics would not open them.
 suite("test_bm25_score_statistics_searcher_io_context", "nonConcurrent") {
     sql "DROP TABLE IF EXISTS test_bm25_score_statistics_searcher_io_context"
     sql """
@@ -35,16 +36,18 @@ suite("test_bm25_score_statistics_searcher_io_context", "nonConcurrent") {
             "disable_auto_compaction" = "true"
         );
     """
-    sql """
-        INSERT INTO test_bm25_score_statistics_searcher_io_context
-        SELECT number, concat_ws(' ', if(number % 4 = 1, 'jobs', 'work'), 'alpha') FROM numbers('number' = '200')
-    """
-    // Overwritten rows make the statistics read postings of the hidden rows.
-    sql """
-        INSERT INTO test_bm25_score_statistics_searcher_io_context
-        SELECT number * 2, 'jobs again' FROM numbers('number' = '50')
-    """
-    sql "sync"
+    setBeConfigTemporary([enable_write_index_searcher_cache: false]) {
+        sql """
+            INSERT INTO test_bm25_score_statistics_searcher_io_context
+            SELECT number, concat_ws(' ', if(number % 4 = 1, 'jobs', 'work'), 'alpha') FROM numbers('number' = '200')
+        """
+        // Overwritten rows make the statistics read postings of the hidden rows.
+        sql """
+            INSERT INTO test_bm25_score_statistics_searcher_io_context
+            SELECT number * 2, 'jobs again' FROM numbers('number' = '50')
+        """
+        sql "sync"
+    }
 
     try {
         GetDebugPoint().enableDebugPointForAllBEs("CSIndexInput.readInternal")

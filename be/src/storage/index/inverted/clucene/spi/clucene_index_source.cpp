@@ -243,9 +243,9 @@ std::span<const float> CluceneIndexSource::norm_lengths() const {
     return BM25Similarity::lucene_norm_lengths();
 }
 
-// Each segment reader keeps a field's norms once they are read, as scoring reads them anyway. A
-// reader of several segments would build and keep one more copy of them all, so read the norms of
-// each segment, a segment without the field's norms reading as zero lengths, as that reader would.
+// Each segment reader keeps a field's norms once they are read, the copy scoring reads. A reader of
+// several segments would build and keep one more copy of them all, so read the norms of each
+// segment, a segment without the field's norms reading as zero lengths, as that reader would.
 std::vector<CluceneIndexSource::ReaderPartition> CluceneIndexSource::_norm_partitions() const {
     if (!_partitions.empty()) {
         return _partitions;

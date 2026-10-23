@@ -68,7 +68,13 @@ Result<std::shared_ptr<lucene::search::IndexSearcher>> open_optional_clucene_sta
         }
         return ResultError(status);
     }
-    auto* reader = lucene::index::IndexReader::open(compound.value().get());
+    lucene::index::IndexReader* reader = nullptr;
+    try {
+        reader = lucene::index::IndexReader::open(compound.value().get());
+    } catch (const CLuceneError& e) {
+        return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                "CLuceneError occurred opening the index for BM25 statistics: {}", e.what()));
+    }
     // As the query path does once the index meta is read: the searcher may be cached and read
     // by later queries, which must not use this query's I/O context, and later reads are of
     // index data, not meta.

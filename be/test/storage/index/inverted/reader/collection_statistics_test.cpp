@@ -962,9 +962,9 @@ TEST_F(CollectionStatisticsTest, MissingFieldIndexPreservesOtherFieldStatistics)
 // statistics as a replica that compacted the row away, or the two score every row differently.
 TEST_F(CollectionStatisticsTest, HiddenRowsAreCollectedLikeCompactedAway) {
     auto tablet_schema = create_legacy_v3_schema();
-    // Thirty-one tokens: CLucene's norm holds this length only approximately.
+    // Forty-five tokens: CLucene's norm holds lengths exactly only up to 40.
     std::string overwritten;
-    for (int i = 0; i < 30; ++i) {
+    for (int i = 0; i < 44; ++i) {
         overwritten += "gamma ";
     }
     overwritten += "alpha";
@@ -1042,7 +1042,7 @@ TEST_F(CollectionStatisticsTest, HiddenRowsAreCollectedLikeCompactedAway) {
     ASSERT_TRUE(stats_->collect(runtime_state_.get(), splits, tablet_schema,
                                 create_match_expr_contexts("alpha gamma"), nullptr)
                         .ok());
-    expect_collected_stats(L"1", 3, 36);
+    expect_collected_stats(L"1", 3, 50);
     expect_collected_term(L"1", L"alpha", 2);
 }
 
