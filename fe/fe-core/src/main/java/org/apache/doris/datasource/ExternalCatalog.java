@@ -29,6 +29,8 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
@@ -1289,6 +1291,24 @@ public abstract class ExternalCatalog
                 return;
             }
             throw new DdlException("Failed to get table: '" + tableName + "' in database: " + dbName);
+        }
+        // The metadata API receives no kind/lifetime flags and may purge an ordinary table.
+        // External catalogs have no temporary tables or MTMVs; reject mismatches before dispatch.
+        if (mustTemporary) {
+            if (ifExists) {
+                return;
+            }
+            ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, tableName, dbName);
+        }
+        if (isMtmv) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "MTMV",
+                    "External catalogs do not support materialized views");
+        }
+        boolean actualIsView = dorisTable.isView();
+        if (isView != actualIsView) {
+            // IF EXISTS must not relax the type check for an existing object.
+            ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, isView ? "VIEW" : "TABLE",
+                    "Use DROP " + (actualIsView ? "VIEW" : "TABLE") + " instead");
         }
         try {
             metadataOps.dropTable(dorisTable, ifExists);
