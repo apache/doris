@@ -3026,6 +3026,120 @@ TEST(RecyclerTest, recycle_tmp_rowsets_partial_update) {
     check_delete_bitmap_file_size(accessor, tablet_id, 0);
 }
 
+TEST(RecyclerTest, recycle_index_tablet_placeholder) {
+    const bool old_enable_check = config::enable_recycler_check_lazy_txn_finished;
+    config::enable_recycler_check_lazy_txn_finished = true;
+    DORIS_CLOUD_DEFER {
+        config::enable_recycler_check_lazy_txn_finished = old_enable_check;
+    };
+
+    for (bool with_tablet : {false, true}) {
+        auto txn_kv = std::make_shared<MemTxnKv>();
+        ASSERT_EQ(txn_kv->init(), 0);
+        InstanceInfoPB instance;
+        instance.set_instance_id(instance_id);
+        instance.set_multi_version_status(MULTI_VERSION_READ_WRITE);
+        instance.add_obj_info()->set_id("recycle_index_tablet_placeholder");
+        InstanceRecycler recycler(txn_kv, instance, thread_group,
+                                  std::make_shared<TxnLazyCommitter>(txn_kv));
+        ASSERT_EQ(recycler.init(), 0);
+
+        constexpr int64_t table_id = 23000;
+        constexpr int64_t index_id = 23001;
+        constexpr int64_t partition_id = 23002;
+        constexpr int64_t tablet_id = 23003;
+        const auto placeholder_key = meta_tablet_key(
+                {instance_id, table_id, index_id, INT64_MAX - 1, INT64_MAX - 1});
+        const auto tablet_key =
+                meta_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+        const auto tablet_idx_key = versioned::tablet_index_key({instance_id, tablet_id});
+        const auto inverted_idx_key = versioned::tablet_inverted_index_key(
+                {instance_id, db_id, table_id, index_id, partition_id, tablet_id});
+
+        if (with_tablet) {
+            ASSERT_EQ(create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id), 0);
+            ASSERT_EQ(create_partition_version_kv(txn_kv.get(), table_id, partition_id), 0);
+        }
+
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(placeholder_key, "");
+        const std::array zero_id_keys {
+                meta_tablet_idx_key({instance_id, 0}),
+                versioned::tablet_index_key({instance_id, 0}),
+                job_restore_tablet_key({instance_id, 0})};
+        for (const auto& key : zero_id_keys) {
+            txn->put(key, "preserve");
+        }
+        const std::array zero_id_versioned_keys {
+                versioned::meta_tablet_key({instance_id, 0}),
+                versioned::tablet_compact_stats_key({instance_id, 0}),
+                versioned::tablet_load_stats_key({instance_id, 0})};
+        for (const auto& key : zero_id_versioned_keys) {
+            versioned_put(txn.get(), key, "preserve");
+        }
+        if (with_tablet) {
+            TabletIndexPB tablet_idx;
+            tablet_idx.set_db_id(db_id);
+            tablet_idx.set_table_id(table_id);
+            tablet_idx.set_index_id(index_id);
+            tablet_idx.set_partition_id(partition_id);
+            tablet_idx.set_tablet_id(tablet_id);
+            txn->put(tablet_idx_key, tablet_idx.SerializeAsString());
+            txn->put(inverted_idx_key, "");
+            txn->put(job_restore_tablet_key({instance_id, tablet_id}), "restore");
+            TabletMetaCloudPB tablet_meta;
+            tablet_meta.set_tablet_id(tablet_id);
+            versioned_put(txn.get(), versioned::meta_tablet_key({instance_id, tablet_id}),
+                          tablet_meta.SerializeAsString());
+            versioned_put(txn.get(), versioned::tablet_compact_stats_key({instance_id, tablet_id}),
+                          "stats");
+            versioned_put(txn.get(), versioned::tablet_load_stats_key({instance_id, tablet_id}),
+                          "stats");
+        }
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        InstanceChecker checker(txn_kv, instance_id);
+        ASSERT_EQ(checker.init(instance), 0);
+        if (!with_tablet) {
+            EXPECT_EQ(checker.do_tablet_stats_key_check(), 0);
+            ASSERT_EQ(recycler.recycle_tablets(table_id, index_id, ctx, partition_id), 0);
+            ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+            std::string val;
+            EXPECT_EQ(txn->get(placeholder_key, &val), TxnErrorCode::TXN_OK);
+        }
+
+        ASSERT_EQ(recycler.recycle_tablets(table_id, index_id, ctx), 0);
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        EXPECT_EQ(txn->get(placeholder_key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+        for (const auto& key : zero_id_keys) {
+            EXPECT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+            EXPECT_EQ(val, "preserve");
+        }
+        for (const auto& key : zero_id_versioned_keys) {
+            std::unique_ptr<RangeGetIterator> it;
+            ASSERT_EQ(txn->get(key, key + '\xff', &it), TxnErrorCode::TXN_OK);
+            EXPECT_TRUE(it->has_next());
+        }
+        if (with_tablet) {
+            for (const auto& key :
+                 {tablet_key, meta_tablet_idx_key({instance_id, tablet_id}), tablet_idx_key,
+                  inverted_idx_key, job_restore_tablet_key({instance_id, tablet_id})}) {
+                EXPECT_EQ(txn->get(key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+            }
+            for (const auto& key :
+                 {versioned::meta_tablet_key({instance_id, tablet_id}),
+                  versioned::tablet_compact_stats_key({instance_id, tablet_id}),
+                  versioned::tablet_load_stats_key({instance_id, tablet_id})}) {
+                std::unique_ptr<RangeGetIterator> it;
+                ASSERT_EQ(txn->get(key, key + '\xff', &it), TxnErrorCode::TXN_OK);
+                EXPECT_FALSE(it->has_next());
+            }
+        }
+    }
+}
+
 TEST(RecyclerTest, recycle_tablet) {
     auto txn_kv = std::make_shared<MemTxnKv>();
     ASSERT_EQ(txn_kv->init(), 0);

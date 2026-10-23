@@ -274,6 +274,9 @@ void MetaChecker::init_tablet_meta_info(std::vector<TabletInfo>* tablets_info) {
                                LOG(WARNING) << "malformed tablet meta value";
                                return -1;
                            }
+                           if (!tablet_meta_pb.has_tablet_id()) {
+                               return 0;
+                           }
                            tablets_info->push_back(TabletInfo {
                                    .table_id = tablet_meta_pb.table_id(),
                                    .partition_id = tablet_meta_pb.partition_id(),

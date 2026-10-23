@@ -9580,6 +9580,76 @@ TEST(MetaServiceTest, IsDroppedTablet) {
     EXPECT_TRUE(is_dropped_tablet(txn.get(), instance_id, index_id, partition_id));
 }
 
+TEST(MetaServiceTest, EmptyIndexIdempotency) {
+    const std::string instance_id = "EmptyIndexIdempotency";
+    auto* sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        sp->clear_all_call_backs();
+        sp->disable_processing();
+    };
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    constexpr int64_t table_id = 10001;
+    constexpr int64_t index_id = 10002;
+    constexpr int64_t partition_id = 10003;
+    constexpr int64_t tablet_id = 10004;
+    for (bool is_new_table : {false, true}) {
+        auto meta_service = get_meta_service();
+        brpc::Controller ctrl;
+        IndexRequest req;
+        req.set_db_id(1);
+        req.set_table_id(table_id);
+        req.add_index_ids(index_id);
+        req.set_is_new_table(is_new_table);
+        IndexResponse res;
+        meta_service->prepare_index(&ctrl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        res.Clear();
+        meta_service->commit_index(&ctrl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        const auto placeholder_key = meta_tablet_key(
+                {instance_id, table_id, index_id, INT64_MAX - 1, INT64_MAX - 1});
+        ASSERT_EQ(txn->get(placeholder_key, &val), TxnErrorCode::TXN_OK);
+        EXPECT_TRUE(val.empty());
+        ASSERT_EQ(txn->get(recycle_index_key({instance_id, index_id}), &val),
+                  TxnErrorCode::TXN_KEY_NOT_FOUND);
+
+        res.Clear();
+        meta_service->commit_index(&ctrl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        res.Clear();
+        meta_service->prepare_index(&ctrl, &req, &res, nullptr);
+        EXPECT_EQ(res.status().code(), MetaServiceCode::ALREADY_EXISTED);
+
+        create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id);
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(placeholder_key, &val), TxnErrorCode::TXN_OK);
+        txn->remove(meta_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id}));
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        req.clear_index_ids();
+        req.add_index_ids(index_id + 10);
+        req.add_index_ids(index_id);
+        res.Clear();
+        meta_service->prepare_index(&ctrl, &req, &res, nullptr);
+        EXPECT_EQ(res.status().code(), MetaServiceCode::ALREADY_EXISTED);
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        EXPECT_EQ(txn->get(recycle_index_key({instance_id, index_id + 10}), &val),
+                  TxnErrorCode::TXN_KEY_NOT_FOUND);
+        EXPECT_EQ(txn->get(recycle_index_key({instance_id, index_id}), &val),
+                  TxnErrorCode::TXN_KEY_NOT_FOUND);
+    }
+}
+
 TEST(MetaServiceTest, IndexRequest) {
     auto meta_service = get_meta_service();
     std::string instance_id = "IndexRequest";
