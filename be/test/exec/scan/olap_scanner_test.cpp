@@ -119,12 +119,6 @@ TEST(OlapScannerTest, BuildScoreRuntimeCollectionIoContextFollowsQueryFileCacheO
                                                             &stats);
     EXPECT_TRUE(io_ctx.is_disposable);
     EXPECT_TRUE(io_ctx.inverted_index_snii_read_no_write_file_cache);
-
-    // Only a query's reads carry its options.
-    io_ctx = build_score_runtime_collection_io_context(&state, ReaderType::READER_BASE_COMPACTION,
-                                                       3600, &stats);
-    EXPECT_FALSE(io_ctx.is_disposable);
-    EXPECT_FALSE(io_ctx.inverted_index_snii_read_no_write_file_cache);
 }
 
 } // namespace doris

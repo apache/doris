@@ -69,6 +69,12 @@ Result<std::shared_ptr<lucene::search::IndexSearcher>> open_optional_clucene_sta
         return ResultError(status);
     }
     auto* reader = lucene::index::IndexReader::open(compound.value().get());
+    // As the query path does once the index meta is read: the searcher may be cached and read
+    // by later queries, which must not use this query's I/O context, and later reads are of
+    // index data, not meta.
+    auto* stream = compound.value()->getDorisIndexInput();
+    stream->setIoContext(nullptr);
+    stream->setIndexFile(false);
     return std::make_shared<lucene::search::IndexSearcher>(reader, true);
 }
 
