@@ -40,7 +40,7 @@
 
 namespace doris {
 
-void register_aggregate_function_topk_count(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_topk(AggregateFunctionSimpleFactory& factory);
 
 namespace {
 
@@ -96,9 +96,9 @@ TopKResult aggregate(const AggregateFunctionPtr& function, Arena& arena,
 
 } // namespace
 
-TEST(TopKCountTest, MinAndMaxWithTruncation) {
+TEST(TopKTest, MinAndMaxWithTruncation) {
     AggregateFunctionSimpleFactory factory;
-    register_aggregate_function_topk_count(factory);
+    register_aggregate_function_topk(factory);
     DataTypes argument_types = {std::make_shared<DataTypeInt32>(),
                                 std::make_shared<DataTypeInt64>()};
     Arena arena;
@@ -106,56 +106,56 @@ TEST(TopKCountTest, MinAndMaxWithTruncation) {
     // 1 x3, 2 x1, 3 x2, 4 x1; k = 2 keeps the two smallest.
     std::vector<int32_t> input = {3, 1, 2, 1, 3, 1, 4};
     auto min_result =
-            aggregate(create_function(factory, "topk_min_count", argument_types), arena, input, 2);
+            aggregate(create_function(factory, "min_topk", argument_types), arena, input, 2);
     EXPECT_EQ(min_result.values, (std::vector<int32_t> {1, 2}));
     EXPECT_EQ(min_result.counts, (std::vector<int64_t> {3, 1}));
 
     auto max_result =
-            aggregate(create_function(factory, "topk_max_count", argument_types), arena, input, 2);
+            aggregate(create_function(factory, "max_topk", argument_types), arena, input, 2);
     EXPECT_EQ(max_result.values, (std::vector<int32_t> {4, 3}));
     EXPECT_EQ(max_result.counts, (std::vector<int64_t> {1, 2}));
 }
 
-TEST(TopKCountTest, ExactlyKDistinctValues) {
+TEST(TopKTest, ExactlyKDistinctValues) {
     AggregateFunctionSimpleFactory factory;
-    register_aggregate_function_topk_count(factory);
+    register_aggregate_function_topk(factory);
     DataTypes argument_types = {std::make_shared<DataTypeInt32>(),
                                 std::make_shared<DataTypeInt64>()};
     Arena arena;
 
     // Exactly k distinct values is still not truncated.
-    auto result = aggregate(create_function(factory, "topk_min_count", argument_types), arena,
-                            {1, 2, 2}, 2);
+    auto result =
+            aggregate(create_function(factory, "min_topk", argument_types), arena, {1, 2, 2}, 2);
     EXPECT_EQ(result.values, (std::vector<int32_t> {1, 2}));
     EXPECT_EQ(result.counts, (std::vector<int64_t> {1, 2}));
 }
 
-TEST(TopKCountTest, KZeroTracksExtremeOnly) {
+TEST(TopKTest, KZeroTracksExtremeOnly) {
     AggregateFunctionSimpleFactory factory;
-    register_aggregate_function_topk_count(factory);
+    register_aggregate_function_topk(factory);
     DataTypes argument_types = {std::make_shared<DataTypeInt32>(),
                                 std::make_shared<DataTypeInt64>()};
     Arena arena;
 
-    auto min_result = aggregate(create_function(factory, "topk_min_count", argument_types), arena,
-                                {5, 1, 9}, 0);
+    auto min_result =
+            aggregate(create_function(factory, "min_topk", argument_types), arena, {5, 1, 9}, 0);
     EXPECT_EQ(min_result.values, (std::vector<int32_t> {1}));
     EXPECT_EQ(min_result.counts, (std::vector<int64_t> {1}));
 
-    auto max_result = aggregate(create_function(factory, "topk_max_count", argument_types), arena,
-                                {5, 1, 9}, 0);
+    auto max_result =
+            aggregate(create_function(factory, "max_topk", argument_types), arena, {5, 1, 9}, 0);
     EXPECT_EQ(max_result.values, (std::vector<int32_t> {9}));
     EXPECT_EQ(max_result.counts, (std::vector<int64_t> {1}));
 }
 
-TEST(TopKCountTest, EmptyInput) {
+TEST(TopKTest, EmptyInput) {
     AggregateFunctionSimpleFactory factory;
-    register_aggregate_function_topk_count(factory);
+    register_aggregate_function_topk(factory);
     DataTypes argument_types = {std::make_shared<DataTypeInt32>(),
                                 std::make_shared<DataTypeInt64>()};
     Arena arena;
 
-    for (const auto& name : {"topk_min_count", "topk_max_count"}) {
+    for (const auto& name : {"min_topk", "max_topk"}) {
         for (int64_t k : {0, 4}) {
             auto result = aggregate(create_function(factory, name, argument_types), arena, {}, k);
             EXPECT_TRUE(result.values.empty());
@@ -163,9 +163,9 @@ TEST(TopKCountTest, EmptyInput) {
     }
 }
 
-TEST(TopKCountTest, MergePartialStates) {
+TEST(TopKTest, MergePartialStates) {
     AggregateFunctionSimpleFactory factory;
-    register_aggregate_function_topk_count(factory);
+    register_aggregate_function_topk(factory);
     DataTypes argument_types = {std::make_shared<DataTypeInt32>(),
                                 std::make_shared<DataTypeInt64>()};
     Arena arena;
@@ -201,24 +201,24 @@ TEST(TopKCountTest, MergePartialStates) {
     };
 
     // MIN: {1:1, 5:2} + {2:2, 9:1} -> the first two are {1, 2}.
-    TopKResult min_merged = merge_states("topk_min_count", {5, 1, 5}, {2, 2, 9}, 2);
+    TopKResult min_merged = merge_states("min_topk", {5, 1, 5}, {2, 2, 9}, 2);
     EXPECT_EQ(min_merged.values, (std::vector<int32_t> {1, 2}));
     EXPECT_EQ(min_merged.counts, (std::vector<int64_t> {1, 2}));
 
     // MAX: {5:2, 1:1} + {9:1, 2:2} -> {9, 5}.
-    TopKResult max_merged = merge_states("topk_max_count", {1, 5, 5}, {9, 2, 2}, 2);
+    TopKResult max_merged = merge_states("max_topk", {1, 5, 5}, {9, 2, 2}, 2);
     EXPECT_EQ(max_merged.values, (std::vector<int32_t> {9, 5}));
     EXPECT_EQ(max_merged.counts, (std::vector<int64_t> {1, 2}));
 }
 
-TEST(TopKCountTest, SerializeDeserializeRoundTrip) {
+TEST(TopKTest, SerializeDeserializeRoundTrip) {
     AggregateFunctionSimpleFactory factory;
-    register_aggregate_function_topk_count(factory);
+    register_aggregate_function_topk(factory);
     DataTypes argument_types = {std::make_shared<DataTypeInt32>(),
                                 std::make_shared<DataTypeInt64>()};
     Arena arena;
 
-    auto function = create_function(factory, "topk_min_count", argument_types);
+    auto function = create_function(factory, "min_topk", argument_types);
 
     auto round_trip = [&](const std::vector<int32_t>& input, int64_t k) {
         std::unique_ptr<char[]> memory(new char[function->size_of_data() * 2]);
@@ -269,14 +269,14 @@ TEST(TopKCountTest, SerializeDeserializeRoundTrip) {
     round_trip(compressed, 65);
 }
 
-TEST(TopKCountTest, MergeRejectsIncompatibleK) {
+TEST(TopKTest, MergeRejectsIncompatibleK) {
     AggregateFunctionSimpleFactory factory;
-    register_aggregate_function_topk_count(factory);
+    register_aggregate_function_topk(factory);
     DataTypes argument_types = {std::make_shared<DataTypeInt32>(),
                                 std::make_shared<DataTypeInt64>()};
     Arena arena;
 
-    auto function = create_function(factory, "topk_min_count", argument_types);
+    auto function = create_function(factory, "min_topk", argument_types);
     std::unique_ptr<char[]> memory(new char[function->size_of_data() * 2]);
     AggregateDataPtr lhs = memory.get();
     AggregateDataPtr rhs = memory.get() + function->size_of_data();
@@ -301,14 +301,14 @@ TEST(TopKCountTest, MergeRejectsIncompatibleK) {
     function->destroy(rhs);
 }
 
-TEST(TopKCountTest, MergeOverflowIsReported) {
+TEST(TopKTest, MergeOverflowIsReported) {
     AggregateFunctionSimpleFactory factory;
-    register_aggregate_function_topk_count(factory);
+    register_aggregate_function_topk(factory);
     DataTypes argument_types = {std::make_shared<DataTypeInt32>(),
                                 std::make_shared<DataTypeInt64>()};
     Arena arena;
 
-    auto function = create_function(factory, "topk_min_count", argument_types);
+    auto function = create_function(factory, "min_topk", argument_types);
     std::unique_ptr<char[]> memory(new char[function->size_of_data() * 2]);
     AggregateDataPtr max_state = memory.get();
     AggregateDataPtr one_state = memory.get() + function->size_of_data();
@@ -353,9 +353,9 @@ TEST(TopKCountTest, MergeOverflowIsReported) {
     function->destroy(one_state);
 }
 
-TEST(TopKCountTest, NullEvaluatedCountIsRejected) {
+TEST(TopKTest, NullEvaluatedCountIsRejected) {
     AggregateFunctionSimpleFactory factory;
-    register_aggregate_function_topk_count(factory);
+    register_aggregate_function_topk(factory);
     // A constant count expression that FE cannot fold is evaluated on BE; when it is NULL the
     // nullable-argument adapter is bypassed so the NULL reaches this check instead of being
     // filtered out before add() runs.
@@ -363,7 +363,7 @@ TEST(TopKCountTest, NullEvaluatedCountIsRejected) {
                                 make_nullable(std::make_shared<DataTypeInt64>())};
     Arena arena;
 
-    auto function = create_function(factory, "topk_min_count", argument_types);
+    auto function = create_function(factory, "min_topk", argument_types);
     std::unique_ptr<char[]> memory(new char[function->size_of_data()]);
     AggregateDataPtr place = memory.get();
     function->create(place);
@@ -378,14 +378,14 @@ TEST(TopKCountTest, NullEvaluatedCountIsRejected) {
     function->destroy(place);
 }
 
-TEST(TopKCountTest, NullValueRowsAreIgnored) {
+TEST(TopKTest, NullValueRowsAreIgnored) {
     AggregateFunctionSimpleFactory factory;
-    register_aggregate_function_topk_count(factory);
+    register_aggregate_function_topk(factory);
     DataTypes argument_types = {make_nullable(std::make_shared<DataTypeInt32>()),
                                 std::make_shared<DataTypeInt64>()};
     Arena arena;
 
-    auto function = create_function(factory, "topk_max_count", argument_types);
+    auto function = create_function(factory, "max_topk", argument_types);
     std::unique_ptr<char[]> memory(new char[function->size_of_data()]);
     AggregateDataPtr place = memory.get();
     function->create(place);

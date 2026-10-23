@@ -38,7 +38,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Shared implementation of {@code topk_min_count(x, k)} and {@code topk_max_count(x, k)}.
+ * Shared implementation of {@code min_topk(x, k)} and {@code max_topk(x, k)}.
  *
  * <p>Both aggregates return {@code ARRAY<STRUCT<value T, count BIGINT>>}: at most k distinct
  * non-NULL values ordered by value (ascending for MIN, descending for MAX) with the number of rows
@@ -46,18 +46,18 @@ import java.util.List;
  * exactly k entries is conservatively treated as possibly truncated). With {@code k = 0} the array
  * holds at most the extreme value and its row count.
  */
-public abstract class TopKCountFunction extends NotNullableAggregateFunction
+public abstract class TopKFunction extends NotNullableAggregateFunction
         implements CustomSignature, NullIgnoringAggregateFunction {
 
     /** Upper bound of k, shared with the BE implementation. */
     public static final long MAX_TOPK_K = 65536;
 
-    protected TopKCountFunction(String name, boolean distinct, List<Expression> children) {
+    protected TopKFunction(String name, boolean distinct, List<Expression> children) {
         super(name, distinct, false, children);
     }
 
     /** constructor for withChildren and reuse signature */
-    protected TopKCountFunction(AggregateFunctionParams functionParams) {
+    protected TopKFunction(AggregateFunctionParams functionParams) {
         super(functionParams);
     }
 

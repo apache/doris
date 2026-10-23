@@ -47,7 +47,7 @@ namespace doris {
 constexpr int64_t MAX_TOPK_K = 65536;
 
 /**
- * State shared by topk_min_count and topk_max_count.
+ * State shared by min_topk and max_topk.
  *
  * The entries are held as two parallel structures: a column with the distinct values (sorted
  * ascending for MIN / descending for MAX, at most k entries) and their non-negative int64 counts.
@@ -73,7 +73,7 @@ struct AggregateTopKCountData {
 };
 
 /**
- * topk_min_count(x, k) / topk_max_count(x, k).
+ * min_topk(x, k) / max_topk(x, k).
  *
  * Result: ARRAY<STRUCT<value T, count BIGINT>>. NULL inputs are ignored (the nullable-argument
  * wrapper never calls add for them). The array is ordered by value (ascending for MIN), holds at
@@ -84,20 +84,20 @@ struct AggregateTopKCountData {
  * append-only IVM path compute MIN/MAX from the delta extreme alone.
  */
 template <PrimitiveType T, bool IsMin>
-class AggregateFunctionTopKCount final
+class AggregateFunctionTopK final
         : public IAggregateFunctionDataHelper<AggregateTopKCountData,
-                                              AggregateFunctionTopKCount<T, IsMin>, true>,
+                                              AggregateFunctionTopK<T, IsMin>, true>,
           public MultiExpression,
           public NotNullableAggregateFunction {
 public:
     using Base = IAggregateFunctionDataHelper<AggregateTopKCountData,
-                                              AggregateFunctionTopKCount<T, IsMin>, true>;
+                                              AggregateFunctionTopK<T, IsMin>, true>;
 
-    explicit AggregateFunctionTopKCount(const DataTypes& argument_types_) : Base(argument_types_) {
+    explicit AggregateFunctionTopK(const DataTypes& argument_types_) : Base(argument_types_) {
         DCHECK_EQ(argument_types_.size(), 2);
     }
 
-    String get_name() const override { return IsMin ? "topk_min_count" : "topk_max_count"; }
+    String get_name() const override { return IsMin ? "min_topk" : "max_topk"; }
 
     DataTypePtr get_return_type() const override {
         return make_return_type(remove_nullable(this->argument_types[0]));
@@ -202,7 +202,7 @@ private:
         if (const auto* nullable = check_and_get_column<ColumnNullable>(&count_column)) {
             if (UNLIKELY(nullable->is_null_at(row_num))) {
                 throw Exception(ErrorCode::INVALID_ARGUMENT,
-                                "the count of topk_min_count and topk_max_count must be a non-null "
+                                "the count of min_topk and max_topk must be a non-null "
                                 "constant");
             }
             nested = &nullable->get_nested_column();
@@ -213,7 +213,7 @@ private:
         if (!state.has_k) {
             if (UNLIKELY(value < 0 || value > MAX_TOPK_K)) {
                 throw Exception(ErrorCode::INVALID_ARGUMENT,
-                                "the count of topk_min_count and topk_max_count must be a constant "
+                                "the count of min_topk and max_topk must be a constant "
                                 "between 0 and {}, but got {}",
                                 MAX_TOPK_K, value);
             }
@@ -244,8 +244,7 @@ private:
     static int64_t checked_add(int64_t lhs, int64_t rhs) {
         int64_t result = 0;
         if (UNLIKELY(__builtin_add_overflow(lhs, rhs, &result))) {
-            throw Exception(ErrorCode::INVALID_ARGUMENT,
-                            "topk_min_count/topk_max_count value count overflow");
+            throw Exception(ErrorCode::INVALID_ARGUMENT, "min_topk/max_topk value count overflow");
         }
         return result;
     }

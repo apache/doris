@@ -49,8 +49,8 @@ class TopKFunctionSignatureTest {
     void testAggregateReturnType() {
         Expression value = SlotReference.of("value", IntegerType.INSTANCE);
         for (AggregateFunction function : new AggregateFunction[] {
-                new TopKMinCount(value, new BigIntLiteral(2)),
-                new TopKMaxCount(value, new BigIntLiteral(2))}) {
+                new MinTopK(value, new BigIntLiteral(2)),
+                new MaxTopK(value, new BigIntLiteral(2))}) {
             FunctionSignature signature = function.getSignature();
             Assertions.assertEquals(IntegerType.INSTANCE, signature.getArgType(0));
             Assertions.assertEquals(BigIntType.INSTANCE, signature.getArgType(1));
@@ -67,24 +67,24 @@ class TopKFunctionSignatureTest {
         Expression k = SlotReference.of("k", BigIntType.INSTANCE);
 
         Assertions.assertThrows(AnalysisException.class,
-                () -> new TopKMinCount(value, k).checkLegalityBeforeTypeCoercion());
+                () -> new MinTopK(value, k).checkLegalityBeforeTypeCoercion());
         Assertions.assertThrows(AnalysisException.class,
-                () -> new TopKMinCount(true, value, new BigIntLiteral(1))
+                () -> new MinTopK(true, value, new BigIntLiteral(1))
                         .checkLegalityBeforeTypeCoercion());
         Assertions.assertThrows(AnalysisException.class,
-                () -> new TopKMinCount(value, NullLiteral.INSTANCE).checkLegalityAfterRewrite());
+                () -> new MinTopK(value, NullLiteral.INSTANCE).checkLegalityAfterRewrite());
         Assertions.assertThrows(AnalysisException.class,
-                () -> new TopKMinCount(value, new BigIntLiteral(-1)).checkLegalityAfterRewrite());
+                () -> new MinTopK(value, new BigIntLiteral(-1)).checkLegalityAfterRewrite());
         Assertions.assertThrows(AnalysisException.class,
-                () -> new TopKMaxCount(value, new BigIntLiteral(TopKCountFunction.MAX_TOPK_K + 1))
+                () -> new MaxTopK(value, new BigIntLiteral(TopKFunction.MAX_TOPK_K + 1))
                         .checkLegalityAfterRewrite());
         Assertions.assertDoesNotThrow(
-                () -> new TopKMinCount(value, new BigIntLiteral(TopKCountFunction.MAX_TOPK_K))
+                () -> new MinTopK(value, new BigIntLiteral(TopKFunction.MAX_TOPK_K))
                         .checkLegalityAfterRewrite());
 
         Expression varbinary = SlotReference.of("v", VarBinaryType.INSTANCE);
         Assertions.assertThrows(AnalysisException.class,
-                () -> new TopKMinCount(varbinary, new BigIntLiteral(1))
+                () -> new MinTopK(varbinary, new BigIntLiteral(1))
                         .checkLegalityBeforeTypeCoercion());
     }
 
