@@ -31,6 +31,7 @@ import org.apache.doris.datasource.FederationBackendPolicy;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.FileSplitter;
 import org.apache.doris.datasource.lance.metadata.LanceFragmentInfo;
+import org.apache.doris.datasource.lance.metadata.LancePlannedDataset;
 import org.apache.doris.datasource.lance.source.LanceSplit;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
@@ -161,10 +162,10 @@ public class TVFScanNodeTest {
         Mockito.when(table.getTvf()).thenReturn(tvf);
         Mockito.when(tvf.isLanceFormat()).thenReturn(true);
         Mockito.when(tvf.getFilePath()).thenReturn("s3://bucket/table.lance");
-        Mockito.when(tvf.getLanceDatasetVersion()).thenReturn(42L);
-        Mockito.when(tvf.getLanceFragments()).thenReturn(Arrays.asList(
-                new LanceFragmentInfo(7, 1000, 1000),
-                new LanceFragmentInfo(11, 250, 250)));
+        Mockito.when(tvf.getLancePlannedDatasets()).thenReturn(Collections.singletonList(
+                new LancePlannedDataset("s3://bucket/table.lance", 42L,
+                        Arrays.asList(new LanceFragmentInfo(7, 1000, 1000),
+                                new LanceFragmentInfo(11, 250, 250)))));
         desc.setTable(table);
 
         TVFScanNode node = new TVFScanNode(new PlanNodeId(0), desc, false, sv, ScanContext.EMPTY);

@@ -75,6 +75,12 @@ private:
     Status _resolve_search_kind();
     Status _validate_external_search_request() const;
     Status _ensure_dataset_open(const TFileRangeDesc& range, bool prepare_fts_context = true);
+    // Closes whatever dataset is open and opens the one this key names. One scanner serves several
+    // splits and the splits of one scan may belong to different datasets; every split carries the
+    // URI and version of the dataset it reads, so which dataset to open is decided by the split and
+    // needs no context carried over from the previous one. Everything the previous open owned is
+    // released here, so nothing dataset-scoped survives into the next dataset.
+    Status _switch_dataset(const DatasetKey& key);
     Status _open_dataset(const DatasetKey& key);
     // Rejects FE fragment ids the opened snapshot lacks; lance-c would silently skip them.
     Status _check_fragment_ids(const std::vector<uint64_t>& fragment_ids) const;
@@ -89,8 +95,10 @@ private:
                                     const TLanceFileDesc& lance_params) const;
     Status _configure_full_text_search(LanceScanner* scanner,
                                        const TLanceFileDesc& lance_params) const;
-    // Collect the cumulative statistics owned by this dataset handle. The Lance-C API returns an
-    // absolute snapshot, so this method replaces rather than increments the profile counters.
+    // Add the statistics of the dataset handle currently open to the profile. The Lance-C API
+    // returns an absolute snapshot of that one handle, so the value is accumulated into a running
+    // total before the counter is written: a reader that opens several datasets would otherwise
+    // end up reporting only the last one's numbers.
     void _collect_data_cache_statistics();
     // Keep lance-c's anonymous statistics typedef out of this header. _open_scanner installs the
     // strongly typed C callback adapter before forwarding the borrowed value here.
@@ -128,6 +136,13 @@ private:
     std::vector<RuntimeProfile::Counter*> _scan_metric_counters;
     RuntimeProfile::Counter* _data_cache_bytes_read_from_cache = nullptr;
     RuntimeProfile::Counter* _data_cache_bytes_read_from_remote = nullptr;
+    // Totals of the two counters above over every dataset this reader opens: a dataset handle
+    // reports its own snapshot, and the profile reports the scan as a whole.
+    uint64_t _data_cache_bytes_read_from_cache_total = 0;
+    uint64_t _data_cache_bytes_read_from_remote_total = 0;
+    // The URI and version of every dataset this reader has opened, in order, for the profile.
+    std::string _opened_dataset_uris;
+    std::string _opened_dataset_versions;
     RuntimeProfile::Counter* _index_object_loads = nullptr;
     RuntimeProfile::Counter* _index_components_loaded = nullptr;
     RuntimeProfile::Counter* _index_comparisons = nullptr;

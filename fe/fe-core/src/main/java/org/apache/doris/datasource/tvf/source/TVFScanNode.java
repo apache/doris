@@ -30,6 +30,7 @@ import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.FileSplit.FileSplitCreator;
 import org.apache.doris.datasource.FileSplitter;
 import org.apache.doris.datasource.TableFormatType;
+import org.apache.doris.datasource.lance.metadata.LancePlannedDataset;
 import org.apache.doris.datasource.lance.source.LanceScanNode;
 import org.apache.doris.datasource.lance.source.LanceSplit;
 import org.apache.doris.datasource.lance.source.LanceSplitBuilder;
@@ -130,12 +131,16 @@ public class TVFScanNode extends FileQueryScanNode {
         if (tableValuedFunction.isLanceFormat()) {
             // lance-c opens the dataset itself and needs the options in Lance's own vocabulary.
             // Set at ScanNode level so credentials are not serialized once per fragment split.
-            Map<String, String> lanceStorageOptions = LanceStorageOptions.fromDorisStorageProperties(
-                    tableValuedFunction.getFilePath(),
-                    Collections.singletonList(tableValuedFunction.getStorageProperties()));
-            if (!lanceStorageOptions.isEmpty()) {
-                params.setLanceScanParams(
-                        new TLanceScanParams().setLanceStorageOptions(lanceStorageOptions));
+            List<LancePlannedDataset> datasets = tableValuedFunction.getLancePlannedDatasets();
+            if (!datasets.isEmpty()) {
+                Map<String, String> lanceStorageOptions =
+                        LanceStorageOptions.fromDorisStorageProperties(
+                                datasets.get(0).getUri(),
+                                Collections.singletonList(tableValuedFunction.getStorageProperties()));
+                if (!lanceStorageOptions.isEmpty()) {
+                    params.setLanceScanParams(
+                            new TLanceScanParams().setLanceStorageOptions(lanceStorageOptions));
+                }
             }
         }
     }
@@ -196,20 +201,17 @@ public class TVFScanNode extends FileQueryScanNode {
         if (!sessionVariable.enableFileScannerV2) {
             throw new UserException("Lance TVF requires enable_file_scanner_v2=true");
         }
+        List<LancePlannedDataset> datasets = tableValuedFunction.getLancePlannedDatasets();
+        if (!datasets.isEmpty()) {
+            return LanceSplitBuilder.buildFragmentSplits(datasets, 1);
+        }
         if (tableValuedFunction.getTFileType() == TFileType.FILE_LOCAL) {
             // A local dataset is visible to its selected BE, not to FE. Keep exactly one
             // whole-dataset split; BE resolves version zero to latest when it opens the dataset.
             return Collections.singletonList(
                     LanceSplit.scanLatestDataset(tableValuedFunction.getFilePath()));
         }
-
-        long version = tableValuedFunction.getLanceDatasetVersion();
-        if (version <= 0) {
-            throw new UserException(
-                    "S3 Lance TVF metadata was not initialized with a fixed dataset version");
-        }
-        return LanceSplitBuilder.buildFragmentSplits(tableValuedFunction.getFilePath(), version,
-                tableValuedFunction.getLanceFragments(), 1);
+        throw new UserException("Lance TVF has no lance splits");
     }
 
     private long determineTargetFileSplitSize(List<TBrokerFileStatus> fileStatuses) throws UserException {
