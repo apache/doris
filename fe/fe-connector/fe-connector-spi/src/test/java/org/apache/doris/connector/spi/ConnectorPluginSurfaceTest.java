@@ -89,7 +89,7 @@ public class ConnectorPluginSurfaceTest {
             version.load(in);
         }
         // Major 20 adds deleteUsingMetadata to the connector write surface; major 21 adds
-        // typed filesystem credential descriptions to that surface.
+        // typed filesystem credential descriptions and statement-scoped metadata.
         Assertions.assertEquals("21.0", version.getProperty("api.version"));
     }
 
