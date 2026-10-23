@@ -2495,7 +2495,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         boolean tableHasExist = false;
         ChangelogConfig createTableChangelogConfig;
         try {
-            PropertyAnalyzer.checkLegacyBinlogProperties(createTableInfo.getProperties());
+            // Check the binlog properties as written: the effective binlog config is put back over them below.
+            PropertyAnalyzer.analyzeBinlogConfig(Maps.newHashMap(createTableInfo.getProperties()));
             createTableChangelogConfig = db.getChangelogConfigForCreateTable(createTableInfo.getProperties());
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());

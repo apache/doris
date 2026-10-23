@@ -25,7 +25,6 @@ import org.apache.paimon.catalog.Database;
 import org.apache.paimon.catalog.DelegateCatalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.partition.Partition;
-import org.apache.paimon.privilege.PrivilegedFileStoreTable;
 import org.apache.paimon.rest.RESTCatalog;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.SchemaChange;
@@ -471,14 +470,8 @@ public interface PaimonCatalogOps {
                     // do not read the full snapshot selected by TimeTravelUtil.
                     return -1;
             }
-            if (fileStoreTable instanceof PrivilegedFileStoreTable) {
-                // Match the old scan's SELECT check without planning any splits. TimeTravelUtil
-                // eagerly calls tagManager(), which requires INSERT on the privilege wrapper.
-                fileStoreTable.newScan();
-                fileStoreTable = PaimonTableDecorators.unwrapToFallbackOrBase(fileStoreTable);
-            }
-            // Catalog query authorization normally runs in scan.plan(), independently of the
-            // privilege wrapper's SELECT check. Preserve it without planning any file splits.
+            // Catalog query authorization normally runs in scan.plan(). Preserve it without
+            // planning any file splits.
             if (options.queryAuthEnabled()) {
                 fileStoreTable.catalogEnvironment().tableQueryAuth(options).auth(null);
             }

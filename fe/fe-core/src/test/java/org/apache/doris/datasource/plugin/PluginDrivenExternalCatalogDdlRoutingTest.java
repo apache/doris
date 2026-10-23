@@ -1339,9 +1339,9 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         Assertions.assertFalse(b.isReplace());
         Assertions.assertTrue(b.isIfNotExists());
         Assertions.assertEquals(42L, b.getSnapshotId().longValue());
-        Assertions.assertEquals(86400000L, b.getMaxSnapshotAgeMs().longValue());
+        Assertions.assertEquals(86400000L, b.getMaxRefAgeMs().longValue());
         Assertions.assertEquals(5, b.getMinSnapshotsToKeep().intValue());
-        Assertions.assertEquals(172800000L, b.getMaxRefAgeMs().longValue());
+        Assertions.assertEquals(172800000L, b.getMaxSnapshotAgeMs().longValue());
         ArgumentCaptor<ExternalObjectLog> logCap = ArgumentCaptor.forClass(ExternalObjectLog.class);
         Mockito.verify(mockEditLog).logRefreshExternalTable(logCap.capture());
         Assertions.assertEquals("db1", logCap.getValue().getDbName());
