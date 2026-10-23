@@ -7600,13 +7600,16 @@ TEST(MetaServiceTest, UpdateDeleteBitmapWithException) {
 
 static void put_delete_bitmap_test_rowset(MetaServiceProxy* meta_service,
                                           const std::string& instance_id, int64_t tablet_id,
-                                          int64_t version, const std::string& rowset_id) {
+                                          int64_t version, const std::string& rowset_id,
+                                          int64_t start_version = -1) {
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     std::string rowset_key = meta_rowset_key({instance_id, tablet_id, version});
     doris::RowsetMetaCloudPB rowset_meta;
     rowset_meta.set_rowset_id(0);
     rowset_meta.set_rowset_id_v2(rowset_id);
+    rowset_meta.set_start_version(start_version < 0 ? version : start_version);
+    rowset_meta.set_end_version(version);
     std::string rowset_value;
     ASSERT_TRUE(rowset_meta.SerializeToString(&rowset_value));
     txn->put(rowset_key, rowset_value);
