@@ -471,15 +471,15 @@ public class GroupStructInfo {
                 }
                 return;
             case FILTER:
-                out.text(sortedConditions(node.conditions, mode));
+                appendConditionsKey(out, node.conditions, mode, false);
                 break;
             case AGGREGATE:
-                out.text(sortedIdentityConditions(node.conditions));
+                appendConditionsKey(out, node.conditions, LiteralMode.WITH_LITERAL, false);
                 break;
             case JOIN:
                 out.text(node.flattenable ? "inner" : String.valueOf(node.joinType));
                 out.flag(node.markJoin);
-                out.text(distinctIdentityConditions(node.conditions));
+                appendConditionsKey(out, node.conditions, LiteralMode.WITH_LITERAL, true);
                 break;
             case TOPN: {
                 StringBuilder header = new StringBuilder();
@@ -570,8 +570,10 @@ public class GroupStructInfo {
      * for a field of the identity.
      */
     private static void appendExpressionKey(ShapeKeyWriter out, Expression expression, LiteralMode mode) {
-        String name = expression.getClass().getSimpleName();
-        out.text(name.isEmpty() ? expression.getClass().getName() : name);
+        // the identity suffix of the expression (its udf scope and id, the analyzer of a match, the dsl
+        // of a search, the arguments of a lambda, the distinct flag of an aggregate...) is part of the
+        // kind field, so it is not lost by the structural form
+        out.text(expressionName(expression));
         List<Expression> children = expression.children();
         out.count(children.size());
         for (Expression child : children) {
@@ -581,6 +583,8 @@ public class GroupStructInfo {
             SlotReference slot = (SlotReference) expression;
             out.text(String.join(".", slot.getQualifier()));
             out.text(slot.getName());
+            // a variant column read through a sub path (`v['age']`) is a different column
+            out.text(String.join("\u0000", slot.getSubPath()));
         } else if (expression instanceof Literal) {
             Literal literal = (Literal) expression;
             out.text(String.valueOf(literal.getDataType()));
