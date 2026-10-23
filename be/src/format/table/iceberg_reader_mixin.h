@@ -336,6 +336,8 @@ protected:
                                                  ColumnPtr* const value) const;
     Status _register_missing_equality_delete_column(int32_t field_id, const std::string& name,
                                                     const DataTypePtr& delete_key_type);
+    void _register_derived_equality_delete_column(const std::string& name,
+                                                  const DataTypePtr& delete_key_type);
     Status _materialize_missing_equality_delete_column(Block* block, const std::string& name,
                                                        const ColumnPtr& value, size_t rows);
     Status _materialize_missing_equality_delete_columns(Block* block, size_t rows);
@@ -363,6 +365,9 @@ protected:
         DataTypePtr leaf_type;
         std::vector<size_t> child_indexes;
         ColumnPtr missing_value;
+        // Block column holding the key's root struct. Empty when the key's own column reads the
+        // root; otherwise the projected root, or the carrier that reads a shared physical root.
+        std::string source_block_name {};
     };
     struct EqualityDeleteReadSpec {
         NestedEqualityDeleteColumn nested_field;
@@ -1132,15 +1137,29 @@ Status IcebergReaderMixin<BaseReader>::_extract_nested_equality_delete_column(
 template <typename BaseReader>
 Status IcebergReaderMixin<BaseReader>::_materialize_nested_equality_delete_columns(Block* block) {
     DORIS_CHECK(block != nullptr);
+    // A carrier may be the source of other keys under the same physical root, so extract every
+    // leaf before replacing any carrier column with its own leaf.
+    std::vector<std::pair<uint32_t, ColumnPtr>> leaves;
+    leaves.reserve(_nested_equality_delete_columns.size());
     for (const auto& nested_field : _nested_equality_delete_columns) {
-        const auto position = this->col_name_to_block_idx_ref()->find(nested_field.block_name);
-        DORIS_CHECK(position != this->col_name_to_block_idx_ref()->end());
-        DORIS_CHECK(position->second < block->columns());
-        auto& column = block->get_by_position(position->second);
+        const auto& source_name = nested_field.source_block_name.empty()
+                                          ? nested_field.block_name
+                                          : nested_field.source_block_name;
+        const auto source = this->col_name_to_block_idx_ref()->find(source_name);
+        DORIS_CHECK(source != this->col_name_to_block_idx_ref()->end());
+        DORIS_CHECK(source->second < block->columns());
+        const auto target = this->col_name_to_block_idx_ref()->find(nested_field.block_name);
+        DORIS_CHECK(target != this->col_name_to_block_idx_ref()->end());
+        DORIS_CHECK(target->second < block->columns());
         ColumnPtr leaf;
-        RETURN_IF_ERROR(_extract_nested_equality_delete_column(column.column, nested_field, &leaf));
-        column.column = std::move(leaf);
-        column.type = make_nullable(nested_field.leaf_type);
+        RETURN_IF_ERROR(_extract_nested_equality_delete_column(
+                block->get_by_position(source->second).column, nested_field, &leaf));
+        leaves.emplace_back(target->second, std::move(leaf));
+    }
+    for (size_t index = 0; index < leaves.size(); ++index) {
+        auto& column = block->get_by_position(leaves[index].first);
+        column.column = std::move(leaves[index].second);
+        column.type = make_nullable(_nested_equality_delete_columns[index].leaf_type);
     }
     return Status::OK();
 }
@@ -1224,6 +1243,22 @@ Status IcebergReaderMixin<BaseReader>::_register_missing_equality_delete_column(
                         block, name, _missing_equality_delete_values.at(name), rows);
             });
     return Status::OK();
+}
+
+template <typename BaseReader>
+void IcebergReaderMixin<BaseReader>::_register_derived_equality_delete_column(
+        const std::string& name, const DataTypePtr& delete_key_type) {
+    DORIS_CHECK(delete_key_type != nullptr);
+    // The key is extracted from its source column after the read. Until then a placeholder keeps
+    // the carrier at the batch row count, so the reader filters it with the other columns.
+    auto placeholder = delete_key_type->create_column();
+    placeholder->insert_default();
+    this->register_synthesized_column_handler(
+            name,
+            [this, name, placeholder = ColumnPtr(std::move(placeholder))](Block* block,
+                                                                          size_t rows) -> Status {
+                return _materialize_missing_equality_delete_column(block, name, placeholder, rows);
+            });
 }
 
 template <typename BaseReader>
