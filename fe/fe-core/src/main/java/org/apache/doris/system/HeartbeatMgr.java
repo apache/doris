@@ -60,6 +60,7 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.net.UnknownHostException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -80,6 +81,7 @@ public class HeartbeatMgr extends MasterDaemon {
     private SystemInfoService nodeMgr;
     private HeartbeatFlags heartbeatFlags;
     private final ExecutorService abortTxnExecutor;
+    private final Map<Long, TNetworkAddress> backendHeartbeatAddresses = Maps.newConcurrentMap();
 
     private static volatile AtomicReference<TMasterInfo> masterInfo = new AtomicReference<>();
 
@@ -128,6 +130,7 @@ public class HeartbeatMgr extends MasterDaemon {
             LOG.warn("can not get backends", e);
             return;
         }
+        clearRemovedBackendHeartbeatPools();
         for (Backend backend : bes) {
             BackendHeartbeatHandler handler = new BackendHeartbeatHandler(backend, feInfos);
             hbResponses.add(executor.submit(handler));
@@ -270,8 +273,19 @@ public class HeartbeatMgr extends MasterDaemon {
         }
     }
 
+    void clearRemovedBackendHeartbeatPools() {
+        backendHeartbeatAddresses.entrySet().removeIf(entry -> {
+            // Removed BEs will never borrow again, so their idle connections must be closed here.
+            if (nodeMgr.getBackend(entry.getKey()) == null) {
+                ClientPool.backendHeartbeatPool.clearPool(entry.getValue());
+                return true;
+            }
+            return false;
+        });
+    }
+
     // backend heartbeat
-    private class BackendHeartbeatHandler implements Callable<HeartbeatResponse> {
+    class BackendHeartbeatHandler implements Callable<HeartbeatResponse> {
         private Backend backend;
         private List<TFrontendInfo> feInfos;
 
@@ -319,6 +333,20 @@ public class HeartbeatMgr extends MasterDaemon {
                 }
                 THeartbeatResult result;
                 if (!FeConstants.runningUnitTest) {
+                    if (Config.enable_fqdn_mode) {
+                        String realIp = Env.getCurrentEnv().getDnsCache().get(backend.getHost());
+                        // DNSCache returns an empty address when the first lookup fails.
+                        if (realIp.isEmpty()) {
+                            throw new UnknownHostException("Failed to resolve hostname: " + backend.getHost());
+                        }
+                        beAddr = new TNetworkAddress(realIp, backend.getHeartbeatPort());
+                    }
+                    TNetworkAddress previousAddress = backendHeartbeatAddresses.put(backendId, beAddr);
+                    // A reused Pod IP can lead to a healthy connection to the wrong BE, even when
+                    // its heartbeat succeeds. Switch pools as soon as DNSCache observes the new IP.
+                    if (previousAddress != null && !previousAddress.equals(beAddr)) {
+                        ClientPool.backendHeartbeatPool.clearPool(previousAddress);
+                    }
                     client = ClientPool.backendHeartbeatPool.borrowObject(beAddr);
                     result = client.heartbeat(copiedMasterInfo);
                 } else {
@@ -343,7 +371,6 @@ public class HeartbeatMgr extends MasterDaemon {
                     result.getStatus().addToErrorMsgs("debug point HeartbeatMgr.deadBeIds set dead be");
                 }
 
-                ok = true;
                 if (result.getStatus().getStatusCode() == TStatusCode.OK) {
                     TBackendInfo tBackendInfo = result.getBackendInfo();
                     int bePort = tBackendInfo.getBePort();
@@ -379,6 +406,7 @@ public class HeartbeatMgr extends MasterDaemon {
                             fragmentNum, lastFragmentUpdateTime, isShutDown, arrowFlightSqlPort, beMemory);
                     response.setPaimonRustReaderSupported(tBackendInfo.isSetSupportsPaimonRustReader()
                             && tBackendInfo.isSupportsPaimonRustReader());
+                    ok = true;
                     return response;
                 } else {
                     return new BackendHbResponse(backendId, backend.getHost(), backend.getLastUpdateMs(),
@@ -394,6 +422,8 @@ public class HeartbeatMgr extends MasterDaemon {
                     if (ok) {
                         ClientPool.backendHeartbeatPool.returnObject(beAddr, client);
                     } else {
+                        // Identity errors are normal RPC replies. Reusing that socket would keep
+                        // contacting the wrong BE after DNS has converged.
                         ClientPool.backendHeartbeatPool.invalidateObject(beAddr, client);
                     }
                 }
