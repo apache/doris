@@ -18,6 +18,7 @@
 package org.apache.doris.tablefunction;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -50,12 +51,15 @@ public class LocalTableValuedFunctionAuthTest {
     private final AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
     private final SystemInfoService systemInfo = Mockito.mock(SystemInfoService.class);
     private final BackendServiceProxy proxy = Mockito.mock(BackendServiceProxy.class);
+    private boolean originalEnableLocalTvf;
     private MockedStatic<Env> mockedEnv;
     private MockedStatic<ConnectContext> mockedContext;
     private MockedStatic<BackendServiceProxy> mockedProxy;
 
     @BeforeEach
     public void setUp() throws Exception {
+        originalEnableLocalTvf = Config.enable_local_tvf;
+        Config.enable_local_tvf = true;
         mockedEnv = Mockito.mockStatic(Env.class);
         mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
         mockedEnv.when(Env::getCurrentSystemInfo).thenReturn(systemInfo);
@@ -76,6 +80,7 @@ public class LocalTableValuedFunctionAuthTest {
 
     @AfterEach
     public void tearDown() {
+        Config.enable_local_tvf = originalEnableLocalTvf;
         mockedProxy.close();
         mockedContext.close();
         mockedEnv.close();
