@@ -101,11 +101,12 @@ public class MaterializedViewAggregateOnNoneAggregateRule extends AbstractMateri
             int pctInputsInQuery,
             Plan rewrittenPlan,
             CascadesContext cascadesContext,
-            AsyncMaterializationContext materializationContext)
+            AsyncMaterializationContext materializationContext,
+            Set<String> uncoveredNarrowedBasePartitions)
             throws AnalysisException {
         Pair<Map<BaseTableInfo, Set<String>>, Map<BaseColInfo, Set<String>>> invalidPartitions
                 = super.calcInvalidPartitions(queryUsedBaseTablePartitionMap, pctInputsInQuery, rewrittenPlan,
-                cascadesContext, materializationContext);
+                cascadesContext, materializationContext, uncoveredNarrowedBasePartitions);
         if (invalidPartitions != null && !invalidPartitions.value().isEmpty()) {
             // Aggregate-on-non-aggregate rewrite does not support base-table union compensation.
             return null;

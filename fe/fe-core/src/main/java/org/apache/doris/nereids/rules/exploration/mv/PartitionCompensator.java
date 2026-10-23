@@ -105,6 +105,20 @@ public class PartitionCompensator {
             Map<List<String>, Set<String>> queryUsedBaseTablePartitionMap, int pctInputsInQuery, Plan rewrittenPlan,
             AsyncMaterializationContext materializationContext, CascadesContext cascadesContext)
             throws AnalysisException {
+        return calcInvalidPartitions(queryUsedBaseTablePartitionMap, pctInputsInQuery, rewrittenPlan,
+                materializationContext, cascadesContext, Sets.newHashSet());
+    }
+
+    /**
+     * The same, recording in {@code uncoveredNarrowedBasePartitions} the uncovered base partitions the
+     * compensation reads beside the MV partitions it keeps. Those MV partitions answer groups the
+     * partitions also contribute to, so unioning the two answers does not give whole groups.
+     */
+    public static Pair<Map<BaseTableInfo, Set<String>>, Map<BaseColInfo, Set<String>>> calcInvalidPartitions(
+            Map<List<String>, Set<String>> queryUsedBaseTablePartitionMap, int pctInputsInQuery, Plan rewrittenPlan,
+            AsyncMaterializationContext materializationContext, CascadesContext cascadesContext,
+            Set<String> uncoveredNarrowedBasePartitions)
+            throws AnalysisException {
         // check partition is valid or not
         MTMV mtmv = materializationContext.getMtmv();
         PartitionInfo mvPartitionInfo = mtmv.getPartitionInfo();
@@ -237,6 +251,15 @@ public class PartitionCompensator {
         }
         boolean takeMvPartitionsOut = uncoveredRecorded || narrowedTables > 1
                 || (narrowedTables > 0 && pctInputsInQuery > narrowedTables);
+        if (!takeMvPartitionsOut) {
+            // The MV partitions stay, and the uncovered partitions are added to the base branch beside them.
+            // An MV partition's keys and an uncovered partition's can meet in the query's group-by columns:
+            // the repro is a merged LIST component {kept (2020,1), bridge (2038,2)} whose MV partition holds
+            // d=2020, read beside an uncovered old (2020,2). The union then has two rows for d=2020.
+            for (Set<String> uncovered : uncoveredByTable.values()) {
+                uncoveredNarrowedBasePartitions.addAll(uncovered);
+            }
+        }
         if (!uncoveredByTable.isEmpty()) {
             for (MTMVRelatedTableIf pctTable : mtmv.getMvPartitionInfo().getPctTables()) {
                 Set<String> queryUsed = queryUsedBaseTablePartitionMap.get(pctTable.getFullQualifiers());
