@@ -945,6 +945,48 @@ public class IcebergConnectorTransactionTest {
     }
 
     @Test
+    public void insertCommitsNullForV1VoidPartitionFields() {
+        // A v1 table replaces a dropped partition field with void(region) and may drop region afterwards; Spark
+        // keeps writing it. MUTATION: pinning an unpartitioned stand-in for the void-only spec -> commit rejects the
+        // pinned spec; checking the source of the void field -> create rejects the dropped region -> red.
+        for (boolean identityCategory : new boolean[] {false, true}) {
+            InMemoryCatalog catalog = freshCatalog();
+            TableIdentifier id = TableIdentifier.of("db1", "t1");
+            Schema schema = new Schema(
+                    Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                    Types.NestedField.optional(2, "region", Types.StringType.get()),
+                    Types.NestedField.optional(3, "category", Types.StringType.get()));
+            PartitionSpec.Builder spec = PartitionSpec.builderFor(schema).identity("region");
+            if (identityCategory) {
+                spec.identity("category");
+            }
+            Table table = catalog.createTable(id, schema, spec.build(), props("format-version", "1"));
+            table.updateSpec().removeField("region").commit();
+            table.updateSchema().deleteColumn("region").commit();
+
+            IcebergWriteSchemaContext schemaContext =
+                    IcebergWriteSchemaContext.create(table, table.name(), Optional.empty(), false, false);
+            IcebergConnectorTransaction txn = txnFor(opsReturning(table), new RecordingConnectorContext());
+            txn.beginWrite(SESSION, "db1", "t1", new IcebergWriteContext(
+                    WriteOperation.INSERT, false, Collections.emptyMap(), Optional.empty(), -1L, schemaContext));
+            // BE writes a void-only spec as unpartitioned and reports NULL for a void field of a partitioned one.
+            txn.addCommitData(commitBytes(identityCategory
+                    ? dataFileItem("s3://b/db1/t1/region=null/category=x/f1.parquet", 2L, 1024L,
+                            Arrays.asList("null", "x"))
+                    : dataFileItem("s3://b/db1/t1/f1.parquet", 2L, 1024L)));
+            txn.commit();
+
+            List<DataFile> files = currentDataFiles(catalog.loadTable(id));
+            Assertions.assertEquals(1, files.size());
+            Assertions.assertEquals(table.spec().specId(), files.get(0).specId());
+            Assertions.assertNull(files.get(0).partition().get(0, Object.class));
+            if (identityCategory) {
+                Assertions.assertEquals("x", files.get(0).partition().get(1, String.class));
+            }
+        }
+    }
+
+    @Test
     public void overwriteStaticPartitionUsesRowFilter() {
         InMemoryCatalog catalog = freshCatalog();
         TableIdentifier id = TableIdentifier.of("db1", "t1");
