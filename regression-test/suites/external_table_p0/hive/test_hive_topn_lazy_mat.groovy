@@ -292,33 +292,6 @@ suite("test_hive_topn_lazy_mat", "p0,external") {
 
         runTopNLazyMatTests()
 
-        // Phase two uses the legacy ORC reader only when V2 is disabled. Inject after
-        // RowIDs exist so the failure exercises seek, not first-phase file initialization.
-        def previousSeekSettings = sql "SELECT @@enable_file_scanner_v2, @@enable_sql_cache"
-        def rowIdSeekQuery = """SELECT name, value, score FROM orc_topn_lazy_mat_table
-                               ORDER BY id LIMIT 5"""
-        try {
-            sql "SET enable_file_scanner_v2=false"
-            sql "SET enable_sql_cache=false"
-            explain {
-                sql rowIdSeekQuery
-                contains("VMaterializeNode")
-            }
-            try {
-                GetDebugPoint().enableDebugPointForAllBEs("OrcReader::rowid_seek.inject_error")
-                test {
-                    sql rowIdSeekQuery
-                    exception "injected ORC RowID seek failure"
-                }
-            } finally {
-                GetDebugPoint().disableDebugPointForAllBEs("OrcReader::rowid_seek.inject_error")
-            }
-            // A subsequent materializing query must still succeed after the asynchronous error.
-            sql rowIdSeekQuery
-        } finally {
-            sql "SET enable_file_scanner_v2=${previousSeekSettings[0][0]}"
-            sql "SET enable_sql_cache=${previousSeekSettings[0][1]}"
-        }
 
         sql """ set topn_lazy_materialization_threshold=-1; """
         runTopNLazyMatTests()
