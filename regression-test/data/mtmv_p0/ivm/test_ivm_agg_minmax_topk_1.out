@@ -6,8 +6,8 @@ min_score	bigint	Yes	false	\N	NONE
 max_score	bigint	Yes	false	\N	NONE
 __DORIS_IVM_AGG_COUNT_COL__	bigint	No	false	\N	NONE
 __DORIS_IVM_AGG_0_COUNT_COL__	bigint	No	false	\N	NONE
-__DORIS_IVM_AGG_0_MIN_TOPK_COL__	array<struct<value:bigint not null,count:bigint not null>>	No	false	\N	NONE
-__DORIS_IVM_AGG_1_MAX_TOPK_COL__	array<struct<value:bigint not null,count:bigint not null>>	No	false	\N	NONE
+__DORIS_IVM_AGG_0_MIN_TOPK_COL__	array<struct<value:bigint,count:bigint>>	No	false	\N	NONE
+__DORIS_IVM_AGG_1_MAX_TOPK_COL__	array<struct<value:bigint,count:bigint>>	No	false	\N	NONE
 __DORIS_IVM_AGG_0_MIN_TOPK_BOUND_COL__	bigint	Yes	false	\N	NONE
 __DORIS_IVM_AGG_1_MAX_TOPK_BOUND_COL__	bigint	Yes	false	\N	NONE
 __DORIS_DELETE_SIGN__	tinyint	No	false	0	NONE
