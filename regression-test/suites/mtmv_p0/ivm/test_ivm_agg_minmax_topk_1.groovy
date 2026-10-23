@@ -22,7 +22,7 @@ import static java.util.concurrent.TimeUnit.SECONDS
 // extremes, deleting above the bound, exhausting the known range, and changing K with ALTER.
 // `SELECT *` with hidden columns prints the state struct of every step; the sequence column differs
 // between cloud and shared-nothing deployments and is masked.
-suite("test_ivm_minmax_topk_1") {
+suite("test_ivm_agg_minmax_topk_1") {
     sql """set enable_materialized_view_rewrite = false;"""
     sql """set enable_dml_materialized_view_rewrite = false;"""
     sql """drop materialized view if exists ivm_topk_1_mv"""

@@ -15,20 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// K = 1 on a scalar aggregate (no GROUP BY): the state is the extreme plus its count, the logical
-// equivalent of the old min-count state. Deleting a duplicate extreme is incremental; deleting the
-// last one exhausts the state.
 import org.awaitility.Awaitility
 import static java.util.concurrent.TimeUnit.SECONDS
 
-suite("test_ivm_minmax_topk_3") {
+// Delta shape edge cases: a single batch inserting more than K distinct values truncates the
+// insert-side list and collapses the trusted bound, and an UPDATE moves a value out of the MAX side
+// and into the MIN side at once.
+suite("test_ivm_agg_minmax_topk_6") {
     sql """set enable_materialized_view_rewrite = false;"""
     sql """set enable_dml_materialized_view_rewrite = false;"""
-    sql """drop materialized view if exists ivm_topk_3_mv"""
-    sql """drop table if exists ivm_topk_3_t"""
+    sql """drop materialized view if exists ivm_topk_6_mv"""
+    sql """drop table if exists ivm_topk_6_t"""
 
     sql """
-        CREATE TABLE ivm_topk_3_t (
+        CREATE TABLE ivm_topk_6_t (
             id BIGINT NOT NULL,
             score BIGINT
         )
@@ -41,16 +41,16 @@ suite("test_ivm_minmax_topk_3") {
             "changelog.need_historical_value" = "true"
         )
     """
-    sql """INSERT INTO ivm_topk_3_t VALUES (1, 10), (2, 10), (3, 20)"""
+    sql """INSERT INTO ivm_topk_6_t VALUES (1, 10), (2, 20), (3, 30)"""
     sql """
-        CREATE MATERIALIZED VIEW ivm_topk_3_mv
+        CREATE MATERIALIZED VIEW ivm_topk_6_mv
         BUILD DEFERRED REFRESH INCREMENTAL FALLBACK ON MANUAL
         DISTRIBUTED BY RANDOM BUCKETS 1
         PROPERTIES (
             "replication_num" = "1",
-            "ivm_minmax_top_k" = "1"
+            "ivm_minmax_top_k" = "2"
         )
-        AS SELECT MIN(score) AS mn FROM ivm_topk_3_t
+        AS SELECT MIN(score) AS mn, MAX(score) AS mx FROM ivm_topk_6_t
     """
 
     def latestTask = {
@@ -58,7 +58,7 @@ suite("test_ivm_minmax_topk_3") {
         Awaitility.await().atMost(300, SECONDS).pollInterval(2, SECONDS).until({
             taskResult = sql_return_maparray("""
                 SELECT Status, IvmFallbackReason FROM tasks('type'='mv')
-                WHERE MvDatabaseName = '${context.dbName}' AND MvName = 'ivm_topk_3_mv'
+                WHERE MvDatabaseName = '${context.dbName}' AND MvName = 'ivm_topk_6_mv'
                 ORDER BY CreateTime DESC, TaskId DESC LIMIT 1
             """)
             return !taskResult.isEmpty()
@@ -68,28 +68,26 @@ suite("test_ivm_minmax_topk_3") {
         return taskResult[0]
     }
 
-    sql """REFRESH MATERIALIZED VIEW ivm_topk_3_mv COMPLETE"""
-    waitingMTMVTaskFinishedByMvName("ivm_topk_3_mv")
-    order_qt_initial """SELECT mn FROM ivm_topk_3_mv"""
-    ivm_hidden_qt("state_initial", """SELECT * FROM ivm_topk_3_mv""")
+    sql """REFRESH MATERIALIZED VIEW ivm_topk_6_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("ivm_topk_6_mv")
+    order_qt_initial """SELECT mn, mx FROM ivm_topk_6_mv"""
+    ivm_hidden_qt("state_initial", """SELECT * FROM ivm_topk_6_mv""")
 
-    // Deleting one of the duplicate extremes only decrements its count.
-    sql """DELETE FROM ivm_topk_3_t WHERE id = 1"""
-    sql """REFRESH MATERIALIZED VIEW ivm_topk_3_mv INCREMENTAL"""
-    waitingMTMVTaskFinishedByMvName("ivm_topk_3_mv")
-    def afterDuplicate = latestTask()
-    assertEquals("SUCCESS", afterDuplicate.Status.toString())
-    order_qt_after_duplicate """SELECT mn FROM ivm_topk_3_mv"""
-    ivm_hidden_qt("state_after_duplicate", """SELECT * FROM ivm_topk_3_mv""")
+    // Three distinct values in one batch with K = 2: the insert-side list is truncated at 6, so the
+    // trusted bound collapses to 6 and 7 is never trusted.
+    sql """INSERT INTO ivm_topk_6_t VALUES (4, 5), (5, 6), (6, 7)"""
+    sql """REFRESH MATERIALIZED VIEW ivm_topk_6_mv INCREMENTAL"""
+    def afterTruncatingInsert = latestTask()
+    assertEquals("SUCCESS", afterTruncatingInsert.Status.toString())
+    order_qt_after_truncating_insert """SELECT mn, mx FROM ivm_topk_6_mv"""
+    ivm_hidden_qt("state_after_truncating_insert", """SELECT * FROM ivm_topk_6_mv""")
 
-    // Deleting the last row at the extreme exhausts K = 1 and needs a complete rebuild.
-    sql """DELETE FROM ivm_topk_3_t WHERE id = 2"""
-    sql """REFRESH MATERIALIZED VIEW ivm_topk_3_mv INCREMENTAL"""
-    def exhausted = latestTask()
-    assertEquals("FAILED", exhausted.Status.toString())
-    assertEquals("MIN_MAX_BOUNDARY_HIT", exhausted.IvmFallbackReason.toString())
-    sql """REFRESH MATERIALIZED VIEW ivm_topk_3_mv INCREMENTAL FALLBACK"""
-    waitingMTMVTaskFinishedByMvName("ivm_topk_3_mv")
-    order_qt_after_fallback """SELECT mn FROM ivm_topk_3_mv"""
-    ivm_hidden_qt("state_after_fallback", """SELECT * FROM ivm_topk_3_mv""")
+    // One UPDATE emits a delete of 30 and an insert of 4: the MAX side loses its extreme and the
+    // MIN side gains a smaller value in the same batch.
+    sql """UPDATE ivm_topk_6_t SET score = 4 WHERE id = 3"""
+    sql """REFRESH MATERIALIZED VIEW ivm_topk_6_mv INCREMENTAL"""
+    def afterUpdate = latestTask()
+    assertEquals("SUCCESS", afterUpdate.Status.toString())
+    order_qt_after_update """SELECT mn, mx FROM ivm_topk_6_mv"""
+    ivm_hidden_qt("state_after_update", """SELECT * FROM ivm_topk_6_mv""")
 }

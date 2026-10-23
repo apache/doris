@@ -20,7 +20,7 @@ import static java.util.concurrent.TimeUnit.SECONDS
 
 // String values: the top-K list must order and deduplicate strings exactly like MIN/MAX, so the
 // visible extreme always equals the first element of the printed state.
-suite("test_ivm_minmax_topk_7") {
+suite("test_ivm_agg_minmax_topk_7") {
     sql """set enable_materialized_view_rewrite = false;"""
     sql """set enable_dml_materialized_view_rewrite = false;"""
     sql """drop materialized view if exists ivm_topk_7_mv"""

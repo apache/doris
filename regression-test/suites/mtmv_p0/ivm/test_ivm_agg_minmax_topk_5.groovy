@@ -21,7 +21,7 @@ import static java.util.concurrent.TimeUnit.SECONDS
 // Join delta cancellation: one UPDATE moves rows between groups, so each group sees the same value
 // deleted and inserted in the same batch. The delete and insert must cancel instead of consuming the
 // top-K slots or triggering a fallback.
-suite("test_ivm_minmax_topk_5") {
+suite("test_ivm_agg_minmax_topk_5") {
     sql """set enable_materialized_view_rewrite = false;"""
     sql """set enable_dml_materialized_view_rewrite = false;"""
     sql """drop materialized view if exists ivm_topk_5_mv"""
