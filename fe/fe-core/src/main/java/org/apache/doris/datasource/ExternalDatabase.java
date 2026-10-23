@@ -362,6 +362,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         if (names == null || !table.getRemoteName().equals(names.remoteNameOfLocalName(table.getName()))) {
             return Optional.empty();
         }
+        long metadataRefreshGeneration = table.getMetadataRefreshGeneration();
         return extCatalog.observeDatabase(this).flatMap(database ->
                 tableNames.observe("", names).flatMap(membership ->
                         tables.observe(table.getName(), table).map(object -> () -> MetaCacheCleanup.runDeferred(() -> {
@@ -369,6 +370,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                             // runs here; remote reads happened before entering this guarded commit.
                             synchronized (extCatalog) {
                                 if (!initialized || !extCatalog.isInitialized()
+                                        || table.getMetadataRefreshGeneration() != metadataRefreshGeneration
                                         || Env.getCurrentEnv().getCatalogMgr().getCatalog(extCatalog.getId())
                                                 != extCatalog) {
                                     return;

@@ -18,7 +18,6 @@
 package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.spi.DorisConnectorException;
-import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 
 import org.apache.paimon.partition.Partition;
 import org.apache.paimon.types.DataTypes;
@@ -31,7 +30,6 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 /**
  * M-11 (rereview2 #6) read-path Kerberos doAs tests: every remote metadata READ RPC must run INSIDE

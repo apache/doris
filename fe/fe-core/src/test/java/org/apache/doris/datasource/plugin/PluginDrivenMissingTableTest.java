@@ -258,6 +258,31 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
         verifyDelayedMissing(true);
     }
 
+    @Test
+    void delayedMissingDoesNotInvalidateMetadataOnlyRefresh() throws Exception {
+        PluginDrivenExternalTable table = warmTarget();
+        remoteTables.remove("a");
+        blockMissing.set(true);
+        Future<?> missing = worker.submit(() -> readMissingHandle(table));
+        Assertions.assertTrue(missingStarted.await(10, TimeUnit.SECONDS));
+
+        remoteTables.put("a", "new_column");
+        new RefreshManager().refreshTableInternal(database, table, 123L);
+        List<Column> refreshedSchema = table.getFullSchema();
+        remoteCache.put("a", "refreshed");
+        int nameLoads = catalog.nameLoads.get();
+
+        releaseMissing.countDown();
+        missing.get(10, TimeUnit.SECONDS);
+        Assertions.assertSame(table, database.getTableNullable("a"));
+        Assertions.assertSame(table, database.getTableNullable(table.getId()));
+        Assertions.assertSame(refreshedSchema, table.getFullSchema());
+        Assertions.assertEquals("new_column", refreshedSchema.get(0).getName());
+        Assertions.assertEquals("refreshed", remoteCache.get("a"));
+        Assertions.assertEquals(Set.of("a", "b"), database.getTableNamesWithLock());
+        Assertions.assertEquals(nameLoads, catalog.nameLoads.get());
+    }
+
     private void verifyDelayedMissing(boolean replaceWithoutScopeInvalidation) throws Exception {
         PluginDrivenExternalTable old = warmTarget();
         remoteTables.remove("a");

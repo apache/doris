@@ -322,6 +322,7 @@ public class RefreshManager {
     private void refreshTableInternal(ExternalDatabase db, ExternalTable table, long updateTime,
             boolean invalidateTableLookup) {
         boolean invalidateDatabase = invalidateTableLookup && table.getCatalog().getLowerCaseTableNames() != 0;
+        table.advanceMetadataRefreshGeneration();
         table.unsetObjectCreated();
         if (updateTime > 0) {
             table.setUpdateTime(updateTime);
