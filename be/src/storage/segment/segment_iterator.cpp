@@ -515,17 +515,22 @@ void SegmentIterator::_rebuild_scan_predicate_states() {
 
 void SegmentIterator::_mark_common_expr_states(const VExprSPtr& expr, bool runtime_generated) {
     if (expr->is_slot_ref()) {
-        const auto ordinal =
-                cast_set<ColumnId>(assert_cast<const VSlotRef*>(expr.get())->column_id());
-        DORIS_CHECK_LT(ordinal, _schema->num_block_columns());
-        _column_states[ordinal].has_common_expr = true;
-        _column_states[ordinal].has_runtime_common_expr |= runtime_generated;
-        _is_need_expr_eval = true;
+        _mark_common_expr_column(
+                cast_set<ColumnId>(assert_cast<const VSlotRef*>(expr.get())->column_id()),
+                runtime_generated);
         return;
     }
     if (expr->is_virtual_slot_ref()) {
-        const auto& virtual_expr =
-                assert_cast<const VirtualSlotRef*>(expr.get())->get_virtual_column_expr();
+        const auto* virtual_slot = assert_cast<const VirtualSlotRef*>(expr.get());
+        // The score of every row is prepared before the first batch is read, and Score() itself has
+        // no value, so an expression on the score reads the score column like a stored column.
+        if (_score_runtime != nullptr &&
+            cast_set<size_t>(virtual_slot->column_id()) == _score_runtime->get_dest_column_idx()) {
+            _mark_common_expr_column(cast_set<ColumnId>(virtual_slot->column_id()),
+                                     runtime_generated);
+            return;
+        }
+        const auto& virtual_expr = virtual_slot->get_virtual_column_expr();
         DORIS_CHECK(virtual_expr != nullptr);
         _mark_common_expr_states(virtual_expr, runtime_generated);
         return;
@@ -533,6 +538,13 @@ void SegmentIterator::_mark_common_expr_states(const VExprSPtr& expr, bool runti
     for (const auto& child : expr->children()) {
         _mark_common_expr_states(child, runtime_generated);
     }
+}
+
+void SegmentIterator::_mark_common_expr_column(ColumnId ordinal, bool runtime_generated) {
+    DORIS_CHECK_LT(ordinal, _schema->num_block_columns());
+    _column_states[ordinal].has_common_expr = true;
+    _column_states[ordinal].has_runtime_common_expr |= runtime_generated;
+    _is_need_expr_eval = true;
 }
 
 void SegmentIterator::_initialize_predicate_results() {
@@ -1429,24 +1441,36 @@ Status SegmentIterator::_apply_index_expr() {
 
     // Evaluate inverted index for virtual column MATCH expressions (projections).
     // Unlike common exprs which filter rows, these only compute index result bitmaps
-    // for later materialization via fast_execute().
-    for (auto& [cid, expr_ctx] : _virtual_column_exprs) {
-        if (_row_bitmap.isEmpty()) {
-            // Zero surviving rows: the projection column is never materialized,
-            // so its whole-segment index evaluation would be pure waste.
-            break;
-        }
-        if (expr_ctx->get_index_context() == nullptr) {
-            continue;
-        }
-        if (Status st = evaluate_with_candidate_policy(expr_ctx); !st.ok()) {
-            if (_downgrade_without_index(st) || st.code() == ErrorCode::NOT_IMPLEMENTED_ERROR) {
+    // for later materialization via fast_execute(). They must not add BM25 scores
+    // either: score() and its range filter only reflect the filtering conjuncts.
+    {
+        CollectionSimilarityPtr filter_similarity =
+                _index_query_context != nullptr
+                        ? std::exchange(_index_query_context->collection_similarity, nullptr)
+                        : nullptr;
+        DEFER({
+            if (_index_query_context != nullptr) {
+                _index_query_context->collection_similarity = filter_similarity;
+            }
+        });
+        for (auto& [cid, expr_ctx] : _virtual_column_exprs) {
+            if (_row_bitmap.isEmpty()) {
+                // Zero surviving rows: the projection column is never materialized,
+                // so its whole-segment index evaluation would be pure waste.
+                break;
+            }
+            if (expr_ctx->get_index_context() == nullptr) {
                 continue;
-            } else {
-                LOG(WARNING) << "failed to evaluate inverted index for virtual column expr: "
-                             << expr_ctx->root()->debug_string()
-                             << ", error msg: " << st.to_string();
-                return st;
+            }
+            if (Status st = evaluate_with_candidate_policy(expr_ctx); !st.ok()) {
+                if (_downgrade_without_index(st) || st.code() == ErrorCode::NOT_IMPLEMENTED_ERROR) {
+                    continue;
+                } else {
+                    LOG(WARNING) << "failed to evaluate inverted index for virtual column expr: "
+                                 << expr_ctx->root()->debug_string()
+                                 << ", error msg: " << st.to_string();
+                    return st;
+                }
             }
         }
     }
