@@ -20,6 +20,7 @@ package org.apache.doris.nereids.mv;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.Config;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
@@ -644,6 +645,14 @@ public class RelationImpliedPredicateTest extends SqlTestBase {
             snapshots.put(partitionName, new MTMVRefreshPartitionSnapshot());
         }
         mtmv.getRefreshSnapshot().updateSnapshots(snapshots, mtmv.getPartitionNames());
+        // A completed refresh also publishes what it wrote, so each partition has a version above the
+        // initial one. The grace period answers only for a partition a refresh wrote, which is what that
+        // version says; a fixture that recorded the snapshot alone would model a state no refresh leaves.
+        for (Partition partition : mtmv.getPartitions()) {
+            partition.setVisibleVersionAndTime(
+                    Math.max(partition.getVisibleVersion(), Partition.PARTITION_INIT_VERSION + 1),
+                    System.currentTimeMillis());
+        }
         mtmv.invalidateRewriteCache();
     }
 
