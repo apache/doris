@@ -143,23 +143,24 @@ private:
 };
 
 std::vector<ColumnReadAheadPage> make_pages(size_t page_count, size_t page_size,
-                                            size_t first_offset = 0) {
+                                            size_t first_offset = 0, size_t rows_per_page = 100) {
     std::vector<ColumnReadAheadPage> pages;
     for (size_t index = 0; index < page_count; ++index) {
         pages.push_back({.page_index = cast_set<int32_t>(index),
-                         .first_ordinal = cast_set<ordinal_t>(index * 100),
-                         .last_ordinal = cast_set<ordinal_t>((index + 1) * 100 - 1),
+                         .first_ordinal = cast_set<ordinal_t>(index * rows_per_page),
+                         .last_ordinal = cast_set<ordinal_t>((index + 1) * rows_per_page - 1),
                          .range = {.offset = first_offset + index * page_size, .size = page_size}});
     }
     return pages;
 }
 
 std::unique_ptr<ColumnReadAhead> make_window(size_t page_count, size_t page_size,
-                                             size_t first_offset = 0) {
+                                             size_t first_offset = 0, size_t rows_per_page = 100) {
     std::unique_ptr<ColumnReadAhead> window;
-    EXPECT_TRUE(ColumnReadAhead::create(make_pages(page_count, page_size, first_offset),
-                                        {.window_bytes = page_size * page_count}, false, &window)
-                        .ok());
+    EXPECT_TRUE(
+            ColumnReadAhead::create(make_pages(page_count, page_size, first_offset, rows_per_page),
+                                    {.window_bytes = page_size * page_count}, false, &window)
+                    .ok());
     return window;
 }
 
@@ -637,6 +638,68 @@ TEST(SegmentReadAheadTest, AdmissionRejectionFallsBackWithoutWaiting) {
     size_t bytes_read = 0;
     EXPECT_TRUE(read_ahead->file_reader()->read_at(0, Slice(data, sizeof(data)), &bytes_read).ok());
     EXPECT_EQ(source->read_calls(), 1);
+}
+
+TEST(SegmentReadAheadTest, PartialAdmissionPreservesPageMappingAndWriteback) {
+    const std::string content = std::string(8, 'a') + std::string(8, 'b') + std::string(64, 'c') +
+                                std::string(8, 'd') + std::string(40, 'e');
+    auto source = std::make_shared<TestFileReader>(content);
+    auto scheduler = make_scheduler(24);
+    std::vector<io::FileRange> consumed;
+    auto read_ahead = make_segment_read_ahead(
+            source, scheduler.get(),
+            {.range_plan = plan_options(0),
+             .page_cache_probe = {},
+             .range_consumer_factory = [&]() -> ReadAheadRangeConsumer {
+                 return [&](const io::FileRangeRead& read) { consumed.push_back(read.range()); };
+             }});
+    auto first = make_window(2, 8, 0);
+    auto second = make_window(1, 16, 48, 200);
+    auto third = make_window(1, 8, 80, 200);
+    const auto scan_rows = rows(200);
+
+    // Coalescing yields [0,16), [48,64), [80,88). The 24-byte budget admits the first and
+    // third ranges. Both pages in the first range must keep their original buffer offsets.
+    const auto result = read_ahead->apply_plans({plan_window(first.get(), scan_rows, 0),
+                                                 plan_window(second.get(), scan_rows, 0),
+                                                 plan_window(third.get(), scan_rows, 0)});
+    ASSERT_TRUE(result.accepted()) << result.status;
+    EXPECT_EQ(result.new_pages, 4);
+    EXPECT_EQ(result.submitted_ranges, 2);
+    EXPECT_EQ(result.submitted_bytes, 24);
+    EXPECT_TRUE(first->pending(0));
+    EXPECT_TRUE(first->pending(1));
+    EXPECT_FALSE(second->pending(0));
+    EXPECT_TRUE(third->pending(0));
+
+    char data[16] {};
+    Status status;
+    EXPECT_FALSE(read_ahead->file_reader()->try_read_page(48, Slice(data, 16), &status));
+    size_t bytes_read = 0;
+    ASSERT_TRUE(read_ahead->file_reader()->read_at(48, Slice(data, 16), &bytes_read).ok());
+    EXPECT_EQ(bytes_read, 16);
+    EXPECT_EQ(Slice(data, bytes_read).to_string(), content.substr(48, 16));
+    EXPECT_TRUE(consumed.empty());
+
+    ASSERT_TRUE(read_ahead->file_reader()->read_at(0, Slice(data, 8), &bytes_read).ok());
+    EXPECT_EQ(Slice(data, bytes_read).to_string(), content.substr(0, 8));
+    EXPECT_FALSE(first->pending(0));
+    EXPECT_TRUE(first->pending(1));
+    ASSERT_TRUE(read_ahead->file_reader()->read_at(8, Slice(data, 8), &bytes_read).ok());
+    EXPECT_EQ(Slice(data, bytes_read).to_string(), content.substr(8, 8));
+    ASSERT_TRUE(read_ahead->file_reader()->read_at(80, Slice(data, 8), &bytes_read).ok());
+    EXPECT_EQ(Slice(data, bytes_read).to_string(), content.substr(80, 8));
+    EXPECT_FALSE(first->pending(1));
+    EXPECT_FALSE(third->pending(0));
+    EXPECT_EQ(consumed,
+              (std::vector<io::FileRange> {{.offset = 0, .size = 16}, {.offset = 80, .size = 8}}));
+    scheduler->shutdown();
+    // The thread-pool runnable releases its final buffer reference after scheduler completion.
+    read_ahead_test_executor()->wait();
+    EXPECT_EQ(source->read_calls(), 3);
+    EXPECT_EQ(read_ahead->_statistics->submitted_ranges.value(), 2);
+    EXPECT_EQ(read_ahead->_statistics->submitted_bytes.value(), 24);
+    EXPECT_EQ(read_ahead->_context->resident_bytes(), 0);
 }
 
 TEST(SegmentReadAheadTest, AsyncReadFailureUsesOriginalReader) {

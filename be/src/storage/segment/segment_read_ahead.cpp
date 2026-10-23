@@ -396,9 +396,6 @@ SegmentReadAheadResult SegmentReadAhead::apply_plans(std::vector<ColumnReadAhead
         return result;
     }
 
-    for (const auto& range : range_plan.ranges) {
-        result.submitted_bytes += range.size;
-    }
     ReadAheadRangeConsumer consumer;
     if (_options.range_consumer_factory) {
         consumer = _options.range_consumer_factory();
@@ -408,21 +405,25 @@ SegmentReadAheadResult SegmentReadAhead::apply_plans(std::vector<ColumnReadAhead
     result.reject_reason = submit_result.reject_reason;
     result.status = submit_result.status;
     if (!submit_result.accepted()) {
-        result.submitted_bytes = 0;
         for (const auto& miss : misses) {
             miss.column->complete(miss.page.page_index);
         }
         return result;
     }
 
-    result.submitted_ranges = submit_result.reads.size();
     DORIS_CHECK(submit_result.reads.size() == range_plan.ranges.size());
-    std::vector<std::shared_ptr<SegmentReadAheadFileReader::BufferedRange>> ranges;
-    ranges.reserve(range_plan.ranges.size());
+    std::vector<std::shared_ptr<SegmentReadAheadFileReader::BufferedRange>> ranges(
+            range_plan.ranges.size());
     for (size_t index = 0; index < range_plan.ranges.size(); ++index) {
-        ranges.push_back(std::make_shared<SegmentReadAheadFileReader::BufferedRange>(
+        // Byte-budget admission may skip individual ranges while preserving their input slots.
+        if (submit_result.reads[index] == nullptr) {
+            continue;
+        }
+        ++result.submitted_ranges;
+        result.submitted_bytes += range_plan.ranges[index].size;
+        ranges[index] = std::make_shared<SegmentReadAheadFileReader::BufferedRange>(
                 SegmentReadAheadFileReader::BufferedRange {
-                        .read = std::move(submit_result.reads[index]), .consumer = consumer}));
+                        .read = std::move(submit_result.reads[index]), .consumer = consumer});
     }
 
     DORIS_CHECK(range_plan.input_locations.size() == input_ranges.size());
@@ -434,6 +435,11 @@ SegmentReadAheadResult SegmentReadAhead::apply_plans(std::vector<ColumnReadAhead
         DORIS_CHECK(input_index < range_plan.input_locations.size());
         const auto& location = range_plan.input_locations[input_index];
         DORIS_CHECK(location.range_index < ranges.size());
+        // No buffer was admitted for this page. Clear pending now; PageIO uses the original reader.
+        if (ranges[location.range_index] == nullptr) {
+            misses[index].column->complete(misses[index].page.page_index);
+            continue;
+        }
         _reader->_register_page(misses[index].column, misses[index].page,
                                 ranges[location.range_index], location.buffer_offset);
     }
