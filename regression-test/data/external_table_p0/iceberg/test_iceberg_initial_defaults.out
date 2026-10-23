@@ -388,20 +388,20 @@ missing_map_col	map<text,struct<missing_map_default_int:int>>	Yes	true	\N
 4	123e4567-e89b-12d3-a456-426614174000	0A0B0C0D	2A2B2C	2024-12-17 23:59:59.123456+00:00
 
 -- !parquet_branch_overwrite_default --
-14	35
+14	36
 
 -- !parquet_main_overwrite_default --
 15	36
 
 -- !parquet_branch_after_main_overwrite --
-14	35
+14	36
 
 -- !orc_branch_overwrite_default --
-14	35
+14	36
 
 -- !orc_main_overwrite_default --
 15	36
 
 -- !orc_branch_after_main_overwrite --
-14	35
+14	36
 
