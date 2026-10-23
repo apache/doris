@@ -70,6 +70,10 @@ public:
                                              const std::wstring& term);
     MOCK_FUNCTION float get_or_calculate_avg_dl(const std::wstring& lucene_col_name);
 
+    // Replaces the collected counters with those of `other`. The derived idf/avgdl caches are
+    // reset rather than copied, so the copy can be used by another thread without sharing them.
+    void copy_collected_from(const CollectionStatistics& other);
+
 private:
     struct SniiScoringSegmentAccumulator {
         uint64_t doc_count = 0;
@@ -111,6 +115,34 @@ private:
     MOCK_DEFINE(friend class OccurBooleanQueryTest;)
 };
 using CollectionStatisticsPtr = std::shared_ptr<CollectionStatistics>;
+
+// BM25 statistics of a whole tablet, shared by every scanner the tablet is split into.
+//
+// A parallel scan divides a tablet's rowsets among several scanners. If each scanner
+// collected statistics over only its own rowsets, rows with identical content would score
+// differently depending on which scanner read them, and the split itself depends on the
+// tablet's row count and the number of cores. Collecting once over the entire read source
+// gives every row of the tablet the same idf and avgdl.
+class TabletCollectionStatistics {
+public:
+    TabletCollectionStatistics(std::vector<RowsetSharedPtr> rowsets,
+                               PredicateCollectorPtr search_collector)
+            : _rowsets(std::move(rowsets)), _statistics(std::move(search_collector)) {}
+
+    // Collects the statistics on the first call, then copies them into `statistics`.
+    // Later callers wait for the first collection and receive its result or error.
+    Status copy_to(RuntimeState* state, const TabletSchemaSPtr& tablet_schema,
+                   const VExprContextSPtrs& common_expr_ctxs_push_down, io::IOContext* io_ctx,
+                   CollectionStatistics* statistics);
+
+private:
+    std::mutex _mutex;
+    bool _collected = false;
+    Status _status;
+    std::vector<RowsetSharedPtr> _rowsets;
+    CollectionStatistics _statistics;
+};
+using TabletCollectionStatisticsPtr = std::shared_ptr<TabletCollectionStatistics>;
 
 // Implementation details of the SNII scoring-segment admission math, surfaced so
 // collection_statistics_test.cpp can exercise them without compiling the .cpp a

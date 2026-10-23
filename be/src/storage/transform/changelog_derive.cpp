@@ -116,7 +116,7 @@ Status fill_before_columns(Block& out, const TabletSchema& changelog_schema,
 void fill_changelog_system_columns(Block& out, const TabletSchema& changelog_schema,
                                    uint32_t changelog_tso_cid, uint32_t changelog_lsn_cid,
                                    uint32_t changelog_op_cid, const std::vector<int64_t>& lsn_ids,
-                                   const std::vector<int64_t>& operators, size_t num_rows) {
+                                   const std::vector<ChangelogOp>& operators, size_t num_rows) {
     std::vector<uint32_t> changelog_cids = {changelog_tso_cid, changelog_lsn_cid, changelog_op_cid};
     Block changelog_system_block = changelog_schema.create_storage_block(changelog_cids);
     {
@@ -149,7 +149,7 @@ void fill_changelog_system_columns(Block& out, const TabletSchema& changelog_sch
                 << static_cast<int>(op_col_type);
         auto* op_int64_column = assert_cast<ColumnInt64*>(op_nested_column);
         for (size_t i = 0; i < num_rows; i++) {
-            op_int64_column->insert_value(operators[i]);
+            op_int64_column->insert_value(static_cast<int64_t>(operators[i]));
         }
 
         if (op_nullable_column != nullptr) {
@@ -264,7 +264,7 @@ std::optional<std::span<const Int8>> read_delete_signs(const Block* block, int32
 // it into `block`.
 Status emit_changelog_block(const ChangelogDeriveContext& c, const Block* after_src,
                             PrimaryKeyModelRowRetriever* retriever,
-                            const std::vector<int64_t>* plain_operators, Block* block) {
+                            const std::vector<ChangelogOp>* plain_operators, Block* block) {
     Block out = c.changelog_schema->create_storage_block();
     // every index below is a cid, so the block has to carry every schema column
     if (out.columns() != c.changelog_schema->num_columns()) {
@@ -293,7 +293,7 @@ Status emit_changelog_block(const ChangelogDeriveContext& c, const Block* after_
     if (retriever != nullptr) {
         RETURN_IF_ERROR(retriever->revise_operators_by_old_delete_sign(c.num_rows));
     }
-    const std::vector<int64_t>& operators =
+    const std::vector<ChangelogOp>& operators =
             retriever != nullptr ? retriever->get_operators() : *plain_operators;
     fill_changelog_system_columns(out, *c.changelog_schema, c.changelog_tso_cid,
                                   c.changelog_lsn_cid, c.changelog_op_cid, *c.lsn_ids, operators,
@@ -331,11 +331,11 @@ Status PlainChangelogDeriveStage::derive(TransformExecContext& /*ctx*/, Block* b
     // tables have no delete-sign column, so every row is APPEND.
     std::optional<std::span<const Int8>> delete_signs =
             read_delete_signs(block, c.source_schema->delete_sign_idx(), c.num_rows);
-    std::vector<int64_t> operators;
+    std::vector<ChangelogOp> operators;
     operators.reserve(c.num_rows);
     for (size_t pos = 0; pos < c.num_rows; ++pos) {
         bool have_delete_sign = (delete_signs && (*delete_signs)[pos] != 0);
-        operators.emplace_back(have_delete_sign ? CHANGELOG_OP_DELETE : CHANGELOG_OP_APPEND);
+        operators.emplace_back(have_delete_sign ? ChangelogOp::DELETE : ChangelogOp::APPEND);
     }
     return emit_changelog_block(c, /*after_src=*/block, /*retriever=*/nullptr, &operators, block);
 }

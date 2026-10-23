@@ -23,14 +23,14 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.constraint.TableIdentifier;
-import org.apache.doris.catalog.stream.OlapTableStream;
+import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.catalog.stream.StreamReadMode;
 import org.apache.doris.common.IdGenerator;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.OrderKey;
-import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -445,9 +445,7 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
 
     @Override
     public LogicalOlapTableStreamScan withVirtualColumns(List<NamedExpression> virtualColumns) {
-        LogicalProperties logicalProperties = getLogicalProperties();
-        List<Slot> output = Lists.newArrayList(logicalProperties.getOutput());
-        output.addAll(virtualColumns.stream().map(NamedExpression::toSlot).collect(Collectors.toList()));
+        List<Slot> output = outputWithVirtualColumns(virtualColumns);
         LogicalProperties finalLogicalProperties = new LogicalProperties(() -> output, this::computeDataTrait);
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalOlapTableStreamScan(relationId, (Table) table, qualifier,
@@ -549,27 +547,22 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
     }
 
     @Override
-    public LogicalPlan withPreSnapshot(Optional<OlapTableStream> stream) {
-        return withReadMode(StreamReadMode.SNAPSHOT);
+    public boolean isChangelogEnabled() {
+        throw unsupportedChangelogScan();
     }
 
     @Override
-    public LogicalPlan withPostSnapshot() {
-        OlapTable baseTable = getTable().getBaseTable();
-        LogicalOlapScan scan = new LogicalOlapScan(
-                StatementScopeIdGenerator.newRelationId(),
-                baseTable,
-                qualifier,
-                ImmutableList.of(),
-                baseTable.getPartitionIds(),
-                baseTable.getBaseIndexId(),
-                PreAggStatus.unset(),
-                ImmutableList.of(),
-                ImmutableList.of(),
-                Optional.empty(),
-                ImmutableList.of());
-        return BindRelation.checkAndAddDeleteSignFilter(
-                scan, ConnectContext.get(), baseTable);
+    public boolean isChangelogAppendOnly() {
+        throw unsupportedChangelogScan();
+    }
+
+    @Override
+    public LogicalPlan withSnapshot(boolean preSnapshot, BaseTableStream stream) {
+        throw unsupportedChangelogScan();
+    }
+
+    private static AnalysisException unsupportedChangelogScan() {
+        return new AnalysisException("IVM does not support LogicalOlapTableStreamScan as a base scan");
     }
 
     @Override

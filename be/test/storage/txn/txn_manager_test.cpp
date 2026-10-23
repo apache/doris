@@ -248,7 +248,7 @@ TEST_F(TxnManagerTest, PrepareNewTxn) {
 TEST_F(TxnManagerTest, PrepareTxnRejectsOldShutdownTablet) {
     auto tablet = k_engine->tablet_manager()->get_tablet(tablet_id);
     ASSERT_NE(tablet, nullptr);
-    ASSERT_TRUE(tablet->set_tablet_state(TABLET_SHUTDOWN).ok());
+    ASSERT_TRUE(tablet->set_tablet_state(TabletState::TABLET_SHUTDOWN).ok());
 
     auto status = tablet->prepare_txn(partition_id, transaction_id, load_id, false);
     EXPECT_FALSE(status.ok()) << status;

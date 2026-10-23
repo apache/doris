@@ -29,6 +29,7 @@
 #include "common/logging.h" // DCHECK
 #include "common/status.h"
 #include "exec/sink/autoinc_buffer.h"
+#include "storage/changelog_types.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h" // DataWriteType
 #include "storage/rowset/rowset_fwd.h"
@@ -41,12 +42,6 @@ namespace doris {
 class AutoIncIDBuffer;
 struct PartialUpdateInfo;
 struct MowContext;
-
-// Changelog op type.
-// NOTE: The value is persisted into changelog data, so keep it stable.
-static constexpr int64_t CHANGELOG_OP_APPEND = 0;
-static constexpr int64_t CHANGELOG_OP_UPDATE = 1;
-static constexpr int64_t CHANGELOG_OP_DELETE = 2;
 
 namespace changelog {
 

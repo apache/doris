@@ -100,10 +100,12 @@ under the License.
             <artifactId>azure-identity</artifactId>
         </dependency>
 
-        <!-- Reactor Netty can select Netty's optional io_uring transport on Java 11+.
-             Bundle its classes (transitive) and Linux natives together: falling back to the FE
-             host for io_uring mixes parent/child IoHandlerFactory types and fails with LinkageError.
-             Versions are managed by the Netty BOM in fe/pom.xml. -->
+        <!-- Reactor probes optional transports. Keep io_uring in the plugin so its Netty types and
+             native resources cannot fall back to the host's different ClassLoader. -->
+        <dependency>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-transport-classes-io_uring</artifactId>
+        </dependency>
         <dependency>
             <groupId>io.netty</groupId>
             <artifactId>netty-transport-native-io_uring</artifactId>
@@ -116,18 +118,18 @@ under the License.
             <classifier>linux-aarch_64</classifier>
             <scope>runtime</scope>
         </dependency>
-        <dependency>
-            <groupId>io.netty</groupId>
-            <artifactId>netty-transport-native-io_uring</artifactId>
-            <classifier>linux-riscv64</classifier>
-            <scope>runtime</scope>
-        </dependency>
 
         <dependency>
             <groupId>org.apache.logging.log4j</groupId>
             <artifactId>log4j-api</artifactId>
         </dependency>
 
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>fe-extension-loader</artifactId>
+            <version>${revision}</version>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
@@ -148,6 +150,30 @@ under the License.
     <build>
         <finalName>doris-fe-filesystem-azure</finalName>
         <plugins>
+            <plugin>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>plugin-runtime-classpath</id>
+                        <phase>generate-test-resources</phase>
+                        <goals>
+                            <goal>build-classpath</goal>
+                        </goals>
+                        <configuration>
+                            <includeScope>runtime</includeScope>
+                            <outputFile>${project.build.directory}/plugin-runtime-classpath.txt</outputFile>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <systemPropertyVariables>
+                        <plugin.runtime.classpath>${project.build.directory}/plugin-runtime-classpath.txt</plugin.runtime.classpath>
+                    </systemPropertyVariables>
+                </configuration>
+            </plugin>
             <plugin>
                 <artifactId>maven-assembly-plugin</artifactId>
                 <configuration>

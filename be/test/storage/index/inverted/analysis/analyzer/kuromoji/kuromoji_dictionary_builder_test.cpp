@@ -53,15 +53,16 @@ TEST_F(KuromojiDictionaryBuilderTest, WritesFourFiles) {
     ASSERT_TRUE(KuromojiDictionaryBuilder::write_matrix(_dir + "/matrix.bin", m).ok());
 
     CharDefInput cd;
-    cd.catmap.fill(CAT_DEFAULT);
-    cd.catmap[0x6771] = CAT_KANJI; // U+6771
-    cd.defs.assign(CAT_CLASS_COUNT, CategoryDef {0, 0, 0});
-    cd.defs[CAT_DEFAULT] = CategoryDef {1, 1, 0};
+    cd.catmap.fill(CharCategory::CAT_DEFAULT);
+    cd.catmap[0x6771] = CharCategory::CAT_KANJI; // U+6771
+    cd.defs.assign(static_cast<size_t>(CharCategory::CAT_CLASS_COUNT), CategoryDef {0, 0, 0});
+    cd.defs[static_cast<size_t>(CharCategory::CAT_DEFAULT)] = CategoryDef {1, 1, 0};
     ASSERT_TRUE(KuromojiDictionaryBuilder::write_chardef(_dir + "/chardef.bin", cd).ok());
 
     UnkDictInput unk;
-    unk.per_category.resize(CAT_CLASS_COUNT);
-    unk.per_category[CAT_DEFAULT].push_back({5, 5, 4769, "SYMBOL"});
+    unk.per_category.resize(static_cast<size_t>(CharCategory::CAT_CLASS_COUNT));
+    unk.per_category[static_cast<size_t>(CharCategory::CAT_DEFAULT)].push_back(
+            {5, 5, 4769, "SYMBOL"});
     ASSERT_TRUE(KuromojiDictionaryBuilder::write_unkdict(_dir + "/unkdict.bin", unk).ok());
 
     EXPECT_TRUE(file_nonempty(_dir + "/system.bin"));

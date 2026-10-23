@@ -66,7 +66,7 @@ class TColumn;
 //      |           +------------------------+|
 //      +-------------------------------------+
 
-enum TabletState {
+enum class TabletState {
     // Tablet is under alter table, rollup, clone
     TABLET_NOTREADY,
 
@@ -83,6 +83,12 @@ enum TabletState {
     // Files have been removed, tablet has been shutdown completely.
     TABLET_SHUTDOWN
 };
+
+inline constexpr TabletState TABLET_NOTREADY = TabletState::TABLET_NOTREADY;
+inline constexpr TabletState TABLET_RUNNING = TabletState::TABLET_RUNNING;
+inline constexpr TabletState TABLET_TOMBSTONED = TabletState::TABLET_TOMBSTONED;
+inline constexpr TabletState TABLET_STOPPED = TabletState::TABLET_STOPPED;
+inline constexpr TabletState TABLET_SHUTDOWN = TabletState::TABLET_SHUTDOWN;
 
 class DataDir;
 class TabletMeta;
@@ -386,7 +392,7 @@ private:
     TabletUid _tablet_uid;
     TabletTypePB _tablet_type = TabletTypePB::TABLET_TYPE_DISK;
 
-    TabletState _tablet_state = TABLET_NOTREADY;
+    TabletState _tablet_state = TabletState::TABLET_NOTREADY;
     // the reference of _schema may use in tablet, so here need keep
     // the lifetime of tablemeta and _schema is same with tablet
     TabletSchemaSPtr _schema;

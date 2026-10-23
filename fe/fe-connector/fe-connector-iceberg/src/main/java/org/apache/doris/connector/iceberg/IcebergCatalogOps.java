@@ -44,6 +44,8 @@ import org.apache.iceberg.catalog.ViewCatalog;
 import org.apache.iceberg.exceptions.NoSuchNamespaceException;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.Term;
+import org.apache.iceberg.hadoop.HadoopCatalog;
+import org.apache.iceberg.jdbc.JdbcCatalog;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.view.View;
@@ -59,6 +61,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -318,7 +321,17 @@ public interface IcebergCatalogOps {
                 LOG.warn("Iceberg catalog does not support namespaces");
                 return Collections.emptyList();
             }
-            return listNestedNamespaces(rootNamespace());
+            Namespace root = rootNamespace();
+            try {
+                return listNestedNamespaces(root);
+            } catch (NoSuchNamespaceException e) {
+                // Hadoop creates the warehouse lazily with the first namespace. Its absent implicit
+                // root is an empty catalog, unlike a missing named or REST root; I/O errors still fail.
+                if (catalog instanceof HadoopCatalog && root.isEmpty()) {
+                    return Collections.emptyList();
+                }
+                throw e;
+            }
         }
 
         /**
@@ -365,12 +378,7 @@ public interface IcebergCatalogOps {
                     .collect(Collectors.toList());
             // iceberg's listTables also returns views, so subtract the view names when the catalog is a
             // (view-enabled) ViewCatalog — mirrors legacy IcebergMetadataOps.listTableNames.
-            if (!isViewCatalogEnabled()) {
-                return tableNames;
-            }
-            List<String> views = resolveViewCatalog().listViews(ns).stream()
-                    .map(TableIdentifier::name)
-                    .collect(Collectors.toList());
+            List<String> views = listViewNames(dbName);
             if (views.isEmpty()) {
                 return tableNames;
             }
@@ -387,9 +395,9 @@ public interface IcebergCatalogOps {
             if (!isViewCatalogEnabled()) {
                 return Collections.emptyList();
             }
-            return resolveViewCatalog().listViews(toNamespace(dbName)).stream()
+            return probeViews(() -> resolveViewCatalog().listViews(toNamespace(dbName)).stream()
                     .map(TableIdentifier::name)
-                    .collect(Collectors.toList());
+                    .collect(Collectors.toList()), Collections.emptyList());
         }
 
         @Override
@@ -404,7 +412,7 @@ public interface IcebergCatalogOps {
             if (!isViewCatalogEnabled()) {
                 return false;
             }
-            return resolveViewCatalog().viewExists(toTableIdentifier(dbName, viewName));
+            return probeViews(() -> resolveViewCatalog().viewExists(toTableIdentifier(dbName, viewName)), false);
         }
 
         @Override
@@ -865,6 +873,19 @@ public interface IcebergCatalogOps {
                 throw new DorisConnectorException("Iceberg catalog does not support databases (namespaces)");
             }
             return (SupportsNamespaces) catalog;
+        }
+
+        private <T> T probeViews(Supplier<T> probe, T noViews) {
+            try {
+                return probe.get();
+            } catch (UnsupportedOperationException e) {
+                // JdbcCatalog implements ViewCatalog even for V0, which cannot store views. The SDK
+                // rejects these probes before SQL; do not require a V1 migration merely to read tables.
+                if (resolveViewCatalog() instanceof JdbcCatalog) {
+                    return noViews;
+                }
+                throw e;
+            }
         }
 
         /** View filtering is on iff a view catalog is resolvable and (for REST) views are enabled. */

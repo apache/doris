@@ -75,7 +75,7 @@ void SizeBasedCumulativeCompactionPolicy::calculate_cumulative_point(
     // calculate promotion size
     auto base_rowset_meta = existing_rss.begin();
 
-    if (tablet->tablet_state() == TABLET_RUNNING) {
+    if (tablet->tablet_state() == TabletState::TABLET_RUNNING) {
         // check base rowset first version must be zero
         // for tablet which state is not TABLET_RUNNING, there may not have base version.
         CHECK((*base_rowset_meta)->start_version() == 0);
@@ -112,7 +112,7 @@ void SizeBasedCumulativeCompactionPolicy::calculate_cumulative_point(
                 << "cumulative compaction size_based policy, calculate cumulative point value = "
                 << *ret_cumulative_point << ", calc promotion size value = " << promotion_size
                 << " tablet = " << tablet->tablet_id();
-    } else if (tablet->tablet_state() == TABLET_NOTREADY) {
+    } else if (tablet->tablet_state() == TabletState::TABLET_NOTREADY) {
         // tablet under alter process
         // we choose version next to the base version as cumulative point
         for (const RowsetMetaSharedPtr& rs : existing_rss) {
@@ -147,7 +147,7 @@ void SizeBasedCumulativeCompactionPolicy::_refresh_tablet_promotion_size(Tablet*
 void SizeBasedCumulativeCompactionPolicy::update_cumulative_point(
         Tablet* tablet, const std::vector<RowsetSharedPtr>& input_rowsets,
         RowsetSharedPtr output_rowset, Version& last_delete_version) {
-    if (tablet->tablet_state() != TABLET_RUNNING) {
+    if (tablet->tablet_state() != TabletState::TABLET_RUNNING) {
         // if tablet under alter process, do not update cumulative point
         return;
     }
@@ -217,7 +217,7 @@ uint32_t SizeBasedCumulativeCompactionPolicy::calc_cumulative_compaction_score(T
 
     // If base version does not exist, but its state is RUNNING.
     // It is abnormal, do not select it and set *score = 0
-    if (!base_rowset_exist && tablet->tablet_state() == TABLET_RUNNING) {
+    if (!base_rowset_exist && tablet->tablet_state() == TabletState::TABLET_RUNNING) {
         LOG(WARNING) << "tablet state is running but have no base version";
         return 0;
     }
@@ -314,7 +314,7 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
                 continue;
             }
         }
-        if (tablet->tablet_state() == TABLET_NOTREADY) {
+        if (tablet->tablet_state() == TabletState::TABLET_NOTREADY) {
             // If tablet under alter, keep latest 10 version so that base tablet max version
             // not merged in new tablet, and then we can copy data from base tablet
             if (rowset->version().second > max_version - 10) {

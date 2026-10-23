@@ -54,7 +54,8 @@ Status prepare_changelog_ttl(BaseStorageEngine& engine, int64_t tablet_id, bool 
         RETURN_IF_ERROR(cloud_tablet->sync_meta());
         RETURN_IF_ERROR(cloud_tablet->sync_rowsets());
     }
-    if (tablet->tablet_state() != TABLET_RUNNING || !tablet->scan_expired_changelog_rowsets()) {
+    if (tablet->tablet_state() != TabletState::TABLET_RUNNING ||
+        !tablet->scan_expired_changelog_rowsets()) {
         return Status::OK();
     }
     ttl_discovered << 1;

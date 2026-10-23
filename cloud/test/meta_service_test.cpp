@@ -12869,6 +12869,56 @@ TEST(MetaServiceTest, StaleCommitRowset) {
     ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().code();
 }
 
+TEST(MetaServiceTest, StaleDeletePredicateCommitRowset) {
+    auto meta_service = get_meta_service();
+
+    const bool old_recycle_key_check = config::enable_recycle_delete_rowset_key_check;
+    const bool old_load_txn_status_check = config::enable_load_txn_status_check;
+    config::enable_recycle_delete_rowset_key_check = true;
+    config::enable_load_txn_status_check = true;
+    DORIS_CLOUD_DEFER {
+        config::enable_recycle_delete_rowset_key_check = old_recycle_key_check;
+        config::enable_load_txn_status_check = old_load_txn_status_check;
+    };
+
+    constexpr int64_t db_id = 100201;
+    constexpr int64_t table_id = 1;
+    constexpr int64_t partition_id = 1;
+    constexpr int64_t tablet_id = 1;
+    const std::string label = "test_stale_delete_predicate_commit_rowset";
+    ASSERT_NO_FATAL_FAILURE(
+            create_tablet(meta_service.get(), table_id, 1, partition_id, tablet_id));
+
+    int64_t txn_id = 0;
+    ASSERT_NO_FATAL_FAILURE(begin_txn(meta_service.get(), db_id, label, table_id, txn_id));
+    auto rowset = create_rowset(txn_id, tablet_id, partition_id, -1, 0);
+    rowset.set_num_segments(0);
+    rowset.set_resource_id("1");
+    rowset.mutable_load_id()->set_hi(0);
+    rowset.mutable_load_id()->set_lo(0);
+    rowset.mutable_delete_predicate()->set_version(1);
+
+    // Old BE commits delete-predicate rowsets without a recycle rowset key.
+    CreateRowsetResponse res;
+    ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset, res));
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+    ASSERT_NO_FATAL_FAILURE(commit_txn(meta_service.get(), db_id, txn_id, label));
+
+    const auto tmp_rs_key = meta_rowset_tmp_key({mock_instance, txn_id, tablet_id});
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string val;
+    ASSERT_EQ(txn->get(tmp_rs_key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+
+    res.Clear();
+    ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset, res));
+    ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().msg();
+    ASSERT_NE(res.status().msg().find("txn is not in"), std::string::npos) << res.status().msg();
+
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn->get(tmp_rs_key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+}
+
 TEST(MetaServiceTest, CommitRowsetCheckTmpAndRecycleKeyExclusion) {
     auto meta_service = get_meta_service();
 

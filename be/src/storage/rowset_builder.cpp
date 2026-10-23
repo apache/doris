@@ -151,7 +151,7 @@ Status BaseRowsetBuilder::init_mow_context(std::shared_ptr<MowContext>& mow_cont
     _max_version_in_flush_phase = tablet()->max_version_unlocked();
     std::vector<RowsetSharedPtr> rowset_ptrs;
     // tablet is under alter process. The delete bitmap will be calculated after conversion.
-    if (tablet()->tablet_state() == TABLET_NOTREADY) {
+    if (tablet()->tablet_state() == TabletState::TABLET_NOTREADY) {
         // Disable 'partial_update' when the tablet is undergoing a 'schema changing process'
         if (_req.table_schema_param->is_partial_update()) {
             return Status::InternalError(
@@ -194,7 +194,7 @@ Status RowsetBuilder::check_tablet_version_count() {
         // Trigger compaction
         auto st = _engine.submit_compaction_task(std::static_pointer_cast<Tablet>(tablet_sptr()),
                                                  CompactionType::CUMULATIVE_COMPACTION, true, true,
-                                                 2);
+                                                 TriggerMethod::LOAD_TRIGGERED);
         if (!st.ok()) [[unlikely]] {
             LOG(WARNING) << "failed to trigger compaction, tablet_id=" << _tablet->tablet_id()
                          << " : " << st;
@@ -378,7 +378,7 @@ Status RowsetBuilder::commit_txn() {
     DCHECK(is_data_builder());
     if (tablet()->enable_unique_key_merge_on_write() &&
         config::enable_merge_on_write_correctness_check && _rowset->num_rows() != 0 &&
-        tablet()->tablet_state() != TABLET_NOTREADY) {
+        tablet()->tablet_state() != TabletState::TABLET_NOTREADY) {
         auto st = tablet()->check_delete_bitmap_correctness(
                 _delete_bitmap, _rowset->end_version() - 1, _req.txn_id, *_rowset_ids);
         if (!st.ok()) {
@@ -543,7 +543,7 @@ Status GroupRowsetBuilder::init() {
                     "try_lock changelog migration lock failed after {}ms, tablet_id={}",
                     config::migration_lock_timeout_ms, _changelog_tablet_id);
         }
-        if (changelog_tablet->tablet_state() == TABLET_SHUTDOWN) {
+        if (changelog_tablet->tablet_state() == TabletState::TABLET_SHUTDOWN) {
             return Status::InternalError<false>(
                     "changelog tablet is shutdown and may have been dropped or migrated, "
                     "tablet_id={}",
