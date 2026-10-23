@@ -49,6 +49,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/config.h"
 #include "common/consts.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
@@ -4312,4 +4313,87 @@ TEST(LanceTableReaderTypeTest, ReadsTemporalTypesFromAllTypesFixture) {
     EXPECT_TRUE(reader.close().ok());
 }
 
+} // namespace doris::format::lance
+
+namespace doris::format::lance {
+TEST(LanceTableReaderLocalPathTest, SchemaAndScanUseTheSameSecurePath) {
+    const auto original_secure_path = config::user_files_secure_path;
+    DEFER(config::user_files_secure_path = original_secure_path);
+    const auto root = std::filesystem::canonical("./be/test/format_v2/table/lance/data");
+    config::user_files_secure_path = root.string();
+    TFileScanRangeParams scan_params;
+    LanceTableReader reader;
+    reader._scan_params = &scan_params;
+    auto range = make_latest_lance_range("all_types.lance");
+    range.__set_file_type(TFileType::FILE_LOCAL);
+    std::vector<std::string> names;
+    std::vector<DataTypePtr> types;
+    ASSERT_TRUE(reader.fetch_schema(range, scan_params, &names, &types).ok());
+    EXPECT_FALSE(names.empty());
+    LanceTableReader::DatasetKey key;
+    ASSERT_TRUE(reader._dataset_key(range, &key).ok());
+    EXPECT_EQ((root / "all_types.lance").string(), key.uri);
+
+    // Legacy scan-level tags must enforce the same restriction as per-range tags.
+    range.__isset.file_type = false;
+    scan_params.__set_file_type(TFileType::FILE_LOCAL);
+    ASSERT_TRUE(reader._dataset_key(range, &key).ok());
+    EXPECT_EQ((root / "all_types.lance").string(), key.uri);
+
+    for (const auto* uri : {"https://invalid/dataset", "http://invalid/dataset",
+                            "s3://bucket/dataset", "../data-other/dataset"}) {
+        range.table_format_params.lance_params.__set_dataset_uri(uri);
+        const auto schema_status = reader.fetch_schema(range, scan_params, &names, &types);
+        const auto scan_status = reader._dataset_key(range, &key);
+        EXPECT_FALSE(schema_status.ok()) << uri;
+        EXPECT_EQ(schema_status.to_string(), scan_status.to_string());
+    }
+}
+
+TEST(LanceTableReaderLocalPathTest, ScansRelativeDatasetInsideSecureRoot) {
+    const auto original_secure_path = config::user_files_secure_path;
+    DEFER(config::user_files_secure_path = original_secure_path);
+    config::user_files_secure_path =
+            std::filesystem::canonical("./be/test/format_v2/table/lance/data").string();
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+    RuntimeProfile profile("lance_secure_local_scan");
+    TFileScanRangeParams scan_params;
+    const Columns columns {projected_column("row_id", TYPE_BIGINT, false)};
+    LanceTableReader reader;
+    ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
+    auto range = make_latest_lance_range("all_types.lance");
+    range.__set_file_type(TFileType::FILE_LOCAL);
+    ASSERT_TRUE(prepare_range(&reader, range).ok());
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST(LanceTableReaderLocalPathTest, FixedVersionLocalCatalogKeepsItsUri) {
+    TFileScanRangeParams scan_params;
+    LanceTableReader reader;
+    reader._scan_params = &scan_params;
+    // Catalog warehouses use their own location, not the LOCAL TVF secure directory.
+    auto range = make_lance_range("file:///catalog-owned/dataset.lance", 7, {0});
+    range.__set_file_type(TFileType::FILE_LOCAL);
+    LanceTableReader::DatasetKey key;
+    ASSERT_TRUE(reader._dataset_key(range, &key).ok());
+    EXPECT_EQ("file:///catalog-owned/dataset.lance", key.uri);
+    EXPECT_EQ(7, key.version);
+}
+
+TEST(LanceTableReaderLocalPathTest, RemoteRangeKeepsItsUriAndOptions) {
+    TFileScanRangeParams scan_params;
+    scan_params.__set_file_type(TFileType::FILE_LOCAL);
+    TLanceScanParams lance_params;
+    lance_params.__set_lance_storage_options({{"aws_region", "us-east-1"}});
+    scan_params.__set_lance_scan_params(lance_params);
+    LanceTableReader reader;
+    reader._scan_params = &scan_params;
+    auto range = make_latest_lance_range("s3://bucket/dataset.lance");
+    range.__set_file_type(TFileType::FILE_S3);
+    LanceTableReader::DatasetKey key;
+    ASSERT_TRUE(reader._dataset_key(range, &key).ok());
+    EXPECT_EQ("s3://bucket/dataset.lance", key.uri);
+    EXPECT_EQ((std::vector<std::string> {"aws_region", "us-east-1"}), key.storage_options);
+}
 } // namespace doris::format::lance

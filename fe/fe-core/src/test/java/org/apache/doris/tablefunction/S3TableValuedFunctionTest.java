@@ -72,6 +72,15 @@ public class S3TableValuedFunctionTest {
     }
 
     @Test
+    public void testLanceRejectsLocalStorageBeforeOpeningDataset() {
+        org.apache.doris.common.AnalysisException exception = Assertions.assertThrows(
+                org.apache.doris.common.AnalysisException.class,
+                () -> new S3TableValuedFunction(ImmutableMap.of(
+                        "file_path", "dataset.lance", "format", "lance")));
+        Assertions.assertTrue(exception.getMessage().contains("requires remote storage"));
+    }
+
+    @Test
     public void testExactFilesKeepLiteralPathsAndSkipListing() throws Exception {
         FeConstants.runningUnitTest = false;
         TBrokerFileStatus file = file("a,b[1]*?.csv", 123);

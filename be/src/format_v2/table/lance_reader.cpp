@@ -35,10 +35,35 @@
 #include "format_v2/lance/lance_reader_helper.h"
 #include "format_v2/lance/lance_runtime_filter_helper.h"
 #include "format_v2/lance/lance_session_manager.h"
+#include "io/fs/local_file_system.h"
 #include "runtime/file_scan_profile.h"
 #include "runtime/runtime_state.h"
 
 namespace doris::format::lance {
+
+namespace {
+Status resolve_dataset_uri(const TFileRangeDesc& range, const TFileScanRangeParams& scan_params,
+                           std::string* uri) {
+    const auto& requested_uri = range.table_format_params.lance_params.dataset_uri;
+    // Modern plans tag each range; older plans put the type in the scan parameters.
+    // Untagged catalog scans retain their original storage-provider selection.
+    const bool is_local = range.__isset.file_type
+                                  ? range.file_type == TFileType::FILE_LOCAL
+                                  : scan_params.__isset.file_type &&
+                                            scan_params.file_type == TFileType::FILE_LOCAL;
+    // LOCAL TVF uses version zero for both schema discovery and whole-dataset scans.
+    // Catalog scans pin a positive snapshot version, including file:// catalogs whose
+    // operator-configured warehouse is independent of the LOCAL TVF secure directory.
+    if (is_local && range.table_format_params.lance_params.version == 0) {
+        // LOCAL Lance bypasses glob because it opens a dataset directory. Apply the same
+        // canonical secure-root check before either schema discovery or a cached dataset open.
+        return io::global_local_filesystem()->canonicalize_local_file(
+                config::user_files_secure_path, requested_uri, uri);
+    }
+    *uri = requested_uri;
+    return Status::OK();
+}
+} // namespace
 
 LanceTableReader::~LanceTableReader() {
     static_cast<void>(close());
@@ -52,6 +77,8 @@ Status LanceTableReader::fetch_schema(const TFileRangeDesc& range,
         return Status::InvalidArgument("Lance schema output must not be null");
     }
     const auto& params = range.table_format_params.lance_params;
+    std::string dataset_uri;
+    RETURN_IF_ERROR(resolve_dataset_uri(range, scan_params, &dataset_uri));
     std::vector<std::string> storage_options;
     RETURN_IF_ERROR(build_lance_storage_options(&scan_params, &storage_options));
     std::vector<const char*> storage_option_ptrs;
@@ -61,10 +88,9 @@ Status LanceTableReader::fetch_schema(const TFileRangeDesc& range,
     }
     storage_option_ptrs.emplace_back(nullptr);
 
-    std::unique_ptr<LanceDataset, LanceDatasetDeleter> dataset(
-            lance_dataset_open(params.dataset_uri.c_str(),
-                               storage_options.empty() ? nullptr : storage_option_ptrs.data(),
-                               static_cast<uint64_t>(params.version)));
+    std::unique_ptr<LanceDataset, LanceDatasetDeleter> dataset(lance_dataset_open(
+            dataset_uri.c_str(), storage_options.empty() ? nullptr : storage_option_ptrs.data(),
+            static_cast<uint64_t>(params.version)));
     if (dataset == nullptr) {
         return lance_error("open Lance dataset for schema");
     }
@@ -1329,7 +1355,7 @@ Status LanceTableReader::_fill_block_from_lance_batch(LanceBatch* batch, Block* 
 
 Status LanceTableReader::_dataset_key(const TFileRangeDesc& range, DatasetKey* key) const {
     const auto& params = range.table_format_params.lance_params;
-    key->uri = params.dataset_uri;
+    RETURN_IF_ERROR(resolve_dataset_uri(range, *_scan_params, &key->uri));
     key->version = params.version;
     return build_lance_storage_options(_scan_params, &key->storage_options);
 }
