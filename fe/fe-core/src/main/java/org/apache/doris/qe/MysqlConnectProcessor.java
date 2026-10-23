@@ -431,29 +431,32 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_TABLE, "Empty tableName");
             return;
         }
-        DatabaseIf db = ctx.getCurrentCatalog().getDbNullable(ctx.getDatabase());
-        if (db == null) {
-            ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "Unknown database(" + ctx.getDatabase() + ")");
-            return;
-        }
-        TableIf table = db.getTableNullable(tableName);
-        if (table == null) {
-            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_TABLE, "Unknown table(" + tableName + ")");
-            return;
-        }
-
-        table.readLock();
         try {
-            MysqlProtocolAdapter.of(ctx).resultSender(ctx)
-                    // COM_FIELD_LIST is a metadata statement: it must agree with SHOW COLUMNS, so it serves
-                    // the display schema (the nullability the source declares), not the read schema.
-                    .sendFieldList(db.getFullName(), table.getName(), table.getBaseSchemaForDisplay());
+            // Metadata lookup can fail before a table is locked; return an ERR packet instead of losing the session.
+            DatabaseIf db = ctx.getCurrentCatalog().getDbNullable(ctx.getDatabase());
+            if (db == null) {
+                ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "Unknown database(" + ctx.getDatabase() + ")");
+                return;
+            }
+            TableIf table = db.getTableNullable(tableName);
+            if (table == null) {
+                ctx.getState().setError(ErrorCode.ERR_UNKNOWN_TABLE, "Unknown table(" + tableName + ")");
+                return;
+            }
+
+            table.readLock();
+            try {
+                MysqlProtocolAdapter.of(ctx).resultSender(ctx)
+                        // COM_FIELD_LIST is a metadata statement: it must agree with SHOW COLUMNS, so it serves
+                        // the display schema (the nullability the source declares), not the read schema.
+                        .sendFieldList(db.getFullName(), table.getName(), table.getBaseSchemaForDisplay());
+            } finally {
+                table.readUnlock();
+            }
+            ctx.getState().setEof();
         } catch (Throwable throwable) {
             handleQueryException(throwable, "", null, null);
-        } finally {
-            table.readUnlock();
         }
-        ctx.getState().setEof();
     }
 
     private void handleChangeUser() throws IOException {

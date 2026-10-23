@@ -205,6 +205,12 @@ public class MaterializedViewHandler extends AlterHandler {
             if (olapTable.hasColumnSeqMapping()) {
                 throw new DdlException("Can not add materialized view when table use column sequence mapping");
             }
+            if (createMvCommand.isIfNotExists()
+                    && olapTable.hasMaterializedIndex(createMvCommand.getMVName())) {
+                LOG.info("materialized view[{}] already exists on table[{}], skip creating it",
+                        createMvCommand.getMVName(), olapTable.getName());
+                return;
+            }
             // check no duplicate column name in full schema
             Set<String> allColumnNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
             for (Column column : olapTable.getFullSchema()) {

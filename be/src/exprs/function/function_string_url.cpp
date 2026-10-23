@@ -115,6 +115,13 @@ public:
                 ColumnView<TYPE_STRING>::create(block.get_by_position(arguments[0]).column);
         const auto part_col =
                 ColumnView<TYPE_STRING>::create(block.get_by_position(arguments[1]).column);
+        const bool part_is_const = part_col.is_const;
+        UrlParser::UrlPart const_url_part = UrlParser::INVALID;
+        if (part_is_const && input_rows_count > 0 && !part_col.is_null_at(0)) {
+            const_url_part = UrlParser::get_url_part(part_col.value_at(0));
+        }
+        // Validate after the row's null checks: NULL inputs must still produce NULL
+        // even when a constant URL part is invalid.
         if (has_key) {
             const auto key_col =
                     ColumnView<TYPE_STRING>::create(block.get_by_position(arguments[2]).column);
@@ -123,9 +130,10 @@ public:
                     StringOP::push_null_string(i, res_chars, res_offsets, null_map_data);
                     continue;
                 }
-                const auto part = part_col.value_at(i);
-                const auto url_part = UrlParser::get_url_part(part);
+                const auto url_part = part_is_const ? const_url_part
+                                                    : UrlParser::get_url_part(part_col.value_at(i));
                 if (url_part == UrlParser::INVALID) {
+                    const auto part = part_col.value_at(i);
                     return Status::RuntimeError("Invalid URL part: {}\n{}",
                                                 std::string(part.data, part.size),
                                                 "(Valid URL parts are 'PROTOCOL', 'HOST', "
@@ -147,9 +155,10 @@ public:
                     StringOP::push_null_string(i, res_chars, res_offsets, null_map_data);
                     continue;
                 }
-                const auto part = part_col.value_at(i);
-                const auto url_part = UrlParser::get_url_part(part);
+                const auto url_part = part_is_const ? const_url_part
+                                                    : UrlParser::get_url_part(part_col.value_at(i));
                 if (url_part == UrlParser::INVALID) {
+                    const auto part = part_col.value_at(i);
                     return Status::RuntimeError("Invalid URL part: {}\n{}",
                                                 std::string(part.data, part.size),
                                                 "(Valid URL parts are 'PROTOCOL', 'HOST', "

@@ -26,6 +26,7 @@ import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.NameSpaceContext;
 import org.apache.doris.catalog.OlapChangelogTableWrapper;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -977,20 +978,18 @@ public class BindRelation extends OneAnalysisRuleFactory {
             ExternalTable table, String externalCatalog, String externalDb,
             String ddlSql, CascadesContext cascadesContext) {
         ConnectContext ctx = cascadesContext.getConnectContext();
-        String previousCatalog = ctx.getCurrentCatalog().getName();
-        String previousDb = ctx.getDatabase();
+        NameSpaceContext previousNamespace = ctx.getNameSpaceContext();
         String convertedSql = SqlDialectHelper.convertSqlByDialect(ddlSql, ctx.getSessionVariable());
         // change catalog and db to external catalog and db,
         // so that we can parse and analyze the view sql in external context.
-        ctx.changeDefaultCatalog(externalCatalog);
-        ctx.setDatabase(externalDb);
         try {
+            ctx.changeDefaultCatalog(externalCatalog);
+            ctx.setDatabase(externalDb);
             return new LogicalView<>(new ExternalView(table, ddlSql),
                     parseAndAnalyzeView(table, convertedSql, cascadesContext));
         } finally {
-            // restore catalog and db in connect context
-            ctx.changeDefaultCatalog(previousCatalog);
-            ctx.setDatabase(previousDb);
+            // Also restore failed namespace entry without masking analysis errors with metadata IO.
+            ctx.restoreNameSpaceContext(previousNamespace);
         }
     }
 

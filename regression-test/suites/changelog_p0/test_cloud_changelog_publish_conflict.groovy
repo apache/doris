@@ -107,7 +107,7 @@ suite("test_cloud_changelog_publish_conflict", "nonConcurrent") {
             throw txn2Error.get()
         }
 
-        qt_row_binlog_publish_conflict """
+        qt_changelog_publish_conflict """
             SELECT __DORIS_CHANGELOG_OP__ AS op,
                    k1,
                    k2,
@@ -122,7 +122,7 @@ suite("test_cloud_changelog_publish_conflict", "nonConcurrent") {
         """
 
         sql "SET skip_delete_bitmap = true"
-        qt_row_binlog_publish_conflict_skip_bitmap """
+        qt_changelog_publish_conflict_skip_bitmap """
             SELECT __DORIS_CHANGELOG_OP__ AS op,
                    k1,
                    k2,
@@ -170,7 +170,7 @@ suite("test_cloud_changelog_publish_conflict", "nonConcurrent") {
             throw txn4Error.get()
         }
 
-        qt_row_binlog_publish_conflict_upsert """
+        qt_changelog_publish_conflict_upsert """
             SELECT __DORIS_CHANGELOG_OP__ AS op,
                    k1,
                    k2,
@@ -185,7 +185,7 @@ suite("test_cloud_changelog_publish_conflict", "nonConcurrent") {
         """
 
         sql "SET skip_delete_bitmap = true"
-        qt_row_binlog_publish_conflict_upsert_skip_bitmap """
+        qt_changelog_publish_conflict_upsert_skip_bitmap """
             SELECT __DORIS_CHANGELOG_OP__ AS op,
                    k1,
                    k2,

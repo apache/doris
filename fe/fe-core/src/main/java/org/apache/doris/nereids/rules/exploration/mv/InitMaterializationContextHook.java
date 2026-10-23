@@ -245,6 +245,7 @@ public class InitMaterializationContextHook implements PlannerHook {
 
     private List<MaterializationContext> createSyncMvContexts(OlapTable olapTable,
             CascadesContext cascadesContext) {
+        ConnectContext previousContext = ConnectContext.get();
         int indexNumber = olapTable.getIndexNumber();
         List<MaterializationContext> contexts = new ArrayList<>(indexNumber);
         long baseIndexId = olapTable.getBaseIndexId();
@@ -312,6 +313,9 @@ public class InitMaterializationContextHook implements PlannerHook {
                 LOG.warn(String.format("createSyncMvContexts exception, index id is %s, index name is %s, "
                                 + "table name is %s", entry.getValue(), indexName, olapTable.getQualifiedName()),
                         exception);
+            } finally {
+                // Database selection can fail after context creation but before MTMVCache cleanup.
+                previousContext.setThreadLocalInfo();
             }
         }
         return getMaterializationContextByHint(contexts);

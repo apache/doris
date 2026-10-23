@@ -70,6 +70,7 @@
 8	Cloud Computing AWS	Amazon Web Services deployment and scaling strategies
 9	Kubernetes Orchestration	Container orchestration with Kubernetes and Docker
 10	Microservices Architecture	Design patterns for scalable microservices systems
+11	Test with null content	\N
 12	Test with null title	This content has a title but title field is null
 13	Test with null category	Content with null category field
 14	Test with null tags	Content with null tags field
@@ -154,6 +155,7 @@
 8	Cloud Computing AWS
 9	Kubernetes Orchestration
 10	Microservices Architecture
+11	Test with null content
 12	Test with null title
 13	Test with null category
 14	Test with null tags
@@ -175,6 +177,7 @@
 8	Cloud Computing AWS
 9	Kubernetes Orchestration
 10	Microservices Architecture
+11	Test with null content
 12	Test with null title
 13	Test with null category
 14	Test with null tags
@@ -204,6 +207,7 @@
 8	Cloud Computing AWS	Amazon Web Services deployment and scaling strategies
 9	Kubernetes Orchestration	Container orchestration with Kubernetes and Docker
 10	Microservices Architecture	Design patterns for scalable microservices systems
+11	Test with null content	\N
 17	Message about success	This is a success message for testing
 18	Error message details	This is an error message for testing
 19	Warning message content	This is a warning message for testing
@@ -227,6 +231,7 @@
 8	Cloud Computing AWS	Cloud
 9	Kubernetes Orchestration	DevOps
 10	Microservices Architecture	Architecture
+13	Test with null category	\N
 17	Message about success	Message
 18	Error message details	Message
 19	Warning message content	Message
@@ -250,6 +255,7 @@
 8	Cloud Computing AWS	cloud-computing, AWS, deployment
 9	Kubernetes Orchestration	kubernetes, docker, containers
 10	Microservices Architecture	microservices, scalability, patterns
+14	Test with null tags	\N
 17	Message about success	success, message
 18	Error message details	error, message
 19	Warning message content	warning, message
@@ -272,6 +278,7 @@
 12	Test with null title	Test Author
 13	Test with null category	Test Author
 14	Test with null tags	Test Author
+15	Test with null author	\N
 16	Test with null status	Test Author
 17	Message about success	System
 18	Error message details	System
@@ -296,6 +303,7 @@
 8	Cloud Computing AWS	published
 9	Kubernetes Orchestration	published
 10	Microservices Architecture	published
+16	Test with null status	\N
 17	Message about success	published
 18	Error message details	published
 19	Warning message content	published
