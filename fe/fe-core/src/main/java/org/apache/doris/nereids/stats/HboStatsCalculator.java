@@ -170,11 +170,13 @@ public class HboStatsCalculator extends StatsCalculator {
         double leftRows = groupExpression.childStatistics(0).getRowCount();
         double rightRows = groupExpression.childStatistics(1).getRowCount();
         double expansion = expansionOpt.get().getExpansion();
-        // the factor is relative to the larger input of this node, so that the estimate does not
-        // depend on the child order: 0.1 means "the join keeps 10% of the larger input", 1000 means
-        // "it fans out to 1000 times the larger input"
-        double baseRows = Math.max(leftRows, rightRows);
-        double estimated = expansion * baseRows;
+        // the factor is the fan out of the equality conditions: it scales their estimate, and the non
+        // equality conditions keep their own selectivity on top of it (see JoinEstimation)
+        double estimated = JoinEstimation.estimate(groupExpression.childStatistics(0),
+                groupExpression.childStatistics(1), join, expansion).getRowCount();
+        // the estimate the factor was applied to, reported by the annotation: the equality estimate with
+        // the residual selectivity of this query
+        double baseRows = expansion == 0 ? estimated : estimated / expansion;
         // an equi join can never produce more rows than the cartesian product of its inputs, except a
         // full outer join: its unmatched rows are kept as well, so one row on each side which do not
         // match already produce two rows although the product is one
