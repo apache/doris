@@ -112,7 +112,7 @@ public class Log4jConfig extends XmlConfiguration {
             .append("        <SizeBasedTriggeringPolicy size=\"${sys_roll_maxsize}MB\"/>\n")
             .append("      </Policies>\n")
             .append("      <DefaultRolloverStrategy max=\"${sys_roll_num}\" fileIndex=\"max\">\n")
-            .append("        <Delete basePath=\"${sys_log_dir}/\" maxDepth=\"1\">\n")
+            .append("        <Delete basePath=\"${sys_log_dir}/\" maxDepth=\"1\" followLinks=\"true\">\n")
             .append("          <IfFileName glob=\"fe.log.*\" />\n");
 
         getXmlConfByStrategy("info_sys_accumulated_file_size", "sys_log_delete_age");
@@ -130,7 +130,7 @@ public class Log4jConfig extends XmlConfiguration {
             .append("        <SizeBasedTriggeringPolicy size=\"${sys_roll_maxsize}MB\"/>\n")
             .append("      </Policies>\n")
             .append("      <DefaultRolloverStrategy max=\"${sys_roll_num}\" fileIndex=\"max\">\n")
-            .append("        <Delete basePath=\"${sys_log_dir}/\" maxDepth=\"1\">\n")
+            .append("        <Delete basePath=\"${sys_log_dir}/\" maxDepth=\"1\" followLinks=\"true\">\n")
             .append("          <IfFileName glob=\"fe.warn.log.*\" />\n");
 
         getXmlConfByStrategy("warn_sys_accumulated_file_size", "sys_log_delete_age");
@@ -148,7 +148,7 @@ public class Log4jConfig extends XmlConfiguration {
             .append("        <SizeBasedTriggeringPolicy size=\"${audit_roll_maxsize}MB\"/>\n")
             .append("      </Policies>\n")
             .append("      <DefaultRolloverStrategy max=\"${audit_roll_num}\" fileIndex=\"max\">\n")
-            .append("        <Delete basePath=\"${audit_log_dir}/\" maxDepth=\"1\">\n")
+            .append("        <Delete basePath=\"${audit_log_dir}/\" maxDepth=\"1\" followLinks=\"true\">\n")
             .append("          <IfFileName glob=\"fe.audit.log.*\" />\n");
 
         getXmlConfByStrategy("audit_sys_accumulated_file_size", "audit_log_delete_age");
