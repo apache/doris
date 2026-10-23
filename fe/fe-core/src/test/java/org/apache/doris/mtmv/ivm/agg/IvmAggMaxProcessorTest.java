@@ -23,9 +23,9 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MaxTopK;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
-import org.apache.doris.nereids.trees.expressions.functions.agg.TopKCountFunction;
-import org.apache.doris.nereids.trees.expressions.functions.agg.TopKMaxCount;
+import org.apache.doris.nereids.trees.expressions.functions.agg.TopKFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySortedMerge;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
@@ -58,8 +58,8 @@ class IvmAggMaxProcessorTest extends IvmAggProcessorTestBase {
         IvmAggTarget target = newMaxTarget(TOP_K);
         List<NamedExpression> outputs = deltaOutputs(processor, target);
         Assertions.assertEquals(3, outputs.size());
-        Assertions.assertTrue(outputs.get(0).child(0) instanceof TopKMaxCount);
-        Assertions.assertTrue(outputs.get(1).child(0) instanceof TopKMaxCount);
+        Assertions.assertTrue(outputs.get(0).child(0) instanceof MaxTopK);
+        Assertions.assertTrue(outputs.get(1).child(0) instanceof MaxTopK);
         Assertions.assertTrue(outputs.get(1).getName().contains("DELMAX"));
         Assertions.assertTrue(outputs.get(2).child(0) instanceof Sum);
 
@@ -92,7 +92,7 @@ class IvmAggMaxProcessorTest extends IvmAggProcessorTestBase {
         IvmAggTarget target = newMaxTarget(0);
         List<NamedExpression> outputs = deltaOutputs(processor, target);
         Assertions.assertEquals(3, outputs.size());
-        Assertions.assertTrue(outputs.get(0).child(0) instanceof TopKMaxCount);
+        Assertions.assertTrue(outputs.get(0).child(0) instanceof MaxTopK);
 
         Map<String, Expression> finalByName = apply(processor, target,
                 ImmutableList.of(slot("max_v", IntegerType.INSTANCE),
@@ -115,7 +115,7 @@ class IvmAggMaxProcessorTest extends IvmAggProcessorTestBase {
     }
 
     private IvmAggTarget newMaxTarget(long topK) {
-        ArrayType stateType = TopKCountFunction.resultType(IntegerType.INSTANCE);
+        ArrayType stateType = TopKFunction.resultType(IntegerType.INSTANCE);
         return target(2, IvmAggFunctionKind.MAX, "max_v", IntegerType.INSTANCE,
                 ImmutableMap.of(IvmAggStateKey.COUNT, slot("__ivm_count", BigIntType.INSTANCE),
                         IvmAggStateKey.MAX_TOPK,

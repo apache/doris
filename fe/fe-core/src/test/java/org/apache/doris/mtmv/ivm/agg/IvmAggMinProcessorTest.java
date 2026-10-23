@@ -23,9 +23,9 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MinTopK;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
-import org.apache.doris.nereids.trees.expressions.functions.agg.TopKCountFunction;
-import org.apache.doris.nereids.trees.expressions.functions.agg.TopKMinCount;
+import org.apache.doris.nereids.trees.expressions.functions.agg.TopKFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySortedMerge;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
@@ -59,8 +59,8 @@ class IvmAggMinProcessorTest extends IvmAggProcessorTestBase {
         List<NamedExpression> outputs = deltaOutputs(processor, target);
         // Insert-side top-K, delete-side top-K, and the signed non-NULL row count.
         Assertions.assertEquals(3, outputs.size());
-        Assertions.assertTrue(outputs.get(0).child(0) instanceof TopKMinCount);
-        Assertions.assertTrue(outputs.get(1).child(0) instanceof TopKMinCount);
+        Assertions.assertTrue(outputs.get(0).child(0) instanceof MinTopK);
+        Assertions.assertTrue(outputs.get(1).child(0) instanceof MinTopK);
         Assertions.assertTrue(outputs.get(1).getName().contains("DELMIN"));
         Assertions.assertTrue(outputs.get(2).child(0) instanceof Sum);
 
@@ -94,7 +94,7 @@ class IvmAggMinProcessorTest extends IvmAggProcessorTestBase {
         IvmAggTarget target = newMinTarget(0);
         List<NamedExpression> outputs = deltaOutputs(processor, target);
         Assertions.assertEquals(3, outputs.size());
-        Assertions.assertTrue(outputs.get(0).child(0) instanceof TopKMinCount);
+        Assertions.assertTrue(outputs.get(0).child(0) instanceof MinTopK);
 
         Map<String, Expression> finalByName = apply(processor, target,
                 ImmutableList.of(slot("min_v", IntegerType.INSTANCE),
@@ -117,7 +117,7 @@ class IvmAggMinProcessorTest extends IvmAggProcessorTestBase {
     }
 
     private IvmAggTarget newMinTarget(long topK) {
-        ArrayType stateType = TopKCountFunction.resultType(IntegerType.INSTANCE);
+        ArrayType stateType = TopKFunction.resultType(IntegerType.INSTANCE);
         return target(2, IvmAggFunctionKind.MIN, "min_v", IntegerType.INSTANCE,
                 ImmutableMap.of(IvmAggStateKey.COUNT, slot("__ivm_count", BigIntType.INSTANCE),
                         IvmAggStateKey.MIN_TOPK,
