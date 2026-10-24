@@ -37,7 +37,6 @@ import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.TreeMap;
@@ -179,21 +178,15 @@ final class PaimonWriteBinding {
 
     /**
      * The fields whose CHAR values the BE writer pads, as PaimonWriteSchema.create decides it: with {@code charPadding}
-     * on, every field but the table's {@code rowkind.field}, from whose value Paimon decodes the row kind, and of a
-     * table that writes ORC files only the partition fields. ORC pads every CHAR value it writes and strips the
-     * trailing spaces from one it reads, so the writer leaves the other fields of such a table alone. Keep in sync
-     * with PaimonWriteSchema.create and PaimonWriteSchema.writesOrcFiles in be-java-extensions/paimon-scanner.
+     * on, every field but the table's {@code rowkind.field}, from whose value Paimon decodes the row kind. Keep in
+     * sync with PaimonWriteSchema.create in be-java-extensions/paimon-scanner.
      */
     static Predicate<String> charPaddedFields(TableSchema schema, boolean charPadding) {
         if (!charPadding) {
             return field -> false;
         }
-        CoreOptions options = CoreOptions.fromMap(schema.options());
-        String rowKindField = options.rowkindField().orElse(null);
-        boolean orcFiles = CoreOptions.FILE_FORMAT_ORC.equals(options.formatType())
-                || options.fileFormatPerLevel().containsValue(CoreOptions.FILE_FORMAT_ORC);
-        List<String> partitionKeys = schema.partitionKeys();
-        return field -> !field.equals(rowKindField) && (!orcFiles || partitionKeys.contains(field));
+        String rowKindField = CoreOptions.fromMap(schema.options()).rowkindField().orElse(null);
+        return field -> !field.equals(rowKindField);
     }
 
     /**
