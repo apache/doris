@@ -145,6 +145,7 @@ public class CopyIntoAction extends RestBaseController {
             executeCheckPassword(request, response);
             String fileName = request.getHeader("fileName");
             if (Strings.isNullOrEmpty(fileName)) {
+                MetricRepo.HTTP_COUNTER_COPY_INFO_UPLOAD_ERR.increase(1L);
                 return ResponseEntityBuilder.badRequest("http header must have filename entry");
             }
             String eh = request.getHeader(endpointHeader);
@@ -206,9 +207,6 @@ public class CopyIntoAction extends RestBaseController {
             resultMap.put("code", "1");
             resultMap.put("exception", e.getMessage());
         }
-
-        // should not come here
-        MetricRepo.HTTP_COUNTER_COPY_INFO_UPLOAD_ERR.increase(1L);
         return ResponseEntityBuilder.ok(resultMap);
     }
 
@@ -216,7 +214,13 @@ public class CopyIntoAction extends RestBaseController {
     public Object loadQuery(HttpServletRequest request, HttpServletResponse response)
             throws InterruptedException, IOException {
         MetricRepo.HTTP_COUNTER_COPY_INFO_QUERY_REQUEST.increase(1L);
-        String postContent = HttpUtils.getBody(request);
+        String postContent;
+        try {
+            postContent = HttpUtils.getBody(request);
+        } catch (IOException e) {
+            MetricRepo.HTTP_COUNTER_COPY_INFO_QUERY_ERR.increase(1L);
+            throw e;
+        }
         LOG.info("query request parameter {} header {} body {}", request.getParameterMap(), getHeadersInfo(request),
                 postContent);
         Map<String, Object> resultMap = new HashMap<>(3);
@@ -224,23 +228,23 @@ public class CopyIntoAction extends RestBaseController {
             long startTime = System.currentTimeMillis();
             ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
             if (Strings.isNullOrEmpty(postContent)) {
-                return ResponseEntityBuilder.badRequest("POST body must contain json object");
+                return queryBadRequest("POST body must contain json object");
             }
             JSONObject jsonObject = (JSONObject) JSONValue.parse(postContent);
             if (jsonObject == null) {
-                return ResponseEntityBuilder.badRequest("malformed json: " + postContent);
+                return queryBadRequest("malformed json: " + postContent);
             }
 
             String copyIntoSql = (String) jsonObject.get("sql");
 
             if (Strings.isNullOrEmpty(copyIntoSql)) {
-                return ResponseEntityBuilder.badRequest("POST body must contain [sql] root object");
+                return queryBadRequest("POST body must contain [sql] root object");
             }
 
             String clusterName = (String) jsonObject.getOrDefault("cluster", "");
             LogicalPlan logicalPlan = analyzeStmt(copyIntoSql);
             if (!(logicalPlan instanceof CopyIntoCommand)) {
-                return ResponseEntityBuilder.badRequest("just support copy into sql: " + copyIntoSql);
+                return queryBadRequest("just support copy into sql: " + copyIntoSql);
             }
 
             LOG.info("copy into stmt: {}", copyIntoSql);
@@ -279,12 +283,19 @@ public class CopyIntoAction extends RestBaseController {
             MetricRepo.HISTO_HTTP_COPY_INTO_QUERY_LATENCY.update(elapseMs);
             return ResponseEntityBuilder.ok(resultSet.getResult());
         } catch (InterruptedException e) {
+            MetricRepo.HTTP_COUNTER_COPY_INFO_QUERY_ERR.increase(1L);
             LOG.warn("failed to execute stmt {}, ", copyIntoStmt, e);
             return ResponseEntityBuilder.okWithCommonError("Failed to execute sql: " + e.getMessage());
         } catch (ExecutionException e) {
+            MetricRepo.HTTP_COUNTER_COPY_INFO_QUERY_ERR.increase(1L);
             LOG.warn("failed to execute stmt {}", copyIntoStmt, e);
             return ResponseEntityBuilder.okWithCommonError("Failed to execute sql: " + e.getMessage());
         }
+    }
+
+    private static ResponseEntity queryBadRequest(String msg) {
+        MetricRepo.HTTP_COUNTER_COPY_INFO_QUERY_ERR.increase(1L);
+        return ResponseEntityBuilder.badRequest(msg);
     }
 
     public static LogicalPlan analyzeStmt(String stmtStr) throws Exception {
