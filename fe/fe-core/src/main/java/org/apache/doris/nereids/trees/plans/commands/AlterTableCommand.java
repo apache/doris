@@ -44,7 +44,11 @@ import org.apache.doris.datasource.lance.LanceExternalCatalog;
 import org.apache.doris.datasource.lance.LanceExternalDatabase;
 import org.apache.doris.datasource.lance.LanceExternalTable;
 import org.apache.doris.datasource.lance.LanceIndexAdmission;
+import org.apache.doris.datasource.lance.LanceIndexMutationOutcome;
+import org.apache.doris.datasource.lance.LanceIndexMutationPlan;
 import org.apache.doris.datasource.lance.LanceIndexMutationValidator;
+import org.apache.doris.datasource.lance.index.LanceIndexMutationExecutor;
+import org.apache.doris.datasource.lance.index.LanceIndexMutationRefresher;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -84,6 +88,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * AlterTableCommand
@@ -104,6 +109,13 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
     private CatalogIf catalog;
     private DatabaseIf dbIf;
     private TableIf tableIf;
+    /**
+     * The Lance mutation cancel flag, set by {@link #cancel()} (the StmtExecutor cancel hook,
+     * same contract as InsertOverwriteTableCommand) and observed by the synchronous executor
+     * at its phase boundaries before the dispatch. Cancelling never rolls back a possible
+     * commit; the executor owns that semantics.
+     */
+    private final AtomicBoolean lanceMutationCancelled = new AtomicBoolean(false);
 
     public AlterTableCommand(TableNameInfo tbl, List<AlterTableOp> ops) {
         super(PlanType.ALTER_TABLE_COMMAND);
@@ -139,7 +151,7 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
     /**
      * validate
      */
-    private void validate(ConnectContext ctx) throws UserException {
+    private long validate(ConnectContext ctx, long statementStartMs) throws Exception {
         Preconditions.checkState(lanceIndexOps.isEmpty(),
                 "AlterTableCommand.validate() must run exactly once per command object");
         if (tbl == null) {
@@ -164,8 +176,19 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
         catalog = Env.getCurrentEnv().getCatalogMgr()
                 .getCatalogOrException(ctlName, catalogName -> new DdlException("Unknown catalog " + catalogName));
         validateLanceIndexOperationsBeforeResolution(catalog);
-        dbIf = catalog.getDbOrDdlException(dbName);
-        tableIf = dbIf.getTableOrDdlException(tableName);
+        boolean lanceIndexStatement = catalog instanceof LanceExternalCatalog && ops.stream().anyMatch(op ->
+                (op instanceof CreateIndexOp && !((CreateIndexOp) op).isAlter())
+                        || (op instanceof DropIndexOp && !((DropIndexOp) op).isAlter()));
+        long deadlineMs = lanceIndexStatement
+                ? LanceIndexMutationExecutor.budgetDeadlineMs(statementStartMs) : Long.MAX_VALUE;
+        // Cold catalog/table resolution may call the namespace. Keep all native resources
+        // with the read worker even when the statement stops waiting for that worker.
+        dbIf = lanceIndexStatement
+                ? LanceIndexAdmission.readMetadata(deadlineMs, () -> catalog.getDbOrDdlException(dbName))
+                : catalog.getDbOrDdlException(dbName);
+        tableIf = lanceIndexStatement
+                ? LanceIndexAdmission.readMetadata(deadlineMs, () -> dbIf.getTableOrDdlException(tableName))
+                : dbIf.getTableOrDdlException(tableName);
         if (tableIf.isTemporary()) {
             throw new AnalysisException("Do not support alter temporary table[" + tableName + "]");
         }
@@ -173,14 +196,17 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
         if (tableIf instanceof LanceExternalTable) {
             // Top-level CREATE/DROP INDEX on Lance catalog tables: static-validate, then either
             // reject with the mutation-disabled error while the admission gate stays off (the
-            // default; no metadata read, no id allocation), or hand the op to run() for
+            // default; no admission snapshot read, no id allocation), or hand the op to run() for
             // admission. ALTER TABLE ADD/DROP INDEX (alter = true) falls through to the existing
             // generic external-table rejection below.
             for (AlterTableOp op : ops) {
                 if (op instanceof CreateIndexOp && !((CreateIndexOp) op).isAlter()) {
                     IndexDefinition indexDef = ((CreateIndexOp) op).getIndexDef();
-                    LanceIndexMutationValidator.validateCreateIndex((LanceExternalCatalog) catalog,
-                            (LanceExternalTable) tableIf, indexDef);
+                    LanceIndexAdmission.readMetadata(deadlineMs, () -> {
+                        LanceIndexMutationValidator.validateCreateIndex((LanceExternalCatalog) catalog,
+                                (LanceExternalTable) tableIf, indexDef);
+                        return null;
+                    });
                     if (!Config.enable_lance_index_mutation) {
                         LanceIndexMutationValidator.rejectMutationDisabled(
                                 indexDef.isOrReplace() ? "CREATE OR REPLACE INDEX" : "CREATE INDEX");
@@ -200,7 +226,7 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
                 // the alterTable call below. CreateIndexOp.validate() would otherwise hit the
                 // internal Lance guards and, for ANN (null internal IndexType), even allocate an
                 // internal index id before the generic external-table rejection.
-                return;
+                return deadlineMs;
             }
             // Non-index ops (rename etc.) on a Lance table continue on the generic path exactly
             // as before.
@@ -214,6 +240,7 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
         } else {
             checkExternalTableOperationAllow(tableIf);
         }
+        return Long.MAX_VALUE;
     }
 
     /**
@@ -543,27 +570,67 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        validate(ctx);
+        // The Lance mutation budget starts at statement entry and is shared by admission
+        // (the snapshot read below), the executor's admission queue, the dispatch and the wait.
+        long statementStartMs = System.currentTimeMillis();
+        long deadlineMs = validate(ctx, statementStartMs);
         if (!lanceIndexOps.isEmpty()) {
             // A top-level CREATE/DROP INDEX statement carries exactly one operation.
             Preconditions.checkState(lanceIndexOps.size() == 1,
                     "a top-level Lance index statement must carry exactly one operation");
             AlterTableOp op = lanceIndexOps.get(0);
+            LanceIndexMutationPlan plan;
             if (op instanceof CreateIndexOp) {
                 IndexDefinition indexDef = ((CreateIndexOp) op).getIndexDef();
-                LanceIndexAdmission.admitCreate((LanceExternalCatalog) catalog,
+                plan = LanceIndexAdmission.admitCreate((LanceExternalCatalog) catalog,
                         (LanceExternalDatabase) dbIf, (LanceExternalTable) tableIf, indexDef,
-                        indexDef.isIfNotExists());
+                        indexDef.isIfNotExists(), deadlineMs);
             } else {
                 DropIndexOp dropIndexOp = (DropIndexOp) op;
-                LanceIndexAdmission.admitDrop((LanceExternalCatalog) catalog,
+                plan = LanceIndexAdmission.admitDrop((LanceExternalCatalog) catalog,
                         (LanceExternalDatabase) dbIf, (LanceExternalTable) tableIf,
-                        dropIndexOp.getIndexName(), dropIndexOp.isSetIfExists());
+                        dropIndexOp.getIndexName(), dropIndexOp.isSetIfExists(), deadlineMs);
             }
-            // An IF preflight no-op returns normally and completes with the default OK packet;
-            // any mutation that would be admitted rejects inside admission.
+            // An IF preflight no-op completes with the default OK packet, exactly as before
+            // the synchronous execution path existed - but it still owes the same bounded
+            // local cache invalidation the entry-internal no-op completes (design v6
+            // section 2.3): the two no-op paths must behave identically. A residual failure
+            // is the typed no-op refresh error: nothing was mutated, so it is neither a
+            // build failure nor an ambiguity.
+            if (plan == null) {
+                LanceIndexMutationExecutor.completeAdmissionNoOp(
+                        LanceIndexMutationRefresher.forTable((LanceExternalTable) tableIf), deadlineMs);
+                return;
+            }
+            // Execute outside the admission critical section (capture -> bounded execution ->
+            // classified outcome): the executor re-validates the authoritative verdict inside
+            // its entry, dispatches once, and derives the refresh obligation from the table.
+            // Its typed busy/preflight rejections propagate unchanged; any non-success
+            // outcome surfaces as its own client-facing class.
+            LanceIndexMutationOutcome outcome = LanceIndexMutationExecutor.execute(
+                    plan.populate(LanceIndexMutationExecutor.MutationRequest.newBuilder(
+                            plan.getCatalog(), plan.getMutationType(), plan.getDatasetUri(),
+                            plan.getAdmittedDatasetVersion(), plan.getNormalizedIndexName(),
+                            deadlineMs))
+                            .setCancelSignal(lanceMutationCancelled::get)
+                            .setTable((LanceExternalTable) tableIf)
+                            .build());
+            if (outcome.getKind() != LanceIndexMutationOutcome.Kind.SUCCESS) {
+                throw outcome.toUserException();
+            }
+            // A success (a committed mutation or an authoritative entry no-op) also completes
+            // with the default OK packet.
             return;
         }
         ctx.getEnv().alterTable(this);
+    }
+
+    /**
+     * cancel lance index mutation, called by the StmtExecutor cancel hook. Best effort: the
+     * flag stops the synchronous executor at its phase boundaries before the dispatch; after
+     * the dispatch started the executor's budget-bounded wait is the only way back.
+     */
+    public void cancel() {
+        this.lanceMutationCancelled.set(true);
     }
 }
