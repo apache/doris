@@ -780,14 +780,18 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
             }
 
             DBUG_EXECUTE_IF("BaseTablet::calc_segment_delete_bitmap.inject_err", {
-                auto p = dp->param("percent", 0.01);
-                std::mt19937 gen {std::random_device {}()};
-                std::bernoulli_distribution inject_fault {p};
-                if (inject_fault(gen)) {
-                    return Status::InternalError(
-                            "injection error in calc_segment_delete_bitmap, "
-                            "tablet_id={}, rowset_id={}",
-                            tablet_id(), rowset_id.to_string());
+                // tablet_id = -1 means injecting into all tablets
+                auto target_tablet_id = dp->param<int64_t>("tablet_id", -1);
+                if (target_tablet_id == -1 || target_tablet_id == tablet_id()) {
+                    auto p = dp->param("percent", 0.01);
+                    std::mt19937 gen {std::random_device {}()};
+                    std::bernoulli_distribution inject_fault {p};
+                    if (inject_fault(gen)) {
+                        return Status::InternalError(
+                                "injection error in calc_segment_delete_bitmap, "
+                                "tablet_id={}, rowset_id={}",
+                                tablet_id(), rowset_id.to_string());
+                    }
                 }
             });
 
