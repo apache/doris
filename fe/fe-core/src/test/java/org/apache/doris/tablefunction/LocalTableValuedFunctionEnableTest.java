@@ -23,6 +23,7 @@ import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.proto.InternalService.PGlobResponse;
+import org.apache.doris.proto.InternalService.PGlobResponse.PFileInfo;
 import org.apache.doris.proto.Types.PStatus;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -115,6 +116,26 @@ public class LocalTableValuedFunctionEnableTest {
             Assertions.assertTrue(exception.getMessage().contains("LOCAL TVF is disabled"));
         }
         Mockito.verifyNoInteractions(accessManager, systemInfo, proxy);
+    }
+
+    @Test
+    public void testCanonicalGlobPathsKeepTheirExactWhitespace() throws Exception {
+        Config.enable_local_tvf = true;
+        Mockito.when(accessManager.checkGlobalPriv(context, PrivPredicate.ADMIN)).thenReturn(true);
+        String[] paths = {"/secure/name.csv ", "/secure/ name.csv", "/secure/\tname.csv\t"};
+        PGlobResponse.Builder response = PGlobResponse.newBuilder()
+                .setStatus(PStatus.newBuilder().setStatusCode(0));
+        for (String path : paths) {
+            response.addFiles(PFileInfo.newBuilder().setFile(path).setSize(4));
+        }
+        Mockito.when(proxy.glob(Mockito.any(), Mockito.any()))
+                .thenReturn(CompletableFuture.completedFuture(response.build()));
+        LocalTableValuedFunction local = new LocalTableValuedFunction(PROPERTIES);
+        FileTableValuedFunction file = new FileTableValuedFunction(PROPERTIES);
+        for (int i = 0; i < paths.length; i++) {
+            Assertions.assertEquals(paths[i], local.getFileStatuses().get(i).getPath());
+            Assertions.assertEquals(paths[i], file.getFileStatuses().get(i).getPath());
+        }
     }
 
     @Test

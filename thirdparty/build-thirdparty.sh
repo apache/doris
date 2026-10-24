@@ -2156,6 +2156,32 @@ install_paimon_rust() {
     )
 }
 
+# Publish the Lance headers and archive as one recoverable installation.
+install_lance_c() {
+    (
+        set -e
+        local archive="$1"
+        local headers="$2"
+        local destination="${TP_INSTALL_DIR}/include/lance"
+        local incomplete="${TP_INSTALL_DIR}/lib64/.lance-installing"
+        mkdir -p "${TP_INSTALL_DIR}/include" "${TP_INSTALL_DIR}/lib64"
+        local staged
+        staged="$(mktemp -d "${TP_INSTALL_DIR}/include/.lance.tmp.XXXXXX")"
+        trap 'rm -rf "${staged}"' EXIT
+        cp -pR "${headers}/." "${staged}/"
+        test -s "${staged}/lance.h"
+        test -s "${staged}/lance.hpp"
+        test -s "${archive}"
+        # The archive and header-directory renames cannot be atomic together.
+        # Keep this marker after any interrupted publication until a retry repairs both.
+        touch "${incomplete}"
+        install_rust_archive "${archive}"
+        rm -rf "${destination}"
+        mv "${staged}" "${destination}"
+        rm -f "${incomplete}"
+    )
+}
+
 build_lance_c() {
     check_if_source_exist "${LANCE_C_SOURCE}"
     cd "${TP_SOURCE_DIR}/${LANCE_C_SOURCE}"
@@ -2227,10 +2253,7 @@ build_lance_c() {
     fi
     env "${cargo_env[@]}" "${cargo_bin}" "${cargo_args[@]}"
 
-    mkdir -p "${TP_INSTALL_DIR}/include" "${TP_INSTALL_DIR}/lib64"
-    rm -rf "${TP_INSTALL_DIR}/include/lance"
-    cp -av include/lance "${TP_INSTALL_DIR}/include/"
-    install_rust_archive "${BUILD_DIR}/release/liblance_c.a"
+    install_lance_c "${BUILD_DIR}/release/liblance_c.a" "${PWD}/include/lance"
 }
 
 # paimon-rust

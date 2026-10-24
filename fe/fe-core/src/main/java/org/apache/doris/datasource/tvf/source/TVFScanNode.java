@@ -247,6 +247,7 @@ public class TVFScanNode extends FileQueryScanNode {
             LanceSplit lanceSplit = (LanceSplit) split;
             TLanceFileDesc lanceParams = new TLanceFileDesc();
             lanceParams.setDatasetUri(lanceSplit.getDatasetUri());
+            lanceParams.setIsTvf(true);
             lanceParams.setVersion(lanceSplit.getVersion());
             if (lanceSplit.hasFragmentIds()) {
                 lanceParams.setFragmentIds(lanceSplit.getFragmentIds());

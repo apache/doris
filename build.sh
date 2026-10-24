@@ -473,6 +473,49 @@ if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/${LAST_THIRDPARTY_LIB}" ||
     fi
 fi
 
+# Lance TVF storage policy needs both sides of the metadata-only SDK ABI.
+# Check the selected third-party prefix only; a system Lance install cannot satisfy it.
+lance_c_is_compatible() {
+    local install_dir="$1"
+    [[ ! -e "${install_dir}/lib64/.lance-installing" &&
+       -s "${install_dir}/include/lance/lance.h" &&
+       -s "${install_dir}/lib64/liblance_c.a" ]] || return 1
+    grep -Eq '^#[[:space:]]*define[[:space:]]+LANCE_STORAGE_BASES_JSON_VERSION[[:space:]]+1([[:space:]]|$)' \
+        "${install_dir}/include/lance/lance.h" || return 1
+    # GNU nm and Darwin nm spell C exports differently. Read the whole stream:
+    # early awk exit would turn a large archive's producer SIGPIPE into failure.
+    "${NM:-nm}" -g "${install_dir}/lib64/liblance_c.a" 2>/dev/null | awk '
+        NF >= 2 && $(NF - 1) ~ /^[TW]$/ && $NF ~ /^_?lance_dataset_storage_bases_json$/ { found = 1 }
+        END { exit !found }
+    '
+}
+
+lance_c_source_matches() {
+    local source_dir="$1"
+    [[ -f "${source_dir}/build-thirdparty.sh" && -f "${source_dir}/download-thirdparty.sh" &&
+       -f "${source_dir}/vars.sh" && -f "${source_dir}/patches/lance-c-storage-bases.patch" ]] || return 1
+    grep -Fq 'install_lance_c() {' "${source_dir}/build-thirdparty.sh" || return 1
+    grep -Fq 'lance-c-storage-bases.patch' "${source_dir}/download-thirdparty.sh" || return 1
+    cmp -s "${DORIS_HOME}/thirdparty/patches/lance-c-storage-bases.patch" \
+        "${source_dir}/patches/lance-c-storage-bases.patch" || return 1
+    cmp -s <(grep -E '^LANCE_C_(DOWNLOAD|NAME|SOURCE)=' "${DORIS_HOME}/thirdparty/vars.sh") \
+        <(grep -E '^LANCE_C_(DOWNLOAD|NAME|SOURCE)=' "${source_dir}/vars.sh")
+}
+
+if [[ "${BUILD_BE}" -eq 1 ]] && ! lance_c_is_compatible "${DORIS_THIRDPARTY}/installed"; then
+    if ! lance_c_source_matches "${DORIS_THIRDPARTY}"; then
+        echo "Lance SDK header/archive pair lacks LANCE_STORAGE_BASES_JSON_VERSION=1 or its exported API, or is incomplete." >&2
+        echo "Refresh the compilation image's include/lance and lib64/liblance_c.a together, or set DORIS_THIRDPARTY to matching complete third-party sources." >&2
+        exit 1
+    fi
+    echo "Rebuilding only lance_c for the TVF storage-base metadata ABI ..."
+    bash "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}" lance_c
+    if ! lance_c_is_compatible "${DORIS_THIRDPARTY}/installed"; then
+        echo "Rebuilt Lance SDK header/archive pair is incompatible or incomplete; refresh the matching pair before building BE." >&2
+        exit 1
+    fi
+fi
+
 update_submodule() {
     local submodule_path=$1
     local submodule_name=$2

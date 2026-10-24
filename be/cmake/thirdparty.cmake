@@ -111,6 +111,12 @@ add_thirdparty(arrow_flight_sql LIB64)
 add_thirdparty(arrow_dataset LIB64)
 add_thirdparty(arrow_acero LIB64)
 add_thirdparty(parquet LIB64)
+# Never consume a header/archive pair left by an interrupted Lance installation.
+if (EXISTS "${THIRDPARTY_DIR}/lib64/.lance-installing")
+    message(FATAL_ERROR
+        "Lance SDK installation is incomplete. Retry thirdparty/build-thirdparty.sh lance_c "
+        "or refresh include/lance and lib64/liblance_c.a as a matching pair.")
+endif ()
 add_thirdparty(lance_c LIB64 NOTADD)
 # liblance_c.a contains compiler_builtins cbrt symbols. Place libm before it
 # so the final linker resolves C math symbols from the system library first.

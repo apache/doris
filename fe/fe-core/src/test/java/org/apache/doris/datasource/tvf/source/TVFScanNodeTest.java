@@ -188,6 +188,7 @@ public class TVFScanNodeTest {
         Assert.assertEquals("s3://bucket/table.lance",
                 range.getTableFormatParams().getLanceParams().getDatasetUri());
         Assert.assertEquals(42L, range.getTableFormatParams().getLanceParams().getVersion());
+        Assert.assertTrue(range.getTableFormatParams().getLanceParams().isIsTvf());
         Assert.assertEquals(Collections.singletonList(7L),
                 range.getTableFormatParams().getLanceParams().getFragmentIds());
     }
@@ -242,6 +243,7 @@ public class TVFScanNodeTest {
         TFileRangeDesc range = new TFileRangeDesc();
         node.setScanParams(range, split);
         Assert.assertEquals(0L, range.getTableFormatParams().getLanceParams().getVersion());
+        Assert.assertTrue(range.getTableFormatParams().getLanceParams().isIsTvf());
         Assert.assertFalse(range.getTableFormatParams().getLanceParams().isSetFragmentIds());
     }
 

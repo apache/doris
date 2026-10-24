@@ -598,6 +598,10 @@ struct TLanceFileDesc {
     // so these tasks filter their rows without repeating global scalar-index evaluation.
     // Unset preserves Lance's default; an explicit scalar segment must not be combined with false.
     6: optional bool use_scalar_index
+    // Independent LOCAL/S3 TVF requests enforce storage admission for manifest-selected bases.
+    // Unset preserves legacy/catalog routing; old LOCAL TVFs are recognized by version zero.
+    7: optional bool is_tvf
+
 }
 
 struct TLanceScanParams {
