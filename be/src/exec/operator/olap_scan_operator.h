@@ -137,6 +137,9 @@ private:
 
     void _prune_rowsets_by_tso(const TPaloScanRange& scan_range, TabletReadSource& read_source);
 
+    // Whether each segment should be scanned by a scanner of its own.
+    bool _use_scan_parallelism_by_per_segment();
+
     Status _build_key_ranges_and_filters();
 
     bool _is_tablet_pruned_by_runtime_filter(int64_t partition_id, int32_t bucket_seq,
