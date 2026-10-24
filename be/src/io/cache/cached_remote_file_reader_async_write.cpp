@@ -168,21 +168,6 @@ struct CachedRemoteFileReader::AsyncReadPlan {
     }
 };
 
-// Resolve mode on every read so online configuration changes affect existing readers.
-CacheWriteMode CachedRemoteFileReader::_resolve_cache_write_mode(const IOContext* io_ctx) const {
-    if (io_ctx->is_dryrun || io_ctx->is_warmup || _should_read_from_peer(io_ctx)) {
-        return CacheWriteMode::SYNC_WRITE;
-    }
-    if (io_ctx->cache_write_mode_override.has_value()) {
-        return *io_ctx->cache_write_mode_override;
-    }
-    if (_cache_write_mode != CacheWriteMode::DEFAULT) {
-        return _cache_write_mode;
-    }
-    return config::enable_async_file_cache_write ? CacheWriteMode::ASYNC_WRITE
-                                                 : CacheWriteMode::SYNC_WRITE;
-}
-
 // Build a deliberately small plan. The inflight index is checked first so a fully covered read
 // avoids BlockFileCache::probe and its cache mutex. Only an incomplete inflight lookup performs one
 // whole-range probe whose result entries map directly to the logical plan blocks.
