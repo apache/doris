@@ -33,6 +33,8 @@ import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
+import org.apache.doris.nereids.types.GeographyType;
+import org.apache.doris.nereids.types.GeometryType;
 import org.apache.doris.nereids.types.HllType;
 import org.apache.doris.nereids.types.IPv4Type;
 import org.apache.doris.nereids.types.IPv6Type;
@@ -63,6 +65,29 @@ import java.util.Collections;
 import java.util.List;
 
 public class CheckCastTest {
+    @Test
+    public void testVariantRejectsSpatialLeavesWithoutChangingOrdinaryValues() {
+        for (DataType spatial : List.of(new GeometryType("OGC:CRS84"),
+                new GeographyType("OGC:CRS84", "spherical"))) {
+            StructType structure = new StructType(List.of(new StructField("shape", spatial, true, "")));
+            for (DataType type : List.of(spatial, ArrayType.of(spatial),
+                    MapType.of(StringType.INSTANCE, spatial), structure,
+                    ArrayType.of(MapType.of(StringType.INSTANCE, structure)))) {
+                for (boolean strict : List.of(false, true)) {
+                    Assertions.assertFalse(CheckCast.check(type, VariantType.INSTANCE, strict), type.toSql());
+                    Assertions.assertFalse(CheckCast.check(VariantType.INSTANCE, type, strict), type.toSql());
+                    Assertions.assertFalse(CheckCast.check(type, ConnectorComputeVariantType.INSTANCE, strict));
+                    Assertions.assertTrue(CheckCast.check(type, type, strict));
+                }
+            }
+        }
+        for (boolean strict : List.of(false, true)) {
+            Assertions.assertTrue(CheckCast.check(IntegerType.INSTANCE, VariantType.INSTANCE, strict));
+            Assertions.assertTrue(CheckCast.check(ArrayType.of(IntegerType.INSTANCE), VariantType.INSTANCE, strict));
+            Assertions.assertTrue(CheckCast.check(VariantType.INSTANCE, VariantType.INSTANCE, strict));
+        }
+    }
+
     @Test
     public void testTimeStampNsCastMatrix() {
         AggStateType aggStateType = new AggStateType("max",

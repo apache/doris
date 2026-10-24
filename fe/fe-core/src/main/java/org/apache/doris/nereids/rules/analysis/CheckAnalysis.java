@@ -132,6 +132,7 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                     checkExpressionInputTypes(plan);
                     checkUnexpectedExpressions(plan);
                     checkAggregateFunction(plan);
+                    checkSpatialWindowPartitions(plan);
                     checkGroupingScalarFunction(plan);
                     checkIvmExpression(plan, ctx.connectContext);
                     return null;
@@ -223,6 +224,21 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                             + "' must appear in GROUP BY clause.");
                 }
             }
+        }
+    }
+
+    private void checkSpatialWindowPartitions(Plan plan) {
+        for (Expression expression : plan.getExpressions()) {
+            expression.foreachUp(node -> {
+                if (node instanceof WindowExpression) {
+                    for (Expression key : ((WindowExpression) node).getPartitionKeys()) {
+                        if (key.getDataType().toCatalogDataType().typeContainsSpatialType()) {
+                            throw new AnalysisException("Window PARTITION BY does not support spatial keys: "
+                                    + key.toSql());
+                        }
+                    }
+                }
+            });
         }
     }
 

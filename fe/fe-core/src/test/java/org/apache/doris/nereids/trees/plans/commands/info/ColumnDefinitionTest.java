@@ -28,8 +28,12 @@ import org.apache.doris.nereids.types.GeographyType;
 import org.apache.doris.nereids.types.GeometryType;
 import org.apache.doris.nereids.types.HllType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.JsonType;
+import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.QuantileStateType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.UuidType;
 
@@ -170,6 +174,38 @@ public class ColumnDefinitionTest {
             Assertions.assertEquals("GEOMETRY and GEOGRAPHY are not supported for Doris internal tables",
                     error.getMessage());
         }
+    }
+
+    @Test
+    public void testNestedSpatialTypesRequireConnectorDdlAdmission() {
+        for (DataType spatial : ImmutableList.of(new GeometryType("EPSG:3857"),
+                new GeographyType("OGC:CRS84", "spherical"))) {
+            StructType structure = new StructType(ImmutableList.of(new StructField("shape", spatial, true, "")));
+            for (DataType type : ImmutableList.of(ArrayType.of(spatial), MapType.of(StringType.INSTANCE, spatial),
+                    structure, MapType.of(StringType.INSTANCE, ArrayType.of(structure)))) {
+                ColumnDefinition column = new ColumnDefinition("shape", type, false, null, true,
+                        Optional.empty(), "");
+                Assertions.assertDoesNotThrow(() -> column.validate(false, ImmutableSet.of(), ImmutableSet.of(),
+                        false, KeysType.DUP_KEYS, false, true));
+                Assertions.assertDoesNotThrow(() -> column.validateNestedColumn(false, ImmutableSet.of(),
+                        ImmutableSet.of(), false, KeysType.DUP_KEYS, true));
+                Assertions.assertThrows(AnalysisException.class, type::validateDataType);
+                Assertions.assertThrows(AnalysisException.class,
+                        () -> column.validate(false, ImmutableSet.of(), ImmutableSet.of(), false, KeysType.DUP_KEYS));
+                AnalysisException internal = Assertions.assertThrows(AnalysisException.class,
+                        () -> column.validate(true, ImmutableSet.of(), ImmutableSet.of(), false,
+                                KeysType.DUP_KEYS, false, true));
+                Assertions.assertTrue(internal.getMessage().contains("not supported for Doris internal tables"));
+            }
+            // Do not admit spatial keys or unrelated unsupported ordinary fields with the new flag.
+            Assertions.assertThrows(AnalysisException.class,
+                    () -> MapType.of(spatial, IntegerType.INSTANCE).validateDataTypeWithSpatialLeaves());
+            StructType unsupportedSibling = new StructType(ImmutableList.of(
+                    new StructField("shape", spatial, true, ""),
+                    new StructField("payload", JsonType.INSTANCE, true, "")));
+            Assertions.assertThrows(AnalysisException.class, unsupportedSibling::validateDataTypeWithSpatialLeaves);
+        }
+        Assertions.assertDoesNotThrow(() -> ArrayType.of(IntegerType.INSTANCE).validateDataType());
     }
 
     @Test

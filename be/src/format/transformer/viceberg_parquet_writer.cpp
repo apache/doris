@@ -112,6 +112,70 @@ bool contains_spatial_type(iceberg::Type* type) {
     }
 }
 
+::parquet::schema::NodePtr copy_group_with_fields(const ::parquet::schema::Node& node,
+                                                  ::parquet::schema::NodeVector fields) {
+    return ::parquet::schema::GroupNode::Make(
+            node.name(), node.repetition(), fields,
+            node.logical_type()->is_none() ? nullptr : node.logical_type(), node.field_id());
+}
+
+arrow::Result<::parquet::schema::NodePtr> spatial_parquet_node(const ::parquet::schema::Node& node,
+                                                               iceberg::Type* type) {
+    switch (type->type_id()) {
+    case iceberg::TypeID::GEOMETRY: {
+        const auto& geometry = static_cast<const iceberg::GeometryType&>(*type);
+        ARROW_RETURN_NOT_OK(validate_spatial_crs_for_write(geometry.crs()));
+        return ::parquet::schema::PrimitiveNode::Make(
+                node.name(), node.repetition(), ::parquet::LogicalType::Geometry(geometry.crs()),
+                ::parquet::Type::BYTE_ARRAY, -1, node.field_id());
+    }
+    case iceberg::TypeID::GEOGRAPHY: {
+        const auto& geography = static_cast<const iceberg::GeographyType&>(*type);
+        ARROW_RETURN_NOT_OK(validate_spatial_crs_for_write(geography.crs()));
+        ARROW_ASSIGN_OR_RAISE(auto algorithm, geography_algorithm(geography.algorithm()));
+        return ::parquet::schema::PrimitiveNode::Make(
+                node.name(), node.repetition(),
+                ::parquet::LogicalType::Geography(geography.crs(), algorithm),
+                ::parquet::Type::BYTE_ARRAY, -1, node.field_id());
+    }
+    case iceberg::TypeID::STRUCT: {
+        const auto& group = static_cast<const ::parquet::schema::GroupNode&>(node);
+        const auto& fields = type->as_struct_type()->fields();
+        ::parquet::schema::NodeVector children;
+        for (int i = 0; i < group.field_count(); ++i) {
+            ARROW_ASSIGN_OR_RAISE(auto child,
+                                  spatial_parquet_node(*group.field(i), fields[i].field_type()));
+            children.push_back(std::move(child));
+        }
+        return copy_group_with_fields(node, std::move(children));
+    }
+    case iceberg::TypeID::LIST: {
+        // Arrow emits LIST -> repeated list -> element. Only element has an Iceberg type/id.
+        const auto& list = static_cast<const ::parquet::schema::GroupNode&>(node);
+        const auto& repeated = static_cast<const ::parquet::schema::GroupNode&>(*list.field(0));
+        ARROW_ASSIGN_OR_RAISE(
+                auto element,
+                spatial_parquet_node(*repeated.field(0),
+                                     type->as_list_type()->element_field().field_type()));
+        return copy_group_with_fields(node, {copy_group_with_fields(repeated, {element})});
+    }
+    case iceberg::TypeID::MAP: {
+        // MAP's key_value wrapper is physical, not a Struct in the Iceberg schema.
+        const auto& map = static_cast<const ::parquet::schema::GroupNode&>(node);
+        const auto& repeated = static_cast<const ::parquet::schema::GroupNode&>(*map.field(0));
+        ARROW_ASSIGN_OR_RAISE(auto key,
+                              spatial_parquet_node(*repeated.field(0),
+                                                   type->as_map_type()->key_field().field_type()));
+        ARROW_ASSIGN_OR_RAISE(
+                auto value, spatial_parquet_node(*repeated.field(1),
+                                                 type->as_map_type()->value_field().field_type()));
+        return copy_group_with_fields(node, {copy_group_with_fields(repeated, {key, value})});
+    }
+    default:
+        return clone_parquet_node(node);
+    }
+}
+
 arrow::Result<std::shared_ptr<::parquet::schema::GroupNode>> make_iceberg_parquet_schema(
         const std::shared_ptr<arrow::Schema>& arrow_schema, const iceberg::Schema& iceberg_schema,
         const std::shared_ptr<::parquet::WriterProperties>& writer_properties,
@@ -126,30 +190,9 @@ arrow::Result<std::shared_ptr<::parquet::schema::GroupNode>> make_iceberg_parque
     for (int index = 0; index < source_root->field_count(); ++index) {
         const auto& source_field = source_root->field(index);
         const auto& iceberg_field = iceberg_schema.columns()[index];
-        if (iceberg_field.field_type()->type_id() == iceberg::TypeID::GEOMETRY) {
-            const auto& geometry =
-                    static_cast<const iceberg::GeometryType&>(*iceberg_field.field_type());
-            ARROW_RETURN_NOT_OK(validate_spatial_crs_for_write(geometry.crs()));
-            fields.push_back(::parquet::schema::PrimitiveNode::Make(
-                    source_field->name(), source_field->repetition(),
-                    ::parquet::LogicalType::Geometry(geometry.crs()), ::parquet::Type::BYTE_ARRAY,
-                    -1, source_field->field_id()));
-        } else if (iceberg_field.field_type()->type_id() == iceberg::TypeID::GEOGRAPHY) {
-            const auto& geography =
-                    static_cast<const iceberg::GeographyType&>(*iceberg_field.field_type());
-            ARROW_RETURN_NOT_OK(validate_spatial_crs_for_write(geography.crs()));
-            ARROW_ASSIGN_OR_RAISE(auto algorithm, geography_algorithm(geography.algorithm()));
-            fields.push_back(::parquet::schema::PrimitiveNode::Make(
-                    source_field->name(), source_field->repetition(),
-                    ::parquet::LogicalType::Geography(geography.crs(), algorithm),
-                    ::parquet::Type::BYTE_ARRAY, -1, source_field->field_id()));
-        } else if (contains_spatial_type(iceberg_field.field_type())) {
-            return arrow::Status::NotImplemented(
-                    "Nested Iceberg spatial columns are not supported for Parquet writes: ",
-                    iceberg_field.field_name());
-        } else {
-            fields.push_back(clone_parquet_node(*source_field));
-        }
+        ARROW_ASSIGN_OR_RAISE(auto field,
+                              spatial_parquet_node(*source_field, iceberg_field.field_type()));
+        fields.push_back(std::move(field));
     }
     return std::static_pointer_cast<::parquet::schema::GroupNode>(
             ::parquet::schema::GroupNode::Make(source_root->name(), source_root->repetition(),

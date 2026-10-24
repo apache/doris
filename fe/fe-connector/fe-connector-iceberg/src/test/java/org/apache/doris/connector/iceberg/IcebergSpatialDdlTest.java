@@ -133,14 +133,20 @@ public class IcebergSpatialDdlTest {
     }
 
     @Test
-    public void testCreateRejectsNestedSpatialBeforeRemote() {
+    public void testCreateNestedSpatialRequiresV3Parquet() {
         for (ConnectorType type : nestedTypes()) {
-            RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
-            DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
-                    () -> metadata(ops, Collections.emptyMap()).createTable(null,
-                            request(type, Map.of(TableProperties.FORMAT_VERSION, "3"))));
-            Assertions.assertTrue(error.getMessage().contains("Nested spatial"));
-            Assertions.assertTrue(ops.log.isEmpty());
+            RecordingIcebergCatalogOps valid = new RecordingIcebergCatalogOps();
+            metadata(valid, Collections.emptyMap()).createTable(null,
+                    request(type, Map.of(TableProperties.FORMAT_VERSION, "3")));
+            Assertions.assertNotNull(valid.lastCreateSchema);
+            for (Map<String, String> properties : Arrays.asList(
+                    Map.of(TableProperties.FORMAT_VERSION, "2"),
+                    Map.of(TableProperties.FORMAT_VERSION, "3", TableProperties.DEFAULT_FILE_FORMAT, "orc"))) {
+                RecordingIcebergCatalogOps rejected = new RecordingIcebergCatalogOps();
+                Assertions.assertThrows(DorisConnectorException.class,
+                        () -> metadata(rejected, Collections.emptyMap()).createTable(null, request(type, properties)));
+                Assertions.assertTrue(rejected.log.isEmpty());
+            }
         }
     }
 
@@ -176,26 +182,25 @@ public class IcebergSpatialDdlTest {
     }
 
     @Test
-    public void testNestedAddAndModifyRejectSpatialBeforeRemote() {
-        for (ConnectorType type : Arrays.asList(GEOMETRY, GEOGRAPHY, ConnectorType.arrayOf(GEOMETRY))) {
-            RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
-            IcebergConnectorMetadata md = metadata(ops, Collections.emptyMap());
-            ConnectorColumnPath path = ConnectorColumnPath.of(Arrays.asList("parent", "shape"));
-            Assertions.assertThrows(DorisConnectorException.class,
-                    () -> md.addNestedColumn(null, HANDLE, path, column(type), null));
-            Assertions.assertThrows(DorisConnectorException.class,
-                    () -> md.modifyNestedColumn(null, HANDLE, path, column(type), null));
-            Assertions.assertTrue(ops.log.isEmpty());
+    public void testNestedAndFlatChangesValidateActualTableCapabilities() {
+        for (ConnectorType type : nestedTypes()) {
+            RecordingIcebergCatalogOps valid = existingTable(3, "parquet");
+            metadata(valid, Collections.emptyMap()).addColumn(null, HANDLE, column(type), null);
+            Assertions.assertNotNull(valid.lastAddColumn);
+            for (RecordingIcebergCatalogOps invalid : Arrays.asList(existingTable(2, "parquet"),
+                    existingTable(3, "orc"))) {
+                IcebergConnectorMetadata md = metadata(invalid, Collections.emptyMap());
+                ConnectorColumnPath path = ConnectorColumnPath.of(Arrays.asList("parent", "shape"));
+                Assertions.assertThrows(DorisConnectorException.class,
+                        () -> md.addColumn(null, HANDLE, column(type), null));
+                Assertions.assertThrows(DorisConnectorException.class,
+                        () -> md.addNestedColumn(null, HANDLE, path, column(type), null));
+                Assertions.assertThrows(DorisConnectorException.class,
+                        () -> md.modifyNestedColumn(null, HANDLE, path, column(type), null));
+                Assertions.assertTrue(invalid.log.stream().noneMatch(op -> op.startsWith("add")
+                        || op.startsWith("modify")));
+            }
         }
     }
 
-    @Test
-    public void testFlatAddRejectsNestedSpatialWithoutLoadingTable() {
-        for (ConnectorType type : nestedTypes()) {
-            RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
-            Assertions.assertThrows(DorisConnectorException.class,
-                    () -> metadata(ops, Collections.emptyMap()).addColumn(null, HANDLE, column(type), null));
-            Assertions.assertTrue(ops.log.isEmpty());
-        }
-    }
 }

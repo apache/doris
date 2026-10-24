@@ -17,8 +17,11 @@
 
 package org.apache.doris.datasource.connector.converter;
 
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -26,8 +29,15 @@ import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateNamedStruct;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateStruct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.types.DataType;
 
 import java.util.List;
@@ -54,15 +64,15 @@ public final class ConnectorSpatialWriteValidator {
 
     public static void validate(Column targetColumn, Expression source) {
         Type targetType = targetColumn.getType();
-        if (targetType instanceof ScalarType && ((ScalarType) targetType).isSpatialType()) {
-            validateExpression(source, (ScalarType) targetType, targetColumn.getName());
-        } else if (targetType.typeContainsSpatialType()) {
-            throw new AnalysisException("Nested spatial columns are not supported for connector writes: "
-                    + targetColumn.getName());
+        if (targetType.typeContainsSpatialType()) {
+            validateExpression(source, targetType, targetColumn.getName());
         }
     }
 
-    private static void validateExpression(Expression expression, ScalarType targetType, String columnName) {
+    private static void validateExpression(Expression expression, Type targetType, String columnName) {
+        if (!targetType.typeContainsSpatialType()) {
+            return;
+        }
         if (expression instanceof Alias) {
             validateExpression(expression.child(0), targetType, columnName);
             return;
@@ -92,10 +102,100 @@ public final class ConnectorSpatialWriteValidator {
             expression.children().forEach(child -> validateExpression(child, targetType, columnName));
             return;
         }
+        // INSERT VALUES can fold array/map/struct constructors containing typed NULLs to literals.
+        // Inspect their values as well, rather than rejecting a NULL leaf's original CRS/type.
+        if (expression instanceof ArrayLiteral && targetType instanceof ArrayType) {
+            ((ArrayLiteral) expression).getValue().forEach(element ->
+                    validateExpression(element, ((ArrayType) targetType).getItemType(), columnName + "[]"));
+            return;
+        }
+        if (expression instanceof MapLiteral && targetType instanceof MapType) {
+            MapType target = (MapType) targetType;
+            ((MapLiteral) expression).getValue().forEach((key, value) -> {
+                validateExpression(key, target.getKeyType(), columnName + ".key");
+                validateExpression(value, target.getValueType(), columnName + ".value");
+            });
+            return;
+        }
+        if (expression instanceof StructLiteral && targetType instanceof StructType) {
+            StructType target = (StructType) targetType;
+            StructLiteral literal = (StructLiteral) expression;
+            if (literal.getValue().size() != target.getFields().size()) {
+                throw new AnalysisException("Spatial connector write struct fields do not match: " + columnName);
+            }
+            for (int i = 0; i < target.getFields().size(); i++) {
+                validateExpression(literal.getValue().get(i), target.getFields().get(i).getType(),
+                        columnName + "." + target.getFields().get(i).getName());
+            }
+            return;
+        }
+        // Inspect constructor inputs before their casts can erase a nested leaf's CRS identity.
+        if (expression instanceof Array && targetType instanceof ArrayType) {
+            for (Expression element : ((Array) expression).getArguments()) {
+                validateExpression(element, ((ArrayType) targetType).getItemType(), columnName + "[]");
+            }
+            return;
+        }
+        if (expression instanceof CreateMap && targetType instanceof MapType) {
+            CreateMap map = (CreateMap) expression;
+            MapType target = (MapType) targetType;
+            for (int i = 0; i < map.arity(); i += 2) {
+                validateExpression(map.getArgument(i), target.getKeyType(), columnName + ".key");
+                validateExpression(map.getArgument(i + 1), target.getValueType(), columnName + ".value");
+            }
+            return;
+        }
+        if ((expression instanceof CreateStruct || expression instanceof CreateNamedStruct)
+                && targetType instanceof StructType) {
+            StructType target = (StructType) targetType;
+            int step = expression instanceof CreateNamedStruct ? 2 : 1;
+            if (expression.arity() != target.getFields().size() * step) {
+                throw new AnalysisException("Spatial connector write struct fields do not match: " + columnName);
+            }
+            for (int i = 0; i < target.getFields().size(); i++) {
+                validateExpression(expression.child(i * step + step - 1), target.getFields().get(i).getType(),
+                        columnName + "." + target.getFields().get(i).getName());
+            }
+            return;
+        }
         validateType(expression.getDataType().toCatalogDataType(), targetType, columnName);
     }
 
-    private static void validateType(Type sourceType, ScalarType targetType, String columnName) {
+    private static void validateType(Type sourceType, Type targetType, String columnName) {
+        if (sourceType.isNull() || !targetType.typeContainsSpatialType()) {
+            return;
+        }
+        if (targetType instanceof ArrayType && sourceType instanceof ArrayType) {
+            validateType(((ArrayType) sourceType).getItemType(), ((ArrayType) targetType).getItemType(),
+                    columnName + "[]");
+            return;
+        }
+        if (targetType instanceof MapType && sourceType instanceof MapType) {
+            validateType(((MapType) sourceType).getKeyType(), ((MapType) targetType).getKeyType(), columnName + ".key");
+            validateType(((MapType) sourceType).getValueType(), ((MapType) targetType).getValueType(),
+                    columnName + ".value");
+            return;
+        }
+        if (targetType instanceof StructType && sourceType instanceof StructType) {
+            StructType source = (StructType) sourceType;
+            StructType target = (StructType) targetType;
+            if (source.getFields().size() != target.getFields().size()) {
+                throw new AnalysisException("Spatial connector write struct fields do not match: " + columnName);
+            }
+            for (int i = 0; i < target.getFields().size(); i++) {
+                validateType(source.getFields().get(i).getType(), target.getFields().get(i).getType(),
+                        columnName + "." + target.getFields().get(i).getName());
+            }
+            return;
+        }
+        if (!(targetType instanceof ScalarType) || !((ScalarType) targetType).isSpatialType()) {
+            throw new AnalysisException("Spatial connector write cannot convert input column '" + columnName
+                    + "' from " + sourceType.toSql() + " to " + targetType.toSql());
+        }
+        validateSpatialType(sourceType, (ScalarType) targetType, columnName);
+    }
+
+    private static void validateSpatialType(Type sourceType, ScalarType targetType, String columnName) {
         if (sourceType.isNull()) {
             return;
         }

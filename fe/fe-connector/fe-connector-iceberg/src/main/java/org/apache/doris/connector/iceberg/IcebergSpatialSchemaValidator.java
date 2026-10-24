@@ -28,20 +28,18 @@ final class IcebergSpatialSchemaValidator {
     private IcebergSpatialSchemaValidator() {
     }
 
-    /** Returns whether a type is spatial, rejecting spatial leaves below a top-level column. */
-    static boolean validateNesting(Type type, boolean nested) {
+    /** Returns whether any leaf is spatial so V3/Parquet checks also apply to nested columns. */
+    static boolean containsSpatial(Type type) {
         if (type.typeId() == Type.TypeID.GEOMETRY || type.typeId() == Type.TypeID.GEOGRAPHY) {
-            if (nested) {
-                throw new DorisConnectorException("Nested spatial columns are not supported for Iceberg writes");
-            }
             return true;
         }
+        boolean spatial = false;
         if (type.isNestedType()) {
             for (Types.NestedField field : type.asNestedType().fields()) {
-                validateNesting(field.type(), true);
+                spatial |= containsSpatial(field.type());
             }
         }
-        return false;
+        return spatial;
     }
 
     static void validateTable(int formatVersion, String fileFormat) {

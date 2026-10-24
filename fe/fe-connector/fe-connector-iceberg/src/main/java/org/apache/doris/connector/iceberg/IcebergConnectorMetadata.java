@@ -1061,7 +1061,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         Schema schema = IcebergSchemaBuilder.buildSchema(request.getColumns());
         boolean spatial = false;
         for (Types.NestedField field : schema.columns()) {
-            spatial |= IcebergSpatialSchemaValidator.validateNesting(field.type(), false);
+            spatial |= IcebergSpatialSchemaValidator.containsSpatial(field.type());
         }
         if (spatial) {
             String fileFormat = IcebergSchemaBuilder.getEffectiveTableProperty(
@@ -1538,11 +1538,11 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             throw new DorisConnectorException("New nested field '" + path.getFullPath() + "' must be nullable");
         }
         Type icebergType = IcebergSchemaBuilder.buildNestedFieldType(column.getType());
-        IcebergSpatialSchemaValidator.validateNesting(icebergType, true);
         IcebergColumnChange change = new IcebergColumnChange(path.getLeafName(), icebergType,
                 column.getComment(), null, column.isNullable());
         try {
             executeAuthenticated(() -> {
+                validateSpatialColumnChanges(iceHandle, Collections.singletonList(change));
                 catalogOps.addNestedColumn(iceHandle.getDbName(), iceHandle.getTableName(), path, change, position);
                 return null;
             });
@@ -1633,13 +1633,13 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         }
         // Carry the neutral source type so the nested complex-type diff can read each STRUCT field's
         // commentSpecified (an omitted COMMENT on a sub-field must keep its current doc, not clear it).
-        IcebergSpatialSchemaValidator.validateNesting(icebergType, true);
         IcebergColumnChange change = new IcebergColumnChange(path.getLeafName(), icebergType,
                 column.getComment(), null, column.isNullable(), column.getType());
         boolean nullableSpecified = column.isNullableSpecified();
         boolean commentSpecified = column.isCommentSpecified();
         try {
             executeAuthenticated(() -> {
+                validateSpatialColumnChanges(iceHandle, Collections.singletonList(change));
                 catalogOps.modifyNestedColumn(iceHandle.getDbName(), iceHandle.getTableName(), path, change,
                         nullableSpecified, commentSpecified, position);
                 return null;
@@ -1823,7 +1823,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     private void validateSpatialColumnChanges(IcebergTableHandle handle, List<IcebergColumnChange> changes) {
         boolean spatial = false;
         for (IcebergColumnChange change : changes) {
-            spatial |= IcebergSpatialSchemaValidator.validateNesting(change.getType(), false);
+            spatial |= IcebergSpatialSchemaValidator.containsSpatial(change.getType());
         }
         if (spatial) {
             Table table = catalogOps.loadTable(handle.getDbName(), handle.getTableName());

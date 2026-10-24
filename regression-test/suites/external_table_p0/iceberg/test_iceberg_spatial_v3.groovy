@@ -114,6 +114,99 @@ public class CreateIcebergSpatialV3Table {
                 .withFileSizeInBytes(size).withRecordCount(1).build()).commit();
     }
 
+    private static String parquetField(Types.NestedField field) {
+        String head = (field.isRequired() ? "required " : "optional ");
+        String tail = " = " + field.fieldId();
+        switch (field.type().typeId()) {
+            case INTEGER: return head + "int32 " + field.name() + tail + "; ";
+            case STRING: return head + "binary " + field.name() + " (UTF8)" + tail + "; ";
+            case GEOMETRY:
+            case GEOGRAPHY: return head + "binary " + field.name() + tail + "; ";
+            case LIST: return head + "group " + field.name() + " (LIST)" + tail
+                    + " { repeated group list { " + parquetField(field.type().asListType().fields().get(0)) + "} } ";
+            case MAP: return head + "group " + field.name() + " (MAP)" + tail
+                    + " { repeated group key_value { " + parquetField(field.type().asMapType().fields().get(0))
+                    + parquetField(field.type().asMapType().fields().get(1)) + "} } ";
+            case STRUCT:
+                StringBuilder structure = new StringBuilder(head + "group " + field.name() + tail + " { ");
+                for (Types.NestedField child : field.type().asStructType().fields()) {
+                    structure.append(parquetField(child));
+                }
+                return structure.append("} ").toString();
+            default: throw new IllegalArgumentException("Unexpected fixture type: " + field.type());
+        }
+    }
+
+    private static Binary binary(String hex) {
+        byte[] bytes = new byte[hex.length() / 2];
+        for (int i = 0; i < bytes.length; i++) {
+            bytes[i] = (byte) Integer.parseInt(hex.substring(2 * i, 2 * i + 2), 16);
+        }
+        return Binary.fromConstantByteArray(bytes);
+    }
+
+    private static void createNestedSource(Catalog catalog, Namespace namespace,
+            Map<String, String> properties) throws Exception {
+        java.util.List<Types.NestedField> fields = new java.util.ArrayList<>();
+        fields.add(Types.NestedField.required(1, "id", Types.IntegerType.get()));
+        int nextId = 2;
+        for (boolean geography : new boolean[] {false, true}) {
+            String prefix = geography ? "gg_" : "g_";
+            org.apache.iceberg.types.Type geo = geography ? Types.GeographyType.crs84() : Types.GeometryType.crs84();
+            fields.add(Types.NestedField.optional(nextId++, prefix + "array",
+                    Types.ListType.ofOptional(nextId++, geo)));
+            fields.add(Types.NestedField.optional(nextId++, prefix + "map",
+                    Types.MapType.ofOptional(nextId++, nextId++, Types.StringType.get(), geo)));
+            fields.add(Types.NestedField.optional(nextId++, prefix + "struct", Types.StructType.of(
+                    Types.NestedField.optional(nextId++, "shape", geo),
+                    Types.NestedField.optional(nextId++, "label", Types.StringType.get()))));
+            fields.add(Types.NestedField.optional(nextId++, prefix + "deep",
+                    Types.MapType.ofOptional(nextId++, nextId++, Types.StringType.get(),
+                            Types.ListType.ofOptional(nextId++, Types.StructType.of(
+                                    Types.NestedField.optional(nextId++, "shape", geo))))));
+        }
+        TableIdentifier name = TableIdentifier.of(namespace, "spatial_nested_source");
+        if (catalog.tableExists(name)) {
+            catalog.dropTable(name);
+        }
+        Table table = catalog.createTable(name, new Schema(fields), PartitionSpec.unpartitioned(), properties);
+        StringBuilder schema = new StringBuilder("message nested_spatial { ");
+        for (Types.NestedField field : table.schema().columns()) {
+            schema.append(parquetField(field));
+        }
+        MessageType message = MessageTypeParser.parseMessageType(schema.append("}").toString());
+        String[] payloads = {"0101000000000000000000F03F0000000000000040",
+                "00000000013FF00000000000004000000000000000",
+                "01b90b0000000000000000f03f000000000000004000000000000008400000000000001040",
+                "010200000000000000"};
+        for (int id = 1; id <= 6; id++) {
+            Group row = new SimpleGroupFactory(message).newGroup().append("id", id);
+            for (String prefix : new String[] {"g_", "gg_"}) {
+                if (id == 5) {
+                    continue; // SQL NULL parents.
+                }
+                Group array = row.addGroup(prefix + "array");
+                Group map = row.addGroup(prefix + "map");
+                Group structure = row.addGroup(prefix + "struct").append("label", "row" + id);
+                Group deep = row.addGroup(prefix + "deep");
+                if (id == 6) {
+                    continue; // Empty containers and a present struct with a NULL spatial field.
+                }
+                Binary point = binary(payloads[id - 1]);
+                array.addGroup("list").append("element", point);
+                array.addGroup("list");
+                map.addGroup("key_value").append("key", "shape").append("value", point);
+                map.addGroup("key_value").append("key", "absent");
+                structure.append("shape", point);
+                Group list = deep.addGroup("key_value").append("key", "shapes").addGroup("value");
+                list.addGroup("list").addGroup("element").append("shape", point);
+                list.addGroup("list").addGroup("element");
+                list.addGroup("list");
+            }
+            appendParquetRow(table, message, row);
+        }
+    }
+
     public static void main(String[] args) throws Exception {
         Map<String, String> properties = new HashMap<>();
         properties.put("type", "rest");
@@ -220,6 +313,7 @@ public class CreateIcebergSpatialV3Table {
         Group nestedRow = new SimpleGroupFactory(nestedMessage).newGroup();
         nestedRow.addGroup("shapes").addGroup("list").append("element", row.getBinary("geog", 0));
         appendParquetRow(nestedTable, nestedMessage, nestedRow);
+        createNestedSource(catalog, namespace, tableProperties);
     }
 }
 '''
@@ -735,9 +829,8 @@ public class CreateIcebergSpatialV3Table {
     }
     test {
         sql """create table spatial_create_rejected (geom array<geometry>) engine=iceberg
-            properties ('format-version' = '3')"""
-        // ColumnDefinition validates supported ARRAY elements before connector DDL validation.
-        exception "ARRAY unsupported sub-type: GEOMETRY"
+            properties ('format-version' = '2')"""
+        exception "require format-version >= 3"
     }
     // Spatial validation must preserve ordinary connector column-count diagnostics.
     test {
@@ -844,18 +937,136 @@ public class CreateIcebergSpatialV3Table {
         select size(shapes), ST_AsText(shapes[1]), hex(ST_AsBinary(shapes[1]))
         from nested_spatial_values
     """
-    test {
-        sql """insert into nested_spatial_values select * from nested_spatial_values"""
-        exception "Nested spatial columns"
-    }
-    test {
-        sql """explain merge into nested_spatial_values t using (select 1 id) s on s.id = 1
-            when matched then update set shapes = t.shapes"""
-        exception "Nested spatial columns"
-    }
+    sql """insert into nested_spatial_values select * from nested_spatial_values"""
+    sql """merge into nested_spatial_values t using (select 1 id) s on s.id = 1
+        when matched then update set shapes = t.shapes"""
+    order_qt_nested_array_writeback """select size(shapes), hex(ST_AsBinary(shapes[1]))
+        from nested_spatial_values"""
     sql """merge into nested_spatial_values t using (select 1 id) s on s.id = 1
         when matched then delete"""
     qt_nested_spatial_delete_only_merge """select count(*) from nested_spatial_values"""
+    // Actual external nested columns, not constructor-only values, exercise reader and writer recursion.
+    sql """drop table if exists spatial_nested_ddl"""
+    sql """create table spatial_nested_ddl (id int, payload struct<label:string>)
+        engine=iceberg properties ('format-version'='3')"""
+    sql """alter table spatial_nested_ddl add column shapes array<geometry>"""
+    sql """alter table spatial_nested_ddl add column payload.shapes array<geography>"""
+    sql """alter table spatial_nested_ddl modify column shapes array<geometry>"""
+    sql """alter table spatial_nested_ddl modify column payload.shapes array<geography>"""
+    sql """insert into spatial_nested_ddl
+        select id, named_struct('label', 'row', 'shapes', array(geog)), array(geom) from geometry_values"""
+    order_qt_static_nested_ddl """select id, hex(ST_AsBinary(shapes[1])),
+        hex(ST_AsBinary(struct_element(payload, 'shapes')[1])) from spatial_nested_ddl"""
+    test {
+        sql """alter table spatial_ddl_v2 add column shapes array<geometry>"""
+        exception "Iceberg spatial columns require format-version >= 3"
+    }
+    test {
+        sql """alter table spatial_ddl_orc add column payload struct<shape:geography>"""
+        exception "Iceberg spatial columns require Parquet"
+    }
+    order_qt_static_nested_source """select id, size(g_array),
+        array_map(x -> hex(ST_AsBinary(x)), g_array),
+        array_map(x -> hex(ST_AsBinary(x)), gg_array),
+        hex(ST_AsBinary(g_map['shape'])), hex(ST_AsBinary(gg_map['shape'])),
+        hex(ST_AsBinary(struct_element(g_struct, 'shape'))),
+        hex(ST_AsBinary(struct_element(gg_struct, 'shape'))),
+        array_map(x -> hex(ST_AsBinary(struct_element(x, 'shape'))), g_deep['shapes']),
+        array_map(x -> hex(ST_AsBinary(struct_element(x, 'shape'))), gg_deep['shapes'])
+        from spatial_nested_source"""
+    sql """drop table if exists spatial_nested_copy"""
+    sql """create table spatial_nested_copy (
+        id int, g_array array<geometry>, g_map map<string, geometry>,
+        g_struct struct<shape:geometry,label:string>, g_deep map<string,array<struct<shape:geometry>>>,
+        gg_array array<geography>, gg_map map<string, geography>,
+        gg_struct struct<shape:geography,label:string>, gg_deep map<string,array<struct<shape:geography>>>)
+        properties ('format-version'='3')"""
+    sql """insert into spatial_nested_copy select * from spatial_nested_source"""
+    sql """refresh table spatial_nested_copy"""
+    order_qt_static_nested_copy """select id, size(g_array),
+        array_map(x -> hex(ST_AsBinary(x)), g_array),
+        array_map(x -> hex(ST_AsBinary(x)), gg_array),
+        hex(ST_AsBinary(g_map['shape'])), hex(ST_AsBinary(gg_map['shape'])),
+        hex(ST_AsBinary(struct_element(g_struct, 'shape'))),
+        hex(ST_AsBinary(struct_element(gg_struct, 'shape'))),
+        array_map(x -> hex(ST_AsBinary(struct_element(x, 'shape'))), g_deep['shapes']),
+        array_map(x -> hex(ST_AsBinary(struct_element(x, 'shape'))), gg_deep['shapes'])
+        from spatial_nested_copy"""
+    sql """drop table if exists spatial_nested_ctas"""
+    sql """create table spatial_nested_ctas properties ('format-version'='3') as
+        select * from spatial_nested_source"""
+    order_qt_static_nested_ctas """select id, hex(ST_AsBinary(g_map['shape'])),
+        hex(ST_AsBinary(struct_element(gg_struct, 'shape'))) from spatial_nested_ctas"""
+    // Normalization folds these typed NULLs before target identity checks.
+    sql """insert into spatial_nested_copy (id, g_array, gg_map, g_struct) values
+        (7, array(CAST(NULL AS GEOMETRY('EPSG:3857'))), map('shape', CAST(NULL AS INT)),
+            named_struct('shape', CAST(NULL AS INT), 'label', 'null'))"""
+    qt_static_nested_typed_nulls """select id, size(g_array), g_array[1] is null,
+        gg_map['shape'] is null, struct_element(g_struct, 'shape') is null
+        from spatial_nested_copy where id = 7"""
+    for (String expression : ["array(geom)",
+            "if(id = 1, array(geom), cast(NULL as array<geometry('EPSG:3857')>))"]) {
+        test {
+            sql """insert into spatial_nested_copy (id, g_array) select id + 10,
+                ${expression} from projected_values"""
+            exception "CRS mismatch"
+        }
+    }
+    test {
+        sql """insert into spatial_nested_copy (id, g_array)
+            select id + 10, cast(array(geom) as array<geometry>) from projected_values"""
+        exception "can not cast"
+    }
+    test {
+        sql """insert into spatial_nested_copy (id, g_map)
+            select id + 20, map('shape', geog) from geometry_values"""
+        exception "type mismatch"
+    }
+    test {
+        sql """insert into spatial_nested_copy (id, gg_struct) select id + 30,
+            named_struct('shape', geog, 'label', 'wrong') from projected_values"""
+        exception "algorithm mismatch"
+    }
+    // Partition keys require semantic equality; ordinary keys may still carry spatial window values.
+    for (String column : ["geom", "geog"]) {
+        for (String key : [column, "array(${column})", "map(id, ${column})",
+                "named_struct('shape', ${column})"]) {
+            test {
+                sql """select id, count(*) over (partition by ${key}) from geometry_values"""
+                exception "PARTITION BY does not support spatial keys"
+            }
+        }
+        for (String function : ["count_at_min", "count_at_max"]) {
+            for (String expression : ["${function}(${column})", "${function}(array(${column}))",
+                    "${function}(${column}) over ()", "${function}_state(${column})"]) {
+                test {
+                    sql """select /*+ SET_VAR(enable_agg_state=true) */ ${expression} from geometry_values"""
+                    exception "does not support spatial arguments"
+                }
+            }
+        }
+        for (String value : [column, "array(${column})", "map('shape', ${column})",
+                "named_struct('shape', ${column})"]) {
+            test {
+                sql """select cast(${value} as variant) from geometry_values"""
+                exception (value == column ? "cannot cast" : "can not cast")
+            }
+        }
+    }
+    order_qt_static_spatial_window_values """select id,
+        hex(ST_AsBinary(first_value(geom) over (partition by id order by id))),
+        hex(ST_AsBinary(last_value(geog) over (partition by id order by id)))
+        from geometry_values"""
+    qt_static_ordinary_extremes_variant """select count_at_min(id), count_at_max(id),
+        count(cast(array(id) as variant)) from geometry_values"""
+    sql """drop table if exists spatial_variant_neighbors"""
+    sql """create table spatial_variant_neighbors (id int, geom geometry, geog geography, payload variant)
+        engine=iceberg properties ('format-version'='3')"""
+    sql """insert into spatial_variant_neighbors
+        select id, geom, geog, cast(array(id) as variant) from geometry_values"""
+    sql """refresh table spatial_variant_neighbors"""
+    order_qt_static_variant_neighbors """select id, hex(ST_AsBinary(geom)), hex(ST_AsBinary(geog)),
+        cast(payload as string) from spatial_variant_neighbors"""
     sql """drop table if exists spatial_wkb_values"""
     sql """create table spatial_wkb_values (id int, geom geometry, geog geography)
         engine=iceberg properties ('format-version' = '3')"""

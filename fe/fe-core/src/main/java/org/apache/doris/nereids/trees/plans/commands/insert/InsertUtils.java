@@ -58,6 +58,10 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.DefaultValueSlot;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateNamedStruct;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateStruct;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -67,7 +71,12 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.types.AggStateType;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.GeographyType;
+import org.apache.doris.nereids.types.GeometryType;
+import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.MoreFieldsThread;
 import org.apache.doris.nereids.util.RelationUtil;
@@ -105,6 +114,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 /**
  * The helper class for insert operation.
@@ -615,6 +625,9 @@ public class InsertUtils {
             value = (NamedExpression) analyzer.get().analyze(value,
                     new ExpressionRewriteContext(analyzer.get().getCascadesContext()));
             ConnectorSpatialWriteValidator.validate(targetColumn, value);
+            if (value instanceof Alias) {
+                value = (NamedExpression) value.withChildren(normalizeSpatialNulls(value.child(0), targetType));
+            }
         }
         if (targetColumn != null && targetColumn.getConnectorStringWriteType() != null) {
             // Preserve textual input until binding can apply the connector's semantic conversion.
@@ -652,6 +665,71 @@ public class InsertUtils {
             Expression expression, ExpressionRewriteContext rewriteContext) {
         return MoreFieldsThread.keepFunctionSignature(
                 () -> FoldConstantRuleOnFE.evaluate(expression, rewriteContext));
+    }
+
+    private static Expression normalizeSpatialNulls(Expression input, DataType target) {
+        if (!target.toCatalogDataType().typeContainsSpatialType()) {
+            return input;
+        }
+        if (input.isNullLiteral()) {
+            return new NullLiteral(target);
+        }
+        if (input instanceof Literal) {
+            // Preserve ordinary types and source field nullability for the subsequent normal CAST.
+            return ((Literal) input).checkedCastTo(spatialLiteralType(input.getDataType(), target));
+        }
+        // Binding folds CAST(NULL), but does not fold every container constructor to a literal.
+        // Rebuild just these constructors after identity validation, retaining names and ordinary siblings.
+        if (input instanceof Array && target instanceof ArrayType) {
+            return new Array(input.children().stream()
+                    .map(child -> normalizeSpatialNulls(child, ((ArrayType) target).getItemType()))
+                    .collect(ImmutableList.toImmutableList()));
+        }
+        if (input instanceof CreateMap && target instanceof MapType) {
+            MapType map = (MapType) target;
+            return new CreateMap(IntStream.range(0, input.arity()).mapToObj(i -> normalizeSpatialNulls(
+                    input.child(i), i % 2 == 0 ? map.getKeyType() : map.getValueType()))
+                    .toArray(Expression[]::new));
+        }
+        if ((input instanceof CreateStruct || input instanceof CreateNamedStruct) && target instanceof StructType) {
+            StructType struct = (StructType) target;
+            int step = input instanceof CreateNamedStruct ? 2 : 1;
+            Expression[] children = IntStream.range(0, input.arity())
+                    .mapToObj(i -> step == 2 && i % 2 == 0 ? input.child(i)
+                            : normalizeSpatialNulls(input.child(i), struct.getFields().get(i / step).getDataType()))
+                    .toArray(Expression[]::new);
+            return step == 2 ? new CreateNamedStruct(children) : new CreateStruct(children);
+        }
+        return input;
+    }
+
+    private static DataType spatialLiteralType(DataType source, DataType target) {
+        // Ordinary sibling structs may have incompatible shapes; leave them to normal CAST validation.
+        if (!target.toCatalogDataType().typeContainsSpatialType()) {
+            return source;
+        }
+        if (target instanceof GeometryType || target instanceof GeographyType) {
+            return target;
+        } else if (source instanceof ArrayType && target instanceof ArrayType) {
+            return ArrayType.of(spatialLiteralType(((ArrayType) source).getItemType(),
+                    ((ArrayType) target).getItemType()));
+        } else if (source instanceof MapType && target instanceof MapType) {
+            return MapType.of(spatialLiteralType(((MapType) source).getKeyType(), ((MapType) target).getKeyType()),
+                    spatialLiteralType(((MapType) source).getValueType(), ((MapType) target).getValueType()));
+        } else if (source instanceof StructType && target instanceof StructType) {
+            StructType sourceStruct = (StructType) source;
+            StructType targetStruct = (StructType) target;
+            // A typed NULL element may carry a different struct shape; retain its type for CAST.
+            if (sourceStruct.getFields().size() != targetStruct.getFields().size()) {
+                return source;
+            }
+            return new StructType(IntStream.range(0, sourceStruct.getFields().size())
+                    .mapToObj(i -> sourceStruct.getFields().get(i).withDataType(spatialLiteralType(
+                            sourceStruct.getFields().get(i).getDataType(),
+                            targetStruct.getFields().get(i).getDataType())))
+                    .collect(ImmutableList.toImmutableList()));
+        }
+        return source;
     }
 
     private static NamedExpression castValue(Expression value, DataType targetType) {

@@ -25,6 +25,7 @@ org.apache.doris.connector.spi.ConnectorCapability#enum:SUPPORTS_METADATA_PRELOA
 org.apache.doris.connector.spi.ConnectorCapability#enum:SUPPORTS_MVCC_SNAPSHOT
 org.apache.doris.connector.spi.ConnectorCapability#enum:SUPPORTS_NESTED_COLUMN_PRUNE
 org.apache.doris.connector.spi.ConnectorCapability#enum:SUPPORTS_NESTED_COLUMN_SCHEMA_CHANGE
+org.apache.doris.connector.spi.ConnectorCapability#enum:SUPPORTS_NESTED_SPATIAL_TYPES
 org.apache.doris.connector.spi.ConnectorCapability#enum:SUPPORTS_PARTITION_STATS
 org.apache.doris.connector.spi.ConnectorCapability#enum:SUPPORTS_SAMPLE_ANALYZE
 org.apache.doris.connector.spi.ConnectorCapability#enum:SUPPORTS_SCAN_PARAM_OPTIONS

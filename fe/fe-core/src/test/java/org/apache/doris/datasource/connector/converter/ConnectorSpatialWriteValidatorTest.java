@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeogFromWKB;
@@ -110,15 +111,39 @@ public class ConnectorSpatialWriteValidatorTest {
     }
 
     @Test
-    public void testNestedSpatialTargetsAreRejectedForExistingSchemas() {
+    public void testNestedSpatialIdentityAndTypedNulls() {
         ScalarType geometry = ScalarType.createGeometryType("OGC:CRS84");
+        ScalarType otherCrs = ScalarType.createGeometryType("EPSG:3857");
         for (Type target : ImmutableList.of(new ArrayType(geometry), new MapType(Type.STRING, geometry),
-                new StructType(new StructField("geom", geometry)))) {
-            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
-                    () -> ConnectorSpatialWriteValidator.validate(new Column("payload", target),
-                            new SlotReference("payload", DataType.fromCatalogType(target))));
-            Assertions.assertTrue(exception.getMessage().contains("Nested spatial"), exception.getMessage());
+                new StructType(new StructField("geom", geometry)),
+                new ArrayType(new MapType(Type.STRING, new StructType(new StructField("geom", geometry)))))) {
+            Type mismatched;
+            if (target instanceof ArrayType) {
+                Type element = ((ArrayType) target).getItemType();
+                mismatched = element instanceof MapType
+                        ? new ArrayType(new MapType(Type.STRING, new StructType(new StructField("geom", otherCrs))))
+                        : new ArrayType(otherCrs);
+            } else if (target instanceof MapType) {
+                mismatched = new MapType(Type.STRING, otherCrs);
+            } else {
+                mismatched = new StructType(new StructField("geom", otherCrs));
+            }
+            Column column = new Column("payload", target);
+            DataType targetType = DataType.fromCatalogType(target);
+            Assertions.assertDoesNotThrow(() -> ConnectorSpatialWriteValidator.validate(column,
+                    new SlotReference("payload", targetType)));
+            Assertions.assertDoesNotThrow(() -> ConnectorSpatialWriteValidator.validate(column,
+                    new NullLiteral(DataType.fromCatalogType(mismatched))));
+            AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                    () -> ConnectorSpatialWriteValidator.validate(column,
+                            new SlotReference("payload", DataType.fromCatalogType(mismatched))));
+            Assertions.assertTrue(error.getMessage().contains("CRS mismatch"), error.getMessage());
         }
+        DataType targetLeaf = DataType.fromCatalogType(geometry);
+        Expression hiddenMismatch = new Array(new Cast(
+                new SlotReference("wrong", DataType.fromCatalogType(otherCrs)), targetLeaf));
+        Assertions.assertThrows(AnalysisException.class, () -> ConnectorSpatialWriteValidator.validate(
+                new Column("payload", new ArrayType(geometry)), hiddenMismatch));
     }
 
     @Test

@@ -34,6 +34,8 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AvgMap;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CollectList;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CollectSet;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.CountAtMax;
+import org.apache.doris.nereids.trees.expressions.functions.agg.CountAtMin;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CountMap;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupArrayIntersect;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupArrayUnion;
@@ -77,6 +79,61 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 public class SpatialAggregateLegalityTest {
+    @Test
+    public void spatialWindowPartitionKeysRejectWithoutBlockingSpatialValues() {
+        for (String spatial : List.of("GEOMETRY", "GEOMETRY('EPSG:3857')", "GEOGRAPHY",
+                "GEOGRAPHY('OGC:CRS84', 'vincenty')")) {
+            String source = " from (select number id, CAST(NULL AS " + spatial
+                    + ") shape from numbers('number'='3')) shapes";
+            for (String key : List.of("shape", "array(shape)", "map(id, shape)",
+                    "named_struct('shape', shape)")) {
+                Exception error = Assertions.assertThrows(Exception.class,
+                        () -> PlanChecker.from(MemoTestUtils.createConnectContext())
+                                .analyze("select count(*) over (partition by " + key + ")" + source).rewrite());
+                Assertions.assertTrue(error.getMessage().contains("PARTITION BY does not support spatial keys"),
+                        error.getMessage());
+            }
+            Assertions.assertDoesNotThrow(() -> PlanChecker.from(MemoTestUtils.createConnectContext())
+                    .analyze("select first_value(shape) over (partition by id order by id), "
+                            + "last_value(shape) over (partition by id order by id), "
+                            + "count(shape) over (partition by id)" + source).rewrite());
+        }
+    }
+
+    @Test
+    public void countAtExtremesRejectSpatialArgumentsAndDeclaredStates() {
+        for (DataType spatial : List.of(new GeometryType("OGC:CRS84"), new GeographyType("OGC:CRS84", "spherical"))) {
+            for (DataType type : List.of(spatial, ArrayType.of(spatial))) {
+                for (boolean nullable : List.of(false, true)) {
+                    Expression value = new SlotReference("shape", type, nullable);
+                    for (AggregateFunction function : List.of(new CountAtMin(value), new CountAtMax(value))) {
+                        Assertions.assertThrows(AnalysisException.class, function::checkLegalityBeforeTypeCoercion);
+                        Assertions.assertThrows(AnalysisException.class, function::checkLegalityAfterRewrite);
+                        Assertions.assertThrows(AnalysisException.class,
+                                StateCombinator.create(function)::checkLegalityBeforeTypeCoercion);
+                    }
+                }
+            }
+            for (String name : List.of("count_at_min", "count_at_max")) {
+                String type = spatial.toSql();
+                for (String query : List.of(
+                        "select " + name + "(shape) from (select CAST(NULL AS " + type
+                                + ") shape from numbers('number'='3')) shapes",
+                        "select CAST(NULL AS AGG_STATE<" + name + "(" + type + ")>)")) {
+                    Exception error = Assertions.assertThrows(Exception.class,
+                            () -> PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(query).rewrite());
+                    Assertions.assertTrue(error.getMessage().contains("does not support spatial arguments"),
+                            error.getMessage());
+                }
+            }
+        }
+        Expression integer = new SlotReference("id", IntegerType.INSTANCE, true);
+        for (AggregateFunction function : List.of(new CountAtMin(integer), new CountAtMax(integer))) {
+            Assertions.assertDoesNotThrow(function::checkLegalityBeforeTypeCoercion);
+            Assertions.assertDoesNotThrow(function::checkLegalityAfterRewrite);
+        }
+    }
+
     @Test
     public void spatialSetComparisonsRejectKeysButUnionAllKeepsValues() {
         for (String spatial : List.of("GEOMETRY", "GEOMETRY('EPSG:3857')",

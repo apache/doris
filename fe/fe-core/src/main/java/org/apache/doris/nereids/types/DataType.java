@@ -951,10 +951,15 @@ public abstract class DataType {
     }
 
     public void validateDataType() {
-        validateCatalogDataType(toCatalogDataType());
+        validateCatalogDataType(toCatalogDataType(), false);
     }
 
-    private static void validateCatalogDataType(Type catalogType) {
+    /** Validate spatial leaves after an explicit opt-in without widening generic or Variant declarations. */
+    public void validateDataTypeWithSpatialLeaves() {
+        validateCatalogDataType(toCatalogDataType(), true);
+    }
+
+    private static void validateCatalogDataType(Type catalogType, boolean allowNestedSpatialTypes) {
         if (catalogType.exceedsMaxNestingDepth()) {
             throw new AnalysisException(
                     String.format("Type exceeds the maximum nesting depth of %s:\n%s",
@@ -969,7 +974,7 @@ public abstract class DataType {
         } else if (catalogType.isComplexType()) {
             if (catalogType.isArrayType()) {
                 Type itemType = ((org.apache.doris.catalog.ArrayType) catalogType).getItemType();
-                validateNestedType(catalogType, itemType);
+                validateNestedType(catalogType, itemType, allowNestedSpatialTypes);
             }
             if (catalogType.isMapType()) {
                 org.apache.doris.catalog.MapType mt =
@@ -980,7 +985,7 @@ public abstract class DataType {
                             "MAP key type must be a primitive type but get " + mapKeyType.toSql());
                 }
                 validateNestedType(catalogType, mapKeyType);
-                validateNestedType(catalogType, mt.getValueType());
+                validateNestedType(catalogType, mt.getValueType(), allowNestedSpatialTypes);
             }
             if (catalogType.isStructType()) {
                 ArrayList<org.apache.doris.catalog.StructField> fields =
@@ -988,7 +993,7 @@ public abstract class DataType {
                 Set<String> fieldNames = new HashSet<>();
                 for (org.apache.doris.catalog.StructField field : fields) {
                     Type fieldType = field.getType();
-                    validateNestedType(catalogType, fieldType);
+                    validateNestedType(catalogType, fieldType, allowNestedSpatialTypes);
                     if (!fieldNames.add(field.getName())) {
                         throw new AnalysisException("Duplicate field name " + field.getName()
                                 + " in struct " + catalogType.toSql());
@@ -999,15 +1004,22 @@ public abstract class DataType {
     }
 
     private static void validateNestedType(Type parent, Type child) throws AnalysisException {
+        validateNestedType(parent, child, false);
+    }
+
+    private static void validateNestedType(Type parent, Type child, boolean allowNestedSpatialTypes) {
         if (child.isNull()) {
             throw new AnalysisException("Unsupported data type: " + child.toSql());
         }
-        // check whether the sub-type is supported
-        if (!parent.supportSubType(child)) {
+        // Iceberg ARRAY/STRUCT/MAP values can carry spatial leaves. Keep ordinary subtype
+        // checks and the unopted-in MAP key / Variant predefined-field rules unchanged.
+        boolean spatialLeaf = allowNestedSpatialTypes && child instanceof ScalarType
+                && ((ScalarType) child).isSpatialType();
+        if (!spatialLeaf && !parent.supportSubType(child)) {
             throw new AnalysisException(
                     parent.getPrimitiveType() + " unsupported sub-type: " + child.toSql());
         }
-        validateCatalogDataType(child);
+        validateCatalogDataType(child, allowNestedSpatialTypes);
     }
 
     private static void validateScalarType(ScalarType scalarType) {
