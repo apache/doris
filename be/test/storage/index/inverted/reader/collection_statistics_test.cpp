@@ -1225,6 +1225,24 @@ TEST(CollectionStatisticsHiddenRowsTest, CountListedDocsOfNothing) {
     const std::vector<uint32_t> docs {1, 2};
     ASSERT_TRUE(index_query::count_listed_docs(empty, docs, &listed).ok());
     EXPECT_EQ(listed, 0);
+    EXPECT_EQ(empty.seeks, 0);
+}
+
+// Scanning walks the wanted documents alongside the postings, however large their IDs, and stops
+// once every wanted document is passed.
+TEST(CollectionStatisticsHiddenRowsTest, CountListedDocsScansFarDocsWithoutWalkingEveryBlock) {
+    BlockListCursor cursor({std::vector<uint32_t> {3}, std::pair<uint32_t, uint32_t> {10, 20},
+                            std::vector<uint32_t> {9999999}, std::vector<uint32_t> {10000005}});
+    const std::vector<uint32_t> docs {3, 15, 19, 9999999};
+    uint64_t listed = 0;
+    ASSERT_TRUE(index_query::count_listed_docs(cursor, docs, &listed).ok());
+    EXPECT_EQ(listed, 4);
+    EXPECT_EQ(cursor.seeks, 0);
+
+    BlockListCursor far({std::vector<uint32_t> {1}});
+    const std::vector<uint32_t> far_docs {9999999};
+    ASSERT_TRUE(index_query::count_listed_docs(far, far_docs, &listed).ok());
+    EXPECT_EQ(listed, 0);
 }
 
 TEST(CollectionStatisticsHiddenRowsTest, ExcludeHiddenDocsSumsNormsOfReturnedRows) {

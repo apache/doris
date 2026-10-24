@@ -243,9 +243,11 @@ std::span<const float> CluceneIndexSource::norm_lengths() const {
     return BM25Similarity::lucene_norm_lengths();
 }
 
-// Each segment reader keeps a field's norms once they are read, the copy scoring reads. A reader of
-// several segments would build and keep one more copy of them all, so read the norms of each
-// segment, a segment without the field's norms reading as zero lengths, as that reader would.
+// The statistics read a field's norms into a buffer of their own, freed after use: asking a reader
+// for its norms makes it keep them, uncharged to the searcher cache, for every segment the
+// statistics visit, scored or not. Reading per segment also avoids the copy of all segments' norms
+// a reader of several segments would keep. A segment without the field's norms reads as zero
+// lengths, as that reader would.
 std::vector<CluceneIndexSource::ReaderPartition> CluceneIndexSource::_norm_partitions() const {
     if (!_partitions.empty()) {
         return _partitions;
@@ -253,11 +255,10 @@ std::vector<CluceneIndexSource::ReaderPartition> CluceneIndexSource::_norm_parti
     return {{.reader = _reader.get(), .begin = 0, .end = doc_count()}};
 }
 
-const uint8_t* CluceneIndexSource::_norms_of(lucene::index::IndexReader* reader) const {
-    if (!reader->hasNorms(_field.c_str())) {
-        return nullptr;
-    }
-    return reader->norms(_field.c_str());
+void CluceneIndexSource::_read_norms(const ReaderPartition& partition,
+                                     DorisVector<uint8_t>* norms) const {
+    norms->assign(partition.end - partition.begin, 0);
+    partition.reader->norms(_field.c_str(), norms->data());
 }
 
 Status CluceneIndexSource::sum_norm_lengths(uint64_t* out) {
@@ -268,13 +269,11 @@ Status CluceneIndexSource::sum_norm_lengths(uint64_t* out) {
                     "field {} has no norms", inverted_index::StringHelper::to_string(_field));
         }
         const auto lengths = norm_lengths();
+        DorisVector<uint8_t> norms;
         for (const ReaderPartition& partition : _norm_partitions()) {
-            const uint8_t* norms = _norms_of(partition.reader);
-            if (norms == nullptr) {
-                continue;
-            }
-            for (uint32_t doc = 0, count = partition.end - partition.begin; doc < count; ++doc) {
-                *out += static_cast<uint64_t>(lengths[norms[doc]]);
+            _read_norms(partition, &norms);
+            for (const uint8_t norm : norms) {
+                *out += static_cast<uint64_t>(lengths[norm]);
             }
         }
     } catch (CLuceneError& e) {
@@ -295,21 +294,23 @@ Status CluceneIndexSource::sum_norm_lengths_of(std::span<const uint32_t> docs, u
         }
         const auto lengths = norm_lengths();
         const uint32_t count = doc_count();
-        const auto partitions = _norm_partitions();
-        size_t partition = 0;
-        const uint8_t* norms = _norms_of(partitions[0].reader);
-        for (const uint32_t doc : docs) {
-            if (doc >= count) {
-                return Status::Corruption("document {} is beyond the {} documents of the index",
-                                          doc, count);
+        if (docs.back() >= count) {
+            return Status::Corruption("document {} is beyond the {} documents of the index",
+                                      docs.back(), count);
+        }
+        DorisVector<uint8_t> norms;
+        // `docs` ascend, so each partition's documents are contiguous in them.
+        size_t next = 0;
+        for (const ReaderPartition& partition : _norm_partitions()) {
+            if (next == docs.size()) {
+                break;
             }
-            // `docs` ascend, so the partitions are visited in order.
-            while (doc >= partitions[partition].end) {
-                ++partition;
-                norms = _norms_of(partitions[partition].reader);
+            if (docs[next] >= partition.end) {
+                continue;
             }
-            if (norms != nullptr) {
-                *out += static_cast<uint64_t>(lengths[norms[doc - partitions[partition].begin]]);
+            _read_norms(partition, &norms);
+            for (; next < docs.size() && docs[next] < partition.end; ++next) {
+                *out += static_cast<uint64_t>(lengths[norms[docs[next] - partition.begin]]);
             }
         }
     } catch (CLuceneError& e) {

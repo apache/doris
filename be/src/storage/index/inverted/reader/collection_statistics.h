@@ -221,6 +221,15 @@ Status exclude_hidden_docs(index_query::IndexSource& source, std::span<const uin
                            const roaring::Roaring& null_docs, uint64_t non_null_length_sum,
                            index_query::IndexScoringStats* stats);
 
+// Sums the lengths the norms of ascending rows of a segment's index stand for.
+using SumNormLengthsOf = std::function<Status(std::span<const uint32_t> docs, uint64_t* out)>;
+
+// exclude_hidden_docs, the lengths of the hidden non-NULL rows summed by `sum_norm_lengths_of`.
+Status exclude_hidden_docs(std::span<const uint32_t> hidden_docs, const roaring::Roaring& null_docs,
+                           uint64_t non_null_length_sum,
+                           const SumNormLengthsOf& sum_norm_lengths_of,
+                           index_query::IndexScoringStats* stats);
+
 // Takes from a term's document frequency the documents of `hidden_docs` that hold it.
 Status exclude_hidden_term_docs(index_query::IndexSource& source, std::string_view term,
                                 std::span<const uint32_t> hidden_docs, uint64_t* doc_frequency);

@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "core/custom_allocator.h"
 #include "storage/index/inverted/query/spi/index_source.h"
 
 namespace lucene::index {
@@ -70,8 +71,9 @@ private:
     void _append_partitions(lucene::index::IndexReader* reader, uint32_t begin);
     // The partitions whose norms make up the field's, the whole reader when it has no others.
     std::vector<ReaderPartition> _norm_partitions() const;
-    // A partition's encoded norms of the field, one per document, or null when it has none.
-    const uint8_t* _norms_of(lucene::index::IndexReader* reader) const;
+    // Reads a partition's encoded norms of the field, one per document, into `norms`, without the
+    // reader keeping them.
+    void _read_norms(const ReaderPartition& partition, DorisVector<uint8_t>* norms) const;
 
     std::shared_ptr<lucene::index::IndexReader> _reader;
     std::wstring _field;

@@ -133,6 +133,18 @@ Status sum_non_null_norm_lengths(index_query::IndexSource& source,
 Status exclude_hidden_docs(index_query::IndexSource& source, std::span<const uint32_t> hidden_docs,
                            const roaring::Roaring& null_docs, uint64_t non_null_length_sum,
                            index_query::IndexScoringStats* stats) {
+    return exclude_hidden_docs(
+            hidden_docs, null_docs, non_null_length_sum,
+            [&source](std::span<const uint32_t> docs, uint64_t* out) {
+                return source.sum_norm_lengths_of(docs, out);
+            },
+            stats);
+}
+
+Status exclude_hidden_docs(std::span<const uint32_t> hidden_docs, const roaring::Roaring& null_docs,
+                           uint64_t non_null_length_sum,
+                           const SumNormLengthsOf& sum_norm_lengths_of,
+                           index_query::IndexScoringStats* stats) {
     DORIS_CHECK(stats != nullptr);
     if (!hidden_docs.empty() && hidden_docs.back() >= stats->doc_count) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>(
@@ -153,7 +165,9 @@ Status exclude_hidden_docs(index_query::IndexSource& source, std::span<const uin
     std::ranges::copy_if(hidden_docs, std::back_inserter(hidden_non_null_docs),
                          [&null_docs](uint32_t doc) { return !null_docs.contains(doc); });
     uint64_t hidden_lengths = 0;
-    RETURN_IF_ERROR(source.sum_norm_lengths_of(hidden_non_null_docs, &hidden_lengths));
+    if (!hidden_non_null_docs.empty()) {
+        RETURN_IF_ERROR(sum_norm_lengths_of(hidden_non_null_docs, &hidden_lengths));
+    }
     DORIS_CHECK(hidden_lengths <= non_null_length_sum);
     stats->token_count = non_null_length_sum - hidden_lengths;
     return Status::OK();
@@ -580,8 +594,22 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
                                                                    &non_null_length_sum));
 #endif
             }
+            // The statistics keep no norms, so the lengths of a segment's hidden rows are summed
+            // once per set of hidden rows and kept with the searcher.
+            auto sum_hidden_lengths = [&](std::span<const uint32_t> docs, uint64_t* out) {
+                auto sum = [&source, docs](uint64_t* lengths) {
+                    return source->sum_norm_lengths_of(docs, lengths);
+                };
+#ifdef BE_TEST
+                return sum(out);
+#else
+                return inverted_index_cache_handle.get<CluceneSearcherCacheValue>()
+                        ->hidden_norm_length_sum(ws_field_name, docs, sum, out);
+#endif
+            };
             RETURN_IF_ERROR(collection_statistics_detail::exclude_hidden_docs(
-                    *source, hidden_docs, *null_docs, non_null_length_sum, &scoring_stats));
+                    hidden_docs, *null_docs, non_null_length_sum, sum_hidden_lengths,
+                    &scoring_stats));
         }
         total_segment_docs =
                 std::max(total_segment_docs, static_cast<int32_t>(scoring_stats.doc_count));

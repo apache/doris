@@ -51,30 +51,34 @@ namespace {
 // How many postings a scan decodes in the time a seek costs.
 constexpr uint64_t kPostingsPerSeek = 32;
 
-// Decodes every posting once and tests it against a bitset of `docs`.
+// Decodes every posting once and walks `docs` alongside, both ascending.
 Status count_listed_docs_by_scan(PostingsCursor& cursor, std::span<const uint32_t> docs,
                                  uint64_t* out) {
-    std::vector<uint64_t> bits(docs.back() / 64 + 1, 0);
-    for (const uint32_t doc : docs) {
-        bits[doc / 64] |= uint64_t {1} << (doc % 64);
-    }
-    const auto is_set = [&bits](uint64_t doc) {
-        return doc / 64 < bits.size() && ((bits[doc / 64] >> (doc % 64)) & 1) != 0;
-    };
+    size_t next = 0;
     PostingsBlock block;
     bool eof = false;
-    while (true) {
+    while (next < docs.size()) {
         RETURN_IF_ERROR(cursor.next_block(&block, &eof));
         if (eof) {
             break;
         }
         if (block.dense) {
-            for (uint64_t doc = block.range_begin; doc < block.range_end; ++doc) {
-                *out += is_set(doc) ? 1 : 0;
+            const auto begin = std::lower_bound(docs.begin() + next, docs.end(), block.range_begin);
+            const auto end = std::lower_bound(begin, docs.end(), block.range_end);
+            *out += static_cast<uint64_t>(end - begin);
+            next = end - docs.begin();
+            continue;
+        }
+        for (const uint32_t doc : block.docs) {
+            while (next < docs.size() && docs[next] < doc) {
+                ++next;
             }
-        } else {
-            for (const uint32_t doc : block.docs) {
-                *out += is_set(doc) ? 1 : 0;
+            if (next == docs.size()) {
+                break;
+            }
+            if (docs[next] == doc) {
+                ++*out;
+                ++next;
             }
         }
     }
@@ -85,7 +89,7 @@ Status count_listed_docs_by_scan(PostingsCursor& cursor, std::span<const uint32_
 
 Status count_listed_docs(PostingsCursor& cursor, std::span<const uint32_t> docs, uint64_t* out) {
     *out = 0;
-    if (docs.empty()) {
+    if (docs.empty() || cursor.doc_freq() == 0) {
         return Status::OK();
     }
     // Leaping seeks once per wanted document, scanning decodes every posting: leap only over
