@@ -122,6 +122,11 @@ Status build_segment_zonemap_context(Segment* segment, const ReadSchema& schema,
         if (data_type == nullptr) {
             continue;
         }
+        // For {"a": 1} mixed with {"a": {"b": 2}}, the physical scalar a is NULL on
+        // object rows. Its bounds and NULL flags cannot describe the reconstructed VARIANT a.
+        if (remove_nullable(data_type)->get_primitive_type() == TYPE_VARIANT) {
+            continue;
+        }
         ZoneMapEvalContext::SlotZoneMap slot_zone_map;
         slot_zone_map.data_type = data_type;
         std::shared_ptr<ColumnReader> reader;

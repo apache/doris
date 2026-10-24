@@ -3500,6 +3500,12 @@ Status SegmentIterator::_apply_expr_zonemap_to_row_ranges(const VExprContextSPtr
             continue;
         }
         const auto* tablet_column = _schema->column(cid);
+        auto data_type = _segment->get_data_type_of(*tablet_column, _schema->data_type(cid), _opts);
+        // For {"a": 1} mixed with {"a": {"b": 2}}, the physical scalar a is NULL on
+        // object rows. Its bounds and NULL flags cannot describe the reconstructed VARIANT a.
+        if (remove_nullable(data_type)->get_primitive_type() == TYPE_VARIANT) {
+            continue;
+        }
         std::shared_ptr<ColumnReader> reader;
         Status st = _segment->get_column_reader_for_pruning(*tablet_column, _opts, &reader);
         if (st.is<ErrorCode::NOT_FOUND>()) {
@@ -3517,7 +3523,7 @@ Status SegmentIterator::_apply_expr_zonemap_to_row_ranges(const VExprContextSPtr
         if (page_zone_maps == nullptr || page_zone_maps->empty()) {
             continue;
         }
-        auto data_type = _segment->get_data_type_of(*tablet_column, _schema->data_type(cid), _opts);
+        const auto physical_type = reader->get_vec_data_type();
 
         RowRanges column_ranges;
         ZoneMapEvalStats page_stats;
@@ -3532,7 +3538,7 @@ Status SegmentIterator::_apply_expr_zonemap_to_row_ranges(const VExprContextSPtr
             slot_zone_map.data_type = data_type;
             ZoneMap zone_map;
             RETURN_IF_ERROR(
-                    ZoneMap::from_proto((*page_zone_maps)[page_index], data_type, zone_map));
+                    ZoneMap::from_proto((*page_zone_maps)[page_index], physical_type, zone_map));
             slot_zone_map.zone_map = std::make_shared<ZoneMap>(std::move(zone_map));
             ctx.slots.emplace(slot_index, std::move(slot_zone_map));
             const auto result = VExprContext::evaluate_zonemap_filter(slot_conjuncts, ctx);
