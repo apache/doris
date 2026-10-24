@@ -1821,8 +1821,13 @@ public class StmtExecutor {
                 // ExecuteCommand publishes this same context after a successful first prepared execution.
                 statementContext.setShortCircuitQueryContext(shortCircuitQueryContext);
             }
-            coordBase = new PointQueryExecutor(shortCircuitQueryContext,
-                    context.getSessionVariable().getMaxMsgSizeOfResultReceiver());
+            if (statementContext.isMultiKeyPointQuery()) {
+                coordBase = new PointQueryMultiExecutor(shortCircuitQueryContext, statementContext,
+                        context.getSessionVariable().getMaxMsgSizeOfResultReceiver());
+            } else {
+                coordBase = new PointQueryExecutor(shortCircuitQueryContext,
+                        context.getSessionVariable().getMaxMsgSizeOfResultReceiver());
+            }
             context.getState().setIsQuery(true);
         } else if (planner instanceof NereidsPlanner && ((NereidsPlanner) planner).getDistributedPlans() != null) {
             setCoord(new NereidsCoordinator(context,
