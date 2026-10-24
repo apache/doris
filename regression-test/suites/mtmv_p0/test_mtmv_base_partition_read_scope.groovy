@@ -669,4 +669,63 @@ suite("test_mtmv_base_partition_read_scope") {
     }
     order_qt_partial_stale """SELECT d, SUM(v) FROM partial_stale_base
         WHERE d IN ('2020-01-01', '2038-01-01') GROUP BY d"""
+
+    // A view partitioned on the column two tables are joined by tracks one partition dimension through both
+    // of them: the refresh follows the join's equality, so it records A.d and B.d both as columns its
+    // partition key derives from. Grouping the query by either side reaches that dimension all the same while
+    // the query keeps the two sides equal, and the view's partitions are disjoint in it, so the compensation's
+    // two branches answer different days -- the view the days it still holds, the base tables the day written
+    // after the refresh. Asking for every recorded column by name instead throws the view away and re-reads and
+    // re-aggregates the days the view answers.
+    def joinOldDay = today.minusDays(5)
+    def joinKeptDay = today.minusDays(4)
+    def joinThirdDay = today.minusDays(3)
+    sql """drop materialized view if exists pct_join_mv"""
+    sql """drop table if exists pct_join_a"""
+    sql """drop table if exists pct_join_b"""
+    sql """
+        CREATE TABLE pct_join_a (d DATE NOT NULL, v INT NOT NULL)
+        DUPLICATE KEY(d) PARTITION BY RANGE(d) (
+            PARTITION p_old VALUES [("${joinOldDay}"), ("${joinKeptDay}")),
+            PARTITION p_kept VALUES [("${joinKeptDay}"), ("${joinThirdDay}")),
+            PARTITION p_third VALUES [("${joinThirdDay}"), ("${joinThirdDay.plusDays(1)}"))
+        )
+        DISTRIBUTED BY HASH(d) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+    """
+    sql """
+        CREATE TABLE pct_join_b (d DATE NOT NULL, v INT NOT NULL)
+        DUPLICATE KEY(d) PARTITION BY RANGE(d) (
+            PARTITION p_old VALUES [("${joinOldDay}"), ("${joinKeptDay}")),
+            PARTITION p_kept VALUES [("${joinKeptDay}"), ("${joinThirdDay}")),
+            PARTITION p_third VALUES [("${joinThirdDay}"), ("${joinThirdDay.plusDays(1)}"))
+        )
+        DISTRIBUTED BY HASH(d) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+    """
+    sql """INSERT INTO pct_join_a VALUES ("${joinOldDay}", 1), ("${joinKeptDay}", 10), ("${joinThirdDay}", 100)"""
+    // One row per day on the other side, so the join does not multiply what the sum over the first side holds.
+    sql """INSERT INTO pct_join_b VALUES ("${joinOldDay}", 1), ("${joinKeptDay}", 1), ("${joinThirdDay}", 1)"""
+    sql """
+        CREATE MATERIALIZED VIEW pct_join_mv
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL PARTITION BY (a_d)
+        DISTRIBUTED BY HASH(a_d) BUCKETS 1 PROPERTIES ("replication_num" = "1",
+            "partition_sync_limit" = "7", "partition_sync_time_unit" = "DAY")
+        AS SELECT a.d AS a_d, SUM(a.v) AS s FROM pct_join_a a JOIN pct_join_b b ON a.d = b.d GROUP BY a.d
+    """
+    waitingMTMVTaskFinishedByMvName("pct_join_mv")
+    // The day the view holds for p_old is the only one written after the refresh, so it is the only partition
+    // the compensation re-reads -- from both tables, since the join needs each row's pair on the other side.
+    sql """INSERT INTO pct_join_a VALUES ("${joinOldDay}", 1000)"""
+    sql """ANALYZE TABLE pct_join_a WITH SYNC"""
+    sql """ANALYZE TABLE pct_join_b WITH SYNC"""
+    sql """set enable_materialized_view_rewrite = true"""
+    explain {
+        sql("select a.d, sum(a.v) from pct_join_a a join pct_join_b b on a.d = b.d "
+                + "where a.d in ('${joinOldDay}', '${joinKeptDay}') group by a.d")
+        check { result -> result.contains("UNION") && result.contains("pct_join_mv") }
+    }
+    // The day is reported as an offset from the first one read, so that the expected rows hold on any date the
+    // suite runs on: the days themselves come from today.
+    order_qt_pct_join_one_side """SELECT DATEDIFF(a.d, CAST('${joinOldDay}' AS DATE)) AS day_offset, SUM(a.v)
+        FROM pct_join_a a JOIN pct_join_b b ON a.d = b.d
+        WHERE a.d IN ('${joinOldDay}', '${joinKeptDay}') GROUP BY a.d"""
 }
