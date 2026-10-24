@@ -463,8 +463,13 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         lambdaFunction = analyzeLambdaFunction(lambdaFunction, binding.getAnalysisSlots(), context);
         Lambda lambdaClosure = binding.close(lambdaFunction);
 
-        // We don't add the ArrayExpression in high order function at all
-        return unboundFunction.withChildren(ImmutableList.of(lambdaClosure));
+        // The array inputs live in the lambda argument references, so they are not added as
+        // function children. A binding may still keep a scalar configuration input, such as the
+        // ascending flag of array_sorted_merge.
+        ImmutableList.Builder<Expression> functionChildren = ImmutableList.builder();
+        functionChildren.add(lambdaClosure);
+        functionChildren.addAll(binding.getExtraInputs());
+        return unboundFunction.withChildren(functionChildren.build());
     }
 
     private Expression analyzeLambdaFunction(Expression lambdaFunction,
