@@ -130,6 +130,10 @@ public class TVFTableSink extends DataSink {
             }
         }
 
+        if (fileType == TFileType.FILE_HDFS && !properties.containsKey("writer_class")) {
+            LocalTableValuedFunction.checkHdfsSinkEnabled(backendConnectProps);
+        }
+
         String filePath = properties.get("file_path");
         tSink.setFilePath(filePath);
 
