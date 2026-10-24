@@ -56,6 +56,9 @@ pch_reuse(Exprs)
 #    object must shadow a never-pulled archive member, but a unity batch is
 #    pulled in for its siblings and the linker sees a duplicate definition.
 set(EXPRS_UNITY_SKIP
+    # Keep the DataSketches template-heavy implementation out of the registration batches.
+    ${CMAKE_CURRENT_SOURCE_DIR}/datasketches_hll_util.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/function/function_datasketches_hll.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/aggregate/aggregate_function_array_agg.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/aggregate/aggregate_function_avg.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/aggregate/aggregate_function_bit.cpp

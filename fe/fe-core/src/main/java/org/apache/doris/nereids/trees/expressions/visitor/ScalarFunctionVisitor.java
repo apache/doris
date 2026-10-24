@@ -173,6 +173,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentUser;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CutIpv6;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CutToFirstSignificantSubdomain;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DamerauLevenshteinDistance;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DataSketchesHllDownsample;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Database;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateDiff;
@@ -1183,6 +1184,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitCutIpv6(CutIpv6 cutIpv6, C context) {
         return visitScalarFunction(cutIpv6, context);
+    }
+
+    default R visitDataSketchesHllDownsample(DataSketchesHllDownsample function, C context) {
+        return visitScalarFunction(function, context);
     }
 
     default R visitDatabase(Database database, C context) {
