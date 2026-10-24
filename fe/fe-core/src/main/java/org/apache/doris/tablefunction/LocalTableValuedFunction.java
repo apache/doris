@@ -64,10 +64,7 @@ public class LocalTableValuedFunction extends ExternalFileTableValuedFunction {
     private boolean sharedStorage = false;
 
     public LocalTableValuedFunction(Map<String, String> properties) throws AnalysisException {
-        if (!Config.enable_local_tvf) {
-            throw new org.apache.doris.nereids.exceptions.AnalysisException(
-                    "LOCAL TVF is disabled. Set enable_local_tvf=true in fe.conf and restart every FE to enable it.");
-        }
+        checkEnabled();
 
         // Check privileges before listing files or discovering their schema.
         checkAuth(ConnectContext.get());
@@ -140,6 +137,14 @@ public class LocalTableValuedFunction extends ExternalFileTableValuedFunction {
             }
         } catch (Exception e) {
             throw new AnalysisException("get file list from backend failed. " + e.getMessage());
+        }
+    }
+
+    /** Check read and write admission before properties or backend access. */
+    public static void checkEnabled() {
+        if (!Config.enable_local_tvf) {
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                    "LOCAL TVF is disabled. Set enable_local_tvf=true in fe.conf and restart every FE to enable it.");
         }
     }
 

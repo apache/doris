@@ -664,6 +664,17 @@ TEST_F(LocalFileSystemTest, TestSafeGlobSecureRoot) {
         ASSERT_EQ(1, files.size());
         EXPECT_EQ((root / "secure/inside.csv").string(), files[0].file_name);
     }
+    const auto special_root = root / "secure[prod]*?\\root";
+    std::filesystem::create_directory(special_root);
+    std::filesystem::create_directory_symlink(special_root, root / "special-root-link");
+    ASSERT_TRUE(save_string_file((special_root / "inside.csv").string(), "inside").ok());
+    for (const auto& secure : {special_root, root / "special-root-link"}) {
+        config::user_files_secure_path = secure.string();
+        std::vector<io::FileInfo> matches;
+        ASSERT_TRUE(fs->safe_glob("*.csv", &matches).ok()) << secure;
+        ASSERT_EQ(1, matches.size());
+        EXPECT_EQ((special_root / "inside.csv").string(), matches[0].file_name);
+    }
     config::user_files_secure_path = "";
     std::vector<io::FileInfo> files;
     EXPECT_FALSE(fs->safe_glob("*.csv", &files).ok());

@@ -505,7 +505,16 @@ Status LocalFileSystem::safe_glob(const std::string& path, std::vector<FileInfo>
     }
     std::string secure_path;
     RETURN_IF_ERROR(canonicalize(config::user_files_secure_path, &secure_path));
-    std::string full_path = secure_path + "/" + path;
+    // A symlink root may canonicalize to a directory such as "user_files[prod]".
+    // The root is literal; only the user-supplied suffix may contain glob operators.
+    std::string full_path;
+    for (char c : secure_path) {
+        if (c == '\\' || c == '*' || c == '?' || c == '[' || c == ']') {
+            full_path += '\\';
+        }
+        full_path += c;
+    }
+    full_path += "/" + path;
     std::vector<std::string> files;
     RETURN_IF_ERROR(_glob(full_path, &files));
     for (auto& file : files) {
