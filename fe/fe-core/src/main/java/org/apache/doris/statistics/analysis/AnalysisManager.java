@@ -40,6 +40,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.ThreadPoolManager.BlockedPolicy;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
@@ -758,8 +759,7 @@ public class AnalysisManager implements Writable {
         // Remove tableMetaStats if drop whole table stats.
         if ((cols == null || cols.isEmpty()) && (!table.isPartitionedTable() || partitionNamesInfo == null
                 || partitionNamesInfo.isStar() || partitionNamesInfo.getPartitionNames() == null)) {
-            removeTableStats(tblId);
-            Env.getCurrentEnv().getEditLog().logDeleteTableStats(new TableStatsDeletionLog(tblId));
+            removeTableStatsAndLog(table);
         }
         invalidateLocalStats(catalogId, dbId, tblId, cols, tableStats, partitionNamesInfo);
         // Drop stats ddl is master only operation.
@@ -1276,6 +1276,53 @@ public class AnalysisManager implements Writable {
         return idToTblStats.get(tblId);
     }
 
+    /**
+     * The record of the table, created in the state of a table whose row count has never been collected when
+     * it doesn't exist yet. A truncation, a whole table DROP STATS and a schema change remove the record, so
+     * the rows which are loaded afterwards can only be turned into the row count of the table while the
+     * record exists: the planner falls back to it exactly while the backends have not reported the row count
+     * of the new tablets yet, which is the interval right after those operations.
+     *
+     * <p>Loads run this from the transaction visibility of the load, both on the master
+     * ({@code DatabaseTransactionMgr.updateCatalogAfterVisible}) and while a follower replays the transaction
+     * state, so the record exists on every frontend without a journal entry of its own.
+     *
+     * @return the existing or the created record, or null when the table cannot be resolved any more
+     */
+    private TableStatsMeta findOrCreateTableStats(InternalCatalog catalog, long dbId, long tableId) {
+        TableStatsMeta tableStats = idToTblStats.get(tableId);
+        if (tableStats != null) {
+            return tableStats;
+        }
+        Optional<Database> dbOption = catalog.getDb(dbId);
+        if (!dbOption.isPresent()) {
+            return null;
+        }
+        Optional<Table> tableOption = dbOption.get().getTable(tableId);
+        if (!tableOption.isPresent() || !(tableOption.get() instanceof OlapTable)) {
+            return null;
+        }
+        return findOrCreateTableStats((OlapTable) tableOption.get());
+    }
+
+    private TableStatsMeta findOrCreateTableStats(OlapTable table) {
+        TableStatsMeta tableStats = idToTblStats.get(table.getId());
+        if (tableStats != null) {
+            return tableStats;
+        }
+        TableStatsMeta created = new TableStatsMeta(table);
+        // The insertion is published under the monitor {@link #writeTableStats} holds while it writes the
+        // number of records and then the records themselves. A record which is inserted in between would be
+        // written although the declared number excludes it, and the readers, which trust that number, would
+        // take the extra record as the header of the next module of the image. The creation stays outside the
+        // monitor: it only reads catalog metadata and must not be ordered with the catalog locks which the
+        // image dump holds before it takes this monitor.
+        synchronized (idToTblStats) {
+            TableStatsMeta existing = idToTblStats.putIfAbsent(table.getId(), created);
+            return existing == null ? created : existing;
+        }
+    }
+
     // Invoke this when load transaction finished.
     public void updateUpdatedRows(Map<Long, Map<Long, Long>> tabletRecords, long dbId, long txnId) {
         try {
@@ -1298,17 +1345,93 @@ public class AnalysisManager implements Writable {
     }
 
     // Invoke this for cloud version load.
-    public void updateUpdatedRows(Map<Long, Long> updatedRows) {
+    public void updateUpdatedRows(Map<Long, Long> updatedRows, long dbId) {
+        updateUpdatedRows(updatedRows, dbId, Collections.emptyMap());
+    }
+
+    /**
+     * Apply and journal the rows a cloud load reported.
+     *
+     * @param reportedPartitions the partitions each table's rows were loaded into, or an empty map when the
+     *         caller has no partition information
+     */
+    public void updateUpdatedRows(Map<Long, Long> updatedRows, long dbId,
+            Map<Long, List<Long>> reportedPartitions) {
+        if (!Env.getCurrentEnv().isMaster() || Env.isCheckpointThread()) {
+            return;
+        }
+        // The record of a table which has none is created while this event is applied, and the event is
+        // journaled afterwards. A whole table DROP STATS removes the record and journals the deletion, so both
+        // mutations have to be applied in the order their journal entries have: without the table lock the
+        // deletion can be applied (and journaled) between the application of this event and its journal entry,
+        // and a follower which replays "remove, then add" keeps a record which the master no longer has, which
+        // makes the row count of the table differ between the master and its followers. The lock is the one
+        // DROP STATS takes and the one finishTransaction holds while a local load recreates the record.
+        List<Table> tableList = getTablesOnIdOrder(dbId, updatedRows.keySet());
+        if (!MetaLockUtils.tryWriteLockTablesIfExist(tableList, 10, TimeUnit.SECONDS)) {
+            LOG.warn("Failed to lock the tables {} of db {} to record the updated rows {}, the row counts stay "
+                    + "unknown until the backends report them", updatedRows.keySet(), dbId, updatedRows);
+            return;
+        }
         try {
-            if (!Env.getCurrentEnv().isMaster() || Env.isCheckpointThread()) {
+            // A report can arrive after the partitions it counted are gone: a stream load queues the report of
+            // the rows it loaded (`send_stats_to_fe_async`) and can return before the frontend received it, and
+            // a whole table TRUNCATE replaces the partitions while it keeps the id of the table. The rows of
+            // such a report are the rows which were removed, so they are neither applied nor journaled: the
+            // record which the next load recreates would otherwise report a table which holds 3 rows as if it
+            // held 103 rows, until the backends report the new tablets.
+            Map<Long, Long> recordedRows = new HashMap<>(updatedRows);
+            recordedRows.keySet().removeIf(tableId -> !reportCountsCurrentPartitions(dbId, tableId,
+                    reportedPartitions.getOrDefault(tableId, Collections.emptyList())));
+            if (recordedRows.isEmpty()) {
                 return;
             }
-            UpdateRowsEvent updateRowsEvent = new UpdateRowsEvent(updatedRows);
+            UpdateRowsEvent updateRowsEvent = new UpdateRowsEvent(dbId, recordedRows);
             replayUpdateRowsRecord(updateRowsEvent);
             logUpdateRowsRecord(updateRowsEvent);
         } catch (Throwable t) {
             LOG.warn("Failed to record update rows.", t);
+        } finally {
+            MetaLockUtils.writeUnlockTables(tableList);
         }
+    }
+
+    /**
+     * Whether the partitions which a cloud row count report counted still belong to the table.
+     *
+     * <p>A stream load queues the report of the rows it loaded and can return before the frontend received it,
+     * so a report can arrive after the partitions it counted are gone: a whole table TRUNCATE replaces the
+     * partitions of the table and keeps its id, so the rows of such a report are the rows the truncation
+     * removed and must not be accumulated into the record which the next load recreates.
+     */
+    @VisibleForTesting
+    static boolean reportCountsCurrentPartitions(OlapTable table, Collection<Long> reportedPartitionIds) {
+        for (long partitionId : reportedPartitionIds) {
+            if (table.getPartition(partitionId) == null) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean reportCountsCurrentPartitions(long dbId, long tableId,
+            Collection<Long> reportedPartitionIds) {
+        if (reportedPartitionIds.isEmpty()) {
+            return true;
+        }
+        return Env.getCurrentInternalCatalog().getDb(dbId)
+                .flatMap(db -> db.getTable(tableId))
+                .filter(table -> table instanceof OlapTable)
+                .map(table -> reportCountsCurrentPartitions((OlapTable) table, reportedPartitionIds))
+                .orElse(true);
+    }
+
+    private List<Table> getTablesOnIdOrder(long dbId, Collection<Long> tableIds) {
+        Optional<Database> db = Env.getCurrentInternalCatalog().getDb(dbId);
+        if (!db.isPresent()) {
+            return Lists.newArrayList();
+        }
+        return db.get().getTablesOnIdOrderIfExist(Lists.newArrayList(tableIds));
     }
 
     // Set to true means new partition loaded data
@@ -1355,7 +1478,7 @@ public class AnalysisManager implements Writable {
         InternalCatalog catalog = Env.getCurrentInternalCatalog();
         if (event.getRecords() != null) {
             for (Entry<Long, Long> record : event.getRecords().entrySet()) {
-                TableStatsMeta statsStatus = idToTblStats.get(record.getKey());
+                TableStatsMeta statsStatus = findOrCreateTableStats(catalog, event.getDbId(), record.getKey());
                 if (statsStatus != null) {
                     statsStatus.updatedRows.addAndGet(record.getValue());
                 }
@@ -1366,52 +1489,52 @@ public class AnalysisManager implements Writable {
         // Record : TableId -> (TabletId -> update rows)
         if (event.getTabletRecords() != null) {
             for (Entry<Long, Map<Long, Long>> record : event.getTabletRecords().entrySet()) {
-                TableStatsMeta statsStatus = idToTblStats.get(record.getKey());
-                if (statsStatus != null) {
-                    Optional<Database> dbOption = catalog.getDb(event.getDbId());
-                    if (!dbOption.isPresent()) {
-                        LOG.warn("Database {} does not exist.", event.getDbId());
-                        continue;
+                Optional<Database> dbOption = catalog.getDb(event.getDbId());
+                if (!dbOption.isPresent()) {
+                    LOG.warn("Database {} does not exist.", event.getDbId());
+                    continue;
+                }
+                Database database = dbOption.get();
+                Optional<Table> tableOption = database.getTable(record.getKey());
+                if (!tableOption.isPresent()) {
+                    LOG.warn("Table {} does not exist in DB {}.", record.getKey(), event.getDbId());
+                    continue;
+                }
+                Table table = tableOption.get();
+                if (!(table instanceof OlapTable)) {
+                    continue;
+                }
+                OlapTable olapTable = (OlapTable) table;
+                TableStatsMeta statsStatus = findOrCreateTableStats(olapTable);
+                short replicaNum = olapTable.getTableProperty().getReplicaAllocation().getTotalReplicaNum();
+                Map<Long, Long> tabletRows = record.getValue();
+                if (tabletRows == null || tabletRows.isEmpty()) {
+                    LOG.info("Tablet row count map is empty");
+                    continue;
+                }
+                long rowsForAllReplica = 0;
+                for (Entry<Long, Long> entry : tabletRows.entrySet()) {
+                    rowsForAllReplica += entry.getValue();
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("Table id {}, tablet id {}, row count {}",
+                                record.getKey(), entry.getKey(), entry.getValue());
                     }
-                    Database database = dbOption.get();
-                    Optional<Table> tableOption = database.getTable(record.getKey());
-                    if (!tableOption.isPresent()) {
-                        LOG.warn("Table {} does not exist in DB {}.", record.getKey(), event.getDbId());
-                        continue;
-                    }
-                    Table table = tableOption.get();
-                    if (!(table instanceof OlapTable)) {
-                        continue;
-                    }
-                    OlapTable olapTable = (OlapTable) table;
-                    short replicaNum = olapTable.getTableProperty().getReplicaAllocation().getTotalReplicaNum();
-                    Map<Long, Long> tabletRows = record.getValue();
-                    if (tabletRows == null || tabletRows.isEmpty()) {
-                        LOG.info("Tablet row count map is empty");
-                        continue;
-                    }
-                    long rowsForAllReplica = 0;
-                    for (Entry<Long, Long> entry : tabletRows.entrySet()) {
-                        rowsForAllReplica += entry.getValue();
-                        if (LOG.isDebugEnabled()) {
-                            LOG.debug("Table id {}, tablet id {}, row count {}",
-                                    record.getKey(), entry.getKey(), entry.getValue());
-                        }
-                    }
-                    long tableUpdateRows = rowsForAllReplica / replicaNum;
-                    LOG.info("Update rows for table {} is {}, replicaNum is {}, "
-                            + "rows for all replica {}, tablets count {}",
-                            olapTable.getName(), tableUpdateRows, replicaNum, rowsForAllReplica, tabletRows.size());
-                    statsStatus.updatedRows.addAndGet(tableUpdateRows);
-                    if (StatisticsUtil.enablePartitionAnalyze()) {
-                        updatePartitionRows(olapTable, tabletRows, statsStatus, replicaNum);
-                    }
+                }
+                long tableUpdateRows = rowsForAllReplica / replicaNum;
+                LOG.info("Update rows for table {} is {}, replicaNum is {}, "
+                        + "rows for all replica {}, tablets count {}",
+                        olapTable.getName(), tableUpdateRows, replicaNum, rowsForAllReplica, tabletRows.size());
+                statsStatus.updatedRows.addAndGet(tableUpdateRows);
+                if (StatisticsUtil.enablePartitionAnalyze()) {
+                    updatePartitionRows(olapTable, tabletRows, statsStatus, replicaNum);
                 }
             }
             return;
         }
 
-        // Handle truncate table
+        // Handle truncate table. A partition truncation is not a load: the rows it reports are the rows it
+        // removed, so it must not create a record for a table which has none, and it can only be accumulated
+        // into a record which was created by a load or an analyze.
         if (event.getPartitionToUpdateRows() != null && event.getTableId() > 0) {
             Map<Long, Long> partRows = event.getPartitionToUpdateRows();
             long totalRows = partRows.values().stream().mapToLong(rows -> rows).sum();
@@ -1485,6 +1608,42 @@ public class AnalysisManager implements Writable {
         synchronized (idToTblStats) {
             idToTblStats.remove(tableId);
         }
+    }
+
+    /**
+     * Remove the statistics record of the table and journal the deletion, under the table write lock.
+     *
+     * <p>A load recreates the record of a table which has none while its transaction becomes visible: the
+     * transaction is journaled as {@code VISIBLE} and the record is created by
+     * {@code DatabaseTransactionMgr#updateCatalogAfterVisible} afterwards, both under the table write lock
+     * which {@code finishTransaction} holds until that method returns. A deletion which is applied in
+     * between is replayed by the followers after the creation (the journal order is "transaction, then
+     * deletion") while the master applied it before the creation, so the master keeps the record the load
+     * created and every follower, and every image built from a follower, ends up without it. Removing and
+     * journaling the deletion under the same lock orders it either before the transaction was journaled or
+     * after the record was created, which is the order the journal has as well, so all frontends agree.
+     *
+     * <p>The lock is deliberately held across the journal write: the record creation of a load which is
+     * already past its own journal write must not slip in between the removal and its journal entry.
+     */
+    public void removeTableStatsAndLog(TableIf table) {
+        if (!(table instanceof OlapTable)) {
+            // Only a load into an OLAP table recreates the record of a table which has none, there is no
+            // creation to be ordered with.
+            removeTableStatsAndLog(table.getId());
+            return;
+        }
+        table.writeLock();
+        try {
+            removeTableStatsAndLog(table.getId());
+        } finally {
+            table.writeUnlock();
+        }
+    }
+
+    private void removeTableStatsAndLog(long tableId) {
+        removeTableStats(tableId);
+        Env.getCurrentEnv().getEditLog().logDeleteTableStats(new TableStatsDeletionLog(tableId));
     }
 
     public Set<Long> getIdToTblStatsKeys() {

@@ -56,7 +56,6 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.statistics.analysis.AnalysisManager;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -70,6 +69,7 @@ import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.TransactionState;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.HashBasedTable;
@@ -728,16 +728,37 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
             Env.getCurrentEnv().getEditLog().logAlterJob(this);
             this.showJobState = JobState.FINISHED;
             pruneMeta();
+            // The record is removed with the journal entry of FINISHED, i.e. still under the table write lock:
+            // a load which becomes visible in between updates (or recreates) the record, and this removal would
+            // follow it on the master, while a follower replays FINISHED (removing the record) before VISIBLE
+            // (recreating it with the rows of that load). The master would then have no record while its
+            // followers kept one, and the row count of the table would differ between them.
+            if (!FeConstants.runningUnitTest) {
+                removeTableStatsOnFinished(tbl);
+            }
         } finally {
             tbl.writeUnlock();
         }
         postProcessOriginIndex();
         // Drop table column stats after schema change finished.
         if (!FeConstants.runningUnitTest) {
-            AnalysisManager manager = Env.getCurrentEnv().getAnalysisManager();
-            manager.removeTableStats(tbl.getId());
-            manager.dropStats(tbl, null);
+            Env.getCurrentEnv().getAnalysisManager().dropStats(tbl, null);
         }
+    }
+
+    /**
+     * Remove the statistics record of the table when the schema change finished.
+     *
+     * <p>It must be called with the table write lock held, in the same critical section which journals FINISHED,
+     * so that a load cannot become visible in between: such a load updates or recreates the record, and a
+     * follower replays the journal order "FINISHED (remove the record), then VISIBLE (recreate it)", so the
+     * master and its followers would disagree about the row count of the table.
+     */
+    @VisibleForTesting
+    void removeTableStatsOnFinished(OlapTable tbl) {
+        Preconditions.checkState(tbl.isWriteLockHeldByCurrentThread(),
+                "the statistics of table %s must be removed under its write lock", tbl.getName());
+        Env.getCurrentEnv().getAnalysisManager().removeTableStats(tbl.getId());
     }
 
     private void onFinished(OlapTable tbl) {

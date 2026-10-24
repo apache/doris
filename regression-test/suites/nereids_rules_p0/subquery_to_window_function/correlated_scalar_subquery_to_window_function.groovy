@@ -34,6 +34,10 @@ suite("correlated_scalar_subquery_to_window_function") {
         set push_topn_to_agg = true;
         set topn_opt_limit_threshold=1024;
     """
+    // The join order of the shape plans below must not follow the row counts the
+    // planner estimates, otherwise a change of the collected table statistics
+    // rewrites the expectations without any rule of this suite changing.
+    sql "set disable_join_reorder=true"
 
     sql "DROP TABLE IF EXISTS fact FORCE"
     sql "DROP TABLE IF EXISTS dim FORCE"
