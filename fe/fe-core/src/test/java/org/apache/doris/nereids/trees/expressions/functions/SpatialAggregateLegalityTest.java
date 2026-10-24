@@ -372,6 +372,57 @@ public class SpatialAggregateLegalityTest {
     }
 
     @Test
+    public void distinctMapAggregatesRejectSpatialValuesRecursively() {
+        for (DataType spatial : List.of(new GeometryType("EPSG:3857"),
+                new GeographyType("OGC:CRS84", "spherical"))) {
+            for (DataType valueType : List.of(spatial, ArrayType.of(spatial),
+                    MapType.of(IntegerType.INSTANCE, spatial),
+                    new StructType(List.of(new StructField("shape", spatial, true, ""))))) {
+                MapType mapType = MapType.of(IntegerType.INSTANCE, valueType);
+                for (Expression value : List.of(new SlotReference("values", mapType, false),
+                        new SlotReference("values", mapType, true), new NullLiteral(mapType))) {
+                    for (AggregateFunction function : List.of(new CountMap(true, value), new MinMap(true, value),
+                            new MaxMap(true, value), new SumMap(true, value), new AvgMap(true, value))) {
+                        AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                                function::checkLegalityBeforeTypeCoercion);
+                        Assertions.assertEquals(function.getName() + " DISTINCT does not support spatial arguments",
+                                error.getMessage());
+                        Assertions.assertThrows(AnalysisException.class, function::checkLegalityAfterRewrite);
+                    }
+                }
+            }
+        }
+        Expression ordinary = new SlotReference("values", MapType.of(IntegerType.INSTANCE, IntegerType.INSTANCE));
+        for (AggregateFunction function : List.of(new CountMap(true, ordinary), new MinMap(true, ordinary),
+                new MaxMap(true, ordinary), new SumMap(true, ordinary), new AvgMap(true, ordinary))) {
+            Assertions.assertDoesNotThrow(function::checkLegalityBeforeTypeCoercion);
+            Assertions.assertDoesNotThrow(function::checkLegalityAfterRewrite);
+        }
+    }
+
+    @Test
+    public void distinctSpatialMapsRejectDuringAnalysisBeforeAggregateLowering() {
+        for (String spatial : List.of("GEOMETRY", "GEOGRAPHY")) {
+            String source = " from (select number id, CAST(NULL AS " + spatial
+                    + ") shape from numbers('number'='3')) shapes";
+            for (String function : List.of("count_map", "min_map", "max_map")) {
+                for (String value : List.of("shape", "array(shape)", "map(id, shape)",
+                        "named_struct('shape', shape)")) {
+                    String query = "select " + function + "(distinct map(1, " + value + "))" + source;
+                    Exception error = Assertions.assertThrows(Exception.class,
+                            () -> PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(query).rewrite());
+                    Assertions.assertTrue(error.getMessage().contains(
+                            function + " DISTINCT does not support spatial arguments"), error.getMessage());
+                }
+            }
+            Assertions.assertDoesNotThrow(() -> PlanChecker.from(MemoTestUtils.createConnectContext())
+                    .analyze("select count_map(map(1, shape))" + source).rewrite());
+        }
+        Assertions.assertDoesNotThrow(() -> PlanChecker.from(MemoTestUtils.createConnectContext())
+                .analyze("select count_map(distinct map(1, number)) from numbers('number'='3')").rewrite());
+    }
+
+    @Test
     public void ordinaryMapKeysKeepSupportedSpatialValues() {
         Expression integer = new SlotReference("id", IntegerType.INSTANCE);
         for (DataType type : List.of(new GeometryType("EPSG:3857"),

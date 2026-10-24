@@ -1220,6 +1220,10 @@ public class CreateIcebergSpatialV3Table {
         select id, ST_AsText(geom), hex(ST_AsBinary(geom)), ST_AsText(geog)
         from geometry_values
     """
+    for (int phase : [3, 4]) {
+        "qt_ordinary_distinct_count_map_${phase}"("""select /*+ SET_VAR(agg_phase=${phase}) */
+            element_at(count_map(distinct map(1, number % 2)), 1) from numbers('number'='4')""")
+    }
     // Append after existing checks: identical points with different endian encodings and a NULL.
     sql """insert into geometry_values values
         (101, ST_GeometryFromWKBTyped('0101000000000000000000F03F0000000000000040'),
@@ -1234,6 +1238,30 @@ public class CreateIcebergSpatialV3Table {
                     select ${column} from geometry_values where id = 102"""
                 exception "GROUP BY and DISTINCT do not support spatial keys"
             }
+        }
+        // DISTINCT would turn the whole MAP into a later physical grouping key.
+        // Reject raw WKB comparisons for both byte orders and NULLs before lowering.
+        for (int phase : [3, 4]) {
+            for (String aggregate : ["count_map", "min_map", "max_map"]) {
+                for (String value : [column, "array(${column})", "map(id, ${column})",
+                        "named_struct('shape', ${column})"]) {
+                    test {
+                        sql """select /*+ SET_VAR(agg_phase=${phase}) */
+                            ${aggregate}(distinct map(1, ${value})) from geometry_values
+                            where id in (101, 102, 103)"""
+                        exception "${aggregate} DISTINCT does not support spatial arguments"
+                    }
+                }
+            }
+            test {
+                sql """select /*+ SET_VAR(agg_phase=${phase}) */
+                    count_map(distinct CAST(NULL AS MAP<INT, ${column == 'geom' ? 'GEOMETRY' : 'GEOGRAPHY'}>))
+                    from geometry_values where id in (101, 102, 103)"""
+                exception "count_map DISTINCT does not support spatial arguments"
+            }
+            "qt_spatial_plain_count_map_${column}_${phase}"("""select /*+ SET_VAR(agg_phase=${phase}) */
+                element_at(count_map(map(1, ${column})), 1) from geometry_values
+                where id in (101, 102, 103)""")
         }
         for (String aggregate : ["array_agg", "collect_list"]) {
             for (int phase : [1, 2]) {
