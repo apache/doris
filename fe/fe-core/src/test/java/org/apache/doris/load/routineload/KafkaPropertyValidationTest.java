@@ -25,18 +25,20 @@ import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.LoadException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.common.util.KafkaUtil;
 import org.apache.doris.common.util.SmallFileMgr;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.kafka.KafkaUtil;
 import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
 import org.apache.doris.load.routineload.kafka.KafkaProgress;
 import org.apache.doris.load.routineload.kafka.KafkaRoutineLoadJob;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.trees.plans.commands.load.AlterRoutineLoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.CreateRoutineLoadCommand;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.EditLog;
@@ -333,12 +335,120 @@ public class KafkaPropertyValidationTest {
             EditLog editLog = Mockito.mock(EditLog.class);
             Mockito.when(env.getEditLog()).thenReturn(editLog);
             job.modifyProperties(command);
-            Assertions.assertEquals(Map.of("property.sasl.kerberos.min.time.before.relogin", "0"),
+            Assertions.assertEquals(Map.of("property.sasl.kerberos.min.time.before.relogin", "0",
+                    "property.kafka_default_offsets", KafkaProgress.OFFSET_END),
                     job.getCustomProperties());
             Assertions.assertEquals("0", job.getConvertedCustomProperties()
                     .get("sasl.kerberos.min.time.before.relogin"));
             Assertions.assertEquals(2000000L, job.getMaxBatchRows());
             Mockito.verify(editLog).logAlterRoutineLoadJob(Mockito.any(AlterRoutineLoadJobOperationLog.class));
+        }
+    }
+
+    @Test
+    public void testJobOnlyAlterPreservesDatetimeDefaultForNewPartitions() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedStatic<KafkaUtil> kafka = Mockito.mockStatic(KafkaUtil.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
+            KafkaRoutineLoadJob job = new KafkaRoutineLoadJob(1L, "test_job", 1L, 2L,
+                    "127.0.0.1:9092", "topic_a", UserIdentity.ADMIN);
+            String datetime = "2026-10-01 00:00:00";
+            KafkaDataSourceProperties source = properties("kafka_default_offsets", datetime, false);
+            source.analyze();
+            Deencapsulation.setField(job, "customProperties", source.getCustomKafkaProperties());
+            Deencapsulation.setField(job, "state", RoutineLoadJob.JobState.PAUSED);
+            job.prepare();
+
+            AlterRoutineLoadCommand command = Mockito.mock(AlterRoutineLoadCommand.class);
+            Mockito.when(command.getAnalyzedJobProperties()).thenReturn(Map.of("max_batch_rows", "2000000"));
+            job.modifyProperties(command);
+            job.modifyProperties(command);
+            Assertions.assertEquals(datetime, Deencapsulation.getField(job, "kafkaDefaultOffSet"));
+            Assertions.assertFalse(job.getConvertedCustomProperties().containsKey("kafka_default_offsets"));
+            Assertions.assertFalse(job.getConvertedCustomProperties().containsKey("kafka_origin_default_offsets"));
+
+            // New partitions are initialized before prepare() rebuilds the cache on resume.
+            long timestamp = TimeUtils.timeStringToLong(datetime, TimeUtils.getOrSystemTimeZone(job.getTimezone()));
+            List<Pair<Integer, Long>> requested = List.of(Pair.of(1, timestamp));
+            List<Pair<Integer, Long>> expected = List.of(Pair.of(1, 42L));
+            kafka.when(() -> KafkaUtil.getOffsetsForTimes("127.0.0.1:9092", "topic_a",
+                    job.getConvertedCustomProperties(), requested, null)).thenReturn(expected);
+            List<Pair<Integer, Long>> offsets = Deencapsulation.invoke(job,
+                    "getNewPartitionOffsetsFromDefaultOffset", List.of(1));
+            Assertions.assertEquals(expected, offsets);
+            kafka.verify(() -> KafkaUtil.getOffsetsForTimes("127.0.0.1:9092", "topic_a",
+                    job.getConvertedCustomProperties(), requested, null));
+            kafka.verifyNoMoreInteractions();
+        }
+    }
+
+    @Test
+    public void testRepairCertificateAndOffsetsInSameAlter() throws Exception {
+        for (boolean offsetsForTimes : new boolean[] {false, true}) {
+            Env env = Mockito.mock(Env.class);
+            SmallFileMgr smallFileMgr = Mockito.mock(SmallFileMgr.class);
+            EditLog editLog = Mockito.mock(EditLog.class);
+            try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                    MockedStatic<KafkaUtil> kafka = Mockito.mockStatic(KafkaUtil.class)) {
+                envStatic.when(Env::getCurrentEnv).thenReturn(env);
+                Mockito.when(env.getSmallFileMgr()).thenReturn(smallFileMgr);
+                Mockito.when(env.getEditLog()).thenReturn(editLog);
+                SmallFile ca = new SmallFile(1L, "kafka", "ca.pem", 3L, "", 0L, "checksum", true);
+                Mockito.when(smallFileMgr.getSmallFile(1L, "kafka", "ca.pem", true)).thenReturn(ca);
+                KafkaRoutineLoadJob job = new KafkaRoutineLoadJob(1L, "test_job", 1L, 2L,
+                        "127.0.0.1:9092", "topic_a", UserIdentity.ADMIN);
+                Deencapsulation.setField(job, "customProperties",
+                        new HashMap<>(Map.of("ssl.ca.location", "/etc/ca.pem")));
+                Deencapsulation.setField(job, "progress", new KafkaProgress(Map.of(0, 5L)));
+                Deencapsulation.setField(job, "state", RoutineLoadJob.JobState.PAUSED);
+
+                Map<String, String> input = Map.of("property.ssl.ca.location", "FILE:ca.pem",
+                        "kafka_partitions", "0", "kafka_offsets", offsetsForTimes ? "2026-10-01 00:00:00" : "100");
+                KafkaDataSourceProperties source = new KafkaDataSourceProperties(input);
+                source.setAlter(true);
+                source.setTimezone("UTC");
+                source.analyze();
+                Map<String, String> converted = Map.of("ssl.ca.location", "FILE:3:checksum",
+                        "sasl.kerberos.min.time.before.relogin", "0");
+                List<Pair<Integer, Long>> requested = source.getKafkaPartitionOffsets();
+                List<Pair<Integer, Long>> expected = List.of(Pair.of(0, 100L));
+                if (offsetsForTimes) {
+                    kafka.when(() -> KafkaUtil.getOffsetsForTimes("127.0.0.1:9092", "topic_a",
+                            converted, requested, null)).thenThrow(new LoadException("metadata unavailable"))
+                            .thenReturn(expected);
+                } else {
+                    kafka.when(() -> KafkaUtil.getRealOffsets("127.0.0.1:9092", "topic_a",
+                            converted, requested, null)).thenThrow(new LoadException("metadata unavailable"))
+                            .thenCallRealMethod();
+                }
+                AlterRoutineLoadCommand command = Mockito.mock(AlterRoutineLoadCommand.class);
+                Mockito.when(command.getAnalyzedJobProperties()).thenReturn(Map.of());
+                Mockito.when(command.getDataSourceProperties()).thenReturn(source);
+
+                Assertions.assertThrows(LoadException.class, () -> job.modifyProperties(command));
+                Assertions.assertEquals("/etc/ca.pem", job.getCustomProperties().get("property.ssl.ca.location"));
+                Assertions.assertTrue(job.getConvertedCustomProperties().isEmpty());
+                Assertions.assertEquals(Map.of(0, 5L), ((KafkaProgress) job.getProgress()).getOffsetByPartition());
+                Mockito.verifyNoInteractions(editLog);
+
+                job.modifyProperties(command);
+
+                Assertions.assertEquals("FILE:ca.pem", job.getCustomProperties().get("property.ssl.ca.location"));
+                Assertions.assertEquals(converted, job.getConvertedCustomProperties());
+                Assertions.assertEquals(Map.of(0, 100L), ((KafkaProgress) job.getProgress()).getOffsetByPartition());
+                if (offsetsForTimes) {
+                    kafka.verify(() -> KafkaUtil.getOffsetsForTimes("127.0.0.1:9092", "topic_a",
+                            converted, requested, null), Mockito.times(2));
+                } else {
+                    kafka.verify(() -> KafkaUtil.getRealOffsets("127.0.0.1:9092", "topic_a",
+                            converted, requested, null), Mockito.times(2));
+                }
+                kafka.verifyNoMoreInteractions();
+                Mockito.verify(editLog).logAlterRoutineLoadJob(Mockito.any(AlterRoutineLoadJobOperationLog.class));
+            }
         }
     }
 

@@ -259,6 +259,9 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         if (convertedCustomProperties.containsKey(KafkaConfiguration.KAFKA_ORIGIN_DEFAULT_OFFSETS.getName())) {
             kafkaDefaultOffSet = convertedCustomProperties
                     .remove(KafkaConfiguration.KAFKA_ORIGIN_DEFAULT_OFFSETS.getName());
+            // Both entries describe the same default. Do not leave the millis value
+            // behind to overwrite the datetime when an ALTER reuses this cache.
+            convertedCustomProperties.remove(KafkaConfiguration.KAFKA_DEFAULT_OFFSETS.getName());
             return;
         }
         if (convertedCustomProperties.containsKey(KafkaConfiguration.KAFKA_DEFAULT_OFFSETS.getName())) {
@@ -831,10 +834,14 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         String topicSnapshot;
         writeLock();
         try {
-            // Recovery leaves the conversion cache empty. Validate the effective
-            // properties before an ALTER offset lookup can contact an older BE.
-            convertCustomProperties(false);
-            properties = Maps.newHashMap(convertedCustomProperties);
+            // An ALTER can repair properties accepted by an older FE. Validate and
+            // resolve the merged map before lookup without publishing it to the job.
+            Map<String, String> mergedProperties = Maps.newHashMap(customProperties);
+            mergedProperties.putAll(dataSourceProperties.getCustomKafkaProperties());
+            validateCustomProperties(mergedProperties);
+            properties = resolveCustomProperties(mergedProperties);
+            properties.remove(KafkaConfiguration.KAFKA_ORIGIN_DEFAULT_OFFSETS.getName());
+            properties.remove(KafkaConfiguration.KAFKA_DEFAULT_OFFSETS.getName());
             brokerListSnapshot = brokerList;
             topicSnapshot = topic;
         } finally {
