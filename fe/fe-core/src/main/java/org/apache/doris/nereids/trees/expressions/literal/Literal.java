@@ -223,6 +223,14 @@ public abstract class Literal extends Expression implements LeafExpression {
                 return false;
             }
         }
+        if (this instanceof FloatLiteral || this instanceof DoubleLiteral) {
+            // desc is the shortest decimal representation, not the value: DOUBLE -2^63 prints
+            // -9.223372036854776E18, below the BIGINT minimum, while the binary value is exactly
+            // -9223372036854775808 and BE accepts that cast. Infinity/NaN already returned above.
+            // getDouble() is not usable here: Literal.getDouble() parses getValue().toString(),
+            // which for a Float is the shortest 9-digit form, so it must be the Number itself.
+            return numericOverflow(new BigDecimal(((Number) getValue()).doubleValue()), targetType);
+        }
         BigDecimal val = new BigDecimal(desc);
         return numericOverflow(val, targetType);
     }
