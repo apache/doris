@@ -17,10 +17,14 @@
 
 package org.apache.doris.nereids.rules.exploration.mv;
 
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.BaseColInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.rules.analysis.NormalizeRepeat;
@@ -44,6 +48,8 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -54,6 +60,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
@@ -517,10 +524,13 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
      * it keeps, and what the base table answers for the partitions it does not. It is right while no group is
      * answerable by both, and only a grouping that reaches the column the view is partitioned on keeps the two
      * apart -- the view's partitions are disjoint in that column, by value for a list partitioned view and by
-     * range for a range partitioned one. Grouping by an expression over it does not: {@code date_trunc(d,
-     * 'year')} answers one year out of both branches, the view's part of it and the base table's, and the two
-     * rows come out beside each other. Nor does a grouping set that leaves it out -- the {@code ()} total of
-     * {@code ROLLUP}/{@code CUBE}/{@code GROUPING SETS} puts every partition value in one group, which both
+     * range for a range partitioned one. A view partitioned by an expression over the column is disjoint in
+     * that expression's value instead, so grouping by the same expression splits the branches the same way:
+     * {@code date_trunc(d, 'month')} over a view partitioned by it answers one month per group, all of it in
+     * one branch. Grouping by another expression over the column does not: {@code date_trunc(d, 'year')} over
+     * that view answers one year out of both branches, the view's months of it and the base table's, and the
+     * two rows come out beside each other. Nor does a grouping set that leaves it out -- the {@code ()} total
+     * of {@code ROLLUP}/{@code CUBE}/{@code GROUPING SETS} puts every partition value in one group, which both
      * branches answer.
      */
     @Override
@@ -539,18 +549,22 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
             // Scalar aggregate can not compensate union all
             return false;
         }
-        List<BaseColInfo> pctInfos = context.getMtmv().getMvPartitionInfo().getPctInfos();
+        MTMVPartitionInfo partitionInfo = context.getMtmv().getMvPartitionInfo();
+        List<BaseColInfo> pctInfos = partitionInfo.getPctInfos();
         // The view has one partition column but it can be tracked by several base columns at once: an inner
         // join on A.d = B.d records both, and they are one dimension as long as the query holds them equal.
         Map<BaseColInfo, Set<BaseColInfo>> equalColumns = columnsTheQueryHoldsEqual(queryPlan);
+        Optional<String> partitionTimeUnit = viewPartitionTimeUnit(partitionInfo);
         Optional<LogicalRepeat<?>> logicalRepeatOptional = queryAggregate.getSourceRepeat();
         if (!logicalRepeatOptional.isPresent()) {
-            return groupingCoversPartitionColumns(groupByExpressions, queryPlan, pctInfos, equalColumns);
+            return groupingCoversPartitionColumns(groupByExpressions, queryPlan, pctInfos, equalColumns,
+                    partitionTimeUnit);
         }
         // The group by list holds every grouping set's expressions beside the grouping id, so it can not tell
         // which set a partition column was read from; each set is asked on its own instead.
         for (List<Expression> groupingSet : logicalRepeatOptional.get().getGroupingSets()) {
-            if (!groupingCoversPartitionColumns(groupingSet, queryPlan, pctInfos, equalColumns)) {
+            if (!groupingCoversPartitionColumns(groupingSet, queryPlan, pctInfos, equalColumns,
+                    partitionTimeUnit)) {
                 return false;
             }
         }
@@ -558,13 +572,28 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
     }
 
     /**
+     * The time unit of the view's own partition transform, empty when it partitions by the bare column. An
+     * expression partitioned view always is a date_trunc, the only function its partition clause takes, and
+     * the second argument is the unit.
+     */
+    private static Optional<String> viewPartitionTimeUnit(MTMVPartitionInfo partitionInfo) {
+        Expr partitionExpression = partitionInfo.getExpr();
+        if (partitionExpression == null) {
+            return Optional.empty();
+        }
+        List<Expr> arguments = ((FunctionCallExpr) partitionExpression).getParams().exprs();
+        return Optional.of(((StringLiteral) arguments.get(1)).getStringValue());
+    }
+
+    /**
      * Whether these grouping expressions reach every column the view is partitioned on, each of them by itself
-     * or equal to one that is -- through another column too, since an equality chain is one equality. An
-     * expression over a partition column puts several of its values in one group, and a tracked column that is
-     * neither grouped nor tied to a grouped one by the query varies freely within a group.
+     * or equal to one that is -- through another column too, since an equality chain is one equality -- or
+     * under the view's own partition transform. A tracked column that is neither grouped nor tied to a grouped
+     * one by the query varies freely within a group.
      */
     private static boolean groupingCoversPartitionColumns(List<Expression> groupingExpressions, Plan queryPlan,
-            List<BaseColInfo> pctInfos, Map<BaseColInfo, Set<BaseColInfo>> equalColumns) {
+            List<BaseColInfo> pctInfos, Map<BaseColInfo, Set<BaseColInfo>> equalColumns,
+            Optional<String> partitionTimeUnit) {
         List<? extends Expression> groupingShuttledExpressions =
                 ExpressionUtils.shuttleExpressionWithLineage(groupingExpressions, queryPlan);
         Set<BaseColInfo> partitionColumns = Sets.newHashSet(pctInfos);
@@ -572,6 +601,9 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         Deque<BaseColInfo> unvisited = new ArrayDeque<>();
         for (Expression expression : groupingShuttledExpressions) {
             Optional<BaseColInfo> grouped = columnGroupedByItself(expression);
+            if (!grouped.isPresent()) {
+                grouped = columnUnderPartitionTransform(expression, partitionTimeUnit);
+            }
             if (grouped.isPresent() && partitionColumns.contains(grouped.get())) {
                 unvisited.add(grouped.get());
             }
@@ -588,6 +620,33 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
             }
         }
         return groupedTogether.containsAll(partitionColumns);
+    }
+
+    /**
+     * The base column this expression groups by under the view's own partition transform, if it is that
+     * transform itself: the same date_trunc, in the same unit, over a column of a table. A group it forms
+     * lies within one of the view's partitions, which are disjoint in the transform's value, while a coarser
+     * truncation rolls several of them up into a group both branches answer.
+     */
+    private static Optional<BaseColInfo> columnUnderPartitionTransform(Expression expression,
+            Optional<String> partitionTimeUnit) {
+        if (!partitionTimeUnit.isPresent() || !(expression instanceof DateTrunc)) {
+            return Optional.empty();
+        }
+        DateTrunc dateTrunc = (DateTrunc) expression;
+        int dateArgumentIndex = dateTrunc.getMonotonicFunctionChildIndex();
+        // A timezone aware value is truncated in the session timezone, while the view's partition boundaries
+        // are fixed in UTC, so the two can disagree on which of the view's buckets a row's group falls in.
+        if (dateTrunc.getArgument(dateArgumentIndex).getDataType() instanceof TimeStampTzType) {
+            return Optional.empty();
+        }
+        Expression timeUnit = dateTrunc.getArgument(1 - dateArgumentIndex);
+        if (!(timeUnit instanceof StringLikeLiteral)
+                || !((StringLikeLiteral) timeUnit).getStringValue()
+                        .equalsIgnoreCase(partitionTimeUnit.get())) {
+            return Optional.empty();
+        }
+        return columnGroupedByItself(dateTrunc.getArgument(dateArgumentIndex));
     }
 
     /**

@@ -766,4 +766,56 @@ suite("test_mtmv_base_partition_read_scope") {
     order_qt_pct_join_transitive """SELECT DATEDIFF(a.d, CAST('${joinOldDay}' AS DATE)) AS day_offset, SUM(a.v)
         FROM pct_join_a a JOIN pct_join_c c ON a.d = c.x JOIN pct_join_b b ON c.x = b.d
         WHERE a.d IN ('${joinOldDay}', '${joinKeptDay}') GROUP BY a.d"""
+
+    // The view need not partition a base column by itself. Partitioned by date_trunc(d, 'month'), its
+    // partitions are the months of d, and a query grouping by that same expression puts each group inside one
+    // of them -- the view answers the month it kept, the base table the month written after the refresh, and
+    // the union's two rows stay apart. The group by names the transform rather than d, so the shuttled
+    // expression is a date_trunc over the column instead of the slot itself; it reaches the partition column
+    // exactly when it is the view's own transform, since a coarser truncation rolls several of the view's
+    // partitions into one group that both branches answer.
+    def thisMonth = today.withDayOfMonth(1)
+    def lastMonth = thisMonth.minusMonths(1)
+    sql """drop materialized view if exists pct_month_mv"""
+    sql """drop table if exists pct_month_base"""
+    sql """
+        CREATE TABLE pct_month_base (d DATE NOT NULL, v INT NOT NULL)
+        DUPLICATE KEY(d) PARTITION BY RANGE(d) (
+            PARTITION p_last VALUES [("${lastMonth}"), ("${lastMonth.plusDays(1)}")),
+            PARTITION p_this VALUES [("${thisMonth}"), ("${thisMonth.plusDays(1)}"))
+        )
+        DISTRIBUTED BY HASH(d) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+    """
+    sql """INSERT INTO pct_month_base VALUES ("${lastMonth}", 1), ("${thisMonth}", 10)"""
+    sql """
+        CREATE MATERIALIZED VIEW pct_month_mv
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL PARTITION BY (date_trunc(d, 'month'))
+        DISTRIBUTED BY HASH(d) BUCKETS 1 PROPERTIES ("replication_num" = "1",
+            "partition_sync_limit" = "100", "partition_sync_time_unit" = "DAY")
+        AS SELECT d, SUM(v) AS s FROM pct_month_base GROUP BY d
+    """
+    waitingMTMVTaskFinishedByMvName("pct_month_mv")
+    // Written after the refresh, so the month of p_this is the one the compensation re-reads; the view keeps
+    // the month before it.
+    sql """INSERT INTO pct_month_base VALUES ("${thisMonth}", 1000)"""
+    sql """ANALYZE TABLE pct_month_base WITH SYNC"""
+    sql """set enable_materialized_view_rewrite = true"""
+    explain {
+        sql("select date_trunc(d, 'month') as m, sum(v) from pct_month_base "
+                + "where d in ('${lastMonth}', '${thisMonth}') group by date_trunc(d, 'month')")
+        check { result -> result.contains("UNION") && result.contains("pct_month_mv") }
+    }
+    // Months are reported as offsets from the first one read, so the expected rows hold on any date the suite
+    // runs on: the months themselves come from today.
+    order_qt_pct_month """SELECT MONTHS_DIFF(date_trunc(d, 'month'), CAST('${lastMonth}' AS DATE)) AS month_offset,
+        SUM(v) FROM pct_month_base WHERE d IN ('${lastMonth}', '${thisMonth}')
+        GROUP BY date_trunc(d, 'month')"""
+    // The same column under a coarser truncation is not the view's transform: a year group can roll several
+    // of the view's months into one, so the view's kept month and the base table's written month can both
+    // fall in it, and such a group is not one the compensation can split between the branches.
+    explain {
+        sql("select date_trunc(d, 'year') as y, sum(v) from pct_month_base "
+                + "where d in ('${lastMonth}', '${thisMonth}') group by date_trunc(d, 'year')")
+        notContains "UNION"
+    }
 }
