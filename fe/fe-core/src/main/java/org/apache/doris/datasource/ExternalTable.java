@@ -540,9 +540,10 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
 
     /**
      * Cross-query cache of the pre-built {@link SortedPartitionRanges} for binary-search partition
-     * pruning. Tables that implement {@link SupportBinarySearchFilteringPartitions} (external MVCC:
-     * iceberg/paimon) route through the shared {@link NereidsSortedPartitionsCacheManager}, keyed by the
-     * pinned connector snapshot; others return empty (the caller falls back to building ranges fresh).
+     * pruning. The default implementation delegates tables implementing
+     * {@link SupportBinarySearchFilteringPartitions} to {@link NereidsSortedPartitionsCacheManager}.
+     * Plugin MVCC tables override this to return the index owned by their pinned partition view;
+     * other tables return empty (the caller falls back to building ranges fresh).
      *
      * @param scan the catalog relation
      * @return sorted partition ranges, or empty if not supported

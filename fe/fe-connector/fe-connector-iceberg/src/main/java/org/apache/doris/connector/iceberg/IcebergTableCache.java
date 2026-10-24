@@ -113,6 +113,11 @@ final class IcebergTableCache {
         return entry.isEnabled();
     }
 
+    /** Only a retained, unexpired table proves existence; never loads or caches a boolean answer. */
+    boolean contains(TableIdentifier identifier) {
+        return entry.getIfPresent(identifier) != null;
+    }
+
     /**
      * Returns the cached table for {@code identifier} if present and unexpired, else runs {@code loader} (the
      * live remote {@code loadTable}), caches and returns it. When caching is disabled ({@link #isEnabled()} is

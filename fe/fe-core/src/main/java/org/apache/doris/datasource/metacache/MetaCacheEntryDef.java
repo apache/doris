@@ -18,6 +18,8 @@
 package org.apache.doris.datasource.metacache;
 
 import org.apache.doris.connector.cache.CacheSpec;
+import org.apache.doris.connector.cache.MetaCacheSizeEstimator;
+import org.apache.doris.connector.cache.MetaCacheSizeEstimators;
 
 import java.util.Objects;
 import java.util.function.Function;
@@ -100,6 +102,7 @@ public final class MetaCacheEntryDef<K, V> {
      * Keeping it on the definition makes each entry's default policy explicit.
      */
     private final CacheSpec defaultCacheSpec;
+    private final MetaCacheSizeEstimator<K, V> sizeEstimator;
     private final boolean autoRefresh;
     private final boolean contextualOnly;
     private final MetaCacheEntryInvalidation<K> invalidation;
@@ -107,6 +110,14 @@ public final class MetaCacheEntryDef<K, V> {
     private MetaCacheEntryDef(String name, Class<K> keyType, Class<V> valueType,
             @Nullable Function<K, V> loader, CacheSpec defaultCacheSpec, boolean autoRefresh, boolean contextualOnly,
             MetaCacheEntryInvalidation<K> invalidation) {
+        this(name, keyType, valueType, loader, defaultCacheSpec, autoRefresh, contextualOnly,
+                invalidation, MetaCacheSizeEstimators.reflective());
+    }
+
+    private MetaCacheEntryDef(String name, Class<K> keyType, Class<V> valueType,
+            @Nullable Function<K, V> loader, CacheSpec defaultCacheSpec, boolean autoRefresh, boolean contextualOnly,
+            MetaCacheEntryInvalidation<K> invalidation, MetaCacheSizeEstimator<K, V> sizeEstimator) {
+        this.sizeEstimator = Objects.requireNonNull(sizeEstimator, "size estimator is required");
         this.name = Objects.requireNonNull(name, "entry name is required");
         this.keyType = Objects.requireNonNull(keyType, "entry key type is required");
         this.valueType = Objects.requireNonNull(valueType, "entry value type is required");
@@ -182,6 +193,16 @@ public final class MetaCacheEntryDef<K, V> {
             MetaCacheEntryInvalidation<K> invalidation) {
         return new MetaCacheEntryDef<>(name, keyType, valueType, null, defaultCacheSpec, false, true,
                 invalidation);
+    }
+
+    /** Preserve entry-specific accounting when creating the catalog cache runtime. */
+    public MetaCacheEntryDef<K, V> withSizeEstimator(MetaCacheSizeEstimator<K, V> estimator) {
+        return new MetaCacheEntryDef<>(name, keyType, valueType, loader, defaultCacheSpec, autoRefresh,
+                contextualOnly, invalidation, estimator);
+    }
+
+    public MetaCacheSizeEstimator<K, V> getSizeEstimator() {
+        return sizeEstimator;
     }
 
     /**
