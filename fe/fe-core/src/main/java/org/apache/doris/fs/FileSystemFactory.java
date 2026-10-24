@@ -27,6 +27,7 @@ import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.filesystem.properties.FileSystemProperties;
+import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 import org.apache.doris.service.FrontendOptions;
 
@@ -57,6 +58,10 @@ public final class FileSystemFactory {
 
     // Fallback provider cache for non-initialized environments (tests, migration phase)
     private static volatile List<FileSystemProvider> cachedProviders = null;
+
+    private static final String S3_SKIP_LIST_FOR_DETERMINISTIC_PATH =
+            S3CompatibleFileSystemProperties.SKIP_LIST_FOR_DETERMINISTIC_PATH;
+    private static final String S3_HEAD_REQUEST_MAX_PATHS = S3CompatibleFileSystemProperties.HEAD_REQUEST_MAX_PATHS;
 
     private FileSystemFactory() {}
 
@@ -97,26 +102,40 @@ public final class FileSystemFactory {
      */
     public static org.apache.doris.filesystem.FileSystem getFileSystem(Map<String, String> properties)
             throws IOException {
-        Map<String, String> normalizedProperties = StorageAdapter.withHadoopConfigDir(properties);
+        return getFileSystemWithEffectiveProperties(withRuntimeFileSystemProperties(properties,
+                Config.s3_skip_list_for_deterministic_path, Config.s3_head_request_max_paths));
+    }
+
+    static org.apache.doris.filesystem.FileSystem getFileSystemWithEffectiveProperties(
+            Map<String, String> effectiveProperties) throws IOException {
         FileSystemPluginManager mgr = pluginManager;
         if (mgr != null) {
-            return mgr.createFileSystem(normalizedProperties);
+            return mgr.createFileSystem(effectiveProperties);
         }
         // Fallback: ServiceLoader discovery (unit-test / migration path)
         List<FileSystemProvider> providers = getProviders();
         List<String> tried = new ArrayList<>();
         for (FileSystemProvider provider : providers) {
-            if (provider.supports(normalizedProperties)) {
+            if (provider.supports(effectiveProperties)) {
                 LOG.debug("FileSystemFactory: selected SPI provider '{}' for keys={}",
-                        provider.name(), properties.keySet());
-                return provider.create(normalizedProperties);
+                        provider.name(), effectiveProperties.keySet());
+                return provider.create(effectiveProperties);
             }
             tried.add(provider.name());
         }
         throw new IOException(String.format(
                 "No FileSystemProvider found for properties %s. Tried: %s. "
                         + "Ensure the corresponding fe-filesystem-xxx jar is on the classpath.",
-                properties.keySet(), tried));
+                effectiveProperties.keySet(), tried));
+    }
+
+    static Map<String, String> withRuntimeFileSystemProperties(Map<String, String> properties,
+            boolean s3SkipListForDeterministicPath, int s3HeadRequestMaxPaths) {
+        Map<String, String> effectiveProperties = new HashMap<>(StorageAdapter.withHadoopConfigDir(properties));
+        effectiveProperties.put(S3_SKIP_LIST_FOR_DETERMINISTIC_PATH,
+                String.valueOf(s3SkipListForDeterministicPath));
+        effectiveProperties.put(S3_HEAD_REQUEST_MAX_PATHS, String.valueOf(s3HeadRequestMaxPaths));
+        return effectiveProperties;
     }
 
     /**
@@ -165,13 +184,23 @@ public final class FileSystemFactory {
      */
     public static org.apache.doris.filesystem.FileSystem getFileSystem(
             FileSystemProperties spiProperties) throws IOException {
+        return getFileSystemWithEffectiveProperties(spiProperties, withRuntimeFileSystemProperties(
+                spiProperties.rawProperties(),
+                Config.s3_skip_list_for_deterministic_path, Config.s3_head_request_max_paths));
+    }
+
+    static org.apache.doris.filesystem.FileSystem getFileSystemWithEffectiveProperties(
+            FileSystemProperties spiProperties, Map<String, String> effectiveProperties) throws IOException {
         String providerName = spiProperties.providerName();
         FileSystemPluginManager mgr = pluginManager;
         List<FileSystemProvider> providers = mgr != null ? mgr.getProviders() : getProviders();
         for (FileSystemProvider provider : providers) {
             if (provider.name().equalsIgnoreCase(providerName)) {
                 try {
-                    return provider.createUntyped(spiProperties);
+                    // Rebind through the original provider so runtime controls do not change routing.
+                    FileSystemProperties effective = spiProperties instanceof S3CompatibleFileSystemProperties
+                            ? provider.bind(effectiveProperties) : spiProperties;
+                    return provider.createUntyped(effective);
                 } catch (UnsupportedOperationException e) {
                     // Providers without typed creation (BROKER/LOCAL) keep the map entry point.
                     return provider.create(new HashMap<>(spiProperties.rawProperties()));

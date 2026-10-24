@@ -84,7 +84,7 @@ public class OssFileSystemProvider implements FileSystemProvider<OssFileSystemPr
 
     @Override
     public FileSystem create(OssFileSystemProperties properties) throws IOException {
-        return new OssFileSystem(new OssObjStorage(properties));
+        return new OssFileSystem(properties);
     }
 
     private static final String[] GUESS_ENDPOINT_NAMES = {

@@ -17,9 +17,11 @@
 
 package org.apache.doris.fs;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.properties.FileSystemProperties;
+import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.filesystem.properties.StorageKind;
 import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
@@ -27,7 +29,9 @@ import org.apache.doris.filesystem.spi.FileSystemProvider;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
+import java.io.IOException;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -38,6 +42,7 @@ public class FileSystemFactoryBindAllTest {
     @AfterEach
     public void resetFactoryState() {
         // bindAllStorageProperties / initPluginManager mutate static state; restore the default.
+        FileSystemFactory.initPluginManager(null);
         FileSystemFactory.clearProviderCache();
     }
 
@@ -64,6 +69,59 @@ public class FileSystemFactoryBindAllTest {
         FileSystemFactory.clearProviderCache();
         List<StorageProperties> result = FileSystemFactory.bindAllStorageProperties(new HashMap<>());
         Assertions.assertNotNull(result);
+    }
+
+    @Test
+    public void typedCreationPreservesProviderAndRuntimeSnapshot() throws IOException {
+        S3CompatibleFileSystemProperties original = Mockito.mock(S3CompatibleFileSystemProperties.class);
+        S3CompatibleFileSystemProperties rebound = Mockito.mock(S3CompatibleFileSystemProperties.class);
+        Mockito.when(original.providerName()).thenReturn("CUSTOM_S3");
+        FileSystem expected = Mockito.mock(FileSystem.class);
+        Map<String, String> snapshot = FileSystemFactory.withRuntimeFileSystemProperties(
+                Map.of("s3.endpoint", "https://s3.example.com"), false, 7);
+        FileSystemPluginManager manager = new FileSystemPluginManager();
+        manager.registerProvider(new FileSystemProvider<S3CompatibleFileSystemProperties>() {
+            @Override
+            public String name() {
+                return "CUSTOM_S3";
+            }
+
+            @Override
+            public boolean supports(Map<String, String> properties) {
+                Assertions.fail("An already-bound provider must not be reselected");
+                return false;
+            }
+
+            @Override
+            public S3CompatibleFileSystemProperties bind(Map<String, String> properties) {
+                Assertions.assertEquals("false", properties.get("s3_skip_list_for_deterministic_path"));
+                Assertions.assertEquals("7", properties.get("s3_head_request_max_paths"));
+                return rebound;
+            }
+
+            @Override
+            public FileSystem create(S3CompatibleFileSystemProperties properties) {
+                Assertions.assertSame(rebound, properties);
+                return expected;
+            }
+
+            @Override
+            public FileSystem create(Map<String, String> properties) {
+                throw new AssertionError("Typed creation must preserve the original provider");
+            }
+        });
+        FileSystemFactory.initPluginManager(manager);
+        boolean oldSkipList = Config.s3_skip_list_for_deterministic_path;
+        int oldMaxPaths = Config.s3_head_request_max_paths;
+        try {
+            Config.s3_skip_list_for_deterministic_path = true;
+            Config.s3_head_request_max_paths = 100;
+            Assertions.assertSame(expected,
+                    FileSystemFactory.getFileSystemWithEffectiveProperties(original, snapshot));
+        } finally {
+            Config.s3_skip_list_for_deterministic_path = oldSkipList;
+            Config.s3_head_request_max_paths = oldMaxPaths;
+        }
     }
 
     private static FileSystemProvider<FileSystemProperties> supportingProvider(FileSystemProperties bound) {

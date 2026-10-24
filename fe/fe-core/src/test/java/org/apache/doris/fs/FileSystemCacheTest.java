@@ -17,12 +17,17 @@
 
 package org.apache.doris.fs;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.OptionalLong;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -93,6 +98,44 @@ public class FileSystemCacheTest {
         Assertions.assertEquals(1, fileSystem.getCloseCount());
     }
 
+    @Test
+    public void testS3CompatibleCacheKeyIncludesRuntimeConfigSnapshot() {
+        boolean oldSkipList = Config.s3_skip_list_for_deterministic_path;
+        int oldHeadRequestMaxPaths = Config.s3_head_request_max_paths;
+        try {
+            StorageAdapter s3Properties = s3Properties();
+            Config.s3_skip_list_for_deterministic_path = true;
+            Config.s3_head_request_max_paths = 100;
+            FileSystemCache.FileSystemCacheKey first =
+                    new FileSystemCache.FileSystemCacheKey("s3://bucket", s3Properties);
+
+            Config.s3_skip_list_for_deterministic_path = false;
+            Config.s3_head_request_max_paths = 0;
+            FileSystemCache.FileSystemCacheKey second =
+                    new FileSystemCache.FileSystemCacheKey("s3://bucket", s3Properties);
+
+            Assertions.assertNotEquals(first, second);
+            Assertions.assertEquals("true",
+                    first.getEffectiveProperties().get("s3_skip_list_for_deterministic_path"));
+            Assertions.assertEquals("100",
+                    first.getEffectiveProperties().get("s3_head_request_max_paths"));
+            Assertions.assertEquals("false",
+                    second.getEffectiveProperties().get("s3_skip_list_for_deterministic_path"));
+            Assertions.assertEquals("0",
+                    second.getEffectiveProperties().get("s3_head_request_max_paths"));
+
+            Config.s3_skip_list_for_deterministic_path = true;
+            Config.s3_head_request_max_paths = 5;
+            Assertions.assertEquals("false",
+                    second.getEffectiveProperties().get("s3_skip_list_for_deterministic_path"));
+            Assertions.assertEquals("0",
+                    second.getEffectiveProperties().get("s3_head_request_max_paths"));
+        } finally {
+            Config.s3_skip_list_for_deterministic_path = oldSkipList;
+            Config.s3_head_request_max_paths = oldHeadRequestMaxPaths;
+        }
+    }
+
     private static void closeConcurrently(FileSystemCache.FileSystemLease lease) throws InterruptedException {
         CountDownLatch ready = new CountDownLatch(2);
         CountDownLatch start = new CountDownLatch(1);
@@ -122,6 +165,19 @@ public class FileSystemCacheTest {
     private static FileSystemCache.FileSystemCacheKey key(String fsIdent) {
         return new FileSystemCache.FileSystemCacheKey(fsIdent, StorageAdapter.of(
                 Collections.singletonMap("fs.hdfs.support", "true")));
+    }
+
+    private static StorageAdapter s3Properties() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("fs.s3.support", "true");
+        raw.put("s3.endpoint", "https://minio.local");
+        raw.put("s3.region", "us-west-2");
+        raw.put("s3.access_key", "ak");
+        raw.put("s3.secret_key", "sk");
+        StorageAdapter adapter = Mockito.mock(StorageAdapter.class);
+        Mockito.when(adapter.getOrigProps()).thenReturn(raw);
+        Mockito.when(adapter.getSpiProperties()).thenReturn(Mockito.mock(S3CompatibleFileSystemProperties.class));
+        return adapter;
     }
 
     private static class CountingFileSystem extends MemoryFileSystem {

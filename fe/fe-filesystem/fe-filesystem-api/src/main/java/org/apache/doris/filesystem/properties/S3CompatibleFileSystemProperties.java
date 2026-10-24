@@ -28,6 +28,10 @@ import java.util.Set;
  */
 public interface S3CompatibleFileSystemProperties extends FileSystemProperties {
 
+    String SKIP_LIST_FOR_DETERMINISTIC_PATH = "s3_skip_list_for_deterministic_path";
+    String HEAD_REQUEST_MAX_PATHS = "s3_head_request_max_paths";
+    int DEFAULT_HEAD_REQUEST_MAX_PATHS = 100;
+
     // ------------------------------------------------------------------
     // User-namespace property key contract (s3.* spelling). These literals are wire/DDL/image
     // contracts shared by every S3-compatible dialect and by fe-core's persisted-map glue
@@ -104,6 +108,16 @@ public interface S3CompatibleFileSystemProperties extends FileSystemProperties {
     /** Returns whether path-style bucket addressing is enabled, as a raw provider property value. */
     String getUsePathStyle();
 
+    /** Returns whether deterministic path patterns should use HEAD requests instead of ListObjects. */
+    default String getSkipListForDeterministicPath() {
+        return "true";
+    }
+
+    /** Returns the maximum deterministic object key count to resolve through HEAD requests. */
+    default int getHeadRequestMaxPaths() {
+        return DEFAULT_HEAD_REQUEST_MAX_PATHS;
+    }
+
     /**
      * Returns the URI schemes this provider accepts, lower-cased (e.g. {@code {s3, s3a, oss}}).
      *
@@ -143,6 +157,32 @@ public interface S3CompatibleFileSystemProperties extends FileSystemProperties {
     default boolean hasInvalidUsePathStyle() {
         try {
             isUsePathStyle();
+            return false;
+        } catch (IllegalArgumentException e) {
+            return true;
+        }
+    }
+
+    default boolean isSkipListForDeterministicPath() {
+        String value = getSkipListForDeterministicPath();
+        if (value == null || value.isBlank()) {
+            return true;
+        }
+        String normalized = value.trim();
+        if ("true".equalsIgnoreCase(normalized)) {
+            return true;
+        }
+        if ("false".equalsIgnoreCase(normalized)) {
+            return false;
+        }
+        throw new IllegalArgumentException(
+                "Invalid " + SKIP_LIST_FOR_DETERMINISTIC_PATH + " value: '" + value
+                        + "' (expected true or false)");
+    }
+
+    default boolean hasInvalidSkipListForDeterministicPath() {
+        try {
+            isSkipListForDeterministicPath();
             return false;
         } catch (IllegalArgumentException e) {
             return true;
