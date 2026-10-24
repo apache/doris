@@ -1380,6 +1380,16 @@ public class StmtExecutorTest extends TestWithFeService {
     @ValueSource(booleans = {false, true})
     public void testForwardedRoutineLoadAuditMasksMasterKeyInterpretation(boolean changesPropertyBoundaries)
             throws Exception {
+        assertForwardedRoutineLoadAuditMasksMasterKeyInterpretation(changesPropertyBoundaries, false);
+    }
+
+    @Test
+    public void testForwardedRoutineLoadAuditMasksEqualCountBoundaryMismatch() throws Exception {
+        assertForwardedRoutineLoadAuditMasksMasterKeyInterpretation(false, true);
+    }
+
+    private void assertForwardedRoutineLoadAuditMasksMasterKeyInterpretation(boolean changesPropertyBoundaries,
+            boolean changesStatementBoundaries) throws Exception {
         String alter = changesPropertyBoundaries
                 ? "ALTER ROUTINE LOAD FOR testDb.job FROM KAFKA "
                         + "('property.client.id' = 'client\\', \"property.sasl.password\" = \"synthetic-secret\" -- '\n)"
@@ -1387,7 +1397,14 @@ public class StmtExecutorTest extends TestWithFeService {
                         + "('property.sasl.\\password' = 'synthetic-secret', 'property.client.id' = 'client-value')";
         String batch = (changesPropertyBoundaries ? "SET sql_mode='NO_BACKSLASH_ESCAPES'; " : "SET sql_mode=''; ")
                 + alter;
-        String expected = changesPropertyBoundaries ? "/* masked ALTER ROUTINE LOAD: ambiguous SQL mode */"
+        if (changesStatementBoundaries) {
+            alter = "ALTER ROUTINE LOAD FOR testDb.job FROM KAFKA "
+                    + "('property.client.id'=\"; ALTER ROUTINE LOAD FOR testDb.job FROM KAFKA "
+                    + "('property.sasl.password'='synthetic-secret') -- \")";
+            batch = "SET sql_mode=''; SELECT \"prefix\\\"; " + alter + ";";
+        }
+        String expected = changesPropertyBoundaries || changesStatementBoundaries
+                ? "/* masked ALTER ROUTINE LOAD: ambiguous SQL mode */"
                 : alter.replace("'synthetic-secret'", "'******'");
         ConnectContext follower = Mockito.spy(new ConnectContext());
         follower.setCurrentUserIdentity(UserIdentity.ROOT);
@@ -1401,13 +1418,27 @@ public class StmtExecutorTest extends TestWithFeService {
         try {
             // Parse the whole batch before running its SET, as ConnectProcessor does.
             List<StatementBase> statements = new NereidsParser().parseSQL(batch);
-            LogicalPlanAdapter followerStatement = (LogicalPlanAdapter) statements.get(1);
-            followerStatement.setOrigStmt(new OriginStatement(alter, 0));
+            List<String> fragments = SqlUtils.splitMultiStmts(batch);
+            Assertions.assertEquals(changesStatementBoundaries ? 3 : 2, statements.size());
+            Assertions.assertEquals(statements.size(), fragments.size());
+            int alterIndex = statements.size() - 1;
+            String forwardedSql = fragments.get(alterIndex);
+            if (changesStatementBoundaries) {
+                Assertions.assertNotEquals(alter, forwardedSql.trim());
+                Assertions.assertFalse(alter.contains("\\"));
+            }
+            LogicalPlanAdapter followerStatement = (LogicalPlanAdapter) statements.get(alterIndex);
+            followerStatement.setOrigStmt(new OriginStatement(forwardedSql, 0));
             AlterRoutineLoadCommand followerCommand = (AlterRoutineLoadCommand) followerStatement.getLogicalPlan();
-            Assertions.assertEquals(changesPropertyBoundaries ? 1 : 2,
+            Assertions.assertEquals(changesPropertyBoundaries || changesStatementBoundaries ? 1 : 2,
                     followerCommand.getDataSourceMapProperties().size());
-            Assertions.assertTrue(followerCommand.getDataSourceMapProperties().containsValue(changesPropertyBoundaries
-                    ? "client', \"property.sasl.password\" = \"synthetic-secret\" -- " : "synthetic-secret"));
+            if (changesPropertyBoundaries || changesStatementBoundaries) {
+                Assertions.assertTrue(followerCommand.getDataSourceMapProperties().get("property.client.id")
+                        .contains("synthetic-secret"));
+            } else {
+                Assertions.assertEquals("synthetic-secret", followerCommand.getDataSourceMapProperties()
+                        .get("property.sasl.\\password"));
+            }
             LogicalPlanAdapter setStatement = (LogicalPlanAdapter) statements.get(0);
             follower.setStatementContext(setStatement.getStatementContext());
             ((SetOptionsCommand) setStatement.getLogicalPlan()).run(follower, null);
@@ -1418,7 +1449,7 @@ public class StmtExecutorTest extends TestWithFeService {
             AlterRoutineLoadCommand loggedCommand = Mockito.spy(followerCommand);
             Mockito.doNothing().when(loggedCommand).run(Mockito.any(), Mockito.any());
             LogicalPlanAdapter loggedStatement = new LogicalPlanAdapter(loggedCommand, new StatementContext());
-            loggedStatement.setOrigStmt(new OriginStatement(alter, 0));
+            loggedStatement.setOrigStmt(new OriginStatement(forwardedSql, 0));
             boolean originalPrintRequest = Config.enable_print_request_before_execution;
             long originalLogMode = connectContext.getSessionVariable().getSqlMode();
             connectContext.getSessionVariable().setSqlMode(follower.getSessionVariable().getSqlMode());
@@ -1464,7 +1495,8 @@ public class StmtExecutorTest extends TestWithFeService {
                     properties.analyze();
                     Assertions.assertEquals("synthetic-secret", properties.getCustomKafkaProperties()
                             .get("sasl.password"));
-                    Assertions.assertEquals(changesPropertyBoundaries ? "client\\" : "client-value",
+                    Assertions.assertEquals(changesStatementBoundaries ? null
+                                    : changesPropertyBoundaries ? "client\\" : "client-value",
                             properties.getCustomKafkaProperties().get("client.id"));
                 } finally {
                     follower.setThreadLocalInfo();
@@ -1474,7 +1506,7 @@ public class StmtExecutorTest extends TestWithFeService {
                 follower.setStatementContext(followerStatement.getStatementContext());
                 follower.getState().setIsQuery(false);
                 follower.getState().setOk();
-                AuditLogHelper.logAuditLog(follower, alter, followerStatement, null, false);
+                AuditLogHelper.logAuditLog(follower, forwardedSql, followerStatement, null, false);
                 ArgumentCaptor<AuditEvent> captor = ArgumentCaptor.forClass(AuditEvent.class);
                 Mockito.verify(statusMgr).submitFinishQueryToAudit(captor.capture());
                 Assertions.assertEquals(expected, captor.getValue().stmt);

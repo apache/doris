@@ -224,6 +224,51 @@ public class RoutineLoadAuditEncryptionTest {
     }
 
     @Test
+    public void testPrecedingStatementChangesEqualCountBatchBoundaries() {
+        String alter = "ALTER ROUTINE LOAD FOR db.job FROM KAFKA "
+                + "('property.client.id'=\"; ALTER ROUTINE LOAD FOR db.job FROM KAFKA "
+                + "('property.sasl.password'='synthetic-secret') -- \")";
+        String batch = "SET sql_mode=''; SELECT \"prefix\\\"; " + alter + ";";
+        SqlModeHelper.withSqlMode(SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES, () -> {
+            LogicalPlanBuilder builder = new LogicalPlanBuilder(Collections.emptyMap());
+            List<StatementBase> statements = new NereidsParser().parseSQL(batch, builder);
+            List<String> fragments = SqlUtils.splitMultiStmts(batch);
+            Assertions.assertEquals(3, statements.size());
+            Assertions.assertEquals(statements.size(), fragments.size());
+            Assertions.assertNotEquals(alter, fragments.get(2).trim());
+            AlterRoutineLoadCommand command = (AlterRoutineLoadCommand)
+                    ((LogicalPlanAdapter) statements.get(2)).getLogicalPlan();
+            Assertions.assertEquals(1, command.getDataSourceMapProperties().size());
+            Assertions.assertTrue(command.getDataSourceMapProperties().get("property.client.id")
+                    .contains("synthetic-secret"));
+            // The ALTER alone has identical boundaries in both modes; the preceding SELECT shifts them.
+            Assertions.assertEquals(alter, encrypt(alter));
+            Assertions.assertEquals("/* masked ALTER ROUTINE LOAD: ambiguous SQL mode */",
+                    command.geneEncryptionSQL(fragments.get(2)));
+            // A reused builder must classify the new request rather than reuse the batch's result.
+            AlterRoutineLoadCommand standalone = (AlterRoutineLoadCommand)
+                    new NereidsParser().parseSingle(alter, builder);
+            Assertions.assertEquals(alter, standalone.geneEncryptionSQL(alter));
+            return null;
+        });
+    }
+
+    @Test
+    public void testUnambiguousBatchPreservesOperationalValues() {
+        String alter = "ALTER ROUTINE LOAD FOR db.job FROM KAFKA ('property.client.id'='client-value')";
+        String batch = "SELECT 'client\\id'; " + alter;
+        for (long mode : new long[] {SqlModeHelper.MODE_DEFAULT, SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES}) {
+            SqlModeHelper.withSqlMode(mode, () -> {
+                List<StatementBase> statements = new NereidsParser().parseSQL(batch);
+                AlterRoutineLoadCommand command = (AlterRoutineLoadCommand)
+                        ((LogicalPlanAdapter) statements.get(1)).getLogicalPlan();
+                Assertions.assertEquals(alter, command.geneEncryptionSQL(alter));
+                return null;
+            });
+        }
+    }
+
+    @Test
     public void testNestedCommentSplitMismatchStillSubmitsAlterAudit() throws Exception {
         String alter = "ALTER ROUTINE LOAD FOR db.job FROM KAFKA "
                 + "('property.sasl.password' = 'synthetic-secret')";

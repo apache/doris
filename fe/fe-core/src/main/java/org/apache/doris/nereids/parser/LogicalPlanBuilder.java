@@ -1124,6 +1124,7 @@ import com.google.common.collect.ImmutableMap.Builder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.antlr.v4.runtime.CharStream;
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.RuleContext;
 import org.antlr.v4.runtime.Token;
@@ -1187,6 +1188,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     });
 
     private final Map<Integer, ParserRuleContext> selectHintMap;
+    // All ALTER commands in a batch share one scan; stream identity also permits builder reuse.
+    private final Map<CharStream, Boolean> routineLoadSqlModeAmbiguity = Maps.newIdentityHashMap();
 
     // recursive cte is in form of union[all], and in visitSetOperation method, we try to reduceToLogicalPlanTree
     // for UNION. We should not do it for recursive cte, so this flag is to indicate if we meet recursive cte
@@ -9435,6 +9438,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     private String buildRoutineLoadAuditSql(DorisParser.AlterRoutineLoadContext ctx) {
         // A preceding SET in a pre-parsed batch can change the mode sent to the master.
         // Mask keys sensitive under either interpretation without changing execution properties.
+        if (routineLoadSqlModeAmbiguity.computeIfAbsent(ctx.start.getInputStream(),
+                input -> hasRoutineLoadSqlModeAmbiguity(input.getText(
+                        new org.antlr.v4.runtime.misc.Interval(0, input.size() - 1))))) {
+            // Check before slicing: a preceding statement can shift the separator's boundaries
+            // while preserving its statement count, giving this command a different SQL to forward.
+            return "/* masked ALTER ROUTINE LOAD: ambiguous SQL mode */";
+        }
         // Keep only this statement when the request contains multiple statements: the audit caller
         // can pass the entire request if its separate statement splitter disagrees with Nereids.
         ParserRuleContext statement = ctx;
@@ -9451,11 +9461,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             stop = statement.stop.getStopIndex();
         }
         String sql = ctx.start.getInputStream().getText(new org.antlr.v4.runtime.misc.Interval(start, stop));
-        if (hasRoutineLoadSqlModeAmbiguity(sql)) {
-            // The master can see credential properties inside a value from the follower's parse.
-            // Different token boundaries invalidate selective masking based on that parse tree.
-            return "/* masked ALTER ROUTINE LOAD: ambiguous SQL mode */";
-        }
         TreeMap<Pair<Integer, Integer>, String> replacements = new TreeMap<>(new Pair.PairComparator<>());
         if (ctx.propertyItemList() != null) {
             for (DorisParser.PropertyItemContext property : ctx.propertyItemList().properties) {
