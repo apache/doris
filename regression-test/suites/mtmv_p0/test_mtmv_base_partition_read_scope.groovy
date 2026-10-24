@@ -728,4 +728,42 @@ suite("test_mtmv_base_partition_read_scope") {
     order_qt_pct_join_one_side """SELECT DATEDIFF(a.d, CAST('${joinOldDay}' AS DATE)) AS day_offset, SUM(a.v)
         FROM pct_join_a a JOIN pct_join_b b ON a.d = b.d
         WHERE a.d IN ('${joinOldDay}', '${joinKeptDay}') GROUP BY a.d"""
+
+    // The equality the refresh follows need not be a single predicate. Over A JOIN C JOIN B with a.d = c.x and
+    // c.x = b.d, the view partitioned on a_d is tracked by A's and B's columns as much as a direct a.d = b.d
+    // would make it, because the chain ties those two columns in every row the join returns. Closing the
+    // grouping over the whole chain rather than over direct pairs only keeps such a view in the rewrite;
+    // requiring each tracked column to be grouped or tied to a grouped one by itself stops at c.x -- which the
+    // view is not partitioned on -- and so never reaches b.d, answering the query from the base tables.
+    sql """drop materialized view if exists pct_join_mv3"""
+    sql """drop table if exists pct_join_c"""
+    sql """
+        CREATE TABLE pct_join_c (x DATE NOT NULL, w INT NOT NULL)
+        DUPLICATE KEY(x) DISTRIBUTED BY HASH(x) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+    """
+    sql """INSERT INTO pct_join_c VALUES ("${joinOldDay}", 1), ("${joinKeptDay}", 1), ("${joinThirdDay}", 1)"""
+    sql """
+        CREATE MATERIALIZED VIEW pct_join_mv3
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL PARTITION BY (a_d)
+        DISTRIBUTED BY HASH(a_d) BUCKETS 1 PROPERTIES ("replication_num" = "1",
+            "partition_sync_limit" = "7", "partition_sync_time_unit" = "DAY")
+        AS SELECT a.d AS a_d, SUM(a.v) AS s FROM pct_join_a a JOIN pct_join_c c ON a.d = c.x
+           JOIN pct_join_b b ON c.x = b.d GROUP BY a.d
+    """
+    waitingMTMVTaskFinishedByMvName("pct_join_mv3")
+    // Written after this view's refresh, so p_old is the day its compensation re-reads and the days it keeps
+    // stay on the view's side of the union.
+    sql """INSERT INTO pct_join_a VALUES ("${joinOldDay}", 10000)"""
+    sql """ANALYZE TABLE pct_join_a WITH SYNC"""
+    sql """ANALYZE TABLE pct_join_b WITH SYNC"""
+    sql """ANALYZE TABLE pct_join_c WITH SYNC"""
+    sql """set enable_materialized_view_rewrite = true"""
+    explain {
+        sql("select a.d, sum(a.v) from pct_join_a a join pct_join_c c on a.d = c.x join pct_join_b b on c.x = b.d "
+                + "where a.d in ('${joinOldDay}', '${joinKeptDay}') group by a.d")
+        check { result -> result.contains("UNION") && result.contains("pct_join_mv3") }
+    }
+    order_qt_pct_join_transitive """SELECT DATEDIFF(a.d, CAST('${joinOldDay}' AS DATE)) AS day_offset, SUM(a.v)
+        FROM pct_join_a a JOIN pct_join_c c ON a.d = c.x JOIN pct_join_b b ON c.x = b.d
+        WHERE a.d IN ('${joinOldDay}', '${joinKeptDay}') GROUP BY a.d"""
 }

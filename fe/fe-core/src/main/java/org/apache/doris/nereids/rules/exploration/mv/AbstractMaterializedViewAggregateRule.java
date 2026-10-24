@@ -559,16 +559,16 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
 
     /**
      * Whether these grouping expressions reach every column the view is partitioned on, each of them by itself
-     * or equal to one that is. An expression over a partition column puts several of its values in one group,
-     * and a tracked column that is neither grouped nor tied to a grouped one by the query varies freely within
-     * a group.
+     * or equal to one that is -- through another column too, since an equality chain is one equality. An
+     * expression over a partition column puts several of its values in one group, and a tracked column that is
+     * neither grouped nor tied to a grouped one by the query varies freely within a group.
      */
     private static boolean groupingCoversPartitionColumns(List<Expression> groupingExpressions, Plan queryPlan,
             List<BaseColInfo> pctInfos, Map<BaseColInfo, Set<BaseColInfo>> equalColumns) {
         List<? extends Expression> groupingShuttledExpressions =
                 ExpressionUtils.shuttleExpressionWithLineage(groupingExpressions, queryPlan);
         Set<BaseColInfo> partitionColumns = Sets.newHashSet(pctInfos);
-        Set<BaseColInfo> covered = Sets.newHashSet();
+        Set<BaseColInfo> groupedTogether = Sets.newHashSet();
         Deque<BaseColInfo> unvisited = new ArrayDeque<>();
         for (Expression expression : groupingShuttledExpressions) {
             Optional<BaseColInfo> grouped = columnGroupedByItself(expression);
@@ -578,16 +578,16 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         }
         while (!unvisited.isEmpty()) {
             BaseColInfo column = unvisited.poll();
-            if (!covered.add(column)) {
+            if (!groupedTogether.add(column)) {
                 continue;
             }
             for (BaseColInfo equal : equalColumns.getOrDefault(column, Collections.emptySet())) {
-                if (partitionColumns.contains(equal) && !covered.contains(equal)) {
+                if (!groupedTogether.contains(equal)) {
                     unvisited.add(equal);
                 }
             }
         }
-        return covered.containsAll(partitionColumns);
+        return groupedTogether.containsAll(partitionColumns);
     }
 
     /**
