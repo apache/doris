@@ -19,12 +19,13 @@
 
 namespace doris {
 
-ObjLRUCache::ObjLRUCache(int64_t capacity, uint32_t num_shards)
-        : LRUCachePolicy(CachePolicy::CacheType::COMMON_OBJ_LRU_CACHE, capacity,
-                         LRUCacheType::NUMBER, config::common_obj_lru_cache_stale_sweep_time_sec,
-                         /*num shards*/ 32, /*element count capacity */ 0,
-                         /*enable prune*/ true, /*is lru-k*/ true),
-          _enabled(capacity > 0) {}
+ObjLRUCache::ObjLRUCache(int64_t capacity, uint32_t num_shards, LRUCacheType type,
+                         CachePolicy::CacheType cache_type)
+        : LRUCachePolicy(cache_type, capacity, type,
+                         config::common_obj_lru_cache_stale_sweep_time_sec, num_shards,
+                         /*element count capacity*/ 0, /*enable prune*/ true,
+                         /*is lru-k*/ type == LRUCacheType::NUMBER),
+          _enabled(capacity >= num_shards) {}
 
 bool ObjLRUCache::lookup(const ObjKey& key, CacheHandle* handle) {
     if (!_enabled) {
@@ -46,9 +47,8 @@ void ObjLRUCache::erase(const ObjKey& key) {
 }
 
 bool ObjLRUCache::exceed_prune_limit() {
-    // just return true to prune all cached obj.
-    // Because ObjLRUCache is counted with number, not memory.
-    // Simple prune all
+    // Keep stale sweeps enabled even for object caches whose byte budget is smaller than
+    // the size-cache GC threshold. Expiration must not depend on the current footprint.
     return true;
 }
 

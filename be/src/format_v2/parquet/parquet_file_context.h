@@ -48,19 +48,21 @@ struct NativeParquetPageIndex;
 // Arrow metadata is intentionally not materialized from the serialized footer.
 class NativeParquetMetadata {
 public:
-    NativeParquetMetadata(tparquet::FileMetaData metadata, size_t parsed_size);
+    NativeParquetMetadata(tparquet::FileMetaData metadata);
     ~NativeParquetMetadata();
 
     Status init_schema(bool enable_mapping_varbinary, bool enable_mapping_timestamp_tz,
                        bool preserve_binary_uuid = false);
     const tparquet::FileMetaData& to_thrift() const { return _metadata; }
     const NativeFieldDescriptor& schema() const { return _schema; }
-    size_t get_mem_size() const { return _parsed_size; }
+    size_t get_mem_size() const { return _mem_size; }
+    void release_memory_tracking() const;
 
 private:
     tparquet::FileMetaData _metadata;
     NativeFieldDescriptor _schema;
-    size_t _parsed_size = 0;
+    size_t _mem_size = 0;
+    mutable size_t _tracked_mem_size = 0;
 };
 
 struct ParquetPageCacheRange {

@@ -26,7 +26,7 @@
 namespace doris {
 class FileMetaData {
 public:
-    FileMetaData(tparquet::FileMetaData& metadata, size_t mem_size);
+    FileMetaData(tparquet::FileMetaData& metadata);
     ~FileMetaData();
     Status init_schema(const bool enable_mapping_varbinary, const bool enable_mapping_timestamp_tz);
     const FieldDescriptor& schema() const { return _schema; }
@@ -34,11 +34,13 @@ public:
     const tparquet::FileMetaData& to_thrift() const;
     std::string debug_string() const;
     size_t get_mem_size() const { return _mem_size; }
+    void release_memory_tracking() const;
 
 private:
     tparquet::FileMetaData _metadata;
     FieldDescriptor _schema;
-    size_t _mem_size;
+    size_t _mem_size = 0;
+    mutable size_t _tracked_mem_size = 0;
 };
 
 } // namespace doris
