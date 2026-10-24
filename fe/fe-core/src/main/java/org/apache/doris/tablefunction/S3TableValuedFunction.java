@@ -25,6 +25,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.lance.metadata.LanceMetadataLoader;
 import org.apache.doris.datasource.lance.metadata.LanceTableMetadata;
 import org.apache.doris.datasource.lance.metadata.LanceTvfStoragePolicy;
+import org.apache.doris.datasource.property.storage.HdfsCompatibleProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileType;
@@ -69,6 +70,10 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         if (isLanceFormat() && !LanceTvfStoragePolicy.isRemoteUri(filePath)) {
             throw new AnalysisException("S3 Lance requires remote storage with a valid URI");
         }
+        boolean hadoopStorage = storageProperties instanceof HdfsCompatibleProperties;
+        if (hadoopStorage) {
+            HadoopTvfAdmission.check(HadoopTvfAdmission.Access.HADOOP_READ, filePath, backendConnectProperties);
+        }
         if (FeConstants.runningUnitTest) {
             // Just check
             // Fixme wait to be done  #50320
@@ -76,9 +81,7 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
             if (files != null) {
                 this.fileStatuses.addAll(files);
             }
-            return;
-        }
-        if (isLanceFormat()) {
+        } else if (isLanceFormat()) {
             try {
                 LanceTableMetadata metadata = LanceMetadataLoader.loadLatestForTvf(
                         filePath, Collections.singletonList(storageProperties));
@@ -91,6 +94,12 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
             }
         } else {
             parseFile(files);
+        }
+        if (hadoopStorage) {
+            for (TBrokerFileStatus file : fileStatuses) {
+                HadoopTvfAdmission.check(HadoopTvfAdmission.Access.HADOOP_READ,
+                        file.getPath(), backendConnectProperties);
+            }
         }
     }
 

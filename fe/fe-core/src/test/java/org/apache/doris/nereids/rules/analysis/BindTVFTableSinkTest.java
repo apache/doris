@@ -700,6 +700,50 @@ class BindTVFTableSinkTest {
         }
     }
 
+    @Test
+    void emptyViewFsTargetRejectsBeforeCleanupFilesystemCreation() throws Exception {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("file_path", "/data/sub/prefix_");
+        properties.put("format", "csv");
+        properties.put("fs.defaultFS", "viewfs://cluster");
+        properties.put("fs.viewfs.mounttable.cluster.link./data", "");
+        properties.put("fs.viewfs.mounttable.cluster.linkFallback", "file:///tmp");
+        InsertIntoTVFCommand command = (InsertIntoTVFCommand) new NereidsParser().parseSingle(
+                "INSERT INTO hdfs('file_path'='/data/sub/prefix_', 'format'='csv') SELECT 1");
+        Method cleanup = InsertIntoTVFCommand.class.getDeclaredMethod(
+                "deleteExistingFilesInFE", String.class, Map.class);
+        cleanup.setAccessible(true);
+        try (MockedStatic<FileSystemFactory> factory = Mockito.mockStatic(FileSystemFactory.class)) {
+            InvocationTargetException exception = Assertions.assertThrows(InvocationTargetException.class,
+                    () -> cleanup.invoke(command, "hdfs", properties));
+            Assertions.assertInstanceOf(AnalysisException.class, exception.getCause());
+            factory.verifyNoInteractions();
+        }
+    }
+
+    @Test
+    void remoteHostPortCleanupRemainsAvailableWithLocalDisabled() throws Exception {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("file_path", "/exports/prefix_");
+        properties.put("format", "csv");
+        properties.put("fs.hdfs.support", "true");
+        properties.put("fs.defaultFS", "namenode:8020");
+        InsertIntoTVFCommand command = (InsertIntoTVFCommand) new NereidsParser().parseSingle(
+                "INSERT INTO hdfs('file_path'='/exports/prefix_', 'format'='csv') SELECT 1");
+        Method cleanup = InsertIntoTVFCommand.class.getDeclaredMethod(
+                "deleteExistingFilesInFE", String.class, Map.class);
+        cleanup.setAccessible(true);
+        org.apache.doris.fs.remote.RemoteFileSystem remote = Mockito.mock(
+                org.apache.doris.fs.remote.RemoteFileSystem.class);
+        Mockito.when(remote.deleteDirectory("/exports/")).thenReturn(org.apache.doris.backup.Status.OK);
+        try (MockedStatic<FileSystemFactory> factory = Mockito.mockStatic(FileSystemFactory.class)) {
+            factory.when(() -> FileSystemFactory.get(Mockito.any(
+                    org.apache.doris.datasource.property.storage.StorageProperties.class))).thenReturn(remote);
+            Assertions.assertDoesNotThrow(() -> cleanup.invoke(command, "hdfs", properties));
+            Mockito.verify(remote).deleteDirectory("/exports/");
+        }
+    }
+
     private Plan analyzeInsert(String sql) {
         ConnectContext context = MemoTestUtils.createConnectContext();
         LogicalPlan parsed = new NereidsParser().parseSingle(sql);

@@ -23,6 +23,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -69,12 +70,22 @@ public final class HadoopTvfAdmission {
 
     private HadoopTvfAdmission(Access access, Map<String, String> normalized, boolean nativeConsumer) {
         this.access = access;
+        Set<String> nativeRoutingKeys = new HashSet<>();
         for (Map.Entry<String, String> entry : normalized.entrySet()) {
             // parse_properties / generateHdfsParam consumes the canonical NameNode before JNI.
             if (nativeConsumer && "fs.defaultFS".equalsIgnoreCase(entry.getKey())) {
                 continue;
             }
             String key = (nativeConsumer ? nativeStringPrefix(entry.getKey()) : entry.getKey()).trim();
+            // Native writes first pass through StringCaseMap, before JNI truncates strings.
+            // Its comparator uses strncasecmp followed by the full UTF-8 byte length.
+            if (nativeConsumer && access == Access.NATIVE_WRITE && isRoutingKey(asciiCaseFold(key))) {
+                String identity = asciiCaseFold(nativeStringPrefix(entry.getKey())) + "\0"
+                        + entry.getKey().getBytes(StandardCharsets.UTF_8).length;
+                if (!nativeRoutingKeys.add(identity)) {
+                    reject();
+                }
+            }
             String value = nativeConsumer ? nativeStringPrefix(entry.getValue()) : entry.getValue();
             String previous = properties.put(key, value);
             if (previous != null && !previous.equals(value) && isRoutingKey(key)) {
@@ -160,8 +171,9 @@ public final class HadoopTvfAdmission {
             String value = property(key);
             if (value != null) {
                 value = selector(value).trim();
+                // FileSystem.fixName treats slash-free host[:port] strings as HDFS defaults.
                 defaults.add(new URI("local".equals(value) ? "file:///"
-                        : (uriScheme(value).isEmpty() ? "hdfs://" + value : value)));
+                        : (value.indexOf('/') < 0 ? "hdfs://" + value : value)));
             }
         }
         if (defaults.isEmpty()) {
@@ -219,7 +231,10 @@ public final class HadoopTvfAdmission {
     }
 
     private void checkGlobTargets(String key, Set<String> activeTables) throws URISyntaxException {
-        for (String target : selector(property(key)).split(",")) {
+        for (String target : selector(property(key)).split(",", -1)) {
+            if (target.isEmpty()) {
+                reject();
+            }
             URI uri = new URI(target);
             // Listing can touch any descendant of a selected mount. Reuse the same route
             // interpreter for nested tables instead of assuming their root is representative.
@@ -343,14 +358,15 @@ public final class HadoopTvfAdmission {
                 selectedKeys.add(fallback);
             }
             if (selectedKeys.isEmpty()) {
-                // No explicit target can prove what a BE-inherited mount table will select.
+                // Missing inline fallback does not prove absence of one in default resources.
+                // Keep rejecting unproven routes, including globs that cross mount names.
                 reject();
             }
             for (String key : selectedKeys) {
                 String targets = selector(property(key));
-                for (String target : targets.split(",")) {
+                for (String target : targets.split(",", -1)) {
                     if (target.isEmpty()) {
-                        continue;
+                        reject();
                     }
                     URI uri = new URI(target);
                     if (uri.getScheme() == null) {
@@ -439,7 +455,7 @@ public final class HadoopTvfAdmission {
     }
 
     private static boolean isRoutingKey(String key) {
-        return "fs.defaultFS".equals(key) || "fs.default.name".equals(key)
+        return "fs.defaultFS".equalsIgnoreCase(key) || "fs.default.name".equals(key)
                 || key.startsWith("fs.viewfs.") || (key.startsWith("fs.") && key.endsWith(".impl"));
     }
 
@@ -456,6 +472,15 @@ public final class HadoopTvfAdmission {
 
     private static boolean hasGlob(String path) {
         return firstGlob(path) < path.length();
+    }
+
+    private static String asciiCaseFold(String value) {
+        StringBuilder folded = new StringBuilder(value.length());
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            folded.append(c >= 'A' && c <= 'Z' ? (char) (c + ('a' - 'A')) : c);
+        }
+        return folded.toString();
     }
 
     private static String nativeStringPrefix(String value) {
