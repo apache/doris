@@ -25,6 +25,7 @@ import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.OrcFileFormatProperties;
 import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.tablefunction.LocalTableValuedFunction;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
@@ -83,6 +84,7 @@ public class TVFTableSink extends DataSink {
     }
 
     public void bindDataSink() throws AnalysisException {
+        LocalTableValuedFunction.checkSinkEnabled(tvfName, properties);
         TTVFTableSink tSink = new TTVFTableSink();
         tSink.setTvfName(tvfName);
 

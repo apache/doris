@@ -17,7 +17,10 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -29,15 +32,24 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFTableSink;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.TVFTableSink;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.tablefunction.LocalTableValuedFunction;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 class BindTVFTableSinkTest {
     private boolean originalEnableLocalTvf;
@@ -78,6 +90,87 @@ class BindTVFTableSinkTest {
         for (String name : Arrays.asList("s3", "hdfs")) {
             Assertions.assertInstanceOf(LogicalTVFTableSink.class,
                     analyzeInsert("INSERT INTO " + name + "('file_path'='remote/data', 'format'='csv') SELECT 1"));
+        }
+    }
+
+    @Test
+    void disabledLocalWriterRejectsRemoteInsertAndExplain() {
+        for (String prefix : Arrays.asList("", "EXPLAIN ")) {
+            for (String name : Arrays.asList("s3", "hdfs")) {
+                for (String writer : Arrays.asList("org.apache.doris.writer.LocalFileJniWriter",
+                        "org/apache/doris/writer/LocalFileJniWriter")) {
+                    for (String props : Arrays.asList("", "'file_path'='/tmp/local_gate_', 'format'='csv',")) {
+                        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                                () -> analyzeInsert(prefix + "INSERT INTO " + name + "(" + props
+                                        + "'writer_class'='" + writer + "') SELECT 1"));
+                        Assertions.assertTrue(exception.getMessage().contains("LOCAL TVF is disabled"));
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    void directSinkBindingChecksEffectiveLocalWriter() throws Exception {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("file_path", "s3://bucket/data");
+        properties.put("format", "csv");
+        properties.put("s3.endpoint", "http://127.0.0.1:9000");
+        properties.put("s3.region", "us-east-1");
+        properties.put("s3.access_key", "test-key");
+        properties.put("s3.secret_key", "test-secret");
+        for (String name : Arrays.asList("s3", "hdfs", "local")) {
+            for (String writer : Arrays.asList("org.apache.doris.writer.LocalFileJniWriter",
+                    "org/apache/doris/writer/LocalFileJniWriter",
+                    "org/apache/doris/writer/LocalFileJniWriter\0ignored")) {
+                properties.put("writer_class", writer);
+                TVFTableSink sink = new TVFTableSink(new PlanNodeId(0), name, properties,
+                        Collections.emptyList());
+                AnalysisException exception = Assertions.assertThrows(AnalysisException.class, sink::bindDataSink);
+                Assertions.assertTrue(exception.getMessage().contains("LOCAL TVF is disabled"));
+            }
+        }
+        Config.enable_local_tvf = true;
+        properties.put("writer_class", "org.apache.doris.writer.LocalFileJniWriter");
+        new TVFTableSink(new PlanNodeId(0), "s3", properties, Collections.emptyList()).bindDataSink();
+        Config.enable_local_tvf = false;
+        properties.remove("writer_class");
+        new TVFTableSink(new PlanNodeId(0), "s3", properties, Collections.emptyList()).bindDataSink();
+        properties.put("writer_class", "org.apache.doris.writer.OtherWriter");
+        Assertions.assertDoesNotThrow(() -> LocalTableValuedFunction.checkSinkEnabled("s3", properties));
+    }
+
+    @Test
+    void enabledLocalWriterKeepsRemotePropertyValidation() {
+        Config.enable_local_tvf = true;
+        for (String name : Arrays.asList("s3", "hdfs")) {
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> analyzeInsert("INSERT INTO " + name
+                            + "('writer_class'='org.apache.doris.writer.LocalFileJniWriter') SELECT 1"));
+            Assertions.assertTrue(exception.getMessage().contains("requires 'file_path'"));
+        }
+    }
+
+    @Test
+    void loadUserCannotExecuteLocalWriterWhileDisabled() {
+        ConnectContext context = MemoTestUtils.createConnectContext();
+        String sql = "INSERT INTO s3('file_path'='/tmp/local_gate_', 'format'='csv',"
+                + "'writer_class'='org.apache.doris.writer.LocalFileJniWriter') SELECT 1";
+        MemoTestUtils.createStatementContext(context, sql);
+        InsertIntoTVFCommand command = (InsertIntoTVFCommand) new NereidsParser().parseSingle(sql);
+        Env env = Mockito.spy(Env.getCurrentEnv());
+        AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+        Mockito.doReturn(accessManager).when(env).getAccessManager();
+        Mockito.when(accessManager.checkGlobalPriv(context, PrivPredicate.LOAD)).thenReturn(true);
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> command.run(context, executor));
+            Assertions.assertTrue(exception.getMessage().contains("LOCAL TVF is disabled"));
+            Mockito.verify(accessManager).checkGlobalPriv(context, PrivPredicate.ADMIN);
+            Mockito.verify(accessManager).checkGlobalPriv(context, PrivPredicate.LOAD);
+            Mockito.verifyNoInteractions(executor);
         }
     }
 

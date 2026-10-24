@@ -140,6 +140,20 @@ public class LocalTableValuedFunction extends ExternalFileTableValuedFunction {
         }
     }
 
+    /** Apply LOCAL admission to sinks that select the built-in local JNI writer as well. */
+    public static void checkSinkEnabled(String tvfName, Map<String, String> properties) {
+        String writerClass = properties.getOrDefault("writer_class", "");
+        // JNI consumes a C string, and ScannerLoader accepts slash-separated class names.
+        int nul = writerClass.indexOf('\0');
+        if (nul >= 0) {
+            writerClass = writerClass.substring(0, nul);
+        }
+        if ("local".equalsIgnoreCase(tvfName)
+                || "org.apache.doris.writer.LocalFileJniWriter".equals(writerClass.replace('/', '.'))) {
+            checkEnabled();
+        }
+    }
+
     /** Check read and write admission before properties or backend access. */
     public static void checkEnabled() {
         if (!Config.enable_local_tvf) {
