@@ -51,6 +51,7 @@
 #include "format_v2/orc/orc_reader.h"
 #include "format_v2/parquet/parquet_reader.h"
 #include "format_v2/table/schema_history_util.h" // get_field_ptr
+#include "io/file_factory.h"
 #include "runtime/file_scan_profile.h"
 #include "storage/segment/condition_cache.h"
 #include "util/debug_points.h"
@@ -663,6 +664,7 @@ std::shared_ptr<io::FileSystemProperties> create_system_properties(
     }
     system_properties->system_type = scan_params->file_type;
     system_properties->properties = scan_params->properties;
+    system_properties->azure_client_config = io::azure_client_config_of(*scan_params);
     system_properties->hdfs_params = scan_params->hdfs_params;
     if (scan_params->__isset.broker_addresses) {
         system_properties->broker_addresses.assign(scan_params->broker_addresses.begin(),

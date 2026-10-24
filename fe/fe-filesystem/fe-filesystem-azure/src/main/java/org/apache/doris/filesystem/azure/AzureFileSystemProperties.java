@@ -18,6 +18,7 @@
 package org.apache.doris.filesystem.azure;
 
 import org.apache.doris.filesystem.FileSystemType;
+import org.apache.doris.filesystem.properties.AzureBackendPropertyKeys;
 import org.apache.doris.filesystem.properties.BackendStorageKind;
 import org.apache.doris.filesystem.properties.BackendStorageProperties;
 import org.apache.doris.filesystem.properties.FileSystemProperties;
@@ -61,12 +62,15 @@ public final class AzureFileSystemProperties
     public static final String OAUTH_SERVER_URI = "azure.oauth2_server_uri";
     public static final String OAUTH_ACCOUNT_HOST = "azure.oauth2_account_host";
     public static final String TENANT_ID = "azure.oauth2_client_tenant_id";
+    public static final String SAS_TOKEN = "azure.sas_token";
+    public static final String SAS_TOKEN_EXPIRES_AT_MS = "azure.sas_token_expires_at_ms";
     public static final String AUTH_TYPE = "azure.auth_type";
     public static final String CONTAINER = "container";
     public static final String USE_PATH_STYLE = "use_path_style";
     public static final String FORCE_PARSING_BY_STANDARD_URI = "force_parsing_by_standard_uri";
 
     public static final String SHARED_KEY_AUTH = "SharedKey";
+    public static final String SAS_AUTH = "SAS";
     public static final String OAUTH2_AUTH = "OAuth2";
     public static final String AZURE_ENDPOINT_TEMPLATE = "https://%s.blob.core.windows.net";
 
@@ -126,9 +130,22 @@ public final class AzureFileSystemProperties
             description = "The Azure AD tenant id used by the native Azure SDK.")
     private String tenantId = "";
 
-    @ConnectorProperty(names = {AUTH_TYPE},
+    @ConnectorProperty(names = {SAS_TOKEN, AzureBackendPropertyKeys.SAS_TOKEN},
             required = false,
-            description = "The auth type of Azure Blob Storage.")
+            sensitive = true,
+            description = "The shared access signature (SAS) token used when auth_type is SAS, "
+                    + "without the leading '?'.")
+    private String sasToken = "";
+
+    @ConnectorProperty(names = {SAS_TOKEN_EXPIRES_AT_MS, AzureBackendPropertyKeys.SAS_EXPIRES_AT_MS},
+            required = false,
+            description = "The expiry of sas_token in Unix milliseconds, when known, e.g. the expiry an "
+                    + "Iceberg REST catalog vends with the token. BE rejects the token once it has expired.")
+    private String sasTokenExpiresAtMs = "";
+
+    @ConnectorProperty(names = {AUTH_TYPE, AzureBackendPropertyKeys.AUTH_TYPE},
+            required = false,
+            description = "The auth type of Azure Blob Storage: SharedKey, SAS or OAuth2.")
     private String azureAuthType = SHARED_KEY_AUTH;
 
     @ConnectorProperty(names = {CONTAINER, "azure.bucket", "azure.container", "s3.bucket",
@@ -168,11 +185,16 @@ public final class AzureFileSystemProperties
     @Override
     public void validate() {
         new ParamRules()
-                .check(() -> !isSharedKeyAuth() && !isOauth2Auth(),
+                .check(() -> !isSharedKeyAuth() && !isSasAuth() && !isOauth2Auth(),
                         "Unsupported Azure auth_type: " + azureAuthType)
                 .check(() -> isSharedKeyAuth()
                                 && (StringUtils.isBlank(accountName) || StringUtils.isBlank(accountKey)),
                         "When auth_type is SharedKey, account_name and account_key are required.")
+                .check(() -> isSasAuth() && (StringUtils.isBlank(sasToken) || StringUtils.isBlank(endpoint)),
+                        "When auth_type is SAS, sas_token and either endpoint or account_name are required.")
+                .check(() -> isSasAuth() && StringUtils.isNotBlank(sasTokenExpiresAtMs)
+                                && !StringUtils.isNumeric(sasTokenExpiresAtMs),
+                        "sas_token_expires_at_ms must be Unix milliseconds.")
                 .check(() -> isOauth2Auth()
                                 && (StringUtils.isBlank(oauthAccountHost)
                                 || StringUtils.isBlank(clientId)
@@ -231,23 +253,67 @@ public final class AzureFileSystemProperties
 
     @Override
     public Map<String, String> toMap() {
-        // OAuth2 has no AK/SK equivalent that the BE S3-compatible adapter can consume;
-        // OAuth2 access currently only works through the Hadoop ABFS connector (the Iceberg
-        // REST catalog / OneLake path), so hand over the fs.azure.* OAuth config instead of
-        // S3-style params. Mirrors legacy AzureProperties.getBackendConfigProperties();
-        // native-SDK OAuth2 support may replace this in the future.
+        // OAuth2 has no AK/SK equivalent that the BE S3-compatible adapter can consume, so its
+        // map is the fs.azure.* OAuth config consumed by the Hadoop ABFS connector (the OneLake
+        // FILE_HDFS path). Mirrors legacy AzureProperties.getBackendConfigProperties().
+        //
+        // Every arm also carries the neutral AZURE_* keys (see nativeBackendProperties()), which
+        // fe-core turns into the typed TAzureClientConfig for FILE_S3 scans. That is how SAS and
+        // OAuth2 reach the native BE client; the S3-style keys stay for BEs without that field.
+        Map<String, String> props;
         if (isOauth2Auth()) {
-            return oauth2BackendProperties();
+            props = new HashMap<>(oauth2BackendProperties());
+        } else {
+            props = new HashMap<>();
+            props.put("AWS_ENDPOINT", endpoint);
+            props.put("AWS_REGION", "dummy_region");
+            // SAS has no S3-style representation: an old BE reading this map gets no key and
+            // its requests are rejected, rather than being signed with a wrong credential.
+            if (isSharedKeyAuth()) {
+                props.put("AWS_ACCESS_KEY", accountName);
+                props.put("AWS_SECRET_KEY", accountKey);
+            }
+            props.put("AWS_NEED_OVERRIDE_ENDPOINT", "true");
+            props.put("provider", "azure");
+            props.put("use_path_style", usePathStyle);
         }
-        Map<String, String> s3Props = new HashMap<>();
-        s3Props.put("AWS_ENDPOINT", endpoint);
-        s3Props.put("AWS_REGION", "dummy_region");
-        s3Props.put("AWS_ACCESS_KEY", accountName);
-        s3Props.put("AWS_SECRET_KEY", accountKey);
-        s3Props.put("AWS_NEED_OVERRIDE_ENDPOINT", "true");
-        s3Props.put("provider", "azure");
-        s3Props.put("use_path_style", usePathStyle);
-        return Collections.unmodifiableMap(s3Props);
+        props.putAll(nativeBackendProperties());
+        return Collections.unmodifiableMap(props);
+    }
+
+    /**
+     * Neutral native-access keys ({@link AzureBackendPropertyKeys}) for the selected auth type.
+     * The OAuth2 tenant comes from {@code oauth2_client_tenant_id}, or from the tenant segment of
+     * {@code oauth2_server_uri} (see {@link #resolveTenantId()}), as for the FE SDK client; the
+     * authority host is the scheme and host of {@code oauth2_server_uri}.
+     */
+    private Map<String, String> nativeBackendProperties() {
+        Map<String, String> nativeProps = new HashMap<>();
+        nativeProps.put(AzureBackendPropertyKeys.ENDPOINT, endpoint);
+        if (StringUtils.isNotBlank(accountName)) {
+            nativeProps.put(AzureBackendPropertyKeys.ACCOUNT_NAME, accountName);
+        }
+        if (StringUtils.isNotBlank(container)) {
+            nativeProps.put(AzureBackendPropertyKeys.CONTAINER, container);
+        }
+        if (isSharedKeyAuth()) {
+            nativeProps.put(AzureBackendPropertyKeys.AUTH_TYPE, AzureBackendPropertyKeys.AUTH_SHARED_KEY);
+            nativeProps.put(AzureBackendPropertyKeys.ACCOUNT_KEY, accountKey);
+        } else if (isSasAuth()) {
+            nativeProps.put(AzureBackendPropertyKeys.AUTH_TYPE, AzureBackendPropertyKeys.AUTH_SAS);
+            nativeProps.put(AzureBackendPropertyKeys.SAS_TOKEN, sasToken);
+            if (StringUtils.isNotBlank(sasTokenExpiresAtMs)) {
+                nativeProps.put(AzureBackendPropertyKeys.SAS_EXPIRES_AT_MS, sasTokenExpiresAtMs);
+            }
+        } else {
+            nativeProps.put(AzureBackendPropertyKeys.AUTH_TYPE, AzureBackendPropertyKeys.AUTH_OAUTH2);
+            nativeProps.put(AzureBackendPropertyKeys.TENANT_ID, resolveTenantId().orElse(""));
+            nativeProps.put(AzureBackendPropertyKeys.CLIENT_ID, clientId);
+            nativeProps.put(AzureBackendPropertyKeys.CLIENT_SECRET, clientSecret);
+            resolveAuthorityHost().ifPresent(
+                    host -> nativeProps.put(AzureBackendPropertyKeys.AUTHORITY_HOST, host));
+        }
+        return nativeProps;
     }
 
     @Override
@@ -269,6 +335,10 @@ public final class AzureFileSystemProperties
             cfg.put("fs.azure.account.oauth2.client.id." + oauthAccountHost, clientId);
             cfg.put("fs.azure.account.oauth2.client.secret." + oauthAccountHost, clientSecret);
             cfg.put("fs.azure.account.oauth2.client.endpoint." + oauthAccountHost, oauthServerUri);
+        } else if (isSasAuth()) {
+            // hadoop-azure's FixedSASTokenProvider serves this token for every ABFS request.
+            cfg.put("fs.azure.account.auth.type", "SAS");
+            cfg.put("fs.azure.sas.fixed.token", sasToken);
         } else {
             for (String suffix : normalizedAzureBlobHostSuffixes()) {
                 cfg.put("fs.azure.account.key." + accountName + "." + suffix, accountKey);
@@ -363,6 +433,10 @@ public final class AzureFileSystemProperties
         return azureAuthType;
     }
 
+    public String getSasToken() {
+        return sasToken;
+    }
+
     public String getContainer() {
         return container;
     }
@@ -377,6 +451,10 @@ public final class AzureFileSystemProperties
 
     public boolean isSharedKeyAuth() {
         return SHARED_KEY_AUTH.equalsIgnoreCase(azureAuthType);
+    }
+
+    public boolean isSasAuth() {
+        return SAS_AUTH.equalsIgnoreCase(azureAuthType);
     }
 
     public boolean isOauth2Auth() {
@@ -410,15 +488,40 @@ public final class AzureFileSystemProperties
         }
     }
 
+    /**
+     * Scheme and host of {@code oauth2_server_uri}, e.g. {@code https://login.microsoftonline.com/}
+     * for {@code https://login.microsoftonline.com/<tenant>/oauth2/token}. Empty when the URI has
+     * no host, in which case BE uses the SDK default (Azure public cloud).
+     */
+    public Optional<String> resolveAuthorityHost() {
+        if (StringUtils.isBlank(oauthServerUri)) {
+            return Optional.empty();
+        }
+        try {
+            URI uri = new URI(oauthServerUri);
+            if (StringUtils.isBlank(uri.getScheme()) || StringUtils.isBlank(uri.getHost())) {
+                return Optional.empty();
+            }
+            String port = uri.getPort() == -1 ? "" : ":" + uri.getPort();
+            return Optional.of(uri.getScheme() + "://" + uri.getHost() + port + "/");
+        } catch (URISyntaxException e) {
+            return Optional.empty();
+        }
+    }
+
     private void normalize() {
         endpoint = formatAzureEndpoint(endpoint, accountName, oauthAccountHost);
         if (StringUtils.isNotBlank(azureAuthType)) {
             if (SHARED_KEY_AUTH.equalsIgnoreCase(azureAuthType)) {
                 azureAuthType = SHARED_KEY_AUTH;
+            } else if (SAS_AUTH.equalsIgnoreCase(azureAuthType)) {
+                azureAuthType = SAS_AUTH;
             } else if (OAUTH2_AUTH.equalsIgnoreCase(azureAuthType)) {
                 azureAuthType = OAUTH2_AUTH;
             }
         }
+        // Accept a token copied with its leading '?' from a URL.
+        sasToken = StringUtils.removeStart(sasToken, "?");
     }
 
     private static String formatAzureEndpoint(String endpoint, String accountName, String accountHost) {

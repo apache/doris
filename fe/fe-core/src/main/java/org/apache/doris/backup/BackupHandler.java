@@ -197,6 +197,14 @@ public class BackupHandler extends MasterDaemon implements Writable {
         }
     }
 
+    // BE uploads and downloads snapshots with the S3-style backend map, which carries only
+    // SharedKey for Azure.
+    private static void checkRepositoryAzureAuth(StorageAdapter storageAdapter) throws DdlException {
+        if (storageAdapter.isAzureTokenAuth()) {
+            throw new DdlException("Repository supports only SharedKey for Azure, not SAS or OAuth2");
+        }
+    }
+
     // handle create repository command
     public void createRepository(CreateRepositoryCommand command) throws DdlException {
         if (!env.getBrokerMgr().containsBroker(command.getBrokerName())
@@ -205,6 +213,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
                     "broker does not exist: " + command.getBrokerName());
         }
 
+        checkRepositoryAzureAuth(command.getStorageAdapter());
         long repoId = env.getNextId();
         Repository repo = new Repository(repoId, command.getName(), command.isReadOnly(), command.getLocation(),
                 command.getStorageAdapter());
@@ -239,10 +248,12 @@ public class BackupHandler extends MasterDaemon implements Writable {
             }
             // Merge new properties with the existing repository's properties
             Map<String, String> mergedProps = mergeProperties(oldRepo, newProps);
+            StorageAdapter storageAdapter = StorageAdapter.of(mergedProps);
+            checkRepositoryAzureAuth(storageAdapter);
             // Create new Repository instance with merged properties
             Repository newRepo = new Repository(
                     oldRepo.getId(), oldRepo.getName(), oldRepo.isReadOnly(),
-                    oldRepo.getLocation(), StorageAdapter.of(mergedProps)
+                    oldRepo.getLocation(), storageAdapter
             );
             // Verify the repository can be connected with new settings
             if (!newRepo.ping()) {

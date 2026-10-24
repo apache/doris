@@ -59,7 +59,7 @@ enum class S3RateLimitRejectReason {
 };
 
 // Owns the 4 process-wide token buckets (GET/PUT x QPS/bytes). Independent of
-// S3ClientFactory so that instantiating it never initializes the AWS SDK.
+// AwsSdkManager so that instantiating it never initializes the AWS SDK.
 class S3RateLimiterManager {
 public:
     static S3RateLimiterManager& instance();

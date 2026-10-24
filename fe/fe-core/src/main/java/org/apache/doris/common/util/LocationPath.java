@@ -126,6 +126,25 @@ public class LocationPath {
     public static LocationPath ofAdapters(String location,
                                           Map<StorageTypeId, StorageAdapter> storageAdaptersMap,
                                           boolean normalize) throws UserException {
+        return ofAdapters(location, storageAdaptersMap, normalize, false);
+    }
+
+    /**
+     * Normalizing factory for BE requests that carry typed native access: Azure locations keep
+     * their native form (see {@link StorageAdapter#validateAndNormalizeUriForNativeAccess}).
+     */
+    public static LocationPath ofAdaptersForNativeAccess(String location,
+                                                         Map<StorageTypeId, StorageAdapter> storageAdaptersMap) {
+        try {
+            return LocationPath.ofAdapters(location, storageAdaptersMap, true, true);
+        } catch (UserException | StoragePropertiesException e) {
+            throw new StoragePropertiesException("Failed to create LocationPath for location: " + location, e);
+        }
+    }
+
+    private static LocationPath ofAdapters(String location,
+                                           Map<StorageTypeId, StorageAdapter> storageAdaptersMap,
+                                           boolean normalize, boolean nativeAccess) throws UserException {
         String schema = extractScheme(location);
         String normalizedLocation = location;
         StorageAdapter storageAdapter = null;
@@ -139,7 +158,9 @@ public class LocationPath {
             if (storageAdapter == null) {
                 throw new UserException("No storage properties found for schema: " + schema);
             }
-            normalizedLocation = storageAdapter.validateAndNormalizeUri(location);
+            normalizedLocation = nativeAccess
+                    ? storageAdapter.validateAndNormalizeUriForNativeAccess(location)
+                    : storageAdapter.validateAndNormalizeUri(location);
             if (StringUtils.isBlank(normalizedLocation)) {
                 throw new IllegalArgumentException("Invalid location: " + location + ", normalized location is null");
             }

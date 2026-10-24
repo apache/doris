@@ -1754,6 +1754,8 @@ DEFINE_Int64(wait_cancel_release_memory_ms, "5000");
 DEFINE_mBool(check_segment_when_build_rowset_meta, "false");
 
 DEFINE_mInt32(max_s3_client_retry, "10");
+DEFINE_mInt32(azure_client_cache_capacity, "256");
+DEFINE_Validator(azure_client_cache_capacity, [](const int config) -> bool { return config > 0; });
 DEFINE_mInt32(s3_read_base_wait_time_ms, "100");
 DEFINE_mInt32(s3_read_max_wait_time_ms, "800");
 DEFINE_mBool(enable_s3_object_check_after_upload, "true");

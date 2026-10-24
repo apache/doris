@@ -564,11 +564,13 @@ private:
 class ParquetBloomProbeModeHandler final : public ParquetMetadataReader::ModeHandler {
 public:
     ParquetBloomProbeModeHandler(RuntimeState* state, TFileType::type file_type,
-                                 std::map<std::string, std::string> properties, std::string column,
-                                 std::string literal)
+                                 std::map<std::string, std::string> properties,
+                                 std::optional<TAzureClientConfig> azure_client_config,
+                                 std::string column, std::string literal)
             : ModeHandler(state),
               _file_type(file_type),
               _properties(std::move(properties)),
+              _azure_client_config(std::move(azure_client_config)),
               _column(std::move(column)),
               _literal(std::move(literal)) {}
 
@@ -599,6 +601,7 @@ public:
         io::FileSystemProperties system_properties;
         system_properties.system_type = _file_type;
         system_properties.properties = _properties;
+        system_properties.azure_client_config = _azure_client_config;
         io::FileDescription file_desc;
         file_desc.path = path;
         io::FileReaderSPtr file_reader = DORIS_TRY(FileFactory::create_file_reader(
@@ -638,6 +641,7 @@ private:
     std::array<int, BLOOM_COLUMN_COUNT> _slot_pos {};
     TFileType::type _file_type;
     std::map<std::string, std::string> _properties;
+    std::optional<TAzureClientConfig> _azure_client_config;
     std::string _column;
     std::string _literal;
 
@@ -727,7 +731,8 @@ Status ParquetMetadataReader::init_reader() {
         _mode_handler = std::make_unique<ParquetKeyValueModeHandler>(_state);
     } else if (_mode_type == Mode::BLOOM_PROBE) {
         _mode_handler = std::make_unique<ParquetBloomProbeModeHandler>(
-                _state, _file_type, _properties, _bloom_column, _bloom_literal);
+                _state, _file_type, _properties, _azure_client_config, _bloom_column,
+                _bloom_literal);
     } else {
         _mode_handler = std::make_unique<ParquetMetadataModeHandler>(_state);
     }
@@ -765,6 +770,9 @@ Status ParquetMetadataReader::_init_from_scan_range(const TMetaScanRange& scan_r
     }
     if (params.__isset.properties) {
         _properties = params.properties;
+    }
+    if (params.__isset.azure_client_config) {
+        _azure_client_config = params.azure_client_config;
     }
     if (params.__isset.bloom_column) {
         _bloom_column = params.bloom_column;
@@ -853,6 +861,7 @@ Status ParquetMetadataReader::_append_file_rows(const std::string& path,
     io::FileSystemProperties system_properties;
     system_properties.system_type = _file_type;
     system_properties.properties = _properties;
+    system_properties.azure_client_config = _azure_client_config;
     if (_file_type == TFileType::FILE_HDFS) {
         system_properties.hdfs_params = ::doris::parse_properties(system_properties.properties);
     }

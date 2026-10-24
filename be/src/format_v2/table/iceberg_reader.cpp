@@ -1352,6 +1352,7 @@ std::shared_ptr<io::FileSystemProperties> IcebergTableReader::_delete_file_syste
     system_properties->system_type =
             scan_params.__isset.file_type ? scan_params.file_type : TFileType::FILE_LOCAL;
     system_properties->properties = scan_params.properties;
+    system_properties->azure_client_config = io::azure_client_config_of(scan_params);
     system_properties->hdfs_params = scan_params.hdfs_params;
     if (scan_params.__isset.broker_addresses) {
         system_properties->broker_addresses.assign(scan_params.broker_addresses.begin(),

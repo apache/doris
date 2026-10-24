@@ -85,6 +85,9 @@ public:
             TPushAggOp::type agg_type, const std::optional<std::vector<int32_t>>& count_slot_ids) {
         return _effective_push_down_agg_type(agg_type, count_slot_ids);
     }
+    static Status TEST_check_storage_access(const TFileScanRangeParams& params) {
+        return _check_storage_access(params);
+    }
 #endif
 
     FileScanner(RuntimeState* state, FileScanLocalState* parent, int64_t limit,
@@ -338,6 +341,11 @@ private:
     size_t _predict_reader_batch_rows();
     void _update_adaptive_batch_size_before_truncate(const Block& block);
     void _update_adaptive_batch_size_after_truncate(const Block& block);
+
+    // Typed Azure SAS / OAuth2 access is served only by FileScannerV2. Scanner V1 rejects it
+    // instead of letting its readers fall back to the S3-style keys, which can express only
+    // SharedKey; SharedKey still works because those keys carry it.
+    static Status _check_storage_access(const TFileScanRangeParams& params);
 
     static TPushAggOp::type _effective_push_down_agg_type(
             TPushAggOp::type agg_type, const std::optional<std::vector<int32_t>>& count_slot_ids) {

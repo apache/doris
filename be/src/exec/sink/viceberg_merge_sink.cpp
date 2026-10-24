@@ -414,6 +414,9 @@ Status VIcebergMergeSink::_build_inner_sinks() {
     if (merge_sink.__isset.nan_count_field_ids) {
         table_sink.__set_nan_count_field_ids(merge_sink.nan_count_field_ids);
     }
+    if (merge_sink.__isset.azure_client_config) {
+        table_sink.__set_azure_client_config(merge_sink.azure_client_config);
+    }
     _table_sink.__set_type(TDataSinkType::ICEBERG_TABLE_SINK);
     _table_sink.__set_iceberg_table_sink(table_sink);
 
@@ -459,6 +462,9 @@ Status VIcebergMergeSink::_build_inner_sinks() {
     }
     if (merge_sink.__isset.rewritable_delete_file_sets) {
         delete_sink.__set_rewritable_delete_file_sets(merge_sink.rewritable_delete_file_sets);
+    }
+    if (merge_sink.__isset.azure_client_config) {
+        delete_sink.__set_azure_client_config(merge_sink.azure_client_config);
     }
     _delete_sink.__set_type(TDataSinkType::ICEBERG_DELETE_SINK);
     _delete_sink.__set_iceberg_delete_sink(delete_sink);

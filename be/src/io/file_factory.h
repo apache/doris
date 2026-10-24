@@ -24,6 +24,7 @@
 
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 
 #include "common/factory_creator.h"
@@ -42,13 +43,29 @@ struct FileSystemProperties {
     std::map<std::string, std::string> properties;
     THdfsParams hdfs_params;
     std::vector<TNetworkAddress> broker_addresses;
+    // Typed native Azure access for FILE_S3, copied from TFileScanRangeParams. When set,
+    // FileFactory builds the Azure client from it and ignores the S3-style Azure keys in
+    // `properties`.
+    std::optional<TAzureClientConfig> azure_client_config {};
 };
+
+// The typed native Azure access a scan carries, if FE sent one
+// (TFileScanRangeParams.azure_client_config); every reader that builds FileSystemProperties from
+// scan parameters copies it through this.
+inline std::optional<TAzureClientConfig> azure_client_config_of(
+        const TFileScanRangeParams& params) {
+    return params.__isset.azure_client_config
+                   ? std::optional<TAzureClientConfig>(params.azure_client_config)
+                   : std::nullopt;
+}
 
 struct FSPropertiesRef {
     TFileType::type type;
     const std::map<std::string, std::string>* properties {nullptr};
     const THdfsParams* hdfs_params {nullptr};
     const std::vector<TNetworkAddress>* broker_addresses {nullptr};
+    // Typed native Azure access for FILE_S3; see FileSystemProperties::azure_client_config.
+    const TAzureClientConfig* azure_client_config {nullptr};
 
     FSPropertiesRef(TFileType::type type_) : type(type_) {}
 
@@ -56,7 +73,10 @@ struct FSPropertiesRef {
             : type(fs_properties.system_type),
               properties(&fs_properties.properties),
               hdfs_params(&fs_properties.hdfs_params),
-              broker_addresses(&fs_properties.broker_addresses) {}
+              broker_addresses(&fs_properties.broker_addresses),
+              azure_client_config(fs_properties.azure_client_config.has_value()
+                                          ? &*fs_properties.azure_client_config
+                                          : nullptr) {}
 };
 
 struct FileDescription {
@@ -99,12 +119,14 @@ public:
     static Result<io::FileSystemSPtr> create_fs(const io::FSPropertiesRef& fs_properties,
                                                 const io::FileDescription& file_description);
 
-    /// Create FileWriter without FS
+    /// Create FileWriter without FS. A non-null azure_client_config selects typed Azure access
+    /// for FILE_S3, as in create_fs.
     static Result<io::FileWriterPtr> create_file_writer(
             TFileType::type type, ExecEnv* env,
             const std::vector<TNetworkAddress>& broker_addresses,
             const std::map<std::string, std::string>& properties, const std::string& path,
-            const io::FileWriterOptions& options);
+            const io::FileWriterOptions& options,
+            const TAzureClientConfig* azure_client_config = nullptr);
 
     /// Create FileReader without FS
     static Result<io::FileReaderSPtr> create_file_reader(

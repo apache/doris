@@ -51,7 +51,7 @@
 
 namespace doris {
 namespace io {
-class S3FileSystem;
+class ObjStorageFileSystem;
 } // namespace io
 class RuntimeFilter;
 
@@ -1065,7 +1065,7 @@ private:
     std::vector<std::shared_ptr<RuntimeProfile>> _pipeline_id_to_profile;
 
     // save error log to s3
-    std::shared_ptr<io::S3FileSystem> _s3_error_fs;
+    std::shared_ptr<io::ObjStorageFileSystem> _s3_error_fs;
     // error file path on s3, ${bucket}/${prefix}/error_log/${label}_${fragment_instance_id}
     std::string _s3_error_log_file_path;
     // Protects the load error log stream, paths, and first error message.

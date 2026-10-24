@@ -83,6 +83,9 @@ VIcebergPartitionWriter::VIcebergPartitionWriter(
     if (t_sink.iceberg_table_sink.__isset.nan_count_field_ids) {
         _nan_count_field_ids = t_sink.iceberg_table_sink.nan_count_field_ids;
     }
+    if (t_sink.iceberg_table_sink.__isset.azure_client_config) {
+        _azure_client_config = t_sink.iceberg_table_sink.azure_client_config;
+    }
 }
 
 Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profile,
@@ -93,10 +96,13 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
     if (!_write_info.broker_addresses.empty()) {
         fs_properties.broker_addresses = &(_write_info.broker_addresses);
     }
+    if (_azure_client_config.has_value()) {
+        fs_properties.azure_client_config = &*_azure_client_config;
+    }
     _path = fmt::format("{}/{}", _write_info.write_path, _get_target_file_name());
     io::FileDescription file_description = {.path = _path, .fs_name {}};
     _fs = DORIS_TRY(FileFactory::create_fs(fs_properties, file_description));
-    io::FileWriterOptions file_writer_options = {.used_by_s3_committer = false};
+    io::FileWriterOptions file_writer_options = {.deferred_completion = false};
     RETURN_IF_ERROR(_fs->create_file(file_description.path, &_file_writer, &file_writer_options));
 
     Status open_status;

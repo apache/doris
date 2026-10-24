@@ -52,8 +52,8 @@
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/cached_remote_file_reader.h"
 #include "io/file_factory.h"
-#include "io/fs/s3_file_system.h"
-#include "io/fs/s3_file_writer.h"
+#include "io/fs/obj_storage_file_system.h"
+#include "io/fs/obj_storage_file_writer.h"
 #include "rapidjson/document.h"
 #include "rapidjson/stringbuffer.h"
 #include "rapidjson/writer.h"
@@ -339,7 +339,7 @@ public:
     doris::Status close() { return _writer.close(); }
 
 private:
-    doris::io::S3FileWriter _writer;
+    doris::io::ObjStorageFileWriter _writer;
     std::shared_ptr<doris::S3RateLimiterHolder> _rate_limiter;
 };
 
@@ -1486,26 +1486,41 @@ private:
         return static_cast<size_t>(dis(gen));
     }
 
-    doris::S3ClientConf create_s3_client_conf(const JobConfig& config) {
-        doris::S3ClientConf s3_conf;
-        s3_conf.max_connections = std::max(256, config.num_threads * 4);
-        s3_conf.request_timeout_ms = 60000;
-        s3_conf.connect_timeout_ms = 3000;
-        s3_conf.ak = doris::config::test_s3_ak;
-        s3_conf.sk = doris::config::test_s3_sk;
-        s3_conf.region = doris::config::test_s3_region;
-        s3_conf.endpoint = doris::config::test_s3_endpoint;
-        return s3_conf;
+    doris::io::ObjClientConfig create_s3_client_config(const JobConfig& config) {
+        return doris::io::ObjClientConfig {
+                .connection =
+                        {
+                                .max_connections = std::max(256, config.num_threads * 4),
+                                .request_timeout_ms = 60000,
+                                .connect_timeout_ms = 3000,
+                        },
+                .usage = doris::io::ClientUsage::EXTERNAL_ACCESS,
+                .backend =
+                        doris::io::S3ClientConfig {
+                                .vendor = doris::io::ObjStorageProvider::AWS,
+                                .endpoint = doris::config::test_s3_endpoint,
+                                .region = doris::config::test_s3_region,
+                                .need_override_endpoint = true,
+                                .use_virtual_addressing = true,
+                                .auth =
+                                        {
+                                                .access_key = doris::config::test_s3_ak,
+                                                .secret_key = doris::config::test_s3_sk,
+                                                .session_token = "",
+                                                .provider_type = doris::CredProviderType::Default,
+                                                .role_arn = "",
+                                                .external_id = "",
+                                        },
+                        },
+        };
     }
 
     // Execute write tasks
     void execute_write_tasks(const std::vector<std::string>& keys, Job& job,
                              const JobConfig& config) {
         // Create S3 client configuration
-        doris::S3ClientConf s3_conf = create_s3_client_conf(config);
-
         // Initialize S3 client
-        auto client = std::make_shared<doris::io::ObjClientHolder>(s3_conf);
+        auto client = std::make_shared<doris::io::ObjClientHolder>(create_s3_client_config(config));
         doris::Status init_status = client->init();
         if (!init_status.ok()) {
             throw std::runtime_error("Failed to initialize S3 client: " + init_status.to_string());
@@ -1736,7 +1751,8 @@ private:
         doris::MonotonicStopWatch read_stopwatch; // Add read task timer
 
         // Create S3 client configuration
-        doris::S3ClientConf s3_conf = create_s3_client_conf(config);
+        doris::io::ObjClientConfig client_config = create_s3_client_config(config);
+        const auto& s3_conf = std::get<doris::io::S3ClientConfig>(client_config.backend);
         std::vector<std::string> read_files;
         if (exist_job_perfile_size != -1) {
             // read exist files
@@ -1779,13 +1795,16 @@ private:
                     fs_props.system_type = doris::TFileType::FILE_S3;
 
                     std::map<std::string, std::string> props;
-                    props["AWS_ACCESS_KEY"] = s3_conf.ak;
-                    props["AWS_SECRET_KEY"] = s3_conf.sk;
+                    props["AWS_ACCESS_KEY"] = s3_conf.auth.access_key;
+                    props["AWS_SECRET_KEY"] = s3_conf.auth.secret_key;
                     props["AWS_ENDPOINT"] = s3_conf.endpoint;
                     props["AWS_REGION"] = s3_conf.region;
-                    props["AWS_MAX_CONNECTIONS"] = std::to_string(s3_conf.max_connections);
-                    props["AWS_REQUEST_TIMEOUT_MS"] = std::to_string(s3_conf.request_timeout_ms);
-                    props["AWS_CONNECT_TIMEOUT_MS"] = std::to_string(s3_conf.connect_timeout_ms);
+                    props["AWS_MAX_CONNECTIONS"] =
+                            std::to_string(client_config.connection.max_connections);
+                    props["AWS_REQUEST_TIMEOUT_MS"] =
+                            std::to_string(client_config.connection.request_timeout_ms);
+                    props["AWS_CONNECT_TIMEOUT_MS"] =
+                            std::to_string(client_config.connection.connect_timeout_ms);
                     props["use_path_style"] = s3_conf.use_virtual_addressing ? "false" : "true";
 
                     fs_props.properties = std::move(props);

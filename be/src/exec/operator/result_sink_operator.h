@@ -20,6 +20,8 @@
 #include <gen_cpp/PlanNodes_types.h>
 #include <stdint.h>
 
+#include <optional>
+
 #include "exec/operator/operator.h"
 #include "exec/sink/writer/result_writer.h"
 #include "runtime/result_block_buffer.h"
@@ -68,6 +70,8 @@ struct ResultFileOptions {
     // Zero-pad the per-file index in the output file name to this many digits.
     // 0 means no padding, preserving the historical name format.
     int file_name_padding = 0;
+    // Typed native Azure access for FILE_S3; see TResultFileSinkOptions.azure_client_config.
+    std::optional<TAzureClientConfig> azure_client_config;
 
     ResultFileOptions(const TResultFileSinkOptions& t_opt) {
         file_path = t_opt.file_path;
@@ -92,6 +96,9 @@ struct ResultFileOptions {
         }
         if (t_opt.__isset.broker_properties) {
             broker_properties = t_opt.broker_properties;
+        }
+        if (t_opt.__isset.azure_client_config) {
+            azure_client_config = t_opt.azure_client_config;
         }
         if (t_opt.__isset.success_file_name) {
             success_file_name = t_opt.success_file_name;

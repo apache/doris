@@ -46,6 +46,7 @@
 #include "common/config.h"
 #include "common/metrics/doris_metrics.h"
 #include "common/status.h"
+#include "io/obj_storage/obj_storage_config.h"
 #include "load/routine_load/consumer_helpers.h"
 #include "load/routine_load/kinesis_conf.h"
 #include "runtime/aws_msk_iam_auth.h"
@@ -673,7 +674,7 @@ Status KinesisDataConsumer::init(std::shared_ptr<StreamLoadContext> ctx) {
 }
 
 Status KinesisDataConsumer::_create_kinesis_client(std::shared_ptr<StreamLoadContext> ctx) {
-    // Reuse S3ClientFactory's credential provider logic
+    // Reuse AwsSdkManager's credential provider logic
     // This supports all AWS authentication methods:
     // - Simple AK/SK
     // - IAM instance profile (EC2)
@@ -682,9 +683,7 @@ Status KinesisDataConsumer::_create_kinesis_client(std::shared_ptr<StreamLoadCon
     // - Environment variables
     // - Default credential chain
 
-    S3ClientConf s3_conf;
-    s3_conf.region = _region;
-    s3_conf.endpoint = _endpoint;
+    io::S3AuthConfig auth;
 
     auto get_property = [this](const char* key) -> std::string {
         auto it = _custom_properties.find(key);
@@ -695,26 +694,26 @@ Status KinesisDataConsumer::_create_kinesis_client(std::shared_ptr<StreamLoadCon
     };
 
     // Keep one naming convention aligned with FE-side Kinesis properties.
-    s3_conf.ak = get_property("aws.access_key");
-    s3_conf.sk = get_property("aws.secret_key");
-    s3_conf.token = get_property("aws.session_key");
-    s3_conf.role_arn = get_property("aws.role_arn");
-    s3_conf.external_id = get_property("aws.external.id");
+    auth.access_key = get_property("aws.access_key");
+    auth.secret_key = get_property("aws.secret_key");
+    auth.session_token = get_property("aws.session_key");
+    auth.role_arn = get_property("aws.role_arn");
+    auth.external_id = get_property("aws.external.id");
 
     const std::string provider = get_property("aws.credentials.provider");
     if (!provider.empty()) {
         // Map provider type string to enum
         if (provider == "instance_profile") {
-            s3_conf.cred_provider_type = CredProviderType::InstanceProfile;
+            auth.provider_type = CredProviderType::InstanceProfile;
         } else if (provider == "env") {
-            s3_conf.cred_provider_type = CredProviderType::Env;
+            auth.provider_type = CredProviderType::Env;
         } else if (provider == "simple") {
-            s3_conf.cred_provider_type = CredProviderType::Simple;
+            auth.provider_type = CredProviderType::Simple;
         }
     }
 
     // Create AWS ClientConfiguration
-    Aws::Client::ClientConfiguration aws_config = S3ClientFactory::getClientConfiguration();
+    Aws::Client::ClientConfiguration aws_config = AwsSdkManager::getClientConfiguration();
     aws_config.region = _region;
 
     if (!_endpoint.empty()) {
@@ -753,7 +752,7 @@ Status KinesisDataConsumer::_create_kinesis_client(std::shared_ptr<StreamLoadCon
     }
 
     // Create credentials provider (reuses S3 infrastructure)
-    auto credentials = S3ClientFactory::instance().create_aws_credentials_provider(s3_conf);
+    auto credentials = AwsSdkManager::instance().create_aws_credentials_provider(auth);
     if (!credentials) {
         return Status::InvalidArgument("Failed to create AWS credential provider: {}",
                                        credentials.error);

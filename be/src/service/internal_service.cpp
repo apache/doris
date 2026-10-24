@@ -803,13 +803,15 @@ void PInternalService::outfile_write_success(google::protobuf::RpcController* co
             return;
         }
 
-        auto&& res = FileFactory::create_file_writer(file_type_res.value(), ExecEnv::GetInstance(),
-                                                     file_options.broker_addresses,
-                                                     file_options.broker_properties, file_name,
-                                                     {
-                                                             .write_file_cache = false,
-                                                             .sync_file_data = false,
-                                                     });
+        auto&& res = FileFactory::create_file_writer(
+                file_type_res.value(), ExecEnv::GetInstance(), file_options.broker_addresses,
+                file_options.broker_properties, file_name,
+                {
+                        .write_file_cache = false,
+                        .sync_file_data = false,
+                },
+                file_options.__isset.azure_client_config ? &file_options.azure_client_config
+                                                         : nullptr);
         using T = std::decay_t<decltype(res)>;
         if (!res.has_value()) [[unlikely]] {
             st = std::forward<T>(res).error();

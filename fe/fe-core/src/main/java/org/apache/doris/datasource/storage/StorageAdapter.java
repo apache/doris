@@ -19,6 +19,7 @@ package org.apache.doris.datasource.storage;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
+import org.apache.doris.filesystem.properties.AzureBackendPropertyKeys;
 import org.apache.doris.filesystem.properties.FileSystemProperties;
 import org.apache.doris.filesystem.properties.FsCacheKeys;
 import org.apache.doris.filesystem.properties.HadoopStorageProperties;
@@ -138,7 +139,6 @@ public final class StorageAdapter {
                 ? AwsCredentialsProviderMode.fromString(feCoreS3CredentialsProviderType())
                 : null;
         this.forceParsingByStandardUriValue = resolveForceParsingByStandardUri();
-        checkAzureOauth2OnlyForIcebergRest();
     }
 
     /**
@@ -281,6 +281,16 @@ public final class StorageAdapter {
         return type;
     }
 
+    /**
+     * Whether this is an Azure binding authenticated with SAS or OAuth2. BE uses those only
+     * through TAzureClientConfig; an entry that still sends BE the S3-style backend map (Broker
+     * Load, backup repositories) can carry only SharedKey and must reject them.
+     */
+    public boolean isAzureTokenAuth() {
+        return type == StorageTypeId.AZURE && !AzureBackendPropertyKeys.AUTH_SHARED_KEY.equals(
+                getBackendConfigProperties().get(AzureBackendPropertyKeys.AUTH_TYPE));
+    }
+
     /** Legacy getStorageName() (2.4-1 mapping: every S3-compatible dialect reports "S3"). */
     public String getStorageName() {
         // provider-declared family: the 2.4-1 "every S3 dialect reports S3" mapping lives in the SPI
@@ -353,6 +363,22 @@ public final class StorageAdapter {
             return StorageUriUtils.validateAndNormalizeJfsUri(uri);
         }
         return spi.validateAndNormalizeUri(uri);
+    }
+
+    /**
+     * Normalizes a location for a BE request that carries typed native access (connector scans
+     * and writes, see {@code AzureThriftAdapter}). Identical to {@link #validateAndNormalizeUri}
+     * except that Azure locations keep their native form: BE parses them with the Azure rules and
+     * checks their account against the client config, which the s3-style rewrite would make
+     * impossible by dropping the account. Requests without typed access (Broker Load, Export,
+     * Outfile, backup, ...) must keep using {@link #validateAndNormalizeUri}, because their BE
+     * entries only parse s3-style locations.
+     */
+    public String validateAndNormalizeUriForNativeAccess(String uri) {
+        if ("AZURE".equals(providerKey)) {
+            return StorageUriUtils.validateAzureUri(uri);
+        }
+        return validateAndNormalizeUri(uri);
     }
 
     public String validateAndGetUri(Map<String, String> loadProps) {
@@ -456,9 +482,10 @@ public final class StorageAdapter {
                 // Align fe-core: Broker/Local/Http return the raw user properties verbatim.
                 return origProps;
             case AZURE:
-                // Provider-owned, both auth types (the OAuth2 map is a hadoop Configuration dump
-                // built inside fe-filesystem-azure). Routed out here so it never reaches the
-                // S3-family alignment below, exactly as before.
+                // Provider-owned, every auth type (the OAuth2 map is a hadoop Configuration dump
+                // built inside fe-filesystem-azure), including the neutral AZURE_* keys that
+                // AzureThriftAdapter turns into TAzureClientConfig. Routed out here so it never
+                // reaches the S3-family alignment below, exactly as before.
                 return spi.toBackendProperties()
                         .orElseThrow(() -> new IllegalStateException(
                                 "Provider " + providerKey + " exposes no backend properties"))
@@ -544,34 +571,6 @@ public final class StorageAdapter {
         return firstNonBlank(origProps.get("s3.credentials_provider_type"),
                 origProps.get("glue.credentials_provider_type"),
                 origProps.get("iceberg.rest.credentials_provider_type"));
-    }
-
-    /**
-     * Align fe-core AzureProperties.initNormalizeAndCheckProps: the temporary fe-core-only
-     * restriction that OAuth2 is supported only for the Iceberg REST catalog. This check reads
-     * catalog-level keys the SPI never sees, so it stays in the facade.
-     */
-    private void checkAzureOauth2OnlyForIcebergRest() {
-        // Align fe-core AzureProperties exactly: the REST-only gate compared CASE-SENSITIVELY
-        // ("OAuth2".equals(...)) while the rest of the class used equalsIgnoreCase — so a
-        // lowercase "oauth2" slipped past this gate in legacy (and old images may carry it).
-        // Replicate the asymmetry; tightening it would break replay of such images.
-        if (!"AZURE".equals(providerKey)
-                || !"OAuth2".equals(origProps.getOrDefault("azure.auth_type", "SharedKey"))) {
-            return;
-        }
-        boolean hasIcebergType = origProps.entrySet().stream()
-                .anyMatch(entry -> "type".equalsIgnoreCase(entry.getKey())
-                        && "iceberg".equalsIgnoreCase(entry.getValue()));
-        boolean hasTypeKey = origProps.keySet().stream().anyMatch("type"::equalsIgnoreCase);
-        boolean isIcebergRest = (hasIcebergType || !hasTypeKey)
-                && origProps.entrySet().stream()
-                        .anyMatch(entry -> "iceberg.catalog.type".equalsIgnoreCase(entry.getKey())
-                                && "rest".equalsIgnoreCase(entry.getValue()));
-        if (!isIcebergRest) {
-            throw new UnsupportedOperationException(
-                    "OAuth2 auth type is only supported for iceberg rest catalog");
-        }
     }
 
     private static String firstNonBlank(String... values) {

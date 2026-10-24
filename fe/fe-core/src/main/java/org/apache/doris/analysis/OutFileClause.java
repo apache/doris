@@ -34,6 +34,7 @@ import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
+import org.apache.doris.datasource.storage.AzureThriftAdapter;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TParquetDataType;
 import org.apache.doris.thrift.TParquetRepetitionType;
@@ -781,6 +782,9 @@ public class OutFileClause {
 
         if (brokerDesc != null) {
             sinkOptions.setBrokerProperties(brokerDesc.getBackendConfigProperties());
+            // Without typed access BE parses the S3-style keys, which can express only SharedKey.
+            AzureThriftAdapter.fromBackendProperties(brokerDesc.getBackendConfigProperties())
+                    .ifPresent(sinkOptions::setAzureClientConfig);
             // broker_addresses of sinkOptions will be set in Coordinator.
             // Because we need to choose the nearest broker with the result sink node.
         }
