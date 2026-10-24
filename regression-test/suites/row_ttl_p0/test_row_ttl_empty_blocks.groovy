@@ -19,7 +19,10 @@ suite("test_row_ttl_empty_blocks", "nonConcurrent") {
     for (boolean vertical : [false, true]) {
         setBeConfigTemporary([
             enable_vertical_compaction: vertical,
-            vertical_compaction_num_columns_per_group: 1
+            vertical_compaction_num_columns_per_group: 1,
+            inverted_index_compaction_enable: true,
+            // Opening every output index at close catches missing compacted string indexes.
+            enable_write_index_searcher_cache: true
         ]) {
             for (boolean unique : [false, true]) {
                 sql "DROP TABLE IF EXISTS row_ttl_empty_blocks"

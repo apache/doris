@@ -217,6 +217,15 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
                         tabletStatus["last ${compaction_type} success time"]
                 def failureTimeUnchanged = oldStatus["last ${compaction_type} failure time"] ==
                         tabletStatus["last ${compaction_type} failure time"]
+                // Full compaction is submitted asynchronously. A changed failure timestamp
+                // means the task failed, even though the run_status HTTP request succeeded.
+                if (compaction_type == "full" && !running && successTimeUnchanged && !failureTimeUnchanged) {
+                    def failureStatus = "${tabletStatus['last full status']}"
+                    if (!ignored_errors.any { error -> failureStatus.toLowerCase().contains(error.toLowerCase()) }) {
+                        throw new IllegalStateException("full compaction failed, be host: ${be_host}, "
+                                + "tablet id: ${tablet.TabletId}, status: ${failureStatus}")
+                    }
+                }
                 def completionTimestampChanged = !successTimeUnchanged || !failureTimeUnchanged
                 def compactionFinished = completedByBaseCompactionAfterDeleteVersion ||
                         (!handedOffToBaseCompactionAfterDeleteVersion && completionTimestampChanged)

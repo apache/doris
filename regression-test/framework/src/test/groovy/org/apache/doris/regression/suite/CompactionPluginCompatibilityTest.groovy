@@ -150,5 +150,30 @@ class CompactionPluginCompatibilityTest {
         }
         suite.trigger_and_wait_compaction("t", "full")
         assertTrue(showCount >= 2)
+
+        // A successful HTTP submission/probe must not mask a failed asynchronous task.
+        showCount = 0
+        Suite.metaClass.curl = { String method, String url, String body = null, Integer timeoutSec = 10,
+                                 String user = "", String password = "", Integer maxRetries = 10 ->
+            if (url.contains("/api/compaction/show?")) {
+                showCount++
+                return [0, '{"last full success time":"old","last full failure time":"'
+                        + (showCount == 1 ? "old" : "new")
+                        + '","last full status":"[E-6003]No index with id 7 found"}', ""]
+            }
+            if (url.contains("/api/compaction/run_status?")) {
+                return [0, '{"status":"success","run_status":false}', ""]
+            }
+            return [0, '{"status":"success"}', ""]
+        }
+        IllegalStateException failure = assertThrows(IllegalStateException) {
+            suite.trigger_and_wait_compaction("t", "full")
+        }
+        assertTrue(failure.message.contains("tablet id: 42"))
+        assertTrue(failure.message.contains("[E-6003]No index with id 7 found"))
+
+        // Preserve callers' explicit allowance for an expected compaction failure.
+        showCount = 0
+        suite.trigger_and_wait_compaction("t", "full", 30, ["E-6003"] as String[])
     }
 }
