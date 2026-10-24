@@ -33,7 +33,11 @@ enum class PythonUDFLoadType : uint8_t { INLINE = 0, MODULE = 1, UNKNOWN = 2 };
 enum class PythonClientType : uint8_t { UDF = 0, UDAF = 1, UDTF = 2, UNKNOWN = 3 };
 
 struct PythonUDFMeta {
+    static constexpr int64_t DEFAULT_AUTO_SUSPEND_SECONDS = 14400;
+
     int64_t id = 0;
+    int32_t pool_size = 3;
+    int64_t auto_suspend = DEFAULT_AUTO_SUSPEND_SECONDS;
     std::string name;
     std::string symbol;
     std::string location;

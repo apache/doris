@@ -50,6 +50,8 @@ suite("test_pythonudaf_forbidden_module") {
             RETURNS BIGINT
             PROPERTIES (
                 "type" = "PYTHON_UDF",
+                "auto_suspend" = "0",
+                "pool_size" = "1",
                 "file" = "file://${pyPath}",
                 "symbol" = "${forbiddenCase.symbol}",
                 "runtime_version" = "${runtime_version}"
@@ -68,6 +70,8 @@ suite("test_pythonudaf_forbidden_module") {
         RETURNS BIGINT
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${pyPath}",
             "symbol" = "safepkg_udaf.pathlib.SafePathlibUDAF",
             "runtime_version" = "${runtime_version}"

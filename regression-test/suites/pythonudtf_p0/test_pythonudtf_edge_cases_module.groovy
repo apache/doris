@@ -39,6 +39,8 @@ suite("test_pythonudtf_edge_cases_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.edge_cases_udtf.handle_null_int",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -74,6 +76,8 @@ suite("test_pythonudtf_edge_cases_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.edge_cases_udtf.handle_null_string",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -109,6 +113,8 @@ suite("test_pythonudtf_edge_cases_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.edge_cases_udtf.handle_empty_array",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -147,6 +153,8 @@ suite("test_pythonudtf_edge_cases_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.edge_cases_udtf.handle_null_struct",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -190,6 +198,8 @@ suite("test_pythonudtf_edge_cases_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.edge_cases_udtf.process_empty_table",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -222,6 +232,8 @@ suite("test_pythonudtf_edge_cases_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.edge_cases_udtf.process_single_row",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -257,6 +269,8 @@ suite("test_pythonudtf_edge_cases_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.edge_cases_udtf.process_long_string",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -294,6 +308,8 @@ suite("test_pythonudtf_edge_cases_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.edge_cases_udtf.process_large_array",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -331,6 +347,8 @@ suite("test_pythonudtf_edge_cases_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.edge_cases_udtf.output_explosion",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -371,6 +389,8 @@ suite("test_pythonudtf_edge_cases_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.edge_cases_udtf.process_special_numbers",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -412,6 +432,8 @@ suite("test_pythonudtf_edge_cases_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.edge_cases_udtf.process_special_doubles",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -452,6 +474,8 @@ suite("test_pythonudtf_edge_cases_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.edge_cases_udtf.process_special_strings",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -492,6 +516,8 @@ suite("test_pythonudtf_edge_cases_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.edge_cases_udtf.process_boundary_dates",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """

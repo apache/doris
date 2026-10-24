@@ -81,6 +81,8 @@ suite("test_pythonudaf_complex_state_objects_inline") {
         RETURNS VARCHAR
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "UserProfileUDAF",
             "runtime_version" = "${runtime_version}"
         )
@@ -157,6 +159,8 @@ class UserProfileUDAF:
         RETURNS VARCHAR
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "ProductStatsUDAF",
             "runtime_version" = "${runtime_version}"
         )
@@ -247,6 +251,8 @@ class ProductStatsUDAF:
         RETURNS VARCHAR
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "TransactionTimelineUDAF",
             "runtime_version" = "${runtime_version}"
         )
@@ -303,6 +309,8 @@ class TransactionTimelineUDAF:
         RETURNS VARCHAR
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "UniqueTrackerUDAF",
             "runtime_version" = "${runtime_version}"
         )
@@ -357,6 +365,8 @@ class UniqueTrackerUDAF:
         RETURNS VARCHAR
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "CategorySummaryUDAF",
             "runtime_version" = "${runtime_version}"
         )
@@ -439,6 +449,8 @@ class CategorySummaryUDAF:
         RETURNS VARCHAR
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "HierarchicalAggUDAF",
             "runtime_version" = "${runtime_version}"
         )

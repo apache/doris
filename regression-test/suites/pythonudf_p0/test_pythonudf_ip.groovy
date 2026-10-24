@@ -50,6 +50,8 @@ suite("test_pythonudf_ip") {
         RETURNS STRING 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "runtime_version" = "${runtime_version}"
         )
@@ -75,6 +77,8 @@ def evaluate(ip):
         RETURNS BOOLEAN 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "runtime_version" = "${runtime_version}"
         )
@@ -101,6 +105,8 @@ def evaluate(ip):
         RETURNS BOOLEAN 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "runtime_version" = "${runtime_version}"
         )
@@ -133,6 +139,8 @@ def evaluate(ip, cidr_str):
         RETURNS STRING 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "runtime_version" = "${runtime_version}"
         )
@@ -164,6 +172,8 @@ def evaluate(cidr_str):
         RETURNS STRING 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "runtime_version" = "${runtime_version}"
         )
@@ -195,6 +205,8 @@ def evaluate(cidr_str):
         RETURNS BIGINT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "runtime_version" = "${runtime_version}"
         )
@@ -222,6 +234,8 @@ def evaluate(ip):
         RETURNS IPv4 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "runtime_version" = "${runtime_version}"
         )
@@ -250,6 +264,8 @@ def evaluate(ip_int):
         RETURNS STRING 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "runtime_version" = "${runtime_version}"
         )
@@ -275,6 +291,8 @@ def evaluate(ip):
         RETURNS BOOLEAN 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "runtime_version" = "${runtime_version}"
         )
@@ -301,6 +319,8 @@ def evaluate(ip):
         RETURNS INT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "runtime_version" = "${runtime_version}"
         )
