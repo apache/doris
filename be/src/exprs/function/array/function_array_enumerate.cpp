@@ -82,7 +82,7 @@ public:
         auto left_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         const ColumnArray* array =
-                check_and_get_column<ColumnArray>(remove_nullable(left_column->get_ptr()).get());
+                check_and_get_column<ColumnArray>(remove_nullable(left_column).get());
         if (!array) {
             return Status::RuntimeError(
                     fmt::format("Illegal column {}, of first argument of function {}",
@@ -98,7 +98,7 @@ public:
             prev_off = off;
         }
 
-        ColumnPtr nested_column = res_nested->get_ptr();
+        ColumnPtr nested_column = std::move(res_nested);
         if (array->get_data().is_nullable()) {
             nested_column = ColumnNullable::create(nested_column,
                                                    ColumnUInt8::create(nested_column->size(), 0));

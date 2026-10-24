@@ -86,7 +86,7 @@ public:
         }
 
         ColumnPtr result_nullalble_column =
-                ColumnNullable::create(result_column->get_ptr(), result_null_map);
+                ColumnNullable::create(std::move(result_column), result_null_map);
         ColumnPtr column_array = ColumnArray::create(result_nullalble_column, result_offset_column);
         block.replace_by_position(result, column_array);
         return Status::OK();
