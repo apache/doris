@@ -21,6 +21,7 @@ import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DayName;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromUnixtime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HourFromUnixtime;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
@@ -28,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
@@ -98,6 +100,28 @@ public class HboTimeZoneKeyTest {
     }
 
     @Test
+    public void testADayNamePredicateIsSensitiveToTheSessionLocale() {
+        ConnectContext context = MemoTestUtils.createConnectContext();
+        String previous = context.getSessionVariable().lcTimeNames;
+        try {
+            context.getSessionVariable().lcTimeNames = "en_US";
+            GroupStructInfo english = dayNameFilter();
+            english.getCanonical(GroupStructInfo.LiteralMode.WITH_LITERAL);
+            english.getFingerprint(GroupStructInfo.LiteralMode.WITH_LITERAL);
+            context.getSessionVariable().lcTimeNames = "de_DE";
+            GroupStructInfo german = dayNameFilter();
+            german.getCanonical(GroupStructInfo.LiteralMode.WITH_LITERAL);
+            german.getFingerprint(GroupStructInfo.LiteralMode.WITH_LITERAL);
+            Assertions.assertNotEquals(english.getFingerprint(GroupStructInfo.LiteralMode.WITH_LITERAL),
+                    german.getFingerprint(GroupStructInfo.LiteralMode.WITH_LITERAL),
+                    "dayname emits a locale dependent name, so the key must differ");
+        } finally {
+            context.getSessionVariable().lcTimeNames = previous;
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
     public void testAPredicateWithoutATimeZoneDependentFunctionKeepsItsKey() {
         ConnectContext context = MemoTestUtils.createConnectContext();
         String previous = context.getSessionVariable().getTimeZone();
@@ -117,6 +141,14 @@ public class HboTimeZoneKeyTest {
             context.getSessionVariable().setTimeZone(previous);
             ConnectContext.remove();
         }
+    }
+
+    private static GroupStructInfo dayNameFilter() {
+        LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+        SlotReference slot = (SlotReference) scan.getOutput().get(0);
+        DayName dayName = new DayName(new Cast(slot, DateType.INSTANCE));
+        return GroupStructInfo.describeGroup(new Memo(null, new LogicalFilter<>(
+                ImmutableSet.of(new EqualTo(dayName, new StringLiteral("Monday"))), scan)).getRoot());
     }
 
     private static GroupStructInfo fromUnixtimeFilter() {

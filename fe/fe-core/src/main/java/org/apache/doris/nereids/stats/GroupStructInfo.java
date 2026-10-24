@@ -251,6 +251,13 @@ public class GroupStructInfo {
             // decides which wall clock it reads
             "current_time");
 
+    /** Functions whose result names a day or a month: the session locale chooses the names. */
+    private static final List<String> LOCALE_SENSITIVE_FUNCTIONS = Arrays.asList("dayname", "monthname");
+
+    /** Date/time conversions which read a format string: the locale chooses the names a % specifier emits. */
+    private static final List<String> FORMAT_FUNCTIONS = Arrays.asList(
+            "date_format", "from_unixtime", "str_to_date", "time_format");
+
     private static final String NO_LOOKUP_PATH_REASON =
             "storage layer aggregate: the read side applies the row count of the aggregation above it";
 
@@ -3088,10 +3095,21 @@ public class GroupStructInfo {
             String path = ((Bound) expression).path;
             return path.isEmpty() ? "Bound" : "Bound<" + path + ">";
         }
-        if (expression instanceof Function && usesSessionTimeZone((Function) expression)) {
-            // the session which evaluates the expression decides how an epoch value is read: the same
-            // arguments keep a different number of rows in another time zone
-            return className + '<' + encodeSlotComponent(sessionTimeZone()) + '>';
+        if (expression instanceof Function) {
+            Function function = (Function) expression;
+            List<String> environment = new ArrayList<>(2);
+            if (usesSessionTimeZone(function)) {
+                // the session which evaluates the expression decides how an epoch value is read: the same
+                // arguments keep a different number of rows in another time zone
+                environment.add(encodeSlotComponent(sessionTimeZone()));
+            }
+            if (usesSessionLocale(function)) {
+                // the session locale decides the names a day/month is printed with
+                environment.add(encodeSlotComponent(sessionLocale()));
+            }
+            if (!environment.isEmpty()) {
+                return className + '<' + String.join("|", environment) + '>';
+            }
         }
         return className;
     }
@@ -3106,6 +3124,42 @@ public class GroupStructInfo {
             return ZoneId.systemDefault().getId();
         }
         return context.getSessionVariable().getTimeZone();
+    }
+
+    /** The locale of the session which evaluates the expression (the one the planner and the backends read). */
+    private static String sessionLocale() {
+        ConnectContext context = ConnectContext.get();
+        if (context == null || context.getSessionVariable() == null) {
+            return "en_US";
+        }
+        return context.getSessionVariable().lcTimeNames;
+    }
+
+    /**
+     * Whether the value of a function names a day or a month, which the session locale decides. A format
+     * string which cannot be inspected (it is not a literal) is treated as locale sensitive.
+     */
+    private static boolean usesSessionLocale(Function function) {
+        if (LOCALE_SENSITIVE_FUNCTIONS.contains(function.getName())) {
+            return true;
+        }
+        if (!FORMAT_FUNCTIONS.contains(function.getName())) {
+            return false;
+        }
+        List<Expression> children = function.children();
+        if (children.size() < 2) {
+            // no format argument: the default format names no day or month
+            return false;
+        }
+        // the format is the last argument of every function above (the value is the first one)
+        Expression formatArgument = children.get(children.size() - 1);
+        if (!(formatArgument instanceof StringLiteral)) {
+            // a format which is computed at run time cannot be inspected
+            return true;
+        }
+        String format = ((StringLiteral) formatArgument).getStringValue();
+        return format.contains("%M") || format.contains("%W")
+                || format.contains("%a") || format.contains("%b");
     }
 
     /** Whether the value of a function depends on the session time zone (see the two lists above). */
