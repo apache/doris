@@ -725,12 +725,33 @@ public class IcebergNestedColumnEvolutionTest {
                 structModify("info", Collections.singletonList("amount"),
                         Collections.singletonList(ConnectorType.of("DECIMALV3", 10, 3)),
                         Collections.singletonList(""), Collections.singletonList(false)),
-                false, null);
+                false, false, null);
 
         Types.DecimalType amount = (Types.DecimalType) reload("m_decimal_promote").findField("info")
                 .type().asStructType().field("amount").type();
         Assertions.assertEquals(10, amount.precision());
         Assertions.assertEquals(3, amount.scale());
+    }
+
+    @Test
+    public void testModifyNestedTimestamptzKeepsInstantTypeAndRejectsWallClock() {
+        // Restating the mapped TIMESTAMPTZ type is a no-op; DATETIMEV2 would drop the instant semantics.
+        Schema schema = new Schema(Types.NestedField.optional(1, "info", Types.StructType.of(
+                Types.NestedField.optional(2, "tz_value", Types.TimestampType.withZone(), "tz doc"))));
+        createTable("m_tz", schema);
+        ops.modifyNestedColumn("db1", "m_tz", path("info", "tz_value"),
+                change("tz_value", IcebergSchemaBuilder.buildColumnType(ConnectorType.of("TIMESTAMPTZ", 6, 0)),
+                        null, true), false, false, null);
+        Types.NestedField tzValue = reload("m_tz").findField("info").type().asStructType().field("tz_value");
+        Assertions.assertEquals(Types.TimestampType.withZone(), tzValue.type());
+        Assertions.assertEquals("tz doc", tzValue.doc());
+
+        assertFailsLoud(() -> ops.modifyNestedColumn("db1", "m_tz", path("info", "tz_value"),
+                        change("tz_value", IcebergSchemaBuilder.buildColumnType(
+                                ConnectorType.of("DATETIMEV2", 6, 0)), null, true), false, false, null),
+                "Cannot change column type: info.tz_value");
+        Assertions.assertEquals(Types.TimestampType.withZone(),
+                reload("m_tz").findField("info").type().asStructType().field("tz_value").type());
     }
 
     @Test

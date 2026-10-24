@@ -86,12 +86,12 @@ Status execute_cross_product(const std::string& func_name, ColumnPtr lhs, Column
 
     FunctionUtils fn_utils(result_type, {lhs_type, rhs_type}, false);
     auto* fn_ctx = fn_utils.get_fn_ctx();
-    RETURN_IF_ERROR(function->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
-    RETURN_IF_ERROR(function->open(fn_ctx, FunctionContext::THREAD_LOCAL));
+    RETURN_IF_ERROR(function->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
+    RETURN_IF_ERROR(function->open(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL));
     block->insert({nullptr, result_type, "result"});
     auto st = function->execute(fn_ctx, *block, {0, 1}, 2, rows);
-    RETURN_IF_ERROR(function->close(fn_ctx, FunctionContext::THREAD_LOCAL));
-    RETURN_IF_ERROR(function->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+    RETURN_IF_ERROR(function->close(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL));
+    RETURN_IF_ERROR(function->close(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
     return st;
 }
 

@@ -24,6 +24,7 @@
 #include <limits>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "core/types.h"
 #include "util/jsonb_utils.h"
@@ -318,6 +319,218 @@ TEST_F(JsonbDocumentTest, jsonb_path_member_to_string_escapes_control_characters
     std::string round_trip;
     ASSERT_TRUE(path.to_string(&round_trip));
     EXPECT_EQ(round_trip, expected_path);
+}
+
+TEST_F(JsonbDocumentTest, jsonb_path_member_to_string_quotes_dotted_key) {
+    std::string key = "a.b";
+
+    leg_info leg(key.data(), static_cast<unsigned int>(key.size()), 0, MEMBER_CODE);
+
+    std::string out;
+    ASSERT_TRUE(leg.to_string(&out));
+    // A literal '.' inside the key is a path separator in JsonbPath syntax, so the
+    // leg must be double-quoted (".\"a.b\"") or a later JsonbPath::seek on this
+    // same string will split it into two legs ("a" then "b") instead of one.
+    EXPECT_EQ(out, ".\"a.b\"");
+
+    const std::string expected_path = "$" + out;
+    std::string parsed_path = expected_path;
+    JsonbPath path;
+    ASSERT_TRUE(path.seek(parsed_path.data(), parsed_path.size()));
+    EXPECT_EQ(path.get_leg_vector_size(), 1);
+
+    std::string round_trip;
+    ASSERT_TRUE(path.to_string(&round_trip));
+    EXPECT_EQ(round_trip, expected_path);
+}
+
+TEST_F(JsonbDocumentTest, jsonb_path_member_to_string_quotes_only_unparsable_keys) {
+    struct Case {
+        std::string key;
+        std::string expected;
+    };
+    const std::vector<Case> cases = {
+            {"a[0]", ".\"a[0]\""}, // '[' starts an array leg when unquoted
+            {"*", ".\"*\""},       // a bare '*' is a wildcard when unquoted
+            {"*a", ".\"*a\""},     // a leading '*' is parsed as a wildcard leg
+            {"a*", ".a*"},         // '*' elsewhere is an ordinary character
+            {"a-b", ".a-b"},       // no structural character, stays unquoted
+            {"a]b", ".a]b"},       // ']' is not special for an unquoted member
+            {"a\"b", ".a\\\"b"},   // escaped quote is readable without quoting
+            {"", ".\"\""},         // an empty key is only valid when quoted
+    };
+
+    for (const auto& c : cases) {
+        std::string key = c.key;
+        leg_info leg(key.data(), static_cast<unsigned int>(key.size()), 0, MEMBER_CODE);
+
+        std::string out;
+        ASSERT_TRUE(leg.to_string(&out)) << c.key;
+        EXPECT_EQ(out, c.expected) << c.key;
+
+        const std::string expected_path = "$" + out;
+        std::string parsed_path = expected_path;
+        JsonbPath path;
+        ASSERT_TRUE(path.seek(parsed_path.data(), parsed_path.size())) << c.key;
+        ASSERT_EQ(path.get_leg_vector_size(), 1) << c.key;
+        const auto* parsed = path.get_leg_from_leg_vector(0);
+        EXPECT_EQ(std::string(parsed->leg_ptr, parsed->leg_len), c.key);
+
+        std::string round_trip;
+        ASSERT_TRUE(path.to_string(&round_trip)) << c.key;
+        EXPECT_EQ(round_trip, expected_path) << c.key;
+    }
+}
+
+TEST_F(JsonbDocumentTest, jsonb_path_quoted_member_is_literal_key) {
+    JsonbWriter writer;
+    writer.writeStartObject();
+    writer.writeKey("", 0);
+    writer.writeInt(1);
+    writer.writeKey("*", 1);
+    writer.writeInt(2);
+    writer.writeKey("other", static_cast<uint8_t>(sizeof("other") - 1));
+    writer.writeInt(3);
+    writer.writeEndObject();
+    const auto* root = jsonb_value(writer);
+
+    // A quoted member leg names exactly that key, including the empty key and "*".
+    {
+        std::string path_str = "$.\"\"";
+        JsonbPath path;
+        ASSERT_TRUE(path.seek(path_str.data(), path_str.size()));
+        auto result = root->findValue(path);
+        EXPECT_FALSE(result.is_wildcard);
+        ASSERT_NE(result.value, nullptr);
+        EXPECT_EQ(JsonbToJson {}.to_json_string(result.value), "1");
+    }
+    {
+        std::string path_str = "$.\"*\"";
+        JsonbPath path;
+        ASSERT_TRUE(path.seek(path_str.data(), path_str.size()));
+        EXPECT_FALSE(path.is_wildcard());
+        auto result = root->findValue(path);
+        EXPECT_FALSE(result.is_wildcard);
+        ASSERT_NE(result.value, nullptr);
+        EXPECT_EQ(JsonbToJson {}.to_json_string(result.value), "2");
+    }
+    // An unquoted '*' is still the member wildcard.
+    {
+        std::string path_str = "$.*";
+        JsonbPath path;
+        ASSERT_TRUE(path.seek(path_str.data(), path_str.size()));
+        EXPECT_TRUE(path.is_wildcard());
+        auto result = root->findValue(path);
+        EXPECT_TRUE(result.is_wildcard);
+        ASSERT_NE(result.value, nullptr);
+        EXPECT_EQ(JsonbToJson {}.to_json_string(result.value), "[1,2,3]");
+    }
+
+    // An unquoted empty member leg is still invalid.
+    for (std::string path_str : {"$.", "$.other.", "$..other"}) {
+        JsonbPath path;
+        EXPECT_FALSE(path.seek(path_str.data(), path_str.size())) << path_str;
+    }
+}
+
+TEST_F(JsonbDocumentTest, jsonb_empty_key_lookup_skips_key_ids) {
+    // A key id entry is stored with klen() == 0 like an empty key, but only the
+    // sMaxKeyId sentinel is the empty key name.
+    JsonbWriter writer;
+    writer.writeStartObject();
+    writer.writeKey(static_cast<JsonbKeyValue::keyid_type>(42));
+    writer.writeInt(1);
+    writer.writeKey("", 0);
+    writer.writeInt(2);
+    writer.writeEndObject();
+    const auto* root = jsonb_value(writer);
+    const auto* obj = root->unpack<ObjectVal>();
+
+    const auto* found = obj->find("", 0);
+    ASSERT_NE(found, nullptr);
+    EXPECT_EQ(JsonbToJson {}.to_json_string(found), "2");
+
+    std::string path_str = "$.\"\"";
+    JsonbPath path;
+    ASSERT_TRUE(path.seek(path_str.data(), path_str.size()));
+    auto result = root->findValue(path);
+    ASSERT_NE(result.value, nullptr);
+    EXPECT_EQ(JsonbToJson {}.to_json_string(result.value), "2");
+
+    // Without an empty key, a key id entry is never returned for an empty name.
+    JsonbWriter id_only_writer;
+    id_only_writer.writeStartObject();
+    id_only_writer.writeKey(static_cast<JsonbKeyValue::keyid_type>(42));
+    id_only_writer.writeInt(1);
+    id_only_writer.writeEndObject();
+    EXPECT_EQ(jsonb_value(id_only_writer)->unpack<ObjectVal>()->find("", 0), nullptr);
+}
+
+TEST_F(JsonbDocumentTest, jsonb_path_wildcard_to_string_round_trip) {
+    JsonbWriter writer;
+    writer.writeStartObject();
+    writer.writeKey("*", 1);
+    writer.writeInt(1);
+    writer.writeKey("other", static_cast<uint8_t>(sizeof("other") - 1));
+    writer.writeInt(2);
+    writer.writeEndObject();
+    const auto* root = jsonb_value(writer);
+
+    // A parsed wildcard formats back to the wildcard and a quoted "*" stays the literal key.
+    struct Case {
+        std::string path;
+        bool is_wildcard;
+        std::string value;
+    };
+    const std::vector<Case> cases = {
+            {"$.*", true, "[1,2]"},
+            {"$.\"*\"", false, "1"},
+    };
+    for (const auto& c : cases) {
+        std::string path_str = c.path;
+        JsonbPath path;
+        ASSERT_TRUE(path.seek(path_str.data(), path_str.size())) << c.path;
+        std::string formatted;
+        ASSERT_TRUE(path.to_string(&formatted)) << c.path;
+        EXPECT_EQ(formatted, c.path);
+
+        JsonbPath reparsed;
+        ASSERT_TRUE(reparsed.seek(formatted.data(), formatted.size())) << c.path;
+        auto result = root->findValue(reparsed);
+        EXPECT_EQ(result.is_wildcard, c.is_wildcard) << c.path;
+        ASSERT_NE(result.value, nullptr) << c.path;
+        EXPECT_EQ(JsonbToJson {}.to_json_string(result.value), c.value) << c.path;
+    }
+
+    for (std::string path_str : {"$[*]", "$[1]", "$.a[*].b"}) {
+        JsonbPath path;
+        ASSERT_TRUE(path.seek(path_str.data(), path_str.size())) << path_str;
+        std::string formatted;
+        ASSERT_TRUE(path.to_string(&formatted)) << path_str;
+        EXPECT_EQ(formatted, path_str);
+    }
+}
+
+TEST_F(JsonbDocumentTest, jsonb_object_contains_matches_key_ids_by_id) {
+    JsonbWriter empty_key_writer;
+    empty_key_writer.writeStartObject();
+    empty_key_writer.writeKey("", 0);
+    empty_key_writer.writeInt(1);
+    empty_key_writer.writeEndObject();
+    const auto* empty_key = jsonb_value(empty_key_writer);
+
+    JsonbWriter id_key_writer;
+    id_key_writer.writeStartObject();
+    id_key_writer.writeKey(static_cast<JsonbKeyValue::keyid_type>(42));
+    id_key_writer.writeInt(1);
+    id_key_writer.writeEndObject();
+    const auto* id_key = jsonb_value(id_key_writer);
+
+    // Both keys are stored with klen() == 0, but key id 42 is not the empty key.
+    EXPECT_FALSE(empty_key->contains(id_key));
+    EXPECT_FALSE(id_key->contains(empty_key));
+    EXPECT_TRUE(empty_key->contains(empty_key));
+    EXPECT_TRUE(id_key->contains(id_key));
 }
 
 TEST_F(JsonbDocumentTest, jsonb_path_member_to_string_escapes_all_control_forms) {

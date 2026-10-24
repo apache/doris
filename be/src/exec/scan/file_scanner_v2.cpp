@@ -30,6 +30,7 @@
 #include "common/cast_set.h"
 #include "common/config.h"
 #include "common/consts.h"
+#include "common/logging.h"
 #include "common/metrics/doris_metrics.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
@@ -146,7 +147,14 @@ bool is_supported_paimon_jni_payload(const TFileRangeDesc& range) {
     }
     const auto& params = range.table_format_params.paimon_params;
     if (params.__isset.reader_type) {
-        return params.reader_type == TPaimonReaderType::PAIMON_JNI && params.__isset.paimon_split;
+        if (params.reader_type == TPaimonReaderType::PAIMON_JNI) {
+            return params.__isset.paimon_split;
+        }
+        if (params.reader_type == TPaimonReaderType::PAIMON_RUST) {
+            return params.__isset.paimon_split && params.__isset.paimon_table_schema_json &&
+                   !params.paimon_table_schema_json.empty();
+        }
+        return false;
     }
     if (params.__isset.paimon_split) {
         // Before reader_type was added, an encoded split unambiguously selected the Java
@@ -373,15 +381,18 @@ Status FileScannerV2::_validate_scan_range(const TFileScanRangeParams& params,
 }
 
 Status FileScannerV2::_validate_variant_projection(TFileFormatType::type format_type,
-                                                   bool has_variant_projection) {
-    if (!has_variant_projection || format_type != TFileFormatType::FORMAT_ARROW) {
+                                                   bool has_variant_projection,
+                                                   const std::string& table_format) {
+    // ADBC validates native Variant storage before decoding; other Arrow readers do not.
+    if (!has_variant_projection || format_type != TFileFormatType::FORMAT_ARROW ||
+        table_format == "adbc") {
         return Status::OK();
     }
-    // Arrow readers have no external Variant carrier contract; reject before a stream is opened so
-    // every Arrow-backed table gets the same deterministic capability error instead of SerDe leakage.
+    // Keep the capability guard for readers without a native Variant carrier contract.
     return Status::NotSupported(
-            "External Variant is supported only for Parquet files in FileScannerV2; "
-            "file format ARROW is not supported");
+            "External Variant Arrow reads require an ADBC native Variant carrier; "
+            "table format {} is not supported",
+            table_format);
 }
 
 FileScannerV2::FileScannerV2(RuntimeState* state, FileScanLocalState* local_state, int64_t limit,
@@ -390,7 +401,8 @@ FileScannerV2::FileScannerV2(RuntimeState* state, FileScanLocalState* local_stat
                              const std::unordered_map<std::string, int>* colname_to_slot_id)
         : Scanner(state, local_state, limit, profile),
           _split_source(std::move(split_source)),
-          _kv_cache(kv_cache) {
+          _kv_cache(kv_cache),
+          _parquet_profile_cache(local_state->_parquet_profile_cache.get()) {
     (void)colname_to_slot_id;
     if (state->get_query_ctx() != nullptr &&
         state->get_query_ctx()->file_scan_range_params_map.count(local_state->parent_id()) > 0) {
@@ -501,6 +513,8 @@ Status FileScannerV2::_get_block_impl(RuntimeState* state, Block* block, bool* e
                                 _current_range, config::ignore_not_found_file_in_external_table))) {
                 RETURN_IF_ERROR(_table_reader->abort_split());
                 COUNTER_UPDATE(_not_found_file_counter, 1);
+                LOG(INFO) << "Skip missing file: query_id=" << print_id(_state->query_id())
+                          << ", path=" << _current_range.path << ", reason=NOT_FOUND";
                 _state->update_num_finished_scan_range(1);
                 _has_prepared_split = false;
                 block->clear_column_data(cast_set<int64_t>(_projected_columns.size()));
@@ -590,6 +604,8 @@ Status FileScannerV2::_prepare_next_split(bool* eos) {
                                               config::ignore_not_found_file_in_external_table))) {
             RETURN_IF_ERROR(_table_reader->abort_split());
             COUNTER_UPDATE(_not_found_file_counter, 1);
+            LOG(INFO) << "Skip missing file: query_id=" << print_id(_state->query_id())
+                      << ", path=" << _current_range.path << ", reason=NOT_FOUND";
             _state->update_num_finished_scan_range(1);
             continue;
         }
@@ -650,6 +666,7 @@ Status FileScannerV2::_init_table_reader(const TFileRangeDesc& range) {
             .io_ctx = _io_ctx,
             .runtime_state = _state,
             .scanner_profile = _local_state != nullptr ? _local_state->scanner_profile() : _profile,
+            .parquet_profile_cache = _parquet_profile_cache,
             .file_slot_descs = &_file_slot_descs,
             .push_down_agg_type = _local_state != nullptr ? _local_state->get_push_down_agg_type()
                                                           : TPushAggOp::type::NONE,
@@ -886,10 +903,13 @@ Status FileScannerV2::_parse_partition_value(const SlotDescriptor* slot_desc,
         *field = Field::create_field<TYPE_NULL>(Null());
         return Status::OK();
     }
-    const auto data_type = remove_nullable(slot_desc->get_data_type_ptr());
+    const auto data_type = remove_nullable(slot_desc->type());
     auto column = data_type->create_column();
     auto serde = data_type->get_serde();
     DataTypeSerDe::FormatOptions options;
+    // FE partition keys interpret offset-free TIMESTAMPTZ text in the session zone. Use the same
+    // zone here so runtime partition pruning compares the same instant as the FE and row reader.
+    options.timezone = &_state->timezone_obj();
     options.converted_from_string = true;
     StringRef ref(value.data(), value.size());
     RETURN_IF_ERROR(serde->from_string(ref, *column, options));
@@ -969,7 +989,8 @@ Status FileScannerV2::_build_projected_columns(const format::TableReader& table_
     }
     RETURN_IF_ERROR(table_reader.validate_projected_columns(build_context));
     RETURN_IF_ERROR(_validate_variant_projection(get_range_format_type(*_params, _current_range),
-                                                 _has_variant_projection));
+                                                 _has_variant_projection,
+                                                 table_format_name(_current_range)));
     return Status::OK();
 }
 
@@ -995,7 +1016,7 @@ format::ColumnDefinition FileScannerV2::_build_table_column(const SlotDescriptor
     // TODO(gabriel): why always BY_NAME here?
     column.identifier = Field::create_field<TYPE_STRING>(slot_desc->col_name());
     column.name = slot_desc->col_name();
-    column.type = slot_desc->get_data_type_ptr();
+    column.type = slot_desc->type();
     return column;
 }
 

@@ -34,6 +34,7 @@ import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.aws.AssumeRoleAwsClientFactory;
 import org.apache.iceberg.aws.AwsClientProperties;
 import org.apache.iceberg.aws.AwsProperties;
+import org.apache.iceberg.aws.HttpClientProperties;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
 import org.apache.iceberg.rest.auth.OAuth2Properties;
 
@@ -141,18 +142,37 @@ public final class IcebergCatalogFactory {
      * mirroring the legacy {@code AbstractIcebergProperties.initializeCatalog} base: (1) seed from ALL
      * raw props (legacy {@code getOrigProps()} copy-all — arbitrary user/iceberg keys pass through to
      * the SDK; the per-flavor appenders + the connector add the derived keys on top), (2) map
-     * {@code warehouse} to {@link CatalogProperties#WAREHOUSE_LOCATION}, (3) add manifest-cache keys.
-     * PURE: depends only on {@code props}. The flavor's {@code catalog-impl} and the {@code type}
-     * removal are applied by the caller (the connector / per-flavor path).
+     * {@code warehouse} to {@link CatalogProperties#WAREHOUSE_LOCATION}, (3) add manifest-cache keys,
+     * (4) default iceberg-aws's HTTP client to {@code urlconnection}. PURE: depends only on its arguments;
+     * {@code metaCacheWeightLimited} is {@code IcebergConnector#hasMetaCacheWeightLimit}. The flavor's
+     * {@code catalog-impl} and the {@code type} removal are applied by the caller (the connector / per-flavor
+     * path).
      */
-    public static Map<String, String> buildBaseCatalogProperties(Map<String, String> props) {
+    public static Map<String, String> buildBaseCatalogProperties(Map<String, String> props,
+            boolean metaCacheWeightLimited) {
         Map<String, String> opts = new HashMap<>(props);
         String warehouse = props.get(CatalogProperties.WAREHOUSE_LOCATION);
         if (StringUtils.isNotBlank(warehouse)) {
             opts.put(CatalogProperties.WAREHOUSE_LOCATION, warehouse);
         }
-        appendManifestCacheProperties(props, opts);
+        appendManifestCacheProperties(props, opts, metaCacheWeightLimited);
+        applyDefaultAwsHttpClient(opts);
         return opts;
+    }
+
+    /**
+     * Defaults iceberg-aws's HTTP client to {@code urlconnection} unless {@code opts} sets one. A blank value counts as
+     * unset: iceberg-aws turns an empty type back into its own "apache" default. iceberg-aws's default
+     * "apache" client type is Apache5HttpClient since iceberg 1.12, which needs an AWS SDK newer than the one Doris
+     * pins (2.29.x, see #58566), so every S3FileIO / Glue / STS client iceberg builds from a map without this key fails
+     * with NoClassDefFoundError; url-connection-client ships with that SDK. Every map that ends up building an
+     * iceberg AWS client must go through here. The key travels with S3FileIO's properties, so the BE metadata
+     * scanner, which rebuilds the FileIO from them, uses the same client.
+     */
+    static void applyDefaultAwsHttpClient(Map<String, String> opts) {
+        if (StringUtils.isBlank(opts.get(HttpClientProperties.CLIENT_TYPE))) {
+            opts.put(HttpClientProperties.CLIENT_TYPE, HttpClientProperties.CLIENT_TYPE_URLCONNECTION);
+        }
     }
 
     /**
@@ -161,21 +181,31 @@ public final class IcebergCatalogFactory {
      * {@code io.manifest.cache-enabled} directly — derive it to {@code "true"} from the FE meta-cache
      * spec ({@code meta.cache.iceberg.manifest.*}) using the same {@code enable && ttl != 0 &&
      * capacity != 0} rule. Default-disabled (legacy {@code DEFAULT_ICEBERG_MANIFEST_CACHE_ENABLE}).
+     * Under a metadata cache weight limit the SDK cache, which keeps up to
+     * {@code io.manifest.cache.max-total-bytes} of manifest content per FileIO outside that limit, is not
+     * derived but switched off explicitly: an Iceberg REST server's {@code /config} defaults fill in a key the
+     * client leaves out. The server's overrides and a table's own config still take precedence.
      */
-    private static void appendManifestCacheProperties(Map<String, String> props, Map<String, String> opts) {
+    private static void appendManifestCacheProperties(Map<String, String> props, Map<String, String> opts,
+            boolean metaCacheWeightLimited) {
         boolean hasExplicitEnabled = StringUtils.isNotBlank(props.get(CatalogProperties.IO_MANIFEST_CACHE_ENABLED));
         copyIfPresent(props, opts, CatalogProperties.IO_MANIFEST_CACHE_ENABLED);
         copyIfPresent(props, opts, CatalogProperties.IO_MANIFEST_CACHE_EXPIRATION_INTERVAL_MS);
         copyIfPresent(props, opts, CatalogProperties.IO_MANIFEST_CACHE_MAX_TOTAL_BYTES);
         copyIfPresent(props, opts, CatalogProperties.IO_MANIFEST_CACHE_MAX_CONTENT_LENGTH);
-        if (!hasExplicitEnabled) {
-            CacheSpec spec = CacheSpec.fromProperties(props,
-                    IcebergConnector.MANIFEST_CACHE_ENABLE, DEFAULT_MANIFEST_CACHE_ENABLE,
-                    IcebergConnector.MANIFEST_CACHE_TTL_SECOND, DEFAULT_MANIFEST_CACHE_TTL_SECOND,
-                    IcebergConnector.MANIFEST_CACHE_CAPACITY, DEFAULT_MANIFEST_CACHE_CAPACITY);
-            if (CacheSpec.isCacheEnabled(spec.isEnable(), spec.getTtlSecond(), spec.getCapacity())) {
-                opts.put(CatalogProperties.IO_MANIFEST_CACHE_ENABLED, "true");
-            }
+        if (hasExplicitEnabled) {
+            return;
+        }
+        if (metaCacheWeightLimited) {
+            opts.put(CatalogProperties.IO_MANIFEST_CACHE_ENABLED, "false");
+            return;
+        }
+        CacheSpec spec = CacheSpec.fromProperties(props,
+                IcebergConnector.MANIFEST_CACHE_ENABLE, DEFAULT_MANIFEST_CACHE_ENABLE,
+                IcebergConnector.MANIFEST_CACHE_TTL_SECOND, DEFAULT_MANIFEST_CACHE_TTL_SECOND,
+                IcebergConnector.MANIFEST_CACHE_CAPACITY, DEFAULT_MANIFEST_CACHE_CAPACITY);
+        if (CacheSpec.isCacheEnabled(spec.isEnable(), spec.getTtlSecond(), spec.getCapacity())) {
+            opts.put(CatalogProperties.IO_MANIFEST_CACHE_ENABLED, "true");
         }
     }
 
@@ -376,7 +406,8 @@ public final class IcebergCatalogFactory {
      * the common base (copy-all + warehouse + manifest cache), the flavor's {@code catalog-impl}, the
      * per-flavor derivations, the S3FileIO dialect (for rest/hadoop/jdbc; glue emits its own), the jdbc
      * {@code catalog_name} positional removal, and finally the removal of the {@code type} key (the iceberg SDK
-     * forbids both {@code type} and {@code catalog-impl}). PURE: a function of {@code props} + {@code chosenS3}.
+     * forbids both {@code type} and {@code catalog-impl}). PURE: a function of {@code props} + {@code chosenS3} +
+     * {@code metaCacheWeightLimited} (see {@link #buildBaseCatalogProperties}).
      *
      * <p>The metastore connection (HMS {@code HiveConf}) and storage {@code Configuration} are SEPARATE sinks
      * built by the connector ({@link #assembleHiveConf} / {@link #buildHadoopConfiguration}); they are not part
@@ -384,10 +415,10 @@ public final class IcebergCatalogFactory {
      * impl only here (the existing skeleton behavior), so this method covers exactly the five SDK-built flavors.
      */
     public static Map<String, String> buildCatalogProperties(IcebergCatalogProperties catalogProps,
-            Optional<S3CompatibleFileSystemProperties> chosenS3) {
+            Optional<S3CompatibleFileSystemProperties> chosenS3, boolean metaCacheWeightLimited) {
         Map<String, String> props = catalogProps.getRaw();
         String flavor = catalogProps.getFlavor();
-        Map<String, String> opts = buildBaseCatalogProperties(props);
+        Map<String, String> opts = buildBaseCatalogProperties(props, metaCacheWeightLimited);
         opts.put(CatalogProperties.CATALOG_IMPL, resolveCatalogImpl(flavor));
         switch (flavor) {
             case IcebergCatalogProperties.TYPE_REST:
@@ -431,7 +462,8 @@ public final class IcebergCatalogFactory {
      * plus the {@code S3FileIO} dialect ({@code client.region} + {@code s3.*}) and the EXPLICIT-wins credential
      * block ({@link #appendS3TablesFileIOProperties}) — which, unlike the generic rest/hadoop/jdbc FileIO path,
      * suppresses the assume-role keys when static AK/SK are present (legacy {@code putS3FileIOCredentialProperties}
-     * returns early for EXPLICIT). PURE: a function of {@code props} + {@code chosenS3}.
+     * returns early for EXPLICIT). PURE: a function of {@code props} + {@code chosenS3} +
+     * {@code metaCacheWeightLimited} (see {@link #buildBaseCatalogProperties}).
      *
      * <p>Unlike {@link #buildCatalogProperties}, this does NOT add a {@code catalog-impl} and does NOT remove the
      * {@code type} key: s3tables is built by the connector via {@code new S3TablesCatalog().initialize(name, opts,
@@ -442,9 +474,9 @@ public final class IcebergCatalogFactory {
      * connector ({@code IcebergConnector.buildS3TablesClient}); it is not part of this pure options map.
      */
     public static Map<String, String> buildS3TablesCatalogProperties(IcebergCatalogProperties catalogProps,
-            Optional<S3CompatibleFileSystemProperties> chosenS3) {
+            Optional<S3CompatibleFileSystemProperties> chosenS3, boolean metaCacheWeightLimited) {
         Map<String, String> props = catalogProps.getRaw();
-        Map<String, String> opts = buildBaseCatalogProperties(props);
+        Map<String, String> opts = buildBaseCatalogProperties(props, metaCacheWeightLimited);
         if (chosenS3.isPresent()) {
             appendS3TablesFileIOProperties(opts, chosenS3.get(), props);
         } else {

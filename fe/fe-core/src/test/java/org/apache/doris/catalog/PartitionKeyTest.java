@@ -59,6 +59,21 @@ public class PartitionKeyTest {
 
     private Env env;
 
+    @Test
+    public void binaryPartitionKeysRetainTrailingZeroBytes() throws AnalysisException {
+        PartitionKey first = PartitionKey.createListPartitionKeyWithTypes(
+                Arrays.asList(new PartitionValue("0xff")), Arrays.asList(Type.VARBINARY), false);
+        PartitionKey second = PartitionKey.createListPartitionKeyWithTypes(
+                Arrays.asList(new PartitionValue("0xff00")), Arrays.asList(Type.VARBINARY), false);
+        Assertions.assertArrayEquals(new byte[] {(byte) 0xff},
+                ((org.apache.doris.analysis.VarBinaryLiteral) first.getKeys().get(0)).getValue());
+        // Binary prefixes and their zero-extended values identify different partitions.
+        Assertions.assertTrue(first.compareTo(second) < 0);
+        Assertions.assertTrue(second.compareTo(first) > 0);
+        Assertions.assertThrows(AnalysisException.class, () -> PartitionKey.createListPartitionKeyWithTypes(
+                Arrays.asList(new PartitionValue("0xxyz")), Arrays.asList(Type.VARBINARY), false));
+    }
+
     @BeforeAll
     public static void setUp() {
         TimeZone tz = TimeZone.getTimeZone("ETC/GMT-0");

@@ -871,7 +871,19 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         // when ready to send, while retaining the existing table locks and callback cleanup scope.
         Database database = Env.getCurrentInternalCatalog().getDbOrMetaException(builder.getDbId());
         Set<Long> commitTsoTableIds = tableList.stream().map(Table::getId).collect(Collectors.toSet());
-        long commitTso = TransactionUtil.getCommitTSO(transactionId, database, commitTsoTableIds);
+        long commitTso;
+        try {
+            commitTso = TransactionUtil.getCommitTSO(transactionId, database, commitTsoTableIds);
+        } catch (TransactionCommitFailedException e) {
+            // A previous commit may have succeeded before its response was lost. Recover its TSO
+            // and let the existing commit RPC handle idempotency, lazy publish and 2PC status checks.
+            TransactionState persisted = getTransactionState(builder.getDbId(), transactionId);
+            if (persisted == null || (persisted.getTransactionStatus() != TransactionStatus.COMMITTED
+                    && persisted.getTransactionStatus() != TransactionStatus.VISIBLE)) {
+                throw e;
+            }
+            commitTso = persisted.getCommitTSO();
+        }
         if (commitTso > 0) {
             builder.setCommitTso(commitTso).setEnableCheckCommitTsoFence(true);
         }
@@ -1134,8 +1146,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             if (index == null) {
                 throw new MetaNotFoundException("index " + tabletMeta.getIndexId() + " does not exist");
             }
-            if (index.isRowBinlog()) {
-                // Row-binlog delete bitmap is derived and saved by its base tablet.
+            if (index.isChangelog()) {
+                // Changelog delete bitmap is derived and saved by its base tablet.
                 continue;
             }
 
@@ -1180,7 +1192,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         if (!Config.calc_delete_bitmap_get_versions_in_batch) {
             Map<Long, Long> partitionToVersions = Maps.newHashMap();
             partitionMap.forEach((key, value) -> {
-                long visibleVersion = value.getVisibleVersion();
+                long visibleVersion = ((CloudPartition) value).getVisibleVersionFromMs(
+                        Config.calc_delete_bitmap_get_versions_waiting_for_pending_txns);
                 long newVersion = visibleVersion <= 0 ? 2 : visibleVersion + 1;
                 partitionToVersions.put(key, newVersion);
             });

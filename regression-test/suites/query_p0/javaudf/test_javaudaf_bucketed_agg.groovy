@@ -24,6 +24,9 @@ suite("test_javaudaf_bucketed_agg") {
 
     sql "set be_number_for_test=1"
     sql "set enable_bucketed_hash_agg=true"
+    // Bucketed agg is disabled while spill is enabled, so turn off fuzzy spill.
+    sql "set enable_spill=false"
+    sql "set enable_force_spill=false"
     sql "set bucketed_agg_min_input_rows=0"
     sql "set bucketed_agg_max_group_keys=0"
     sql "set bucketed_agg_high_card_threshold=1.0"

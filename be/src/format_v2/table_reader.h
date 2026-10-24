@@ -57,8 +57,8 @@
 #include "format/table/deletion_vector.h"
 #include "format_v2/column_data.h"
 #include "format_v2/column_mapper.h"
-#include "format_v2/expr/cast.h"
 #include "format_v2/expr/delete_predicate.h"
+#include "format_v2/expr/evolution_cast.h"
 #include "format_v2/file_reader.h"
 #include "format_v2/parquet/reader/column_reader.h"
 #include "format_v2/schema_projection.h"
@@ -74,6 +74,10 @@ class RuntimeState;
 } // namespace doris
 
 namespace doris::format {
+
+namespace parquet {
+class ParquetProfileCache;
+}
 
 using DeleteRows = std::vector<int64_t>;
 
@@ -148,6 +152,7 @@ struct TableReadOptions {
     std::shared_ptr<io::IOContext> io_ctx;
     RuntimeState* runtime_state;
     RuntimeProfile* scanner_profile;
+    parquet::ParquetProfileCache* parquet_profile_cache = nullptr;
     // File formats without complete self-describing metadata, such as CSV, Text, and JSON, need
     // the FE-planned physical file slots to build their file-local schema and deserialize values.
     const std::vector<SlotDescriptor*>* file_slot_descs = nullptr;
@@ -555,7 +560,12 @@ protected:
     Status _open_local_filter_exprs(const FileScanRequest& file_request);
     Status _init_reader_condition_cache(const FileScanRequest& file_request);
     void _finalize_reader_condition_cache();
-    bool _should_enable_condition_cache(const FileScanRequest& file_request) const;
+    // The condition cache key covers the file identity plus the table-level predicate/session
+    // digest only. A table format whose file-column binding can change without changing that digest
+    // (Iceberg's positional fallback resolves an ID-less file by physical ordinals) must override
+    // this to false: a stale all-false granule would silently drop matching rows, because the
+    // cached verdict was produced by a different physical binding.
+    virtual bool _should_enable_condition_cache(const FileScanRequest& file_request) const;
 
     Status _evaluate_constant_filters(bool* can_filter_all) {
         DORIS_CHECK(can_filter_all != nullptr);
@@ -1328,8 +1338,8 @@ protected:
     }
 
     Status _cast_column_to_type(ColumnPtr* column, const DataTypePtr& file_type,
-                                const DataTypePtr& table_type,
-                                const std::string& column_name) const {
+                                const DataTypePtr& table_type, const std::string& column_name,
+                                bool truncate_datetimev2_precision = false) const {
         DORIS_CHECK(column != nullptr);
         DORIS_CHECK(column->get() != nullptr);
         DORIS_CHECK(file_type != nullptr);
@@ -1357,7 +1367,7 @@ protected:
         Block cast_block;
         cast_block.insert({*column, input_type, column_name});
         auto slot_ref = VSlotRef::create_shared(0, 0, -1, input_type, column_name);
-        auto cast_expr = Cast::create_shared(cast_type);
+        auto cast_expr = EvolutionCast::create_shared(cast_type, truncate_datetimev2_precision);
         cast_expr->add_child(std::move(slot_ref));
         auto cast_ctx = VExprContext::create_shared(std::move(cast_expr));
         RowDescriptor row_desc;
@@ -1411,7 +1421,8 @@ protected:
         // _align_column_nullability() reject an actual NULL before removing the wrapper.
         ColumnPtr result_column = source.column;
         RETURN_IF_ERROR(_cast_column_to_type(&result_column, slot->data_type(), mapping.table_type,
-                                             mapping.file_column_name));
+                                             mapping.file_column_name,
+                                             mapping.truncate_datetimev2_precision));
         RETURN_IF_ERROR(_align_column_nullability(&result_column, mapping.table_type));
         *column = _detach_column(std::move(result_column));
         *handled = true;
@@ -1431,7 +1442,8 @@ protected:
                                                                     nullable_parent_null_map));
             } else {
                 RETURN_IF_ERROR(_cast_column_to_type(column, mapping.file_type, mapping.table_type,
-                                                     mapping.file_column_name));
+                                                     mapping.file_column_name,
+                                                     mapping.truncate_datetimev2_precision));
             }
         }
         RETURN_IF_ERROR(
@@ -2231,6 +2243,7 @@ protected:
     std::shared_ptr<io::IOContext> _io_ctx;
     RuntimeState* _runtime_state;
     RuntimeProfile* _scanner_profile;
+    parquet::ParquetProfileCache* _parquet_profile_cache = nullptr;
     const std::vector<SlotDescriptor*>* _file_slot_descs = nullptr;
     FileFormat _format;
     TPushAggOp::type _push_down_agg_type = TPushAggOp::type::NONE;

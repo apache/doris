@@ -24,6 +24,7 @@ import org.apache.doris.cloud.JobWarmUpStats;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.Version;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.JsonUtil;
 import org.apache.doris.ha.FrontendNodeType;
@@ -33,6 +34,7 @@ import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.job.manager.JobManager;
 import org.apache.doris.job.offset.jdbc.JdbcOffset;
 import org.apache.doris.job.offset.jdbc.JdbcSourceOffsetProvider;
+import org.apache.doris.job.offset.s3.S3EventSourceOffsetProvider;
 import org.apache.doris.metric.Metric.MetricUnit;
 import org.apache.doris.monitor.jvm.JvmService;
 import org.apache.doris.monitor.jvm.JvmStats;
@@ -68,6 +70,32 @@ public class MetricsTest {
     public static void setUp() {
         FeConstants.runningUnitTest = true;
         MetricRepo.init();
+    }
+
+    @Test
+    public void testVersionMetricIsExportedWithBuildLabels() {
+        Assertions.assertEquals(26000100L, MetricRepo.encodeVersionMetricValue(26, 0, 1, 0));
+        Assertions.assertEquals(26000101L, MetricRepo.encodeVersionMetricValue(26, 0, 1, 1));
+        Assertions.assertTrue(MetricRepo.encodeVersionMetricValue(4, 99, 0, 0)
+                < MetricRepo.encodeVersionMetricValue(5, 0, 0, 0));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> MetricRepo.encodeVersionMetricValue(26, 0, 100, 0));
+
+        long value = MetricRepo.encodeVersionMetricValue(Version.DORIS_BUILD_VERSION_MAJOR,
+                Version.DORIS_BUILD_VERSION_MINOR, Version.DORIS_BUILD_VERSION_PATCH,
+                Version.DORIS_BUILD_VERSION_HOTFIX);
+
+        String expectedSample = "doris_fe_version{version=\"" + Version.DORIS_BUILD_VERSION
+                + "\", major=\"" + Version.DORIS_BUILD_VERSION_MAJOR
+                + "\", minor=\"" + Version.DORIS_BUILD_VERSION_MINOR
+                + "\", patch=\"" + Version.DORIS_BUILD_VERSION_PATCH
+                + "\", hotfix=\"" + Version.DORIS_BUILD_VERSION_HOTFIX
+                + "\", short_hash=\"" + Version.DORIS_BUILD_SHORT_HASH
+                + "\"} " + value;
+
+        String metricResult = getPrometheusMetrics();
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_version gauge"), metricResult);
+        Assertions.assertTrue(metricResult.contains(expectedSample), metricResult);
     }
 
     @Test
@@ -184,6 +212,34 @@ public class MetricsTest {
                     "doris_fe_streaming_job_per_job_last_task_success_time_seconds"
                             + "{job_id=\"1787039821000\", job_name=\"streaming_metric_job\"} 1787039821"));
             Assertions.assertFalse(metricResult.contains("doris_fe_streaming_job_per_job_lag{"));
+            String messageLag = "doris_fe_streaming_job_per_job_lag_messages"
+                    + "{job_id=\"1787039821000\", job_name=\"streaming_metric_job\"}";
+            Assertions.assertFalse(metricResult.contains(messageLag));
+
+            S3EventSourceOffsetProvider eventProvider = new S3EventSourceOffsetProvider("test-queue");
+            Deencapsulation.setField(job, "offsetProvider", eventProvider);
+            MetricRepo.updateStreamingJobPerJobMetrics();
+            Assertions.assertFalse(getPrometheusMetrics().contains(messageLag));
+
+            Deencapsulation.setField(eventProvider, "approximateNumberOfMessages", 12L);
+            Deencapsulation.setField(eventProvider, "lastSourceEventTimestampSeconds", 1787039800L);
+            MetricRepo.updateStreamingJobPerJobMetrics();
+            metricResult = getPrometheusMetrics();
+            Assertions.assertTrue(metricResult.contains(messageLag + " 12"));
+            Assertions.assertTrue(metricResult.contains(
+                    "doris_fe_streaming_job_per_job_last_source_event_timestamp_seconds"
+                            + "{job_id=\"1787039821000\", job_name=\"streaming_metric_job\"} 1787039800"));
+
+            Deencapsulation.setField(eventProvider, "approximateNumberOfMessages", null);
+            MetricRepo.updateStreamingJobPerJobMetrics();
+            Assertions.assertFalse(getPrometheusMetrics().contains(messageLag));
+
+            Deencapsulation.setField(eventProvider, "approximateNumberOfMessages", 0L);
+            MetricRepo.updateStreamingJobPerJobMetrics();
+            Assertions.assertTrue(getPrometheusMetrics().contains(messageLag + " 0"));
+            jobMap.remove(job.getJobId());
+            MetricRepo.updateStreamingJobPerJobMetrics();
+            Assertions.assertFalse(getPrometheusMetrics().contains(messageLag));
         } finally {
             jobMap.remove(job.getJobId());
             MetricRepo.updateStreamingJobPerJobMetrics();

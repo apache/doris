@@ -129,7 +129,7 @@ Block::Block(const std::vector<SlotDescriptor*>& slots, size_t block_size) {
     for (auto* const slot_desc : slots) {
         auto column_ptr = slot_desc->get_empty_mutable_column();
         column_ptr->reserve(block_size);
-        insert(ColumnWithTypeAndName(std::move(column_ptr), slot_desc->get_data_type_ptr(),
+        insert(ColumnWithTypeAndName(std::move(column_ptr), slot_desc->type(),
                                      slot_desc->col_name()));
     }
 }

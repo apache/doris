@@ -169,7 +169,8 @@ Status ParsedPartitionBoundaries::parse(
             if (tb.__isset.range_start) {                                                         \
                 auto parsed = parse_texpr_node(tb.range_start);                                   \
                 if (parsed) {                                                                     \
-                    static_cast<void>(cvr.add_range(FILTER_LARGER_OR_EQUAL, *parsed));            \
+                    static_cast<void>(                                                            \
+                            cvr.add_range(SQLFilterOp::FILTER_LARGER_OR_EQUAL, *parsed));         \
                 } else {                                                                          \
                     DORIS_CHECK(is_nullable);                                                     \
                     range_has_null = true;                                                        \
@@ -182,8 +183,8 @@ Status ParsedPartitionBoundaries::parse(
                 /* TPartitionBoundary.range_end_inclusive comment); single-column RANGE */        \
                 /* keeps the natural OPEN upper bound matching Doris semantics.         */        \
                 SQLFilterOp upper_op = (tb.__isset.range_end_inclusive && tb.range_end_inclusive) \
-                                               ? FILTER_LESS_OR_EQUAL                             \
-                                               : FILTER_LESS;                                     \
+                                               ? SQLFilterOp::FILTER_LESS_OR_EQUAL                \
+                                               : SQLFilterOp::FILTER_LESS;                        \
                 static_cast<void>(cvr.add_range(upper_op, *parsed));                              \
             }                                                                                     \
             if (range_has_null) {                                                                 \
@@ -574,20 +575,24 @@ Status ParsedPartitionBoundaries::get_or_compute_projected_boundaries(
             if (direction == TTargetExprMonotonicity::MONOTONIC_DECREASING) {                   \
                 if (!hi_open[i]) {                                                              \
                     auto hi_projected = projected_value(hi_result_col, hi_result_row[i]);       \
-                    static_cast<void>(cvr.add_range(FILTER_LARGER_OR_EQUAL, hi_projected));     \
+                    static_cast<void>(                                                          \
+                            cvr.add_range(SQLFilterOp::FILTER_LARGER_OR_EQUAL, hi_projected));  \
                 }                                                                               \
                 if (!lo_open[i]) {                                                              \
                     auto lo_projected = projected_value(lo_result_col, lo_result_row[i]);       \
-                    static_cast<void>(cvr.add_range(FILTER_LESS_OR_EQUAL, lo_projected));       \
+                    static_cast<void>(                                                          \
+                            cvr.add_range(SQLFilterOp::FILTER_LESS_OR_EQUAL, lo_projected));    \
                 }                                                                               \
             } else {                                                                            \
                 if (!lo_open[i]) {                                                              \
                     auto lo_projected = projected_value(lo_result_col, lo_result_row[i]);       \
-                    static_cast<void>(cvr.add_range(FILTER_LARGER_OR_EQUAL, lo_projected));     \
+                    static_cast<void>(                                                          \
+                            cvr.add_range(SQLFilterOp::FILTER_LARGER_OR_EQUAL, lo_projected));  \
                 }                                                                               \
                 if (!hi_open[i]) {                                                              \
                     auto hi_projected = projected_value(hi_result_col, hi_result_row[i]);       \
-                    static_cast<void>(cvr.add_range(FILTER_LESS_OR_EQUAL, hi_projected));       \
+                    static_cast<void>(                                                          \
+                            cvr.add_range(SQLFilterOp::FILTER_LESS_OR_EQUAL, hi_projected));    \
                 }                                                                               \
             }                                                                                   \
             ParsedBoundary projected_boundary;                                                  \
@@ -645,13 +650,13 @@ Status ParsedPartitionBoundaries::get_or_compute_projected_boundaries(
 static std::optional<SQLFilterOp> convert_opcode_to_filter_op(TExprOpcode::type op) {
     switch (op) {
     case TExprOpcode::LE:
-        return FILTER_LESS_OR_EQUAL;
+        return SQLFilterOp::FILTER_LESS_OR_EQUAL;
     case TExprOpcode::LT:
-        return FILTER_LESS;
+        return SQLFilterOp::FILTER_LESS;
     case TExprOpcode::GE:
-        return FILTER_LARGER_OR_EQUAL;
+        return SQLFilterOp::FILTER_LARGER_OR_EQUAL;
     case TExprOpcode::GT:
-        return FILTER_LARGER;
+        return SQLFilterOp::FILTER_LARGER;
     default:
         return std::nullopt;
     }

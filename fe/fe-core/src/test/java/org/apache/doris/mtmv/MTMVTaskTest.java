@@ -1536,13 +1536,13 @@ public class MTMVTaskTest {
         MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
         Deencapsulation.setField(task, "dbId", 1L);
         Deencapsulation.setField(task, "mtmvId", 2L);
-        Deencapsulation.setField(task, "ivmFallbackReason", IvmFailureReason.BINLOG_NOT_ENABLED.name());
+        Deencapsulation.setField(task, "ivmFallbackReason", IvmFailureReason.CHANGELOG_NOT_ENABLED.name());
 
         List<TCell> cells = task.getTvfInfo("job").getColumnValue();
 
         int columnIndex = MTMVTask.COLUMN_TO_INDEX.get("ivmfallbackreason");
         Assertions.assertEquals(MTMVTask.SCHEMA.size(), cells.size());
-        Assertions.assertEquals(IvmFailureReason.BINLOG_NOT_ENABLED.name(), cells.get(columnIndex).getStringVal());
+        Assertions.assertEquals(IvmFailureReason.CHANGELOG_NOT_ENABLED.name(), cells.get(columnIndex).getStringVal());
     }
 
     @Test
@@ -1604,7 +1604,7 @@ public class MTMVTaskTest {
         try (MockedConstruction<IvmIncrRefreshManager> ignored = Mockito.mockConstruction(IvmIncrRefreshManager.class,
                 (mock, context) -> Mockito.when(mock.doRefresh(Mockito.any()))
                         .thenReturn(
-                        IvmIncrRefreshResult.fallback(IvmFailureReason.BINLOG_NOT_ENABLED, "no_binlog")))) {
+                        IvmIncrRefreshResult.fallback(IvmFailureReason.CHANGELOG_NOT_ENABLED, "no_changelog")))) {
             Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
             Object result = Deencapsulation.invoke(task, "executeIvmAttempt", refreshContext, request,
                     new ConnectContext(), Lists.newArrayList());
@@ -1612,7 +1612,7 @@ public class MTMVTaskTest {
             Mockito.verify(ignored.constructed().get(0)).doRefresh(Mockito.any());
         }
 
-        Assertions.assertEquals(IvmFailureReason.BINLOG_NOT_ENABLED.name(),
+        Assertions.assertEquals(IvmFailureReason.CHANGELOG_NOT_ENABLED.name(),
                 Deencapsulation.getField(task, "ivmFallbackReason"));
     }
 
@@ -1767,7 +1767,7 @@ public class MTMVTaskTest {
         try (MockedConstruction<IvmIncrRefreshManager> ignored = Mockito.mockConstruction(IvmIncrRefreshManager.class,
                 (mock, context) -> Mockito.when(mock.doRefresh(Mockito.any()))
                         .thenReturn(
-                        IvmIncrRefreshResult.fallback(IvmFailureReason.BINLOG_BROKEN, "broken baseline")))) {
+                        IvmIncrRefreshResult.fallback(IvmFailureReason.CHANGELOG_BROKEN, "broken baseline")))) {
             Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
             Object result = Deencapsulation.invoke(task, "executeIvmAttempt", refreshContext, request,
                     new ConnectContext(), Lists.newArrayList());
@@ -1792,7 +1792,7 @@ public class MTMVTaskTest {
         try (MockedConstruction<IvmIncrRefreshManager> ignored = Mockito.mockConstruction(IvmIncrRefreshManager.class,
                 (mock, context) -> Mockito.when(mock.doRefresh(Mockito.any()))
                         .thenReturn(
-                        IvmIncrRefreshResult.fallback(IvmFailureReason.BINLOG_NOT_ENABLED, "no_binlog")))) {
+                        IvmIncrRefreshResult.fallback(IvmFailureReason.CHANGELOG_NOT_ENABLED, "no_changelog")))) {
             Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
             Object result = Deencapsulation.invoke(task, "executeIvmAttempt", refreshContext, request,
                     new ConnectContext(), Lists.newArrayList());
@@ -1876,7 +1876,7 @@ public class MTMVTaskTest {
     @Test
     public void testOtherCompleteFallbackDoesNotCapturePlanSignature() throws Exception {
         MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
-        Deencapsulation.setField(task, "ivmFallbackReason", IvmFailureReason.BINLOG_BROKEN.name());
+        Deencapsulation.setField(task, "ivmFallbackReason", IvmFailureReason.CHANGELOG_BROKEN.name());
         IvmPlanSignature signature = new IvmPlanSignature("layout_s2", "signature_s2");
 
         executeCompleteRefresh(task, signature, signature);

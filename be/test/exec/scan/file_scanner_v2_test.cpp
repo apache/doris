@@ -36,6 +36,7 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_timestamptz.h"
 #include "exec/operator/file_scan_operator.h"
 #include "exec/runtime_filter/runtime_filter_definitions.h"
 #include "exec/scan/file_scan_io_context.h"
@@ -51,6 +52,7 @@
 #include "format_v2/expr/cast.h"
 #include "format_v2/table/fluss_hybrid_reader.h"
 #include "testutil/mock/mock_runtime_state.h"
+#include "util/timezone_utils.h"
 
 namespace doris {
 namespace {
@@ -87,6 +89,22 @@ TFileRangeDesc legacy_paimon_jni_range_without_reader_type() {
     TPaimonFileDesc paimon_params;
     paimon_params.__set_paimon_split("legacy-split");
     paimon_params.__set_paimon_predicate("legacy-predicate");
+    range.table_format_params.__set_paimon_params(std::move(paimon_params));
+    return range;
+}
+
+TFileRangeDesc paimon_rust_jni_range(bool with_schema_json = true) {
+    auto range = range_with_format("paimon", TFileFormatType::FORMAT_JNI);
+    TPaimonFileDesc paimon_params;
+    paimon_params.__set_reader_type(TPaimonReaderType::PAIMON_RUST);
+    paimon_params.__set_file_format("parquet");
+    paimon_params.__set_paimon_split("serialized-rust-split");
+    paimon_params.__set_paimon_table("/paimon/warehouse/db.db/t");
+    paimon_params.__set_db_name("db");
+    paimon_params.__set_table_name("t");
+    if (with_schema_json) {
+        paimon_params.__set_paimon_table_schema_json("{}");
+    }
     range.table_format_params.__set_paimon_params(std::move(paimon_params));
     return range;
 }
@@ -374,20 +392,22 @@ TEST(FileScannerV2Test, SupportedFormatMatrix) {
     EXPECT_FALSE(FileScannerV2::is_supported(params, hudi_range_with_delta_logs()));
 }
 
-TEST(FileScannerV2Test, ArrowRejectsVariantBeforeReaderMaterialization) {
-    EXPECT_TRUE(
-            FileScannerV2::TEST_validate_variant_projection(TFileFormatType::FORMAT_ARROW, false)
-                    .ok());
-    EXPECT_TRUE(
-            FileScannerV2::TEST_validate_variant_projection(TFileFormatType::FORMAT_PARQUET, true)
-                    .ok());
+TEST(FileScannerV2Test, ArrowVariantRequiresNativeCarrier) {
+    EXPECT_TRUE(FileScannerV2::TEST_validate_variant_projection(TFileFormatType::FORMAT_ARROW, true,
+                                                                "adbc")
+                        .ok());
+    EXPECT_TRUE(FileScannerV2::TEST_validate_variant_projection(TFileFormatType::FORMAT_ARROW,
+                                                                false, "remote_doris")
+                        .ok());
+    EXPECT_TRUE(FileScannerV2::TEST_validate_variant_projection(TFileFormatType::FORMAT_PARQUET,
+                                                                true, "iceberg")
+                        .ok());
 
-    const auto status =
-            FileScannerV2::TEST_validate_variant_projection(TFileFormatType::FORMAT_ARROW, true);
+    const auto status = FileScannerV2::TEST_validate_variant_projection(
+            TFileFormatType::FORMAT_ARROW, true, "remote_doris");
     EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
     EXPECT_NE(status.to_string().find(
-                      "External Variant is supported only for Parquet files in FileScannerV2; "
-                      "file format ARROW is not supported"),
+                      "External Variant Arrow reads require an ADBC native Variant carrier"),
               std::string::npos)
             << status;
 }
@@ -558,6 +578,32 @@ TEST(FileScannerV2Test, JniCompatibilityShapesUseV2Scanner) {
     EXPECT_TRUE(FileScannerV2::is_supported(params, legacy_paimon_jni_range_without_reader_type()));
 }
 
+TEST(FileScannerV2Test, PaimonRustSplitUsesV2Scanner) {
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_JNI);
+
+    // A complete rust split (schema json + serialized split) is supported by V2.
+    EXPECT_TRUE(FileScannerV2::is_supported(params, paimon_rust_jni_range()));
+    EXPECT_TRUE(FileScannerV2::TEST_validate_scan_range(params, paimon_rust_jni_range()).ok());
+
+    // The schema-json pipeline field is required: a rust split without it cannot open the
+    // table and is rejected at validation instead of failing deep inside the reader.
+    const auto rust_range_without_schema = paimon_rust_jni_range(/*with_schema_json=*/false);
+    EXPECT_FALSE(FileScannerV2::is_supported(params, rust_range_without_schema));
+    const auto status = FileScannerV2::TEST_validate_scan_range(params, rust_range_without_schema);
+    EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
+
+    // Regression guard: PAIMON_CPP splits must remain on the V1 fallback.
+    auto cpp_range = range_with_format("paimon", TFileFormatType::FORMAT_JNI);
+    {
+        TPaimonFileDesc cpp_paimon_params;
+        cpp_paimon_params.__set_reader_type(TPaimonReaderType::PAIMON_CPP);
+        cpp_paimon_params.__set_file_format("parquet");
+        cpp_range.table_format_params.__set_paimon_params(std::move(cpp_paimon_params));
+    }
+    EXPECT_FALSE(FileScannerV2::is_supported(params, cpp_range));
+}
+
 // Scenario: every range of a fluss scan carries the one table format "fluss", and which side reads
 // it - fluss's own JNI scanner, or the paimon sibling's stack - is named per range in
 // fluss.range_type. Support therefore follows that key: a lake split is supported exactly where the
@@ -637,6 +683,41 @@ TEST(FileScannerV2Test, EveryFlussRangeGetsTheOneHybridReader) {
             range_with_format("fluss_union", TFileFormatType::FORMAT_PARQUET),
             &from_retired_format);
     EXPECT_TRUE(retired.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << retired;
+}
+
+TEST(FileScannerV2Test, TimestampPartitionUsesSessionTimezone) {
+    TimezoneUtils::load_timezones_to_cache();
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("timestamp_partition");
+    FileScannerV2 scanner(&state, &profile, nullptr);
+    SlotDescriptor slot;
+    slot._type = std::make_shared<DataTypeTimeStampTz>();
+
+    for (const auto& [timezone, offset] :
+         std::vector<std::pair<std::string, std::string>> {{"UTC", "+00:00"},
+                                                           {"Asia/Shanghai", "+08:00"},
+                                                           {"America/Los_Angeles", "-08:00"}}) {
+        state.set_timezone(timezone);
+        Field local;
+        const auto status =
+                scanner._parse_partition_value(&slot, "2023-12-01 08:00:00", false, &local);
+        ASSERT_TRUE(status.ok()) << status;
+        EXPECT_EQ(local.get<TYPE_TIMESTAMPTZ>().to_string(state.timezone_obj()),
+                  "2023-12-01 08:00:00.000000" + offset);
+    }
+
+    // An offset in the partition value overrides the session zone, as it does for SQL literals.
+    state.set_timezone("UTC");
+    Field explicit_offset;
+    ASSERT_TRUE(scanner._parse_partition_value(&slot, "2023-12-01 08:00:00+08:00", false,
+                                               &explicit_offset)
+                        .ok());
+    EXPECT_EQ(explicit_offset.get<TYPE_TIMESTAMPTZ>().to_string(state.timezone_obj()),
+              "2023-12-01 00:00:00.000000+00:00");
+    Field null_value;
+    ASSERT_TRUE(scanner._parse_partition_value(&slot, "not a timestamp", true, &null_value).ok());
+    EXPECT_EQ(null_value.get_type(), TYPE_NULL);
+    EXPECT_FALSE(scanner._parse_partition_value(&slot, "not a timestamp", false, &null_value).ok());
 }
 
 TEST(FileScannerV2Test, FailedTableReaderCloseCanBeRetriedThroughScanner) {

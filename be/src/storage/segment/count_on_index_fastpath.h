@@ -40,7 +40,6 @@ struct CountOnIndexFastpathFacts {
     bool has_external_row_ranges = false;
     bool row_bitmap_is_full = false;
     // (4) consumers of real row ids.
-    bool record_rowids = false;
     bool has_ann_topn = false;
     bool has_score_runtime = false;
     // (5) rows must be emitted as defaults (no data read at fabricated ids).
@@ -52,9 +51,8 @@ inline bool count_on_index_fastpath_safe(const CountOnIndexFastpathFacts& f) {
     return f.is_count_on_index_agg && !f.has_column_predicates && f.common_expr_count == 1 &&
            f.single_expr_is_match_pred && !f.has_virtual_column_exprs && !f.has_delete_predicates &&
            f.segment_delete_bitmap_empty && !f.has_col_id_predicates && !f.has_topn_filters &&
-           !f.has_external_row_ranges && f.row_bitmap_is_full && !f.record_rowids &&
-           !f.has_ann_topn && !f.has_score_runtime && f.no_need_read_data_opt_enabled &&
-           f.keys_type_supported;
+           !f.has_external_row_ranges && f.row_bitmap_is_full && !f.has_ann_topn &&
+           !f.has_score_runtime && f.no_need_read_data_opt_enabled && f.keys_type_supported;
 }
 
 // Allows direct default-row emission after a count-only index answer when no remaining stage needs real row IDs, values, or per-row processing. The iterator rechecks these conditions after initialization.
@@ -70,7 +68,6 @@ struct CountEmitShortcutFacts {
     bool has_delete_predicates = false;
     // (3) consumers of real row ids / per-row values.
     bool has_virtual_columns = false;
-    bool record_rowids = false;
     // (4) batch accounting must be a pure countdown.
     bool has_read_limit = false;
     bool read_orderby_key_reverse = false;
@@ -83,15 +80,15 @@ struct CountEmitShortcutFacts {
 inline bool count_emit_shortcut_safe(const CountEmitShortcutFacts& f) {
     return f.count_fastpath_hit && !f.needs_vec_eval && !f.needs_short_eval && !f.needs_expr_eval &&
            !f.has_remaining_col_predicates && !f.has_remaining_common_exprs &&
-           !f.has_delete_predicates && !f.has_virtual_columns && !f.record_rowids &&
-           !f.has_read_limit && !f.read_orderby_key_reverse && !f.has_condition_cache_digest &&
+           !f.has_delete_predicates && !f.has_virtual_columns && !f.has_read_limit &&
+           !f.read_orderby_key_reverse && !f.has_condition_cache_digest &&
            f.block_shape_matches_schema && f.all_columns_emit_defaults;
 }
 
 } // namespace doris::segment_v2
 
 // Deterministic seam for the G03 count-emission shortcut, mirroring the SNII
-// query seam (storage/index/snii/query/internal/query_test_counters.h):
+// query seam (storage/index/inverted/snii/query/internal/query_test_counters.h):
 //   - count_emit_shortcut_hits    : engage decisions that ADMITTED the
 //                                   shortcut (incremented inside
 //                                   _should_engage_count_emit_shortcut, which

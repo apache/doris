@@ -75,7 +75,7 @@ public class Column implements GsonPostProcessable {
     public static final String VERSION_COL = "__DORIS_VERSION_COL__";
     public static final String SKIP_BITMAP_COL = "__DORIS_SKIP_BITMAP_COL__";
     public static final String ICEBERG_ROWID_COL = "__DORIS_ICEBERG_ROWID_COL__";
-    // For time-travel (FOR VERSION/TIME AS OF) on duplicate / mow tables with row binlog enabled.
+    // For time-travel (FOR VERSION/TIME AS OF) on duplicate / mow tables with changelog enabled.
     public static final String COMMIT_TSO_COL = "__DORIS_COMMIT_TSO_COL__";
     public static final String ROW_LSN_COL = "__DORIS_ROW_LSN_COL__";
     // table stream columns
@@ -87,7 +87,7 @@ public class Column implements GsonPostProcessable {
     private static final String COLUMN_ARRAY_CHILDREN = "item";
     private static final String COLUMN_AGG_ARGUMENT_CHILDREN = "argument";
     public static final int COLUMN_UNIQUE_ID_INIT_VALUE = -1;
-    public static final int BINLOG_LSN_AUTO_INC_ID = -1;
+    public static final int CHANGELOG_LSN_AUTO_INC_ID = -1;
     private static final String COLUMN_MAP_KEY = "key";
     private static final String COLUMN_MAP_VALUE = "value";
     public static final Column STREAM_SEQ_VIRTUAL_COLUMN =
@@ -97,19 +97,29 @@ public class Column implements GsonPostProcessable {
     public static final Column STREAM_CHANGE_TYPE_VIRTUAL_COLUMN =
             new Column(STREAM_CHANGE_TYPE_COL, Type.STRING, false, null, true, null, false);
 
-    // columns for binlog schema
+    // columns for changelog schema
     // explicit columns
-    public static final String BINLOG_TSO_COL = "__DORIS_BINLOG_TSO__";
-    public static final String BINLOG_LSN_COL = "__DORIS_BINLOG_LSN__";
+    // ATTN(changelog-rename): formerly "__DORIS_BINLOG_TSO__"
+    public static final String CHANGELOG_TSO_COL = "__DORIS_CHANGELOG_TSO__";
+    // ATTN(changelog-rename): formerly "__DORIS_BINLOG_LSN__"
+    public static final String CHANGELOG_LSN_COL = "__DORIS_CHANGELOG_LSN__";
     // implicit columns
-    public static final String BINLOG_OPERATION_COL = "__DORIS_BINLOG_OP__";
-    public static final String BINLOG_BEFORE_PREFIX = "__BEFORE__";
+    // ATTN(changelog-rename): formerly "__DORIS_BINLOG_OP__"
+    public static final String CHANGELOG_OP_COL = "__DORIS_CHANGELOG_OP__";
+    // Before-image column of <col> is named CHANGELOG_BEFORE_PREFIX + <col> + "__". The prefix starts with
+    // HIDDEN_COLUMN_PREFIX, which a user column can not take, so no user column looks like a before column.
+    // ATTN(changelog-rename): formerly "__BEFORE__" (before column "__BEFORE__<col>__")
+    public static final String CHANGELOG_BEFORE_PREFIX = "__DORIS_CHANGELOG_BEFORE_";
 
     public static String generateBeforeColName(String colName) {
-        return BINLOG_BEFORE_PREFIX + colName + "__";
+        return CHANGELOG_BEFORE_PREFIX + colName + "__";
     }
 
-    public static Column generateRowBinlogKeyColumn(Column column) {
+    public static boolean isChangelogBeforeColumn(String colName) {
+        return colName.startsWith(CHANGELOG_BEFORE_PREFIX);
+    }
+
+    public static Column generateChangelogKeyColumn(Column column) {
         Column keyColumn = new Column(column);
         keyColumn.setComment("key (" + column.getName() + ")");
         return keyColumn;
@@ -174,6 +184,7 @@ public class Column implements GsonPostProcessable {
     // Request-scoped connector write-default expression. It is intentionally not persisted or rendered by
     // DESCRIBE/SHOW CREATE; ConnectorColumnConverter sets it only on the pinned columns used by write analysis.
     private transient String connectorDefaultValueSql;
+    private transient Type connectorStringWriteType;
     @SerializedName(value = "comment")
     private String comment;
     @SerializedName(value = "children")
@@ -407,6 +418,7 @@ public class Column implements GsonPostProcessable {
         this.isAutoInc = column.isAutoInc();
         this.defaultValue = column.getDefaultValue();
         this.connectorDefaultValueSql = column.connectorDefaultValueSql;
+        this.connectorStringWriteType = column.connectorStringWriteType;
         this.realDefaultValue = column.realDefaultValue;
         this.defaultValueExprDef = column.defaultValueExprDef;
         this.comment = column.getComment();
@@ -679,6 +691,14 @@ public class Column implements GsonPostProcessable {
         }
     }
 
+    public Type getConnectorStringWriteType() {
+        return connectorStringWriteType;
+    }
+
+    public void setConnectorStringWriteType(Type connectorStringWriteType) {
+        this.connectorStringWriteType = connectorStringWriteType;
+    }
+
     public String getConnectorDefaultValueSql() {
         return connectorDefaultValueSql;
     }
@@ -896,7 +916,7 @@ public class Column implements GsonPostProcessable {
 
         // show change datetimeV2/dateV2 to datetime/date
         if (isCompatible) {
-            sb.append(type.hideVersionForVersionColumn(true));
+            sb.append(type.hideVersionForVersionColumn(true, true));
         } else {
             sb.append(typeStr);
         }

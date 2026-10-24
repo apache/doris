@@ -48,7 +48,7 @@ suite("test_mc_limit_split_optimization", "p2,external,maxcompute,external_remot
 
     sql """drop database if exists ${db}"""
     sql """create database ${db}"""
-    sql """use ${db}"""
+    retry(10, 1000) { sql """use ${db}""" }
 
     try {
         // ==================== Step 1: Create partition table and insert data ====================

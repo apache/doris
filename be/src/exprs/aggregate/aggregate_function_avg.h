@@ -52,6 +52,21 @@ class DataTypeNumber;
 template <PrimitiveType T>
 class ColumnVector;
 
+// avg() adds up the values in this type and divides only at the end, so integers keep all digits.
+constexpr PrimitiveType avg_sum_type(PrimitiveType T) {
+    if (T == TYPE_LARGEINT || T == TYPE_BIGINT) {
+        return TYPE_LARGEINT;
+    } else if (is_int_or_bool(T)) {
+        return TYPE_BIGINT;
+    } else if (is_float_or_double(T) || is_time_type(T)) {
+        return TYPE_DOUBLE;
+    } else if (is_decimalv3(T) && T != TYPE_DECIMAL256) {
+        return TYPE_DECIMAL128I;
+    } else {
+        return T;
+    }
+}
+
 template <PrimitiveType T>
 struct AggregateFunctionAvgData {
     using ResultType = typename PrimitiveTypeTraits<T>::CppType;
@@ -258,6 +273,14 @@ public:
         }
     }
 
+    void deserialize_from_column_row(AggregateDataPtr __restrict place, const IColumn& column,
+                                     size_t row, Arena&) const override {
+        DCHECK_LT(row, column.size());
+        const auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
+        const auto* data = reinterpret_cast<const Data*>(col.get_data().data());
+        this->data(place) = data[row];
+    }
+
     NO_SANITIZE_UNDEFINED void deserialize_and_merge_from_column_range(
             AggregateDataPtr __restrict place, const IColumn& column, size_t begin, size_t end,
             Arena&) const override {
@@ -271,6 +294,8 @@ public:
             this->data(place).count += data[i].count;
         }
     }
+
+    bool needs_deserialize_and_merge_scratch() const override { return false; }
 
     void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
                                    AggregateDataPtr rhs, const IColumn* column, Arena& arena,

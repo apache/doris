@@ -17,9 +17,12 @@
 
 package org.apache.doris.mtmv.ivm;
 
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.mtmv.ivm.agg.IvmAggMeta;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
+
+import com.google.common.base.Preconditions;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -42,6 +45,20 @@ public class IvmRewriteResult {
     private boolean normalizeRewritten;
     private boolean incrRefreshRewritten;
     private List<Slot> identityKeySlots;
+    // The key type -- and with it the table model, DUP or UNIQUE + merge-on-write -- the MV this
+    // statement builds is created with. Fixed while the MV is created and read back from its own
+    // key model on every later statement, which is why it is carried per statement: CREATE has no
+    // MV to read it from yet. See IvmNormalizeUniqKeysMTMV#judgeKeysType for what decides it.
+    private KeysType keysType = KeysType.UNIQUE_KEYS;
+
+    /**
+     * Whether this statement builds and maintains an append-only detail MV, whose table model is a plain
+     * DUP table. The create paths ask this while the MV is still being built, which is why the model
+     * travels on the statement rather than on the MV.
+     */
+    public boolean isAppendOnlyDupTable() {
+        return keysType == KeysType.DUP_KEYS;
+    }
 
     public void addRowId(Slot rowIdSlot, boolean deterministic) {
         rowIdDeterminism.put(rowIdSlot, deterministic);
@@ -111,5 +128,22 @@ public class IvmRewriteResult {
 
     public void setIdentityKeySlots(List<Slot> identityKeySlots) {
         this.identityKeySlots = identityKeySlots;
+    }
+
+    public KeysType getKeysType() {
+        return keysType;
+    }
+
+    /**
+     * Only the two key types an IVM MV can be built with are meaningful, and which one it is also
+     * says which of the two table models it is: {@link KeysType#UNIQUE_KEYS} with merge-on-write,
+     * maintained through the hidden row-id, or {@link KeysType#DUP_KEYS}, a detail table the refresh
+     * only appends to. Defaults to the former, which is what every IVM MV got before this.
+     */
+    public void setKeysType(KeysType keysType) {
+        boolean isIvmKeysType = keysType == KeysType.UNIQUE_KEYS || keysType == KeysType.DUP_KEYS;
+        Preconditions.checkArgument(isIvmKeysType,
+                "IVM MV key type must be UNIQUE_KEYS or DUP_KEYS, but is: %s", keysType);
+        this.keysType = keysType;
     }
 }

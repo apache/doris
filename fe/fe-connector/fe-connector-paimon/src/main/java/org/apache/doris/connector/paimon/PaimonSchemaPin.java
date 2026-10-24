@@ -21,10 +21,12 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 
 import com.google.common.hash.Hashing;
 import org.apache.paimon.Snapshot;
+import org.apache.paimon.schema.SchemaManager;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.DataTable;
 import org.apache.paimon.table.DelegatedFileStoreTable;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.utils.SnapshotManager;
 
@@ -55,11 +57,11 @@ final class PaimonSchemaPin {
         if (table instanceof FallbackReadFileStoreTable) {
             FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) table;
             capture(pair.wrapped(), schemaId, snapshotId, path, pin);
-            TableSchema fallback = pair.fallback().schemaManager().latest().orElseThrow(IllegalStateException::new);
+            TableSchema fallback = pair.other().schemaManager().latest().orElseThrow(IllegalStateException::new);
             String fallbackPath = path + "fallback.";
             long fallbackSnapshotId = -1L;
             if (snapshotId >= 0) {
-                SnapshotManager manager = pair.fallback().snapshotManager();
+                SnapshotManager manager = pair.other().snapshotManager();
                 long time = snapshot(pair.wrapped(), snapshotId).timeMillis();
                 Snapshot eligible = manager.earlierOrEqualTimeMills(time);
                 // Match the SDK's FIRST_SNAPSHOT_ID fallback once, while pinning, rather than
@@ -70,7 +72,7 @@ final class PaimonSchemaPin {
                     pin.put(PREFIX + fallbackPath + "snapshot-absent", "true");
                 }
             }
-            capture(pair.fallback(), fallback.id(), fallbackSnapshotId, fallbackPath, pin);
+            capture(pair.other(), fallback.id(), fallbackSnapshotId, fallbackPath, pin);
         } else if (table instanceof DelegatedFileStoreTable) {
             capture(((DelegatedFileStoreTable) table).wrapped(), schemaId, snapshotId, path, pin);
         } else if (table instanceof DataTable) {
@@ -99,7 +101,7 @@ final class PaimonSchemaPin {
         if (table instanceof FallbackReadFileStoreTable) {
             FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) table;
             validate(pair.wrapped(), pin, path);
-            validate(pair.fallback(), pin, path + "fallback.");
+            validate(pair.other(), pin, path + "fallback.");
         } else if (table instanceof DelegatedFileStoreTable) {
             validate(((DelegatedFileStoreTable) table).wrapped(), pin, path);
         } else if (table instanceof DataTable) {
@@ -123,6 +125,64 @@ final class PaimonSchemaPin {
                 }
             }
         }
+    }
+
+    static Map<String, String> captureRestSchemas(FileStoreTable table) {
+        Map<String, String> schemas = new HashMap<>();
+        captureRestSchemas(table, "", schemas);
+        schemas.put("shape", shape(table));
+        return schemas;
+    }
+
+    private static void captureRestSchemas(FileStoreTable table, String path, Map<String, String> schemas) {
+        if (table instanceof FallbackReadFileStoreTable) {
+            FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) table;
+            captureRestSchemas(pair.wrapped(), path, schemas);
+            captureRestSchemas(pair.other(), path + "fallback.", schemas);
+        } else if (table instanceof DelegatedFileStoreTable) {
+            captureRestSchemas(((DelegatedFileStoreTable) table).wrapped(), path, schemas);
+        } else {
+            SchemaManager manager = table.schemaManager();
+            schemas.put(path, restSchemaIdentity(manager, manager.schema(table.schema().id())));
+        }
+    }
+
+    static FileStoreTable bindRestSchema(Table refreshed, Map<String, String> schemas) {
+        if (!(refreshed instanceof FileStoreTable) || !shape(refreshed).equals(schemas.get("shape"))) {
+            throw changed();
+        }
+        return bindRestSchema((FileStoreTable) refreshed, "", schemas);
+    }
+
+    private static FileStoreTable bindRestSchema(FileStoreTable table, String path, Map<String, String> schemas) {
+        if (table instanceof FallbackReadFileStoreTable) {
+            FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) table;
+            return PaimonTableDecorators.rebuildFallbackPair(pair,
+                    bindRestSchema(pair.wrapped(), path, schemas),
+                    bindRestSchema(pair.other(), path + "fallback.", schemas));
+        }
+        TableSchema retained = table.schema();
+        SchemaManager manager = table.schemaManager();
+        TableSchema persisted = manager.schema(retained.id());
+        // Bracket the fresh REST lookup with physical reads. The first REST handle only locates files;
+        // reusing its options could combine an old bucket key with a replacement's schema identity.
+        if (!restSchemaIdentity(manager, persisted).equals(schemas.get(path))) {
+            throw changed();
+        }
+        // REST synthesizes timeMillis, version and highestFieldId, so compare its logical schema only
+        // after confirming that the physical generation stayed unchanged across the REST lookup.
+        if (!retained.copy(Collections.emptyMap()).toSchema()
+                .equals(persisted.copy(Collections.emptyMap()).toSchema())) {
+            throw new DorisConnectorException("Paimon REST schema does not match stored schema "
+                    + retained.id() + "; retry the statement");
+        }
+        // Preserve the freshly loaded REST FileIO, catalog callbacks and options. Cache hits never rebind.
+        return table.copy(persisted.copy(retained.options()));
+    }
+
+    private static String restSchemaIdentity(SchemaManager manager, TableSchema schema) {
+        // Include the branch/path and all persisted options, even if a replacement reuses a timestamp.
+        return manager.toSchemaPath(schema.id()) + "\n" + schemaDigest(schema);
     }
 
     static void validateRetainedSchema(TableSchema retained, TableSchema persisted) {
@@ -158,7 +218,7 @@ final class PaimonSchemaPin {
     private static String shape(Table table) {
         if (table instanceof FallbackReadFileStoreTable) {
             FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) table;
-            return "fallback(" + shape(pair.wrapped()) + "," + shape(pair.fallback()) + ")";
+            return "fallback(" + shape(pair.wrapped()) + "," + shape(pair.other()) + ")";
         }
         if (table instanceof DelegatedFileStoreTable) {
             return shape(((DelegatedFileStoreTable) table).wrapped());

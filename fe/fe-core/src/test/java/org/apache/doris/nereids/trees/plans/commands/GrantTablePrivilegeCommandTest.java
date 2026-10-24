@@ -23,6 +23,7 @@ import org.apache.doris.catalog.AccessPrivilege;
 import org.apache.doris.catalog.AccessPrivilegeWithCols;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.utframe.TestWithFeService;
@@ -190,5 +191,33 @@ public class GrantTablePrivilegeCommandTest extends TestWithFeService {
     private void runCommand(String sql) throws Exception {
         LogicalPlan plan = new NereidsParser().parseSingle(sql);
         ((Command) plan).run(connectContext, null);
+    }
+
+    @Test
+    public void testObjectName() {
+        NereidsParser nereidsParser = new NereidsParser();
+        String[][] cases = {
+                {"GRANT SELECT_PRIV ON test TO 'jack'", "test.*"},
+                {"GRANT SELECT_PRIV ON test.test_table TO 'jack'", "test.test_table"},
+                {"GRANT SELECT_PRIV ON internal.test.test_table TO 'jack'", "internal.test.test_table"},
+        };
+        for (String[] c : cases) {
+            LogicalPlan plan = nereidsParser.parseSingle(c[0]);
+            Assertions.assertTrue(plan instanceof GrantTablePrivilegeCommand, c[0]);
+            Assertions.assertEquals(c[1], ((GrantTablePrivilegeCommand) plan).getTablePattern().toString(), c[0]);
+        }
+    }
+
+    @Test
+    public void testObjectNameWithTooManyParts() {
+        NereidsParser nereidsParser = new NereidsParser();
+        for (String name : new String[] {"a.b.c.d", "*.*.*.*", "a.b.c.d.e"}) {
+            String sql = "GRANT SELECT_PRIV ON " + name + " TO 'jack'";
+            ParseException exception = Assertions.assertThrows(ParseException.class,
+                    () -> nereidsParser.parseSingle(sql), sql);
+            Assertions.assertTrue(exception.getMessage().contains(
+                    "Privilege object name should be db, db.tbl or ctl.db.tbl, but got: " + name),
+                    exception.getMessage());
+        }
     }
 }

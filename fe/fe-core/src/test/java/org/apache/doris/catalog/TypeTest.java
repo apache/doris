@@ -27,6 +27,15 @@ import java.util.ArrayList;
 public class TypeTest {
 
     @Test
+    public void testVarbinaryColumnSizeIsItsLengthInBytes() {
+        // information_schema.columns takes the length in COLUMN_TYPE and CHARACTER_MAXIMUM_LENGTH of a VARBINARY
+        // column from here, as it does for a VARCHAR column; without it they were unknown and NULL.
+        Assertions.assertEquals(16, ScalarType.createVarbinaryType(16).getColumnSize());
+        Assertions.assertEquals(ScalarType.MAX_VARBINARY_LENGTH,
+                ScalarType.createVarbinaryType(ScalarType.MAX_VARBINARY_LENGTH).getColumnSize());
+    }
+
+    @Test
     public void testTimestampNsJavaUdfType() {
         Assertions.assertEquals(1,
                 Type.PrimitiveTypeToJavaClassType.get(PrimitiveType.TIMESTAMP_NS).size());
@@ -41,6 +50,14 @@ public class TypeTest {
     @Test
     public void testTimestampNsVariantSubtype() {
         Assertions.assertTrue(Type.getVariantSubTypes().contains(Type.TIMESTAMP_NS));
+    }
+
+    @Test
+    public void testTimestampTzIsNotVariantSubtype() {
+        Assertions.assertFalse(Type.VARIANT.supportSubType(ScalarType.createTimeStampTzType(6)));
+        Assertions.assertFalse(Type.VARIANT.supportSubType(
+                new ArrayType(ScalarType.createTimeStampTzType(3), true)));
+        Assertions.assertTrue(Type.VARIANT.supportSubType(ScalarType.createDatetimeV2Type(6)));
     }
 
     // ===================== ArrayType =====================
@@ -99,8 +116,22 @@ public class TypeTest {
                 new StructField("x", Type.INT, null, true),
                 new StructField("y", new ArrayType(Type.INT, true), null, true)
         );
-        // names are ignored by matchExactType recursion; matchesType requires containsNull equal
-        Assertions.assertTrue(Type.matchExactType(s1, s2, false));
+        // field names take part in the match: a rename-only struct cast is not a no-op because
+        // name based field access resolves against the cast result's field names at runtime
+        Assertions.assertFalse(Type.matchExactType(s1, s2, false));
+
+        // identical names and positional types match
+        StructType s1SameNames = new StructType(
+                new StructField("f1", Type.INT, null, true),
+                new StructField("f2", new ArrayType(Type.INT, true), null, true)
+        );
+        Assertions.assertTrue(Type.matchExactType(s1, s1SameNames, false));
+
+        // a renamed field nested inside an array is not a no-op either
+        Assertions.assertFalse(Type.matchExactType(
+                new ArrayType(s1, true), new ArrayType(s2, true), false));
+        Assertions.assertTrue(Type.matchExactType(
+                new ArrayType(s1, true), new ArrayType(s1SameNames, true), false));
 
         // inner element type differs
         StructType s3 = new StructType(
@@ -298,5 +329,43 @@ public class TypeTest {
         Assertions.assertFalse(timestampNs.matchesType(dtv2s6));
         Assertions.assertFalse(dtv2s6.matchesType(timestampNs));
         Assertions.assertFalse(Type.matchExactType(timestampNs, wildcardDatetimeV2, false));
+    }
+
+    // ===================== STRUCT nested comment in DDL =====================
+
+    /** SHOW CREATE TABLE has to print the comment of every nested field. */
+    @Test
+    public void testStructDdlKeepsNestedFieldComment() {
+        StructType structType = new StructType(
+                new StructField("a", Type.INT, null, true),
+                new StructField("b", Type.STRING, "field doc", true));
+        Column column = new Column("s", structType, false, null, true, null, "top-level");
+
+        Assertions.assertEquals(
+                "`s` struct<a:int,b:text comment \"field doc\"> NULL COMMENT \"top-level\"",
+                column.toSql(false, true));
+    }
+
+    /** A nested comment has to stay a readable literal, quotes and back slashes included. */
+    @Test
+    public void testStructDdlEscapesNestedFieldComment() {
+        StructType structType = new StructType(
+                new StructField("b", Type.STRING, "owner''s \\path and \"quotes\"", true));
+        Column column = new Column("s", structType, false, null, true, null, null);
+
+        Assertions.assertEquals(
+                "`s` struct<b:text comment \"owner''s \\\\path and \"\"quotes\"\"\"> NULL",
+                column.toSql(false, true));
+    }
+
+    /** Nested comments belong to DDL, but DESCRIBE only prints them when asked for. */
+    @Test
+    public void testStructDescribeHidesNestedCommentUnlessRequested() {
+        StructType structType = new StructType(
+                new StructField("b", Type.STRING, "field doc", true));
+        Assertions.assertEquals("struct<b:text>",
+                structType.hideVersionForVersionColumn(true, false));
+        Assertions.assertEquals("struct<b:text comment \"field doc\">",
+                structType.hideVersionForVersionColumn(true, true));
     }
 }

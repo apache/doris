@@ -129,6 +129,14 @@ Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* j
 
     // check compaction_type
     std::string compaction_type = req->param(PARAM_COMPACTION_TYPE);
+    if (compaction_type == PARAM_COMPACTION_CHANGELOG_TTL) {
+        if (tablet_id == 0 || table_id != 0) {
+            return Status::InvalidArgument("changelog_ttl requires a tablet_id");
+        }
+        RETURN_IF_ERROR(_engine.submit_changelog_ttl(tablet_id));
+        *json_result = R"({"status":"Success","msg":"changelog TTL task queued"})";
+        return Status::OK();
+    }
     if (compaction_type != PARAM_COMPACTION_BASE &&
         compaction_type != PARAM_COMPACTION_CUMULATIVE &&
         compaction_type != PARAM_COMPACTION_FULL) {
@@ -150,7 +158,7 @@ Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* j
         for (const auto& tablet : tablet_vec) {
             tablet->set_last_full_compaction_schedule_time(UnixMillis());
             RETURN_IF_ERROR(_engine.submit_compaction_task(tablet, CompactionType::FULL_COMPACTION,
-                                                           force, true, 1));
+                                                           force, true, TriggerMethod::MANUAL));
         }
     } else {
         // 2. fetch the tablet by tablet_id
@@ -173,7 +181,7 @@ Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* j
             // 3. submit full compaction task to thread pool
             tablet->set_last_full_compaction_schedule_time(UnixMillis());
             RETURN_IF_ERROR(_engine.submit_compaction_task(tablet, CompactionType::FULL_COMPACTION,
-                                                           force, true, 1));
+                                                           force, true, TriggerMethod::MANUAL));
         } else {
             // 3. execute base/cumulative compaction task in a detached thread
             std::packaged_task<Status()> task([this, tablet, compaction_type]() {

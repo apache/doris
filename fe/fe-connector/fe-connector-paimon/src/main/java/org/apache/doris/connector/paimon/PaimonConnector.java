@@ -35,6 +35,7 @@ import org.apache.doris.connector.spi.ConnectorTestResult;
 import org.apache.doris.connector.spi.ConnectorValidationContext;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 import org.apache.doris.filesystem.Location;
 import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.kerberos.AuthType;
@@ -215,9 +216,11 @@ public class PaimonConnector implements Connector {
      */
     static HadoopAuthenticator buildPluginAuthenticator(Map<String, String> properties,
             Map<String, String> storageHadoopConfig) {
-        if ("kerberos".equalsIgnoreCase(properties.get(HADOOP_SECURITY_AUTHENTICATION))) {
-            return HadoopAuthenticator.getHadoopAuthenticator(
-                    PaimonCatalogFactory.buildHadoopConfiguration(properties, storageHadoopConfig));
+        // Storage bindings normalize hdfs.authentication.* and XML settings into Hadoop keys.
+        // Gating on the raw legacy key would leave FileIO using the plugin's unauthenticated UGI.
+        Configuration conf = PaimonCatalogFactory.buildHadoopConfiguration(properties, storageHadoopConfig);
+        if ("kerberos".equalsIgnoreCase(conf.get(HADOOP_SECURITY_AUTHENTICATION))) {
+            return HadoopAuthenticator.getHadoopAuthenticator(conf);
         }
         return null;
     }
@@ -355,11 +358,18 @@ public class PaimonConnector implements Connector {
                 context, schemaAtMemo);
     }
 
+    @Override
+    public ConnectorWritePlanProvider getWritePlanProvider() {
+        return new PaimonWritePlanProvider(catalogProps,
+                new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(ensureCatalog(), tableOptions),
+                context);
+    }
+
     /**
      * Declares the E5 read-path capabilities paimon supports: MVCC snapshot pinning. The B5 fe-core
      * MvccTable wiring keys off this to call {@link PaimonConnectorMetadata#beginQuerySnapshot} /
      * {@code resolveTimeTravel}.
-     * No write capability is declared: paimon write is not migrated.
+     * Write support is declared by {@link #getWritePlanProvider()}.
      */
     @Override
     public Set<ConnectorCapability> getCapabilities() {
@@ -547,7 +557,6 @@ public class PaimonConnector implements Connector {
         try {
             Thread.currentThread().setContextClassLoader(getClass().getClassLoader());
             return context.executeAuthenticated(() -> {
-                // PaimonMetaCacheCatalog installs PrivilegedCatalog after the raw metadata cache.
                 Catalog catalog = PaimonCatalogProperties.HMS.equals(flavor)
                         ? createHmsCatalog(catalogContext, hmsAuth, catalogProps.getRaw(),
                                 storageHadoopConfig)
@@ -558,7 +567,7 @@ public class PaimonConnector implements Connector {
                         metaCache.hasEnclosingWeightLimit());
             });
         } catch (Exception e) {
-            throw new RuntimeException(failureMessage + " (flavor=" + flavor + "): " + e.getMessage(), e);
+            throw PaimonExceptionUtils.catalogCreationFailure(failureMessage + " (flavor=" + flavor + ")", e);
         } finally {
             Thread.currentThread().setContextClassLoader(previous);
         }
@@ -582,9 +591,11 @@ public class PaimonConnector implements Connector {
             fileIO.checkOrMkdirs(warehousePath);
             String clientClass = options.get(HiveCatalogOptions.METASTORE_CLIENT_CLASS);
             Catalog catalog = hmsAuth == null
-                    ? new HiveCatalog(fileIO, hiveConf, clientClass, options, warehousePath.toUri().toString())
+                    ? new HiveCatalog(fileIO, hiveConf, clientClass, catalogContext,
+                            warehousePath.toUri().toString())
                     : hmsAuth.doAs(() -> new HiveCatalog(
-                            fileIO, hiveConf, clientClass, options, warehousePath.toUri().toString()));
+                            fileIO, hiveConf, clientClass, catalogContext,
+                            warehousePath.toUri().toString()));
             catalog = PaimonHmsClientPool.install(catalog, hmsAuth);
             catalog = PaimonHmsCatalog.install(catalog, properties, storageHadoopConfig);
             return catalog;

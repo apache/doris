@@ -17,6 +17,7 @@
 
 package org.apache.doris.mtmv.ivm;
 
+import org.apache.doris.analysis.ColumnPath;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
@@ -43,6 +44,8 @@ import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
 import org.apache.doris.mtmv.MTMVRefreshPartitionSnapshot;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVStatus;
+import org.apache.doris.nereids.trees.plans.commands.info.DropColumnOp;
+import org.apache.doris.nereids.trees.plans.commands.info.RenameColumnOp;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.EditLog;
@@ -75,6 +78,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
     @Override
     protected void runBeforeAll() throws Exception {
         Config.enable_table_stream = true;
+        Config.enable_feature_changelog = true;
     }
 
     @Test
@@ -85,6 +89,54 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
         executeSql("TRUNCATE TABLE ivm_base");
 
         Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, getMtmv(db).getStatus().getState());
+    }
+
+    /**
+     * A truncated partition is placed on the MV partitions that read it, the way a dropped partition is:
+     * the requirement is what carries the change, not the state, and every other partition keeps catching
+     * up incrementally.
+     */
+    @Test
+    public void testTruncateAPartitionStaysOnThePartitionsThatReadIt() throws Exception {
+        String db = "ivm_truncate_one_partition";
+        createPartitionedIvmTableAndPartitionedMv(db);
+        MTMV mtmv = getMtmv(db);
+        Set<String> expected = mvPartitionsWithSameRange(mtmv, getBaseTable(db), "p202001");
+        Assertions.assertEquals(1, expected.size());
+
+        alignStatesOf(mtmv);
+        executeSql("TRUNCATE TABLE ivm_base PARTITION(p202001)");
+
+        Assertions.assertNotEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
+        for (String partitionName : mtmv.getPartitionNames()) {
+            long expectedLatest = expected.contains(partitionName) ? 2 : 1;
+            Assertions.assertEquals(expectedLatest,
+                    mtmv.getPartitionStates().get(partitionName).getLatestEpoch());
+        }
+    }
+
+    /**
+     * An entire-table truncate is recorded the same way, and this is the case that says the scope of the
+     * change is not what decides: every MV partition reads a partition that was replaced, so every one of
+     * them has its requirement raised -- and the state, which is the coarser record, is not what carries
+     * it. Recording it as a whole-MV change instead would send every partition of the MV to a rebuild and
+     * reset the streams, for a change whose scope the per-partition requirement already expresses.
+     */
+    @Test
+    public void testTruncateTableStaysOnThePartitionsThatReadIt() throws Exception {
+        String db = "ivm_truncate_entire_table";
+        createPartitionedIvmTableAndPartitionedMv(db);
+        MTMV mtmv = getMtmv(db);
+        Assertions.assertEquals(2, mtmv.getPartitionNames().size());
+
+        alignStatesOf(mtmv);
+        executeSql("TRUNCATE TABLE ivm_base");
+
+        Assertions.assertNotEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
+        for (String partitionName : mtmv.getPartitionNames()) {
+            Assertions.assertEquals(2,
+                    mtmv.getPartitionStates().get(partitionName).getLatestEpoch());
+        }
     }
 
     @Test
@@ -129,20 +181,22 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
         createPartitionedIvmTableAndMv(db);
         MTMV mtmv = getMtmv(db);
 
-        // ivm_mv selects dt, k1, v1. Dropping a column it does not use must leave the baseline alone: no
-        // partition's requirement is raised, so no partition is sent to a rebuild. The MV state is not the
-        // witness here -- a column change puts any MV into SCHEMA_CHANGE through the shared base-table hook,
-        // IVM or not (see testRenameTableMarksBaselineRebuild), so telling a referenced column from an
-        // unreferenced one is that hook's criterion to refine and not this one's.
+        // ivm_mv selects dt, k1, v1. Dropping a column it does not use leaves the MV where it is: no
+        // partition's requirement is raised, and the MV is not invalidated either. The criterion is the
+        // MV's own query -- a column the query does not name leaves it analyzable, so there is no rebuild
+        // for the state to stand for, and writing one would discard the result of a refresh running
+        // against rows that are still the rows they should be.
         alignStatesOf(mtmv);
+        long versionBefore = mtmv.getSchemaChangeVersion();
         Map<String, Long> before = latestEpochsOf(mtmv);
         executeSql("ALTER TABLE ivm_base ADD COLUMN spare int");
         executeSql("ALTER TABLE ivm_base DROP COLUMN spare");
         Assertions.assertEquals(before, latestEpochsOf(mtmv),
                 "a column the MV does not use must not raise any partition's requirement");
+        assertNotInvalidated(mtmv, versionBefore, "a column the MV does not use must not invalidate the MV");
 
         // Dropping a column the MV uses makes the MV query unanalyzable: the change is metadata-only
-        // and emits no binlog, so an incremental refresh would silently keep the rows of the old
+        // and emits no changelog, so an incremental refresh would silently keep the rows of the old
         // column. The baseline has to be invalidated instead.
         executeSql("ALTER TABLE ivm_base DROP COLUMN v1");
         Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
@@ -223,19 +277,204 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
         MTMV mtmv = getMtmv(db);
         Assertions.assertFalse(mtmv.isIvm());
 
-        // A column this MV does not read leaves its query alone, so the MV is put into SCHEMA_CHANGE for
-        // the ordinary reason -- which is what the shared hook does for any column change, IVM or not --
-        // and not because its query went away. The detail is what tells the two apart here, because the
-        // state is the same either way.
+        // A column this MV does not read leaves its query alone, so the MV is left alone too, IVM or not:
+        // the state is a rebuild the next refresh owes, and there is none to owe. What an IVM MV has on top
+        // of the state is its epoch state, and that stays where it was as well.
+        long versionBefore = mtmv.getSchemaChangeVersion();
         executeSql("ALTER TABLE ivm_base ADD COLUMN spare int");
         executeSql("ALTER TABLE ivm_base DROP COLUMN spare");
-        Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
-        Assertions.assertFalse(
-                mtmv.getStatus().getSchemaChangeDetail().contains("no longer analyzable"),
-                "a column the MV does not read leaves the query analyzable, was: "
-                        + mtmv.getStatus().getSchemaChangeDetail());
+        assertNotInvalidated(mtmv, versionBefore, "a column the MV does not read must not invalidate it");
 
         // A column it does read takes the query away, and that is what the MV is invalidated with.
+        executeSql("ALTER TABLE ivm_base DROP COLUMN v1");
+        Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
+        assertUnanalyzableDetail(mtmv);
+    }
+
+    /**
+     * A renamed column is judged the same way a dropped one is, and the operation says so for itself: a row
+     * changelog table refuses a column rename outright, so this is a plain MV's path, and the re-analysis is
+     * the answer for it -- the query names the old name, or it does not name the column at all.
+     */
+    @Test
+    public void testARenamedColumnIsJudgedByTheQuery() throws Exception {
+        String db = "ivm_renamed_column";
+        createPartitionedTableWithoutChangelog(db);
+        createMvByNereids("CREATE MATERIALIZED VIEW ivm_mv\n"
+                + "BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+                + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')\n"
+                + "AS SELECT dt, k1, v1 FROM ivm_base");
+        MTMV mtmv = getMtmv(db);
+        Assertions.assertFalse(mtmv.isIvm());
+
+        executeSql("ALTER TABLE ivm_base ADD COLUMN spare int");
+        long versionBefore = mtmv.getSchemaChangeVersion();
+        executeSql("ALTER TABLE ivm_base RENAME COLUMN spare spare_renamed");
+        assertNotInvalidated(mtmv, versionBefore, "a column the MV does not read must not invalidate it");
+
+        executeSql("ALTER TABLE ivm_base RENAME COLUMN v1 v1_renamed");
+        Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
+        assertUnanalyzableDetail(mtmv);
+    }
+
+    /**
+     * A column change is only judged by the queries once the table has it. The query is analysed against the
+     * table as it is when the hook runs, so a schema change that has not been applied yet leaves the column
+     * in place and the answer would be about the table from before the change -- which is why the alter asks
+     * the operation instead of trusting its own submission. Pinned here: the answer flips when the change
+     * lands, and a path into a column is one the question cannot be answered for.
+     */
+    @Test
+    public void testAColumnChangeIsJudgedOnlyOnceTheTableHasIt() throws Exception {
+        String db = "ivm_column_change_reached";
+        createPartitionedTableWithoutChangelog(db);
+        OlapTable baseTable = getBaseTable(db);
+
+        RenameColumnOp pendingRename = new RenameColumnOp("v1", "v1_renamed");
+        Assertions.assertFalse(pendingRename.hasReachedTheTable(baseTable),
+                "the name the query spells is still in the table, so the rename has not reached it");
+        DropColumnOp pendingDrop = new DropColumnOp("v1", null, null);
+        Assertions.assertFalse(pendingDrop.hasReachedTheTable(baseTable),
+                "the column is still in the table, so the drop has not reached it");
+
+        executeSql("ALTER TABLE ivm_base RENAME COLUMN v1 v1_renamed");
+
+        Assertions.assertTrue(pendingRename.hasReachedTheTable(getBaseTable(db)),
+                "the old name is gone from the table, so the rename has reached it");
+
+        DropColumnOp dropAfterRename = new DropColumnOp("v1_renamed", null, null);
+        Assertions.assertFalse(dropAfterRename.hasReachedTheTable(getBaseTable(db)));
+        executeSql("ALTER TABLE ivm_base DROP COLUMN v1_renamed");
+        Assertions.assertTrue(dropAfterRename.hasReachedTheTable(getBaseTable(db)),
+                "the column is gone from the table, so the drop has reached it");
+        Assertions.assertTrue(pendingDrop.hasReachedTheTable(getBaseTable(db)),
+                "and the name that drop asks about is one the table does not have either");
+
+        // A path that addresses part of a column leaves the column itself in place, so the question has no
+        // answer: the change is treated as one that has not reached the table, which keeps the views
+        // invalidated rather than cleared on a look that cannot see the part.
+        DropColumnOp nestedDrop = new DropColumnOp(ColumnPath.fromDotName("k1.leaf"), null, null);
+        Assertions.assertFalse(nestedDrop.hasReachedTheTable(getBaseTable(db)));
+    }
+
+    /**
+     * Changing a column's type is not judged by the query, and this is the case that says why: the query
+     * still analyses -- it is projected or not, which is all the check compares -- while the rows the MV
+     * already holds were computed under the old type. The operation invalidates on its own then, whether or
+     * not the MV reads the column, which is what keeps a predicate that now compares something else from
+     * being applied to rows that were filtered under the old meaning.
+     */
+    @Test
+    public void testATypeChangeInvalidatesWithoutAskingTheQuery() throws Exception {
+        String db = "ivm_type_change";
+        createPartitionedTableWithoutChangelog(db);
+        createMvByNereids("CREATE MATERIALIZED VIEW ivm_mv\n"
+                + "BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+                + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')\n"
+                + "AS SELECT dt, k1, v1 FROM ivm_base");
+        MTMV mtmv = getMtmv(db);
+        Assertions.assertFalse(mtmv.isIvm());
+
+        executeSql("ALTER TABLE ivm_base ADD COLUMN spare int");
+        executeSql("ALTER TABLE ivm_base MODIFY COLUMN spare bigint");
+
+        Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
+        // The change is recorded as the base-table change it is, not as a query that went away: the query
+        // is still there, and the reason is what tells a reader which of the two happened.
+        Assertions.assertFalse(
+                mtmv.getStatus().getSchemaChangeDetail().contains("no longer analyzable"),
+                "the query is untouched by a type change, was: " + mtmv.getStatus().getSchemaChangeDetail());
+    }
+
+    /**
+     * A subquery that answers for a name of its own is a dependency only where the table being changed is
+     * one that subquery reads: what a name falls back to is what the scope that used to answer for it
+     * holds, so a scope that never read the table holds nothing for it. Two sibling subqueries are the
+     * shape -- the changed table is one only the first reads, and the `flag` of the second is its own --
+     * where reading every subquery's own names reads a dependency the change cannot have made.
+     */
+    @Test
+    public void testASubqueryTheChangeDoesNotReachIsNotADependency() throws Exception {
+        String db = "ivm_column_change_sibling_scopes";
+        createDatabaseAndUse(db);
+        createTable("CREATE TABLE " + db + ".ivm_base (id int, flag int) DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ('replication_num' = '1')");
+        createTable("CREATE TABLE " + db + ".ivm_other (u int) DUPLICATE KEY(u)\n"
+                + "DISTRIBUTED BY HASH(u) BUCKETS 1 PROPERTIES ('replication_num' = '1')");
+        createTable("CREATE TABLE " + db + ".ivm_spare (id int) DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ('replication_num' = '1')");
+        createMvByNereids("CREATE MATERIALIZED VIEW ivm_mv\n"
+                + "BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+                + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')\n"
+                + "AS SELECT o.id FROM ivm_base o\n"
+                + "WHERE EXISTS (SELECT 1 FROM ivm_spare c WHERE c.id = o.id)\n"
+                + "  AND EXISTS (SELECT 1 AS flag, COUNT(*) AS n FROM ivm_other u\n"
+                + "      GROUP BY flag HAVING flag = 1)");
+        MTMV mtmv = getMtmv(db);
+
+        long versionBefore = mtmv.getSchemaChangeVersion();
+        executeSql("ALTER TABLE ivm_spare ADD COLUMN flag int default 0");
+        assertNotInvalidated(mtmv, versionBefore,
+                "a name a subquery names itself, where the changed table is not one that subquery reads,"
+                        + " must not invalidate the MV");
+    }
+
+    /**
+     * A subquery inside another one is judged by its own output being read: an EXISTS is asked whether it
+     * has a row and never what it projects, and an IN around it reads its own subquery, not the scopes
+     * inside it. Adding the column the inner projection is then read from leaves every row of the query
+     * where it was, so the MV is left alone -- while a column the IN itself compares is not.
+     */
+    @Test
+    public void testAProjectionTheSubqueryAroundItDoesNotReadIsNotADependency() throws Exception {
+        String db = "ivm_column_change_nested_scope";
+        createDatabaseAndUse(db);
+        createTable("CREATE TABLE " + db + ".ivm_base (id int, k int) DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ('replication_num' = '1')");
+        createTable("CREATE TABLE " + db + ".ivm_mid (k int, id int, spare int) DUPLICATE KEY(k)\n"
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES ('replication_num' = '1')");
+        createTable("CREATE TABLE " + db + ".ivm_spare (id int) DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ('replication_num' = '1')");
+        createMvByNereids("CREATE MATERIALIZED VIEW ivm_mv\n"
+                + "BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+                + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')\n"
+                + "AS SELECT o.id FROM ivm_base o\n"
+                + "WHERE o.k IN (SELECT m.k FROM ivm_mid m\n"
+                + "    WHERE EXISTS (SELECT spare FROM ivm_spare i WHERE i.id = m.id))");
+        MTMV mtmv = getMtmv(db);
+
+        long versionBefore = mtmv.getSchemaChangeVersion();
+        executeSql("ALTER TABLE ivm_spare ADD COLUMN spare int default 0");
+        assertNotInvalidated(mtmv, versionBefore,
+                "a projection an EXISTS does not compare, inside a subquery the IN around it reads the rows"
+                        + " of, must not invalidate the MV");
+    }
+
+    /**
+     * A name in a view's own definition has to say which column it was bound to, wherever it is written.
+     * `QUALIFY` reads a base table's column while that column is there and whatever else answers for the
+     * name once it is not -- here the view's own `v1`, whose output is a constant -- which changes the rows
+     * the query returns without changing the columns the view produces. The judgement re-analyses this
+     * definition, so a name it never bound to a column is one it cannot hold the change against, and the
+     * view is left holding rows the query no longer returns. Pinned as the reason it is invalidated with:
+     * the query is gone, because the column it named is.
+     */
+    @Test
+    public void testAQualifyNameIsBoundToItsColumnInTheStoredDefinition() throws Exception {
+        String db = "ivm_qualify_bound_name";
+        createPartitionedTableWithoutChangelog(db);
+        createMvByNereids("CREATE MATERIALIZED VIEW ivm_mv\n"
+                + "BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+                + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')\n"
+                + "AS SELECT 1 AS v1, ROW_NUMBER() OVER (ORDER BY dt) AS rn FROM ivm_base\n"
+                + "QUALIFY v1 = 1 AND rn = 1");
+        MTMV mtmv = getMtmv(db);
+
         executeSql("ALTER TABLE ivm_base DROP COLUMN v1");
         Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
         assertUnanalyzableDetail(mtmv);
@@ -370,7 +609,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
      * A base partition the partition_sync_limit window no longer covers can still have its rows in an MV
      * partition: the MV was built while that partition was inside the window, shrinking the window does not
      * touch the MV's own partitions, and widening it again makes partition sync keep the partition holding
-     * those rows. TRUNCATE emits no binlog, so nothing incremental can repair them -- the whole MV has to be
+     * those rows. TRUNCATE emits no changelog, so nothing incremental can repair them -- the whole MV has to be
      * rebuilt rather than a partition being guessed at.
      */
     @Test
@@ -396,7 +635,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
                 + "  PARTITION pThisYear VALUES [('" + thisYear + "'), ('" + recentEnd + "'))\n"
                 + ")\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
-                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
+                + "PROPERTIES ('replication_num' = '1', 'changelog.enable' = 'true')");
         createMvByNereids("CREATE MATERIALIZED VIEW ivm_mv\n"
                 + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                 + "PARTITION BY(dt)\n"
@@ -446,7 +685,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
                 + "  PARTITION pThisYear VALUES [('" + thisYear + "'), ('" + recentEnd + "'))\n"
                 + ")\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
-                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
+                + "PROPERTIES ('replication_num' = '1', 'changelog.enable' = 'true')");
         createMvByNereids("CREATE MATERIALIZED VIEW ivm_mv\n"
                 + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                 + "PARTITION BY(dt)\n"
@@ -565,8 +804,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
                 + "  PARTITION d202002 VALUES [('2020-02-01'), ('2020-03-01'))\n"
                 + ")\n"
                 + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
-                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', "
-                + "'binlog.format' = 'ROW')");
+                + "PROPERTIES ('replication_num' = '1', 'changelog.enable' = 'true')");
         // The join is on a non-partition column, so ivm_dim is a base table of the MV but not a PCT table.
         createMvByNereids("CREATE MATERIALIZED VIEW ivm_mv\n"
                 + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
@@ -669,8 +907,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
                 + "  PARTITION p202002 VALUES [('2020-02-01'), ('2020-03-01'))\n"
                 + ")\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
-                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', "
-                + "'binlog.format' = 'ROW')");
+                + "PROPERTIES ('replication_num' = '1', 'changelog.enable' = 'true')");
         createMvByNereids("CREATE MATERIALIZED VIEW ivm_mv\n"
                 + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                 + "PARTITION BY(dt)\n"
@@ -747,7 +984,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
      * the mapping describes: the recovered range is the one whose rows have to come back, and its MV
      * partition -- which partition sync adds when the recovered partition returns -- is read from a base
      * partition that the replacement does not describe at all. Narrowing to the replacement's MV
-     * partitions would leave that one out, and recovery emits no row binlog to fill it later, so the
+     * partitions would leave that one out, and recovery emits no changelog to fill it later, so the
      * whole MV has to be rebuilt.
      */
     @Test
@@ -880,7 +1117,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
                 + ")\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
                 + "PROPERTIES ('replication_num' = '1', 'light_schema_change' = 'true', "
-                + "'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
+                + "'changelog.enable' = 'true')");
 
         executeSql("ALTER TABLE ivm_base REPLACE WITH TABLE ivm_new_base PROPERTIES('swap' = 'false')");
 
@@ -913,7 +1150,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
                 + "  PARTITION p202002 VALUES [('2020-02-01'), ('2020-03-01'))\n"
                 + ")\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
-                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
+                + "PROPERTIES ('replication_num' = '1', 'changelog.enable' = 'true')");
         executeSql("ALTER TABLE ivm_base REPLACE WITH TABLE ivm_new_base PROPERTIES('swap' = 'false')");
 
         OlapTable replacedBaseTable = getBaseTable(db);
@@ -949,7 +1186,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
                 + "  PARTITION p202002 VALUES [('2020-02-01'), ('2020-03-01'))\n"
                 + ")\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
-                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
+                + "PROPERTIES ('replication_num' = '1', 'changelog.enable' = 'true')");
         createMvByNereids("CREATE MATERIALIZED VIEW ivm_new_mv\n"
                 + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                 + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
@@ -1169,7 +1406,29 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
                 + "  PARTITION p202002 VALUES [('2020-02-01'), ('2020-03-01'))\n"
                 + ")\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
-                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
+                + "PROPERTIES ('replication_num' = '1', 'changelog.enable' = 'true')");
+    }
+
+    /**
+     * The same base table without changelog. A changelog table only accepts the operations marked as safe
+     * for it, and a column rename or a type change is not one of them, so the changes that need one of those
+     * are pinned against a plain table and a plain MV -- which is where those two operations reach the
+     * shared base-table hook at all.
+     */
+    private void createPartitionedTableWithoutChangelog(String db) throws Exception {
+        createDatabaseAndUse(db);
+        createTable("CREATE TABLE " + db + ".ivm_base (\n"
+                + "  dt date NOT NULL,\n"
+                + "  k1 int,\n"
+                + "  v1 int\n"
+                + ")\n"
+                + "DUPLICATE KEY(dt, k1)\n"
+                + "PARTITION BY RANGE(dt) (\n"
+                + "  PARTITION p202001 VALUES [('2020-01-01'), ('2020-02-01')),\n"
+                + "  PARTITION p202002 VALUES [('2020-02-01'), ('2020-03-01'))\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
     }
 
     /**
@@ -1211,6 +1470,17 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
         Assertions.assertTrue(
                 mtmv.getStatus().getSchemaChangeDetail().contains("no longer analyzable"),
                 "the detail must name the reason, was: " + mtmv.getStatus().getSchemaChangeDetail());
+    }
+
+    /**
+     * The MV was left alone by a base-table change. An invalidation moves three things -- the state, the
+     * version that discards a task result computed against it, and the snapshot that stops the transparent
+     * rewrite -- so the state alone is only a third of the answer, and the version is the one of the three
+     * that is observable after a change that names no snapshot.
+     */
+    private void assertNotInvalidated(MTMV mtmv, long versionBefore, String message) {
+        Assertions.assertNotEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState(), message);
+        Assertions.assertEquals(versionBefore, mtmv.getSchemaChangeVersion(), message);
     }
 
     private Database getDb(String db) {

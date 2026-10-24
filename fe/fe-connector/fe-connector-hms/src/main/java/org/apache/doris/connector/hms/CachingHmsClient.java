@@ -43,7 +43,7 @@ import java.util.function.Function;
 /**
  * A caching {@link HmsClient} decorator: it wraps another {@code HmsClient} (in production the pooled
  * {@link ThriftHmsClient}) and serves the three scan-hot-path read methods from a bounded, TTL-expiring
- * cache, delegating every other method verbatim.
+ * cache. Existence checks reuse cached table metadata; other methods delegate verbatim.
  *
  * <p><b>Why this exists.</b> Without this decorator the hive connector would cache nothing — {@code getTable},
  * {@code listPartitionNames} and {@code getPartitions} would be fresh Thrift RPCs on every scan. Legacy fe-core
@@ -74,6 +74,8 @@ import java.util.function.Function;
  *       column-stats fast path, off the scan hot path, so it caches at low priority but on the same
  *       machinery as the rest.</li>
  * </ul>
+ * {@code tableExists} also checks the table cache: a cached table proves existence, while a miss
+ * delegates without caching the boolean result. It shares the table entry's TTL and invalidation.
  *
  * <p><b>Pass-through.</b> Every other read, plus every write / DDL / ACID method, is passed straight
  * through to the delegate. Cache invalidation belongs to the connector's shared {@link CatalogMetaCache}
@@ -188,6 +190,14 @@ public class CachingHmsClient implements HmsClient {
     public HmsTableInfo getTable(String dbName, String tableName) {
         return tableCache.get(new TableKey(dbName, tableName),
                 key -> delegate.getTable(key.dbName, key.tableName));
+    }
+
+    @Override
+    public boolean tableExists(String dbName, String tableName) {
+        // Only successfully loaded metadata proves existence. Do not cache absence: CTAS resolves
+        // its target again after creation. A disabled or invalidated table cache falls through to HMS.
+        return tableCache.getIfPresent(new TableKey(dbName, tableName)) != null
+                || delegate.tableExists(dbName, tableName);
     }
 
     @Override
@@ -529,11 +539,6 @@ public class CachingHmsClient implements HmsClient {
     @Override
     public List<String> listTables(String dbName) {
         return delegate.listTables(dbName);
-    }
-
-    @Override
-    public boolean tableExists(String dbName, String tableName) {
-        return delegate.tableExists(dbName, tableName);
     }
 
     @Override

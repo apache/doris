@@ -70,6 +70,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -356,13 +357,14 @@ public class HiveConnectorMetadataSiblingDelegationTest {
     }
 
     @Test
-    public void everyAlterDdlAndValidateMethodForwardsAForeignHandleToTheSibling() {
+    public void everyForeignWriteOperationForwardsAForeignHandleToTheSibling() {
         HiveConnectorMetadata md = withSibling();
 
-        // The 14 ALTER-DDL mutators + 2 write validators: a foreign (iceberg-on-HMS) handle must divert, never
-        // run the hive branch and never be cast. Change objects are null — the guard fires on the handle type
-        // before any param is touched.
+        // The 14 ALTER-DDL mutators + 2 write validators + metadata delete: a foreign (iceberg-on-HMS) handle
+        // must divert, never run the hive branch and never be cast. Change objects are null — the guard fires on
+        // the handle type before any param is touched.
         md.renameTable(session, foreignHandle, "new");
+        md.setTableProperties(session, foreignHandle, Collections.emptyMap());
         md.addColumn(session, foreignHandle, null, null);
         md.addColumns(session, foreignHandle, Collections.emptyList());
         md.dropColumn(session, foreignHandle, "c");
@@ -386,9 +388,21 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         // Empty list on purpose: a foreign handle must forward REGARDLESS of emptiness (the empty-early-return is
         // hive-only) — this would fail if the empty check were placed before the foreign-handle divert.
         md.validateWritePartitionNames(session, foreignHandle, Collections.emptyList());
+        ConnectorExpression predicate = new ConnectorColumnRef("id", ConnectorType.of("INT"));
+        BooleanSupplier cancellation = () -> true;
+        OptionalLong deleted = md.deleteUsingMetadata(
+                session, foreignHandle, Optional.of(predicate), "bound-generation", cancellation);
 
         Assertions.assertEquals(RecordingSiblingMetadata.EXPECTED_WRITE_METHODS, siblingMetadata.calls,
                 "every ALTER-DDL mutator + write validator must forward a foreign handle to the sibling");
+        Assertions.assertEquals(OptionalLong.of(RecordingSiblingMetadata.SENTINEL_DELETED_ROWS), deleted,
+                "metadata delete must return the sibling's result");
+        Assertions.assertSame(predicate, siblingMetadata.lastDeletePredicate,
+                "metadata delete must forward the exact predicate");
+        Assertions.assertEquals("bound-generation", siblingMetadata.lastBoundWriteMetadataIdentity,
+                "metadata delete must forward the write-generation fence");
+        Assertions.assertSame(cancellation, siblingMetadata.lastCancellation,
+                "metadata delete must forward the cancellation callback");
     }
 
     @Test
@@ -420,6 +434,8 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         // Group-1: ALTER-DDL for a hive handle throws the EXACT inherited SPI-default message (byte-parity with
         // pre-override behavior) without building or consulting the sibling.
         assertThrowsMessage(() -> md.renameTable(session, hive, "n"), "RENAME TABLE not supported");
+        assertThrowsMessage(() -> md.setTableProperties(session, hive, Collections.emptyMap()),
+                "SET TABLE PROPERTIES not supported");
         assertThrowsMessage(() -> md.addColumn(session, hive, null, null), "ADD COLUMN not supported");
         assertThrowsMessage(() -> md.addColumns(session, hive, Collections.emptyList()), "ADD COLUMNS not supported");
         assertThrowsMessage(() -> md.dropColumn(session, hive, "c"), "DROP COLUMN not supported");
@@ -448,6 +464,9 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         // plain-hive row-level DML / static-partition INSERTs.
         md.validateRowLevelDmlMode(session, hive, null);
         md.validateStaticPartitionColumns(session, hive, Collections.emptyList());
+        Assertions.assertEquals(OptionalLong.empty(),
+                md.deleteUsingMetadata(session, hive, Optional.empty(), null, () -> false),
+                "a real Hive handle must keep the metadata-delete fallback");
 
         Assertions.assertEquals(0, siblingConnector.getMetadataCount,
                 "a hive handle must never build/consult the iceberg sibling for ALTER-DDL / validate");
@@ -718,6 +737,7 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         static final ConnectorTransaction SIBLING_TXN = new NoOpConnectorTransaction(4243L, "ICEBERG");
         static final long SENTINEL_SIZE = 4242L;
         static final long SENTINEL_SNAPSHOT_ID = 99L;
+        static final long SENTINEL_DELETED_ROWS = 31L;
         static final List<Long> SENTINEL_FILE_SIZES = Collections.unmodifiableList(Arrays.asList(7L, 11L));
         static final List<ConnectorExpression> SIBLING_PREDICATES = Collections.singletonList(
                 new ConnectorColumnRef("sibling-pred", ConnectorType.of("STRING")));
@@ -739,14 +759,18 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         // The exact set + order of ALTER-DDL / validate methods the foreign-handle write test drives (Rule-9
         // completeness lock for §4.4 W1: dropping a guard, or adding one that should not forward, fails the test).
         static final List<String> EXPECTED_WRITE_METHODS = Collections.unmodifiableList(Arrays.asList(
-                "renameTable", "addColumn", "addColumns", "dropColumn", "renameColumn", "modifyColumn",
-                "reorderColumns", "addNestedColumn", "dropNestedColumn", "renameNestedColumn",
+                "renameTable", "setTableProperties", "addColumn", "addColumns", "dropColumn", "renameColumn",
+                "modifyColumn", "reorderColumns", "addNestedColumn", "dropNestedColumn", "renameNestedColumn",
                 "modifyNestedColumn", "modifyColumnComment",
                 "createOrReplaceBranch", "createOrReplaceTag", "dropBranch", "dropTag",
                 "addPartitionField", "dropPartitionField", "replacePartitionField",
-                "validateRowLevelDmlMode", "validateStaticPartitionColumns", "validateWritePartitionNames"));
+                "validateRowLevelDmlMode", "validateStaticPartitionColumns", "validateWritePartitionNames",
+                "deleteUsingMetadata"));
 
         final List<String> calls = new ArrayList<>();
+        ConnectorExpression lastDeletePredicate;
+        String lastBoundWriteMetadataIdentity;
+        BooleanSupplier lastCancellation;
         final Optional<FilterApplicationResult<ConnectorTableHandle>> filterResult =
                 Optional.of(new FilterApplicationResult<>(SIBLING_HANDLE, null, false));
 
@@ -942,6 +966,12 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         }
 
         @Override
+        public void setTableProperties(ConnectorSession session, ConnectorTableHandle handle,
+                Map<String, String> properties) {
+            calls.add("setTableProperties");
+        }
+
+        @Override
         public void addColumn(ConnectorSession session, ConnectorTableHandle handle, ConnectorColumn column,
                 ConnectorColumnPosition position) {
             calls.add("addColumn");
@@ -1059,6 +1089,17 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         public void validateWritePartitionNames(ConnectorSession session, ConnectorTableHandle handle,
                 List<String> partitionNames) {
             calls.add("validateWritePartitionNames");
+        }
+
+        @Override
+        public OptionalLong deleteUsingMetadata(ConnectorSession session, ConnectorTableHandle handle,
+                Optional<ConnectorExpression> predicate, String boundWriteMetadataIdentity,
+                BooleanSupplier isCancelled) {
+            calls.add("deleteUsingMetadata");
+            lastDeletePredicate = predicate.orElse(null);
+            lastBoundWriteMetadataIdentity = boundWriteMetadataIdentity;
+            lastCancellation = isCancelled;
+            return OptionalLong.of(SENTINEL_DELETED_ROWS);
         }
     }
 }

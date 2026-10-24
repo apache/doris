@@ -1339,9 +1339,9 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         Assertions.assertFalse(b.isReplace());
         Assertions.assertTrue(b.isIfNotExists());
         Assertions.assertEquals(42L, b.getSnapshotId().longValue());
-        Assertions.assertEquals(86400000L, b.getMaxSnapshotAgeMs().longValue());
+        Assertions.assertEquals(86400000L, b.getMaxRefAgeMs().longValue());
         Assertions.assertEquals(5, b.getMinSnapshotsToKeep().intValue());
-        Assertions.assertEquals(172800000L, b.getMaxRefAgeMs().longValue());
+        Assertions.assertEquals(172800000L, b.getMaxSnapshotAgeMs().longValue());
         ArgumentCaptor<ExternalObjectLog> logCap = ArgumentCaptor.forClass(ExternalObjectLog.class);
         Mockito.verify(mockEditLog).logRefreshExternalTable(logCap.capture());
         Assertions.assertEquals("db1", logCap.getValue().getDbName());
@@ -1512,6 +1512,55 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
                 () -> catalog.addPartitionField(table, new AddPartitionFieldOp(null, null, "id", null)));
         Mockito.verify(metadata, Mockito.never())
                 .addPartitionField(Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
+    // ==================== SET TABLE PROPERTIES ====================
+
+    @Test
+    public void testUpdateTablePropertiesRoutesWholeMapAndRefreshes() throws Exception {
+        ExternalTable table = mockAlterTable();
+        ConnectorTableHandle handle = stubAlterHandle();
+        Map<String, String> properties = new HashMap<>();
+        properties.put("snapshot.num-retained.min", "2");
+        properties.put("snapshot.num-retained.max", "5");
+
+        catalog.updateTableProperties(table, properties);
+
+        // One connector call carries every property, so the connector can commit them as one change.
+        Mockito.verify(metadata).setTableProperties(session, handle, properties);
+        ArgumentCaptor<ExternalObjectLog> logCap = ArgumentCaptor.forClass(ExternalObjectLog.class);
+        Mockito.verify(mockEditLog).logRefreshExternalTable(logCap.capture());
+        Assertions.assertEquals("db1", logCap.getValue().getDbName());
+        Assertions.assertEquals("t1", logCap.getValue().getTableName());
+        Mockito.verify(mockRefreshManager).refreshTableInternal(
+                Mockito.eq(table.getDb()), Mockito.eq(table), Mockito.anyLong());
+    }
+
+    @Test
+    public void testUpdateTablePropertiesFailureSkipsRefresh() {
+        ExternalTable table = mockAlterTable();
+        ConnectorTableHandle handle = stubAlterHandle();
+        Mockito.doThrow(new DorisConnectorException("Cannot downgrade v2 table to v1"))
+                .when(metadata).setTableProperties(Mockito.eq(session), Mockito.eq(handle), Mockito.any());
+
+        DdlException ex = Assertions.assertThrows(DdlException.class, () -> catalog.updateTableProperties(
+                table, Collections.singletonMap("format-version", "1")));
+        Assertions.assertTrue(ex.getMessage().contains("Cannot downgrade"));
+        // A rejected update changed nothing remotely: no refresh editlog, no cache refresh.
+        Mockito.verify(mockEditLog, Mockito.never()).logRefreshExternalTable(Mockito.any());
+        Mockito.verify(mockRefreshManager, Mockito.never())
+                .refreshTableInternal(Mockito.any(), Mockito.any(), Mockito.anyLong());
+    }
+
+    @Test
+    public void testUpdateTablePropertiesHandleAbsentThrows() {
+        ExternalTable table = mockAlterTable();
+        Mockito.when(metadata.getTableHandle(session, "DB1", "TBL1")).thenReturn(Optional.empty());
+
+        Assertions.assertThrows(DdlException.class, () -> catalog.updateTableProperties(
+                table, Collections.singletonMap("snapshot.num-retained.max", "5")));
+        Mockito.verify(metadata, Mockito.never())
+                .setTableProperties(Mockito.any(), Mockito.any(), Mockito.any());
     }
 
     // ==================== helpers ====================

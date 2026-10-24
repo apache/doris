@@ -37,10 +37,12 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.tablefunction.CdcStreamTableValuedFunction;
 
 import com.google.common.base.Preconditions;
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -229,22 +231,6 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
                     + "Use PROPERTIES('offset'='{...}') to alter offset");
         }
 
-        // Reject keys that the runtime reads only at first initialize and never refreshes,
-        // so ALTER would be a silent no-op. See JdbcSourceOffsetProvider / DebeziumJsonDeserializer.
-        if (sourceProperties.containsKey(DataSourceConfigKeys.SNAPSHOT_PARALLELISM)) {
-            Preconditions.checkArgument(Objects.equals(
-                    originSourceProperties.get(DataSourceConfigKeys.SNAPSHOT_PARALLELISM),
-                    sourceProperties.get(DataSourceConfigKeys.SNAPSHOT_PARALLELISM)),
-                    "The " + DataSourceConfigKeys.SNAPSHOT_PARALLELISM
-                            + " property cannot be modified in ALTER JOB");
-        }
-        if (sourceProperties.containsKey(DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE)) {
-            Preconditions.checkArgument(Objects.equals(
-                    originSourceProperties.get(DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE),
-                    sourceProperties.get(DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE)),
-                    "The " + DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE
-                            + " property cannot be modified in ALTER JOB");
-        }
         String tablePrefix = DataSourceConfigKeys.TABLE + ".";
         for (String key : sourceProperties.keySet()) {
             if (!key.startsWith(tablePrefix)) {
@@ -277,11 +263,23 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
     }
 
     private void validateProps(StreamingInsertJob streamingJob) throws AnalysisException {
-        StreamingJobProperties jobProperties = new StreamingJobProperties(properties);
-        jobProperties.validate();
-        if (jobProperties.getOffsetProperty() != null) {
-            streamingJob.validateAlterOffset(jobProperties.getOffsetProperty());
-            streamingJob.validateOffset(jobProperties.getOffsetProperty());
+        StreamingJobProperties originJobProperties =
+                new StreamingJobProperties(streamingJob.getProperties());
+        Map<String, String> mergedProperties = new HashMap<>(streamingJob.getProperties());
+        mergedProperties.putAll(properties);
+        StreamingJobProperties updatedJobProperties = new StreamingJobProperties(mergedProperties);
+        updatedJobProperties.validate();
+        if (!originJobProperties.getS3IngestionMode().equals(updatedJobProperties.getS3IngestionMode())
+                || !StringUtils.equalsIgnoreCase(originJobProperties.getS3EventSource(),
+                        updatedJobProperties.getS3EventSource())
+                || !Objects.equals(originJobProperties.getS3SqsQueueUrl(),
+                        updatedJobProperties.getS3SqsQueueUrl())) {
+            throw new AnalysisException("s3.ingestion_mode, s3.event.source and s3.sqs.queue_url cannot be altered");
+        }
+        String offset = properties.get(StreamingJobProperties.OFFSET_PROPERTY);
+        if (offset != null) {
+            streamingJob.validateAlterOffset(offset);
+            streamingJob.validateOffset(offset);
         }
     }
 
@@ -309,7 +307,7 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
                 break;
             case "cdc_stream":
                 // type, jdbc_url, database, schema, and table identify the source and cannot be changed.
-                // snapshot_* are materialized into split metadata on first fetch and never re-read.
+                // snapshot_split_key determines persisted split boundaries and cannot be changed.
                 // slot_name / publication_name are fixed at create time to keep ownership stable.
                 // user, password, driver_url, driver_class, etc. are modifiable (credential rotation).
                 for (String unmodifiable : new String[] {
@@ -319,8 +317,6 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
                         DataSourceConfigKeys.SCHEMA,
                         DataSourceConfigKeys.TABLE,
                         DataSourceConfigKeys.SNAPSHOT_SPLIT_KEY,
-                        DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE,
-                        DataSourceConfigKeys.SNAPSHOT_PARALLELISM,
                         DataSourceConfigKeys.SLOT_NAME,
                         DataSourceConfigKeys.PUBLICATION_NAME}) {
                     Preconditions.checkArgument(
@@ -329,6 +325,7 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
                                     inputTvf.getProperties().getMap().get(unmodifiable)),
                             "The '%s' property cannot be modified in ALTER JOB for cdc_stream", unmodifiable);
                 }
+                CdcStreamTableValuedFunction.validateProperties(inputTvf.getProperties().getMap());
                 break;
             default:
                 throw new IllegalArgumentException("Unsupported tvf type:" + inputTvf.getFunctionName());
