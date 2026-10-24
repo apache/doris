@@ -728,11 +728,13 @@ extern mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_to_recycle_num;
 extern mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_recycled_bytes;
 extern mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_to_recycle_bytes;
 extern mBvarStatus<double> g_bvar_recycler_instance_last_round_recycle_elpased_ts;
+extern mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_current_round_kv_scanned;
+extern mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_current_round_kv_expired;
+extern mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_current_round_kv_recycled;
+extern mBvarStatus<int64_t> g_bvar_recycler_instance_current_round_recycled_object_bytes;
+extern mBvarStatus<double> g_bvar_recycler_instance_current_round_task_elapsed_ms;
 extern mBvarInt64Adder g_bvar_recycler_instance_recycle_total_num_since_started;
 extern mBvarInt64Adder g_bvar_recycler_instance_recycle_total_bytes_since_started;
-extern mBvarIntAdder g_bvar_recycler_instance_recycle_round;
-extern mBvarStatus<double> g_bvar_recycler_instance_recycle_time_per_resource;
-extern mBvarStatus<double> g_bvar_recycler_instance_recycle_bytes_per_ms;
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_recycled_kv_num;
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_recycled_kv_bytes;
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_recycle_cost_ms;
@@ -746,7 +748,8 @@ extern BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_bytes_object_delet
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_rowset_scanned_num;
 
 // Operation Log Recycler BVars
-// Note: generic metrics (last_round_to_recycle_num/bytes, last_round_recycled_num/bytes, etc.)
+// Pending metrics (last_round_to_recycle_num/bytes) are reported by RecyclerScanMetricsContext.
+// Note: generic metrics (last_round_recycled_num/bytes, etc.)
 // are reported by RecyclerMetricsContext with operation_type = "recycle_operation_logs".
 extern mBvarStatus<int64_t> g_bvar_recycler_oplog_last_round_total_num;
 extern mBvarStatus<int64_t> g_bvar_recycler_oplog_last_round_not_recycled_num;
