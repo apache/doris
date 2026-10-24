@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -45,6 +46,11 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -171,6 +177,230 @@ class BindTVFTableSinkTest {
             Mockito.verify(accessManager).checkGlobalPriv(context, PrivPredicate.ADMIN);
             Mockito.verify(accessManager).checkGlobalPriv(context, PrivPredicate.LOAD);
             Mockito.verifyNoInteractions(executor);
+        }
+    }
+
+    @Test
+    void disabledNativeHadoopLocalSinksRejectInsertAndExplain() {
+        for (String prefix : Arrays.asList("", "EXPLAIN ")) {
+            for (String storage : Arrays.asList("'fs.defaultFS'='file:///'",
+                    "'fs.defaultFS'='hdfs://namenode:8020',"
+                            + "'fs.hdfs.impl'='org.apache.hadoop.fs.LocalFileSystem'",
+                    "'fs.defaultFS'='hdfs://namenode:8020',"
+                            + "'fs.hdfs.impl'='org.apache.hadoop.fs.RawLocalFileSystem'",
+                    "'fs.defaultFS'='hdfs://namenode:8020','fs.hdfs.impl'='${fs.file.impl}',"
+                            + "'fs.file.impl'='org.apache.hadoop.fs.LocalFileSystem'",
+                    "'fs.defaultFS'='hdfs://namenode:8020',"
+                            + "'fs.hdfs.impl '='org.apache.hadoop.fs.LocalFileSystem'")) {
+                for (String cleanup : Arrays.asList("false", "true")) {
+                    AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                            () -> analyzeInsert(prefix + "INSERT INTO hdfs('file_path'='/tmp/local_gate_',"
+                                    + "'format'='csv','delete_existing_files'='" + cleanup + "',"
+                                    + storage + ") SELECT 1"));
+                    Assertions.assertTrue(exception.getMessage().contains("LOCAL TVF is disabled"));
+                }
+            }
+        }
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> analyzeInsert("INSERT INTO hdfs('fs.defaultFS'='file:///') SELECT 1"));
+        Assertions.assertTrue(exception.getMessage().contains("LOCAL TVF is disabled"));
+    }
+
+    @Test
+    void directNativeHadoopBindingHonorsLocalOptIn() throws Exception {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("file_path", "/tmp/local_gate_");
+        properties.put("format", "csv");
+        for (String defaultFs : Arrays.asList("file:///", "default")) {
+            properties.put("fs.defaultFS", defaultFs);
+            TVFTableSink sink = new TVFTableSink(new PlanNodeId(0), "hdfs", properties,
+                    Collections.emptyList());
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class, sink::bindDataSink);
+            Assertions.assertTrue(exception.getMessage().contains("LOCAL TVF is disabled"));
+        }
+        properties.put("fs.defaultFS", "hdfs://namenode:8020");
+        properties.put("fs.hdfs.impl", "org.apache.hadoop.fs.RawLocalFileSystem");
+        TVFTableSink sink = new TVFTableSink(new PlanNodeId(0), "hdfs", properties, Collections.emptyList());
+        Assertions.assertThrows(AnalysisException.class, sink::bindDataSink);
+        Config.enable_local_tvf = true;
+        sink.bindDataSink();
+        properties.put("fs.defaultFS", "file:///");
+        sink.bindDataSink();
+        Config.enable_local_tvf = false;
+        properties.put("fs.defaultFS", "hdfs://namenode:8020");
+        properties.remove("fs.hdfs.impl");
+        // Hadoop normally provides a local implementation for file; it is not selected by hdfs.
+        properties.put("fs.file.impl", "org.apache.hadoop.fs.LocalFileSystem");
+        sink.bindDataSink();
+        Assertions.assertInstanceOf(LogicalTVFTableSink.class,
+                analyzeInsert("INSERT INTO hdfs('file_path'='/tmp/remote_', 'format'='csv',"
+                        + "'fs.defaultFS'='hdfs://namenode:8020',"
+                        + "'fs.file.impl'='org.apache.hadoop.fs.LocalFileSystem') SELECT 1"));
+    }
+
+    @Test
+    void normalizedHadoopConfigIsCheckedBeforeNativeBinding() throws Exception {
+        String originalConfigDir = Config.hadoop_config_dir;
+        String originalConfigProperty = System.getProperty("doris.hadoop.config.dir");
+        Path directory = Files.createTempDirectory("tvf-hadoop-admission-");
+        Path resource = directory.resolve("local-filesystem.xml");
+        try {
+            Files.write(resource, ("<configuration><property><name>fs.defaultFS</name>"
+                    + "<value>file:///</value></property></configuration>").getBytes(StandardCharsets.UTF_8));
+            Config.hadoop_config_dir = directory.toString() + "/";
+            Map<String, String> properties = new HashMap<>();
+            properties.put("file_path", "/tmp/local_gate_");
+            properties.put("format", "csv");
+            properties.put("fs.hdfs.support", "true");
+            properties.put("hadoop.config.resources", resource.getFileName().toString());
+            TVFTableSink sink = new TVFTableSink(new PlanNodeId(0), "hdfs", properties,
+                    Collections.emptyList());
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class, sink::bindDataSink);
+            Assertions.assertTrue(exception.getMessage().contains("LOCAL TVF is disabled"));
+            Config.enable_local_tvf = true;
+            sink.bindDataSink();
+        } finally {
+            Config.hadoop_config_dir = originalConfigDir;
+            if (originalConfigProperty == null) {
+                System.clearProperty("doris.hadoop.config.dir");
+            } else {
+                System.setProperty("doris.hadoop.config.dir", originalConfigProperty);
+            }
+            Files.deleteIfExists(resource);
+            Files.deleteIfExists(directory);
+        }
+    }
+
+    @Test
+    void hadoopCleanupChecksSelectedFilesystemWithoutOpeningIt() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("fs.defaultFS", "hdfs://namenode:8020");
+        properties.put("fs.file.impl", "org.apache.hadoop.fs.LocalFileSystem");
+        Assertions.assertDoesNotThrow(() -> LocalTableValuedFunction.checkHadoopFileSystemEnabled(
+                "/remote/path", properties));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> LocalTableValuedFunction.checkHadoopFileSystemEnabled("file:///tmp/prefix_", properties));
+        properties.remove("fs.defaultFS");
+        for (String defaultFs : Arrays.asList("local", "file:///")) {
+            properties.put("fs.default.name", defaultFs);
+            Assertions.assertThrows(AnalysisException.class,
+                    () -> LocalTableValuedFunction.checkHadoopFileSystemEnabled("/tmp/prefix_", properties));
+        }
+        properties.clear();
+        Assertions.assertThrows(AnalysisException.class,
+                () -> LocalTableValuedFunction.checkHadoopFileSystemEnabled("/tmp/prefix_", properties));
+        properties.put("fs.defaultFS", "hdfs://namenode:8020");
+        properties.put("fs.default.name", "file:///");
+        Assertions.assertThrows(AnalysisException.class,
+                () -> LocalTableValuedFunction.checkHadoopFileSystemEnabled("/tmp/prefix_", properties));
+        properties.put("fs.default.name", "hdfs://other-namenode:8020");
+        Assertions.assertDoesNotThrow(() -> LocalTableValuedFunction.checkHadoopFileSystemEnabled(
+                "/remote/path", properties));
+        properties.remove("fs.defaultFS");
+        Assertions.assertDoesNotThrow(() -> LocalTableValuedFunction.checkHadoopFileSystemEnabled(
+                "/remote/path", properties));
+        properties.clear();
+        properties.put("fs.defaultFS", "viewfs://cluster");
+        properties.put("fs.viewfs.impl", "org.apache.hadoop.fs.RawLocalFileSystem");
+        Assertions.assertThrows(AnalysisException.class,
+                () -> LocalTableValuedFunction.checkHadoopFileSystemEnabled("viewfs://cluster/tmp", properties));
+        properties.clear();
+        properties.put("fs.defaultFS", "${fs.selected.uri}");
+        properties.put("fs.selected.uri", "file:///");
+        Assertions.assertThrows(AnalysisException.class,
+                () -> LocalTableValuedFunction.checkHadoopFileSystemEnabled("/tmp/prefix_", properties));
+        properties.put("fs.selected.uri", "hdfs://namenode:8020");
+        Assertions.assertThrows(AnalysisException.class,
+                () -> LocalTableValuedFunction.checkHadoopFileSystemEnabled("/remote/path", properties));
+        Config.enable_local_tvf = true;
+        Assertions.assertDoesNotThrow(() -> LocalTableValuedFunction.checkHadoopFileSystemEnabled(
+                "/remote/path", properties));
+        Config.enable_local_tvf = false;
+        properties.put("fs.defaultFS", "hdfs://namenode:8020");
+        properties.put("fs.hdfs.impl", "${fs.selected.impl}");
+        properties.put("fs.selected.impl", "org.apache.hadoop.fs.RawLocalFileSystem");
+        Assertions.assertThrows(AnalysisException.class,
+                () -> LocalTableValuedFunction.checkHdfsSinkEnabled(properties));
+        properties.put("fs.selected.impl", "org.apache.hadoop.hdfs.DistributedFileSystem");
+        Assertions.assertThrows(AnalysisException.class,
+                () -> LocalTableValuedFunction.checkHdfsSinkEnabled(properties));
+        Config.enable_local_tvf = true;
+        Assertions.assertDoesNotThrow(() -> LocalTableValuedFunction.checkHdfsSinkEnabled(properties));
+        Config.enable_local_tvf = false;
+        properties.put("fs.hdfs.impl", "${fs.selected.impl}");
+        properties.remove("fs.selected.impl");
+        properties.put("fs.selected.impl ", "org.apache.hadoop.fs.LocalFileSystem");
+        Assertions.assertThrows(AnalysisException.class,
+                () -> LocalTableValuedFunction.checkHdfsSinkEnabled(properties));
+        properties.put("fs.selected.impl ", "org.apache.hadoop.hdfs.DistributedFileSystem");
+        Assertions.assertThrows(AnalysisException.class,
+                () -> LocalTableValuedFunction.checkHdfsSinkEnabled(properties));
+        Config.enable_local_tvf = true;
+        Assertions.assertDoesNotThrow(() -> LocalTableValuedFunction.checkHdfsSinkEnabled(properties));
+        Config.enable_local_tvf = false;
+        // BE consumes canonical defaultFS as its NameNode; the old alias can redefine
+        // that key inside Hadoop. Do not infer this indirect provider from the FE's raw map.
+        properties.put("fs.default.name", "org.apache.hadoop.fs.LocalFileSystem");
+        properties.put("fs.hdfs.impl", "${fs.defaultFS}");
+        Assertions.assertThrows(AnalysisException.class,
+                () -> LocalTableValuedFunction.checkHdfsSinkEnabled(properties));
+        properties.put("fs.hdfs.impl", "${env:TVF_TEST_UNRESOLVED_IMPL}");
+        Assertions.assertThrows(AnalysisException.class,
+                () -> LocalTableValuedFunction.checkHdfsSinkEnabled(properties));
+        Config.enable_local_tvf = true;
+        Assertions.assertDoesNotThrow(() -> LocalTableValuedFunction.checkHdfsSinkEnabled(properties));
+        Config.enable_local_tvf = false;
+        properties.clear();
+        properties.put("fs.defaultFS", "hdfs://namenode:8020");
+        properties.put("fs.hdfs.impl\0ignored", "org.apache.hadoop.fs.LocalFileSystem\0ignored");
+        Assertions.assertThrows(AnalysisException.class,
+                () -> LocalTableValuedFunction.checkHdfsSinkEnabled(properties));
+    }
+
+    @Test
+    void cleanupEntryRejectsHadoopLocalStorageBeforeFilesystemCreation() throws Exception {
+        InsertIntoTVFCommand command = (InsertIntoTVFCommand) new NereidsParser().parseSingle(
+                "INSERT INTO s3('file_path'='/tmp/local_gate_', 'format'='csv') SELECT 1");
+        Method cleanup = InsertIntoTVFCommand.class.getDeclaredMethod(
+                "deleteExistingFilesInFE", String.class, Map.class);
+        cleanup.setAccessible(true);
+        Map<String, String> properties = new HashMap<>();
+        properties.put("file_path", "/tmp/local_gate_");
+        properties.put("format", "csv");
+        properties.put("delete_existing_files", "true");
+        properties.put("fs.defaultFS", "file:///");
+        try (MockedStatic<FileSystemFactory> factory = Mockito.mockStatic(FileSystemFactory.class)) {
+            // The nominal S3 name must not hide Hadoop storage selected for FE-side cleanup.
+            InvocationTargetException exception = Assertions.assertThrows(InvocationTargetException.class,
+                    () -> cleanup.invoke(command, "s3", properties));
+            Assertions.assertInstanceOf(AnalysisException.class, exception.getCause());
+            Assertions.assertTrue(exception.getCause().getMessage().contains("LOCAL TVF is disabled"));
+            factory.verifyNoInteractions();
+        }
+    }
+
+    @Test
+    void loadUserCannotReachHadoopLocalCleanupOrExecution() {
+        ConnectContext context = MemoTestUtils.createConnectContext();
+        String sql = "INSERT INTO hdfs('file_path'='/tmp/local_gate_', 'format'='csv',"
+                + "'delete_existing_files'='true', 'fs.defaultFS'='file:///') SELECT 1";
+        MemoTestUtils.createStatementContext(context, sql);
+        InsertIntoTVFCommand command = (InsertIntoTVFCommand) new NereidsParser().parseSingle(sql);
+        Env env = Mockito.spy(Env.getCurrentEnv());
+        AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+        Mockito.doReturn(accessManager).when(env).getAccessManager();
+        Mockito.when(accessManager.checkGlobalPriv(context, PrivPredicate.LOAD)).thenReturn(true);
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class, Mockito.CALLS_REAL_METHODS);
+                MockedStatic<FileSystemFactory> factory = Mockito.mockStatic(FileSystemFactory.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> command.run(context, executor));
+            Assertions.assertTrue(exception.getMessage().contains("LOCAL TVF is disabled"));
+            Mockito.verify(accessManager).checkGlobalPriv(context, PrivPredicate.ADMIN);
+            Mockito.verify(accessManager).checkGlobalPriv(context, PrivPredicate.LOAD);
+            Mockito.verifyNoInteractions(executor);
+            factory.verifyNoInteractions();
         }
     }
 
