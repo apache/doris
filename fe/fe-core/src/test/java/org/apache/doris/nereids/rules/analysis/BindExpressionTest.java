@@ -47,6 +47,7 @@ import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeOperation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExternalRowLevelMergeSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -306,7 +307,7 @@ class BindExpressionTest extends TestWithFeService implements GeneratedPlanPatte
     }
 
     @Test
-    void testDeleteOnlyMergeDoesNotValidateNestedSpatialDataWrites() {
+    void testMergeAcceptsMatchingNestedSpatialDataWrites() {
         for (DataType spatial : ImmutableList.of(new GeometryType("OGC:CRS84"),
                 new GeographyType("OGC:CRS84", "spherical"))) {
             ArrayType array = ArrayType.of(spatial);
@@ -322,15 +323,38 @@ class BindExpressionTest extends TestWithFeService implements GeneratedPlanPatte
                         Mockito.mock(ExternalDatabase.class), Mockito.mock(ExternalTable.class),
                         "schema-1", columns, ImmutableList.of(), writesDataFiles, true,
                         Optional.empty(), Optional.empty(), source);
-                if (writesDataFiles) {
-                    AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
-                            () -> PlanChecker.from(connectContext, sink).applyTopDown(new BindExpression()));
-                    Assertions.assertTrue(exception.getMessage().contains("Nested spatial columns"),
-                            exception.getMessage());
-                } else {
-                    Assertions.assertDoesNotThrow(
-                            () -> PlanChecker.from(connectContext, sink).applyTopDown(new BindExpression()));
-                }
+                Assertions.assertDoesNotThrow(
+                        () -> PlanChecker.from(connectContext, sink).applyTopDown(new BindExpression()));
+            }
+        }
+    }
+
+    @Test
+    void testMergeRejectsMismatchedNestedSpatialDataWrites() {
+        for (DataType spatial : ImmutableList.of(new GeometryType("OGC:CRS84"),
+                new GeographyType("OGC:CRS84", "spherical"))) {
+            ArrayType sourceType = ArrayType.of(spatial);
+            LogicalEmptyRelation input = new LogicalEmptyRelation(new RelationId(1), ImmutableList.of(
+                    new SlotReference("shapes", sourceType)));
+            for (DataType target : ImmutableList.of(new GeometryType("EPSG:3857"),
+                    new GeographyType("OGC:CRS84", "vincenty"))) {
+                ArrayType targetType = ArrayType.of(target);
+                // MERGE already projects target casts; validate the original typed slot below it.
+                LogicalProject<?> source = new LogicalProject<>(ImmutableList.of(
+                        new Alias(new TinyIntLiteral((byte) 3), MergeOperation.OPERATION_COLUMN),
+                        new Alias(new StringLiteral("row"), Column.ICEBERG_ROWID_COL),
+                        new Alias(new Cast(input.getOutput().get(0), targetType), "shapes")), input);
+                List<Column> columns = ImmutableList.of(new Column("shapes",
+                        targetType.toCatalogDataType()));
+                LogicalExternalRowLevelMergeSink<?> sink = new LogicalExternalRowLevelMergeSink<>(
+                        Mockito.mock(ExternalDatabase.class), Mockito.mock(ExternalTable.class),
+                        "schema-1", columns, ImmutableList.of(), true, true,
+                        Optional.empty(), Optional.empty(), source);
+                AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                        () -> PlanChecker.from(connectContext, sink).applyTopDown(new BindExpression()));
+                String mismatch = spatial.getClass() != target.getClass() ? "type mismatch"
+                        : spatial instanceof GeometryType ? "CRS mismatch" : "algorithm mismatch";
+                Assertions.assertTrue(exception.getMessage().contains(mismatch), exception.getMessage());
             }
         }
     }

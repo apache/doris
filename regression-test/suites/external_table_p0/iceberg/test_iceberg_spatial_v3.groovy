@@ -1224,6 +1224,19 @@ public class CreateIcebergSpatialV3Table {
         "qt_ordinary_distinct_count_map_${phase}"("""select /*+ SET_VAR(agg_phase=${phase}) */
             element_at(count_map(distinct map(1, number % 2)), 1) from numbers('number'='4')""")
     }
+    for (int phase : [1, 2]) {
+        "qt_ordinary_multi_distinct_arrays_${phase}"("""select /*+ SET_VAR(agg_phase=${phase}) */
+            multi_distinct_count(number % 2), multi_distinct_count(array(number % 2)),
+            multi_distinct_count(array(array(number % 2))),
+            multi_distinct_count(array(CAST(NULL AS INT))),
+            multi_distinct_count(CAST(NULL AS ARRAY<INT>)) from numbers('number'='4')""")
+    }
+    for (String expression : ["shapes", "array(shapes)"]) {
+        test {
+            sql """select multi_distinct_count(${expression}) from nested_spatial_values"""
+            exception "multi_distinct_count does not support spatial arguments"
+        }
+    }
     // Append after existing checks: identical points with different endian encodings and a NULL.
     sql """insert into geometry_values values
         (101, ST_GeometryFromWKBTyped('0101000000000000000000F03F0000000000000040'),
@@ -1237,6 +1250,17 @@ public class CreateIcebergSpatialV3Table {
                 sql """select ${column} from geometry_values where id = 101 ${operation}
                     select ${column} from geometry_values where id = 102"""
                 exception "GROUP BY and DISTINCT do not support spatial keys"
+            }
+        }
+        // The explicit aggregate has no DISTINCT flag; reject spatial leaves recursively.
+        for (int phase : [1, 2]) {
+            for (String expression : ["array(${column})", "array(array(${column}))",
+                    "CAST(NULL AS ARRAY<${column == 'geom' ? 'GEOMETRY' : 'GEOGRAPHY'}>)"]) {
+                test {
+                    sql """select /*+ SET_VAR(agg_phase=${phase}) */ multi_distinct_count(${expression})
+                        from geometry_values where id in (101, 102, 103)"""
+                    exception "multi_distinct_count does not support spatial arguments"
+                }
             }
         }
         // DISTINCT would turn the whole MAP into a later physical grouping key.

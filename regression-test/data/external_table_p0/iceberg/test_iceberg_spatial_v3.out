@@ -435,6 +435,12 @@ geog	GEOGRAPHY('OGC:CRS84', 'vincenty')	Yes	true	\N
 -- !ordinary_distinct_count_map_4 --
 2
 
+-- !ordinary_multi_distinct_arrays_1 --
+2	2	2	1	0
+
+-- !ordinary_multi_distinct_arrays_2 --
+2	2	2	1	0
+
 -- !spatial_plain_count_map_geom_3 --
 2
 

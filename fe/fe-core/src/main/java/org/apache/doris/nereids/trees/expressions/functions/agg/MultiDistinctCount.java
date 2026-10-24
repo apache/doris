@@ -66,7 +66,7 @@ public class MultiDistinctCount extends NotNullableAggregateFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        if (getArgumentType(0).isSpatialType()) {
+        if (getArgument(0).getDataType().toCatalogDataType().typeContainsSpatialType()) {
             throw new AnalysisException("multi_distinct_count does not support spatial arguments");
         }
     }

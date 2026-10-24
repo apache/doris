@@ -512,18 +512,27 @@ public class SpatialAggregateLegalityTest {
     public void multiDistinctSpatialArgumentsAreRejectedAcrossPlanningStages() {
         for (DataType type : List.of(new GeometryType("EPSG:3857"),
                 new GeographyType("OGC:CRS84", "spherical"))) {
-            for (boolean nullable : List.of(false, true)) {
-                Expression shape = new SlotReference("shape", type, nullable);
-                MultiDistinctCount function = new MultiDistinctCount(shape);
-                Assertions.assertThrows(AnalysisException.class, function::checkLegalityBeforeTypeCoercion);
-                Assertions.assertThrows(AnalysisException.class, function::checkLegalityAfterRewrite);
-                Count count = new Count(true, shape);
-                AnalysisException error = Assertions.assertThrows(AnalysisException.class,
-                        count::convertToMultiDistinct);
-                Assertions.assertEquals("multi_distinct_count does not support spatial arguments", error.getMessage());
-                Assertions.assertDoesNotThrow(new Count(shape)::checkLegalityBeforeTypeCoercion);
-                Assertions.assertDoesNotThrow(new Count(shape)::checkLegalityAfterRewrite);
+            for (DataType argumentType : List.of(type, ArrayType.of(type), ArrayType.of(ArrayType.of(type)))) {
+                for (Expression shape : List.of(new SlotReference("shape", argumentType, false),
+                        new SlotReference("shape", argumentType, true), new NullLiteral(argumentType))) {
+                    MultiDistinctCount function = new MultiDistinctCount(shape);
+                    Assertions.assertThrows(AnalysisException.class, function::checkLegalityBeforeTypeCoercion);
+                    Assertions.assertThrows(AnalysisException.class, function::checkLegalityAfterRewrite);
+                    Count count = new Count(true, shape);
+                    AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                            count::convertToMultiDistinct);
+                    Assertions.assertEquals("multi_distinct_count does not support spatial arguments",
+                            error.getMessage());
+                    Assertions.assertDoesNotThrow(new Count(shape)::checkLegalityBeforeTypeCoercion);
+                    Assertions.assertDoesNotThrow(new Count(shape)::checkLegalityAfterRewrite);
+                }
             }
+        }
+        for (DataType type : List.of(IntegerType.INSTANCE, ArrayType.of(IntegerType.INSTANCE),
+                ArrayType.of(ArrayType.of(IntegerType.INSTANCE)))) {
+            MultiDistinctCount function = new MultiDistinctCount(new SlotReference("value", type, true));
+            Assertions.assertDoesNotThrow(function::checkLegalityBeforeTypeCoercion);
+            Assertions.assertDoesNotThrow(function::checkLegalityAfterRewrite);
         }
     }
 
