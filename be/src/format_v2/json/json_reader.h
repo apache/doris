@@ -104,7 +104,8 @@ public:
     // positions. After this call, `get_block` can be called until it returns eof.
     Status open(std::shared_ptr<FileScanRequest> request) override;
     // Appends rows into `file_block` according to the FileScanRequest order. The block must already
-    // contain columns matching the requested positions.
+    // contain columns matching the requested positions. With no requested file columns, `rows`
+    // still reports the valid record count so TableReader can fill partition/default columns.
     Status get_block(Block* file_block, size_t* rows, bool* eof) override;
     Status close() override;
 
@@ -173,6 +174,9 @@ private:
     TFileCompressType::type _range_compress_type = TFileCompressType::UNKNOWN;
     std::optional<TUniqueId> _stream_load_id;
     std::vector<RequestedColumn> _requested_columns;
+    // A partition-only scan has a zero-column file block. Count valid records independently
+    // so TableReader can materialize partition/default columns with the correct cardinality.
+    size_t _rows_in_block = 0;
     std::unordered_map<std::string, size_t, TransparentStringHash, std::equal_to<>>
             _slot_name_to_index;
     std::unordered_map<std::string, size_t, CaseInsensitiveStringHash, CaseInsensitiveStringEqual>
