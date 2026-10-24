@@ -75,7 +75,10 @@ void AggValueAggregator::add_row(const IteratorRowRef& row, MutableColumns& out)
 
     // The merge iterator refreshes a Block once its last row is consumed, which would leave
     // the buffered references dangling; so the references are materialized here at the
-    // latest. The buffer sized `_max_buffered_rows` bounds the references as well.
+    // latest. This relies on every row of a Block being handed out: an AGG_KEYS merge never
+    // drops rows (MergeDecision::drop_older_versions), so the last row of a Block is always
+    // seen here before the Block is refilled. The buffer sized `_max_buffered_rows` bounds
+    // the references as well.
     const bool is_last_row_of_block = row.block->rows() == row.row_pos + 1;
     if (is_last_row_of_block || _buffered_rows.size() == _max_buffered_rows) {
         flush(out);
