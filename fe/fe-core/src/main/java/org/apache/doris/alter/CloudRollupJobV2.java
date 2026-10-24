@@ -203,6 +203,7 @@ public class CloudRollupJobV2 extends RollupJobV2 {
         tbl.writeLockOrAlterCancelException();
         try {
             Preconditions.checkState(tbl.getState() == OlapTableState.ROLLUP);
+            reserveWatershedTxnId();
             addRollupIndexToCatalog(tbl);
         } finally {
             tbl.writeUnlock();
