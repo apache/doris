@@ -1408,10 +1408,11 @@ public class MTMVTask extends AbstractTask {
      * Whether a stream this partition refresh will read is missing or unusable.
      *
      * <p>The set is narrower than the plan, and which tables are in it depends on the partitions being
-     * refreshed: a PCT table that no refreshed partition's mapping names keeps its place in the plan as
-     * an ordinary scan, so its stream is never read, and a table outside the plan's own tables is not
-     * scanned at all. Judging the whole plan instead sends a partition refresh that would have worked to
-     * a full rebuild whenever such an unread stream is missing.
+     * refreshed: a PCT table that no refreshed partition's mapping names is read as no rows at all -- its
+     * reset set is empty, and the rewriter answers it with an empty relation rather than a stream scan --
+     * so its stream is never read, and a table outside the plan's own tables is not scanned at all.
+     * Judging the whole plan instead sends a partition refresh that would have worked to a full rebuild
+     * whenever such an unread stream is missing.
      */
     private boolean hasUnusableIvmStreamForPartitions(MTMVRefreshContext context,
             List<String> mvPartitionNames) {
@@ -1540,9 +1541,31 @@ public class MTMVTask extends AbstractTask {
         }
     }
 
+    /**
+     * The partitions each PCT input of this batch is read from, by table, with an explicit empty set for a
+     * table the batch's mapping does not name.
+     *
+     * <p>An absent table is one whose retained base partitions share no key with the MV partitions this
+     * batch refreshes -- after a sync window dropped them, say -- so the batch must read no rows of it.
+     * Leaving the entry out instead is what makes the read differ from the record: the rewriter has no
+     * reset for the table and falls back to its ordinary scan, which reads the partitions the window
+     * dropped, while the mapping records none of them. The rows land in the MV partition and the snapshot
+     * says the table was not read, so a later change to them is never compared and a later delta never
+     * looks at them.
+     *
+     * <p>Seeded the same way {@link MTMVPartitionUtil#generateRelatedBasePartitionIds} seeds the delta's
+     * scope, and for the same reason: the empty set says "this table may not be read at all", which is not
+     * the same statement as the table's absence. The pre-seeded set is not looked up for a table the MV
+     * excludes from trigger tracking -- the rewriter returns its scan before consulting the reset.
+     */
     private Map<BaseTableInfo, Set<Long>> collectPctResetPartitionIds(MTMVRefreshContext context,
             Set<String> execPartitionNames) throws AnalysisException {
         Map<BaseTableInfo, Set<Long>> resetPartitionIds = Maps.newHashMap();
+        for (MTMVRelatedTableIf pctTable : mtmv.getMvPartitionInfo().getPctTables()) {
+            if (pctTable instanceof OlapTable) {
+                resetPartitionIds.put(new BaseTableInfo(pctTable), Sets.newHashSet());
+            }
+        }
         for (String mvPartitionName : execPartitionNames) {
             for (Entry<MTMVRelatedTableIf, Set<String>> entry
                     : context.getByPartitionName(mvPartitionName).entrySet()) {

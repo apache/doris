@@ -41,6 +41,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.rewrite.NormalizeOlapTableStreamScan;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -109,6 +110,29 @@ public class IvmFullRefreshMTMVTest extends TestWithFeService {
         Assertions.assertSame(baseTable, streamScan.getTable().getBaseTable());
         Assertions.assertEquals(Lists.newArrayList(partitionId), streamScan.getSelectedPartitionIds());
         assertProjectKeepsOriginSlots(scan, project);
+    }
+
+    /**
+     * A PCT input the batch's mapping does not name is read as no rows, and needs no usable stream for it:
+     * its ordinary scan would read the partitions the mapping stopped recording, which is what the reset
+     * set says it was not read from.
+     */
+    @Test
+    public void testEmptyResetScopeReadsNoRowsWithoutAStream() throws Exception {
+        OlapTable baseTable = baseTable();
+        Long partitionId = baseTable.getPartition("p1").getId();
+        LogicalOlapScan scan = newOlapScan(baseTable, Lists.newArrayList(partitionId));
+        Database db = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException(DB_NAME);
+        OlapTableStream stream = (OlapTableStream) db.getTableOrMetaException(streamName(baseTable));
+        stream.setDisabled(true);
+        try {
+            Plan result = rewrite(scan, baseTable, Optional.of(new HashSet<>()));
+
+            Assertions.assertTrue(result instanceof LogicalEmptyRelation);
+            Assertions.assertEquals(scan.getOutput(), result.getOutput());
+        } finally {
+            stream.setDisabled(false);
+        }
     }
 
     @Test

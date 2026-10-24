@@ -1586,6 +1586,15 @@ public class MTMVTaskTest {
                 ImmutableMap.<MTMVRelatedTableIf, Set<String>>of(
                         firstPctTable, Sets.newHashSet("first_shared", "first_p3"),
                         secondPctTable, Sets.newHashSet("second_p2")));
+        // A PCT table neither refreshed partition names feeds them nothing -- the sync window dropped the
+        // partitions it would feed them with, say -- and that has to be read as an explicit empty scope.
+        // Absent from the map, it would be read through its ordinary scan instead, which reads exactly the
+        // partitions the mapping records nowhere.
+        OlapTable absentPctTable = Mockito.mock(OlapTable.class);
+        Mockito.when(absentPctTable.getName()).thenReturn("absent_pct");
+        Mockito.when(absentPctTable.getDatabase()).thenReturn(database);
+        Mockito.when(mtmvPartitionInfo.getPctTables()).thenReturn(
+                Sets.newHashSet(firstPctTable, secondPctTable, absentPctTable));
 
         MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
         Map<BaseTableInfo, Set<Long>> result = Deencapsulation.invoke(
@@ -1593,6 +1602,7 @@ public class MTMVTaskTest {
 
         Assertions.assertEquals(Sets.newHashSet(11L, 12L, 13L), result.get(new BaseTableInfo(firstPctTable)));
         Assertions.assertEquals(Sets.newHashSet(21L, 22L), result.get(new BaseTableInfo(secondPctTable)));
+        Assertions.assertEquals(Sets.newHashSet(), result.get(new BaseTableInfo(absentPctTable)));
     }
 
     @Test
