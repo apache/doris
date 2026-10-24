@@ -718,6 +718,61 @@ TEST_F(LocalFileSystemTest, TestCanonicalizeSecureLocalPath) {
     EXPECT_FALSE(fs->canonicalize_local_file("", secure.string(), &resolved).ok());
 }
 
+TEST_F(LocalFileSystemTest, TestCanonicalizeFileUriIdentity) {
+    auto fs = io::global_local_filesystem();
+    const auto root = std::filesystem::canonical(test_dir);
+    const auto secure = root / "secure";
+    std::filesystem::create_directories(secure / "nested/child/data.lance");
+    std::filesystem::create_directory(secure / "nested/data.lance");
+    std::filesystem::create_directory(secure / "data.lance");
+    std::filesystem::create_directory(secure / "a b.lance");
+    std::filesystem::create_directory(root / "outside");
+    std::filesystem::create_directory_symlink(secure / "nested/child", secure / "jump");
+    std::filesystem::create_directory(secure / "literal\\name.lance");
+    const auto backslash_uri = std::string(R"(fIlE:\\localhost)") + secure.string() + "/data.lance";
+    for (const auto& input :
+         {std::make_pair("file://" + secure.string() + "/jump/../data.lance",
+                         secure / "data.lance"),
+          std::make_pair("file://" + secure.string() + "/missing/../data.lance",
+                         secure / "data.lance"),
+          std::make_pair("file://" + secure.string() + "/jump/%2e%2E/data.lance",
+                         secure / "data.lance"),
+          std::make_pair("file://" + secure.string() + "/jump/.%2e/data.lance",
+                         secure / "data.lance"),
+          std::make_pair("file://" + secure.string() + "/jump/%2E./data.lance",
+                         secure / "data.lance"),
+          std::make_pair("file://" + secure.string() + "/missing/.././data.lance",
+                         secure / "data.lance"),
+          std::make_pair("file://" + secure.string() + "/jump//../data.lance",
+                         secure / "nested/child/data.lance"),
+          std::make_pair("file://" + secure.string() + "/jump%2f../data.lance",
+                         secure / "nested/data.lance"),
+          std::make_pair("file://" + secure.string() + "/jump\\..\\data.lance",
+                         secure / "data.lance"),
+          std::make_pair("FILE://" + secure.string() + "/data.lance", secure / "data.lance"),
+          std::make_pair(backslash_uri, secure / "data.lance"),
+          std::make_pair("file://" + secure.string() + "/literal%5cname.lance",
+                         secure / "literal\\name.lance"),
+          std::make_pair(std::string("literal\\name.lance"), secure / "literal\\name.lance"),
+          std::make_pair("fIlE://" + secure.string() + "/a%20b.lance?q=%00#tag",
+                         secure / "a b.lance"),
+          std::make_pair(std::string("jump/../data.lance"), secure / "nested/data.lance")}) {
+        std::string actual;
+        const auto status = fs->canonicalize_local_file(secure.string(), input.first, &actual);
+        ASSERT_TRUE(status.ok()) << input.first << " " << status;
+        EXPECT_EQ(input.second.string(), actual) << input.first;
+    }
+    for (const auto& input :
+         {"file://" + secure.string() + "/jump/../../outside",
+          "FILE://" + secure.string() + "/%2e%2e/outside",
+          "fIlE://" + secure.string() + "/a%00b.lance", std::string("HTTP://invalid/dataset")}) {
+        std::string actual;
+        const auto status = fs->canonicalize_local_file(secure.string(), input, &actual);
+        EXPECT_FALSE(status.ok()) << input;
+        EXPECT_EQ(std::string::npos, status.to_string().find(root.string()));
+    }
+}
+
 TEST_F(LocalFileSystemTest, TestConvertToAbsPath) {
     io::Path abs_path;
     Status st;

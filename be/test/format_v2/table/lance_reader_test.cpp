@@ -4450,6 +4450,78 @@ TEST(LanceTableReaderLocalPathTest, FileUrisPreserveEscapedDatasetIdentity) {
     }
 }
 
+TEST(LanceTableReaderLocalPathTest, FileUrisNormalizeBeforeFilesystemResolution) {
+    const auto original_secure_path = config::user_files_secure_path;
+    DEFER(config::user_files_secure_path = original_secure_path);
+    const auto root = std::filesystem::temp_directory_path() /
+                      ("lance_uri_normalization_" +
+                       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    DEFER({
+        std::error_code error;
+        std::filesystem::remove_all(root, error);
+    });
+    std::filesystem::create_directories(root / "nested/child");
+    std::filesystem::create_directory_symlink(root / "nested/child", root / "jump");
+    const auto backslash_uri = std::string(R"(fIlE:\\localhost)") + root.string() + "/data.lance";
+    for (const bool nested : {false, true}) {
+        arrow::Int64Builder values_builder;
+        ASSERT_TRUE(values_builder.Append(nested ? 42 : 7).ok());
+        std::shared_ptr<arrow::Array> values;
+        ASSERT_TRUE(values_builder.Finish(&values).ok());
+        const auto schema = arrow::schema(
+                {arrow::field("row_id", arrow::int64(), false),
+                 arrow::field(nested ? "nested_only" : "root_only", arrow::int64(), false)});
+        ASSERT_TRUE(write_lance_record_batch(root / (nested ? "nested/data.lance" : "data.lance"),
+                                             arrow::RecordBatch::Make(schema, 1, {values, values}))
+                            .ok());
+    }
+    config::user_files_secure_path = root.string();
+    for (const auto& input :
+         {std::make_pair("file://" + root.string() + "/jump/../data.lance", false),
+          std::make_pair("file://" + root.string() + "/missing/../data.lance", false),
+          std::make_pair("file://" + root.string() + "/jump/%2e%2E/data.lance", false),
+          std::make_pair("FILE://" + root.string() + "/data.lance", false),
+          std::make_pair(backslash_uri, false),
+          std::make_pair("fIlE://" + root.string() + "/jump/.%2e/data.lance", false),
+          std::make_pair("file://" + root.string() + "/jump%2f../data.lance", true),
+          std::make_pair(std::string("jump/../data.lance"), true)}) {
+        SCOPED_TRACE(input.first);
+        TQueryGlobals globals;
+        RuntimeState state(globals);
+        RuntimeProfile profile("lance_uri_normalization");
+        TFileScanRangeParams scan_params;
+        LanceTableReader reader;
+        const Columns columns {projected_column("row_id", TYPE_BIGINT, false)};
+        ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
+        auto range = make_latest_lance_range(input.first);
+        range.__set_file_type(TFileType::FILE_LOCAL);
+        std::vector<std::string> names;
+        std::vector<DataTypePtr> types;
+        ASSERT_TRUE(reader.fetch_schema(range, scan_params, &names, &types).ok());
+        EXPECT_EQ((std::vector<std::string> {"row_id", input.second ? "nested_only" : "root_only"}),
+                  names);
+        LanceTableReader::DatasetKey key;
+        ASSERT_TRUE(reader._dataset_key(range, &key).ok());
+        EXPECT_EQ((root / (input.second ? "nested/data.lance" : "data.lance")).string(), key.uri);
+        ASSERT_TRUE(prepare_range(&reader, range).ok());
+        Block block;
+        add_output_columns(&block, columns);
+        std::vector<int64_t> row_ids;
+        bool eos = false;
+        while (!eos) {
+            ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+            if (!eos) {
+                const auto& values =
+                        assert_cast<const ColumnInt64&>(*block.get_by_position(0).column)
+                                .get_data();
+                row_ids.insert(row_ids.end(), values.begin(), values.end());
+            }
+        }
+        EXPECT_EQ((std::vector<int64_t> {input.second ? 42 : 7}), row_ids);
+        ASSERT_TRUE(reader.close().ok());
+    }
+}
+
 TEST(LanceTableReaderLocalPathTest, FixedVersionLocalCatalogKeepsItsUri) {
     TFileScanRangeParams scan_params;
     LanceTableReader reader;
