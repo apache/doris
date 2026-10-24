@@ -93,6 +93,22 @@ suite("test_iceberg_schema_dual_relation_matrix",
             order by id
         """))
 
+        // Latest metadata must be restored even when a historical relation is bound first.
+        assertEquals([[1, "old-1", "old-1"]], sql("""
+            select h.id, h.old_name, l.new_name
+            from ${tableName} for version as of ${oldSnapshot} h
+            join ${tableName} l on h.id = l.id
+            order by h.id
+        """))
+
+        // Binding the same pair in reverse order must preserve both relation-local schemas.
+        assertEquals([[1, "old-1", "old-1"]], sql("""
+            select l.id, l.new_name, h.old_name
+            from ${tableName} l
+            join ${tableName} for version as of ${oldSnapshot} h on l.id = h.id
+            order by l.id
+        """))
+
         // Scenario TC07-join: each historical relation binds and scans its OWN snapshot schema, so a
         // self-join across the rename resolves old_name (old snapshot) and new_name (new snapshot).
         assertEquals([[1, "old-1", "old-1"]], sql("""
