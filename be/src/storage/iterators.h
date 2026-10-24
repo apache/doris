@@ -131,15 +131,9 @@ public:
     VariantCompactionPathsSPtr variant_compaction_paths;
     bool enable_unique_key_merge_on_write = false;
     std::vector<int> topn_filter_source_node_ids;
-    // used for special optimization for query : ORDER BY key DESC LIMIT n
+    // ORDER BY key DESC LIMIT n: the segment reads its rows backward.
     bool read_orderby_key_reverse = false;
-    // For rows with the same key, use ascending order (small-to-large) for tie-breakers.
-    // For example, use lower rowset version / segment id first.
-    bool use_insert_order_when_same = false;
     bool read_changelog = false;
-    int changelog_tso_idx = -1;
-    // columns for orderby keys
-    std::vector<uint32_t>* read_orderby_key_columns = nullptr;
     io::IOContext io_ctx;
     VExprContextSPtrs common_expr_ctxs_push_down;
     const std::set<int32_t>* output_columns = nullptr;
@@ -151,7 +145,8 @@ public:
     // runtime state
     RuntimeState* runtime_state = nullptr;
     RowsetId rowset_id;
-    Version version;
+    // The version of the rowset the segment belongs to, not the version of the read.
+    Version rowset_version;
     TsoRange commit_tso;
     int64_t tablet_id = 0;
     // slots that cast may be eliminated in storage layer
@@ -183,11 +178,32 @@ struct CompactionSampleInfo {
     int64_t null_count = 0; // Number of NULL cells in this column group
 };
 
-struct BlockWithSameBit {
-    Block* block;
-    std::vector<bool>& same_bit;
-
-    bool empty() const { return block->rows() == 0; }
+// How the rows of one read are ordered and folded. The TabletReader decides it once, and every
+// merge of that read (the rowsets, the segments of one rowset, the TopN read) only consumes it,
+// so there is one place where "is the older row dropped" is answered.
+struct MergeDecision {
+    // The rows must come out in key order: the segments of a rowset that overlap on keys are
+    // merged, and so are rowsets that overlap. Otherwise the segments are read one after another.
+    bool key_ordered = false;
+    // Read-schema ordinals two rows are compared by. The key columns, unless the read sorts by
+    // something else: the ORDER BY prefix of a TopN read or the cluster key of a schema change.
+    std::vector<uint32_t> compare_ordinals;
+    // Whether `compare_ordinals` is the whole key, so two rows comparing equal are versions of
+    // one key.
+    bool compare_whole_key = true;
+    // The column that orders two rows of the same key, -1 without one: the sequence column (the
+    // larger value is the newer row) or the changelog TSO (the smaller one goes first,
+    // `small_sequence_first`).
+    int sequence_ordinal = -1;
+    bool small_sequence_first = false;
+    // Keys descending (ORDER BY key DESC LIMIT n).
+    bool reverse = false;
+    // Among the rows of one key and sequence value, the older one goes first; by default the
+    // newer one does.
+    bool older_first = false;
+    // Hand out only the newest row of a key (merge-on-read UNIQUE_KEYS without a sequence map).
+    // Never set without `compare_whole_key`: rows equal on a prefix are not versions of one key.
+    bool drop_older_versions = false;
 };
 
 class RowwiseIterator;
@@ -212,25 +228,23 @@ public:
                                      demangle(typeid(*this).name()));
     }
 
-    // If there is any valid data, this function will load data
-    // into input batch with Status::OK() returned
-    // If there is no data to read, will return Status::EndOfFile.
-    // If other error happens, other error code will be returned.
+    // Read the next rows into `block`, which has the layout of schema().
+    // Return OK with at least one row in `block`, or EndOfFile with an empty `block` once
+    // every row has been read. A caller never calls next_batch() again after EndOfFile.
+    // Example: a segment whose last batch is filtered out completely by a predicate reads
+    // on to the end and returns EndOfFile instead of an empty OK batch.
     virtual Status next_batch(Block* block) {
         return Status::InternalError("should not reach here, current class: " +
                                      demangle(typeid(*this).name()));
     }
 
-    virtual Status next_batch(BlockWithSameBit* block_with_same_bit) {
-        return Status::InternalError("should not reach here, current class: " +
-                                     demangle(typeid(*this).name()));
-    }
-
-    virtual Status next_batch(BlockView* block_view) {
-        return Status::InternalError("should not reach here, current class: " +
-                                     demangle(typeid(*this).name()));
-    }
-
+    // Hand out the next row as a reference into one of this iterator's Blocks, in the same
+    // order next_batch() would copy the rows. Return OK, or EndOfFile once every row has
+    // been handed out; a caller never calls next_row() again after EndOfFile.
+    // The reference stays valid until the next next_row() call, so a caller copies the row
+    // it needs before asking for the next one. `ref->is_same` is set when the row's key
+    // equals the key of the row handed out before it (see VMergeIterator); an iterator
+    // without a notion of key leaves it false.
     virtual Status next_row(IteratorRowRef* ref) {
         return Status::InternalError("should not reach here, current class: " +
                                      demangle(typeid(*this).name()));
@@ -240,21 +254,12 @@ public:
                                      demangle(typeid(*this).name()));
     }
 
-    virtual bool is_merge_iterator() const { return false; }
-
     // return schema for this Iterator
     virtual const ReadSchema& schema() const = 0;
-
-    // Return the data id such as segment id, used for keep the insert order when do
-    // merge sort in priority queue
-    virtual uint64_t data_id() const { return 0; }
 
     virtual void update_profile(RuntimeProfile* profile) {}
     // return rows merged count by iterator
     virtual uint64_t merged_rows() const { return 0; }
-
-    // return if it's an empty iterator
-    virtual bool empty() const { return false; }
 };
 
 } // namespace doris

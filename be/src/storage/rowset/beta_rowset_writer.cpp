@@ -1129,7 +1129,7 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
         // segments genuinely overlap. The compaction ctx default is NONOVERLAPPING for
         // the non-quick-merge path, and the branch above only ever downgrades, so upgrade
         // here. Otherwise RowsetMeta::is_segments_overlapping() and
-        // BetaRowsetReader::is_merge_iterator() would pick a segment union instead of a
+        // BetaRowsetReader::new_iterator() would pick a segment union instead of a
         // merge and break downstream MIN_DELTA reads.
         rowset_meta->set_segments_overlap(OVERLAPPING);
     }

@@ -172,12 +172,10 @@ Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params,
         for (int i = 0; i < segment_iters_ptr->size(); ++i) {
             iterator_init_flag.push_back(true);
         }
-        // TODO(zhangzhengyu): is it enough for a context?
+        // Segcompaction hands over the segment iterators; the context only names the read.
         _reader_context.reader_type = read_params.reader_type;
-        _reader_context.need_ordered_result = true; // TODO: should it be?
-        _reader_context.is_unique = _tablet_schema->keys_type() == UNIQUE_KEYS;
-        _reader_context.is_key_column_group = read_params.is_key_column_group;
     }
+    _is_key_column_group = read_params.is_key_column_group;
 
     // build heap if key column iterator or build vertical merge iterator if value column
     if (read_params.is_key_column_group) {
@@ -189,12 +187,13 @@ Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params,
         if (_tablet_schema->num_key_columns() == 0) {
             _vcollect_iter = new_vertical_fifo_merge_iterator(
                     std::move(*segment_iters_ptr), iterator_init_flag, _tablet_schema->keys_type(),
-                    seq_col_idx, _row_sources_buffer, _context_stats);
+                    seq_col_idx, _reader_context.merge.older_first, _row_sources_buffer,
+                    _context_stats);
         } else {
             _vcollect_iter = new_vertical_heap_merge_iterator(
                     std::move(*segment_iters_ptr), iterator_init_flag, _tablet_schema->keys_type(),
-                    seq_col_idx, _row_sources_buffer, _context_stats,
-                    read_params.key_group_cluster_key_idxes);
+                    seq_col_idx, _reader_context.merge.older_first, _row_sources_buffer,
+                    _context_stats, read_params.key_group_cluster_key_idxes);
         }
     } else {
         _vcollect_iter = new_vertical_mask_merge_iterator(std::move(*segment_iters_ptr),
@@ -202,8 +201,6 @@ Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params,
     }
     // init collect iterator
     StorageReadOptions opts(_stats);
-    opts.rowset_id = _reader_context.rowset_id;
-    opts.use_insert_order_when_same = _reader_context.use_insert_order_when_same;
     if (read_params.batch_size > 0) {
         opts.block_row_max = cast_set<int>(read_params.batch_size);
     }
@@ -421,7 +418,7 @@ size_t VerticalBlockReader::_copy_agg_data() {
 }
 
 Status VerticalBlockReader::_agg_key_next_block(Block* block, bool* eof) {
-    if (_reader_context.is_key_column_group) {
+    if (_is_key_column_group) {
         // collect_iter will filter agg keys
         auto res = _vcollect_iter->next_batch(block);
         if (UNLIKELY(!res.ok() && !res.is<END_OF_FILE>())) {
@@ -474,7 +471,7 @@ Status VerticalBlockReader::_agg_key_next_block(Block* block, bool* eof) {
 }
 
 Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
-    if (_reader_context.is_key_column_group) {
+    if (_is_key_column_group) {
         // Record row_source_buffer current size for key column agg flag
         // _vcollect_iter->next_batch(block) will fill row_source_buffer but delete sign is ignored
         // we calc delete sign column if it's base compaction and update row_sourece_buffer's agg flag

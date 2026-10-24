@@ -1051,7 +1051,7 @@ Status RowIdStorageReader::read_doris_format_row(
                 // A rowid fetch bypasses TabletReader, so copy the rowset context it would have
                 // supplied. For example, a rowset with commit_tso=100 must expose 100 through
                 // __DORIS_COMMIT_TSO_COL__ instead of its on-disk placeholder 0.
-                iterator_item.storage_read_options.version = rowset->version();
+                iterator_item.storage_read_options.rowset_version = rowset->version();
                 iterator_item.storage_read_options.commit_tso = rowset->commit_tso();
             }
             if (x >= fetch_columns.size()) {
