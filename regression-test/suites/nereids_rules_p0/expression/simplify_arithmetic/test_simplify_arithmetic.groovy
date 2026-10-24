@@ -36,4 +36,36 @@ suite("test_simplify_arithmetic") {
     qt_return_type_after_projection_should_be_bigint """
         select -3 - (7 + id) as c1 from test_simplify_arithmetic group by c1
     """
+
+    // A nested denominator is an evaluation boundary. In particular, rewriting this to
+    // number * 1 would change the number = 0 result from NULL to 0.
+    explain {
+        sql """
+            select number, 1 / (1 / number) as result
+            from numbers("number" = "3")
+        """
+        verbose true
+        contains """(1 / (1 / CAST("""
+    }
+
+    qt_preserve_division_denominator_in_projection """
+        select number, 1 / (1 / number) as result
+        from numbers("number" = "3")
+        order by number
+    """
+
+    qt_preserve_division_denominator_in_filter """
+        select number
+        from numbers("number" = "3")
+        where 1 / (1 / number) is null
+        order by number
+    """
+
+    sql "set disable_nereids_expression_rules='SIMPLIFY_ARITHMETIC'"
+    qt_preserve_division_denominator_rule_disabled """
+        select number, 1 / (1 / number) as result
+        from numbers("number" = "3")
+        order by number
+    """
+    sql "set disable_nereids_expression_rules=''"
 }
