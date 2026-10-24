@@ -34,6 +34,7 @@
 #include "common/util.h"
 #include "cpp/sync_point.h"
 #include "meta-service/meta_service.h"
+#include "meta-store/blob_message.h"
 #include "meta-store/codec.h"
 #include "meta-store/document_message.h"
 #include "meta-store/document_message_get_range.h"
@@ -1991,6 +1992,280 @@ TEST(RecycleVersionedKeysTest, RecycleDeletedInstance) {
 }
 
 // ============================================================================
+class RowsetDereferenceTest : public testing::Test {
+protected:
+    void SetUp() override {
+        force_immediate_recycle = config::force_immediate_recycle;
+        meta_service = get_meta_service();
+        ASSERT_NO_FATAL_FAILURE(create_and_refresh_instance(meta_service.get(), instance_id));
+        ASSERT_NO_FATAL_FAILURE(create_and_refresh_instance(meta_service.get(), clone_id));
+        const std::string cloud_unique_id = "1:" + instance_id + ":0";
+        ASSERT_NO_FATAL_FAILURE(
+                prepare_and_commit_index(meta_service.get(), cloud_unique_id, 1, 2, 3));
+        ASSERT_NO_FATAL_FAILURE(
+                prepare_and_commit_partition(meta_service.get(), cloud_unique_id, 1, 2, 4, 3));
+        ASSERT_NO_FATAL_FAILURE(
+                create_tablet(meta_service.get(), cloud_unique_id, 1, 2, 3, 4, tablet_id));
+        InstanceInfoPB instance_info;
+        ASSERT_NO_FATAL_FAILURE(get_instance(meta_service.get(), cloud_unique_id, instance_info));
+        recycler = get_instance_recycler(meta_service.get(), instance_info, accessor);
+        config::force_immediate_recycle = true;
+    }
+
+    void TearDown() override {
+        SyncPoint::get_instance()->disable_processing();
+        SyncPoint::get_instance()->clear_all_call_backs();
+        config::force_immediate_recycle = force_immediate_recycle;
+    }
+
+    void prepare_rowset(int64_t ref_count) {
+        rowset = create_rowset(1, tablet_id, 4, 2);
+        marker_key = recycle_rowset_key({instance_id, tablet_id, rowset.rowset_id_v2()});
+        ref_count_key = versioned::data_rowset_ref_count_key(
+                {instance_id, tablet_id, rowset.rowset_id_v2()});
+        file = segment_path(tablet_id, rowset.rowset_id_v2(), 0);
+        ASSERT_EQ(accessor->put_file(file, "shared data"), 0);
+
+        RecycleRowsetPB marker;
+        marker.set_type(RecycleRowsetPB::COMPACT);
+        marker.set_creation_time(0);
+        marker.mutable_rowset_meta()->CopyFrom(rowset);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(marker_key, marker.SerializeAsString());
+        txn->atomic_add(ref_count_key, ref_count);
+        if (ref_count == 2) {
+            auto clone_rowset = rowset;
+            clone_rowset.set_reference_instance_id(instance_id);
+            ASSERT_TRUE(versioned::document_put(
+                    txn.get(), versioned::meta_rowset_load_key({clone_id, tablet_id, 2}),
+                    std::move(clone_rowset)));
+        }
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    void check_shared_rowset() {
+        EXPECT_EQ(accessor->exists(file), 0);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string value;
+        EXPECT_EQ(txn->get(marker_key, &value), TxnErrorCode::TXN_KEY_NOT_FOUND);
+        ASSERT_EQ(txn->get(ref_count_key, &value), TxnErrorCode::TXN_OK);
+        int64_t ref_count = 0;
+        ASSERT_TRUE(txn->decode_atomic_int(value, &ref_count));
+        EXPECT_EQ(ref_count, 1);
+        RowsetMetaCloudPB clone_rowset;
+        Versionstamp version;
+        ASSERT_EQ(versioned::document_get(txn.get(),
+                                          versioned::meta_rowset_load_key({clone_id, tablet_id, 2}),
+                                          &clone_rowset, &version),
+                  TxnErrorCode::TXN_OK);
+        EXPECT_EQ(clone_rowset.rowset_id_v2(), rowset.rowset_id_v2());
+    }
+
+    const std::string instance_id = "rowset_dereference";
+    const std::string clone_id = "rowset_dereference_clone";
+    const int64_t tablet_id = 5;
+    std::unique_ptr<MetaServiceProxy> meta_service;
+    std::shared_ptr<MockAccessor> accessor = std::make_shared<MockAccessor>();
+    std::unique_ptr<InstanceRecycler> recycler;
+    RowsetMetaCloudPB rowset;
+    std::string marker_key;
+    std::string ref_count_key;
+    std::string file;
+    bool force_immediate_recycle = false;
+};
+
+TEST_F(RowsetDereferenceTest, RowsetWorkerConsumesMarkerBeforeTabletWorker) {
+    ASSERT_NO_FATAL_FAILURE(prepare_rowset(2));
+    bool handled = false;
+    auto* sp = SyncPoint::get_instance();
+    sp->set_call_back("InstanceRecycler::recycle_versioned_tablet.before_dereference", [&](auto&&) {
+        handled = true;
+        ASSERT_EQ(recycler->recycle_rowsets(), 0);
+    });
+    sp->enable_processing();
+    RecyclerMetricsContext ctx;
+    ASSERT_EQ(recycler->recycle_tablet(tablet_id, ctx), 0);
+    EXPECT_TRUE(handled);
+    ASSERT_NO_FATAL_FAILURE(check_shared_rowset());
+}
+
+TEST_F(RowsetDereferenceTest, TabletWorkerConsumesMarkerBeforeRowsetWorker) {
+    ASSERT_NO_FATAL_FAILURE(prepare_rowset(2));
+    bool handled = false;
+    auto* sp = SyncPoint::get_instance();
+    sp->set_call_back("InstanceRecycler::recycle_rowset_meta_and_data.begin", [&](auto&&) {
+        handled = true;
+        RecyclerMetricsContext ctx;
+        ASSERT_EQ(recycler->recycle_tablet(tablet_id, ctx), 0);
+    });
+    sp->enable_processing();
+    ASSERT_EQ(recycler->recycle_rowsets(), 0);
+    EXPECT_TRUE(handled);
+    ASSERT_NO_FATAL_FAILURE(check_shared_rowset());
+}
+
+TEST_F(RowsetDereferenceTest, ConflictRetriesFromCurrentMarker) {
+    ASSERT_NO_FATAL_FAILURE(prepare_rowset(2));
+    bool handled = false;
+    auto* sp = SyncPoint::get_instance();
+    sp->set_call_back("InstanceRecycler::dereference_rowset.before_commit", [&](auto&& args) {
+        auto* key = try_any_cast<std::string*>(args[0]);
+        if (*key != marker_key || handled) {
+            return;
+        }
+        handled = true;
+        ASSERT_EQ(recycler->recycle_rowsets(), 0);
+    });
+    sp->enable_processing();
+    RecyclerMetricsContext ctx;
+    ASSERT_EQ(recycler->recycle_tablet(tablet_id, ctx), 0);
+    EXPECT_TRUE(handled);
+    ASSERT_NO_FATAL_FAILURE(check_shared_rowset());
+}
+
+TEST_F(RowsetDereferenceTest, DeleteFailureRetainsReleasedReferenceMarkerForRetry) {
+    ASSERT_NO_FATAL_FAILURE(prepare_rowset(1));
+    auto* sp = SyncPoint::get_instance();
+    sp->set_call_back("MockAccessor::delete_files", [&](auto&& args) {
+        auto* paths = try_any_cast<const std::vector<std::string>*>(args[0]);
+        for (const auto& path : *paths) {
+            if (path == file) {
+                auto* ret = try_any_cast_ret<int>(args);
+                ret->first = -1;
+                ret->second = true;
+                return;
+            }
+        }
+    });
+    sp->enable_processing();
+    RecyclerMetricsContext ctx;
+    ASSERT_NE(recycler->recycle_tablet(tablet_id, ctx), 0);
+    EXPECT_EQ(accessor->exists(file), 0);
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string value;
+        ASSERT_EQ(txn->get(marker_key, &value), TxnErrorCode::TXN_OK);
+        RecycleRowsetPB marker;
+        ASSERT_TRUE(marker.ParseFromString(value));
+        EXPECT_EQ(marker.reference_state(), RecycleRowsetPB::REFERENCE_RELEASED);
+        ASSERT_EQ(txn->get(ref_count_key, &value), TxnErrorCode::TXN_OK);
+        int64_t ref_count = -1;
+        ASSERT_TRUE(txn->decode_atomic_int(value, &ref_count));
+        EXPECT_EQ(ref_count, 0);
+    }
+    sp->disable_processing();
+    ASSERT_EQ(recycler->recycle_rowsets(), 0);
+    EXPECT_EQ(accessor->exists(file), 1);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string value;
+    EXPECT_EQ(txn->get(marker_key, &value), TxnErrorCode::TXN_KEY_NOT_FOUND);
+    EXPECT_EQ(txn->get(ref_count_key, &value), TxnErrorCode::TXN_KEY_NOT_FOUND);
+}
+
+TEST_F(RowsetDereferenceTest, RetryingTabletDoesNotReleaseSourceReferenceTwice) {
+    ASSERT_NO_FATAL_FAILURE(prepare_rowset(2));
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->remove(marker_key);
+        ASSERT_TRUE(versioned::document_put(
+                txn.get(), versioned::meta_rowset_load_key({instance_id, tablet_id, 2}),
+                RowsetMetaCloudPB(rowset)));
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+    RecyclerMetricsContext ctx;
+    ASSERT_EQ(recycler->recycle_tablet(tablet_id, ctx), 0);
+    ASSERT_EQ(recycler->recycle_tablet(tablet_id, ctx), 0);
+    ASSERT_NO_FATAL_FAILURE(check_shared_rowset());
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    RowsetMetaCloudPB source;
+    Versionstamp version;
+    EXPECT_EQ(versioned::document_get(txn.get(),
+                                      versioned::meta_rowset_load_key({instance_id, tablet_id, 2}),
+                                      &source, &version),
+              TxnErrorCode::TXN_KEY_NOT_FOUND);
+}
+
+TEST_F(RowsetDereferenceTest, OperationLogDoesNotRecreateConsumedMarker) {
+    ASSERT_NO_FATAL_FAILURE(prepare_rowset(2));
+    ASSERT_EQ(recycler->recycle_rowsets(), 0);
+    {
+        OperationLogPB log;
+        log.set_min_timestamp(0);
+        auto* compaction = log.mutable_compaction();
+        compaction->set_tablet_id(tablet_id);
+        auto* marker = compaction->add_recycle_rowsets();
+        marker->set_type(RecycleRowsetPB::COMPACT);
+        marker->mutable_rowset_meta()->CopyFrom(rowset);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        versioned::blob_put(txn.get(), versioned::log_key(instance_id), log);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+    ASSERT_EQ(recycler->recycle_operation_logs(), 0);
+    ASSERT_EQ(recycler->recycle_rowsets(), 0);
+    ASSERT_NO_FATAL_FAILURE(check_shared_rowset());
+}
+
+TEST_F(RowsetDereferenceTest, AmbiguousCommitDoesNotDereferenceAgain) {
+    ASSERT_NO_FATAL_FAILURE(prepare_rowset(1));
+    bool injected = false;
+    auto* sp = SyncPoint::get_instance();
+    sp->set_call_back("InstanceRecycler::dereference_rowset.commit", [&](auto&& args) {
+        auto* key = try_any_cast<std::string*>(args[0]);
+        auto* err = try_any_cast<TxnErrorCode*>(args[1]);
+        if (*key == marker_key && !injected) {
+            ASSERT_EQ(*err, TxnErrorCode::TXN_OK);
+            injected = true;
+            *err = TxnErrorCode::TXN_MAYBE_COMMITTED;
+        }
+    });
+    sp->enable_processing();
+    ASSERT_EQ(recycler->recycle_rowsets(), 0);
+    EXPECT_TRUE(injected);
+    EXPECT_EQ(accessor->exists(file), 1);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string value;
+    EXPECT_EQ(txn->get(marker_key, &value), TxnErrorCode::TXN_KEY_NOT_FOUND);
+    EXPECT_EQ(txn->get(ref_count_key, &value), TxnErrorCode::TXN_KEY_NOT_FOUND);
+}
+
+TEST_F(RowsetDereferenceTest, OperationLogRecyclesLegacyInputWithoutVersionedSource) {
+    ASSERT_NO_FATAL_FAILURE(prepare_rowset(1));
+    {
+        // Legacy inputs compacted during WRITE_ONLY never acquired versioned source/count keys.
+        OperationLogPB log;
+        log.set_min_timestamp(0);
+        auto* compaction = log.mutable_compaction();
+        compaction->set_tablet_id(tablet_id);
+        auto* marker = compaction->add_recycle_rowsets();
+        marker->set_type(RecycleRowsetPB::COMPACT);
+        marker->set_creation_time(0);
+        marker->mutable_rowset_meta()->CopyFrom(rowset);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->remove(marker_key);
+        txn->remove(ref_count_key);
+        versioned::blob_put(txn.get(), versioned::log_key(instance_id), log);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+    ASSERT_EQ(recycler->recycle_operation_logs(), 0);
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string value;
+        ASSERT_EQ(txn->get(marker_key, &value), TxnErrorCode::TXN_OK);
+    }
+    ASSERT_EQ(recycler->recycle_rowsets(), 0);
+    EXPECT_EQ(accessor->exists(file), 1);
+}
+
 // Batch Delete Tests for recycle_versioned_tablet
 // ============================================================================
 

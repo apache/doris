@@ -173,13 +173,16 @@ public:
     int commit();
 
 private:
+    int recycle_rowset(const RecycleRowsetPB& rowset, int64_t tablet_id);
+    int key_exists(const std::string& key, bool* exists);
     int recycle_table_version(int64_t table_id);
     int recycle_tablet_meta(int64_t tablet_id);
     int recycle_tablet_load_stats(int64_t tablet_id);
     int recycle_tablet_compact_stats(int64_t tablet_id);
     int recycle_partition_version(int64_t partition_id);
     int recycle_table_stream_offset(const TableStreamIdentityPB& identity, int64_t partition_id);
-    int recycle_rowset_meta(int64_t tablet_id, int64_t end_version, const std::string& rowset_id);
+    int recycle_rowset_meta(int64_t tablet_id, int64_t end_version, const std::string& rowset_id,
+                            bool* removed);
 
     std::string_view instance_id_;
     TxnKv* txn_kv_;
@@ -328,35 +331,9 @@ int OperationLogRecycler::recycle_update_tablet_log(const UpdateTabletLogPB& upd
 int OperationLogRecycler::recycle_compaction_log(const CompactionLogPB& compaction_log) {
     VLOG_DEBUG << "recycle compaction log: " << compaction_log.ShortDebugString();
 
-    MetaReader meta_reader(instance_id_, log_version_);
-
-    int64_t tablet_id = compaction_log.tablet_id();
-    RETURN_ON_FAILURE(recycle_tablet_compact_stats(tablet_id));
-
-    for (const RecycleRowsetPB& recycle_rowset_pb : compaction_log.recycle_rowsets()) {
-        // recycle rowset meta key
-        std::string recycle_rowset_value;
-        if (!recycle_rowset_pb.SerializeToString(&recycle_rowset_value)) {
-            LOG_WARNING("failed to serialize RecycleRowsetPB")
-                    .tag("recycle rowset pb", recycle_rowset_pb.ShortDebugString());
-            return -1;
-        }
-        std::string recycle_key =
-                recycle_rowset_key({instance_id_, compaction_log.tablet_id(),
-                                    recycle_rowset_pb.rowset_meta().rowset_id_v2()});
-        // Put recycle rowset key to track recycled rowset metadata
-        LOG_INFO("put recycle rowset key")
-                .tag("recycle_key", hex(recycle_key))
-                .tag("tablet_id", compaction_log.tablet_id())
-                .tag("rowset_id_v2", recycle_rowset_pb.rowset_meta().rowset_id_v2())
-                .tag("start_version", recycle_rowset_pb.rowset_meta().start_version())
-                .tag("end_version", recycle_rowset_pb.rowset_meta().end_version());
-        txn_->put(recycle_key, recycle_rowset_value);
-
-        // Remove rowset compact key and rowset load key for input rowsets
-        RETURN_ON_FAILURE(recycle_rowset_meta(recycle_rowset_pb.rowset_meta().tablet_id(),
-                                              recycle_rowset_pb.rowset_meta().end_version(),
-                                              recycle_rowset_pb.rowset_meta().rowset_id_v2()));
+    RETURN_ON_FAILURE(recycle_tablet_compact_stats(compaction_log.tablet_id()));
+    for (const auto& rowset : compaction_log.recycle_rowsets()) {
+        RETURN_ON_FAILURE(recycle_rowset(rowset, compaction_log.tablet_id()));
     }
     return 0;
 }
@@ -364,35 +341,60 @@ int OperationLogRecycler::recycle_compaction_log(const CompactionLogPB& compacti
 int OperationLogRecycler::recycle_schema_change_log(const SchemaChangeLogPB& schema_change_log) {
     VLOG_DEBUG << "recycle schema change log: " << schema_change_log.ShortDebugString();
 
-    MetaReader meta_reader(instance_id_, log_version_);
-    int64_t new_tablet_id = schema_change_log.new_tablet_id();
-    RETURN_ON_FAILURE(recycle_tablet_meta(new_tablet_id));
-    RETURN_ON_FAILURE(recycle_tablet_compact_stats(new_tablet_id));
-
-    for (const RecycleRowsetPB& recycle_rowset_pb : schema_change_log.recycle_rowsets()) {
-        // recycle rowset meta key
-        std::string recycle_rowset_value;
-        if (!recycle_rowset_pb.SerializeToString(&recycle_rowset_value)) {
-            LOG_WARNING("failed to serialize RecycleRowsetPB")
-                    .tag("recycle rowset pb", recycle_rowset_pb.ShortDebugString());
-            return -1;
-        }
-        std::string recycle_key =
-                recycle_rowset_key({instance_id_, schema_change_log.new_tablet_id(),
-                                    recycle_rowset_pb.rowset_meta().rowset_id_v2()});
-        // Put recycle rowset key to track recycled rowset metadata
-        LOG_INFO("put recycle rowset key")
-                .tag("recycle_key", hex(recycle_key))
-                .tag("new_tablet_id", schema_change_log.new_tablet_id())
-                .tag("rowset_id_v2", recycle_rowset_pb.rowset_meta().rowset_id_v2())
-                .tag("start_version", recycle_rowset_pb.rowset_meta().start_version())
-                .tag("end_version", recycle_rowset_pb.rowset_meta().end_version());
-        txn_->put(recycle_key, recycle_rowset_value);
-
-        RETURN_ON_FAILURE(recycle_rowset_meta(recycle_rowset_pb.rowset_meta().tablet_id(),
-                                              recycle_rowset_pb.rowset_meta().end_version(),
-                                              recycle_rowset_pb.rowset_meta().rowset_id_v2()));
+    RETURN_ON_FAILURE(recycle_tablet_meta(schema_change_log.new_tablet_id()));
+    RETURN_ON_FAILURE(recycle_tablet_compact_stats(schema_change_log.new_tablet_id()));
+    for (const auto& rowset : schema_change_log.recycle_rowsets()) {
+        RETURN_ON_FAILURE(recycle_rowset(rowset, schema_change_log.new_tablet_id()));
     }
+    return 0;
+}
+
+int OperationLogRecycler::recycle_rowset(const RecycleRowsetPB& rowset, int64_t tablet_id) {
+    const auto& meta = rowset.rowset_meta();
+    bool removed_source = false;
+    RETURN_ON_FAILURE(recycle_rowset_meta(meta.tablet_id(), meta.end_version(), meta.rowset_id_v2(),
+                                          &removed_source));
+
+    // Keep an existing task untouched: it may already be a committed REFERENCE_RELEASED one.
+    std::string key = recycle_rowset_key({instance_id_, tablet_id, meta.rowset_id_v2()});
+    bool exists = false;
+    RETURN_ON_FAILURE(key_exists(key, &exists));
+    if (exists) {
+        return 0;
+    }
+
+    // If the source was already consumed, the reference was released elsewhere and a surviving
+    // count belongs to another instance or a pending last-reference task. Without a count the
+    // rowset predates multi-version writes, and this log is the only record for recycling it.
+    if (!removed_source) {
+        std::string_view owner = meta.has_reference_instance_id()
+                                         ? std::string_view(meta.reference_instance_id())
+                                         : instance_id_;
+        RETURN_ON_FAILURE(key_exists(versioned::data_rowset_ref_count_key(
+                                             {owner, meta.tablet_id(), meta.rowset_id_v2()}),
+                                     &exists));
+        if (exists) {
+            return 0;
+        }
+    }
+
+    std::string value;
+    if (!rowset.SerializeToString(&value)) {
+        LOG_WARNING("failed to serialize recycle rowset").tag("key", hex(key));
+        return -1;
+    }
+    txn_->put(key, value);
+    return 0;
+}
+
+int OperationLogRecycler::key_exists(const std::string& key, bool* exists) {
+    std::string value;
+    TxnErrorCode err = txn_->get(key, &value);
+    if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        LOG_WARNING("failed to read key").tag("key", hex(key)).tag("err", err);
+        return -1;
+    }
+    *exists = err == TxnErrorCode::TXN_OK;
     return 0;
 }
 
@@ -617,7 +619,8 @@ int OperationLogRecycler::recycle_table_stream_offset(const TableStreamIdentityP
 }
 
 int OperationLogRecycler::recycle_rowset_meta(int64_t tablet_id, int64_t end_version,
-                                              const std::string& rowset_id) {
+                                              const std::string& rowset_id, bool* removed) {
+    *removed = false;
     // Remove rowset compact key and rowset load key for input rowsets
     std::string meta_rowset_compact_key =
             versioned::meta_rowset_compact_key({instance_id_, tablet_id, end_version});
@@ -638,6 +641,7 @@ int OperationLogRecycler::recycle_rowset_meta(int64_t tablet_id, int64_t end_ver
         // Remove meta rowset compact key for input rowset that was consumed in compaction
         versioned::document_remove<doris::RowsetMetaCloudPB>(txn_.get(), meta_rowset_compact_key,
                                                              version);
+        *removed = true;
         LOG_INFO("remove meta rowset compact key")
                 .tag("instance_id", instance_id_)
                 .tag("compact_key", hex(meta_rowset_compact_key))
@@ -658,6 +662,7 @@ int OperationLogRecycler::recycle_rowset_meta(int64_t tablet_id, int64_t end_ver
         // Remove meta rowset load key for input rowset that was consumed in compaction
         versioned::document_remove<doris::RowsetMetaCloudPB>(txn_.get(), meta_rowset_load_key,
                                                              version);
+        *removed = true;
         LOG_INFO("remove meta rowset load key")
                 .tag("instance_id", instance_id_)
                 .tag("load_key", hex(meta_rowset_load_key))
