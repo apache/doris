@@ -40,8 +40,7 @@ def recyclerRequest = { Suite suite, String address, String method, String path,
 
 // The snapshot Docker suites set both scheduling intervals to 10 seconds.
 Suite.metaClass.recycleAndCheckSnapshot = { String recyclerAddress, String instanceId,
-                                           int maxRounds = 10, int maxPolls = 60,
-                                           boolean requireCheck = true ->
+                                           int maxRounds = 10, int maxPolls = 60 ->
     Suite suite = delegate as Suite
     assert maxRounds > 0 && maxPolls > 0
     String token = "greedisgood9999"
@@ -87,11 +86,9 @@ Suite.metaClass.recycleAndCheckSnapshot = { String recyclerAddress, String insta
     for (int round = 1; round <= maxRounds; round++) {
         suite.getLogger().info("Starting snapshot recycle/check: instance=${instanceId}, round=${round}/${maxRounds}")
         boolean recycled = runJob('recycle')
-        // Check cloned instances through SQL below: their inherited snapshot files do not
-        // have snapshot keys in the derived instance, so the recycler checker rejects them.
-        boolean checked = !requireCheck || runJob('check')
+        boolean checked = runJob('check')
         suite.getLogger().info("Snapshot recycle/check: instance=${instanceId}, round=${round}/${maxRounds}, "
-                + "recycled=${recycled}, checked=${checked}, checkRequired=${requireCheck}, jobs=${lastJobs}")
+                + "recycled=${recycled}, checked=${checked}, jobs=${lastJobs}")
         if (recycled && checked) return
     }
     assert false : "Recycle/check failed after ${maxRounds} rounds: instance=${instanceId}, jobs=${lastJobs}"
@@ -152,11 +149,7 @@ Suite.metaClass.checkSnapshotRecycle = { SuiteCluster recyclerCluster, Map insta
         }
     }
     instanceClusters.each { instanceId, dataCluster ->
-        if (dataCluster != null && dataCluster != recyclerCluster) {
-            suite.recycleAndCheckSnapshot(recyclerAddress, instanceId.toString(), 10, 60, false)
-        } else {
-            suite.recycleAndCheckSnapshot(recyclerAddress, instanceId.toString())
-        }
+        suite.recycleAndCheckSnapshot(recyclerAddress, instanceId.toString())
     }
     instanceClusters.each { instanceId, dataCluster ->
         if (dataCluster != null) {
