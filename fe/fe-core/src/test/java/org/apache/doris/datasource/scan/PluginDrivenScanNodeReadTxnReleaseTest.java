@@ -23,6 +23,7 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.spi.scan.ConnectorSplitSource;
 import org.apache.doris.datasource.split.SplitAssignment;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.thrift.TUniqueId;
@@ -51,6 +52,26 @@ import java.util.concurrent.atomic.AtomicReference;
  * the TCCL pin, (3) leaking the pin.</p>
  */
 public class PluginDrivenScanNodeReadTxnReleaseTest {
+
+    @Test
+    public void demandCallbackPinsAndRestoresThePluginLoader() throws Exception {
+        ConnectorScanPlanProvider provider = Mockito.mock(ConnectorScanPlanProvider.class);
+        ConnectorSplitSource source = Mockito.mock(ConnectorSplitSource.class);
+        Mockito.doAnswer(invocation -> {
+            Assertions.assertSame(provider.getClass().getClassLoader(),
+                    Thread.currentThread().getContextClassLoader());
+            return null;
+        }).when(source).onMoreSplitsRequested();
+        ClassLoader original = Thread.currentThread().getContextClassLoader();
+        try (URLClassLoader sentinel = new URLClassLoader(new URL[0], null)) {
+            Thread.currentThread().setContextClassLoader(sentinel);
+            PluginDrivenScanNode.buildSplitSourceDemandCallback(provider, source).run();
+            Mockito.verify(source).onMoreSplitsRequested();
+            Assertions.assertSame(sentinel, Thread.currentThread().getContextClassLoader());
+        } finally {
+            Thread.currentThread().setContextClassLoader(original);
+        }
+    }
 
     @Test
     public void callbackReleasesReadTransactionForTheQuery() {

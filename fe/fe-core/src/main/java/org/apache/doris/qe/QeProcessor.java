@@ -45,6 +45,13 @@ public interface QeProcessor {
      */
     void registerQueryFinishCallback(String queryId, Runnable callback);
 
+    /**
+     * Release resources of a finished attempt, including planning-only attempts without a coordinator.
+     * Coordinator-backed queries also call this from unregisterQuery; repeated calls are harmless.
+     */
+    void finishQueryCallbacks(TUniqueId queryId);
+
+
     Map<String, QueryStatisticsItem> getQueryStatistics();
 
     String getCurrentQueryByQueryId(TUniqueId queryId);

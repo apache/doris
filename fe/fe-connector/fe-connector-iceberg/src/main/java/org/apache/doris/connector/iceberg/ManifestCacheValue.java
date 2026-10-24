@@ -20,8 +20,12 @@ package org.apache.doris.connector.iceberg;
 import org.apache.doris.connector.cache.MetaCacheSizeEstimate;
 import org.apache.doris.connector.cache.MetaCacheSizeEstimator;
 
+import com.google.common.collect.Lists;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
+import org.apache.iceberg.PartitionData;
+import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.types.Types;
 
 import java.util.Collections;
 import java.util.List;
@@ -30,7 +34,9 @@ import java.util.List;
  * Cached manifest payload containing the parsed files of one iceberg manifest.
  *
  * <p>Ported verbatim from the legacy fe-core {@code org.apache.doris.datasource.iceberg.cache.ManifestCacheValue}
- * (references only iceberg-SDK types, so no fe-core dependency). A DATA manifest yields data files; a DELETES
+ * (references only iceberg-SDK types, so no fe-core dependency). Parsed partition types reflect the schema used
+ * by the first loader; scans must use {@link #forScan} before interpreting partition values.
+ * A DATA manifest yields data files; a DELETES
  * manifest yields delete files (T08, mirrors {@link IcebergManifestCache}).
  */
 public class ManifestCacheValue {
@@ -62,6 +68,22 @@ public class ManifestCacheValue {
 
     static ManifestCacheValue forDeleteFiles(List<DeleteFile> deleteFiles, boolean estimateWeight) {
         return new ManifestCacheValue(Collections.emptyList(), deleteFiles, estimateWeight);
+    }
+
+    /** Adapt lazily at the cache/scan boundary, before predicates or delete matching inspect partitions. */
+    ManifestCacheValue forScan(PartitionSpec spec) {
+        if (dataFiles.isEmpty() && deleteFiles.isEmpty()) {
+            return this;
+        }
+        PartitionData partition = (PartitionData) (dataFiles.isEmpty()
+                ? deleteFiles.get(0).partition() : dataFiles.get(0).partition());
+        Types.StructType target = spec.rawPartitionType();
+        if (partition.getPartitionType().equals(target)) {
+            return this;
+        }
+        IcebergPartitionValueAdapter adapter = new IcebergPartitionValueAdapter(partition.getPartitionType(), target);
+        return new ManifestCacheValue(Lists.transform(dataFiles, adapter::adapt),
+                Lists.transform(deleteFiles, adapter::adapt), false);
     }
 
     public List<DataFile> getDataFiles() {

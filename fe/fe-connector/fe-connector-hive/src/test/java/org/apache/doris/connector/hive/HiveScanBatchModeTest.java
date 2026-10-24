@@ -26,6 +26,7 @@ import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.ConnectorTaskScheduler;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
@@ -53,7 +54,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 /**
@@ -181,6 +184,46 @@ public class HiveScanBatchModeTest {
                     Assertions.assertEquals(partitionValues, range.getPartitionValues());
                 }
             }
+        }
+    }
+
+    @Test
+    public void cancellationBetweenEmptyPartitionsDoesNotListRemainingPartitions() throws Exception {
+        AtomicBoolean cancelled = new AtomicBoolean();
+        AtomicInteger listings = new AtomicInteger();
+        ConnectorTaskScheduler scheduler = new ConnectorTaskScheduler() {
+            @Override
+            public boolean isClosed() {
+                return cancelled.get();
+            }
+
+            @Override
+            public boolean tryExecute(Runnable task, Consumer<Throwable> failure, Runnable onSpace) {
+                throw new UnsupportedOperationException("This source only observes the query lifetime");
+            }
+
+            @Override
+            public void removeSpaceListener(Runnable onSpace) {
+            }
+
+            @Override
+            public void execute(Runnable task) {
+                throw new UnsupportedOperationException("This source only observes the query lifetime");
+            }
+        };
+        HiveScanPlanProvider provider = provider(new FakeHmsClient(), (location, fs) -> {
+            listings.incrementAndGet();
+            cancelled.set(true);
+            return Collections.emptyList();
+        });
+        HiveTableHandle handle = parquetHandle(PART_KEYS).toBuilder().prunedPartitions(Arrays.asList(
+                part("year=2024/month=01"), part("year=2024/month=02"))).build();
+        FakeSession session = new FakeSession(Collections.singletonMap("num_partitions_in_batch_mode", "1"),
+                scheduler);
+        try (ConnectorSplitSource source = provider.streamSplits(session,
+                ConnectorScanRequest.builder(handle, Collections.emptyList()).build())) {
+            Assertions.assertFalse(source.hasNext());
+            Assertions.assertEquals(1, listings.get(), "cancellation must stop listing the next empty partition");
         }
     }
 
@@ -1263,13 +1306,24 @@ public class HiveScanBatchModeTest {
     /** Minimal {@link ConnectorSession} (no split-size override, empty session properties). */
     private static final class FakeSession implements ConnectorSession {
         private final Map<String, String> properties;
+        private final ConnectorTaskScheduler scheduler;
 
         FakeSession() {
             this(Collections.emptyMap());
         }
 
         FakeSession(Map<String, String> properties) {
+            this(properties, ConnectorTaskScheduler.DIRECT);
+        }
+
+        FakeSession(Map<String, String> properties, ConnectorTaskScheduler scheduler) {
             this.properties = properties;
+            this.scheduler = scheduler;
+        }
+
+        @Override
+        public ConnectorTaskScheduler getTaskScheduler(ConnectorTaskScheduler.Stage stage) {
+            return scheduler;
         }
 
         private final Map<String, Object> statementMemos = new HashMap<>();

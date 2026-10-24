@@ -25,6 +25,7 @@ import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
+import org.apache.doris.connector.spi.ConnectorTaskScheduler;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
@@ -304,6 +305,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
 
     private final class HiveSplitSource implements ConnectorSplitSource {
         private final HiveTableHandle handle;
+        private final ConnectorTaskScheduler scheduler;
         private final FileSystem fs;
         private final HiveFileFormat tableFormat;
         private final boolean isLzo;
@@ -321,6 +323,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
 
         HiveSplitSource(ConnectorSession session, HiveTableHandle handle, List<String> requiredPartitions) {
             this.handle = handle;
+            this.scheduler = session.getTaskScheduler(ConnectorTaskScheduler.Stage.SPLIT);
             this.partitionNames = requiredPartitions.isEmpty() ? null : requiredPartitions;
             this.fs = storage().getFileSystem(session);
             this.tableFormat = HiveFileFormat.detect(handle.getInputFormat(), handle.getSerializationLib(),
@@ -335,7 +338,10 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
 
         @Override
         public boolean hasNext() {
-            while (!closed) {
+            // Empty partitions can keep hasNext() inside the source for many directory requests.
+            // Observe query cleanup here, before advancing to another listing, rather than waiting
+            // for the producer to regain control and close this source after its active read.
+            while (!closed && !scheduler.isClosed()) {
                 if (ranges.hasNext()) {
                     return true;
                 }

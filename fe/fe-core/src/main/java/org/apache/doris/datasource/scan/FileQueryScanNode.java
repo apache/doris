@@ -439,7 +439,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
             // and finally numSplitsPerBE is 0, resulting in no data being queried.
             int numSplitsPerBE = Math.max(selectedSplitNum / backendPolicy.numBackends(), 1);
             for (Backend backend : backendPolicy.getBackends()) {
-                SplitSource splitSource = new SplitSource(backend, splitAssignment, maxWaitTime);
+                SplitSource splitSource = new SplitSource(backend, splitAssignment, maxWaitTime,
+                        sessionVariable.getSplitInitialBatchSize());
                 splitSources.add(splitSource);
                 Env.getCurrentEnv().getSplitSourceManager().registerSplitSource(splitSource);
                 TScanRangeLocations curLocations = newLocations();

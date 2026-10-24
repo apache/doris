@@ -879,6 +879,13 @@ public class StatementContext implements Closeable {
         }
     }
 
+    /** Closes a scope created during this attempt even if no scan registered a query-finish callback. */
+    public synchronized void closeConnectorStatementScope() {
+        if (this.connectorStatementScope != null) {
+            this.connectorStatementScope.closeAll();
+        }
+    }
+
     /**
      * Closes (deterministically) then drops the connector scope so the next statement execution starts fresh.
      * Prepared-statement EXECUTE reuses one StatementContext across executions (see
@@ -889,9 +896,7 @@ public class StatementContext implements Closeable {
      * execution/attempt has finished (no off-thread pump still running), so close-before-drop is safe.
      */
     public synchronized void resetConnectorStatementScope() {
-        if (this.connectorStatementScope != null) {
-            this.connectorStatementScope.closeAll();
-        }
+        closeConnectorStatementScope();
         this.connectorStatementScope = null;
         this.connectorWriteSchemas.clear();
         this.connectorWriteMetadataIdentities.clear();

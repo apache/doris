@@ -590,11 +590,14 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_ICEBERG_MERGE_PARTITIONING = "enable_iceberg_merge_partitioning";
     public static final String ENABLE_PAIMON_WRITE_CHAR_PADDING = "enable_paimon_write_char_padding";
 
+    public static final String ICEBERG_MANIFEST_LOAD_CONCURRENCY = "iceberg_manifest_load_concurrency";
+
     public static final String NUM_PARTITIONS_IN_BATCH_MODE = "num_partitions_in_batch_mode";
 
     public static final String NUM_FILES_IN_BATCH_MODE = "num_files_in_batch_mode";
 
     public static final String SPLIT_BATCH_SIZE = "split_batch_size";
+    public static final String SPLIT_INITIAL_BATCH_SIZE = "split_initial_batch_size";
 
     public static final String SPLIT_QUEUE_CAPACITY = "split_queue_capacity";
 
@@ -2632,6 +2635,15 @@ public class SessionVariable implements Serializable, Writable {
             description = "Maximum number of queued split batches per backend.")
     public int splitQueueCapacity = 32;
 
+    @VarAttrDef.VarAttr(name = SPLIT_INITIAL_BATCH_SIZE, checker = "checkSplitInitialBatchSize", needForward = true,
+            description = "Maximum number of splits returned by the first fetch per backend; "
+                    + "does not limit background split production or subsequent fetches.")
+    public int splitInitialBatchSize = 64;
+
+    public void checkSplitInitialBatchSize(String value) throws Exception {
+        checkFieldValue(SPLIT_INITIAL_BATCH_SIZE, 1, value);
+    }
+
     public void checkSplitBatchSize(String value) throws Exception {
         checkFieldValue(SPLIT_BATCH_SIZE, 1, value);
     }
@@ -3723,6 +3735,19 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ICEBERG_PARTITION_OVERWRITE_MODE = "iceberg_partition_overwrite_mode";
     public static final String ICEBERG_PARTITION_OVERWRITE_MODE_DYNAMIC = "dynamic";
     public static final String ICEBERG_PARTITION_OVERWRITE_MODE_STATIC = "static";
+    @VarAttrDef.VarAttr(name = ICEBERG_MANIFEST_LOAD_CONCURRENCY, needForward = true,
+            checker = "checkIcebergManifestLoadConcurrency",
+            description = "Maximum concurrent Iceberg manifest-cache reads per query and prefetch window per scan. "
+                    + "Set to 1 for sequential loading.")
+    public int icebergManifestLoadConcurrency = 8;
+
+    public void checkIcebergManifestLoadConcurrency(String value) {
+        int concurrency = Integer.parseInt(value);
+        if (concurrency < 1 || concurrency > 64) {
+            throw new IllegalArgumentException("iceberg_manifest_load_concurrency must be between 1 and 64");
+        }
+    }
+
     @VarAttrDef.VarAttr(name = ICEBERG_PARTITION_OVERWRITE_MODE, needForward = true,
             checker = "checkIcebergPartitionOverwriteMode", setter = "setIcebergPartitionOverwriteMode",
             description = "Scope of INSERT OVERWRITE on an Iceberg table when no PARTITION clause is given. "
@@ -4980,6 +5005,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getSplitBatchSize() {
         return splitBatchSize;
+    }
+
+    public int getSplitInitialBatchSize() {
+        return splitInitialBatchSize;
     }
 
     public int getSplitQueueCapacity() {
