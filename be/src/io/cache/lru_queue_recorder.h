@@ -37,6 +37,7 @@ enum class CacheLRULogType {
     MOVETOBACK = 2,
     RESIZE = 3,
     INVALID = 4,
+    ADDTOFRONT = 5,
 };
 
 struct CacheLRULog {

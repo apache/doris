@@ -136,7 +136,7 @@ std::string UInt128Wrapper::to_string() const {
 FileBlocksHolderPtr FileCacheAllocatorBuilder::allocate_cache_holder(size_t offset, size_t size,
                                                                      int64_t tablet_id) const {
     CacheContext ctx;
-    ctx.cache_type = _expiration_time == 0 ? FileCacheType::NORMAL : FileCacheType::TTL;
+    ctx.cache_type = FileCacheType::NORMAL;
     ctx.expiration_time = _expiration_time;
     ctx.is_cold_data = _is_cold_data;
     ctx.tablet_id = tablet_id;

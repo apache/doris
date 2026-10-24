@@ -2,5 +2,12 @@
 -- !ex06_preheat --
 300
 
+-- !ex06_gain_preheat --
+300
+
 -- !ex06_after_restart --
 300
+
+-- !ex06_gain_after_restart --
+300
+

@@ -249,9 +249,8 @@ CachedRemoteFileReader::AsyncReadPlan CachedRemoteFileReader::_build_async_read_
         return plan;
     }
 
-    CacheContext cache_context(io_ctx);
+    CacheContext cache_context(io_ctx, _tablet_id);
     cache_context.stats = &stats;
-    cache_context.tablet_id = _tablet_id;
     plan.probe_result.emplace(_cache->probe(_cache_hash, align_left, align_size, cache_context));
     g_cached_remote_reader_probe_total << 1;
     const auto& probe_result = *plan.probe_result;
@@ -496,7 +495,7 @@ void CachedRemoteFileReader::_submit_async_write_tasks(const AsyncReadPlan& plan
     DORIS_CHECK(inflight_index != nullptr);
     DORIS_CHECK(remote_buffer != nullptr);
 
-    CacheContext cache_context(io_ctx);
+    CacheContext cache_context(io_ctx, _tablet_id);
     const CacheAdmissionContext admission_context =
             CacheAdmissionContext::from_cache_context(cache_context, _tablet_id);
     DORIS_CHECK(plan.remote_block_count > 0);
@@ -615,9 +614,8 @@ Status CachedRemoteFileReader::_read_async_write_path(size_t offset, Slice resul
     auto plan = _build_async_read_plan(offset + already_read, bytes_req - already_read,
                                        manager->current_write_epoch(_cache_hash), io_ctx, stats);
 
-    CacheContext cache_context(io_ctx);
+    CacheContext cache_context(io_ctx, _tablet_id);
     cache_context.stats = &stats;
-    cache_context.tablet_id = _tablet_id;
     size_t indirect_read_bytes = 0;
     bool need_self_heal = false;
     if (!_materialize_async_cached_sides(plan, offset, result, cache_context, stats,

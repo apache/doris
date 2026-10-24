@@ -722,9 +722,8 @@ int64_t TabletMeta::file_cache_ttl_expiration_time() const {
         return std::numeric_limits<int64_t>::max();
     }
     int64_t expiration_time = ctime + ttl;
-    // Already past the deadline: report no TTL at all, so callers stamp the blocks they
-    // create as NORMAL right away instead of putting them in the TTL queue for
-    // BlockFileCacheTtlMgr to take straight back out again.
+    // Already past the deadline: report no TTL at all, so the blocks callers create are not
+    // stamped with a deadline that is already over.
     return expiration_time > UnixSeconds() ? expiration_time : 0;
 }
 

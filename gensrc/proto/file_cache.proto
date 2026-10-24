@@ -61,3 +61,10 @@ message BlockMetaPb {
     optional uint64 ttl = 3;
 }
 
+// The file cache TTL policy of a tablet. Every cache path keeps a copy of the policies of the
+// tablets cached on the BE, so that a restart knows them before they are fetched again.
+message TabletCachePolicyPb {
+    optional int64 ttl_seconds = 1;
+    optional int64 ctime = 2;
+}
+

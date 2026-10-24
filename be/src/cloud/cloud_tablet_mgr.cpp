@@ -31,6 +31,7 @@
 #include "cloud/config.h"
 #include "common/status.h"
 #include "cpp/sync_point.h"
+#include "io/cache/tablet_cache_policy_registry.h"
 #include "runtime/memory/cache_policy.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
 #include "util/debug_points.h"
@@ -238,6 +239,8 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
                 LOG(WARNING) << "failed to tablet " << tablet_id << ": " << st;
                 return ResultError(st);
             }
+            io::TabletCachePolicyRegistry::instance()->upsert(
+                    tablet_id, {tablet_meta->ttl_seconds(), tablet_meta->creation_time()});
 
             auto tablet = std::make_shared<CloudTablet>(_engine, std::move(tablet_meta));
             // MUST sync stats to let compaction scheduler work correctly

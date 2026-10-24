@@ -1267,6 +1267,7 @@ DEFINE_mInt32(file_cache_exit_need_evict_cache_in_advance_percent, "85");
 DEFINE_mInt32(file_cache_evict_in_advance_interval_ms, "1000");
 DEFINE_mInt64(file_cache_evict_in_advance_batch_bytes, "31457280"); // 30MB
 DEFINE_mInt64(file_cache_evict_in_advance_recycle_keys_num_threshold, "1000");
+DEFINE_mInt64(file_cache_evict_max_skipped_blocks_per_scan, "4096");
 
 DEFINE_mBool(enable_read_cache_file_directly, "true");
 DEFINE_mBool(file_cache_enable_evict_from_other_queue_by_size, "true");
@@ -1299,9 +1300,12 @@ DEFINE_mInt64(file_cache_background_block_lru_update_queue_max_size, "500000");
 DEFINE_mBool(enable_file_cache_async_touch_on_get_or_set, "false");
 DEFINE_mBool(enable_reader_dryrun_when_download_file_cache, "true");
 DEFINE_mInt64(file_cache_background_monitor_interval_ms, "5000");
-DEFINE_mInt64(file_cache_background_ttl_gc_interval_ms, "180000");
-DEFINE_mInt64(file_cache_background_ttl_info_update_interval_ms, "180000");
-DEFINE_mInt64(file_cache_background_tablet_id_flush_interval_ms, "1000");
+DEFINE_mInt64(file_cache_tablet_policy_refresh_interval_s, "1800");
+DEFINE_mInt64(file_cache_tablet_policy_refresh_batch, "64");
+DEFINE_mInt64(file_cache_queue_sweep_interval_ms, "1000");
+DEFINE_mInt64(file_cache_queue_sweep_batch_blocks, "2000");
+DEFINE_mInt64(file_cache_queue_sweep_backstop_interval_s, "86400");
+DEFINE_mInt64(file_cache_ttl_relocate_batch_blocks, "256");
 DEFINE_mInt64(file_cache_background_lru_dump_interval_ms, "60000");
 // dump queue only if the queue update specific times through several dump intervals
 DEFINE_mInt64(file_cache_background_lru_dump_update_cnt_threshold, "1000");
