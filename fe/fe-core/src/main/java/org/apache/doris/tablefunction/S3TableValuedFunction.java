@@ -26,6 +26,8 @@ import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileType;
 
+import org.apache.hadoop.fs.FileSystem.TvfGuard;
+
 import java.util.List;
 import java.util.Map;
 
@@ -66,6 +68,8 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         if (hadoopStorage) {
             HadoopTvfAdmission.check(HadoopTvfAdmission.Access.HADOOP_READ,
                     filePath, backendConnectProperties, needsSchemaDiscovery());
+            processedParams.put(TvfGuard.POLICY_KEY, HadoopTvfAdmission.protectJava(
+                    HadoopTvfAdmission.Access.HADOOP_READ, filePath, processedParams).get(TvfGuard.POLICY_KEY));
         }
         if (!FeConstants.runningUnitTest) {
             parseFile(files);

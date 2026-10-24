@@ -179,6 +179,7 @@ public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Ex
         LocalTableValuedFunction.checkSinkEnabled(tvfName, props);
         // Copy props for building the storage adapter (exclude write-specific params)
         Map<String, String> fsCopyProps = new HashMap<>(props);
+        HadoopTvfAdmission.removeRuntimePolicy(fsCopyProps);
         fsCopyProps.remove("file_path");
         fsCopyProps.remove("format");
         fsCopyProps.remove("delete_existing_files");
@@ -205,6 +206,10 @@ public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Ex
         if (storageAdapter.getType() == StorageTypeId.HDFS) {
             HadoopTvfAdmission.check(HadoopTvfAdmission.Access.JAVA_DELETE,
                     parentDir, storageAdapter.getBackendConfigProperties());
+        }
+        if (storageAdapter.getType() == StorageTypeId.HDFS) {
+            storageAdapter = StorageAdapter.of(HadoopTvfAdmission.protectJava(
+                    HadoopTvfAdmission.Access.JAVA_DELETE, parentDir, fsCopyProps));
         }
         LOG.info("TVF sink: deleting existing files in directory: {}", parentDir);
         try (org.apache.doris.filesystem.FileSystem fs = FileSystemFactory.getFileSystem(storageAdapter)) {

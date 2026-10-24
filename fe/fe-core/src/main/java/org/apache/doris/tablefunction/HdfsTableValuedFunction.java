@@ -28,6 +28,8 @@ import org.apache.doris.thrift.TFileType;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
+import org.apache.hadoop.fs.FileSystem.TvfGuard;
+
 import java.util.Map;
 
 /**
@@ -59,6 +61,8 @@ public class HdfsTableValuedFunction extends ExternalFileTableValuedFunction {
 
         HadoopTvfAdmission.check(HadoopTvfAdmission.Access.HADOOP_READ,
                 filePath, backendConnectProperties, needsSchemaDiscovery());
+        processedParams.put(TvfGuard.POLICY_KEY, HadoopTvfAdmission.protectJava(
+                HadoopTvfAdmission.Access.HADOOP_READ, filePath, processedParams).get(TvfGuard.POLICY_KEY));
         if (!FeConstants.runningUnitTest) {
             // 4. parse file
             parseFile();

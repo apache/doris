@@ -45,6 +45,7 @@
 #include "io/fs/s3_file_writer.h"
 #include "io/fs/stream_load_pipe.h"
 #include "io/hdfs_builder.h"
+#include "io/hdfs_tvf_policy.h"
 #include "io/hdfs_util.h"
 #include "load/stream_load/new_load_stream_mgr.h"
 #include "load/stream_load/stream_load_context.h"
@@ -204,7 +205,8 @@ Result<io::FileWriterPtr> FileFactory::create_file_writer(
         THdfsParams hdfs_params = parse_properties(properties);
         std::shared_ptr<io::HdfsHandler> handler;
         RETURN_IF_ERROR_RESULT(ExecEnv::GetInstance()->hdfs_mgr()->get_or_create_fs(
-                hdfs_params, hdfs_params.fs_name, &handler));
+                hdfs_params, hdfs_params.fs_name, &handler,
+                io::convert_path(path, hdfs_params.fs_name).native()));
         return io::HdfsFileWriter::create(path, handler, hdfs_params.fs_name, &options);
     }
     default:
@@ -261,9 +263,11 @@ Result<io::FileReaderSPtr> FileFactory::_create_file_reader_internal(
             fs_name = &system_properties.hdfs_params.fs_name;
         }
         RETURN_IF_ERROR_RESULT(ExecEnv::GetInstance()->hdfs_mgr()->get_or_create_fs(
-                system_properties.hdfs_params, *fs_name, &handler));
+                system_properties.hdfs_params, *fs_name, &handler,
+                io::convert_path(file_description.path, *fs_name).native()));
         // The reader's path drops the name node, so the cache key takes it from here.
-        auto options = with_storage_in_cache_key(reader_options, *fs_name);
+        auto options = with_storage_in_cache_key(
+                reader_options, io::HdfsTvfPolicy::storage_cache_identity(*handler, *fs_name));
         return io::HdfsFileReader::create(file_description.path, handler->hdfs_fs, *fs_name,
                                           options)
                 .and_then([&options](auto&& reader) {
