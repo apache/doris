@@ -2992,4 +2992,7 @@ Status BlockFileCache::check_file_cache_consistency(InconsistencyContext& incons
     return Status::OK();
 }
 
+template FileBlockCell* BlockFileCache::get_cell(const UInt128Wrapper& hash, size_t offset,
+                                                 std::lock_guard<std::mutex>& cache_lock);
+
 } // namespace doris::io
