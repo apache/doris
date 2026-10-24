@@ -22,9 +22,13 @@
 #include <arrow/record_batch.h>
 #include <arrow/type.h>
 #include <lance/lance.h>
+#include <pwd.h>
+#include <unistd.h>
 
 #include <algorithm>
 #include <bit>
+#include <cerrno>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 #include <memory>
@@ -42,6 +46,33 @@
 namespace doris::format::lance {
 
 namespace {
+std::string expand_home_path(const std::string& path) {
+    if (path != "~" && !path.starts_with("~/")) {
+        return path;
+    }
+    // Match the SDK's std::env::home_dir: HOME first, then the current user's passwd entry.
+    std::string home;
+    if (const char* value = std::getenv("HOME"); value != nullptr && value[0] != '\0') {
+        home = value;
+    } else {
+        std::vector<char> buffer(1024);
+        struct passwd entry {};
+        struct passwd* result = nullptr;
+        int error;
+        while ((error = getpwuid_r(getuid(), &entry, buffer.data(), buffer.size(), &result)) ==
+               ERANGE) {
+            buffer.resize(buffer.size() * 2);
+        }
+        if (error == 0 && result != nullptr && entry.pw_dir != nullptr) {
+            home = entry.pw_dir;
+        }
+    }
+    if (home.empty()) {
+        return path;
+    }
+    return path == "~" ? home : (io::Path(home) / path.substr(2)).string();
+}
+
 Status resolve_dataset_uri(const TFileRangeDesc& range, const TFileScanRangeParams& scan_params,
                            std::string* uri) {
     const auto& requested_uri = range.table_format_params.lance_params.dataset_uri;
@@ -69,7 +100,9 @@ Status resolve_dataset_uri(const TFileRangeDesc& range, const TFileScanRangePara
             std::string secure_root;
             RETURN_IF_ERROR(io::global_local_filesystem()->canonicalize(
                     config::user_files_secure_path, &secure_root));
-            local_input = (io::Path(secure_root) / requested_uri).lexically_normal().string();
+            local_input = (io::Path(secure_root) / expand_home_path(requested_uri))
+                                  .lexically_normal()
+                                  .string();
         }
         return io::global_local_filesystem()->canonicalize_local_file(
                 config::user_files_secure_path, local_input, uri);

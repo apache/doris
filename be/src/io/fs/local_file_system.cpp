@@ -452,13 +452,7 @@ const std::shared_ptr<LocalFileSystem>& global_local_filesystem() {
     return local_fs;
 }
 
-Status LocalFileSystem::canonicalize_local_file(const std::string& dir,
-                                                const std::string& file_path,
-                                                std::string* full_path) {
-    // An empty root would turn a relative request into an unrestricted absolute path.
-    if (dir.empty()) {
-        return Status::InvalidArgument("user_files_secure_path must not be empty");
-    }
+Status LocalFileSystem::parse_local_path(const std::string& file_path, Path& local_path) {
     // Reject embedded NULs before passing paths to filesystem APIs that use C strings.
     if (file_path.empty() || file_path.find('\0') != std::string::npos) {
         return Status::InvalidArgument("local file path must not be empty or contain NUL");
@@ -495,58 +489,13 @@ Status LocalFileSystem::canonicalize_local_file(const std::string& dir,
             }
         }
     }
-    Path local_path;
-    // Convert file: URIs to filesystem paths and reject remote schemes before any reader opens them.
-    RETURN_IF_ERROR(convert_to_abs_path(local_input, local_path));
-    if (is_file_uri) {
-        // file:a%20b names "a b", but a bare path containing "%20" must stay literal.
-        // Decode once, preserve '+' and invalid escapes, matching Lance's file provider.
-        auto encoded = local_path.string();
-        // Query and fragment are URI components, not part of the filesystem path.
-        encoded = encoded.substr(0, encoded.find_first_of("?#"));
-        // A file URL without a leading slash still names a filesystem-rooted path.
-        if (encoded.empty() || encoded[0] != '/') {
-            encoded.insert(0, "/");
-        }
-        // URL dot segments are removed before symlinks are followed and before %2F
-        // becomes a path separator. Keep empty segments: "a//../b" denotes "a/b".
-        std::vector<std::string> segments;
-        for (size_t start = 1;;) {
-            const size_t end = encoded.find('/', start);
-            const auto segment =
-                    encoded.substr(start, end == std::string::npos ? end : end - start);
-            const bool dot = segment == "." || segment == "%2e" || segment == "%2E";
-            const bool parent = segment == ".." || segment == ".%2e" || segment == ".%2E" ||
-                                segment == "%2e." || segment == "%2E." || segment == "%2e%2e" ||
-                                segment == "%2e%2E" || segment == "%2E%2e" || segment == "%2E%2E";
-            if (parent) {
-                if (!segments.empty()) {
-                    segments.pop_back();
-                }
-            } else if (!dot) {
-                segments.push_back(segment);
-            }
-            if (end == std::string::npos) {
-                if (dot || parent) {
-                    segments.emplace_back("");
-                }
-                break;
-            }
-            start = end + 1;
-        }
-        encoded = "/";
-        for (size_t i = 0; i < segments.size(); ++i) {
-            if (i > 0) {
-                encoded += '/';
-            }
-            encoded += segments[i];
-        }
-        const auto hex_digit = [](char c) -> int {
-            if (c >= '0' && c <= '9') return c - '0';
-            if (c >= 'a' && c <= 'f') return c - 'a' + 10;
-            if (c >= 'A' && c <= 'F') return c - 'A' + 10;
-            return -1;
-        };
+    const auto hex_digit = [](char c) -> int {
+        if (c >= '0' && c <= '9') return c - '0';
+        if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+        if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+        return -1;
+    };
+    const auto percent_decode = [&](const std::string& encoded) {
         std::string decoded;
         decoded.reserve(encoded.size());
         for (size_t i = 0; i < encoded.size(); ++i) {
@@ -561,12 +510,108 @@ Status LocalFileSystem::canonicalize_local_file(const std::string& dir,
             }
             decoded += encoded[i];
         }
+        return decoded;
+    };
+    const auto is_drive = [](const std::string& segment) {
+        return segment.size() == 2 &&
+               ((segment[0] >= 'a' && segment[0] <= 'z') ||
+                (segment[0] >= 'A' && segment[0] <= 'Z')) &&
+               (segment[1] == ':' || segment[1] == '|');
+    };
+    bool empty_file_host = false;
+    if (is_file_uri && local_input.compare(5, 2, "//") == 0) {
+        const auto host_end = local_input.find_first_of("/?#", 7);
+        auto host = local_input.substr(7, host_end == std::string::npos ? host_end : host_end - 7);
+        if (is_drive(host)) {
+            // The URL parser treats a drive in the host position as the first path segment.
+            local_input.erase(5, 2);
+        } else {
+            host = percent_decode(host);
+            std::transform(host.begin(), host.end(), host.begin(), [](unsigned char c) {
+                return c >= 'A' && c <= 'Z' ? c + ('a' - 'A') : c;
+            });
+            empty_file_host = host.empty() || host == "localhost";
+        }
+    }
+    // Convert file: URIs to filesystem paths and reject remote schemes before any reader opens them.
+    RETURN_IF_ERROR(convert_to_abs_path(local_input, local_path));
+    if (is_file_uri) {
+        // file:a%20b names "a b", but a bare path containing "%20" must stay literal.
+        // Decode once, preserve '+' and invalid escapes, matching Lance's file provider.
+        auto encoded = local_path.string();
+        // Query and fragment are URI components, not part of the filesystem path.
+        encoded = encoded.substr(0, encoded.find_first_of("?#"));
+        // A file URL without a leading slash still names a filesystem-rooted path.
+        if (encoded.empty() || encoded[0] != '/') {
+            encoded.insert(0, "/");
+        }
+        // URL dot segments are removed before symlinks are followed and before %2F
+        // becomes a path separator. Keep empty segments: "a//../b" denotes "a/b".
+        // url 2.5.8 retains an initial empty segment for empty/localhost authorities
+        // until after drive detection and dot reduction (file:///C| differs from file:/C|).
+        if (empty_file_host) {
+            encoded.insert(0, "/");
+        }
+        std::vector<std::string> segments;
+        for (size_t start = 1;;) {
+            const size_t end = encoded.find('/', start);
+            auto segment = encoded.substr(start, end == std::string::npos ? end : end - start);
+            const bool dot = segment == "." || segment == "%2e" || segment == "%2E";
+            const bool parent = segment == ".." || segment == ".%2e" || segment == ".%2E" ||
+                                segment == "%2e." || segment == "%2E." || segment == "%2e%2e" ||
+                                segment == "%2e%2E" || segment == "%2E%2e" || segment == "%2E%2E";
+            if (parent) {
+                if (!segments.empty() && !is_drive(segments.back())) {
+                    segments.pop_back();
+                }
+            } else if (!dot) {
+                if (segments.empty() && is_drive(segment)) {
+                    segment[1] = ':';
+                }
+                segments.push_back(segment);
+            }
+            if (end == std::string::npos) {
+                if (dot || parent) {
+                    segments.emplace_back("");
+                }
+                break;
+            }
+            start = end + 1;
+        }
+        size_t first = 0;
+        while (first < segments.size() && segments[first].empty()) {
+            ++first;
+        }
+        encoded = "/";
+        for (size_t i = first; i < segments.size(); ++i) {
+            if (i > first) {
+                encoded += '/';
+            }
+            encoded += segments[i];
+        }
+        auto decoded = percent_decode(encoded);
         // %00 must not truncate the path when canonicalization reaches C filesystem APIs.
         if (decoded.find('\0') != std::string::npos) {
             return Status::InvalidArgument("local file path must not contain NUL");
         }
+        // The SDK's Unix file-path conversion appends a slash after a trailing drive.
+        if (decoded.size() > 2 && is_drive(decoded.substr(decoded.size() - 2))) {
+            decoded += '/';
+        }
         local_path = std::move(decoded);
     }
+    return Status::OK();
+}
+
+Status LocalFileSystem::canonicalize_local_file(const std::string& dir,
+                                                const std::string& file_path,
+                                                std::string* full_path) {
+    // An empty root would turn a relative request into an unrestricted absolute path.
+    if (dir.empty()) {
+        return Status::InvalidArgument("user_files_secure_path must not be empty");
+    }
+    Path local_path;
+    RETURN_IF_ERROR(parse_local_path(file_path, local_path));
     std::string secure_path;
     RETURN_IF_ERROR(canonicalize(dir, &secure_path));
     std::string canonical_path;
