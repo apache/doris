@@ -22,12 +22,14 @@ import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 
+import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -85,5 +87,100 @@ public class NumericArithmeticTest {
         IntegerLiteral result = (IntegerLiteral) NumericArithmetic.interval(
                 new BigIntLiteral(compareValue), thresholdLiterals);
         Assertions.assertEquals(expected, result.getValue());
+    }
+
+    @Test
+    public void testCeilAndRoundKeepSignedZero() {
+        DoubleLiteral ceil = (DoubleLiteral) NumericArithmetic.ceil(new DoubleLiteral(-0.5));
+        Assertions.assertTrue(isNegativeZero(ceil.getValue()));
+
+        DoubleLiteral round = (DoubleLiteral) NumericArithmetic.round(new DoubleLiteral(-0.4));
+        Assertions.assertTrue(isNegativeZero(round.getValue()));
+
+        round = (DoubleLiteral) NumericArithmetic.round(new DoubleLiteral(0.4));
+        Assertions.assertFalse(isNegativeZero(round.getValue()));
+
+        // half away from zero, like std::round
+        Assertions.assertEquals(3.0,
+                ((DoubleLiteral) NumericArithmetic.round(new DoubleLiteral(2.5))).getValue());
+        Assertions.assertEquals(-3.0,
+                ((DoubleLiteral) NumericArithmetic.round(new DoubleLiteral(-2.5))).getValue());
+        Assertions.assertEquals(2.0,
+                ((DoubleLiteral) NumericArithmetic.ceil(new DoubleLiteral(1.2))).getValue());
+        Assertions.assertEquals(-1.0,
+                ((DoubleLiteral) NumericArithmetic.ceil(new DoubleLiteral(-1.5))).getValue());
+        Assertions.assertEquals(Double.POSITIVE_INFINITY, ((DoubleLiteral) NumericArithmetic
+                .ceil(new DoubleLiteral(Double.POSITIVE_INFINITY))).getValue());
+        Assertions.assertTrue(Double.isNaN(
+                ((DoubleLiteral) NumericArithmetic.round(new DoubleLiteral(Double.NaN))).getValue()));
+        Assertions.assertEquals(Double.NEGATIVE_INFINITY, ((DoubleLiteral) NumericArithmetic
+                .round(new DoubleLiteral(Double.NEGATIVE_INFINITY))).getValue());
+
+        // The thresholds must not be produced by adding 0.5 to the value.
+        Assertions.assertEquals(0.0, ((DoubleLiteral) NumericArithmetic
+                .round(new DoubleLiteral(0.49999999999999994))).getValue());
+        Assertions.assertTrue(isNegativeZero(((DoubleLiteral) NumericArithmetic
+                .round(new DoubleLiteral(-0.49999999999999994))).getValue()));
+        Assertions.assertEquals(1.0, ((DoubleLiteral) NumericArithmetic
+                .round(new DoubleLiteral(0.5))).getValue());
+        Assertions.assertEquals(-1.0, ((DoubleLiteral) NumericArithmetic
+                .round(new DoubleLiteral(-0.5))).getValue());
+
+        // An integral value beyond the double ULP of 1 must survive untouched.
+        Assertions.assertEquals(4503599627370497.0, ((DoubleLiteral) NumericArithmetic
+                .round(new DoubleLiteral(4503599627370497.0))).getValue());
+        Assertions.assertEquals(-4503599627370497.0, ((DoubleLiteral) NumericArithmetic
+                .round(new DoubleLiteral(-4503599627370497.0))).getValue());
+        Assertions.assertEquals(1e30, ((DoubleLiteral) NumericArithmetic
+                .round(new DoubleLiteral(1e30))).getValue());
+    }
+
+    @Test
+    public void testScaleZeroOverloadsKeepSignedZero() {
+        DoubleLiteral round = (DoubleLiteral) NumericArithmetic.round(
+                new DoubleLiteral(-0.4), new IntegerLiteral(0));
+        Assertions.assertTrue(isNegativeZero(round.getValue()));
+
+        DoubleLiteral ceil = (DoubleLiteral) NumericArithmetic.ceil(
+                new DoubleLiteral(-0.5), new IntegerLiteral(0));
+        Assertions.assertTrue(isNegativeZero(ceil.getValue()));
+
+        Assertions.assertEquals(0.0, ((DoubleLiteral) NumericArithmetic.round(
+                new DoubleLiteral(0.49999999999999994), new IntegerLiteral(0))).getValue());
+        Assertions.assertEquals(3.0, ((DoubleLiteral) NumericArithmetic.round(
+                new DoubleLiteral(2.5), new IntegerLiteral(0))).getValue());
+        Assertions.assertEquals(-3.0, ((DoubleLiteral) NumericArithmetic.round(
+                new DoubleLiteral(-2.5), new IntegerLiteral(0))).getValue());
+
+        // a non-zero scale still rounds as before
+        Assertions.assertEquals(-0.4, ((DoubleLiteral) NumericArithmetic.round(
+                new DoubleLiteral(-0.44), new IntegerLiteral(1))).getValue());
+        Assertions.assertEquals(-0.5, ((DoubleLiteral) NumericArithmetic.ceil(
+                new DoubleLiteral(-0.5), new IntegerLiteral(1))).getValue());
+    }
+
+    @Test
+    public void testFoldedPredicateTreatsSignedZerosAsEqual() {
+        DoubleLiteral negativeZero = (DoubleLiteral) NumericArithmetic.ceil(new DoubleLiteral(-0.5));
+        DoubleLiteral positiveZero = new DoubleLiteral(0.0);
+        Assertions.assertEquals(0, negativeZero.compareTo(positiveZero));
+        Assertions.assertEquals(positiveZero, negativeZero);
+        // set dedup on the folded value must agree with equals
+        Assertions.assertTrue(Sets.newHashSet(positiveZero).contains(negativeZero));
+        Assertions.assertEquals(positiveZero.hashCode(), negativeZero.hashCode());
+
+        FloatLiteral negativeZeroFloat = new FloatLiteral(-0.0f);
+        FloatLiteral positiveZeroFloat = new FloatLiteral(0.0f);
+        Assertions.assertEquals(0, negativeZeroFloat.compareTo(positiveZeroFloat));
+        Assertions.assertEquals(positiveZeroFloat, negativeZeroFloat);
+        Assertions.assertEquals(positiveZeroFloat.hashCode(), negativeZeroFloat.hashCode());
+
+        // signbit stays sign sensitive: the expressions themselves are still distinct
+        Assertions.assertEquals(BooleanLiteral.TRUE, NumericArithmetic.signbit(negativeZero));
+        Assertions.assertEquals(BooleanLiteral.FALSE, NumericArithmetic.signbit(positiveZero));
+    }
+
+    private static boolean isNegativeZero(double value) {
+        return value == 0 && Double.doubleToRawLongBits(value) == Double.doubleToRawLongBits(-0.0);
     }
 }

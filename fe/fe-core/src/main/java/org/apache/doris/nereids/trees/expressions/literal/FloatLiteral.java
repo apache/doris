@@ -56,6 +56,22 @@ public class FloatLiteral extends FractionalLiteral {
     }
 
     @Override
+    public boolean equals(Object o) {
+        if (!(o instanceof FloatLiteral)) {
+            return false;
+        }
+        float other = ((FloatLiteral) o).getValue();
+        // SQL value equality so the two signed zeros are one value, matching BE
+        return value == other || (Float.isNaN(value) && Float.isNaN(other));
+    }
+
+    @Override
+    protected int computeHashCode() {
+        // must agree with equals, so the two signed zeros share one hash
+        return Float.hashCode(value == 0.0f ? 0.0f : value);
+    }
+
+    @Override
     public LiteralExpr toLegacyLiteral() {
         return new org.apache.doris.analysis.FloatLiteral(getDouble(), Type.FLOAT);
     }
