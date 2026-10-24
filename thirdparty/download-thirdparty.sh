@@ -719,9 +719,11 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " AZURE " ]]; then
 fi
 
 # Foyer remains a local patch until its cache interface is accepted upstream.
+# TVF storage-base inspection is an additive C ABI patch on the pinned SDK.
 # All search fixes are supplied by the immutable lance-c dependency revision.
 if [[ " ${TP_ARCHIVES[*]} " =~ " LANCE_C " ]]; then
-    foyer_patch_checksum="$(cksum < "${TP_PATCH_DIR}/lance-c-foyer.patch")"
+    foyer_patch_checksum="$(cat "${TP_PATCH_DIR}/lance-c-foyer.patch" \
+        "${TP_PATCH_DIR}/lance-c-storage-bases.patch" | cksum)"
     foyer_patch_marker="${TP_SOURCE_DIR}/${LANCE_C_SOURCE}/${PATCHED_MARK}_foyer"
     # A new local patch must also replace previously patched cached sources.
     # Empty markers from older builds cannot identify the applied patch version.
@@ -734,6 +736,8 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " LANCE_C " ]]; then
     if [[ ! -f "${PATCHED_MARK}_foyer" ]]; then
         patch --batch --forward --reject-file=- --fuzz=0 --no-backup-if-mismatch -s \
             -p1 <"${TP_PATCH_DIR}/lance-c-foyer.patch"
+        patch --batch --forward --reject-file=- --fuzz=0 --no-backup-if-mismatch -s \
+            -p1 <"${TP_PATCH_DIR}/lance-c-storage-bases.patch"
         printf '%s\n' "${foyer_patch_checksum}" > "${PATCHED_MARK}_foyer"
     fi
     cd -

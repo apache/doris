@@ -40,12 +40,13 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFTableSink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
-import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QeProcessorImpl.QueryInfo;
+import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.tablefunction.HadoopTvfAdmission;
 import org.apache.doris.tablefunction.LocalTableValuedFunction;
 import org.apache.doris.task.LoadEtlTask;
 import org.apache.doris.thrift.TStatusCode;
@@ -196,7 +197,7 @@ public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Ex
 
         StorageProperties storageProps = StorageProperties.createPrimary(fsCopyProps);
         if (storageProps instanceof HdfsCompatibleProperties) {
-            LocalTableValuedFunction.checkHadoopFileSystemEnabled(
+            HadoopTvfAdmission.check(HadoopTvfAdmission.Access.JAVA_DELETE,
                     parentDir, storageProps.getBackendConfigProperties());
         }
         RemoteFileSystem fs = FileSystemFactory.get(storageProps);

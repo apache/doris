@@ -1,0 +1,362 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -51,6 +51,7 @@
+ object_store = "0.14.2"
+ pin-project = "1.0"
+ prost = "0.14"
++serde_json = "1"
+ snafu = "0.9"
+ uuid = { version = "1", features = ["v4"] }
+ 
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -4442,6 +4442,7 @@
+  "opendal",
+  "pin-project",
+  "prost",
++ "serde_json",
+  "snafu",
+  "tempfile",
+  "tokio",
+--- a/include/lance/lance.h
++++ b/include/lance/lance.h
+@@ -291,6 +291,31 @@
+ );
+ 
+ /* ─── Dataset lifecycle ─── */
++
++/** Metadata-only base inspection contract; header/archive must both provide this API. */
++#define LANCE_STORAGE_BASES_JSON_VERSION 1
++
++/**
++ * Return the primary and all registered bases of the opened snapshot as JSON.
++ *
++ * This inspects SDK-decoded metadata and extracts paths using the SDK provider;
++ * it never constructs a base object store or reads any base object. It includes
++ * registrations regardless of the current projection or whether they are unused.
++ *
++ * JSON: {"format_version":1,"bases":[{"id":0,"primary":false,"uri":"...","scheme":"file",
++ * "is_local":true,"local_path":"/absolute/path","is_dataset_root":true}]}.
++ * Nonlocal entries have local_path:null. local_path is already decoded exactly as
++ * the SDK reader uses it; callers MUST NOT URI-decode it again. The entries are
++ * primary is first with id:null and primary:true; registrations follow sorted
++ * by id. This does not enumerate absolute blob URIs encoded inside data
++ * values, and is not a policy hook for blob payload materialization.
++ *
++ * @return Owned UTF-8 string, to be freed with lance_free_string(), or NULL on
++ *         error (use lance_last_error_code/message). Safe with shared sessions.
++ */
++const char* lance_dataset_storage_bases_json(const LanceDataset* dataset);
++
++
+ 
+ /**
+  * Open a Lance dataset.
+--- a/include/lance/lance.hpp
++++ b/include/lance/lance.hpp
+@@ -820,6 +820,15 @@
+                 handle_.get(), stream, batch_size) != 0) {
+             check_error();
+         }
++    }
++
++    /// Owned JSON describing the SDK-decoded primary and registered storage bases.
++    /// Metadata-only: this does not instantiate delegated object stores.
++    std::string storage_bases_json() const {
++        const char* json = lance_dataset_storage_bases_json(handle_.get());
++        if (!json) check_error();
++        std::unique_ptr<const char, decltype(&lance_free_string)> owned(json, &lance_free_string);
++        return std::string(owned.get());
+     }
+ 
+     /// Export the schema as an Arrow C Data Interface struct.
+--- a/src/dataset.rs
++++ b/src/dataset.rs
+@@ -20,6 +20,9 @@
+ use crate::runtime::block_on;
+ use crate::session::LanceSession;
+ use crate::stream_guard::guarded_ffi_stream_from_reader;
++
++/// Version of the metadata-only storage-base inspection JSON contract.
++pub const LANCE_STORAGE_BASES_JSON_VERSION: u32 = 1;
+ 
+ /// Opaque handle representing an opened Lance dataset.
+ pub struct LanceDataset {
+@@ -219,6 +222,82 @@
+ // Metadata (in-memory, sync only)
+ // ---------------------------------------------------------------------------
+ 
++/// Inspect registered base metadata before any scanner/index/delegated reader runs.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn lance_dataset_storage_bases_json(
++    dataset: *const LanceDataset,
++) -> *const c_char {
++    ffi_try!(unsafe { storage_bases_json_inner(dataset) }, null)
++}
++
++fn storage_base_description(
++    base: &lance_table::format::BasePath,
++    registry: Arc<lance_io::object_store::ObjectStoreRegistry>,
++) -> Result<serde_json::Value> {
++    // These are the SDK's own parse/extract operations. Do not instantiate a
++    // provider merely to discover whether the manifest selected local storage.
++    let url = lance_io::object_store::uri_to_url(&base.path)?;
++    let path = lance_io::object_store::ObjectStore::extract_path_from_uri(registry, &base.path)?;
++    // The C session uses the pinned SDK's default registry, whose local aliases
++    // all resolve to FileStoreProvider. There is no C provider-registration API.
++    let is_local = matches!(url.scheme(), "file" | "file-object-store" | "file+uring");
++    let local_path = is_local.then(|| lance_io::local::to_local_path(&path));
++    Ok(serde_json::json!({
++        "id": base.id,
++        "primary": false,
++        "uri": base.path,
++        "scheme": url.scheme(),
++        "is_local": is_local,
++        "local_path": local_path,
++        "is_dataset_root": base.is_dataset_root,
++    }))
++}
++
++unsafe fn storage_bases_json_inner(dataset: *const LanceDataset) -> Result<*const c_char> {
++    if dataset.is_null() {
++        return Err(lance_core::Error::invalid_input_source(
++            "dataset is NULL".into(),
++        ));
++    }
++    let snapshot = unsafe { &*dataset }.snapshot();
++    let registry = snapshot.session().store_registry();
++    let mut bases = snapshot.manifest().base_paths.values().collect::<Vec<_>>();
++    bases.sort_unstable_by_key(|base| base.id);
++    let mut entries = bases
++        .into_iter()
++        .map(|base| storage_base_description(base, registry.clone()))
++        .collect::<Result<Vec<_>>>()?;
++    // object_store(None) returns the already-opened primary Arc; it never opens
++    // a delegated base. branch_location carries the actual parsed SDK base path.
++    let primary_store = block_on(snapshot.object_store(None))?;
++    let primary_path = snapshot.branch_location().path;
++    let primary_is_local = matches!(
++        primary_store.scheme(),
++        "file" | "file-object-store" | "file+uring"
++    );
++    entries.insert(
++        0,
++        serde_json::json!({
++            "id": serde_json::Value::Null,
++            "primary": true,
++            "uri": snapshot.uri(),
++            "scheme": primary_store.scheme(),
++            "is_local": primary_is_local,
++            "local_path": primary_is_local.then(|| lance_io::local::to_local_path(&primary_path)),
++            "is_dataset_root": true,
++        }),
++    );
++    let json = serde_json::json!({
++        "format_version": LANCE_STORAGE_BASES_JSON_VERSION,
++        "bases": entries,
++    })
++    .to_string();
++    let owned = std::ffi::CString::new(json).map_err(|_| {
++        lance_core::Error::invalid_input_source("storage base metadata contains NUL".into())
++    })?;
++    Ok(owned.into_raw() as *const c_char)
++}
++
+ /// Return the version number of this dataset snapshot.
+ /// Returns 0 on error — check `lance_last_error_code()`.
+ #[unsafe(no_mangle)]
+@@ -588,3 +667,121 @@
+         assert_eq!(block_on(snap.count_rows(None)).unwrap(), 2);
+     }
+ }
++
++#[cfg(test)]
++mod storage_base_metadata_tests {
++    use super::*;
++    use lance_io::object_store::ObjectStoreRegistry;
++    use lance_table::format::BasePath;
++
++    #[test]
++    fn base_inspection_uses_sdk_local_identity_without_opening_files() {
++        let registry = Arc::new(ObjectStoreRegistry::default());
++        for (uri, expected) in [
++            (
++                "file:///nonexistent/sdbsec/a%20b",
++                "/nonexistent/sdbsec/a b",
++            ),
++            (
++                "file:///nonexistent/sdbsec/a%2520b",
++                "/nonexistent/sdbsec/a%20b",
++            ),
++            (
++                "file-object-store:///nonexistent/sdbsec/a%20b",
++                "/nonexistent/sdbsec/a b",
++            ),
++        ] {
++            let base = BasePath::new(7, uri.into(), None, false);
++            let value = storage_base_description(&base, registry.clone()).unwrap();
++            assert_eq!(value["id"], 7);
++            assert_eq!(value["is_local"], true);
++            assert_eq!(value["local_path"], expected);
++            assert_eq!(value["is_dataset_root"], false);
++        }
++    }
++
++    #[test]
++    fn base_inspection_preserves_remote_base_without_opening_provider() {
++        let registry = Arc::new(ObjectStoreRegistry::default());
++        let base = BasePath::new(3, "s3://unreachable.invalid/clone-base".into(), None, true);
++        let value = storage_base_description(&base, registry).unwrap();
++        assert_eq!(value["is_local"], false);
++        assert_eq!(value["local_path"], serde_json::Value::Null);
++        assert_eq!(value["uri"], base.path);
++        assert_eq!(value["is_dataset_root"], true);
++    }
++
++    #[cfg(target_os = "linux")]
++    #[test]
++    fn io_uring_local_alias_is_identified_without_opening_provider() {
++        let base = BasePath::new(
++            8,
++            "file+uring:///nonexistent/sdbsec/a%20b".into(),
++            None,
++            false,
++        );
++        let value =
++            storage_base_description(&base, Arc::new(ObjectStoreRegistry::default())).unwrap();
++        assert_eq!(value["is_local"], true);
++        assert_eq!(value["local_path"], "/nonexistent/sdbsec/a b");
++    }
++
++    #[test]
++    fn metadata_snapshot_contains_primary_and_every_registered_base() {
++        use arrow_array::{Int64Array, RecordBatch};
++        use arrow_schema::{DataType, Field, Schema};
++        let temp = tempfile::tempdir().unwrap();
++        let uri = temp.path().join("primary with spaces.lance");
++        let schema = Arc::new(Schema::new(vec![Field::new("id", DataType::Int64, false)]));
++        let batch = RecordBatch::try_new(schema.clone(), vec![Arc::new(Int64Array::from(vec![1]))])
++            .unwrap();
++        let mut dataset = block_on(Dataset::write(
++            arrow::record_batch::RecordBatchIterator::new(vec![Ok(batch)], schema),
++            uri.to_str().unwrap(),
++            None,
++        ))
++        .unwrap();
++        // Add unreferenced registrations in memory: listing every registered base
++        // must not instantiate the unreachable remote provider or open local data.
++        let manifest = Arc::make_mut(&mut dataset.manifest);
++        manifest.base_paths.insert(
++            9,
++            BasePath::new(9, "s3://unreachable.invalid/base".into(), None, true),
++        );
++        manifest.base_paths.insert(
++            4,
++            BasePath::new(
++                4,
++                "file:///nonexistent/sdbsec/base%20path".into(),
++                None,
++                false,
++            ),
++        );
++        let handle = LanceDataset {
++            inner: RwLock::new(Arc::new(dataset)),
++            data_cache: None,
++        };
++        let raw = unsafe { lance_dataset_storage_bases_json(&handle) };
++        assert!(!raw.is_null());
++        let value: serde_json::Value =
++            serde_json::from_str(unsafe { std::ffi::CStr::from_ptr(raw) }.to_str().unwrap())
++                .unwrap();
++        unsafe { crate::error::lance_free_string(raw) };
++        assert_eq!(value["format_version"], 1);
++        let entries = value["bases"].as_array().unwrap();
++        assert_eq!(entries.len(), 3);
++        assert_eq!(entries[0]["primary"], true);
++        assert_eq!(entries[0]["id"], serde_json::Value::Null);
++        assert_eq!(entries[0]["is_local"], true);
++        assert_eq!(entries[0]["local_path"], uri.to_str().unwrap());
++        assert_eq!(entries[1]["id"], 4);
++        assert_eq!(entries[1]["local_path"], "/nonexistent/sdbsec/base path");
++        assert_eq!(entries[2]["id"], 9);
++        assert_eq!(entries[2]["is_local"], false);
++    }
++
++    #[test]
++    fn null_dataset_base_inspection_fails() {
++        assert!(unsafe { lance_dataset_storage_bases_json(std::ptr::null()) }.is_null());
++    }
++}
+--- a/tests/c_api_test.rs
++++ b/tests/c_api_test.rs
+@@ -436,6 +436,70 @@
+ 
+     // Closing NULL is safe.
+     unsafe { lance_dataset_close(ptr::null_mut()) };
++}
++
++#[test]
++fn test_storage_bases_json_null_dataset_reports_error() {
++    let result = unsafe { lance_dataset_storage_bases_json(ptr::null()) };
++    assert!(result.is_null());
++    assert_eq!(lance_last_error_code(), LanceErrorCode::InvalidArgument);
++    let message = lance_last_error_message();
++    assert!(!message.is_null());
++    unsafe { lance_free_string(message) };
++}
++
++#[test]
++fn test_storage_bases_json_primary_snapshot_with_multiple_fragments() {
++    let tmp = tempfile::tempdir().unwrap();
++    let uri = tmp
++        .path()
++        .join("base metadata with spaces.lance")
++        .to_str()
++        .unwrap()
++        .to_string();
++    let schema = Arc::new(Schema::new(vec![Field::new("id", DataType::Int32, false)]));
++    for fragment in 0..2 {
++        let batch = RecordBatch::try_new(
++            schema.clone(),
++            vec![Arc::new(Int32Array::from(vec![fragment]))],
++        )
++        .unwrap();
++        let params = lance::dataset::WriteParams {
++            mode: if fragment == 0 {
++                lance::dataset::WriteMode::Create
++            } else {
++                lance::dataset::WriteMode::Append
++            },
++            ..Default::default()
++        };
++        lance_c::runtime::block_on(Dataset::write(
++            arrow::record_batch::RecordBatchIterator::new(vec![Ok(batch)], schema.clone()),
++            &uri,
++            Some(params),
++        ))
++        .unwrap();
++    }
++    let c_uri = c_str(&uri);
++    let dataset = unsafe { lance_dataset_open(c_uri.as_ptr(), ptr::null(), 0) };
++    assert!(!dataset.is_null());
++    assert_eq!(unsafe { lance_dataset_fragment_count(dataset) }, 2);
++    let raw = unsafe { lance_dataset_storage_bases_json(dataset) };
++    assert!(!raw.is_null());
++    assert_eq!(lance_last_error_code(), LanceErrorCode::Ok);
++    let value: serde_json::Value =
++        serde_json::from_str(unsafe { std::ffi::CStr::from_ptr(raw) }.to_str().unwrap()).unwrap();
++    unsafe { lance_free_string(raw) };
++    assert_eq!(value["format_version"], LANCE_STORAGE_BASES_JSON_VERSION);
++    let bases = value["bases"].as_array().unwrap();
++    assert_eq!(bases.len(), 1);
++    assert_eq!(bases[0]["primary"], true);
++    assert_eq!(bases[0]["id"], serde_json::Value::Null);
++    assert_eq!(bases[0]["is_local"], true);
++    assert_eq!(bases[0]["local_path"], uri);
++    assert_eq!(bases[0]["is_dataset_root"], true);
++    // Inspection does not consume or mutate the Dataset handle.
++    assert_eq!(unsafe { lance_dataset_fragment_count(dataset) }, 2);
++    unsafe { lance_dataset_close(dataset) };
+ }
+ 
+ #[test]

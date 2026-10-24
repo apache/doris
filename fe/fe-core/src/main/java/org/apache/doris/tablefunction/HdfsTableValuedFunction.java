@@ -23,6 +23,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileType;
 
 import org.apache.log4j.LogManager;
@@ -55,9 +56,14 @@ public class HdfsTableValuedFunction extends ExternalFileTableValuedFunction {
             throw new AnalysisException("Failed check storage props, " + e.getMessage(), e);
         }
 
+        HadoopTvfAdmission.check(HadoopTvfAdmission.Access.HADOOP_READ, filePath, backendConnectProperties);
         if (!FeConstants.runningUnitTest) {
             // 4. parse file
             parseFile();
+            for (TBrokerFileStatus file : fileStatuses) {
+                HadoopTvfAdmission.check(HadoopTvfAdmission.Access.HADOOP_READ,
+                        file.getPath(), backendConnectProperties);
+            }
         }
     }
 

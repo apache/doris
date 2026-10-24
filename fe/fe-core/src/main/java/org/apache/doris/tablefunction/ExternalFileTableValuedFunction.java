@@ -647,6 +647,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         if (isLanceFormat()) {
             TLanceFileDesc lanceParams = new TLanceFileDesc();
             lanceParams.setDatasetUri(getFilePath());
+            lanceParams.setIsTvf(true);
             // Local TVF schema discovery and execution independently open the latest snapshot.
             // S3 TVF obtains its schema and fixed snapshot metadata directly in FE instead.
             lanceParams.setVersion(0);
