@@ -50,6 +50,7 @@
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_spatial.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_varbinary.h"
@@ -7023,6 +7024,103 @@ TEST(TableReaderTest, ComplexRematerializeAcceptsPresentFileStructForRequiredTab
     const auto& result_values = assert_cast<const ColumnInt64&>(result_struct.get_column(0));
     EXPECT_EQ(result_values.get_element(0), 10);
     EXPECT_EQ(result_values.get_element(1), 20);
+}
+
+static ColumnPtr make_binary_read_container(const DataTypePtr& leaf, int container,
+                                            const std::string& wkb) {
+    const auto key_type = make_nullable(std::make_shared<DataTypeInt32>());
+    auto values = leaf->create_column();
+    values->insert_data(wkb.data(), wkb.size());
+    values->insert_default();
+    MutableColumnPtr nested;
+    if (container < 2) {
+        auto offsets = ColumnArray::ColumnOffsets::create();
+        offsets->get_data().assign({2, 2, 2});
+        if (container == 0) {
+            nested = ColumnArray::create(std::move(values), std::move(offsets));
+        } else {
+            auto keys = key_type->create_column();
+            int first = 1, second = 2;
+            keys->insert_data(reinterpret_cast<const char*>(&first), sizeof(first));
+            keys->insert_data(reinterpret_cast<const char*>(&second), sizeof(second));
+            nested = ColumnMap::create(std::move(keys), std::move(values), std::move(offsets));
+        }
+    } else {
+        values->insert_default();
+        MutableColumns children;
+        children.push_back(std::move(values));
+        nested = ColumnStruct::create(std::move(children));
+    }
+    auto nulls = ColumnUInt8::create();
+    nulls->get_data().assign({0, 1, 0});
+    return ColumnNullable::create(std::move(nested), std::move(nulls));
+}
+
+static void expect_nested_spatial_binary_read(TableReaderCastTestHelper& reader,
+                                              PrimitiveType primitive, int container,
+                                              const std::string& wkb) {
+    const auto source_leaf = make_nullable(std::make_shared<DataTypeSpatial>(primitive));
+    const auto target_leaf = make_nullable(std::make_shared<DataTypeVarbinary>());
+    SCOPED_TRACE(testing::Message() << primitive << " container=" << container);
+    const auto key_type = make_nullable(std::make_shared<DataTypeInt32>());
+    auto type = [&](const DataTypePtr& leaf) -> DataTypePtr {
+        if (container == 0) return make_nullable(std::make_shared<DataTypeArray>(leaf));
+        if (container == 1) return make_nullable(std::make_shared<DataTypeMap>(key_type, leaf));
+        return make_nullable(std::make_shared<DataTypeStruct>(DataTypes {leaf}, Strings {"shape"}));
+    };
+    ColumnMapping leaf;
+    leaf.file_local_id = container == 1 ? 1 : 0;
+    leaf.table_column_name = "shape";
+    leaf.file_type = source_leaf;
+    leaf.table_type = target_leaf;
+    ColumnMapping mapping;
+    mapping.file_type = type(source_leaf);
+    mapping.table_type = type(target_leaf);
+    mapping.child_mappings = {leaf};
+    if (container == 1) {
+        ColumnMapping key;
+        key.file_local_id = 0;
+        key.file_type = key_type;
+        key.table_type = key_type;
+        key.is_trivial = true;
+        mapping.child_mappings.insert(mapping.child_mappings.begin(), key);
+    }
+    ColumnPtr input = make_binary_read_container(source_leaf, container, wkb);
+    ColumnPtr result;
+    Status status;
+    if (container == 0)
+        status = reader._materialize_array_mapping_column(mapping, input, 3, &result);
+    else if (container == 1)
+        status = reader._materialize_map_mapping_column(mapping, input, 3, &result);
+    else
+        status = reader._materialize_struct_mapping_column(mapping, input, 3, &result);
+    ASSERT_TRUE(status.ok()) << status;
+    input.reset();
+    const auto expected = make_binary_read_container(target_leaf, container, wkb);
+    for (size_t row = 0; row < 3; ++row) {
+        EXPECT_EQ(mapping.table_type->to_string(*result, row),
+                  mapping.table_type->to_string(*expected, row));
+    }
+}
+
+TEST(TableReaderTest, NestedSpatialLeavesPreserveExplicitBinarySchema) {
+    const std::string wkb(
+            "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@", 21);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    TableReaderCastTestHelper reader;
+    ASSERT_TRUE(reader.init({.projected_columns = {},
+                             .conjuncts = {},
+                             .format = FileFormat::PARQUET,
+                             .scan_params = nullptr,
+                             .io_ctx = nullptr,
+                             .runtime_state = &state,
+                             .scanner_profile = nullptr})
+                        .ok());
+    for (auto primitive : {TYPE_GEOMETRY, TYPE_GEOGRAPHY}) {
+        for (int container = 0; container < 3; ++container) {
+            expect_nested_spatial_binary_read(reader, primitive, container, wkb);
+        }
+    }
 }
 
 TEST(TableReaderTest, ComplexRematerializeCarriesAncestorMaskThroughRequiredStruct) {

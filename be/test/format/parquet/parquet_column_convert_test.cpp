@@ -134,6 +134,55 @@ TEST(ParquetColumnConvertTest, SpatialByteArrayPreservesWkbAndNulls) {
     }
 }
 
+static void expect_spatial_binary_read(PrimitiveType primitive, bool nullable) {
+    const std::string wkb(
+            "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@", 21);
+    auto spatial = std::make_shared<DataTypeSpatial>(primitive);
+    DataTypePtr source_type = nullable ? make_nullable(spatial) : spatial;
+    DataTypePtr binary = std::make_shared<DataTypeVarbinary>();
+    DataTypePtr target_type = nullable ? make_nullable(binary) : binary;
+    FieldSchema field;
+    field.parquet_schema.__set_type(tparquet::Type::BYTE_ARRAY);
+    tparquet::LogicalType logical;
+    if (primitive == TYPE_GEOMETRY) {
+        logical.__set_GEOMETRY(tparquet::GeometryType {});
+    } else {
+        logical.__set_GEOGRAPHY(tparquet::GeographyType {});
+    }
+    field.parquet_schema.__set_logicalType(logical);
+    field.data_type = source_type;
+    auto converter =
+            PhysicalToLogicalConverter::get_converter(&field, source_type, target_type, nullptr);
+    ASSERT_TRUE(converter->support()) << converter->get_error_msg();
+    ColumnPtr destination = target_type->create_column();
+    destination->assert_mutable()->insert_data("prefix", 6);
+    auto source = converter->get_physical_column(tparquet::Type::BYTE_ARRAY, source_type,
+                                                 destination, target_type, false);
+    auto mutable_source = IColumn::mutate(std::move(source));
+    mutable_source->insert_data(wkb.data(), wkb.size());
+    if (nullable) {
+        mutable_source->insert_default();
+    }
+    source = std::move(mutable_source);
+    ASSERT_TRUE(converter->convert(source, source_type, target_type, destination, false).ok());
+    EXPECT_EQ(destination->size(), nullable ? 3 : 2);
+    EXPECT_EQ(destination->get_data_at(0).to_string(), "prefix");
+    EXPECT_EQ(destination->get_data_at(1).to_string(), wkb);
+    if (nullable) {
+        EXPECT_TRUE(destination->is_null_at(2));
+    }
+    source.reset();
+    EXPECT_EQ(destination->get_data_at(1).to_string(), wkb);
+}
+
+TEST(ParquetColumnConvertTest, SpatialAnnotationPreservesExplicitBinaryRead) {
+    for (auto primitive : {TYPE_GEOMETRY, TYPE_GEOGRAPHY}) {
+        for (bool nullable : {false, true}) {
+            expect_spatial_binary_read(primitive, nullable);
+        }
+    }
+}
+
 TEST(ParquetColumnConvertTest, SpatialTypeChangeRejectsMetadataMismatch) {
     const auto source = std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY);
     const auto target = std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, "OGC:CRS84", "vincenty");

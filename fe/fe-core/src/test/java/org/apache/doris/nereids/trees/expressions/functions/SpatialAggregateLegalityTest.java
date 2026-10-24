@@ -309,7 +309,6 @@ public class SpatialAggregateLegalityTest {
         for (String spatial : List.of("GEOMETRY('EPSG:3857')", "GEOGRAPHY")) {
             for (String signature : List.of("map_agg(INT, " + spatial + ")",
                     "map_agg_v2(INT, " + spatial + ")", "count_map(MAP<INT, " + spatial + ">)",
-                    "min_map(MAP<INT, " + spatial + ">)", "max_map(MAP<INT, " + spatial + ">)",
                     "any_value(" + spatial + ")",
                     "count(" + spatial + ")", "array_agg(" + spatial + ")",
                     "collect_list(" + spatial + ")", "collect_list(" + spatial + ", INT)")) {
@@ -436,7 +435,7 @@ public class SpatialAggregateLegalityTest {
                     Assertions.assertDoesNotThrow(entry::checkLegalityBeforeTypeCoercion);
                 }
                 Assertions.assertEquals(type, ((MapType) mapAgg.getDataType()).getValueType());
-                for (AggregateFunction function : List.of(new CountMap(map), new MinMap(map), new MaxMap(map))) {
+                for (AggregateFunction function : List.of(new CountMap(map))) {
                     for (BoundFunction entry : List.of(function, StateCombinator.create(function),
                             new CombineCombinator(function.getArguments(), function))) {
                         Assertions.assertDoesNotThrow(entry::checkLegalityBeforeTypeCoercion);
@@ -447,6 +446,39 @@ public class SpatialAggregateLegalityTest {
                 }
                 Assertions.assertThrows(AnalysisException.class, new SumMap(map)::getDataType);
                 Assertions.assertThrows(AnalysisException.class, new AvgMap(map)::getDataType);
+            }
+        }
+    }
+
+    @Test
+    public void mapExtremaRejectSpatialValuesInAllEntryPoints() {
+        for (DataType spatial : List.of(new GeometryType("EPSG:3857"),
+                new GeographyType("OGC:CRS84", "spherical"))) {
+            for (DataType valueType : List.of(spatial, ArrayType.of(spatial),
+                    MapType.of(IntegerType.INSTANCE, spatial),
+                    new StructType(List.of(new StructField("shape", spatial, true, ""))))) {
+                MapType mapType = MapType.of(IntegerType.INSTANCE, valueType);
+                for (Expression value : List.of(new SlotReference("values", mapType, false),
+                        new SlotReference("values", mapType, true), new NullLiteral(mapType))) {
+                    for (AggregateFunction function : List.of(new MinMap(value), new MaxMap(value))) {
+                        for (BoundFunction entry : List.of(function, StateCombinator.create(function),
+                                new CombineCombinator(function.getArguments(), function))) {
+                            AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                                    entry::checkLegalityBeforeTypeCoercion);
+                            Assertions.assertEquals(function.getName() + " does not support spatial MAP values",
+                                    error.getMessage());
+                            Assertions.assertThrows(AnalysisException.class, entry::checkLegalityAfterRewrite);
+                        }
+                    }
+                }
+            }
+            for (String function : List.of("min_map", "max_map")) {
+                String type = "AGG_STATE<" + function + "(MAP<INT, " + spatial.toSql() + ">)>";
+                Exception error = Assertions.assertThrows(Exception.class,
+                        () -> PlanChecker.from(MemoTestUtils.createConnectContext())
+                                .analyze("select CAST(NULL AS " + type + ")").rewrite());
+                Assertions.assertTrue(error.getMessage().contains(
+                        function + " does not support spatial MAP values"), error.getMessage());
             }
         }
     }

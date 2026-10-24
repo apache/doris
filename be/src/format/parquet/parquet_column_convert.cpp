@@ -277,6 +277,15 @@ std::unique_ptr<PhysicalToLogicalConverter> PhysicalToLogicalConverter::get_conv
         src_logical_type = DataTypeFactory::instance().create_data_type(
                 PrimitiveType::TYPE_INT, dst_logical_type->is_nullable());
     }
+    // Hive BINARY columns retain annotated WKB as opaque bytes. Only this explicit binary
+    // target uses the physical STRING carrier; native spatial targets keep annotation metadata.
+    const auto source_primitive = src_logical_type->get_primitive_type();
+    if (!is_dict_filter && src_physical_type == tparquet::Type::BYTE_ARRAY &&
+        (source_primitive == TYPE_GEOMETRY || source_primitive == TYPE_GEOGRAPHY) &&
+        dst_logical_type->get_primitive_type() == TYPE_VARBINARY) {
+        src_logical_type = DataTypeFactory::instance().create_data_type(
+                TYPE_STRING, src_logical_type->is_nullable());
+    }
     PrimitiveType src_logical_primitive = src_logical_type->get_primitive_type();
 
     if (field_schema->is_type_compatibility) {

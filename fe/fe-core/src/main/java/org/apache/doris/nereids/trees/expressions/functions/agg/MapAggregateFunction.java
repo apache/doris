@@ -85,6 +85,9 @@ public abstract class MapAggregateFunction extends NotNullableAggregateFunction
 
     protected void checkMinMaxValueType() {
         DataType valueType = getMapType().getValueType();
+        if (valueType.toCatalogDataType().typeContainsSpatialType()) {
+            throw new AnalysisException(getName() + " does not support spatial MAP values");
+        }
         if (valueType.isOnlyMetricType() && !valueType.isArrayType()) {
             throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
         }

@@ -518,19 +518,14 @@ public class CreateIcebergSpatialV3Table {
                 (select map_agg(id, ${column}) primary_values, map_agg_v2(id, ${column}) alias_values
                  from geometry_values) aggregates""")
         // Repeated ordinary keys exercise value updates and nullable aggregate states.
-        "qt_spatial_map_combinator_values_${column}"("""select element_at(counts, 1),
-            hex(ST_AsBinary(element_at(minimums, 1))), hex(ST_AsBinary(element_at(maximums, 1)))
-            from (select count_map(map(1, ${column})) counts, min_map(map(1, ${column})) minimums,
-                max_map(map(1, ${column})) maximums from geometry_values) aggregates""")
+        "qt_spatial_map_combinator_values_${column}"("""select element_at(count_map(map(1, ${column})), 1)
+            from geometry_values""")
         "qt_spatial_map_state_values_${column}"("""select /*+ SET_VAR(enable_agg_state=true) */
             hex(ST_AsBinary(element_at(map_agg_merge(primary_state), 1))),
             hex(ST_AsBinary(element_at(map_agg_v2_merge(alias_state), 1))),
-            element_at(count_map_merge(count_state), 1),
-            hex(ST_AsBinary(element_at(min_map_merge(min_state), 1))),
-            hex(ST_AsBinary(element_at(max_map_merge(max_state), 1)))
+            element_at(count_map_merge(count_state), 1)
             from (select map_agg_state(id, ${column}) primary_state, map_agg_v2_state(id, ${column}) alias_state,
-                count_map_state(map(1, ${column})) count_state, min_map_state(map(1, ${column})) min_state,
-                max_map_state(map(1, ${column})) max_state from geometry_values) states""")
+                count_map_state(map(1, ${column})) count_state from geometry_values) states""")
     }
     // A typed NULL has no aggregate producer: validate its state descriptor before BE initialization.
     for (String spatial : ["GEOMETRY", "GEOGRAPHY"]) {
@@ -559,8 +554,7 @@ public class CreateIcebergSpatialV3Table {
             }
         }
         List<String> supportedStates = ["map_agg(INT, ${spatial})", "map_agg_v2(INT, ${spatial})",
-                "count_map(MAP<INT, ${spatial}>)", "min_map(MAP<INT, ${spatial}>)",
-                "max_map(MAP<INT, ${spatial}>)", "any_value(${spatial})",
+                "count_map(MAP<INT, ${spatial}>)", "any_value(${spatial})",
                 "count(${spatial})", "array_agg(${spatial})", "collect_list(${spatial})",
                 "collect_list(${spatial}, INT)"]
         String projections = supportedStates.collect { "CAST(NULL AS AGG_STATE<${it}>)" }.join(", ")
@@ -1250,6 +1244,23 @@ public class CreateIcebergSpatialV3Table {
                 sql """select ${column} from geometry_values where id = 101 ${operation}
                     select ${column} from geometry_values where id = 102"""
                 exception "GROUP BY and DISTINCT do not support spatial keys"
+            }
+        }
+        for (String function : ["min_map", "max_map"]) {
+            for (String value : [column, "array(${column})", "map(id, ${column})",
+                    "named_struct('shape', ${column})"]) {
+                for (String suffix : ["", "_state"]) {
+                    test {
+                        sql """select /*+ SET_VAR(enable_agg_state=true) */ ${function}${suffix}(map(1, ${value}))
+                            from geometry_values where id in (101, 102, 103)"""
+                        exception "${function} does not support spatial MAP values"
+                    }
+                }
+            }
+            test {
+                sql """select /*+ SET_VAR(enable_agg_state=true) */ CAST(NULL AS
+                    AGG_STATE<${function}(MAP<INT, ${column == 'geom' ? 'GEOMETRY' : 'GEOGRAPHY'}>)>)"""
+                exception "${function} does not support spatial MAP values"
             }
         }
         // The explicit aggregate has no DISTINCT flag; reject spatial leaves recursively.
