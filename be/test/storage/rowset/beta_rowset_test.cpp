@@ -41,6 +41,7 @@
 
 #include "common/config.h"
 #include "common/status.h"
+#include "core/block/block.h"
 #include "cpp/obj-client/s3_obj_storage_client.h"
 #include "cpp/sync_point.h"
 #include "gtest/gtest_pred_impl.h"
@@ -52,16 +53,20 @@
 #include "storage/data_dir.h"
 #include "storage/olap_common.h"
 #include "storage/options.h"
+#include "storage/rowset/beta_rowset_reader.h"
 #include "storage/rowset/beta_rowset_writer.h"
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_meta.h"
 #include "storage/rowset/rowset_reader.h"
+#include "storage/rowset/rowset_reader_context.h"
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/segment/segment.h"
 #include "storage/storage_engine.h"
 #include "storage/storage_policy.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/utils.h"
+#include "util/debug_points.h"
+#include "util/defer_op.h"
 #include "util/s3_util.h"
 
 namespace Aws {
@@ -743,6 +748,38 @@ TEST_F(BetaRowsetTest, GetSegmentNumRowsRetryAfterFailure) {
     sp->clear_all_call_backs();
     sp->disable_processing();
     sp->clear_trace();
+}
+
+TEST_F(BetaRowsetTest, RowsetReaderConvertsCachedStdExceptionToStatus) {
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    create_tablet_schema(tablet_schema);
+
+    auto rowset_meta = std::make_shared<RowsetMeta>();
+    init_rs_meta(rowset_meta, 1, 1);
+    auto rowset = std::make_shared<BetaRowset>(tablet_schema, rowset_meta, "");
+    BetaRowsetReader reader(rowset);
+    RowsetReaderContext context;
+    ASSERT_TRUE(reader.init(&context, {}).ok());
+
+    const auto old_enable_debug_points = config::enable_debug_points;
+    config::enable_debug_points = true;
+    const auto debug_point = "fault_inject::BetaRowsetReader::_init_iterator.throw_std_exception";
+    auto debug_point_config = std::make_shared<DebugPoint>();
+    debug_point_config->execute_limit = 1;
+    DebugPoints::instance()->add(debug_point, std::move(debug_point_config));
+    Defer cleanup([&] {
+        DebugPoints::instance()->remove(debug_point);
+        config::enable_debug_points = old_enable_debug_points;
+    });
+
+    Block block;
+    auto first_status = reader.next_batch(&block);
+    auto second_status = reader.next_batch(&block);
+
+    EXPECT_EQ(first_status.code(), ErrorCode::INTERNAL_ERROR);
+    EXPECT_EQ(second_status.code(), ErrorCode::INTERNAL_ERROR);
+    EXPECT_NE(first_status.to_string().find("bad_function_call"), std::string::npos);
+    EXPECT_NE(second_status.to_string().find("bad_function_call"), std::string::npos);
 }
 
 TEST_F(BetaRowsetTest, GetNumSegmentRowsAPI) {
