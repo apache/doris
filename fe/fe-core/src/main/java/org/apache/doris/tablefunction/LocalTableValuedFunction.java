@@ -24,6 +24,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.datasource.FederationBackendPolicy;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -159,7 +160,8 @@ public class LocalTableValuedFunction extends ExternalFileTableValuedFunction {
                 checkHdfsSinkEnabled(properties);
             }
             if (Boolean.parseBoolean(properties.getOrDefault("delete_existing_files", "false"))) {
-                checkHadoopFileSystemEnabled(properties.getOrDefault("file_path", ""), properties);
+                checkHadoopFileSystemEnabled(
+                        BrokerUtil.extractParentDirectory(properties.getOrDefault("file_path", "")), properties);
             }
         }
     }
