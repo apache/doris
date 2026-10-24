@@ -27,6 +27,7 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TokenMasker;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
+import org.apache.doris.qe.QueryAdmissionController;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.StmtExecutor;
@@ -588,26 +589,46 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
         });
     }
 
+    public boolean hasPendingResults() {
+        // Expiration closes Arrow buffers. Serialize cleanup with DoGet, which may
+        // still be sending a result obtained before its cache entry expired.
+        if (!commandLock.tryLock()) {
+            return true;
+        }
+        try {
+            return channel.hasPendingResults();
+        } finally {
+            commandLock.unlock();
+        }
+    }
+
     /** {@link #runCommand} for a command that returns a value. */
     public <T, E extends Exception> T callCommand(ConnectContext ctx, SessionCommand<T, E> command) throws E {
-        acquireCommandLock(ctx);
-        ConnectContext previous = ConnectContext.get();
+        // Accepted commands waiting for the session lock are pending shutdown work too.
+        QueryAdmissionController.INSTANCE.acquireContinuation();
         try {
-            if (closed) {
-                throw CallStatus.UNAUTHENTICATED.withDescription(String.format("this Arrow Flight SQL session "
-                        + "was closed, connection id: %d; reconnect to run further commands", ctx.getConnectionId()))
-                        .toRuntimeException();
+            acquireCommandLock(ctx);
+            ConnectContext previous = ConnectContext.get();
+            try {
+                if (closed) {
+                    throw CallStatus.UNAUTHENTICATED.withDescription(String.format("this Arrow Flight SQL session "
+                            + "was closed, connection id: %d; reconnect to run further commands",
+                            ctx.getConnectionId()))
+                            .toRuntimeException();
+                }
+                ctx.refreshStartTime();
+                ctx.setThreadLocalInfo();
+                return command.call();
+            } finally {
+                if (previous == null) {
+                    ConnectContext.remove();
+                } else {
+                    previous.setThreadLocalInfo();
+                }
+                commandLock.unlock();
             }
-            ctx.refreshStartTime();
-            ctx.setThreadLocalInfo();
-            return command.call();
         } finally {
-            if (previous == null) {
-                ConnectContext.remove();
-            } else {
-                previous.setThreadLocalInfo();
-            }
-            commandLock.unlock();
+            QueryAdmissionController.INSTANCE.release();
         }
     }
 

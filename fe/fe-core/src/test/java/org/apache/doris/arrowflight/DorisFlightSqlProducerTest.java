@@ -29,6 +29,7 @@ import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectPoolTestSupport;
 import org.apache.doris.qe.ConnectScheduler;
+import org.apache.doris.qe.QueryAdmissionController;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
 
@@ -314,6 +315,44 @@ public class DorisFlightSqlProducerTest {
         }
     }
 
+    @Test
+    public void testRejectedNonfinalLocalResultDoesNotHoldShutdownOpen() throws Exception {
+        ConnectContext ctx = ConnectContext.forFlight("token");
+        FlightSqlChannel channel = ctx.getFlightSqlChannel();
+        FlightProtocolAdapter adapter = FlightProtocolAdapter.of(ctx);
+        FlightSessionsManager sessionsManager = Mockito.mock(FlightSessionsManager.class);
+        Mockito.when(sessionsManager.getConnectContext("token")).thenReturn(ctx);
+        CallContext callContext = Mockito.mock(CallContext.class);
+        Mockito.when(callContext.peerIdentity()).thenReturn("token");
+        String query = "SHOW VARIABLES; SELECT 1";
+        try (DorisFlightSqlProducer producer = new DorisFlightSqlProducer(
+                Location.forGrpcInsecure("127.0.0.1", 9090), sessionsManager);
+                MockedConstruction<FlightSqlConnectProcessor> mocked = Mockito.mockConstruction(
+                        FlightSqlConnectProcessor.class, (mock, construction) -> {
+                            Mockito.doAnswer(invocation -> {
+                                ctx.getState().setOk();
+                                adapter.beforeStatement(ctx);
+                                channel.addOKResult("unpublished", "SHOW VARIABLES");
+                                Assertions.assertTrue(channel.hasPendingResults());
+                                Assertions.assertFalse(adapter.finishStatement(ctx,
+                                        Mockito.mock(StmtExecutor.class), 0, 2));
+                                return null;
+                            }).when(mock).handleQuery(query);
+                        })) {
+            CommandStatementQuery request = CommandStatementQuery.newBuilder().setQuery(query).build();
+            Assertions.assertThrows(FlightRuntimeException.class,
+                    () -> producer.getFlightInfoStatement(request, callContext,
+                            FlightDescriptor.command(new byte[0])));
+            Assertions.assertEquals(1, mocked.constructed().size());
+            Mockito.verify(mocked.constructed().get(0)).handleQuery(query);
+            Assertions.assertEquals(0, channel.resultNum());
+            Assertions.assertFalse(adapter.hasPendingResults());
+            Assertions.assertEquals(0, channel.getAllocatedMemory());
+        } finally {
+            ctx.releaseProtocolSession();
+        }
+    }
+
     /** What a session action answered: the values it sent, whether it completed, what it failed with. */
     private static class Answer<T> implements StreamListener<T> {
         final List<T> values = new ArrayList<>();
@@ -524,13 +563,29 @@ public class DorisFlightSqlProducerTest {
     @Test
     public void testCloseSessionInvalidatesTheTokenAndAnswersOnce() throws Exception {
         FlightSessionsManager sessionsManager = Mockito.mock(FlightSessionsManager.class);
+        int activeBefore = QueryAdmissionController.INSTANCE.getActiveRequests();
+        AtomicInteger activeDuringClose = new AtomicInteger();
+        AtomicInteger activeDuringReply = new AtomicInteger();
+        Mockito.doAnswer(invocation -> {
+            activeDuringClose.set(QueryAdmissionController.INSTANCE.getActiveRequests());
+            return null;
+        }).when(sessionsManager).closeConnectContext("token");
         DorisFlightSqlProducer producer = new DorisFlightSqlProducer(
                 Location.forGrpcInsecure("127.0.0.1", 9090), sessionsManager);
         try {
-            Answer<CloseSessionResult> closed = new Answer<>();
+            Answer<CloseSessionResult> closed = new Answer<CloseSessionResult>() {
+                @Override
+                public void onCompleted() {
+                    activeDuringReply.set(QueryAdmissionController.INSTANCE.getActiveRequests());
+                    super.onCompleted();
+                }
+            };
             producer.closeSession(new CloseSessionRequest(), callOf("token"), closed);
             Assertions.assertEquals(CloseSessionResult.Status.CLOSED, closed.single().getStatus());
             Mockito.verify(sessionsManager).closeConnectContext("token");
+            Assertions.assertEquals(activeBefore + 1, activeDuringClose.get());
+            Assertions.assertEquals(activeBefore + 1, activeDuringReply.get());
+            Assertions.assertEquals(activeBefore, QueryAdmissionController.INSTANCE.getActiveRequests());
 
             Mockito.doThrow(new IllegalStateException("pool is gone")).when(sessionsManager)
                     .closeConnectContext("other-token");
@@ -540,6 +595,7 @@ public class DorisFlightSqlProducerTest {
             Assertions.assertFalse(failed.completed);
             Assertions.assertInstanceOf(FlightRuntimeException.class, failed.error);
             Assertions.assertEquals(FlightStatusCode.INTERNAL, ((FlightRuntimeException) failed.error).status().code());
+            Assertions.assertEquals(activeBefore, QueryAdmissionController.INSTANCE.getActiveRequests());
         } finally {
             producer.close();
         }

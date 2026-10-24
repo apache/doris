@@ -30,6 +30,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.ConnectPoolTestSupport;
 import org.apache.doris.qe.ConnectScheduler;
+import org.apache.doris.qe.QueryAdmissionController;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -113,6 +114,33 @@ public class FlightProtocolAdapterTest {
             throw (Exception) e.getCause();
         } finally {
             executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testPendingResultCheckDoesNotCleanWhileCommandIsRunning() throws Exception {
+        ConnectContext ctx = flightSession();
+        FlightProtocolAdapter adapter = FlightProtocolAdapter.of(ctx);
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        Thread worker = new Thread(() -> holdSession(adapter, ctx, () -> {
+            started.countDown();
+            release.await();
+        }));
+        ExecutorService checker = Executors.newSingleThreadExecutor();
+        worker.start();
+        try {
+            Assertions.assertTrue(started.await(10, TimeUnit.SECONDS));
+            Assertions.assertTrue(checker.submit(adapter::hasPendingResults).get(1, TimeUnit.SECONDS));
+            release.countDown();
+            worker.join(10000);
+            Assertions.assertFalse(worker.isAlive());
+            Assertions.assertFalse(adapter.hasPendingResults());
+        } finally {
+            release.countDown();
+            worker.join(10000);
+            checker.shutdownNow();
+            adapter.getChannel().close();
         }
     }
 
@@ -546,6 +574,7 @@ public class FlightProtocolAdapterTest {
 
     @Test
     public void testWaitingCommandGivesUpAfterTheQueryTimeout() throws Exception {
+        int activeBefore = QueryAdmissionController.INSTANCE.getActiveRequests();
         ConnectContext ctx = flightSession();
         ctx.getSessionVariable().setQueryTimeoutS(1);
         FlightProtocolAdapter adapter = FlightProtocolAdapter.of(ctx);
@@ -557,17 +586,41 @@ public class FlightProtocolAdapterTest {
             release.await();
         }));
         holder.start();
-        Assertions.assertTrue(started.await(10, TimeUnit.SECONDS));
         try {
+            Assertions.assertTrue(started.await(10, TimeUnit.SECONDS));
+            ConnectContext waitingContext = Mockito.spy(ctx);
+            Mockito.doAnswer(invocation -> {
+                // getExecTimeoutS is read before waiting for the lock, while the holder
+                // still owns it. Both commands must already contribute to the drain count.
+                Assertions.assertEquals(activeBefore + 2, QueryAdmissionController.INSTANCE.getActiveRequests());
+                return 1;
+            }).when(waitingContext).getExecTimeoutS();
             FlightRuntimeException e = Assertions.assertThrows(FlightRuntimeException.class,
-                    () -> adapter.runCommand(ctx, () -> Assertions.fail("must not run concurrently")));
+                    () -> adapter.runCommand(waitingContext, () -> Assertions.fail("must not run concurrently")));
             Assertions.assertEquals(FlightStatusCode.UNAVAILABLE, e.status().code());
             Assertions.assertTrue(e.status().description().contains("still running"), e.status().description());
+            Assertions.assertEquals(activeBefore + 1, QueryAdmissionController.INSTANCE.getActiveRequests());
+
+            Thread.currentThread().interrupt();
+            try {
+                FlightRuntimeException interrupted = Assertions.assertThrows(FlightRuntimeException.class,
+                        () -> adapter.runCommand(waitingContext, () -> Assertions.fail("must not run interrupted")));
+                Assertions.assertEquals(FlightStatusCode.CANCELLED, interrupted.status().code());
+                Assertions.assertTrue(Thread.currentThread().isInterrupted());
+                Assertions.assertEquals(activeBefore + 1, QueryAdmissionController.INSTANCE.getActiveRequests());
+            } finally {
+                Thread.interrupted();
+            }
         } finally {
             release.countDown();
             holder.join(10_000);
         }
+        Assertions.assertEquals(activeBefore, QueryAdmissionController.INSTANCE.getActiveRequests());
         // Once the first command is done, the session takes commands again.
-        Assertions.assertEquals("ok", adapter.callCommand(ctx, () -> "ok"));
+        Assertions.assertEquals("ok", adapter.callCommand(ctx, () -> {
+            Assertions.assertEquals(activeBefore + 1, QueryAdmissionController.INSTANCE.getActiveRequests());
+            return "ok";
+        }));
+        Assertions.assertEquals(activeBefore, QueryAdmissionController.INSTANCE.getActiveRequests());
     }
 }

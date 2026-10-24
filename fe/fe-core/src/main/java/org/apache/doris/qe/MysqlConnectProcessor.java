@@ -572,14 +572,26 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             return;
         }
 
-        // dispatch
-        dispatch();
-        // finalize
-        finalizeCommand();
-
-        ctx.setCommand(MysqlCommand.COM_SLEEP);
-        ctx.clear();
-        executor = null;
+        if (!ctx.startMysqlCommand()) {
+            return;
+        }
+        // Account for planning and FE-local statements too: they may have no Coordinator.
+        // Refuse new packets by closing the socket so a connection pool can reconnect.
+        if (!QueryAdmissionController.INSTANCE.tryAcquire()) {
+            ctx.setKilled();
+            ctx.finishMysqlCommand();
+            channel.close();
+            return;
+        }
+        try {
+            dispatch();
+            finalizeCommand();
+        } finally {
+            ctx.finishMysqlCommand();
+            ctx.clear();
+            executor = null;
+            QueryAdmissionController.INSTANCE.release();
+        }
     }
 
     // When any request is completed, it will generally need to send a response packet to the client

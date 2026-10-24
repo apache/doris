@@ -18,6 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.ThreadPoolManager;
@@ -122,6 +123,37 @@ public class ConnectScheduler {
 
     public Map<Integer, ConnectContext> getConnectionMap() {
         return connectPoolMgr.getConnectionMap();
+    }
+
+    public void closeIdleMysqlConnections(long deadline) {
+        for (ConnectContext context : getConnectionMap().values()) {
+            // A close listener can block on transaction rollback. Do not start another
+            // teardown once that wait consumed the shutdown budget or was interrupted.
+            if (System.nanoTime() >= deadline || Thread.currentThread().isInterrupted()) {
+                break;
+            }
+            ConnectContext previous = ConnectContext.get();
+            try {
+                // Follower rollback builds MasterOpExecutor from ConnectContext.get().
+                // The daemon worker must bind this session, just like the MySQL request worker.
+                context.setThreadLocalInfo();
+                context.closeIdleMysqlConnection();
+            } catch (Exception e) {
+                LOG.warn("failed to close idle MySQL connection {}", context.getConnectionId(), e);
+            } finally {
+                if (previous == null) {
+                    ConnectContext.remove();
+                } else {
+                    previous.setThreadLocalInfo();
+                }
+            }
+        }
+    }
+
+    public boolean hasPendingFlightResults() {
+        return getConnectionMap().values().stream()
+                .anyMatch(context -> context.getConnectType() == ConnectContext.ConnectType.ARROW_FLIGHT_SQL
+                        && FlightProtocolAdapter.of(context).hasPendingResults());
     }
 
     public Map<String, AtomicInteger> getUserConnectionMap() {
