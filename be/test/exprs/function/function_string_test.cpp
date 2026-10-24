@@ -1276,6 +1276,80 @@ TEST(function_string_test, function_ascii_test) {
     check_function_all_arg_comb<DataTypeInt32, true>(func_name, input_types, data_set);
 }
 
+TEST(function_string_test, function_ord_test) {
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+    DataSet data_set = {{{std::string("")}, int32_t(-1)},
+                        {{std::string("A")}, int32_t(65)},
+                        {{std::string("ABC")}, int32_t(65)},
+                        {{std::string("\xc2\xa2")}, int32_t(162)},
+                        {{std::string("\xe4\xbd\xa0")}, int32_t(20320)},
+                        {{std::string("\xf0\x9f\x98\x80")}, int32_t(128512)},
+                        {{std::string("\0tail", 5)}, int32_t(0)},
+                        {{std::string("\x7f")}, int32_t(127)},
+                        {{std::string("\xc2\x80")}, int32_t(128)},
+                        {{std::string("\xdf\xbf")}, int32_t(2047)},
+                        {{std::string("\xe0\xa0\x80")}, int32_t(2048)},
+                        {{std::string("\xed\x9f\xbf")}, int32_t(55295)},
+                        {{std::string("\xee\x80\x80")}, int32_t(57344)},
+                        {{std::string("\xef\xbf\xbf")}, int32_t(65535)},
+                        {{std::string("\xf0\x90\x80\x80")}, int32_t(65536)},
+                        {{std::string("\xf4\x8f\xbf\xbf")}, int32_t(1114111)},
+                        {{std::string("A\xff")}, int32_t(65)},
+                        {{Null()}, Null()}};
+
+    for (const auto& name : {"ord", "unicode"}) {
+        SCOPED_TRACE(name);
+        check_function_all_arg_comb<DataTypeInt32, true>(name, input_types, data_set);
+    }
+
+    data_set.pop_back();
+    InputTypeSet not_null_types = {Notnull {PrimitiveType::TYPE_VARCHAR}};
+    for (const auto& name : {"ord", "unicode"}) {
+        SCOPED_TRACE(name);
+        check_function_all_arg_comb<DataTypeInt32>(name, not_null_types, data_set);
+    }
+}
+
+TEST(function_string_test, function_ord_invalid_utf8_test) {
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+    DataSet data_set = {{{std::string("\x80")}, int32_t(-1)},
+                        {{std::string("\xff")}, int32_t(-1)},
+                        {{std::string("\xc2")}, int32_t(-1)},
+                        {{std::string("\xa2")}, int32_t(-1)},
+                        {{std::string("\xe4\xbd")}, int32_t(-1)},
+                        {{std::string("\xa0")}, int32_t(-1)},
+                        {{std::string("\xf0\x9f\x98")}, int32_t(-1)},
+                        {{std::string("\x80")}, int32_t(-1)},
+                        {{std::string("\xc2\x20")}, int32_t(-1)},
+                        {{std::string("\xe4\xbd\x20")}, int32_t(-1)},
+                        {{std::string("\xf0\x9f\x98\x20")}, int32_t(-1)},
+                        {{std::string("\xc0\x80")}, int32_t(-1)},
+                        {{std::string("\xe0\x80\x80")}, int32_t(-1)},
+                        {{std::string("\xf0\x80\x80\x80")}, int32_t(-1)},
+                        {{std::string("\xed\xa0\x80")}, int32_t(-1)},
+                        {{std::string("\xed\xbf\xbf")}, int32_t(-1)},
+                        {{std::string("\xf4\x90\x80\x80")}, int32_t(-1)},
+                        {{std::string("\xf5\x80\x80\x80")}, int32_t(-1)}};
+
+    for (const auto& name : {"ord", "unicode"}) {
+        SCOPED_TRACE(name);
+        check_function_all_arg_comb<DataTypeInt32, true>(name, input_types, data_set);
+    }
+}
+
+TEST(function_string_test, function_ord_empty_and_null_test) {
+    InputTypeSet nullable_types = {PrimitiveType::TYPE_VARCHAR};
+    InputTypeSet not_null_types = {Notnull {PrimitiveType::TYPE_VARCHAR}};
+    DataSet null_data_set = {{{Null()}, Null()}, {{Null()}, Null()}};
+
+    for (const auto& name : {"ord", "unicode"}) {
+        SCOPED_TRACE(name);
+        check_function_all_arg_comb<DataTypeInt32, true>(name, nullable_types, {});
+        check_function_all_arg_comb<DataTypeInt32>(name, not_null_types, {});
+        check_function_all_arg_comb<DataTypeInt32, true>(name, nullable_types, null_data_set);
+    }
+}
+
 TEST(function_string_test, function_is_valid_utf8_test) {
     std::string func_name = "is_valid_utf8";
 

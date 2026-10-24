@@ -21,6 +21,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.ExpressionEvaluator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Decode;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Encode;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ord;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UrlDecode;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
@@ -30,11 +31,47 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 class StringArithmeticTest {
+
+    @Test
+    void testOrdFoldsStringAndVarchar() {
+        String[] values = {"", "\0", "ASCII", "é", "中", "😀text", "A" + (char) 0xD800};
+        int[] expected = {-1, 0, 65, 233, 20013, 128512, 65};
+        for (int i = 0; i < values.length; i++) {
+            Assertions.assertEquals(new IntegerLiteral(expected[i]),
+                    ExpressionEvaluator.INSTANCE.eval(new Ord(new StringLiteral(values[i]))));
+            Assertions.assertEquals(new IntegerLiteral(expected[i]),
+                    ExpressionEvaluator.INSTANCE.eval(new Ord(new VarcharLiteral(values[i]))));
+        }
+    }
+
+    @Test
+    void testOrdFoldsUnicodeBoundaries() {
+        for (int codePoint : new int[] {0x7F, 0x80, 0x7FF, 0x800, 0xD7FF, 0xE000, 0xFFFF, 0x10000, 0x10FFFF}) {
+            String value = new String(Character.toChars(codePoint));
+            Assertions.assertEquals(new IntegerLiteral(codePoint),
+                    ExpressionEvaluator.INSTANCE.eval(new Ord(new StringLiteral(value))));
+            Assertions.assertEquals(new IntegerLiteral(codePoint),
+                    ExpressionEvaluator.INSTANCE.eval(new Ord(new VarcharLiteral(value))));
+        }
+    }
+
+    @Test
+    void testOrdDoesNotFoldUnpairedLeadingSurrogates() {
+        String high = String.valueOf((char) 0xD800);
+        String low = String.valueOf((char) 0xDC00);
+        for (String value : new String[] {high, low, high + "A", low + high}) {
+            Ord stringOrd = new Ord(new StringLiteral(value));
+            Assertions.assertSame(stringOrd, ExpressionEvaluator.INSTANCE.eval(stringOrd));
+            Ord varcharOrd = new Ord(new VarcharLiteral(value));
+            Assertions.assertSame(varcharOrd, ExpressionEvaluator.INSTANCE.eval(varcharOrd));
+        }
+    }
 
     @Test
     void testFieldMatchesFloatNaN() {
