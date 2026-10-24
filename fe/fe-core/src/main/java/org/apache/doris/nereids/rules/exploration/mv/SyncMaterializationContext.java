@@ -125,15 +125,9 @@ public class SyncMaterializationContext extends MaterializationContext {
                     LogicalOlapScan queryScan = (LogicalOlapScan) queryStructInfoRelations.get(0);
                     if (!queryScan.getTable().getFullQualifiers().equals(
                             olapScan.getTable().getFullQualifiers())) {
-                        // Only the same table, we can do partition prue
                         return olapScan;
                     }
-                    // Carry partition-prunable predicates from the original query scan onto
-                    // the rewritten MV scan so the post-processor can still drop the
-                    // predicates that have already been enforced by partition pruning.
-                    return olapScan
-                            .withSelectedPartitionIds(queryScan.getSelectedPartitionIds())
-                            .withPartitionPrunablePredicates(queryScan.getPartitionPrunablePredicates());
+                    return olapScan.withPartitionPruningFrom(queryScan);
                 }
             }, null);
         }
