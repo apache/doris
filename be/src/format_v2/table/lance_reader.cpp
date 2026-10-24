@@ -30,8 +30,10 @@
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <limits>
 #include <memory>
+#include <unordered_set>
 
 #include "common/config.h"
 #include "common/logging.h"
@@ -73,6 +75,57 @@ std::string expand_home_path(const std::string& path) {
     return path == "~" ? home : (io::Path(home) / path.substr(2)).string();
 }
 
+Status validate_local_dataset_files(const std::string& dataset_uri) {
+    // Lance opens manifests and fragments itself, so a confined dataset directory is not
+    // enough: its descendants can redirect those opens through symlinks.
+    std::error_code error;
+    const auto secure_root = std::filesystem::canonical(config::user_files_secure_path, error);
+    if (error) {
+        return Status::InvalidArgument("local Lance dataset path is not allowed");
+    }
+    std::vector<std::filesystem::path> pending {dataset_uri};
+    std::unordered_set<std::string> visited;
+    while (!pending.empty()) {
+        auto directory = std::move(pending.back());
+        pending.pop_back();
+        // Canonical directory identity bounds cycles and repeated in-root aliases without
+        // imposing a file-count or nesting limit on otherwise valid datasets.
+        if (!visited.insert(directory.string()).second) {
+            continue;
+        }
+        std::filesystem::directory_iterator entries(directory, error);
+        if (error) {
+            return Status::InvalidArgument("local Lance dataset path is not allowed");
+        }
+        const std::filesystem::directory_iterator end;
+        while (entries != end) {
+            auto target = entries->path();
+            auto status = entries->symlink_status(error);
+            if (error) {
+                return Status::InvalidArgument("local Lance dataset path is not allowed");
+            }
+            if (std::filesystem::is_symlink(status)) {
+                target = std::filesystem::canonical(target, error);
+                if (error || !io::LocalFileSystem::contain_path(secure_root, target)) {
+                    return Status::InvalidArgument("local Lance dataset path is not allowed");
+                }
+                status = std::filesystem::status(target, error);
+                if (error) {
+                    return Status::InvalidArgument("local Lance dataset path is not allowed");
+                }
+            }
+            if (std::filesystem::is_directory(status)) {
+                pending.push_back(std::move(target));
+            }
+            entries.increment(error);
+            if (error) {
+                return Status::InvalidArgument("local Lance dataset path is not allowed");
+            }
+        }
+    }
+    return Status::OK();
+}
+
 Status resolve_dataset_uri(const TFileRangeDesc& range, const TFileScanRangeParams& scan_params,
                            std::string* uri) {
     const auto& requested_uri = range.table_format_params.lance_params.dataset_uri;
@@ -104,8 +157,9 @@ Status resolve_dataset_uri(const TFileRangeDesc& range, const TFileScanRangePara
                                   .lexically_normal()
                                   .string();
         }
-        return io::global_local_filesystem()->canonicalize_local_file(
-                config::user_files_secure_path, local_input, uri);
+        RETURN_IF_ERROR(io::global_local_filesystem()->canonicalize_local_file(
+                config::user_files_secure_path, local_input, uri));
+        return validate_local_dataset_files(*uri);
     }
     *uri = requested_uri;
     return Status::OK();

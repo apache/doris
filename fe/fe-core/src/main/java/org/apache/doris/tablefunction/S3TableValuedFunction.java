@@ -109,17 +109,31 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
 
     private static boolean isRemoteLanceUri(String path) {
         try {
-            URI uri = new URI(path == null ? "" : path);
-            String scheme = uri.getScheme();
-            String authority = uri.getRawAuthority();
-            if (scheme == null || !LANCE_REMOTE_SCHEMES.contains(scheme.toLowerCase(Locale.ROOT))
-                    || uri.isOpaque()) {
+            if (path == null) {
                 return false;
             }
-            if (authority == null || authority.isEmpty()) {
+            int colon = path.indexOf(':');
+            if (colon < 0 || !LANCE_REMOTE_SCHEMES.contains(path.substring(0, colon).toLowerCase(Locale.ROOT))) {
+                return false;
+            }
+            String scheme = path.substring(0, colon);
+            if (!path.startsWith("//", colon + 1)) {
                 // GooseFS can resolve its remote master from storage options or configuration.
-                return "goosefs".equalsIgnoreCase(scheme) && uri.getRawPath() != null
-                        && uri.getRawPath().startsWith("/");
+                return "goosefs".equalsIgnoreCase(scheme) && path.startsWith("/", colon + 1);
+            }
+            int authorityEnd = path.length();
+            for (char separator : new char[] {'/', '?', '#'}) {
+                int end = path.indexOf(separator, colon + 3);
+                if (end >= 0) {
+                    authorityEnd = Math.min(authorityEnd, end);
+                }
+            }
+            // Validate only scheme/authority against SDK-local fallback. Rust's URL parser
+            // accepts and encodes raw spaces in paths; preserve that spelling for the SDK.
+            URI uri = new URI(path.substring(0, authorityEnd) + "/");
+            String authority = uri.getRawAuthority();
+            if (authority == null || authority.isEmpty()) {
+                return "goosefs".equalsIgnoreCase(scheme);
             }
             // Lance falls back to a local path if Rust's URL parser rejects the URI. Java's URI
             // accepts registry authorities with invalid ports, which Rust rejects. Validate the
