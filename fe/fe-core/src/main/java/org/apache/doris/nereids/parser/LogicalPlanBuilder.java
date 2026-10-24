@@ -70,6 +70,7 @@ import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.info.TableValuedFunctionRefInfo;
 import org.apache.doris.job.common.IntervalUnit;
 import org.apache.doris.load.loadv2.LoadTask;
+import org.apache.doris.load.routineload.kafka.KafkaPropertiesUtil;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVRefreshEnum.BuildMode;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
@@ -78,6 +79,7 @@ import org.apache.doris.mtmv.MTMVRefreshInfo;
 import org.apache.doris.mtmv.MTMVRefreshSchedule;
 import org.apache.doris.mtmv.MTMVRefreshTriggerInfo;
 import org.apache.doris.mtmv.ivm.IvmDryRunLimit;
+import org.apache.doris.nereids.DorisLexer;
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.DorisParser.AddBackendClauseContext;
 import org.apache.doris.nereids.DorisParser.AddBrokerClauseContext;
@@ -942,6 +944,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.AlterSystemOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterTableOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterUserInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterViewInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.BuildIndexOp;
 import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.ColocateGroupName;
@@ -1121,6 +1124,7 @@ import com.google.common.collect.ImmutableMap.Builder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.antlr.v4.runtime.CharStream;
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.RuleContext;
 import org.antlr.v4.runtime.Token;
@@ -1143,6 +1147,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -1183,6 +1188,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     });
 
     private final Map<Integer, ParserRuleContext> selectHintMap;
+    // All ALTER commands in a batch share one scan; stream identity also permits builder reuse.
+    private final Map<CharStream, Boolean> routineLoadSqlModeAmbiguity = Maps.newIdentityHashMap();
 
     // recursive cte is in form of union[all], and in visitSetOperation method, we try to reduceToLogicalPlanTree
     // for UNION. We should not do it for recursive cte, so this flag is to indicate if we meet recursive cte
@@ -9407,6 +9414,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             dataSourceMapProperties.putAll(visitPropertyItemList(ctx.propertyItemList()));
         }
 
+        // Load expressions can apply SET_VAR hints. Capture SQL before they change key decoding.
+        String auditSql = buildRoutineLoadAuditSql(ctx);
         Map<String, LoadProperty> loadPropertyMap = new HashMap<>();
         if (ctx.loadProperty() != null) {
             for (DorisParser.LoadPropertyContext oneLoadPropertyContext : ctx.loadProperty()) {
@@ -9422,7 +9431,79 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
         }
 
-        return new AlterRoutineLoadCommand(labelNameInfo, loadPropertyMap, properties, dataSourceMapProperties);
+        return new AlterRoutineLoadCommand(labelNameInfo, loadPropertyMap, properties, dataSourceMapProperties,
+                auditSql);
+    }
+
+    private String buildRoutineLoadAuditSql(DorisParser.AlterRoutineLoadContext ctx) {
+        // A preceding SET in a pre-parsed batch can change the mode sent to the master.
+        // Mask keys sensitive under either interpretation without changing execution properties.
+        if (routineLoadSqlModeAmbiguity.computeIfAbsent(ctx.start.getInputStream(),
+                input -> hasRoutineLoadSqlModeAmbiguity(input.getText(
+                        new org.antlr.v4.runtime.misc.Interval(0, input.size() - 1))))) {
+            // Check before slicing: a preceding statement can shift the separator's boundaries
+            // while preserving its statement count, giving this command a different SQL to forward.
+            return "/* masked ALTER ROUTINE LOAD: ambiguous SQL mode */";
+        }
+        // Keep only this statement when the request contains multiple statements: the audit caller
+        // can pass the entire request if its separate statement splitter disagrees with Nereids.
+        ParserRuleContext statement = ctx;
+        while (statement.getParent() != null
+                && !(statement.getParent() instanceof MultiStatementsContext)
+                && !(statement.getParent() instanceof SingleStatementContext)) {
+            statement = statement.getParent();
+        }
+        int start = 0;
+        int stop = ctx.start.getInputStream().size() - 1;
+        if (statement.getParent() instanceof MultiStatementsContext
+                && ((MultiStatementsContext) statement.getParent()).statement().size() > 1) {
+            start = statement.start.getStartIndex();
+            stop = statement.stop.getStopIndex();
+        }
+        String sql = ctx.start.getInputStream().getText(new org.antlr.v4.runtime.misc.Interval(start, stop));
+        TreeMap<Pair<Integer, Integer>, String> replacements = new TreeMap<>(new Pair.PairComparator<>());
+        if (ctx.propertyItemList() != null) {
+            for (DorisParser.PropertyItemContext property : ctx.propertyItemList().properties) {
+                boolean sensitive = SqlModeHelper.withSqlMode(SqlModeHelper.MODE_DEFAULT,
+                        () -> KafkaPropertiesUtil.isSensitiveKey(parsePropertyKey(property.key)))
+                        || SqlModeHelper.withSqlMode(SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES,
+                                () -> KafkaPropertiesUtil.isSensitiveKey(parsePropertyKey(property.key)));
+                if (sensitive) {
+                    // ANTLR positions count code points; Java string rewriting uses UTF-16 offsets.
+                    int valueStart = sql.offsetByCodePoints(0, property.value.start.getStartIndex() - start);
+                    int valueEnd = sql.offsetByCodePoints(0, property.value.stop.getStopIndex() - start + 1);
+                    replacements.put(Pair.of(valueStart, valueEnd - 1),
+                            "'" + KafkaPropertiesUtil.SENSITIVE_PROPERTY_MASK + "'");
+                }
+            }
+        }
+        return BaseViewInfo.rewriteSql(replacements, sql);
+    }
+
+    private boolean hasRoutineLoadSqlModeAmbiguity(String sql) {
+        // Both lexer modes have identical rules when there is no backslash to interpret.
+        if (sql.indexOf('\\') < 0) {
+            return false;
+        }
+        DorisLexer defaultMode = new DorisLexer(CaseInsensitiveStream.fromString(sql));
+        DorisLexer noBackslashMode = new DorisLexer(CaseInsensitiveStream.fromString(sql));
+        noBackslashMode.isNoBackslashEscapes = true;
+        // Alternate-mode lexer diagnostics must not write the original SQL to stderr.
+        defaultMode.removeErrorListeners();
+        noBackslashMode.removeErrorListeners();
+        while (true) {
+            Token defaultToken = defaultMode.nextToken();
+            Token noBackslashToken = noBackslashMode.nextToken();
+            if (defaultToken.getType() != noBackslashToken.getType()
+                    || defaultToken.getChannel() != noBackslashToken.getChannel()
+                    || defaultToken.getStartIndex() != noBackslashToken.getStartIndex()
+                    || defaultToken.getStopIndex() != noBackslashToken.getStopIndex()) {
+                return true;
+            }
+            if (defaultToken.getType() == Token.EOF) {
+                return false;
+            }
+        }
     }
 
     @Override

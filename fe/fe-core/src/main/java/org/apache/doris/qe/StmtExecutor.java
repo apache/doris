@@ -86,6 +86,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PrepareCommandPlanner;
 import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
+import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
@@ -701,7 +702,7 @@ public class StmtExecutor {
         TUniqueId queryId = UniqueIdUtils.fastUniqueId();
         if (Config.enable_print_request_before_execution) {
             LOG.info("begin to execute query {} {}",
-                    DebugUtil.printId(queryId), getStmtForLoggingBeforeParse());
+                    DebugUtil.printId(queryId), getStmtForLogging());
         }
         queryRetry(queryId);
     }
@@ -940,7 +941,7 @@ public class StmtExecutor {
 
     private void executeByNereids(TUniqueId queryId) throws Exception {
         if (LOG.isDebugEnabled()) {
-            LOG.debug("Nereids start to execute query:\n {}", getStmtForLoggingBeforeParse());
+            LOG.debug("Nereids start to execute query:\n {}", getStmtForLogging());
         }
         context.setQueryId(queryId);
         context.setStartTime();
@@ -1718,7 +1719,7 @@ public class StmtExecutor {
     private void handleQueryStmt() throws Exception {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Handling query {} with query id {}",
-                    originStmt.originStmt, DebugUtil.printId(context.queryId));
+                    getStmtForLogging(), DebugUtil.printId(context.queryId));
         }
 
         ResultSender sender = context.getResultSender();
@@ -2535,8 +2536,16 @@ public class StmtExecutor {
         }
     }
 
-    private String getStmtForLoggingBeforeParse() {
-        return getStmtForLoggingBeforeParse(originStmt == null ? null : originStmt.originStmt);
+    private String getStmtForLogging() {
+        String stmt = originStmt == null ? null : originStmt.originStmt;
+        if (parsedStmt instanceof LogicalPlanAdapter
+                && ((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof AlterRoutineLoadCommand) {
+            // This command captures only its own masked SQL during the initial parse.
+            return getStmtForLogging(stmt);
+        }
+        // A splitter mismatch can leave a neighboring statement's credentials in originStmt.
+        // Other plans do not own all of that text: require a single statement or fail closed.
+        return getStmtForLoggingBeforeParse(stmt);
     }
 
     private String getStmtForLoggingBeforeParse(String stmt) {
