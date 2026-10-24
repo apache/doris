@@ -20,13 +20,17 @@ package org.apache.doris.filesystem.spi;
 import org.apache.doris.extension.spi.Plugin;
 import org.apache.doris.extension.spi.PluginFactory;
 import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.auth.NativeObjectStorageCredential;
+import org.apache.doris.filesystem.auth.ObjectStorageAuthentication;
 import org.apache.doris.filesystem.properties.FileSystemCapability;
 import org.apache.doris.filesystem.properties.FileSystemProperties;
 
 import java.io.IOException;
 import java.util.Collections;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -43,6 +47,55 @@ import java.util.Set;
  * 3. Have NO dependency on fe-core, fe-common, or fe-catalog.
  */
 public interface FileSystemProvider<P extends FileSystemProperties> extends PluginFactory {
+
+    /**
+     * Normalize provider-owned aliases without binding clients or requiring a complete property map.
+     * Context is the effective CREATE/ALTER selection; properties may be a partial ALTER patch.
+     * Implementations return a new map and preserve explicit credential-clearing values.
+     */
+    default Map<String, String> normalizeProperties(Map<String, String> properties, Map<String, String> context) {
+        return new HashMap<>(properties);
+    }
+
+    /** Resolve authentication without I/O, including validation of conflicting raw aliases. */
+    default Optional<ObjectStorageAuthentication> resolveAuthentication(Map<String, String> properties) {
+        return Optional.empty();
+    }
+
+    /**
+     * Validate provider-owned properties before routing, including combinations that would otherwise
+     * select another provider and silently ignore these properties. Must be deterministic and do no I/O.
+     * Called for every loaded provider, even when it does not match the map.
+     */
+    default void validateProperties(Map<String, String> properties) {
+    }
+
+    /**
+     * Names of general-purpose providers whose heuristic matches this provider supersedes when it
+     * also matches. Explicit selections are never suppressed. Names are case-insensitive; the
+     * relationship must be acyclic. Empty by default to preserve existing multi-provider bindings.
+     */
+    default Set<String> fallbackProviders() {
+        return Collections.emptySet();
+    }
+
+    /**
+     * Restore provider-owned property names from a typed identity. Empty means this plugin does not
+     * handle the credential type. Neither user property names nor wire formats are interpreted by core.
+     */
+    default Optional<Map<String, String>> credentialToProperties(NativeObjectStorageCredential credential) {
+        return Optional.empty();
+    }
+
+    /** Provider-owned credential properties accepted by a storage vault ALTER. */
+    default Set<String> modifiableCredentialPropertyKeys() {
+        return Collections.emptySet();
+    }
+
+    /** Properties whose explicit empty ALTER value clears the persisted setting. */
+    default Set<String> clearablePropertyKeys() {
+        return Collections.emptySet();
+    }
 
     /**
      * Returns true if this provider can handle the given properties.

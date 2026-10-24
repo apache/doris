@@ -18,15 +18,21 @@
 package org.apache.doris.filesystem.gcs;
 
 import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.auth.GcpCredentialSpec;
+import org.apache.doris.filesystem.auth.NativeObjectStorageCredential;
+import org.apache.doris.filesystem.auth.ObjectStorageAuthentication;
+import org.apache.doris.filesystem.gcs.auth.GcpCredential;
+import org.apache.doris.filesystem.gcs.auth.GcsAuthResolver;
 import org.apache.doris.filesystem.s3.S3CompatSignals;
 import org.apache.doris.filesystem.s3.S3FileSystem;
 import org.apache.doris.filesystem.s3.S3FileSystemProperties;
-import org.apache.doris.filesystem.s3.S3ObjStorage;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -36,13 +42,110 @@ import java.util.Set;
  *
  * <p>Selected explicitly by {@code provider=GCS}/{@code GCP} or {@code fs.gcs.support=true};
  * otherwise, when the user declared no filesystem explicitly, by
- * {@link S3CompatSignals#guessIsGcs} (a {@code gs.endpoint}, or an endpoint on
+ * {@link GcsAuthResolver#guessIsGcs} (a {@code gs.endpoint}, or an endpoint on
  * {@code storage.googleapis.com}). Delegates I/O to {@link S3FileSystem}.
  */
 public class GcsFileSystemProvider implements FileSystemProvider<GcsFileSystemProperties> {
 
     private static final String STORAGE_TYPE_GCS = "GCS";
     private static final String FS_GCS_SUPPORT = "fs.gcs.support";
+
+    private static final Map<String, String> RESOURCE_ALIASES = Map.ofEntries(
+            Map.entry("gs.endpoint", "s3.endpoint"),
+            Map.entry("gs.access_key", "s3.access_key"),
+            Map.entry("gs.secret_key", "s3.secret_key"),
+            Map.entry("gs.session_token", "s3.session_token"),
+            Map.entry("gs.connection.maximum", "s3.connection.maximum"),
+            Map.entry("gs.connection.request.timeout", "s3.connection.request.timeout"),
+            Map.entry("gs.connection.timeout", "s3.connection.timeout"),
+            Map.entry("gs.use_path_style", "use_path_style"),
+            Map.entry("gs.force_parsing_by_standard_uri", "force_parsing_by_standard_uri"));
+
+    @Override
+    public Map<String, String> normalizeProperties(Map<String, String> properties, Map<String, String> context) {
+        GcsAuthResolver.resolve(properties);
+        Map<String, String> normalized = new HashMap<>(properties);
+        String selected = context.get("provider");
+        if (selected == null || selected.isBlank()) {
+            if (!GcsAuthResolver.guessIsGcs(context)) {
+                normalized.keySet().removeAll(RESOURCE_ALIASES.keySet());
+                return normalized;
+            }
+            selected = "GCP";
+            normalized.put("provider", selected);
+        }
+        if ("GCP".equalsIgnoreCase(selected) || STORAGE_TYPE_GCS.equalsIgnoreCase(selected)) {
+            RESOURCE_ALIASES.forEach((alias, key) -> {
+                String value = normalized.remove(alias);
+                if (value != null && !value.isBlank()) {
+                    normalized.put(key, value);
+                }
+            });
+        } else {
+            // Inactive aliases must not become effective after a later provider-only ALTER.
+            normalized.keySet().removeAll(RESOURCE_ALIASES.keySet());
+        }
+        return normalized;
+    }
+
+    @Override
+    public Optional<ObjectStorageAuthentication> resolveAuthentication(Map<String, String> properties) {
+        return GcsAuthResolver.resolve(properties).map(auth -> {
+            if (auth.isAnonymous()) {
+                return ObjectStorageAuthentication.anonymous("GCP");
+            }
+            if (auth.getNativeCredential().isEmpty()) {
+                return ObjectStorageAuthentication.hmac("GCP");
+            }
+            GcpCredential nativeCredential = auth.getNativeCredential().orElseThrow();
+            GcpCredentialSpec.ProviderType type = GcpCredentialSpec.ProviderType.valueOf(
+                    nativeCredential.getCredentialProviderType().name());
+            String principal = nativeCredential.getImpersonationServiceAccount();
+            GcpCredentialSpec resolved = new GcpCredentialSpec(type, principal.isEmpty() ? null : principal);
+            GcpCredentialSpec updates = new GcpCredentialSpec(
+                    properties.containsKey(GcpCredential.CREDENTIAL_PROVIDER_TYPE) ? type : null,
+                    properties.containsKey(GcpCredential.IMPERSONATION_SERVICE_ACCOUNT) ? principal : null);
+            return ObjectStorageAuthentication.nativeAuthentication(resolved, updates);
+        });
+    }
+
+    @Override
+    public void validateProperties(Map<String, String> properties) {
+        GcsAuthResolver.resolve(properties);
+        if (GcsAuthResolver.hasNativeCredentialProperties(properties)
+                && S3CompatSignals.hasExplicitS3Request(properties)) {
+            throw new IllegalArgumentException("Native GCP authentication cannot be used with S3 properties.");
+        }
+    }
+
+    @Override
+    public Set<String> fallbackProviders() {
+        return Set.of("S3", "MINIO");
+    }
+
+    @Override
+    public Optional<Map<String, String>> credentialToProperties(NativeObjectStorageCredential credential) {
+        if (!(credential instanceof GcpCredentialSpec)) {
+            return Optional.empty();
+        }
+        GcpCredentialSpec gcp = (GcpCredentialSpec) credential;
+        Map<String, String> properties = new HashMap<>();
+        properties.put(GcpCredential.CREDENTIAL_PROVIDER_TYPE,
+                gcp.getProviderType().orElse(GcpCredentialSpec.ProviderType.DEFAULT).name());
+        gcp.getImpersonationServiceAccount().filter(principal -> !principal.isEmpty())
+                .ifPresent(principal -> properties.put(GcpCredential.IMPERSONATION_SERVICE_ACCOUNT, principal));
+        return Optional.of(properties);
+    }
+
+    @Override
+    public Set<String> modifiableCredentialPropertyKeys() {
+        return Set.of(GcpCredential.CREDENTIAL_PROVIDER_TYPE, GcpCredential.IMPERSONATION_SERVICE_ACCOUNT);
+    }
+
+    @Override
+    public Set<String> clearablePropertyKeys() {
+        return Set.of(GcpCredential.IMPERSONATION_SERVICE_ACCOUNT);
+    }
 
     @Override
     public boolean supports(Map<String, String> properties) {
@@ -53,7 +156,7 @@ public class GcsFileSystemProvider implements FileSystemProvider<GcsFileSystemPr
                 || S3CompatSignals.isFsSupport(properties, FS_GCS_SUPPORT)) {
             return true;
         }
-        return S3CompatSignals.guessAllowed(properties) && S3CompatSignals.guessIsGcs(properties);
+        return S3CompatSignals.guessAllowed(properties) && GcsAuthResolver.guessIsGcs(properties);
     }
 
     @Override
@@ -63,9 +166,16 @@ public class GcsFileSystemProvider implements FileSystemProvider<GcsFileSystemPr
 
     @Override
     public FileSystem create(GcsFileSystemProperties properties) throws IOException {
-        S3FileSystemProperties delegate = S3FileSystemProperties.of(properties.toS3CompatibleKv());
+        Map<String, String> delegateProperties = new HashMap<>(properties.toS3CompatibleKv());
+        if (properties.getAuth().getNativeCredential().isPresent()) {
+            // The delegate only supplies URI/connection settings. GcsObjStorage supplies OAuth.
+            delegateProperties.remove(GcpCredential.CREDENTIAL_PROVIDER_TYPE);
+            delegateProperties.remove(GcpCredential.IMPERSONATION_SERVICE_ACCOUNT);
+            delegateProperties.put("AWS_CREDENTIALS_PROVIDER_TYPE", "ANONYMOUS");
+        }
+        S3FileSystemProperties delegate = S3FileSystemProperties.of(delegateProperties);
         return new S3FileSystem(delegate,
-                new S3ObjStorage(delegate, properties.getSupportedSchemes()));
+                new GcsObjStorage(delegate, properties));
     }
 
     @Override
@@ -75,7 +185,7 @@ public class GcsFileSystemProvider implements FileSystemProvider<GcsFileSystemPr
 
     @Override
     public boolean supportsGuess(Map<String, String> properties) {
-        return S3CompatSignals.guessIsGcs(properties);
+        return !S3CompatSignals.hasExplicitS3Request(properties) && GcsAuthResolver.guessIsGcs(properties);
     }
 
     @Override

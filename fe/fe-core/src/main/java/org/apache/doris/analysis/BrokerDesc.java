@@ -121,6 +121,20 @@ public class BrokerDesc extends StorageDesc implements Writable {
         return (null != storageAdapter) ? storageAdapter.validateAndNormalizeUri(location) : location;
     }
 
+    /**
+     * Normalize EXPORT and OUTFILE destinations for the BE writer.
+     */
+    public String getFileLocationForExport(String location) throws UserException {
+        // BE parses HTTP(S) paths as path-style, while FE defaults to virtual-hosted parsing.
+        // Preserve these paths and the existing path handling for non-S3 backends.
+        if (StorageType.S3.equals(getStorageType())
+                && !StringUtils.startsWithIgnoreCase(location, "http://")
+                && !StringUtils.startsWithIgnoreCase(location, "https://")) {
+            return getFileLocation(location);
+        }
+        return location;
+    }
+
     public static BrokerDesc createForStreamLoad() {
         return new BrokerDesc("", StorageType.STREAM, null);
     }

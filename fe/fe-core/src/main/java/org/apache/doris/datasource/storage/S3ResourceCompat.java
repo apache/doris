@@ -57,7 +57,7 @@ public final class S3ResourceCompat {
 
     public static final List<String> REQUIRED_FIELDS = Arrays.asList(ENDPOINT);
     public static final List<String> PROVIDERS =
-            Arrays.asList("COS", "OSS", "S3", "OBS", "BOS", "AZURE", "GCP", "TOS");
+            Arrays.asList("COS", "OSS", "S3", "OBS", "BOS", "AZURE", "GCP", "GCS", "TOS");
 
     private static final Pattern IPV4_PORT_PATTERN =
             Pattern.compile("((?:\\d{1,3}\\.){3}\\d{1,3}:\\d{1,5})");
@@ -111,7 +111,7 @@ public final class S3ResourceCompat {
         if (StringUtils.isNotBlank(properties.get(FS_PROVIDER_KEY))) {
             // S3 Provider properties should be case insensitive.
             if (!PROVIDERS.stream().anyMatch(s -> s.equals(properties.get(FS_PROVIDER_KEY).toUpperCase()))) {
-                throw new DdlException("Provider must be one of OSS, OBS, AZURE, BOS, COS, S3, GCP");
+                throw new DdlException("Provider must be one of OSS, OBS, AZURE, BOS, COS, S3, GCP, GCS, TOS");
             }
         }
 
@@ -136,6 +136,7 @@ public final class S3ResourceCompat {
     }
 
     public static void convertToStdProperties(Map<String, String> properties) {
+        StorageAdapter.resolveAuthentication(properties);
         if (properties.containsKey(Env.ENDPOINT)) {
             properties.putIfAbsent(ENDPOINT, properties.get(Env.ENDPOINT));
         }

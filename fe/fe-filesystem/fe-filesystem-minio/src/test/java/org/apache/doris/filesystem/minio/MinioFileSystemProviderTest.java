@@ -109,6 +109,19 @@ class MinioFileSystemProviderTest {
     }
 
     @Test
+    void supportsGuess_doesNotAlsoBindExplicitS3() {
+        for (String endpoint : new String[] {"https://storage.us-east1.rep.googleapis.com",
+                "http://minio.local:9000"}) {
+            Map<String, String> props = new HashMap<>();
+            props.put("s3.endpoint", endpoint);
+            Assertions.assertTrue(provider.supportsGuess(props), endpoint);
+            props.put("provider", "S3");
+            Assertions.assertFalse(provider.supportsGuess(props), endpoint);
+            Assertions.assertFalse(provider.supports(props), endpoint);
+        }
+    }
+
+    @Test
     void supportsGuess_yieldsToAzureSovereignCloudHostSuffixes() {
         // The Azure claim is host-suffix based (all sovereign clouds, blob AND dfs), not a
         // static marker list: a US-Government dfs endpoint must never be claimed by MinIO or
