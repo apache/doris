@@ -21,6 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import org.apache.doris.cdcclient.exception.CommonException;
@@ -29,12 +30,21 @@ import org.apache.doris.cdcclient.source.reader.SourceReader;
 import org.apache.doris.job.cdc.request.FetchRecordRequest;
 import org.apache.doris.job.cdc.request.WriteRecordRequest;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Method;
 import java.util.Collections;
 
 class EnvTest {
+
+    @AfterEach
+    void resetTlsConfiguration() {
+        Env env = Env.getCurrentEnv();
+        env.setBackendHttpTlsEnabled(false);
+        env.setBackendHttpSkipHostnameVerification(false);
+        env.setBackendHttpTlsCaCertificatePath(null);
+    }
 
     @Test
     void tvfRequestReplacesReaderOwnedByPreviousTask() throws Exception {
@@ -112,6 +122,34 @@ class EnvTest {
     void detachReaderIfOwnerReturnsNullForUnknownJob() {
         // Stale release for an unknown job (no lock/context) must be a no-op.
         assertNull(Env.getCurrentEnv().detachReaderIfOwner("no-such-job-id", "t1"));
+    }
+
+    @Test
+    void internalHttpUrlUsesHttpWhenBackendTlsDisabled() {
+        Env env = Env.getCurrentEnv();
+        env.setBackendHttpPort(8040);
+        env.setBackendHttpTlsEnabled(false);
+
+        assertEquals("http://127.0.0.1:8040", env.getBackendInternalHttpUrl());
+        assertEquals("http://fe-host:8030", env.getInternalHttpUrl("fe-host:8030"));
+    }
+
+    @Test
+    void internalHttpUrlUsesHttpsWhenBackendTlsEnabled() {
+        Env env = Env.getCurrentEnv();
+        env.setBackendHttpPort(8040);
+        env.setBackendHttpTlsEnabled(true);
+
+        assertEquals("https://127.0.0.1:8040", env.getBackendInternalHttpUrl());
+        assertEquals("https://fe-host:8030", env.getInternalHttpUrl("fe-host:8030"));
+    }
+
+    @Test
+    void exposesHostnameVerificationSetting() {
+        Env env = Env.getCurrentEnv();
+        env.setBackendHttpSkipHostnameVerification(true);
+
+        assertTrue(env.isBackendHttpSkipHostnameVerification());
     }
 
     private FetchRecordRequest tvfRequest(String jobId, String taskId) {

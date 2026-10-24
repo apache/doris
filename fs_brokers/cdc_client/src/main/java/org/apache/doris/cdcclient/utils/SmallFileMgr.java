@@ -178,8 +178,7 @@ public class SmallFileMgr {
 
             // 4. Download from FE: GET /api/get_small_file?file_id=xxx&token=yyy
             String url =
-                    "http://"
-                            + feMasterAddress
+                    Env.getCurrentEnv().getInternalHttpUrl(feMasterAddress)
                             + "/api/get_small_file?file_id="
                             + fileId
                             + "&token="

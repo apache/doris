@@ -32,10 +32,12 @@ set(COMMON_FILES
     version_metrics.cpp
     kms.cpp
     network_util.cpp
+    ../client/oss/client_connection_provider.cpp
     ../server/oss/cloud_server_starter_factory.cpp
 )
 
 if (ENABLE_TLS)
+    list(REMOVE_ITEM COMMON_FILES ../client/oss/client_connection_provider.cpp)
     list(REMOVE_ITEM COMMON_FILES ../server/oss/cloud_server_starter_factory.cpp)
     file(GLOB_RECURSE EXTRA_SOURCES CONFIGURE_DEPENDS
             "${CMAKE_CURRENT_SOURCE_DIR}/../${TLS_MODULE_DIR}/*.cpp")

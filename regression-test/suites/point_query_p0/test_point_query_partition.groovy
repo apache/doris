@@ -149,4 +149,4 @@ suite("test_point_query_partition") {
         qe_point_selectmmm stmt 
         qe_point_selecteee stmt 
     }
-} 
+}
