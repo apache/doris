@@ -133,6 +133,7 @@ public:
 // UT
 #ifdef BE_TEST
     TabletMeta(TabletSchemaSPtr tablet_schema) : _schema(tablet_schema) {
+        _row_ttl_config.set_duration_us(tablet_schema->row_ttl_duration_us());
         _disable_auto_compaction.store(tablet_schema->disable_auto_compaction());
     }
 #endif
@@ -282,6 +283,10 @@ public:
         _enable_unique_key_merge_on_write = value;
     }
 #endif
+    // Access under the tablet header lock, like binlog_config().
+    const RowTtlConfigPB& row_ttl_config() const { return _row_ttl_config; }
+    Status update_row_ttl_config(const RowTtlConfigPB& config);
+
     // TODO(Drogon): thread safety
     const BinlogConfig& binlog_config() const { return _binlog_config; }
     void set_binlog_config(BinlogConfig binlog_config) {
@@ -421,6 +426,7 @@ private:
 
     // binlog config
     BinlogConfig _binlog_config {};
+    RowTtlConfigPB _row_ttl_config;
     TabletRolePB _tablet_role = TabletRolePB::TABLET_ROLE_DATA;
     int64_t _changelog_tablet_id = 0;
 
