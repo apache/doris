@@ -188,9 +188,13 @@ public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Ex
         fsCopyProps.remove("compress_type");
 
         StorageAdapter storageAdapter = StorageAdapter.of(fsCopyProps);
+        if (storageAdapter.getType() == StorageTypeId.LOCAL) {
+            LocalTableValuedFunction.checkEnabled();
+        }
         if (storageAdapter.getType() == StorageTypeId.HDFS) {
             LocalTableValuedFunction.checkHadoopFileSystemEnabled(
-                    props.get("file_path"), storageAdapter.getBackendConfigProperties());
+                    org.apache.doris.filesystem.FileSystemUtil.extractParentDirectory(props.get("file_path")),
+                    storageAdapter.getBackendConfigProperties());
         }
         // Concrete filesystems only accept their native schemes; normalize legacy compatibility
         // schemes (e.g. cos:// with s3.* properties) before crossing the plugin boundary.
