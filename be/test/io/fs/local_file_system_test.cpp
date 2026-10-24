@@ -31,12 +31,14 @@
 #include <filesystem>
 #include <vector>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "cpp/sync_point.h"
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_writer.h"
+#include "util/defer_op.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -568,6 +570,10 @@ TEST_F(LocalFileSystemTest, AbnormalWriteRead) {
 }
 
 TEST_F(LocalFileSystemTest, TestGlob) {
+    const std::string original_secure_path = config::user_files_secure_path;
+    DEFER(config::user_files_secure_path = original_secure_path);
+    // Bind this fixture to its own files, independent of the runner's build-profile directory.
+    config::user_files_secure_path = std::filesystem::absolute("./be/ut_build_ASAN/test").string();
     std::string path = "./be/ut_build_ASAN/test/file_path/";
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(path).ok());
     EXPECT_TRUE(io::global_local_filesystem()
@@ -597,6 +603,112 @@ TEST_F(LocalFileSystemTest, TestGlob) {
     EXPECT_EQ(2, files.size());
 
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(path).ok());
+}
+
+TEST_F(LocalFileSystemTest, TestSafeGlobPathContainment) {
+    auto fs = io::global_local_filesystem();
+    const std::string original_secure_path = config::user_files_secure_path;
+    DEFER(config::user_files_secure_path = original_secure_path);
+    const auto root = std::filesystem::canonical(test_dir);
+    const auto secure = root / "secure";
+    const auto outside = root / "secure-other";
+    std::filesystem::create_directories(secure / "nested");
+    std::filesystem::create_directory(outside);
+    ASSERT_TRUE(save_string_file((secure / "nested/inside.csv").string(), "inside").ok());
+    ASSERT_TRUE(save_string_file((outside / "outside.csv").string(), "outside").ok());
+    std::filesystem::create_directory_symlink(outside, secure / "escape");
+    std::filesystem::create_symlink(outside / "outside.csv", secure / "outside.csv");
+    std::filesystem::create_symlink(outside / "missing.csv", outside / "broken.csv");
+    std::filesystem::create_directory_symlink(secure / "nested", secure / "inside");
+    config::user_files_secure_path = secure.string();
+
+    for (const auto* pattern : {".[.]/secure-other/outside.csv", ".?/secure-other/outside.csv",
+                                ".[.-.]/secure-other/outside.csv", "escape/*.csv", "outside.csv",
+                                ".[.]/secure-other/*.csv", "escape/broken*.csv"}) {
+        std::vector<io::FileInfo> files;
+        const auto status = fs->safe_glob(pattern, &files);
+        EXPECT_FALSE(status.ok()) << pattern;
+        EXPECT_NE(status.to_string().find("file path is not allowed"), std::string::npos) << status;
+        // The pattern need not name the matched file, so errors must not reveal that name.
+        const auto message = status.to_string();
+        EXPECT_EQ(std::string::npos, message.find(root.string())) << message;
+        for (const auto* name : {"outside.csv", "broken.csv", "missing.csv"}) {
+            EXPECT_EQ(std::string::npos, message.find(name)) << message;
+        }
+        EXPECT_TRUE(files.empty());
+    }
+
+    for (const auto* pattern : {"nested/*.csv", "inside/*.csv"}) {
+        std::vector<io::FileInfo> files;
+        ASSERT_TRUE(fs->safe_glob(pattern, &files).ok()) << pattern;
+        ASSERT_EQ(1, files.size());
+        EXPECT_EQ((secure / "nested/inside.csv").string(), files[0].file_name);
+        EXPECT_EQ(6, files[0].file_size);
+    }
+}
+
+TEST_F(LocalFileSystemTest, TestSafeGlobSecureRoot) {
+    auto fs = io::global_local_filesystem();
+    const std::string original_secure_path = config::user_files_secure_path;
+    DEFER(config::user_files_secure_path = original_secure_path);
+    const auto root = std::filesystem::canonical(test_dir);
+    std::filesystem::create_directory(root / "secure");
+    std::filesystem::create_directory_symlink(root / "secure", root / "secure-link");
+    ASSERT_TRUE(save_string_file((root / "secure/inside.csv").string(), "inside").ok());
+
+    for (const auto& secure : {std::string(test_dir) + "/secure", (root / "secure/").string(),
+                               (root / "secure-link").string()}) {
+        config::user_files_secure_path = secure;
+        std::vector<io::FileInfo> files;
+        ASSERT_TRUE(fs->safe_glob("*.csv", &files).ok()) << secure;
+        ASSERT_EQ(1, files.size());
+        EXPECT_EQ((root / "secure/inside.csv").string(), files[0].file_name);
+    }
+    const auto special_root = root / "secure[prod]*?\\root";
+    std::filesystem::create_directory(special_root);
+    std::filesystem::create_directory_symlink(special_root, root / "special-root-link");
+    ASSERT_TRUE(save_string_file((special_root / "inside.csv").string(), "inside").ok());
+    for (const auto& secure : {special_root, root / "special-root-link"}) {
+        config::user_files_secure_path = secure.string();
+        std::vector<io::FileInfo> matches;
+        ASSERT_TRUE(fs->safe_glob("*.csv", &matches).ok()) << secure;
+        ASSERT_EQ(1, matches.size());
+        EXPECT_EQ((special_root / "inside.csv").string(), matches[0].file_name);
+    }
+    config::user_files_secure_path = "";
+    std::vector<io::FileInfo> files;
+    EXPECT_FALSE(fs->safe_glob("*.csv", &files).ok());
+    config::user_files_secure_path = (root / "missing").string();
+    EXPECT_FALSE(fs->safe_glob("*.csv", &files).ok());
+}
+
+TEST_F(LocalFileSystemTest, TestCanonicalizeSecureLocalPath) {
+    auto fs = io::global_local_filesystem();
+    const auto root = std::filesystem::canonical(test_dir);
+    const auto secure = root / "secure";
+    std::filesystem::create_directories(secure / "nested");
+    std::filesystem::create_directory(root / "secure-other");
+    std::filesystem::create_directory_symlink(root / "secure-other", secure / "escape");
+    std::filesystem::create_directory_symlink(secure / "nested", secure / "inside");
+    for (const auto& path :
+         {std::string("nested"), std::string("nested/../inside"), (secure / "nested").string(),
+          "file://" + (secure / "nested").string()}) {
+        std::string resolved;
+        ASSERT_TRUE(fs->canonicalize_local_file(secure.string(), path, &resolved).ok()) << path;
+        EXPECT_EQ((secure / "nested").string(), resolved);
+    }
+    for (const auto& path :
+         {std::string("../secure-other"), std::string("escape"), (root / "secure-other").string(),
+          std::string("https://invalid/dataset"), std::string("s3://bucket/dataset"),
+          std::string("http://invalid/dataset"), std::string(""),
+          std::string("nested\0ignored", 14)}) {
+        std::string resolved;
+        const auto status = fs->canonicalize_local_file(secure.string(), path, &resolved);
+        EXPECT_FALSE(status.ok()) << path;
+        EXPECT_EQ(std::string::npos, status.to_string().find(root.string())) << status;
+    }
+    std::string resolved;
+    EXPECT_FALSE(fs->canonicalize_local_file("", secure.string(), &resolved).ok());
 }
 
 TEST_F(LocalFileSystemTest, TestConvertToAbsPath) {
@@ -658,4 +770,30 @@ TEST_F(LocalFileSystemTest, TestEqualOrSubPath) {
     EXPECT_FALSE(io::LocalFileSystem::equal_or_sub_path("/data/store1", "/data/store11/snapshot"));
     EXPECT_FALSE(io::LocalFileSystem::equal_or_sub_path("/data/store/snapshot", "/data/store"));
 }
+
+TEST_F(LocalFileSystemTest, TestSafeGlobPreservesWhitespaceIdentity) {
+    const auto original_secure_path = config::user_files_secure_path;
+    DEFER(config::user_files_secure_path = original_secure_path);
+    const auto root = std::filesystem::canonical(test_dir);
+    const auto secure = root / "whitespace-secure";
+    const auto outside = root / "whitespace-outside.csv";
+    ASSERT_TRUE(std::filesystem::create_directory(secure));
+    ASSERT_TRUE(save_string_file(outside.string(), "outside").ok());
+    ASSERT_TRUE(save_string_file((secure / "name.csv ").string(), "safe").ok());
+    std::filesystem::create_symlink(outside, secure / "name.csv");
+    config::user_files_secure_path = secure.string();
+    std::vector<io::FileInfo> files;
+    auto fs = io::global_local_filesystem();
+    ASSERT_TRUE(fs->safe_glob("name.csv?", &files).ok());
+    ASSERT_EQ(1, files.size());
+    EXPECT_EQ((secure / "name.csv ").string(), files[0].file_name);
+    io::FileReaderSPtr reader;
+    ASSERT_TRUE(fs->open_file(files[0].file_name, &reader).ok());
+    char buffer[4];
+    size_t bytes_read = 0;
+    ASSERT_TRUE(reader->read_at(0, {buffer, sizeof(buffer)}, &bytes_read).ok());
+    EXPECT_EQ("safe", std::string(buffer, bytes_read));
+    EXPECT_FALSE(fs->safe_glob("name.csv", &files).ok());
+}
+
 } // namespace doris

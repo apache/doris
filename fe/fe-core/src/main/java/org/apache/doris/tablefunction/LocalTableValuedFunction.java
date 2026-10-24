@@ -21,6 +21,7 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -63,6 +64,8 @@ public class LocalTableValuedFunction extends ExternalFileTableValuedFunction {
     private boolean sharedStorage = false;
 
     public LocalTableValuedFunction(Map<String, String> properties) throws AnalysisException {
+        checkEnabled();
+
         // Check privileges before listing files or discovering their schema.
         checkAuth(ConnectContext.get());
 
@@ -129,11 +132,38 @@ public class LocalTableValuedFunction extends ExternalFileTableValuedFunction {
                                 + ", error msg: " + globResponse.getStatus().getErrorMsgsList());
             }
             for (PFileInfo file : globResponse.getFilesList()) {
-                fileStatuses.add(new TBrokerFileStatus(file.getFile().trim(), false, file.getSize(), true));
+                fileStatuses.add(new TBrokerFileStatus(file.getFile(), false, file.getSize(), true));
                 LOG.info("get file from backend success. file: {}, size: {}", file.getFile(), file.getSize());
             }
         } catch (Exception e) {
             throw new AnalysisException("get file list from backend failed. " + e.getMessage());
+        }
+    }
+
+    /** Apply LOCAL admission to the effective sink before planning or filesystem side effects. */
+    public static void checkSinkEnabled(String tvfName, Map<String, String> properties) {
+        if ("local".equalsIgnoreCase(tvfName) || isLocalWriter(properties.getOrDefault("writer_class", ""))) {
+            checkEnabled();
+        }
+    }
+
+    private static boolean isLocalWriter(String writer) {
+        // BE splits the complete identifier first, then passes each half through JNI C strings.
+        int separator = writer.indexOf(':');
+        return separator > 0 && "java-writer".equals(nativeStringPrefix(writer.substring(0, separator)))
+                && "local-file".equals(nativeStringPrefix(writer.substring(separator + 1)));
+    }
+
+    private static String nativeStringPrefix(String value) {
+        int nul = value.indexOf('\0');
+        return nul < 0 ? value : value.substring(0, nul);
+    }
+
+    /** Check read and write admission before properties or backend access. */
+    public static void checkEnabled() {
+        if (!Config.enable_local_tvf) {
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                    "LOCAL TVF is disabled. Set enable_local_tvf=true in fe.conf and restart every FE to enable it.");
         }
     }
 

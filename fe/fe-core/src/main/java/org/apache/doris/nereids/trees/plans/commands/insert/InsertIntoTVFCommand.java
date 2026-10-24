@@ -24,6 +24,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.filesystem.FileSystemUtil;
 import org.apache.doris.filesystem.Location;
 import org.apache.doris.fs.FileSystemFactory;
@@ -41,9 +42,11 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFTableSink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
-import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QeProcessorImpl.QueryInfo;
+import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.tablefunction.HadoopTvfAdmission;
+import org.apache.doris.tablefunction.LocalTableValuedFunction;
 import org.apache.doris.task.LoadEtlTask;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
@@ -173,8 +176,10 @@ public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Ex
 
     private void deleteExistingFilesInFE(String tvfName, Map<String, String> props)
             throws Exception {
+        LocalTableValuedFunction.checkSinkEnabled(tvfName, props);
         // Copy props for building the storage adapter (exclude write-specific params)
         Map<String, String> fsCopyProps = new HashMap<>(props);
+        HadoopTvfAdmission.removeRuntimePolicy(fsCopyProps);
         fsCopyProps.remove("file_path");
         fsCopyProps.remove("format");
         fsCopyProps.remove("delete_existing_files");
@@ -185,11 +190,27 @@ public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Ex
         fsCopyProps.remove("compress_type");
 
         StorageAdapter storageAdapter = StorageAdapter.of(fsCopyProps);
+        if (storageAdapter.getType() == StorageTypeId.LOCAL) {
+            LocalTableValuedFunction.checkEnabled();
+        }
+        if (storageAdapter.getType() == StorageTypeId.HDFS) {
+            HadoopTvfAdmission.check(HadoopTvfAdmission.Access.JAVA_DELETE,
+                    FileSystemUtil.extractParentDirectory(props.get("file_path")),
+                    storageAdapter.getBackendConfigProperties());
+        }
         // Concrete filesystems only accept their native schemes; normalize legacy compatibility
         // schemes (e.g. cos:// with s3.* properties) before crossing the plugin boundary.
         String filePath = storageAdapter.validateAndNormalizeUri(props.get("file_path"));
         // Extract parent directory from prefix path: s3://bucket/path/to/prefix_ -> s3://bucket/path/to/
         String parentDir = FileSystemUtil.extractParentDirectory(filePath);
+        if (storageAdapter.getType() == StorageTypeId.HDFS) {
+            HadoopTvfAdmission.check(HadoopTvfAdmission.Access.JAVA_DELETE,
+                    parentDir, storageAdapter.getBackendConfigProperties());
+        }
+        if (storageAdapter.getType() == StorageTypeId.HDFS) {
+            storageAdapter = StorageAdapter.of(HadoopTvfAdmission.protectJava(
+                    HadoopTvfAdmission.Access.JAVA_DELETE, parentDir, fsCopyProps));
+        }
         LOG.info("TVF sink: deleting existing files in directory: {}", parentDir);
         try (org.apache.doris.filesystem.FileSystem fs = FileSystemFactory.getFileSystem(storageAdapter)) {
             fs.delete(Location.of(parentDir), true);

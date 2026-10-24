@@ -16,6 +16,8 @@
 // under the License.
 
 suite("test_local_tvf_privilege", "p0") {
+    def enabled = (sql "ADMIN SHOW FRONTEND CONFIG LIKE 'enable_local_tvf'")[0][1].toBoolean()
+    def expectedError = enabled ? "ADMIN/OPERATOR" : "LOCAL TVF is disabled"
     def user = "local_tvf_privilege_user"
     sql "DROP USER IF EXISTS '${user}'"
     sql "CREATE USER '${user}' IDENTIFIED BY 'LocalTvf123!'"
@@ -36,7 +38,7 @@ suite("test_local_tvf_privilege", "p0") {
                         "backend_id" = "0",
                         "format" = "csv"
                     )"""
-                    exception "ADMIN/OPERATOR"
+                    exception expectedError
                 }
             }
         }

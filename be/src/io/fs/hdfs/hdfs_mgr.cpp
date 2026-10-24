@@ -18,8 +18,9 @@
 #include "io/fs/hdfs/hdfs_mgr.h"
 
 #include <bthread/bthread.h>
-#include <bthread/butex.h>
+#include <bthread/countdown_event.h>
 
+#include <algorithm>
 #include <chrono>
 #include <thread>
 
@@ -28,9 +29,11 @@
 #include "core/string_ref.h"
 #include "io/fs/err_utils.h"
 #include "io/hdfs_builder.h"
+#include "io/hdfs_tvf_policy.h"
 #include "io/hdfs_util.h"
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
+#include "util/jni-util.h"
 #include "util/jvm_launcher.h"
 #include "util/thread.h"
 
@@ -73,10 +76,10 @@ void HdfsMgr::_cleanup_loop() {
             std::vector<std::shared_ptr<HdfsHandler>> handlers_to_cleanup;
             {
                 std::lock_guard<std::mutex> lock(_mutex);
-                std::vector<uint64_t> to_remove;
 
                 // Find expired handlers
-                for (const auto& entry : _fs_handlers) {
+                for (auto it = _fs_handlers.begin(); it != _fs_handlers.end();) {
+                    const auto& entry = *it;
                     bool is_expired = current_time - entry.second->last_access_time >=
                                       _instance_timeout_seconds;
                     // bool is_krb_expired =
@@ -91,14 +94,11 @@ void HdfsMgr::_cleanup_loop() {
                                   << ", fs_name=" << entry.second->fs_name
                                   << ", is_expired=" << is_expired;
                         // << ", is_krb_expire=" << is_krb_expired;
-                        to_remove.push_back(entry.first);
                         handlers_to_cleanup.push_back(entry.second);
+                        it = _fs_handlers.erase(it);
+                    } else {
+                        ++it;
                     }
-                }
-
-                // Remove expired handlers from map under lock
-                for (uint64_t hash_code : to_remove) {
-                    _fs_handlers.erase(hash_code);
                 }
             }
 
@@ -128,54 +128,85 @@ void HdfsMgr::_cleanup_loop() {
 }
 
 Status HdfsMgr::get_or_create_fs(const THdfsParams& hdfs_params, const std::string& fs_name,
-                                 std::shared_ptr<HdfsHandler>* fs_handler) {
+                                 std::shared_ptr<HdfsHandler>* fs_handler,
+                                 const std::string& native_path) {
+    bool guarded = HdfsTvfPolicy::requested(hdfs_params);
+    if (guarded && native_path.empty()) {
+        return Status::InvalidArgument("TVF Hadoop IO requires its actual native path");
+    }
     uint64_t hash_code = _hdfs_hash_code(hdfs_params, fs_name);
-
-    // First check without lock
-    {
-        std::lock_guard<std::mutex> lock(_mutex);
-        auto it = _fs_handlers.find(hash_code);
-        if (it != _fs_handlers.end()) {
-            LOG(INFO) << "Reuse existing HDFS handler, hash_code=" << hash_code
-                      << ", is_kerberos=" << it->second->is_kerberos_auth
-                      << ", principal=" << it->second->principal << ", fs_name=" << fs_name;
-            it->second->update_access_time();
-            *fs_handler = it->second;
+    auto matches_policy = [&](const std::shared_ptr<HdfsHandler>& handler) {
+        return guarded ? handler->tvf_params && *handler->tvf_params == hdfs_params &&
+                                 handler->fs_name == fs_name
+                       : !handler->tvf_params;
+    };
+    auto validate = [&](const std::shared_ptr<HdfsHandler>& handler) {
+        if (!guarded) {
             return Status::OK();
         }
-    }
-
-    // Create new hdfsFS handler outside the lock
-    LOG(INFO) << "Start to create new HDFS handler, hash_code=" << hash_code
-              << ", fs_name=" << fs_name;
-
-    std::shared_ptr<HdfsHandler> new_fs_handler;
-    RETURN_IF_ERROR(_create_hdfs_fs(hdfs_params, fs_name, &new_fs_handler));
-
-    // Double check with lock before inserting
-    {
-        std::lock_guard<std::mutex> lock(_mutex);
-        auto it = _fs_handlers.find(hash_code);
-        if (it != _fs_handlers.end()) {
-            // Another thread has created the handler, use it instead
-            LOG(INFO) << "Another thread created HDFS handler, reuse it, hash_code=" << hash_code
-                      << ", is_kerberos=" << it->second->is_kerberos_auth
-                      << ", principal=" << it->second->principal << ", fs_name=" << fs_name;
-            it->second->update_access_time();
-            *fs_handler = it->second;
-            return Status::OK();
+        auto check = [&] { return _check_tvf_path_impl(*handler, fs_name, native_path); };
+        // A direct remote provider never dispatches by path; avoid a pthread per cached file.
+        if (handler->tvf_context && !handler->tvf_context->requires_jni()) {
+            return check();
         }
-
-        // Store the new handler
-        *fs_handler = new_fs_handler;
-        _fs_handlers[hash_code] = new_fs_handler;
-
-        LOG(INFO) << "Finished create new HDFS handler, hash_code=" << hash_code
-                  << ", is_kerberos=" << new_fs_handler->is_kerberos_auth
-                  << ", principal=" << new_fs_handler->principal << ", fs_name=" << fs_name;
+        return HdfsTvfPolicy::on_pthread(check);
+    };
+    std::shared_ptr<HdfsHandler> selected;
+    {
+        std::scoped_lock lock(_mutex);
+        auto [first, last] = _fs_handlers.equal_range(hash_code);
+        auto it = std::find_if(first, last,
+                               [&](const auto& entry) { return matches_policy(entry.second); });
+        if (it != last) {
+            selected = it->second;
+        }
     }
-
+    if (!selected) {
+        THdfsParams creation = hdfs_params;
+        if (guarded) {
+            // Internal metadata is attached to the private connection request, never the cache key.
+            for (const auto& entry : {std::make_pair(HdfsTvfPolicy::ROOT_KEY, fs_name),
+                                      std::make_pair(HdfsTvfPolicy::PATH_KEY, native_path)}) {
+                THdfsConf conf;
+                conf.__set_key(entry.first);
+                conf.__set_value(entry.second);
+                creation.hdfs_conf.push_back(std::move(conf));
+            }
+            creation.__isset.hdfs_conf = true;
+        }
+        std::shared_ptr<HdfsHandler> created;
+        RETURN_IF_ERROR(_create_hdfs_fs(creation, fs_name, &created));
+        if (guarded) {
+            created->tvf_params = std::make_shared<const THdfsParams>(hdfs_params);
+        }
+        RETURN_IF_ERROR(validate(created));
+        {
+            std::scoped_lock lock(_mutex);
+            auto [first, last] = _fs_handlers.equal_range(hash_code);
+            auto it = std::find_if(first, last,
+                                   [&](const auto& entry) { return matches_policy(entry.second); });
+            if (it != last) {
+                selected = it->second;
+            } else {
+                selected = created;
+                // Keep exact identities in the same hash bucket, including CRC collisions.
+                // Each remains reusable and cleanup erases only the expired entry.
+                _fs_handlers.emplace(hash_code, created);
+            }
+        }
+    }
+    RETURN_IF_ERROR(validate(selected));
+    selected->update_access_time();
+    *fs_handler = std::move(selected);
     return Status::OK();
+}
+
+Status HdfsMgr::_check_tvf_path_impl(const HdfsHandler& handler, const std::string& fs_name,
+                                     const std::string& native_path) {
+    if (!handler.tvf_context) {
+        return Status::NotSupported("TVF Hadoop connection has no runtime configuration context");
+    }
+    return handler.tvf_context->check(fs_name, native_path);
 }
 
 Status HdfsMgr::_create_hdfs_fs_impl(const THdfsParams& hdfs_params, const std::string& fs_name,
@@ -192,19 +223,35 @@ Status HdfsMgr::_create_hdfs_fs_impl(const THdfsParams& hdfs_params, const std::
     //
     // No thread switch needed: _create_hdfs_fs() has put us on a pthread already.
     RETURN_IF_ERROR(Jni::JvmLauncher::ensure_jvm());
+    bool guarded = HdfsTvfPolicy::requested(hdfs_params);
+    if (guarded) {
+        RETURN_IF_ERROR(HdfsTvfPolicy::prepare_runtime());
+    }
     HDFSCommonBuilder builder;
     RETURN_IF_ERROR(create_hdfs_builder(hdfs_params, fs_name, &builder));
     // release(), not get(): hdfsBuilderConnect() frees the builder it is handed, so this is
     // where ownership leaves HDFSCommonBuilder - whose destructor frees whatever it still owns.
     hdfsFS hdfs_fs = hdfsBuilderConnect(builder.release());
     if (hdfs_fs == nullptr) {
+        if (guarded) {
+            RETURN_IF_ERROR(HdfsTvfPolicy::clear_runtime());
+        }
         return Status::InternalError("failed to connect to hdfs {}: {}", fs_name, hdfs_error());
+    }
+    std::shared_ptr<HdfsTvfPolicy> context;
+    if (guarded) {
+        Status captured = HdfsTvfPolicy::capture(fs_name, &context);
+        if (!captured.ok()) {
+            hdfsDisconnect(hdfs_fs);
+            return captured;
+        }
     }
 
     bool is_kerberos = builder.is_kerberos();
     *fs_handler = std::make_shared<HdfsHandler>(
             hdfs_fs, is_kerberos, is_kerberos ? hdfs_params.hdfs_kerberos_principal : "",
             is_kerberos ? hdfs_params.hdfs_kerberos_keytab : "", fs_name);
+    (*fs_handler)->tvf_context = std::move(context);
     // builder.get_ticket_cache());
     return Status::OK();
 }
@@ -214,42 +261,8 @@ Status HdfsMgr::_create_hdfs_fs_impl(const THdfsParams& hdfs_params, const std::
 // bthreads so create a pthread for creating hdfs connection if necessary.
 Status HdfsMgr::_create_hdfs_fs(const THdfsParams& hdfs_params, const std::string& fs_name,
                                 std::shared_ptr<HdfsHandler>* fs_handler) {
-    bool is_pthread = bthread_self() == 0;
-    LOG(INFO) << "create hdfs fs, is_pthread=" << is_pthread << " fs_name=" << fs_name;
-    if (is_pthread) { // running in pthread
-        return _create_hdfs_fs_impl(hdfs_params, fs_name, fs_handler);
-    }
-
-    // running in bthread, switch to a pthread and wait
-    Status st;
-    auto btx = bthread::butex_create();
-    *(int*)btx = 0;
-    std::thread t([&] {
-        // Named and given a thread context like every other pthread the BE starts. This one is
-        // where the JVM is most often created for the first time: _create_hdfs_fs_impl() calls
-        // ensure_jvm(), and ensure_jvm() only switches to a pthread of its own when it is called
-        // FROM a bthread - which it is not here, because this switch already happened. Without
-        // these two lines the whole bootstrap - seconds of hadoop ServiceLoader scanning, and any
-        // hang inside it - runs on an anonymous thread with no memory tracking, and an operator
-        // looking at the stacks has nothing to grep for.
-        SCOPED_INIT_THREAD_CONTEXT();
-        Thread::set_self_name("hdfs_fs_connect");
-        st = _create_hdfs_fs_impl(hdfs_params, fs_name, fs_handler);
-        *(int*)btx = 1;
-        bthread::butex_wake_all(btx);
-    });
-    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&t, &btx](...) {
-        if (t.joinable()) t.join();
-        bthread::butex_destroy(btx);
-    });
-    timespec tmout {.tv_sec = std::chrono::system_clock::now().time_since_epoch().count() + 60,
-                    .tv_nsec = 0};
-    if (int ret = bthread::butex_wait(btx, 1, &tmout); ret != 0) {
-        std::string msg = "failed to wait create_hdfs_fs finish. fs_name=" + fs_name;
-        LOG(WARNING) << msg << " error=" << std::strerror(errno);
-        st = Status::Error<ErrorCode::INTERNAL_ERROR, false>(msg);
-    }
-    return st;
+    return HdfsTvfPolicy::on_pthread(
+            [&] { return _create_hdfs_fs_impl(hdfs_params, fs_name, fs_handler); });
 }
 
 uint64_t HdfsMgr::_hdfs_hash_code(const THdfsParams& hdfs_params, const std::string& fs_name) {

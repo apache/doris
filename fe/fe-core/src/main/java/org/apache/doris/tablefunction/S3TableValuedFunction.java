@@ -20,9 +20,13 @@ package org.apache.doris.tablefunction;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileType;
+
+import org.apache.hadoop.fs.FileSystem.TvfGuard;
 
 import java.util.List;
 import java.util.Map;
@@ -54,10 +58,30 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         String uri = storageAdapter.validateAndGetUri(props);
         filePath = storageAdapter.validateAndNormalizeUri(uri);
         this.backendConnectProperties.put(URI_KEY, filePath);
+        if (storageAdapter.getType() == StorageTypeId.LOCAL) {
+            throw new AnalysisException("S3 TVF does not support local storage. Use local() with LOCAL TVF "
+                    + "privileges and secure-path restrictions.");
+        }
+        boolean hadoopStorage = storageAdapter.getType() == StorageTypeId.HDFS
+                || storageAdapter.getType() == StorageTypeId.OSS_HDFS
+                || LocationPath.getTFileTypeForBE(filePath) == TFileType.FILE_HDFS;
+        if (hadoopStorage) {
+            HadoopTvfAdmission.check(HadoopTvfAdmission.Access.HADOOP_READ,
+                    filePath, backendConnectProperties, needsSchemaDiscovery());
+            processedParams.put(TvfGuard.POLICY_KEY, HadoopTvfAdmission.protectJava(
+                    HadoopTvfAdmission.Access.HADOOP_READ, filePath, processedParams).get(TvfGuard.POLICY_KEY));
+        }
         if (!FeConstants.runningUnitTest) {
             parseFile(files);
         } else if (files != null) {
             this.fileStatuses.addAll(files);
+        }
+        for (TBrokerFileStatus file : fileStatuses) {
+            TFileType rangeType = LocationPath.getTFileTypeForBE(file.getPath());
+            if (hadoopStorage || rangeType == TFileType.FILE_HDFS || rangeType == TFileType.FILE_LOCAL) {
+                HadoopTvfAdmission.check(HadoopTvfAdmission.Access.HADOOP_READ,
+                        file.getPath(), backendConnectProperties, needsSchemaDiscovery());
+            }
         }
     }
 

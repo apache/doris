@@ -22,10 +22,13 @@ import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileType;
 
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
+
+import org.apache.hadoop.fs.FileSystem.TvfGuard;
 
 import java.util.Map;
 
@@ -56,9 +59,17 @@ public class HdfsTableValuedFunction extends ExternalFileTableValuedFunction {
             throw new AnalysisException("Failed check storage props, " + e.getMessage(), e);
         }
 
+        HadoopTvfAdmission.check(HadoopTvfAdmission.Access.HADOOP_READ,
+                filePath, backendConnectProperties, needsSchemaDiscovery());
+        processedParams.put(TvfGuard.POLICY_KEY, HadoopTvfAdmission.protectJava(
+                HadoopTvfAdmission.Access.HADOOP_READ, filePath, processedParams).get(TvfGuard.POLICY_KEY));
         if (!FeConstants.runningUnitTest) {
             // 4. parse file
             parseFile();
+            for (TBrokerFileStatus file : fileStatuses) {
+                HadoopTvfAdmission.check(HadoopTvfAdmission.Access.HADOOP_READ,
+                        file.getPath(), backendConnectProperties, needsSchemaDiscovery());
+            }
         }
     }
 

@@ -18,10 +18,12 @@
 package org.apache.doris.tablefunction;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.proto.InternalService.PGlobResponse;
+import org.apache.doris.proto.InternalService.PGlobResponse.PFileInfo;
 import org.apache.doris.proto.Types.PStatus;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -50,12 +52,15 @@ public class LocalTableValuedFunctionAuthTest {
     private final AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
     private final SystemInfoService systemInfo = Mockito.mock(SystemInfoService.class);
     private final BackendServiceProxy proxy = Mockito.mock(BackendServiceProxy.class);
+    private boolean originalEnableLocalTvf;
     private MockedStatic<Env> mockedEnv;
     private MockedStatic<ConnectContext> mockedContext;
     private MockedStatic<BackendServiceProxy> mockedProxy;
 
     @BeforeEach
     public void setUp() throws Exception {
+        originalEnableLocalTvf = Config.enable_local_tvf;
+        Config.enable_local_tvf = true;
         mockedEnv = Mockito.mockStatic(Env.class);
         mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
         mockedEnv.when(Env::getCurrentSystemInfo).thenReturn(systemInfo);
@@ -76,6 +81,7 @@ public class LocalTableValuedFunctionAuthTest {
 
     @AfterEach
     public void tearDown() {
+        Config.enable_local_tvf = originalEnableLocalTvf;
         mockedProxy.close();
         mockedContext.close();
         mockedEnv.close();
@@ -116,6 +122,25 @@ public class LocalTableValuedFunctionAuthTest {
 
         Assertions.assertThrows(AnalysisException.class, () -> local.checkAuth(context));
         Assertions.assertThrows(AnalysisException.class, () -> file.checkAuth(context));
+    }
+
+    @Test
+    public void testCanonicalGlobPathsKeepTheirExactWhitespace() throws Exception {
+        Mockito.when(accessManager.checkGlobalPriv(context, PrivPredicate.ADMIN)).thenReturn(true);
+        String[] paths = {"/secure/name.csv ", "/secure/ name.csv", "/secure/\tname.csv\t"};
+        PGlobResponse.Builder response = PGlobResponse.newBuilder()
+                .setStatus(PStatus.newBuilder().setStatusCode(0));
+        for (String path : paths) {
+            response.addFiles(PFileInfo.newBuilder().setFile(path).setSize(4));
+        }
+        Mockito.when(proxy.glob(Mockito.any(), Mockito.any()))
+                .thenReturn(CompletableFuture.completedFuture(response.build()));
+        LocalTableValuedFunction local = new LocalTableValuedFunction(PROPERTIES);
+        FileTableValuedFunction file = new FileTableValuedFunction(PROPERTIES);
+        for (int i = 0; i < paths.length; i++) {
+            Assertions.assertEquals(paths[i], local.getFileStatuses().get(i).getPath());
+            Assertions.assertEquals(paths[i], file.getFileStatuses().get(i).getPath());
+        }
     }
 
     private void assertPrivilegedAccess(PrivPredicate privilege) throws Exception {
