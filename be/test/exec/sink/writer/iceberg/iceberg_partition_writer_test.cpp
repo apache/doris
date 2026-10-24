@@ -25,6 +25,7 @@
 #include "testutil/mock/mock_descriptors.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "testutil/mock/mock_slot_ref.h"
+#include "util/uid_util.h"
 
 namespace doris {
 
@@ -123,6 +124,31 @@ TEST_F(VIcebergPartitionWriterTest, MissingPolicyKeepsCollectionEnabledForRollin
                               hadoop_conf);
 
     EXPECT_TRUE(collect_column_stats(*writer));
+}
+
+TEST_F(VIcebergPartitionWriterTest, UnsupportedParquetCodecDoesNotCreateFile) {
+    VExprContextSPtrs output_exprs;
+    iceberg::Schema schema(std::vector<iceberg::NestedField> {});
+    std::string schema_json;
+    std::map<std::string, std::string> hadoop_conf;
+    IPartitionWriterBase::WriteInfo write_info;
+    write_info.file_type = TFileType::FILE_LOCAL;
+    write_info.write_path = ".";
+    auto writer = std::make_unique<VIcebergPartitionWriter>(
+            make_table_sink(std::nullopt), std::vector<std::string> {}, output_exprs, schema,
+            &schema_json, std::vector<std::string> {}, std::move(write_info),
+            "unsupported_parquet_codec_" + UniqueId::gen_uid().to_string(), 0,
+            TFileFormatType::FORMAT_PARQUET, TFileCompressType::ZLIB, hadoop_conf);
+
+    MockRuntimeState state;
+    Status status = writer->open(&state, nullptr, nullptr);
+
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(std::string::npos, status.to_string().find("Unsupported compress type"));
+    ASSERT_NE(nullptr, writer->_fs);
+    bool exists = true;
+    ASSERT_TRUE(writer->_fs->exists(writer->_path, &exists).ok());
+    EXPECT_FALSE(exists);
 }
 
 TEST_F(VIcebergPartitionWriterTest, SortWriterPropagatesUnderlyingCloseFailure) {
