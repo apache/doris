@@ -23,6 +23,7 @@ import org.apache.doris.nereids.rules.rewrite.eageraggregation.EagerAggHints.Act
 import org.apache.doris.nereids.stats.ExpressionEstimation;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.DecimalMultiplyForSum;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
@@ -35,6 +36,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
@@ -1210,7 +1212,14 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         NamedExpression output;
         Expression outputExpr;
         if (multiplier.isPresent()) {
-            outputExpr = TypeCoercionUtils.processBinaryArithmetic(new Multiply(currentValue, multiplier.get()));
+            if (aggFunc instanceof Sum && currentValue.getDataType().isDecimalV3Type()) {
+                outputExpr = TypeCoercionUtils.processBinaryArithmetic(
+                        new DecimalMultiplyForSum(
+                                TypeCoercionUtils.castIfNotSameType(currentValue, aggFunc.getDataType()),
+                                multiplier.get()));
+            } else {
+                outputExpr = TypeCoercionUtils.processBinaryArithmetic(new Multiply(currentValue, multiplier.get()));
+            }
         } else {
             outputExpr = currentValue;
         }
