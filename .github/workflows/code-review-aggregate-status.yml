@@ -13,6 +13,7 @@ permissions: {}
 jobs:
   aggregate:
     runs-on: ubuntu-latest
+    # This is the only final-status writer; source updates never reset it.
     concurrency:
       group: code-review-status-${{ inputs.head_sha }}
       cancel-in-progress: false
@@ -40,19 +41,6 @@ jobs:
           printf 'REVIEW_GH_VERSION=%s\n' "$(gh --version | sed -n '1p')" >> "$GITHUB_ENV"
           printf 'REVIEW_GH_HELPER=%s\n' "$RUNNER_TEMP/review_github_api.py" >> "$GITHUB_ENV"
           printf 'REVIEW_GITHUB_DIAGNOSTICS_DIR=%s\n' "$RUNNER_TEMP/review-github-diagnostics" >> "$GITHUB_ENV"
-
-      - name: Mark aggregate status as pending
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HEAD_SHA: ${{ inputs.head_sha }}
-          REPO: ${{ github.repository }}
-        run: |
-          python3 "$REVIEW_GH_HELPER" api "repos/${REPO}/statuses/${HEAD_SHA}" \
-            -X POST \
-            -f state='pending' \
-            -f context='code-review' \
-            -f description="Recalculating code review for ${HEAD_SHA:0:12}." \
-            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
       - name: Checkout trusted status resolver
         uses: actions/checkout@v4
@@ -90,6 +78,7 @@ jobs:
             --head-sha "$HEAD_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Publish aggregate code-review status
+        if: steps.resolution.outputs.publish == 'true'
         env:
           DESCRIPTION: ${{ steps.resolution.outputs.description }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -261,7 +261,7 @@ class WorkflowDiagnosticsWiringTest(unittest.TestCase):
         for filename, jobs in (
             ("code-review-runner.yml", ["code-review"]),
             ("code-review-aggregate-status.yml", ["aggregate"]),
-            ("code-review-sync-result.yml", ["accept-skill-review", "skip-on-comment"]),
+            ("code-review-sync-result.yml", ["accept-manual-pass", "accept-skill-review", "skip-on-comment"]),
         ):
             text = (workflows / filename).read_text()
             for job in jobs:
