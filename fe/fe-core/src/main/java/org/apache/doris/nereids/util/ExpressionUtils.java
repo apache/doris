@@ -50,6 +50,7 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.VolatileExpression;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
@@ -168,11 +169,14 @@ public class ExpressionUtils {
         if (expression instanceof DateCeilFloorMonotonic) {
             return true;
         }
-        if (!(expression instanceof DateAddSubMonotonic)) {
+        int dateChildIndex;
+        if (expression instanceof TimestampArithmetic) {
+            dateChildIndex = 0;
+        } else if (expression instanceof DateAddSubMonotonic) {
+            dateChildIndex = ((DateAddSubMonotonic) expression).getMonotonicFunctionChildIndex();
+        } else {
             return false;
         }
-        DateAddSubMonotonic dateArithmetic = (DateAddSubMonotonic) expression;
-        int dateChildIndex = dateArithmetic.getMonotonicFunctionChildIndex();
         for (int i = 0; i < expression.children().size(); i++) {
             if (i != dateChildIndex && !(expression.child(i) instanceof IntegerLikeLiteral
                     && ((IntegerLikeLiteral) expression.child(i)).compareTo(new IntegerLiteral(0)) == 0)) {
