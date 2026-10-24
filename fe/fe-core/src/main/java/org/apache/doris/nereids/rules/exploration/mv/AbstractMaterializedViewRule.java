@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.exploration.mv;
 
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
@@ -383,17 +382,14 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 }
                 boolean needRemoveMvPartitions = !invalidPartitions.key().isEmpty();
                 boolean needBaseTableUnion = !invalidPartitions.value().isEmpty();
-                // An uncovered base partition is read beside the MV partitions that stay, and the two can
-                // answer the same aggregate group -- a merged LIST component's MV partition holds a key the
-                // uncovered partition also carries. The union is below the aggregate then, so the group is
-                // two rows rather than one. A group expression over the partition column has the same
-                // effect even when the keys differ: date_trunc(d,'year') puts every day of the year in one
-                // group. Answered from the base table instead of splitting them.
-                boolean splitsAggregateGroup = queryPlan.anyMatch(LogicalAggregate.class::isInstance)
-                        && needBaseTableUnion
-                        && (!uncoveredNarrowedBasePartitions.isEmpty()
-                        || (!needRemoveMvPartitions && groupsByExpressionOverPctColumn(queryPlan, mtmv)));
-                if (splitsAggregateGroup) {
+                // An uncovered base partition is read beside the MV partitions that stay, and it can carry a
+                // key one of them already holds: a merged LIST component's MV partition is recorded with
+                // several keys of the MV's partition column. The aggregate compensation unions the MV's answer
+                // with the base table's, so such a group comes out twice instead of once. Answered from the
+                // base table instead of splitting the group. Groupings that cannot keep the two branches apart
+                // for other reasons are declined by canUnionRewrite below.
+                if (queryPlan.anyMatch(LogicalAggregate.class::isInstance)
+                        && needBaseTableUnion && !uncoveredNarrowedBasePartitions.isEmpty()) {
                     materializationContext.recordFailReason(queryStructInfo,
                             "compensating an uncovered partition beside an MV partition can split an aggregate group",
                             () -> String.format("uncovered partitions = %s, queryPlan is %s",
@@ -526,42 +522,6 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
     protected boolean canUnionRewrite(Plan queryPlan, AsyncMaterializationContext context,
             CascadesContext cascadesContext) {
         return true;
-    }
-
-    /**
-     * Whether the query groups by an expression over a column the MV is partitioned on, rather than by the
-     * column itself. Every value of such a group expression is a function of several partition-column values
-     * -- {@code date_trunc(d,'year')} puts every day of the year in one group -- so an uncovered base
-     * partition and a retained MV partition can answer the same group even when their keys differ.
-     */
-    private static boolean groupsByExpressionOverPctColumn(Plan queryPlan, MTMV mtmv) {
-        Optional<LogicalAggregate<Plan>> aggregate =
-                queryPlan.collectFirst(LogicalAggregate.class::isInstance);
-        if (!aggregate.isPresent()) {
-            return false;
-        }
-        List<BaseColInfo> pctInfos = mtmv.getMvPartitionInfo().getPctInfos();
-        List<? extends Expression> groupByExpressions = ExpressionUtils.shuttleExpressionWithLineage(
-                aggregate.get().getGroupByExpressions(), queryPlan);
-        for (Expression expression : groupByExpressions) {
-            if (expression instanceof SlotReference) {
-                continue;
-            }
-            boolean overPctColumn = !expression.collectToSet(expr -> {
-                if (!(expr instanceof SlotReference) || !((SlotReference) expr).isColumnFromTable()) {
-                    return false;
-                }
-                String columnName = ((SlotReference) expr).getOriginalColumn().map(Column::getName).orElse(null);
-                BaseTableInfo tableInfo = ((SlotReference) expr).getOriginalTable()
-                        .map(BaseTableInfo::new).orElse(null);
-                return pctInfos.stream().anyMatch(colInfo -> colInfo.getTableInfo().equals(tableInfo)
-                        && colInfo.getColName().equals(columnName));
-            }).isEmpty();
-            if (overPctColumn) {
-                return true;
-            }
-        }
-        return false;
     }
 
     /**

@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.BaseColInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
-import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.rules.analysis.NormalizeRepeat;
@@ -505,45 +504,73 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
      * select b, count(*) from t1 group by b, after rewritten by materialized view successfully
      * If mv part partition is invalid, can not compensate union all, because result is wrong after
      * compensate union all.
+     *
+     * <p>The compensation unions two finished aggregates: what the materialized view answers for the partitions
+     * it keeps, and what the base table answers for the partitions it does not. It is right while no group is
+     * answerable by both, and only a grouping by the columns the view is partitioned on, each of them by
+     * itself, keeps the two apart -- the view's partitions are disjoint in that tuple, by value for a list
+     * partitioned view and by range for a range partitioned one. Grouping by an expression over a partition
+     * column does not: {@code date_trunc(d, 'year')} answers one year out of both branches, the view's part of
+     * it and the base table's, and the two rows come out beside each other. Nor does a grouping set that
+     * leaves a partition column out -- the {@code ()} total of {@code ROLLUP}/{@code CUBE}/{@code GROUPING
+     * SETS} puts every partition value in one group, which both branches answer, and two partitions of a view
+     * partitioned on two columns can share one value of one of them.
      */
     @Override
     protected boolean canUnionRewrite(Plan queryPlan, AsyncMaterializationContext context,
             CascadesContext cascadesContext) {
-        // Check query plan is contain the partition column
-        // Query plan in the current rule must contain aggregate node, because the rule pattern is
+        // The union is built over the whole query plan, so the outermost aggregate is the one whose groups
+        // the two branches answer. The plan holds one, since the rule's pattern requires it.
         Optional<LogicalAggregate<Plan>> logicalAggregateOptional =
                 queryPlan.collectFirst(planTreeNode -> planTreeNode instanceof LogicalAggregate);
         if (!logicalAggregateOptional.isPresent()) {
             return true;
         }
-        List<Expression> groupByExpressions = logicalAggregateOptional.get().getGroupByExpressions();
+        LogicalAggregate<Plan> queryAggregate = logicalAggregateOptional.get();
+        List<Expression> groupByExpressions = queryAggregate.getGroupByExpressions();
         if (groupByExpressions.isEmpty()) {
             // Scalar aggregate can not compensate union all
             return false;
         }
-        MTMVPartitionInfo mvPartitionInfo = context.getMtmv().getMvPartitionInfo();
-        List<BaseColInfo> pctInfos = mvPartitionInfo.getPctInfos();
-        boolean canUnionRewrite = false;
-        // Check the query plan group by expression contains partition col or not
-        List<? extends Expression> groupByShuttledExpressions =
-                ExpressionUtils.shuttleExpressionWithLineage(groupByExpressions, queryPlan);
-        for (Expression expression : groupByShuttledExpressions) {
-            canUnionRewrite = !expression.collectToSet(expr -> {
-                if (!(expr instanceof SlotReference) || !((SlotReference) expr).isColumnFromTable()) {
-                    return false;
-                }
-                String columnName = ((SlotReference) expr).getOriginalColumn().map(Column::getName).orElse(null);
-                BaseTableInfo baseTableInfo = ((SlotReference) expr).getOriginalTable().map(BaseTableInfo::new)
-                        .orElse(null);
-                return pctInfos.stream().anyMatch(colInfo -> colInfo.getTableInfo().equals(baseTableInfo)
-                        && colInfo.getColName().equals(columnName));
-            }
-            ).isEmpty();
-            if (canUnionRewrite) {
-                break;
+        List<BaseColInfo> pctInfos = context.getMtmv().getMvPartitionInfo().getPctInfos();
+        Optional<LogicalRepeat<?>> logicalRepeatOptional = queryAggregate.getSourceRepeat();
+        if (!logicalRepeatOptional.isPresent()) {
+            return groupingCoversPartitionColumns(groupByExpressions, queryPlan, pctInfos);
+        }
+        // The group by list holds every grouping set's expressions beside the grouping id, so it can not tell
+        // which set a partition column was read from; each set is asked on its own instead.
+        for (List<Expression> groupingSet : logicalRepeatOptional.get().getGroupingSets()) {
+            if (!groupingCoversPartitionColumns(groupingSet, queryPlan, pctInfos)) {
+                return false;
             }
         }
-        return canUnionRewrite;
+        return true;
+    }
+
+    /**
+     * Whether these grouping expressions hold every column the MV is partitioned on, each of them by itself:
+     * an expression over a partition column puts several of its values in one group, and one column of a
+     * multi-column partitioning leaves the other to vary within a group.
+     */
+    private static boolean groupingCoversPartitionColumns(List<Expression> groupingExpressions, Plan queryPlan,
+            List<BaseColInfo> pctInfos) {
+        List<? extends Expression> groupingShuttledExpressions =
+                ExpressionUtils.shuttleExpressionWithLineage(groupingExpressions, queryPlan);
+        return pctInfos.stream().allMatch(colInfo -> groupingShuttledExpressions.stream()
+                .anyMatch(expression -> isPartitionColumn(expression, colInfo)));
+    }
+
+    /**
+     * Whether this grouping expression is the given column the MV is partitioned on, by itself.
+     */
+    private static boolean isPartitionColumn(Expression expression, BaseColInfo pctInfo) {
+        if (!(expression instanceof SlotReference) || !((SlotReference) expression).isColumnFromTable()) {
+            return false;
+        }
+        SlotReference slotReference = (SlotReference) expression;
+        String columnName = slotReference.getOriginalColumn().map(Column::getName).orElse(null);
+        BaseTableInfo tableInfo = slotReference.getOriginalTable().map(BaseTableInfo::new).orElse(null);
+        return pctInfo.getTableInfo().equals(tableInfo) && pctInfo.getColName().equals(columnName);
     }
 
     /**

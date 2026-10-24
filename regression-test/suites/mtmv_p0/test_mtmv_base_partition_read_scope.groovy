@@ -576,4 +576,97 @@ suite("test_mtmv_base_partition_read_scope") {
     }
     order_qt_group_split_expr """SELECT DATE_TRUNC(d, 'year') AS y, SUM(v) FROM group_split_expr_base
         WHERE d IN ('2020-01-01', '2020-01-02') GROUP BY DATE_TRUNC(d, 'year')"""
+
+    // A grouping set that leaves the partition column out has the same effect with neither a group expression
+    // nor a removed partition: GROUPING SETS ((d),()) holds Jan 2 in one set and nothing in the grand total,
+    // so the total of the MV's Jan 2 and the compensation branch's Jan 1 is two rows rather than one. The
+    // normalized group-by list is only the slots d and grouping_id, which the check above skips, so each
+    // grouping set of the query's Repeat has to be looked at.
+    explain {
+        sql("select d, sum(v) from group_split_expr_base where d in ('2020-01-01', '2020-01-02') "
+                + "group by grouping sets ((d), ())")
+        notContains "UNION"
+    }
+    order_qt_group_split_sets """SELECT d, SUM(v) FROM group_split_expr_base
+        WHERE d IN ('2020-01-01', '2020-01-02') GROUP BY GROUPING SETS ((d), ())"""
+
+    // Removing a stale MV partition does not remove every partition of the MV, so it does not make the
+    // computed group safe: here the 2037 partition alone is stale while the merged Jan 2 component stays
+    // fresh, and the compensation reads p_old beside it. date_trunc(d,'year') puts both of the year-2020 days
+    // in one group, so the MV branch and the base branch each emit a 2020 row. The query is answered from the
+    // base table instead.
+    sql """drop materialized view if exists group_split_stale_expr_mv"""
+    sql """drop table if exists group_split_stale_expr_base"""
+    sql """
+        CREATE TABLE group_split_stale_expr_base (d DATE NOT NULL, k INT NOT NULL, v INT NOT NULL)
+        DUPLICATE KEY(d, k) PARTITION BY LIST(d, k) (
+            PARTITION p_kept VALUES IN (("2020-01-02", 1), ("2038-01-01", 1)),
+            PARTITION p_bridge VALUES IN (("2038-01-01", 2)),
+            PARTITION p_stale VALUES IN (("2037-01-01", 3)),
+            PARTITION p_old VALUES IN (("2020-01-01", 2)))
+        DISTRIBUTED BY HASH(d) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+    """
+    sql """INSERT INTO group_split_stale_expr_base VALUES
+        ("2020-01-02", 1, 2), ("2020-01-01", 2, 1), ("2038-01-01", 1, 5), ("2038-01-01", 2, 7),
+        ("2037-01-01", 3, 4)"""
+    sql """INSERT INTO group_split_stale_expr_base
+        SELECT CAST("2038-01-01" AS DATE), 1, 0 FROM numbers("number" = "10000")"""
+    sql """
+        CREATE MATERIALIZED VIEW group_split_stale_expr_mv
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL PARTITION BY (d)
+        DISTRIBUTED BY HASH(d) BUCKETS 1 PROPERTIES ("replication_num" = "1",
+            "partition_sync_limit" = "2", "partition_sync_time_unit" = "YEAR")
+        AS SELECT d, SUM(v) AS s FROM group_split_stale_expr_base GROUP BY d
+    """
+    waitingMTMVTaskFinishedByMvName("group_split_stale_expr_mv")
+    // Written after the refresh, so only the 2037 partition of the MV goes stale; the merged component's
+    // stays usable and is the side the union would take the year-2020 group from.
+    sql """INSERT INTO group_split_stale_expr_base VALUES ("2037-01-01", 3, 100)"""
+    sql """ANALYZE TABLE group_split_stale_expr_base WITH SYNC"""
+    sql """set enable_materialized_view_rewrite = true"""
+    explain {
+        sql("select date_trunc(d, 'year') as y, sum(v) from group_split_stale_expr_base "
+                + "where d in ('2020-01-01', '2020-01-02', '2037-01-01') group by date_trunc(d, 'year')")
+        notContains "UNION"
+    }
+    order_qt_group_split_stale_expr """SELECT DATE_TRUNC(d, 'year') AS y, SUM(v) FROM group_split_stale_expr_base
+        WHERE d IN ('2020-01-01', '2020-01-02', '2037-01-01') GROUP BY DATE_TRUNC(d, 'year')"""
+
+    // But an uncovered partition that overlaps only an MV partition which the staleness pass has already
+    // scheduled for removal overlaps nothing the plan keeps: the removed partition's rows come through the
+    // base branch too, so the two branches' groups stay apart and the union rewrite is the right answer.
+    // Here the merged {2020, 2037} component goes stale (p_stale is written after the refresh) while the
+    // 2038 partition stays fresh, and p_old's Jan 1 is the uncovered partition the query reads beside it.
+    sql """drop materialized view if exists partial_stale_mv"""
+    sql """drop table if exists partial_stale_base"""
+    sql """
+        CREATE TABLE partial_stale_base (d DATE NOT NULL, k INT NOT NULL, v INT NOT NULL)
+        DUPLICATE KEY(d, k) PARTITION BY LIST(d, k) (
+            PARTITION p_stale VALUES IN (("2020-01-01", 1), ("2037-01-01", 1)),
+            PARTITION p_bridge VALUES IN (("2037-01-01", 2)),
+            PARTITION p_old VALUES IN (("2020-01-01", 2)),
+            PARTITION p_fresh VALUES IN (("2038-01-01", 1)))
+        DISTRIBUTED BY HASH(d) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+    """
+    sql """INSERT INTO partial_stale_base VALUES
+        ("2020-01-01", 1, 2), ("2037-01-01", 1, 5), ("2037-01-01", 2, 7), ("2020-01-01", 2, 1)"""
+    sql """INSERT INTO partial_stale_base
+        SELECT CAST("2038-01-01" AS DATE), 1, 0 FROM numbers("number" = "10000")"""
+    sql """
+        CREATE MATERIALIZED VIEW partial_stale_mv
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL PARTITION BY (d)
+        DISTRIBUTED BY HASH(d) BUCKETS 1 PROPERTIES ("replication_num" = "1",
+            "partition_sync_limit" = "2", "partition_sync_time_unit" = "YEAR")
+        AS SELECT d, SUM(v) AS s FROM partial_stale_base GROUP BY d
+    """
+    waitingMTMVTaskFinishedByMvName("partial_stale_mv")
+    sql """INSERT INTO partial_stale_base VALUES ("2020-01-01", 1, 100)"""
+    sql """ANALYZE TABLE partial_stale_base WITH SYNC"""
+    sql """set enable_materialized_view_rewrite = true"""
+    explain {
+        sql("select d, sum(v) from partial_stale_base where d in ('2020-01-01', '2038-01-01') group by d")
+        check { result -> result.contains("UNION") && result.contains("partial_stale_mv") }
+    }
+    order_qt_partial_stale """SELECT d, SUM(v) FROM partial_stale_base
+        WHERE d IN ('2020-01-01', '2038-01-01') GROUP BY d"""
 }

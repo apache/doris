@@ -265,14 +265,20 @@ public class PartitionCompensator {
             // recorded with: a merged LIST component {kept (2020,1), bridge (2038,2)} projected onto d
             // holds 2020 and 2038, and an uncovered old (2020,2) is read beside it, so the union would
             // answer d=2020 twice. A RANGE partition whose range no retained MV partition covers answers
-            // its own groups and is not recorded here.
+            // its own groups and is not recorded here. Only the MV partitions that stay count: one the
+            // staleness pass has already scheduled for removal is re-read through the base branch too, so
+            // its keys are the compensation's own, not a retained group the uncovered partition would meet.
+            Set<String> removedMvPartitions = Sets.newHashSet();
+            mvPartitionNeedRemoveNameMap.values().forEach(removedMvPartitions::addAll);
+            Set<String> retainedMvPartitions = Sets.difference(
+                    rewrittenPlanUsePartitionNameSet, removedMvPartitions);
             for (Entry<MTMVRelatedTableIf, Set<String>> entry : uncoveredByTable.entrySet()) {
                 BaseColInfo pctInfo = pctInfoMap.get(new BaseTableInfo(entry.getKey()));
                 if (pctInfo == null) {
                     continue;
                 }
                 uncoveredNarrowedBasePartitions.addAll(overlappingUncoveredListPartitions(
-                        entry.getKey(), pctInfo, entry.getValue(), rewrittenPlanUsePartitionNameSet,
+                        entry.getKey(), pctInfo, entry.getValue(), retainedMvPartitions,
                         mtmvRelatedTableIfMapMap));
             }
         }
