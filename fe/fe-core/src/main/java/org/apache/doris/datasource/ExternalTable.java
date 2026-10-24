@@ -92,6 +92,8 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
 
     // record the table update time, like insert/alter/delete
     protected volatile long updateTime = 0;
+    // Fences missing-table responses that started before a metadata-only refresh of this object.
+    private transient volatile long metadataRefreshGeneration;
 
     protected long dbId;
     protected boolean objectCreated;
@@ -336,6 +338,17 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
 
     public void setUpdateTime(long updateTime) {
         this.updateTime = updateTime;
+    }
+
+    public long getMetadataRefreshGeneration() {
+        return metadataRefreshGeneration;
+    }
+
+    /** Ordered with guarded missing-table cleanup, which holds the same catalog monitor. */
+    public void advanceMetadataRefreshGeneration() {
+        synchronized (catalog) {
+            metadataRefreshGeneration++;
+        }
     }
 
     @Override

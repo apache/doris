@@ -285,8 +285,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                 return Optional.<ConnectorTableHandle>of(handle);
             });
         } catch (Exception e) {
-            LOG.warn("Failed to get Paimon table handle: {}.{}", dbName, tableName, e);
-            return Optional.empty();
+            throw new DorisConnectorException("Failed to get Paimon table handle: " + dbName + "." + tableName, e);
         }
     }
 

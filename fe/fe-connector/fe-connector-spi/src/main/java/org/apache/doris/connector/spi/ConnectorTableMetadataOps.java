@@ -62,7 +62,10 @@ import java.util.Optional;
  */
 public interface ConnectorTableMetadataOps {
 
-    /** Retrieves a table handle for the given database and table name. */
+    /**
+     * Retrieves a table handle for the given database and table name. Empty means the table does not exist;
+     * authentication, transport and other lookup failures must propagate rather than report absence.
+     */
     @ConnectorMustImplement
     default Optional<ConnectorTableHandle> getTableHandle(
             ConnectorSession session, String dbName,
