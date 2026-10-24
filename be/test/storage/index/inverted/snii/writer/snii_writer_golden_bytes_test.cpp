@@ -15,33 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// GOLDEN BYTE pins for the ordinary SNII writer path. Each test
-// writes ONE segment from a FIXED corpus through the production writer stack
-// and asserts the output file's FNV-1a-64 digest against a recorded constant
-// harvested after B2 stopped feeding hidden bigrams. Any change to tokenization
-// semantics, position accounting, ignore_above / empty-value handling, or
-// ordinary on-disk encoding flips the digest.
-//
-// The corpus deliberately hits the edge lanes: empty value (analyzed: skipped;
-// keyword: a VALID empty token), punctuation-only row (zero analyzed tokens),
-// >ignore_above value (keyword: skipped row), long token, repeated terms
-// (position increments), unicode/mixed text, multiple add_values
-// batches, and interleaved add_nulls runs.
-//
-// If a digest changes INTENTIONALLY (format or analyzer change), re-harvest by
-// running the test and copying the "actual=" value from the failure message --
-// and say so loudly in the commit message.
-//
-// RE-HARVESTED (A2, CommonGrams removal) for the two ANALYZED lanes only: an analyzed
-// index with positions now always carries a BM25 norms section, so EnglishPhrase and
-// UnicodePhrase moved while KeywordDocsOnly (no analyzer, no norms) and the posting-shape
-// matrix (explicit inputs) stayed byte-identical -- which is what tells you the change
-// is confined to "analyzed + positions" segments.
-//
-// RE-HARVESTED when SniiStatsPB and SniiSectionRefsPB were renumbered back to the
-// field numbers the format shipped with. Protobuf tags are part of the image, so
-// EVERY digest moved -- including kGoldenKeywordDocsOnly, which is what tells you
-// the change reaches all SNII segments and not just one lane.
+// Pins ordinary SNII writer bytes for fixed analyzed and keyword corpora. A changed digest requires checking format and analyzer compatibility before updating it.
 
 #include <gtest/gtest.h>
 

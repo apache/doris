@@ -15,26 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// SNII golden-corpus readback test: preserve query semantics across versions and changes.
-//
-// Write ordinary SNII segments without CommonGrams or scoring extensions through the production
-// writer stack. Record each query's docids, null bitmap, and status codes as expectations.
-// Later changes, including CommonGrams removal, format alignment, or norms support, must preserve
-// readback and query results. Other writer versions, such as a production branch, may also supply
-// segment files with matching .expect files in the same directory.
-//
-//   SNII_GOLDEN_DIR=<dir> SNII_GOLDEN_MODE=write   Write segments and expectations.
-//   SNII_GOLDEN_DIR=<dir>                          Verify readback (default).
-//   SNII_GOLDEN_DIR unset                          Skip the test.
-//
-// Verification runs each query with the result cache disabled, enabled but cold, and warm.
-// All three results must match the expectations.
+// Verify bundled SNII compatibility files across query cache modes.
+// SNII_GOLDEN_DIR overrides the bundled corpus; SNII_GOLDEN_MODE=write creates a corpus.
 
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gtest/gtest.h>
 
 #include <cstdint>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <map>
 #include <memory>
@@ -68,6 +57,24 @@ namespace {
 
 constexpr int64_t kIndexId = 7001;
 constexpr const char* kColumn = "c1";
+constexpr std::string_view kExpectLicenseHeader =
+        R"(# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+)";
 
 // ---------------------------------------------------------------- Corpus
 
@@ -454,16 +461,46 @@ Observation observe(const Sample& sample, const OpenedSample& opened, const Quer
 
 // ---------------------------------------------------------------- fixture
 
+std::filesystem::path corpus_directory(std::string_view explicit_dir, std::string_view doris_home,
+                                       const std::filesystem::path& source_file) {
+    // Explicit directories select an external corpus or a write destination.
+    if (!explicit_dir.empty()) return std::filesystem::path(explicit_dir);
+    // The runner starts at DORIS_HOME, where build-relative paths such as ../test miss the corpus.
+    const auto source_dir = doris_home.empty() ? source_file.parent_path()
+                                               : std::filesystem::path(doris_home) /
+                                                         "be/test/storage/index/inverted/snii";
+    return source_dir / "testdata" / "compatibility_corpus";
+}
+
+TEST(SniiGoldenCorpusPath, ExplicitDirectoryOverridesDorisHome) {
+    EXPECT_EQ(corpus_directory("/external/corpus", "/checkout", "../test/corpus_test.cpp"),
+              std::filesystem::path("/external/corpus"));
+}
+
+TEST(SniiGoldenCorpusPath, DorisHomeResolvesBuildRelativeSourcePath) {
+    EXPECT_EQ(corpus_directory("", "/checkout", "../test/corpus_test.cpp"),
+              std::filesystem::path("/checkout/be/test/storage/index/inverted/snii/testdata/"
+                                    "compatibility_corpus"));
+}
+
+TEST(SniiGoldenCorpusPath, SourcePathWorksWithoutDorisHome) {
+    EXPECT_EQ(corpus_directory("", "", "/checkout/be/test/corpus_test.cpp"),
+              std::filesystem::path("/checkout/be/test/testdata/compatibility_corpus"));
+}
+
 class SniiGoldenCorpus : public testing::Test {
 protected:
     void SetUp() override {
         const char* dir = std::getenv("SNII_GOLDEN_DIR");
-        if (dir == nullptr || *dir == '\0') {
-            GTEST_SKIP() << "SNII_GOLDEN_DIR is not set";
-        }
-        _dir = dir;
+        const char* doris_home = std::getenv("DORIS_HOME");
+        _dir = corpus_directory(dir != nullptr ? dir : "", doris_home != nullptr ? doris_home : "",
+                                __FILE__)
+                       .string();
         const char* mode = std::getenv("SNII_GOLDEN_MODE");
         _write_mode = mode != nullptr && std::string_view(mode) == "write";
+        if (_write_mode && (dir == nullptr || *dir == '\0')) {
+            FAIL() << "SNII_GOLDEN_DIR is required in write mode";
+        }
         _previous_cache = ExecEnv::GetInstance()->get_inverted_index_query_cache();
         _cache.reset(InvertedIndexQueryCache::create_global_cache(64 * 1024 * 1024, 4));
         ExecEnv::GetInstance()->set_inverted_index_query_cache(_cache.get());
@@ -497,6 +534,7 @@ TEST_F(SniiGoldenCorpus, WriteOrVerify) {
             ASSERT_TRUE(os.ok()) << sample.name << ": " << os.to_string();
             std::ofstream out(expect_path, std::ios::binary | std::ios::trunc);
             ASSERT_TRUE(out.good()) << expect_path;
+            out << kExpectLicenseHeader;
             out << "# sample=" << sample.name << " doc_count=" << opened.doc_count;
             for (const auto& [k, v] : sample.properties) out << " " << k << "=" << v;
             out << "\n";
