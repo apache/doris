@@ -88,6 +88,22 @@ TEST(KafkaPropertiesTest, AcceptConsumerAndAwsProperties) {
                         .ok());
 }
 
+TEST(KafkaPropertiesTest, AcceptOidcCredentialAliases) {
+    std::unique_ptr<RdKafka::Conf> conf(RdKafka::Conf::create(RdKafka::Conf::CONF_GLOBAL));
+    ASSERT_TRUE(configure_kafka_security(
+                        *conf,
+                        {{"security.protocol", "SASL_SSL"},
+                         {"sasl.mechanism", "OAUTHBEARER"},
+                         {"sasl.oauthbearer.method", "oidc"},
+                         {"sasl.oauthbearer.client.credentials.client.id", "test-client"},
+                         {"sasl.oauthbearer.client.credentials.client.secret", "test-secret"},
+                         {"sasl.oauthbearer.token.endpoint.url", "https://issuer.example/token"}})
+                        .ok());
+    std::string value;
+    ASSERT_EQ(RdKafka::Conf::CONF_OK, conf->get("sasl.kerberos.min.time.before.relogin", value));
+    EXPECT_EQ("0", value);
+}
+
 TEST(KafkaPropertiesTest, ConsumerRejectsBeforeResolvingFilesOrCreatingClient) {
     auto ctx = std::make_shared<StreamLoadContext>(nullptr);
     TKafkaLoadInfo info;

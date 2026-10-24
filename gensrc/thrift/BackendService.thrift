@@ -93,6 +93,8 @@ const set<string> KAFKA_ALLOWED_PROPERTIES = [
     "sasl.kerberos.service.name",
     "sasl.mechanism",
     "sasl.mechanisms",
+    "sasl.oauthbearer.client.credentials.client.id",
+    "sasl.oauthbearer.client.credentials.client.secret",
     "sasl.oauthbearer.client.id",
     "sasl.oauthbearer.client.secret",
     "sasl.oauthbearer.config",

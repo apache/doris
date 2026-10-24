@@ -133,6 +133,95 @@ public class KafkaPropertyValidationTest {
     }
 
     @Test
+    public void testOidcCredentialAliasesCreateAndAlter() throws Exception {
+        for (boolean alter : new boolean[] {false, true}) {
+            Map<String, String> source = new HashMap<>();
+            source.put("kafka_broker_list", "127.0.0.1:9092");
+            source.put("kafka_topic", "test_topic");
+            oidcAliasProperties().forEach((key, value) -> source.put("property." + key, value));
+            KafkaDataSourceProperties properties = new KafkaDataSourceProperties(source);
+            properties.setAlter(alter);
+            properties.setTimezone("UTC");
+            properties.analyze();
+            oidcAliasProperties().forEach((key, value) ->
+                    Assertions.assertEquals(value, properties.getCustomKafkaProperties().get(key)));
+        }
+    }
+
+    private Map<String, String> oidcAliasProperties() {
+        return Map.of("security.protocol", "SASL_SSL",
+                "sasl.mechanism", "OAUTHBEARER",
+                "sasl.oauthbearer.method", "oidc",
+                "sasl.oauthbearer.client.credentials.client.id", "test-client",
+                "sasl.oauthbearer.client.credentials.client.secret", "test-secret",
+                "sasl.oauthbearer.token.endpoint.url", "https://issuer.example/token");
+    }
+
+    @Test
+    public void testRecoverAndAlterJobWithOidcCredentialAliases() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Database db = Mockito.mock(Database.class);
+        Table table = Mockito.mock(Table.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        String originalSql = "CREATE ROUTINE LOAD test_db.test_job ON test_table COLUMNS(id) "
+                + "FROM KAFKA (\"kafka_broker_list\" = \"127.0.0.1:9092\", \"kafka_topic\" = \"test_topic\", "
+                + "\"property.security.protocol\" = \"SASL_SSL\", \"property.sasl.mechanism\" = \"OAUTHBEARER\", "
+                + "\"property.sasl.oauthbearer.method\" = \"oidc\", "
+                + "\"property.sasl.oauthbearer.client.credentials.client.id\" = \"test-client\", "
+                + "\"property.sasl.oauthbearer.client.credentials.client.secret\" = \"test-secret\", "
+                + "\"property.sasl.oauthbearer.token.endpoint.url\" = \"https://issuer.example/token\")";
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            envStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+            Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+            Mockito.when(catalogMgr.getCatalog(InternalCatalog.INTERNAL_CATALOG_NAME)).thenReturn(catalog);
+            Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
+            Mockito.when(catalog.getName()).thenReturn(InternalCatalog.INTERNAL_CATALOG_NAME);
+            Mockito.doReturn(Optional.of(db)).when(catalog).getDb(1L);
+            Mockito.doReturn(Optional.of(db)).when(catalog).getDb("test_db");
+            Mockito.doReturn(db).when(catalog).getDbOrAnalysisException("test_db");
+            Mockito.when(db.getId()).thenReturn(1L);
+            Mockito.when(db.getName()).thenReturn("test_db");
+            Mockito.doReturn(Optional.of(table)).when(db).getTable(2L);
+            Mockito.doReturn(table).when(db).getTableOrAnalysisException("test_table");
+            Mockito.when(table.getName()).thenReturn("test_table");
+
+            KafkaRoutineLoadJob job = new KafkaRoutineLoadJob(1L, "test_job", 1L, 2L,
+                    "127.0.0.1:9092", "test_topic", UserIdentity.ADMIN);
+            job.setOrigStmt(new OriginStatement(originalSql, 0));
+            Deencapsulation.setField(job, "state", RoutineLoadJob.JobState.PAUSED);
+            Deencapsulation.setField(job, "customProperties", new HashMap<>(oidcAliasProperties()));
+            KafkaRoutineLoadJob restored = (KafkaRoutineLoadJob) GsonUtils.GSON.fromJson(
+                    GsonUtils.GSON.toJson(job), RoutineLoadJob.class);
+            Assertions.assertEquals(RoutineLoadJob.JobState.PAUSED, restored.getState());
+            Assertions.assertEquals(-1L, restored.getEndTimestamp());
+            restored.prepare();
+            oidcAliasProperties().forEach((key, value) ->
+                    Assertions.assertEquals(value, restored.getConvertedCustomProperties().get(key)));
+
+            // Adding short names must not make the retained historical aliases fail validation.
+            KafkaDataSourceProperties update = properties("sasl.oauthbearer.client.secret", "test-secret", true);
+            update.analyze();
+            AlterRoutineLoadCommand command = Mockito.mock(AlterRoutineLoadCommand.class);
+            Mockito.when(command.getAnalyzedJobProperties()).thenReturn(Map.of());
+            Mockito.when(command.getDataSourceProperties()).thenReturn(update);
+            restored.modifyProperties(command);
+            Assertions.assertEquals("test-secret", restored.getConvertedCustomProperties()
+                    .get("sasl.oauthbearer.client.credentials.client.secret"));
+            Assertions.assertEquals("test-secret", restored.getConvertedCustomProperties()
+                    .get("sasl.oauthbearer.client.secret"));
+            Assertions.assertEquals("******", restored.getCustomProperties()
+                    .get("property.sasl.oauthbearer.client.credentials.client.secret"));
+            Assertions.assertFalse(restored.customPropertiesJsonToString().contains("test-secret"));
+            Mockito.verify(editLog).logAlterRoutineLoadJob(Mockito.any(AlterRoutineLoadJobOperationLog.class));
+        }
+    }
+
+    @Test
     public void testAwsPropertiesWithAndWithoutPrefix() throws Exception {
         for (String prefix : List.of("", "property.")) {
             Map<String, String> source = new HashMap<>();
