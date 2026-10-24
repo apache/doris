@@ -403,10 +403,12 @@ protected:
 
     void check_insert_failure_state(MemTable* memtable, size_t column_bytes, size_t row_capacity) {
         EXPECT_EQ(memtable->_input_mutable_block.rows(), 4);
-        // The appended columns and reference vector both fit their existing capacity.
+        // Columns fit their existing capacity, but insert reserves room for the fourth row
+        // before the batch allocation fails. No reference to that row has been appended yet.
         EXPECT_EQ(memtable->_input_mutable_block.allocated_bytes(), column_bytes);
         EXPECT_EQ(memtable->_row_in_blocks->size(), 3);
-        EXPECT_EQ(memtable->_row_in_blocks->capacity(), row_capacity);
+        EXPECT_GE(memtable->_row_in_blocks->capacity(), 4);
+        EXPECT_GE(memtable->_row_in_blocks->capacity(), row_capacity);
     }
 
     void check_repack_failure_state(MemTable* memtable) {
@@ -517,7 +519,9 @@ class MemTableWriterAllocationFailureTest : public MemTableWriterFailureTest,
                                             public testing::WithParamInterface<int> {};
 
 TEST_P(MemTableWriterAllocationFailureTest, InsertFailureDiscardsMemTableBeforePressureFlush) {
-    init_writer(DUP_KEYS);
+    // DUP_KEYS uses compact row positions and no longer allocates RowInBlock batches.
+    // Shrinking is disabled by the fixture, so AGG_KEYS exercises only the insert failure.
+    init_writer(AGG_KEYS);
     ASSERT_TRUE(_writer->write(&_input, _rows).ok());
     check_failed_write("MemTable.insert.row_batch_allocation", true, GetParam());
 }
