@@ -559,6 +559,13 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
     return Status::OK();
 }
 
+void RowIdStorageReader::read_by_rowids_for_rpc(const PMultiGetRequestV2& request,
+                                                PMultiGetResponseV2* response) {
+    Status st = Status::OK();
+    ASSIGN_STATUS_IF_CATCH_EXCEPTION(st = read_by_rowids(request, response), st);
+    st.to_protobuf(response->mutable_status());
+}
+
 Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
                                           PMultiGetResponseV2* response) {
     if (request.request_block_descs_size()) {
