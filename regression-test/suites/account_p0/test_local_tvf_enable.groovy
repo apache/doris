@@ -30,4 +30,17 @@ suite("test_local_tvf_enable", "p0") {
             }
         }
     }
+    if (!enabled) {
+        for (def prefix : ["", "EXPLAIN "]) {
+            test {
+                sql """${prefix}INSERT INTO LOCAL(
+                    "file_path" = "/tmp/local_enable_test_",
+                    "backend_id" = "-1",
+                    "format" = "csv"
+                ) SELECT 1"""
+                exception "LOCAL TVF is disabled"
+            }
+        }
+    }
+
 }

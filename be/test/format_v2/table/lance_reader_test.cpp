@@ -4387,6 +4387,69 @@ TEST(LanceTableReaderLocalPathTest, ScansRelativeDatasetInsideSecureRoot) {
     ASSERT_TRUE(reader.close().ok());
 }
 
+TEST(LanceTableReaderLocalPathTest, FileUrisPreserveEscapedDatasetIdentity) {
+    const auto original_secure_path = config::user_files_secure_path;
+    DEFER(config::user_files_secure_path = original_secure_path);
+    const auto root = std::filesystem::temp_directory_path() /
+                      ("lance_escaped_uri_" +
+                       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    DEFER({
+        std::error_code error;
+        std::filesystem::remove_all(root, error);
+    });
+    const auto fixture =
+            std::filesystem::canonical("./be/test/format_v2/table/lance/data/all_types.lance");
+    for (const auto* name : {"a b.lance", "a%20b.lance", "plus+percent%.lance"}) {
+        std::filesystem::create_directories(root / name);
+        std::filesystem::copy(fixture, root / name, std::filesystem::copy_options::recursive);
+    }
+    config::user_files_secure_path = root.string();
+    for (const auto& input :
+         {std::make_pair("file://" + (root / "a%20b.lance").string(), root / "a b.lance"),
+          std::make_pair(std::string("a%20b.lance"), root / "a%20b.lance"),
+          std::make_pair("file://" + (root / "a%20b.lance").string() + "?q=%00#tag",
+                         root / "a b.lance"),
+          std::make_pair("file://" + (root / "a%2520b.lance").string(), root / "a%20b.lance"),
+          std::make_pair("file://" + (root / "plus+percent%25.lance").string(),
+                         root / "plus+percent%.lance")}) {
+        TQueryGlobals query_globals;
+        RuntimeState state(query_globals);
+        RuntimeProfile profile("lance_escaped_file_uri");
+        TFileScanRangeParams scan_params;
+        LanceTableReader reader;
+        const Columns columns = {projected_column("row_id", TYPE_BIGINT, false)};
+        ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
+        auto range = make_latest_lance_range(input.first);
+        range.__set_file_type(TFileType::FILE_LOCAL);
+        std::vector<std::string> names;
+        std::vector<DataTypePtr> types;
+        ASSERT_TRUE(reader.fetch_schema(range, scan_params, &names, &types).ok()) << input.first;
+        EXPECT_FALSE(names.empty());
+        LanceTableReader::DatasetKey key;
+        ASSERT_TRUE(reader._dataset_key(range, &key).ok());
+        EXPECT_EQ(input.second.string(), key.uri);
+        ASSERT_TRUE(prepare_range(&reader, range).ok());
+        Block block;
+        add_output_columns(&block, columns);
+        std::vector<int64_t> row_ids;
+        bool eos = false;
+        while (!eos) {
+            ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+            if (!eos) {
+                const auto& values =
+                        assert_cast<const ColumnInt64&>(*block.get_by_position(0).column)
+                                .get_data();
+                for (size_t row = 0; row < block.rows(); ++row) {
+                    row_ids.push_back(values[row]);
+                }
+            }
+        }
+        std::sort(row_ids.begin(), row_ids.end());
+        EXPECT_EQ((std::vector<int64_t> {1, 2, 3, 4}), row_ids);
+        ASSERT_TRUE(reader.close().ok());
+    }
+}
+
 TEST(LanceTableReaderLocalPathTest, FixedVersionLocalCatalogKeepsItsUri) {
     TFileScanRangeParams scan_params;
     LanceTableReader reader;

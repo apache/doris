@@ -643,6 +643,17 @@ TEST_F(LocalFileSystemTest, TestSafeGlobSecureRoot) {
         ASSERT_EQ(1, files.size());
         EXPECT_EQ((root / "secure/inside.csv").string(), files[0].file_name);
     }
+    const auto special_root = root / "secure[prod]*?\\root";
+    std::filesystem::create_directory(special_root);
+    std::filesystem::create_directory_symlink(special_root, root / "special-root-link");
+    ASSERT_TRUE(save_string_file((special_root / "inside.csv").string(), "inside").ok());
+    for (const auto& secure : {special_root, root / "special-root-link"}) {
+        config::user_files_secure_path = secure.string();
+        std::vector<io::FileInfo> matches;
+        ASSERT_TRUE(fs->safe_glob("*.csv", &matches).ok()) << secure;
+        ASSERT_EQ(1, matches.size());
+        EXPECT_EQ((special_root / "inside.csv").string(), matches[0].file_name);
+    }
     config::user_files_secure_path = "";
     std::vector<io::FileInfo> files;
     EXPECT_FALSE(fs->safe_glob("*.csv", &files).ok());
@@ -674,6 +685,34 @@ TEST_F(LocalFileSystemTest, TestCanonicalizeSecureLocalPath) {
         const auto status = fs->canonicalize_local_file(secure.string(), path, &resolved);
         EXPECT_FALSE(status.ok()) << path;
         EXPECT_EQ(std::string::npos, status.to_string().find(root.string())) << status;
+    }
+    // URI escapes and bare '%' paths may name two different, simultaneously existing datasets.
+    for (const auto* name : {"a b.lance", "a%20b.lance", "plus+percent%.lance", "bad%2G.lance"}) {
+        std::filesystem::create_directory(secure / name);
+    }
+    for (const auto& input :
+         {std::make_pair("file://" + (secure / "a%20b.lance").string(), secure / "a b.lance"),
+          std::make_pair(std::string("a%20b.lance"), secure / "a%20b.lance"),
+          std::make_pair("file://" + (secure / "a%20b.lance").string() + "#tag",
+                         secure / "a b.lance"),
+          std::make_pair("file://" + (secure / "a%20b.lance").string() + "?q=%00#tag",
+                         secure / "a b.lance"),
+          std::make_pair("file://" + (secure / "a%2520b.lance").string(), secure / "a%20b.lance"),
+          std::make_pair("file://" + (secure / "plus+percent%25.lance").string(),
+                         secure / "plus+percent%.lance"),
+          std::make_pair("file://" + (secure / "bad%2G.lance").string(),
+                         secure / "bad%2G.lance")}) {
+        std::string actual;
+        ASSERT_TRUE(fs->canonicalize_local_file(secure.string(), input.first, &actual).ok())
+                << input.first;
+        EXPECT_EQ(input.second.string(), actual);
+    }
+    for (const auto& suffix :
+         {"/%2e%2e/secure-other", "/nested%2f..%2f..%2fsecure-other", "/a%00b.lance"}) {
+        std::string actual;
+        EXPECT_FALSE(fs->canonicalize_local_file(secure.string(),
+                                                 "file://" + secure.string() + suffix, &actual)
+                             .ok());
     }
     std::string resolved;
     EXPECT_FALSE(fs->canonicalize_local_file("", secure.string(), &resolved).ok());

@@ -30,6 +30,7 @@ import org.apache.doris.thrift.TFileType;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.net.HostAndPort;
+import com.google.common.net.InetAddresses;
 
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -123,10 +124,21 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
             // Lance falls back to a local path if Rust's URL parser rejects the URI. Java's URI
             // accepts registry authorities with invalid ports, which Rust rejects. Validate the
             // host/port separately without disallowing legitimate bucket names with underscores.
-            String host = HostAndPort.fromString(authority.substring(authority.lastIndexOf('@') + 1))
-                    .requireBracketsForIPv6().getHost();
-            // Java accepts IPv6 zone identifiers, while Rust's URL parser rejects them.
-            return !host.isEmpty() && !(host.contains(":") && host.contains("%"));
+            String hostPort = authority.substring(authority.lastIndexOf('@') + 1);
+            HostAndPort parsed = HostAndPort.fromString(hostPort).requireBracketsForIPv6();
+            if (parsed.hasPort()) {
+                // Guava parses "-0" as zero, but Rust rejects signs and falls back to local.
+                String port = hostPort.substring(hostPort.lastIndexOf(':') + 1);
+                for (int i = 0; i < port.length(); i++) {
+                    if (port.charAt(i) < '0' || port.charAt(i) > '9') {
+                        return false;
+                    }
+                }
+            }
+            String host = parsed.getHost();
+            // Rust rejects zones and IPv4 tails with leading zeros, such as ::ffff:127.0.0.01.
+            return !host.isEmpty() && (!host.contains(":")
+                    || (!host.contains("%") && InetAddresses.isInetAddress(host)));
         } catch (URISyntaxException | IllegalArgumentException e) {
             return false;
         }
