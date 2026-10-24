@@ -55,7 +55,19 @@ suite("test_paimon_orc_ltz_encoding", "p0,external,paimon") {
                 SHOW TBLPROPERTIES paimon.${dbName}.${tableName} ('${legacyKey}')
             """))
         }
-        assertEncoding("t_modern", "false")
+        // The paimon 1.4 connector materialized unset property defaults into the stored
+        // table options, so t_modern (created without the legacy flag) read back as
+        // "false". The 2.1 connector no longer persists unset defaults, so the same
+        // query fails with "does not have property" — which still means the modern
+        // default. Anything else (a persisted "true", or any other error) must fail.
+        boolean modernDefault = false
+        try {
+            assertEncoding("t_modern", "false")
+            modernDefault = true
+        } catch (Throwable t) {
+            modernDefault = t.toString().contains("does not have property")
+        }
+        assertTrue(modernDefault, "t_modern must keep the modern (non-legacy) encoding default")
         sql """CREATE TABLE t_legacy (event_time TIMESTAMPTZ(6)) ENGINE=paimon
             PROPERTIES ('file.format' = 'orc', '${legacyKey}' = 'true')"""
         sql """CREATE TABLE IF NOT EXISTS t_legacy (event_time TIMESTAMPTZ(6)) ENGINE=paimon"""

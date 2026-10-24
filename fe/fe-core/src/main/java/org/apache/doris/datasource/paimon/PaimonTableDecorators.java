@@ -30,8 +30,8 @@ public final class PaimonTableDecorators {
     public static FileStoreTable unwrapToFallbackOrBase(FileStoreTable table) {
         FileStoreTable current = table;
         // Fallback dispatch requires the pair to be the system wrapper's immediate child. Paimon
-        // does not privilege-wrap system tables, so peeling privilege-only delegates matches its
-        // catalog semantics while retaining the one decorator that changes read routing.
+        // 2.1 ships no privilege delegates, so peeling any unknown delegate matches its catalog
+        // semantics while retaining the one decorator that changes read routing.
         while (current instanceof DelegatedFileStoreTable
                 && !(current instanceof FallbackReadFileStoreTable)) {
             current = ((DelegatedFileStoreTable) current).wrapped();
