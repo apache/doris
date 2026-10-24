@@ -17,7 +17,9 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SearchDslParser;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.StringType;
@@ -28,11 +30,36 @@ import org.junit.jupiter.api.Test;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Unit tests for SearchExpression
  */
 public class SearchExpressionTest {
+
+    @Test
+    public void testToSqlPreservesDsl() {
+        for (String dsl : Arrays.asList("title:hello", "title:\"O'Reilly\\manual\"")) {
+            SearchExpression searchExpr = new SearchExpression(dsl, createTestPlan(),
+                    Arrays.asList(createTestSlot("title")));
+            Expression parsed = new NereidsParser().parseExpression(searchExpr.toSql());
+            Assertions.assertEquals(dsl, ((StringLikeLiteral) parsed.child(0)).getStringValue());
+        }
+    }
+
+    @Test
+    public void testToSqlKeepsOptions() {
+        String options = "{\"default_field\":\"title\",\"default_operator\":\"or\"}";
+        SearchExpression searchExpr = new SearchExpression("hello world", Optional.of(options), createTestPlan(),
+                Arrays.asList(createTestSlot("title")));
+        Expression parsed = new NereidsParser().parseExpression(searchExpr.toSql());
+        Assertions.assertEquals(2, parsed.children().size());
+        Assertions.assertEquals("hello world", ((StringLikeLiteral) parsed.child(0)).getStringValue());
+        Assertions.assertEquals(options, ((StringLikeLiteral) parsed.child(1)).getStringValue());
+        Assertions.assertEquals(searchExpr, searchExpr.withChildren(searchExpr.children()));
+        Assertions.assertNotEquals(searchExpr, new SearchExpression("hello world", searchExpr.getQsPlan(),
+                searchExpr.children()));
+    }
 
     private SearchDslParser.QsPlan createTestPlan() {
         SearchDslParser.QsNode root = new SearchDslParser.QsNode(
