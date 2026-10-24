@@ -463,13 +463,28 @@ Status LocalFileSystem::canonicalize_local_file(const std::string& dir,
     if (file_path.empty() || file_path.find('\0') != std::string::npos) {
         return Status::InvalidArgument("local file path must not be empty or contain NUL");
     }
-    // URI schemes are ASCII case-insensitive; do not alter spelling in bare paths.
-    const bool is_file_uri = file_path.size() >= 5 &&
-                             (file_path[0] == 'f' || file_path[0] == 'F') &&
-                             (file_path[1] == 'i' || file_path[1] == 'I') &&
-                             (file_path[2] == 'l' || file_path[2] == 'L') &&
-                             (file_path[3] == 'e' || file_path[3] == 'E') && file_path[4] == ':';
-    std::string local_input = file_path;
+    // Match URL preprocessing only for actual file URIs; bare paths keep literal whitespace.
+    const auto is_c0_or_space = [](unsigned char c) { return c <= 0x20; };
+    size_t begin = 0;
+    size_t end = file_path.size();
+    while (begin < end && is_c0_or_space(file_path[begin])) {
+        ++begin;
+    }
+    while (end > begin && is_c0_or_space(file_path[end - 1])) {
+        --end;
+    }
+    std::string uri_input;
+    for (size_t i = begin; i < end; ++i) {
+        if (file_path[i] != '\t' && file_path[i] != '\r' && file_path[i] != '\n') {
+            uri_input += file_path[i];
+        }
+    }
+    const bool is_file_uri = uri_input.size() >= 5 &&
+                             (uri_input[0] == 'f' || uri_input[0] == 'F') &&
+                             (uri_input[1] == 'i' || uri_input[1] == 'I') &&
+                             (uri_input[2] == 'l' || uri_input[2] == 'L') &&
+                             (uri_input[3] == 'e' || uri_input[3] == 'E') && uri_input[4] == ':';
+    std::string local_input = is_file_uri ? std::move(uri_input) : file_path;
     if (is_file_uri) {
         local_input.replace(0, 4, "file");
         // File URLs treat raw backslashes as separators, including before the authority.
@@ -489,11 +504,14 @@ Status LocalFileSystem::canonicalize_local_file(const std::string& dir,
         auto encoded = local_path.string();
         // Query and fragment are URI components, not part of the filesystem path.
         encoded = encoded.substr(0, encoded.find_first_of("?#"));
+        // A file URL without a leading slash still names a filesystem-rooted path.
+        if (encoded.empty() || encoded[0] != '/') {
+            encoded.insert(0, "/");
+        }
         // URL dot segments are removed before symlinks are followed and before %2F
         // becomes a path separator. Keep empty segments: "a//../b" denotes "a/b".
-        const bool absolute = !encoded.empty() && encoded[0] == '/';
         std::vector<std::string> segments;
-        for (size_t start = absolute ? 1 : 0;;) {
+        for (size_t start = 1;;) {
             const size_t end = encoded.find('/', start);
             const auto segment =
                     encoded.substr(start, end == std::string::npos ? end : end - start);
@@ -502,10 +520,8 @@ Status LocalFileSystem::canonicalize_local_file(const std::string& dir,
                                 segment == "%2e." || segment == "%2E." || segment == "%2e%2e" ||
                                 segment == "%2e%2E" || segment == "%2E%2e" || segment == "%2E%2E";
             if (parent) {
-                if (!segments.empty() && segments.back() != "..") {
+                if (!segments.empty()) {
                     segments.pop_back();
-                } else if (!absolute) {
-                    segments.emplace_back("..");
                 }
             } else if (!dot) {
                 segments.push_back(segment);
@@ -518,7 +534,7 @@ Status LocalFileSystem::canonicalize_local_file(const std::string& dir,
             }
             start = end + 1;
         }
-        encoded = absolute ? "/" : "";
+        encoded = "/";
         for (size_t i = 0; i < segments.size(); ++i) {
             if (i > 0) {
                 encoded += '/';

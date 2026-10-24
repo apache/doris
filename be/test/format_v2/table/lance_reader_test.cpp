@@ -4340,8 +4340,9 @@ TEST(LanceTableReaderLocalPathTest, SchemaAndScanUseTheSameSecurePath) {
     ASSERT_TRUE(reader._dataset_key(range, &key).ok());
     EXPECT_EQ((root / "all_types.lance").string(), key.uri);
 
-    for (const auto* uri : {"https://invalid/dataset", "http://invalid/dataset",
-                            "s3://bucket/dataset", "../data-other/dataset"}) {
+    for (const auto& uri : std::vector<std::string> {
+                 "https://invalid/dataset", "http://invalid/dataset", "s3://bucket/dataset",
+                 "../data-other/dataset", "", std::string("a\0b", 3) + "/../all_types.lance"}) {
         range.table_format_params.lance_params.__set_dataset_uri(uri);
         const auto schema_status = reader.fetch_schema(range, scan_params, &names, &types);
         const auto scan_status = reader._dataset_key(range, &key);
@@ -4462,30 +4463,52 @@ TEST(LanceTableReaderLocalPathTest, FileUrisNormalizeBeforeFilesystemResolution)
     });
     std::filesystem::create_directories(root / "nested/child");
     std::filesystem::create_directory_symlink(root / "nested/child", root / "jump");
+    std::filesystem::create_directory_symlink(root, root / "secure-link");
     const auto backslash_uri = std::string(R"(fIlE:\\localhost)") + root.string() + "/data.lance";
-    for (const bool nested : {false, true}) {
+    struct DatasetFixture {
+        const char* column_name;
+        int64_t row_id;
+        std::filesystem::path path;
+    };
+    const DatasetFixture datasets[] = {
+            {"root_only", 7, root / "data.lance"},
+            {"nested_only", 42, root / "nested/data.lance"},
+            {"spaced_only", 99, root / "data.lance "},
+            {"prefixed_only", 123, root / (root / "data.lance").relative_path()}};
+    for (const auto& dataset : datasets) {
+        std::filesystem::create_directories(dataset.path.parent_path());
         arrow::Int64Builder values_builder;
-        ASSERT_TRUE(values_builder.Append(nested ? 42 : 7).ok());
+        ASSERT_TRUE(values_builder.Append(dataset.row_id).ok());
         std::shared_ptr<arrow::Array> values;
         ASSERT_TRUE(values_builder.Finish(&values).ok());
-        const auto schema = arrow::schema(
-                {arrow::field("row_id", arrow::int64(), false),
-                 arrow::field(nested ? "nested_only" : "root_only", arrow::int64(), false)});
-        ASSERT_TRUE(write_lance_record_batch(root / (nested ? "nested/data.lance" : "data.lance"),
+        const auto schema =
+                arrow::schema({arrow::field("row_id", arrow::int64(), false),
+                               arrow::field(dataset.column_name, arrow::int64(), false)});
+        ASSERT_TRUE(write_lance_record_batch(dataset.path,
                                              arrow::RecordBatch::Make(schema, 1, {values, values}))
                             .ok());
     }
-    config::user_files_secure_path = root.string();
+    config::user_files_secure_path = (root / "secure-link").string();
     for (const auto& input :
-         {std::make_pair("file://" + root.string() + "/jump/../data.lance", false),
-          std::make_pair("file://" + root.string() + "/missing/../data.lance", false),
-          std::make_pair("file://" + root.string() + "/jump/%2e%2E/data.lance", false),
-          std::make_pair("FILE://" + root.string() + "/data.lance", false),
-          std::make_pair(backslash_uri, false),
-          std::make_pair("fIlE://" + root.string() + "/jump/.%2e/data.lance", false),
-          std::make_pair("file://" + root.string() + "/jump%2f../data.lance", true),
-          std::make_pair(std::string("jump/../data.lance"), true)}) {
-        SCOPED_TRACE(input.first);
+         {std::make_pair("file://" + root.string() + "/jump/../data.lance", &datasets[0]),
+          std::make_pair("file://" + root.string() + "/missing/../data.lance", &datasets[0]),
+          std::make_pair("file://" + root.string() + "/jump/%2e%2E/data.lance", &datasets[0]),
+          std::make_pair("FILE://" + root.string() + "/data.lance", &datasets[0]),
+          std::make_pair(backslash_uri, &datasets[0]),
+          std::make_pair("fIlE://" + root.string() + "/jump/.%2e/data.lance", &datasets[0]),
+          std::make_pair("file://" + root.string() + "/jump%2f../data.lance", &datasets[1]),
+          std::make_pair(std::string("jump/../data.lance"), &datasets[0]),
+          std::make_pair((root / "jump/../data.lance").string(), &datasets[0]),
+          std::make_pair((root / "missing/../data.lance").string(), &datasets[0]),
+          std::make_pair("file:" + (root / "data.lance").relative_path().string(), &datasets[0]),
+          std::make_pair("file://" + root.string() + "/data.lance ", &datasets[0]),
+          std::make_pair(" \tFi\nLe://" + root.string() + "/data.la\tnce\r\n ", &datasets[0]),
+          std::make_pair("file://" + root.string() + "/data.lance%20", &datasets[2]),
+          std::make_pair("file://" + root.string() + "/data.lance%20 ", &datasets[2]),
+          std::make_pair(std::string("data.lance "), &datasets[2]),
+          std::make_pair((root / "data.lance ").string(), &datasets[2])}) {
+        SCOPED_TRACE("[" + input.first + "]");
+        const auto& expected = *input.second;
         TQueryGlobals globals;
         RuntimeState state(globals);
         RuntimeProfile profile("lance_uri_normalization");
@@ -4498,11 +4521,10 @@ TEST(LanceTableReaderLocalPathTest, FileUrisNormalizeBeforeFilesystemResolution)
         std::vector<std::string> names;
         std::vector<DataTypePtr> types;
         ASSERT_TRUE(reader.fetch_schema(range, scan_params, &names, &types).ok());
-        EXPECT_EQ((std::vector<std::string> {"row_id", input.second ? "nested_only" : "root_only"}),
-                  names);
+        EXPECT_EQ((std::vector<std::string> {"row_id", expected.column_name}), names);
         LanceTableReader::DatasetKey key;
         ASSERT_TRUE(reader._dataset_key(range, &key).ok());
-        EXPECT_EQ((root / (input.second ? "nested/data.lance" : "data.lance")).string(), key.uri);
+        EXPECT_EQ(expected.path.string(), key.uri);
         ASSERT_TRUE(prepare_range(&reader, range).ok());
         Block block;
         add_output_columns(&block, columns);
@@ -4517,7 +4539,7 @@ TEST(LanceTableReaderLocalPathTest, FileUrisNormalizeBeforeFilesystemResolution)
                 row_ids.insert(row_ids.end(), values.begin(), values.end());
             }
         }
-        EXPECT_EQ((std::vector<int64_t> {input.second ? 42 : 7}), row_ids);
+        EXPECT_EQ((std::vector<int64_t> {expected.row_id}), row_ids);
         ASSERT_TRUE(reader.close().ok());
     }
 }

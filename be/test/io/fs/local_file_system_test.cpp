@@ -726,6 +726,8 @@ TEST_F(LocalFileSystemTest, TestCanonicalizeFileUriIdentity) {
     std::filesystem::create_directory(secure / "nested/data.lance");
     std::filesystem::create_directory(secure / "data.lance");
     std::filesystem::create_directory(secure / "a b.lance");
+    std::filesystem::create_directory(secure / "data.lance ");
+    std::filesystem::create_directories(secure / (secure / "data.lance").relative_path());
     std::filesystem::create_directory(root / "outside");
     std::filesystem::create_directory_symlink(secure / "nested/child", secure / "jump");
     std::filesystem::create_directory(secure / "literal\\name.lance");
@@ -756,6 +758,14 @@ TEST_F(LocalFileSystemTest, TestCanonicalizeFileUriIdentity) {
           std::make_pair(std::string("literal\\name.lance"), secure / "literal\\name.lance"),
           std::make_pair("fIlE://" + secure.string() + "/a%20b.lance?q=%00#tag",
                          secure / "a b.lance"),
+          std::make_pair("file:" + (secure / "data.lance").relative_path().string(),
+                         secure / "data.lance"),
+          std::make_pair("file://" + secure.string() + "/data.lance ", secure / "data.lance"),
+          std::make_pair(" \tFi\nLe://" + secure.string() + "/data.la\tnce\r\n ",
+                         secure / "data.lance"),
+          std::make_pair("file://" + secure.string() + "/data.lance%20", secure / "data.lance "),
+          std::make_pair("file://" + secure.string() + "/data.lance%20 ", secure / "data.lance "),
+          std::make_pair(std::string("data.lance "), secure / "data.lance "),
           std::make_pair(std::string("jump/../data.lance"), secure / "nested/data.lance")}) {
         std::string actual;
         const auto status = fs->canonicalize_local_file(secure.string(), input.first, &actual);
