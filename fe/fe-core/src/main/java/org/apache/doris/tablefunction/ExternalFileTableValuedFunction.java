@@ -317,6 +317,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 ScanContext.builder().clusterName(sv.resolveCloudClusterName()).build());
     }
 
+    protected boolean needsSchemaDiscovery() {
+        return csvSchema.isEmpty();
+    }
+
     @Override
     public List<Column> getTableColumns() throws AnalysisException {
         if (!csvSchema.isEmpty()) {
