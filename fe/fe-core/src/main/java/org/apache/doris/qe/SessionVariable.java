@@ -562,6 +562,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String JOIN_REORDER_TIME_LIMIT = "join_order_time_limit";
     public static final String SHOW_USER_DEFAULT_ROLE = "show_user_default_role";
 
+    public static final String ENABLE_EXPERIMENTAL_SIMPLE_CASE = "enable_experimental_simple_case";
+
     public static final String ENABLE_PAGE_CACHE = "enable_page_cache";
     public static final String ENABLE_PARQUET_FILE_PAGE_CACHE = "enable_parquet_file_page_cache";
 
@@ -1112,6 +1114,10 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = "enable_aggregate_cse", needForward = true)
     public boolean enableAggregateCse = true;
+
+    // Enable only after all BEs support simple CASE. Short-circuit evaluation takes precedence.
+    @VarAttrDef.VarAttr(name = ENABLE_EXPERIMENTAL_SIMPLE_CASE, needForward = true)
+    public boolean enableExperimentalSimpleCase = false;
 
     // Experimental: enable pushing down virtual slots (common sub-expressions) into OlapScan.
     // When false (default), the optimizer rule PushDownVirtualColumnsIntoOlapScan will not apply.
