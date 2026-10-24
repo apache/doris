@@ -84,9 +84,13 @@ public class ConnectionExceedTest {
             context3.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%"));
             Assertions.assertTrue(scheduler.submit(context3));
 
+            // a compression negotiated during the handshake must not start on a refused login
+            context3.getMysqlChannel().setCompressionNegotiated(1);
+
             // Create AcceptListener and handle the connection
             AcceptListener listener = new AcceptListener(scheduler);
             listener.handleConnection(context3, mockConnection);
+            Assertions.assertFalse(context3.getMysqlChannel().isCompressionActive());
             String expectedMsg = String.format(
                     "Reach limit of connections. Total: %d, User: %d, Current: %d",
                     scheduler.getConnectPoolMgr().getMaxConnections(),
@@ -94,6 +98,43 @@ public class ConnectionExceedTest {
                     scheduler.getConnectionNum());
             Assertions.assertEquals(expectedMsg, context3.getState().getErrorMessage());
             Assertions.assertEquals(ErrorCode.ERR_TOO_MANY_USER_CONNECTIONS, context3.getState().getErrorCode());
+        }
+    }
+
+    @Test
+    public void testAcceptedLoginStartsCompressionAfterTheOkIsSent() throws Exception {
+        try (MockedStatic<MysqlProto> mockedProto = Mockito.mockStatic(MysqlProto.class)) {
+            ConnectScheduler scheduler = new ConnectScheduler(2);
+            Mockito.when(mockEnv.getInternalCatalog()).thenReturn(mockCatalog);
+            Mockito.when(mockCatalog.getName()).thenReturn("internal");
+            Mockito.when(mockEnv.getAuth()).thenReturn(mockAuth);
+            Mockito.when(mockAuth.getMaxConn("test_user")).thenReturn(2L);
+            mockedProto.when(() -> MysqlProto.negotiate(Mockito.nullable(ConnectContext.class))).thenReturn(true);
+
+            ConnectContext context = new ConnectContext();
+            context.setEnv(mockEnv);
+            context.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%"));
+            Assertions.assertTrue(scheduler.submit(context));
+            // negotiated during the handshake, as MysqlProto.negotiate would have recorded it
+            context.getMysqlChannel().setCompressionNegotiated(1);
+            // the channel's state at the moment the response that closes the handshake goes out
+            boolean[] activeWhenOkSent = {true};
+            int[] responsesSent = {0};
+            mockedProto.when(() -> MysqlProto.sendResponsePacket(Mockito.nullable(ConnectContext.class)))
+                    .thenAnswer(inv -> {
+                        responsesSent[0]++;
+                        activeWhenOkSent[0] = context.getMysqlChannel().isCompressionActive();
+                        return null;
+                    });
+
+            // the accepted branch: the OK is sent, compression starts, then the read side is wired (which
+            // fails on the mocked connection and lands in the listener's catch, after the order we pin)
+            new AcceptListener(scheduler).handleConnection(context, mockConnection);
+
+            Assertions.assertEquals(1, responsesSent[0], "exactly one response closes the handshake");
+            Assertions.assertFalse(activeWhenOkSent[0], "the authentication response travels plain");
+            Assertions.assertTrue(context.getMysqlChannel().isCompressionActive(),
+                    "compression starts once the response is on the wire");
         }
     }
 

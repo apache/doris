@@ -112,6 +112,9 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
             int res = connectScheduler.getConnectPoolMgr().registerConnection(context);
             if (res == -1) {
                 MysqlProto.sendResponsePacket(context);
+                // the OK that closes the authentication phase is on the wire: from here on, a client
+                // that negotiated CLIENT_COMPRESS exchanges compressed frames
+                context.getMysqlChannel().startCompressionIfNegotiated();
                 connection.setCloseListener(
                         streamConnection -> connectScheduler.getConnectPoolMgr().unregisterConnection(context));
             } else {
