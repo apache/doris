@@ -27,6 +27,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.InternalErrorCode;
@@ -208,29 +209,47 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     private void convertCustomProperties(boolean rebuild) throws DdlException {
-        if (customProperties.isEmpty()) {
-            return;
-        }
-
+        validateCustomProperties(customProperties);
         if (!rebuild && !convertedCustomProperties.isEmpty()) {
             return;
         }
+        setConvertedCustomProperties(resolveCustomProperties(customProperties));
+    }
 
-        if (rebuild) {
-            convertedCustomProperties.clear();
+    private void validateCustomProperties(Map<String, String> properties) throws DdlException {
+        // Replay can restore properties accepted by an older FE. Reject them before
+        // metadata requests, including during a rolling upgrade with older BEs.
+        try {
+            KafkaDataSourceProperties.validateCustomProperties(properties);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage(), e);
         }
+    }
 
-        SmallFileMgr smallFileMgr = Env.getCurrentEnv().getSmallFileMgr();
-        for (Map.Entry<String, String> entry : customProperties.entrySet()) {
+    private Map<String, String> resolveCustomProperties(Map<String, String> properties) throws DdlException {
+        // Publish only a complete conversion. A failed FILE lookup must not leave
+        // a partial cache that skips validation/conversion on the next metadata request.
+        Map<String, String> convertedProperties = Maps.newHashMap();
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
             if (entry.getValue().startsWith("FILE:")) {
                 // convert FILE:file_name -> FILE:file_id:md5
                 String file = entry.getValue().substring(entry.getValue().indexOf(":") + 1);
+                SmallFileMgr smallFileMgr = Env.getCurrentEnv().getSmallFileMgr();
                 SmallFile smallFile = smallFileMgr.getSmallFile(dbId, KAFKA_FILE_CATALOG, file, true);
-                convertedCustomProperties.put(entry.getKey(), "FILE:" + smallFile.id + ":" + smallFile.md5);
+                convertedProperties.put(entry.getKey(), "FILE:" + smallFile.id + ":" + smallFile.md5);
             } else {
-                convertedCustomProperties.put(entry.getKey(), entry.getValue());
+                convertedProperties.put(entry.getKey(), entry.getValue());
             }
         }
+
+        // Older BEs still use librdkafka's default shell command. Send the safe
+        // setting explicitly so new FE -> old BE also disables ticket execution.
+        convertedProperties.put("sasl.kerberos.min.time.before.relogin", "0");
+        return convertedProperties;
+    }
+
+    private void setConvertedCustomProperties(Map<String, String> convertedProperties) {
+        convertedCustomProperties = convertedProperties;
 
         // This is mainly for compatibility. In the previous version, we directly obtained the value of the
         // KAFKA_DEFAULT_OFFSETS attribute. In the new version, we support date time as the value of
@@ -240,6 +259,9 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         if (convertedCustomProperties.containsKey(KafkaConfiguration.KAFKA_ORIGIN_DEFAULT_OFFSETS.getName())) {
             kafkaDefaultOffSet = convertedCustomProperties
                     .remove(KafkaConfiguration.KAFKA_ORIGIN_DEFAULT_OFFSETS.getName());
+            // Both entries describe the same default. Do not leave the millis value
+            // behind to overwrite the datetime when an ALTER reuses this cache.
+            convertedCustomProperties.remove(KafkaConfiguration.KAFKA_DEFAULT_OFFSETS.getName());
             return;
         }
         if (convertedCustomProperties.containsKey(KafkaConfiguration.KAFKA_DEFAULT_OFFSETS.getName())) {
@@ -790,7 +812,9 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 throw new DdlException("Only supports modification of PAUSED jobs");
             }
 
-            modifyPropertiesInternal(jobProperties, dataSourceProperties);
+            Map<String, String> convertedProperties = prepareModifyProperties(dataSourceProperties);
+            applyProperties(jobProperties, dataSourceProperties);
+            setConvertedCustomProperties(convertedProperties);
 
             AlterRoutineLoadJobOperationLog log = new AlterRoutineLoadJobOperationLog(this.id,
                     jobProperties, dataSourceProperties);
@@ -805,21 +829,41 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         if (partitionOffsets.isEmpty()) {
             return;
         }
+        Map<String, String> properties;
+        String brokerListSnapshot;
+        String topicSnapshot;
+        writeLock();
+        try {
+            // An ALTER can repair properties accepted by an older FE. Validate and
+            // resolve the merged map before lookup without publishing it to the job.
+            Map<String, String> mergedProperties = Maps.newHashMap(customProperties);
+            mergedProperties.putAll(dataSourceProperties.getCustomKafkaProperties());
+            validateCustomProperties(mergedProperties);
+            properties = resolveCustomProperties(mergedProperties);
+            properties.remove(KafkaConfiguration.KAFKA_ORIGIN_DEFAULT_OFFSETS.getName());
+            properties.remove(KafkaConfiguration.KAFKA_DEFAULT_OFFSETS.getName());
+            brokerListSnapshot = brokerList;
+            topicSnapshot = topic;
+        } finally {
+            writeUnlock();
+        }
         String computeGroupName = getComputeGroupName();
         List<Pair<Integer, Long>> newOffsets;
         if (dataSourceProperties.isOffsetsForTimes()) {
             newOffsets = KafkaUtil.getOffsetsForTimes(
-                    brokerList, topic, convertedCustomProperties, partitionOffsets, computeGroupName);
+                    brokerListSnapshot, topicSnapshot, properties, partitionOffsets, computeGroupName);
         } else {
             newOffsets = KafkaUtil.getRealOffsets(
-                    brokerList, topic, convertedCustomProperties, partitionOffsets, computeGroupName);
+                    brokerListSnapshot, topicSnapshot, properties, partitionOffsets, computeGroupName);
         }
         dataSourceProperties.setKafkaPartitionOffsets(newOffsets);
     }
 
-    private void modifyPropertiesInternal(Map<String, String> jobProperties,
-                                          KafkaDataSourceProperties dataSourceProperties)
+    // Only a live ALTER validates Kafka properties, resolves files and resets cloud progress.
+    // Journal replay must apply the already committed transition without these effects.
+    private Map<String, String> prepareModifyProperties(KafkaDataSourceProperties dataSourceProperties)
             throws UserException {
+        Map<String, String> convertedProperties = convertedCustomProperties;
         if (null != dataSourceProperties) {
             List<Pair<Integer, Long>> kafkaPartitionOffsets = Lists.newArrayList();
             Map<String, String> customKafkaProperties = Maps.newHashMap();
@@ -829,10 +873,13 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 customKafkaProperties = dataSourceProperties.getCustomKafkaProperties();
             }
 
-            // convertCustomProperties and check partitions before reset progress to make modify operation atomic
+            // Prepare the merged properties without changing durable job state. For
+            // example, a missing CREATE FILE must not partially apply the ALTER.
             if (!customKafkaProperties.isEmpty()) {
-                this.customProperties.putAll(customKafkaProperties);
-                convertCustomProperties(true);
+                Map<String, String> properties = Maps.newHashMap(customProperties);
+                properties.putAll(customKafkaProperties);
+                validateCustomProperties(properties);
+                convertedProperties = resolveCustomProperties(properties);
             }
 
             if (!kafkaPartitionOffsets.isEmpty()) {
@@ -858,7 +905,22 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 }
                 resetCloudProgress(builder);
             }
+        }
+        return convertedProperties;
+    }
 
+    private void applyProperties(Map<String, String> jobProperties,
+                                 KafkaDataSourceProperties dataSourceProperties)
+            throws UserException {
+        if (null != dataSourceProperties) {
+            List<Pair<Integer, Long>> kafkaPartitionOffsets = Lists.newArrayList();
+            if (MapUtils.isNotEmpty(dataSourceProperties.getOriginalDataSourceProperties())) {
+                kafkaPartitionOffsets = dataSourceProperties.getKafkaPartitionOffsets();
+                this.customProperties.putAll(dataSourceProperties.getCustomKafkaProperties());
+            }
+            // A historical ALTER may contain a property rejected by today's policy.
+            // Restore all fields (including topic/offsets), then validate before use.
+            convertedCustomProperties = Maps.newHashMap();
             // It is necessary to reset the Kafka progress cache if topic change,
             // and should reset cache before modifying partition offset.
             if (!Strings.isNullOrEmpty(dataSourceProperties.getTopic())) {
@@ -919,7 +981,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     @Override
     public void replayModifyProperties(AlterRoutineLoadJobOperationLog log) {
         try {
-            modifyPropertiesInternal(log.getJobProperties(), (KafkaDataSourceProperties) log.getDataSourceProperties());
+            applyProperties(log.getJobProperties(), (KafkaDataSourceProperties) log.getDataSourceProperties());
         } catch (UserException e) {
             // should not happen
             LOG.error("failed to replay modify kafka routine load job: {}", id, e);
