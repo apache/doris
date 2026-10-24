@@ -21,6 +21,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.S3Util;
+import org.apache.doris.datasource.lance.metadata.LanceMetadataLoader;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.expressions.Properties;
@@ -52,6 +53,7 @@ import org.mockito.Mockito;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
@@ -78,6 +80,134 @@ public class S3TableValuedFunctionTest {
         ConnectContext.remove();
         if (previousContext != null) {
             previousContext.setThreadLocalInfo();
+        }
+    }
+
+    @Test
+    public void testLanceRejectsLocalStorageBeforeOpeningDataset() {
+        org.apache.doris.common.AnalysisException exception = Assertions.assertThrows(
+                org.apache.doris.common.AnalysisException.class,
+                () -> new S3TableValuedFunction(ImmutableMap.of(
+                        "file_path", "dataset.lance", "format", "lance")));
+        Assertions.assertTrue(exception.getMessage().contains("requires remote storage"));
+    }
+
+    @Test
+    public void testLanceRejectsBrokerLocalUrisBeforeOpeningDataset() {
+        FeConstants.runningUnitTest = false;
+        try (MockedStatic<LanceMetadataLoader> loader = Mockito.mockStatic(LanceMetadataLoader.class)) {
+            for (String uri : Arrays.asList("dataset.lance", "/tmp/dataset.lance", "../dataset.lance",
+                    "//localhost/tmp/dataset.lance", "file:///tmp/dataset.lance", "file:/tmp/dataset.lance",
+                    "file:dataset.lance", "FILE:///tmp/dataset.lance", "file://localhost/tmp/dataset.lance",
+                    "file-object-store://ignored/tmp/dataset.lance", "file+uring://ignored/tmp/dataset.lance",
+                    "FILE-OBJECT-STORE://ignored/tmp/dataset.lance", "FILE+URING://ignored/tmp/dataset.lance",
+                    "c://ignored/tmp/dataset.lance", "memory://dataset.lance", "shared-memory://dataset.lance",
+                    "s3://bucket:-0/../../dataset.lance", "s3://bucket:-00/../../dataset.lance",
+                    "s3://bucket:+0/../../dataset.lance", "s3://[::ffff:127.0.0.01]/../../dataset.lance",
+                    "s3://bucket:bad/../../dataset.lance", "s3://bucket:65536/../../dataset.lance",
+                    "s3://:9000/dataset.lance", "s3://user@/dataset.lance",
+                    "s3://[::1%25eth0]/dataset.lance", "https://bucket:bad/../../dataset.lance",
+                    "", "s3:/bucket/dataset.lance", "s3://")) {
+                AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                        () -> new S3TableValuedFunction(ImmutableMap.of(
+                                "format", "lance", "uri", uri, "fs.broker.support", "true")), uri);
+                Assertions.assertTrue(exception.getMessage().contains("requires remote storage"), uri);
+            }
+            loader.verifyNoInteractions();
+        }
+    }
+
+    @Test
+    public void testLanceRejectsGuessedBrokerFileUrisBeforeOpeningDataset() {
+        FeConstants.runningUnitTest = false;
+        try (MockedStatic<LanceMetadataLoader> loader = Mockito.mockStatic(LanceMetadataLoader.class)) {
+            for (String uri : Arrays.asList("file:///tmp/dataset.lance", "file://localhost/tmp/dataset.lance")) {
+                AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                        () -> new S3TableValuedFunction(ImmutableMap.of(
+                                "format", "lance", "uri", uri, "broker.name", "test")));
+                Assertions.assertTrue(exception.getMessage().contains("requires remote storage"));
+            }
+            loader.verifyNoInteractions();
+        }
+    }
+
+    @Test
+    public void testLanceRejectsBrokerWithoutUriBeforeOpeningDataset() {
+        FeConstants.runningUnitTest = false;
+        try (MockedStatic<LanceMetadataLoader> loader = Mockito.mockStatic(LanceMetadataLoader.class)) {
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> new S3TableValuedFunction(ImmutableMap.of("format", "lance", "fs.broker.support", "true")));
+            Assertions.assertTrue(exception.getMessage().contains("requires remote storage"));
+            loader.verifyNoInteractions();
+        }
+    }
+
+    @Test
+    public void testLanceRemoteUrisReachMetadataLoader() throws Exception {
+        FeConstants.runningUnitTest = false;
+        for (String uri : Arrays.asList("s3://bucket/dataset.lance", "s3+ddb://bucket/dataset.lance",
+                "oss://bucket/dataset.lance", "gs://bucket/dataset.lance", "az://container/dataset.lance",
+                "abfss://container@account.dfs.core.windows.net/dataset.lance",
+                "s3://bucket:0/dataset.lance", "s3://bucket:00080/dataset.lance",
+                "s3://bucket:65535/dataset.lance", "s3://bucket:/dataset.lance",
+                "s3://[::1]/dataset.lance", "s3://[::ffff:127.0.0.1]/dataset.lance",
+                "gs://bucket_with_underscore/dataset.lance", "s3://bucket:9000/dataset.lance",
+                "goosefs://bucket/dataset.lance", "goosefs:///dataset.lance", "goosefs:/dataset.lance",
+                "cos://bucket/dataset.lance",
+                "hf://datasets/repo/data.lance",
+                "tos://bucket/dataset.lance", "S3://bucket/dataset.lance")) {
+            assertLanceMetadataLoad(ImmutableMap.of(
+                    "format", "lance", "uri", uri, "fs.broker.support", "true"), uri);
+        }
+    }
+
+    @Test
+    public void testLanceHttpStorageUrisAreNormalizedBeforeValidation() throws Exception {
+        FeConstants.runningUnitTest = false;
+        Map<String, String> s3Properties = new HashMap<>(PROPERTIES);
+        s3Properties.put("format", "lance");
+        s3Properties.put("uri", "https://bucket.s3.us-west-2.amazonaws.com/dataset.lance");
+        assertLanceMetadataLoad(s3Properties, "s3://bucket/dataset.lance");
+        assertLanceMetadataLoad(ImmutableMap.of(
+                "format", "lance", "uri", "https://bucket.oss-cn-hangzhou.aliyuncs.com/dataset.lance",
+                "oss.endpoint", "oss-cn-hangzhou.aliyuncs.com", "oss.access_key", "ak", "oss.secret_key", "sk"),
+                "s3://bucket/dataset.lance");
+    }
+
+    @Test
+    public void testLanceSpacePathsReachMetadataThroughS3AndFile() throws Exception {
+        FeConstants.runningUnitTest = false;
+        for (String uri : Arrays.asList("s3://bucket/sample data.lance", "s3://bucket/sample%20data.lance")) {
+            Map<String, String> properties = new HashMap<>(PROPERTIES);
+            properties.put("format", "lance");
+            properties.remove("file_path");
+            properties.put("uri", uri);
+            assertLanceMetadataLoad(properties, uri);
+            try (MockedStatic<LanceMetadataLoader> loader = Mockito.mockStatic(LanceMetadataLoader.class)) {
+                IllegalStateException reachedLoader = new IllegalStateException("file remote metadata reached");
+                loader.when(() -> LanceMetadataLoader.loadLatestForTvf(Mockito.eq(uri), Mockito.anyList()))
+                        .thenThrow(reachedLoader);
+                RuntimeException exception = Assertions.assertThrows(RuntimeException.class,
+                        () -> new FileTableValuedFunction(properties));
+                Throwable cause = exception;
+                while (cause.getCause() != null) {
+                    cause = cause.getCause();
+                }
+                Assertions.assertSame(reachedLoader, cause);
+                loader.verify(() -> LanceMetadataLoader.loadLatestForTvf(Mockito.eq(uri), Mockito.anyList()));
+            }
+        }
+    }
+
+    private void assertLanceMetadataLoad(Map<String, String> properties, String uri) throws Exception {
+        try (MockedStatic<LanceMetadataLoader> loader = Mockito.mockStatic(LanceMetadataLoader.class)) {
+            IllegalStateException reachedLoader = new IllegalStateException("remote metadata loader reached");
+            loader.when(() -> LanceMetadataLoader.loadLatestForTvf(Mockito.eq(uri), Mockito.anyList()))
+                    .thenThrow(reachedLoader);
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> new S3TableValuedFunction(properties));
+            Assertions.assertSame(reachedLoader, exception.getCause(), uri);
+            loader.verify(() -> LanceMetadataLoader.loadLatestForTvf(Mockito.eq(uri), Mockito.anyList()));
         }
     }
 

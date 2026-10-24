@@ -30,6 +30,7 @@ import org.apache.avro.mapred.AvroRecordReader;
 import org.apache.avro.mapred.AvroWrapper;
 import org.apache.avro.mapred.Pair;
 import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.FileSystem.TvfGuard;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.NullWritable;
 import org.apache.hadoop.mapred.FileSplit;
@@ -49,6 +50,17 @@ public abstract class AvroReader {
     protected DataFileStream<GenericRecord> schemaReader;
     protected Path path;
     protected FileSystem fileSystem;
+    private String tvfPolicy;
+
+    public void setTvfPolicy(String policy) {
+        tvfPolicy = policy;
+    }
+
+    protected void openFileSystem(org.apache.hadoop.conf.Configuration conf) throws IOException {
+        conf = TvfGuard.prepareJavaRead(conf, path, tvfPolicy);
+        fileSystem = FileSystem.get(path.toUri(), conf);
+        TvfGuard.checkJavaRead(fileSystem, path, tvfPolicy);
+    }
 
     public abstract void open(AvroFileContext avroFileContext, boolean tableSchema) throws IOException;
 
@@ -61,6 +73,7 @@ public abstract class AvroReader {
     public abstract void close() throws IOException;
 
     protected void openSchemaReader() throws IOException {
+        TvfGuard.checkJavaRead(fileSystem, path, tvfPolicy);
         InputStream inputStream = new BufferedInputStream(fileSystem.open(path));
         schemaReader = new DataFileStream<>(inputStream, new GenericDatumReader<>());
         if (LOG.isDebugEnabled()) {
@@ -69,7 +82,11 @@ public abstract class AvroReader {
     }
 
     protected void openDataReader(AvroFileContext avroFileContext) throws IOException {
-        JobConf job = new JobConf();
+        JobConf job = tvfPolicy == null || tvfPolicy.isEmpty()
+                ? new JobConf() : new JobConf(fileSystem.getConf());
+        if (tvfPolicy != null && !tvfPolicy.isEmpty()) {
+            TvfGuard.checkJavaRead(path.getFileSystem(job), path, tvfPolicy);
+        }
         projectionSchema(job, avroFileContext);
         FileSplit fileSplit =
                 new FileSplit(path, avroFileContext.getSplitStartOffset(), avroFileContext.getSplitSize(), job);

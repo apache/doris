@@ -21,9 +21,12 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.FederationBackendPolicy;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PGlobResponse;
 import org.apache.doris.proto.InternalService.PGlobResponse.PFileInfo;
@@ -38,6 +41,7 @@ import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -61,6 +65,11 @@ public class LocalTableValuedFunction extends ExternalFileTableValuedFunction {
     private boolean sharedStorage = false;
 
     public LocalTableValuedFunction(Map<String, String> properties) throws AnalysisException {
+        checkEnabled();
+
+        // Check privileges before listing files or discovering their schema.
+        checkAuth(ConnectContext.get());
+
         // 1. analyze common properties
         Map<String, String> props = super.parseCommonProperties(properties);
 
@@ -127,12 +136,47 @@ public class LocalTableValuedFunction extends ExternalFileTableValuedFunction {
                                 + ", error msg: " + globResponse.getStatus().getErrorMsgsList());
             }
             for (PFileInfo file : globResponse.getFilesList()) {
-                fileStatuses.add(new TBrokerFileStatus(file.getFile().trim(), false, file.getSize(), true));
+                fileStatuses.add(new TBrokerFileStatus(file.getFile(), false, file.getSize(), true));
                 LOG.info("get file from backend success. file: {}, size: {}", file.getFile(), file.getSize());
             }
         } catch (Exception e) {
             throw new AnalysisException("get file list from backend failed. " + e.getMessage());
         }
+    }
+
+    /** Apply LOCAL admission to the effective sink before planning or filesystem side effects. */
+    public static void checkSinkEnabled(String tvfName, Map<String, String> properties) {
+        if ("local".equalsIgnoreCase(tvfName) || isLocalWriter(properties.getOrDefault("writer_class", ""))) {
+            checkEnabled();
+        }
+    }
+
+    private static boolean isLocalWriter(String writer) {
+        // ScannerLoader accepts slashes, and JNI passes the class name as a C string.
+        return "org.apache.doris.writer.LocalFileJniWriter".equals(nativeStringPrefix(writer).replace('/', '.'));
+    }
+
+    private static String nativeStringPrefix(String value) {
+        int nul = value.indexOf('\0');
+        return nul < 0 ? value : value.substring(0, nul);
+    }
+
+    /** Check read and write admission before properties or backend access. */
+    public static void checkEnabled() {
+        if (!Config.enable_local_tvf) {
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                    "LOCAL TVF is disabled. Set enable_local_tvf=true in fe.conf and restart every FE to enable it.");
+        }
+    }
+
+    @Override
+    public void checkAuth(ConnectContext ctx) {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, PrivPredicate.ADMIN)
+                && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, PrivPredicate.OPERATOR)) {
+            String message = ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR.formatErrorMsg("ADMIN/OPERATOR");
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(message);
+        }
+        super.checkAuth(ctx);
     }
 
     @Override

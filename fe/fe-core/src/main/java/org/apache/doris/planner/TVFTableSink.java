@@ -24,6 +24,8 @@ import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.OrcFileFormatProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.tablefunction.HadoopTvfAdmission;
+import org.apache.doris.tablefunction.LocalTableValuedFunction;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
@@ -82,6 +84,7 @@ public class TVFTableSink extends DataSink {
     }
 
     public void bindDataSink() throws AnalysisException {
+        LocalTableValuedFunction.checkSinkEnabled(tvfName, properties);
         TTVFTableSink tSink = new TTVFTableSink();
         tSink.setTvfName(tvfName);
 
@@ -113,6 +116,7 @@ public class TVFTableSink extends DataSink {
         tSink.setFileType(fileType);
 
         // --- 2. Parse storage/connection properties (reuse read-side StorageProperties) ---
+        HadoopTvfAdmission.removeRuntimePolicy(propsCopy);
         Map<String, String> backendConnectProps;
         if (tvfName.equals("local")) {
             // Local TVF: pass properties as-is (same as LocalProperties.getBackendConfigProperties)
@@ -126,6 +130,13 @@ public class TVFTableSink extends DataSink {
             } catch (Exception e) {
                 throw new AnalysisException("Failed to parse storage properties: " + e.getMessage(), e);
             }
+        }
+
+        if (fileType == TFileType.FILE_HDFS && !properties.containsKey("writer_class")) {
+            HadoopTvfAdmission.check(HadoopTvfAdmission.Access.NATIVE_WRITE,
+                    properties.get("file_path"), backendConnectProps);
+            backendConnectProps = HadoopTvfAdmission.protectNativeWrite(
+                    properties.get("file_path"), backendConnectProps);
         }
 
         String filePath = properties.get("file_path");

@@ -22,14 +22,12 @@ import org.apache.avro.mapred.AvroWrapper;
 import org.apache.avro.mapred.Pair;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.NullWritable;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
 import java.io.IOException;
-import java.net.URI;
 import java.util.Objects;
 
 public class S3FileReader extends AvroReader {
@@ -66,7 +64,7 @@ public class S3FileReader extends AvroReader {
         conf.set(AvroProperties.FS_S3A_ENDPOINT, endpoint);
         conf.set(AvroProperties.FS_S3A_REGION, region);
         path = new Path(s3aUri);
-        fileSystem = FileSystem.get(URI.create(s3aUri), conf);
+        openFileSystem(conf);
         openSchemaReader();
         if (!tableSchema) {
             avroFileContext.setSchema(schemaReader.getSchema());

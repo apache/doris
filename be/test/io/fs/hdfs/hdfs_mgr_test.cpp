@@ -20,6 +20,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <chrono>
 #include <thread>
 
@@ -63,6 +64,9 @@ int MockKerberosTicketCache::instance_count = 0;
 // Mock HdfsMgr class to override the actual HDFS operations
 class MockHdfsMgr : public HdfsMgr {
 public:
+    MOCK_METHOD(Status, _check_tvf_path_impl,
+                (const HdfsHandler&, const std::string&, const std::string&), (override));
+
     MockHdfsMgr() : HdfsMgr() {}
 
     MOCK_METHOD(Status, _create_hdfs_fs_impl,
@@ -95,6 +99,8 @@ protected:
         // Reset MockKerberosTicketCache instance count
         MockKerberosTicketCache::reset_instance_count();
 
+        ON_CALL(*_hdfs_mgr, _check_tvf_path_impl(_, _, _)).WillByDefault(Return(Status::OK()));
+
         // Setup default mock behavior
         ON_CALL(*_hdfs_mgr, _create_hdfs_fs_impl(_, _, _))
                 .WillByDefault([](const THdfsParams& params, const std::string& fs_name,
@@ -105,6 +111,35 @@ protected:
     }
 
     void TearDown() override { _hdfs_mgr.reset(); }
+
+    void seed_collision(const THdfsParams& params, const std::string& fs_name,
+                        const std::shared_ptr<HdfsHandler>& handler) {
+        std::scoped_lock lock(_hdfs_mgr->_mutex);
+        _hdfs_mgr->_fs_handlers.clear();
+        _hdfs_mgr->_fs_handlers.emplace(_hdfs_mgr->_hdfs_hash_code(params, fs_name), handler);
+    }
+
+    bool contains_handler(const THdfsParams& params, const std::string& fs_name,
+                          const std::shared_ptr<HdfsHandler>& handler) {
+        std::scoped_lock lock(_hdfs_mgr->_mutex);
+        auto [first, last] =
+                _hdfs_mgr->_fs_handlers.equal_range(_hdfs_mgr->_hdfs_hash_code(params, fs_name));
+        return std::any_of(first, last, [&](const auto& entry) { return entry.second == handler; });
+    }
+
+    void set_timeout_locked(int64_t seconds) {
+        std::scoped_lock lock(_hdfs_mgr->_mutex);
+        _hdfs_mgr->set_instance_timeout_seconds(seconds);
+    }
+
+    THdfsParams guarded_params(const std::string& policy) {
+        THdfsParams params;
+        THdfsConf conf;
+        conf.__set_key("fs.doris.tvf.remote.paths");
+        conf.__set_value(policy);
+        params.__set_hdfs_conf({conf});
+        return params;
+    }
 
     THdfsParams create_test_params(const std::string& user = "", const std::string& principal = "",
                                    const std::string& keytab = "") {
@@ -357,5 +392,107 @@ TEST_F(HdfsMgrTest, ConcurrentAccess) {
 //
 //     ASSERT_EQ(MockKerberosTicketCache::get_instance_count(), 0);
 // }
+
+TEST_F(HdfsMgrTest, TvfPolicyAndAuthorityMustMatchAtFirstLookup) {
+    for (int scenario = 0; scenario < 3; ++scenario) {
+        THdfsParams params = guarded_params("native");
+        auto wrong = std::make_shared<HdfsHandler>(nullptr, false, "", "", "viewfs://cluster");
+        if (scenario != 0) {
+            auto stored = params;
+            if (scenario == 1) {
+                stored.__set_user("different-user");
+            }
+            wrong->tvf_params = std::make_shared<const THdfsParams>(stored);
+        }
+        if (scenario == 2) {
+            wrong->fs_name = "viewfs://other";
+        }
+        seed_collision(params, "viewfs://cluster", wrong);
+        EXPECT_CALL(*_hdfs_mgr, _create_hdfs_fs_impl(_, _, _)).Times(1);
+        std::shared_ptr<HdfsHandler> actual;
+        ASSERT_TRUE(_hdfs_mgr->get_or_create_fs(params, "viewfs://cluster", &actual, "/data/a.csv")
+                            .ok());
+        EXPECT_NE(actual, wrong);
+        ASSERT_TRUE(actual->tvf_params);
+        EXPECT_EQ(*actual->tvf_params, params);
+        EXPECT_EQ(actual->fs_name, "viewfs://cluster");
+        testing::Mock::VerifyAndClearExpectations(_hdfs_mgr.get());
+    }
+}
+
+TEST_F(HdfsMgrTest, TvfCollisionAtSecondLookupCannotReplaceOrReuseAnotherPolicy) {
+    THdfsParams params = guarded_params("native");
+    auto wrong = std::make_shared<HdfsHandler>(nullptr, false, "", "", "viewfs://other");
+    wrong->tvf_params = std::make_shared<const THdfsParams>(params);
+    auto fresh = std::make_shared<HdfsHandler>(nullptr, false, "", "", "viewfs://cluster");
+    EXPECT_CALL(*_hdfs_mgr, _create_hdfs_fs_impl(_, _, _))
+            .WillOnce(
+                    [&](const THdfsParams&, const std::string&, std::shared_ptr<HdfsHandler>* out) {
+                        seed_collision(params, "viewfs://cluster", wrong);
+                        *out = fresh;
+                        return Status::OK();
+                    });
+    std::shared_ptr<HdfsHandler> actual;
+    ASSERT_TRUE(
+            _hdfs_mgr->get_or_create_fs(params, "viewfs://cluster", &actual, "/data/a.csv").ok());
+    EXPECT_EQ(actual, fresh);
+    ASSERT_TRUE(actual->tvf_params);
+    EXPECT_EQ(*actual->tvf_params, params);
+    EXPECT_TRUE(contains_handler(params, "viewfs://cluster", wrong));
+    EXPECT_TRUE(contains_handler(params, "viewfs://cluster", actual));
+    testing::Mock::VerifyAndClearExpectations(_hdfs_mgr.get());
+    EXPECT_CALL(*_hdfs_mgr, _create_hdfs_fs_impl(_, _, _)).Times(0);
+    std::shared_ptr<HdfsHandler> reused;
+    ASSERT_TRUE(
+            _hdfs_mgr->get_or_create_fs(params, "viewfs://cluster", &reused, "/data/b.csv").ok());
+    EXPECT_EQ(actual, reused);
+    EXPECT_EQ(wrong->fs_name, "viewfs://other");
+}
+
+TEST_F(HdfsMgrTest, IdenticalTvfPolicyAndAuthorityKeepCacheReuse) {
+    THdfsParams params = guarded_params("native");
+    EXPECT_CALL(*_hdfs_mgr, _create_hdfs_fs_impl(_, _, _)).Times(1);
+    std::shared_ptr<HdfsHandler> first;
+    std::shared_ptr<HdfsHandler> second;
+    ASSERT_TRUE(
+            _hdfs_mgr->get_or_create_fs(params, "viewfs://cluster", &first, "/data/a.csv").ok());
+    ASSERT_TRUE(
+            _hdfs_mgr->get_or_create_fs(params, "viewfs://cluster", &second, "/data/b.csv").ok());
+    EXPECT_EQ(first, second);
+}
+
+TEST_F(HdfsMgrTest, CachedTvfConnectionStillRejectsLocalActualPath) {
+    auto params = guarded_params("native");
+    std::shared_ptr<HdfsHandler> remote;
+    ASSERT_TRUE(
+            _hdfs_mgr->get_or_create_fs(params, "viewfs://cluster", &remote, "/data/a.csv").ok());
+    EXPECT_CALL(*_hdfs_mgr, _create_hdfs_fs_impl(_, _, _)).Times(0);
+    EXPECT_CALL(*_hdfs_mgr, _check_tvf_path_impl(_, "viewfs://cluster", "/local/b.csv"))
+            .WillOnce(Return(Status::InvalidArgument("local route")));
+    std::shared_ptr<HdfsHandler> local;
+    EXPECT_FALSE(
+            _hdfs_mgr->get_or_create_fs(params, "viewfs://cluster", &local, "/local/b.csv").ok());
+    EXPECT_FALSE(local);
+    EXPECT_FALSE(_hdfs_mgr->get_or_create_fs(params, "viewfs://cluster", &local).ok());
+}
+
+TEST_F(HdfsMgrTest, ExpiredCollisionDoesNotEvictLiveTvfConnection) {
+    auto params = guarded_params("native");
+    set_timeout_locked(100);
+    auto expired = std::make_shared<HdfsHandler>(nullptr, false, "", "", "viewfs://other");
+    expired->tvf_params = std::make_shared<const THdfsParams>(params);
+    expired->last_access_time = 0;
+    seed_collision(params, "viewfs://cluster", expired);
+    std::shared_ptr<HdfsHandler> live;
+    ASSERT_TRUE(_hdfs_mgr->get_or_create_fs(params, "viewfs://cluster", &live, "/data/a.csv").ok());
+    std::this_thread::sleep_for(std::chrono::seconds(2));
+    EXPECT_FALSE(contains_handler(params, "viewfs://cluster", expired));
+    EXPECT_TRUE(contains_handler(params, "viewfs://cluster", live));
+    EXPECT_CALL(*_hdfs_mgr, _create_hdfs_fs_impl(_, _, _)).Times(0);
+    std::shared_ptr<HdfsHandler> reused;
+    ASSERT_TRUE(
+            _hdfs_mgr->get_or_create_fs(params, "viewfs://cluster", &reused, "/data/b.csv").ok());
+    EXPECT_EQ(live, reused);
+}
 
 } // namespace doris::io

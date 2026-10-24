@@ -160,6 +160,7 @@ public class TVFScanNodeTest {
         ExternalFileTableValuedFunction tvf = Mockito.mock(ExternalFileTableValuedFunction.class);
         Mockito.when(table.getTvf()).thenReturn(tvf);
         Mockito.when(tvf.isLanceFormat()).thenReturn(true);
+        Mockito.when(tvf.getTFileType()).thenReturn(TFileType.FILE_S3);
         Mockito.when(tvf.getFilePath()).thenReturn("s3://bucket/table.lance");
         Mockito.when(tvf.getLanceDatasetVersion()).thenReturn(42L);
         Mockito.when(tvf.getLanceFragments()).thenReturn(Arrays.asList(
@@ -181,13 +182,41 @@ public class TVFScanNodeTest {
 
         TFileRangeDesc range = new TFileRangeDesc();
         node.setScanParams(range, first);
+        Assert.assertEquals(TFileType.FILE_S3, range.getFileType());
         Assert.assertTrue(range.isSetTableFormatParams());
         Assert.assertEquals("lance", range.getTableFormatParams().getTableFormatType());
         Assert.assertEquals("s3://bucket/table.lance",
                 range.getTableFormatParams().getLanceParams().getDatasetUri());
         Assert.assertEquals(42L, range.getTableFormatParams().getLanceParams().getVersion());
+        Assert.assertTrue(range.getTableFormatParams().getLanceParams().isIsTvf());
         Assert.assertEquals(Collections.singletonList(7L),
                 range.getTableFormatParams().getLanceParams().getFragmentIds());
+    }
+
+    @Test
+    public void testRemoteLanceSpacePathsPreserveScanRangeIdentity() throws Exception {
+        for (String uri : Arrays.asList("s3://bucket/sample data.lance", "s3://bucket/sample%20data.lance")) {
+            SessionVariable sv = new SessionVariable();
+            TupleDescriptor desc = new TupleDescriptor(new TupleId(0));
+            FunctionGenTable table = Mockito.mock(FunctionGenTable.class);
+            ExternalFileTableValuedFunction tvf = Mockito.mock(ExternalFileTableValuedFunction.class);
+            Mockito.when(table.getTvf()).thenReturn(tvf);
+            Mockito.when(tvf.isLanceFormat()).thenReturn(true);
+            Mockito.when(tvf.getTFileType()).thenReturn(TFileType.FILE_S3);
+            Mockito.when(tvf.getFilePath()).thenReturn(uri);
+            Mockito.when(tvf.getLanceDatasetVersion()).thenReturn(42L);
+            Mockito.when(tvf.getLanceFragments()).thenReturn(
+                    Collections.singletonList(new LanceFragmentInfo(7, 1000, 1000)));
+            desc.setTable(table);
+            TVFScanNode node = new TVFScanNode(new PlanNodeId(0), desc, false, sv, ScanContext.EMPTY);
+            LanceSplit split = (LanceSplit) node.getSplits(1).get(0);
+            Assert.assertEquals(uri, split.getDatasetUri());
+            TFileRangeDesc range = new TFileRangeDesc();
+            node.setScanParams(range, split);
+            Assert.assertEquals(TFileType.FILE_S3, range.getFileType());
+            Assert.assertEquals(uri, range.getTableFormatParams().getLanceParams().getDatasetUri());
+            Assert.assertEquals(42L, range.getTableFormatParams().getLanceParams().getVersion());
+        }
     }
 
     @Test
@@ -214,7 +243,29 @@ public class TVFScanNodeTest {
         TFileRangeDesc range = new TFileRangeDesc();
         node.setScanParams(range, split);
         Assert.assertEquals(0L, range.getTableFormatParams().getLanceParams().getVersion());
+        Assert.assertTrue(range.getTableFormatParams().getLanceParams().isIsTvf());
         Assert.assertFalse(range.getTableFormatParams().getLanceParams().isSetFragmentIds());
+    }
+
+    @Test
+    public void testLocalLanceRangeRetainsFileTypeWithoutSchemeInference() throws Exception {
+        for (String path : Arrays.asList("data/table.lance", "/data/table.lance", "file:///data/table.lance")) {
+            SessionVariable sv = new SessionVariable();
+            TupleDescriptor desc = new TupleDescriptor(new TupleId(0));
+            FunctionGenTable table = Mockito.mock(FunctionGenTable.class);
+            ExternalFileTableValuedFunction tvf = Mockito.mock(ExternalFileTableValuedFunction.class);
+            Mockito.when(table.getTvf()).thenReturn(tvf);
+            Mockito.when(tvf.isLanceFormat()).thenReturn(true);
+            Mockito.when(tvf.getTFileType()).thenReturn(TFileType.FILE_LOCAL);
+            Mockito.when(tvf.getFilePath()).thenReturn(path);
+            desc.setTable(table);
+            TVFScanNode node = new TVFScanNode(new PlanNodeId(0), desc, false, sv, ScanContext.EMPTY);
+            TFileRangeDesc range = new TFileRangeDesc();
+            node.setScanParams(range, node.getSplits(1).get(0));
+            Assert.assertTrue(range.isSetFileType());
+            Assert.assertEquals(TFileType.FILE_LOCAL, range.getFileType());
+            Assert.assertEquals(path, range.getTableFormatParams().getLanceParams().getDatasetUri());
+        }
     }
 
     // Verifies local Lance execution is restricted to the backend that provided its schema.

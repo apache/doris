@@ -69,6 +69,7 @@ public final class LanceMetadataLoader {
                 Dataset dataset = Dataset.open().allocator(allocator).uri(datasetUri)
                         .readOptions(LanceReadOptions.forIndependentRead(
                                 access.getStorageOptions(), OptionalLong.empty())).build()) {
+            LanceTvfStoragePolicy.checkRemoteBases(dataset);
             return read(dataset, access, MetadataScope.BASIC);
         }
     }

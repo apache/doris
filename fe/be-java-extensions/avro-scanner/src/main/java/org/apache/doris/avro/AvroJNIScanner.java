@@ -165,6 +165,7 @@ public class AvroJNIScanner extends JniScanner {
         if (!isGetTableSchema) {
             initDataReader();
         }
+        this.avroReader.setTvfPolicy(requiredParams.get("fs.doris.tvf.remote.paths"));
         this.avroReader.open(avroFileContext, isGetTableSchema);
     }
 

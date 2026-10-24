@@ -241,9 +241,13 @@ public class TVFScanNode extends FileQueryScanNode {
             if (!(split instanceof LanceSplit)) {
                 throw new IllegalArgumentException("Expected LanceSplit but got " + split.getClass().getName());
             }
+            // A bare local path has no URI scheme, so split inference cannot supply its type.
+            // Preserve the TVF's LOCAL/S3 identity for the BE's pre-open path validation.
+            rangeDesc.setFileType(tableValuedFunction.getTFileType());
             LanceSplit lanceSplit = (LanceSplit) split;
             TLanceFileDesc lanceParams = new TLanceFileDesc();
             lanceParams.setDatasetUri(lanceSplit.getDatasetUri());
+            lanceParams.setIsTvf(true);
             lanceParams.setVersion(lanceSplit.getVersion());
             if (lanceSplit.hasFragmentIds()) {
                 lanceParams.setFragmentIds(lanceSplit.getFragmentIds());
