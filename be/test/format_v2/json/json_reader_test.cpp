@@ -176,13 +176,15 @@ struct ReadResult {
     size_t second_rows = 0;
     bool second_eof = false;
     size_t document_buffer_size = 0;
+    int64_t rejected_rows = 0;
+    std::map<LocalColumnId, std::vector<uint8_t>> missing_fields;
     std::vector<ColumnDefinition> schema;
 };
 
 ReadResult read_once(const std::string& file_name, const std::string& content,
                      TFileScanRangeParams params, const std::vector<SlotDescriptor*>& slots,
                      const std::vector<int32_t>& requested_local_ids, bool read_twice = false,
-                     bool is_hive_table = false) {
+                     bool is_hive_table = false, bool reject_invalid_rows = false) {
     const auto file_path = write_json_file(file_name, content);
     auto range = file_range(file_path);
     if (is_hive_table) {
@@ -196,7 +198,8 @@ ReadResult read_once(const std::string& file_name, const std::string& content,
     auto desc = file_description(file_path.string());
     RuntimeProfile profile("json_v2_reader_test");
     MockRuntimeState state;
-    JsonReader reader(system_properties, desc, nullptr, &profile, &params, range, slots);
+    auto io_ctx = std::make_shared<io::IOContext>();
+    JsonReader reader(system_properties, desc, io_ctx, &profile, &params, range, slots);
 
     ReadResult result;
     result.status = reader.init(&state);
@@ -209,6 +212,7 @@ ReadResult read_once(const std::string& file_name, const std::string& content,
     }
 
     auto request = std::make_shared<FileScanRequest>();
+    request->reject_invalid_rows = reject_invalid_rows;
     for (size_t i = 0; i < requested_local_ids.size(); ++i) {
         request->local_positions.emplace(LocalColumnId(requested_local_ids[i]), LocalIndex(i));
     }
@@ -220,6 +224,8 @@ ReadResult read_once(const std::string& file_name, const std::string& content,
     result.block = make_block(result.schema, requested_local_ids);
     result.status = reader.get_block(&result.block, &result.rows, &result.eof);
     result.document_buffer_size = reader.TEST_document_buffer_size();
+    result.rejected_rows = io_ctx->load_filtered_rows;
+    result.missing_fields = reader.missing_fields();
     if (result.status.ok() && read_twice) {
         auto eof_block = make_block(result.schema, requested_local_ids);
         result.second_status =
@@ -710,6 +716,40 @@ TEST(JsonReaderTest, RejectsInvalidFileScanRequestsBeforeOpeningFile) {
     status = reader.get_block(&block, &rows, &eof);
     EXPECT_FALSE(status.ok());
     EXPECT_NE(status.to_string().find("reader is not open"), std::string::npos);
+}
+
+TEST(JsonReaderTest, LoadRejectsMalformedRecordsAndPreservesFieldPresence) {
+    ObjectPool pool;
+    auto slots = build_slots(&pool);
+    auto result = read_once("load_missing.jsonl",
+                            "not-json\n"
+                            R"({"id":1})"
+                            "\n"
+                            R"({"id":2,"name":null})"
+                            "\n"
+                            R"({"id":3,"name":"ok"})"
+                            "\n",
+                            json_scan_params(), slots, {1, 0}, true, false, true);
+    ASSERT_TRUE(result.status.ok()) << result.status;
+    ASSERT_EQ(result.rows, 3);
+    EXPECT_EQ(result.rejected_rows, 1);
+    EXPECT_TRUE(result.block.get_by_position(0).column->is_null_at(0));
+    EXPECT_TRUE(result.block.get_by_position(0).column->is_null_at(1));
+    EXPECT_EQ(result.missing_fields.at(LocalColumnId(1)), (std::vector<uint8_t> {1, 0, 0}));
+    EXPECT_TRUE(result.second_status.ok());
+    EXPECT_TRUE(result.second_eof);
+}
+
+TEST(JsonReaderTest, LoadRejectsUnmatchedArrayElementWithoutLosingSiblings) {
+    ObjectPool pool;
+    auto slots = build_slots(&pool);
+    auto result = read_once("load_array.json",
+                            R"([{"id":1,"name":"a"},{"unknown":2},{"id":3,"name":"c"}])",
+                            json_scan_params(false, true), slots, {0, 1}, true, false, true);
+    ASSERT_TRUE(result.status.ok()) << result.status;
+    EXPECT_EQ(result.rows, 2);
+    EXPECT_EQ(result.rejected_rows, 1);
+    EXPECT_TRUE(result.second_eof);
 }
 
 TEST(JsonReaderTest, ReturnsErrorForMalformedJsonByDefault) {

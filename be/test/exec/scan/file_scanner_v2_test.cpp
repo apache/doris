@@ -428,7 +428,7 @@ TEST(FileScannerV2Test, IcebergPositionDeletesSupportNativeFormats) {
     EXPECT_FALSE(FileScannerV2::is_supported(params, avro_position_delete));
 }
 
-TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesOnly) {
+TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesAndLoads) {
     TQueryOptions query_options;
     TFileScanRangeParams params;
     params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
@@ -437,7 +437,7 @@ TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesOnly) {
 
     query_options.__set_enable_file_scanner_v2(true);
     EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
-    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, true, params));
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, true, params));
 
     params.__set_format_type(TFileFormatType::FORMAT_WAL);
     EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
@@ -472,7 +472,7 @@ TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesOnly) {
     params.__isset.hive_parquet_time_zone = false;
     params.__set_parquet_timestamp_semantics_version(1);
     EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
-    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, true, params));
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, true, params));
     // Paimon keeps FORMAT_JNI at scan level even when its ranges are native Parquet files.
     params.format_type = TFileFormatType::FORMAT_JNI;
     params.__set_paimon_predicate("encoded-predicate");
@@ -502,7 +502,8 @@ TEST(FileScannerV2Test, IcebergOrcDefaultCannotHideDeferredParquetRanges) {
     // Scanner construction precedes remote split delivery; the default says nothing about
     // retained Parquet files after changing write.format.default to ORC.
     EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(options, false, params));
-    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(options, true, params));
+    // ORC loads select V2 independently of the external-query session option.
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(options, true, params));
     params.__isset.parquet_timestamp_semantics_version = false;
     EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(options, false, params));
     params.__set_hive_parquet_time_zone("");
