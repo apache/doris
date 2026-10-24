@@ -463,15 +463,68 @@ Status LocalFileSystem::canonicalize_local_file(const std::string& dir,
     if (file_path.empty() || file_path.find('\0') != std::string::npos) {
         return Status::InvalidArgument("local file path must not be empty or contain NUL");
     }
+    // URI schemes are ASCII case-insensitive; do not alter spelling in bare paths.
+    const bool is_file_uri = file_path.size() >= 5 &&
+                             (file_path[0] == 'f' || file_path[0] == 'F') &&
+                             (file_path[1] == 'i' || file_path[1] == 'I') &&
+                             (file_path[2] == 'l' || file_path[2] == 'L') &&
+                             (file_path[3] == 'e' || file_path[3] == 'E') && file_path[4] == ':';
+    std::string local_input = file_path;
+    if (is_file_uri) {
+        local_input.replace(0, 4, "file");
+        // File URLs treat raw backslashes as separators, including before the authority.
+        // Do this before conversion; percent-encoded backslashes must remain literal.
+        for (size_t i = 5; i < local_input.size(); ++i) {
+            if (local_input[i] == '\\') {
+                local_input[i] = '/';
+            }
+        }
+    }
     Path local_path;
     // Convert file: URIs to filesystem paths and reject remote schemes before any reader opens them.
-    RETURN_IF_ERROR(convert_to_abs_path(file_path, local_path));
-    if (file_path.rfind("file:", 0) == 0) {
+    RETURN_IF_ERROR(convert_to_abs_path(local_input, local_path));
+    if (is_file_uri) {
         // file:a%20b names "a b", but a bare path containing "%20" must stay literal.
         // Decode once, preserve '+' and invalid escapes, matching Lance's file provider.
         auto encoded = local_path.string();
         // Query and fragment are URI components, not part of the filesystem path.
         encoded = encoded.substr(0, encoded.find_first_of("?#"));
+        // URL dot segments are removed before symlinks are followed and before %2F
+        // becomes a path separator. Keep empty segments: "a//../b" denotes "a/b".
+        const bool absolute = !encoded.empty() && encoded[0] == '/';
+        std::vector<std::string> segments;
+        for (size_t start = absolute ? 1 : 0;;) {
+            const size_t end = encoded.find('/', start);
+            const auto segment =
+                    encoded.substr(start, end == std::string::npos ? end : end - start);
+            const bool dot = segment == "." || segment == "%2e" || segment == "%2E";
+            const bool parent = segment == ".." || segment == ".%2e" || segment == ".%2E" ||
+                                segment == "%2e." || segment == "%2E." || segment == "%2e%2e" ||
+                                segment == "%2e%2E" || segment == "%2E%2e" || segment == "%2E%2E";
+            if (parent) {
+                if (!segments.empty() && segments.back() != "..") {
+                    segments.pop_back();
+                } else if (!absolute) {
+                    segments.emplace_back("..");
+                }
+            } else if (!dot) {
+                segments.push_back(segment);
+            }
+            if (end == std::string::npos) {
+                if (dot || parent) {
+                    segments.emplace_back("");
+                }
+                break;
+            }
+            start = end + 1;
+        }
+        encoded = absolute ? "/" : "";
+        for (size_t i = 0; i < segments.size(); ++i) {
+            if (i > 0) {
+                encoded += '/';
+            }
+            encoded += segments[i];
+        }
         const auto hex_digit = [](char c) -> int {
             if (c >= '0' && c <= '9') return c - '0';
             if (c >= 'a' && c <= 'f') return c - 'a' + 10;
