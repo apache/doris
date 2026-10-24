@@ -661,9 +661,7 @@ public class BindSink implements AnalysisRuleFactory {
         }
 
         // INSERT/EXPLAIN INSERT bind a sink without constructing the LOCAL read TVF.
-        if (tvfName.equals("local")) {
-            LocalTableValuedFunction.checkEnabled();
-        }
+        LocalTableValuedFunction.checkSinkEnabled(tvfName, properties);
 
         // Validate required properties
         if (!properties.containsKey("file_path")) {

@@ -783,6 +783,35 @@ TEST_F(LocalFileSystemTest, TestCanonicalizeFileUriIdentity) {
     }
 }
 
+TEST_F(LocalFileSystemTest, TestParseFileUriDriveIdentity) {
+    // Expected Unix paths from the pinned Lance SDK's url 2.5.8, without root-level fixtures.
+    for (const auto& input : std::vector<std::pair<std::string, std::string>> {
+                 {"file://C:/data.lance", "/C:/data.lance"},
+                 {"file://C|/data.lance", "/C:/data.lance"},
+                 {"file:C|/data.lance", "/C:/data.lance"},
+                 {"file:/C|/data.lance", "/C:/data.lance"},
+                 {"file://localhost/C|/data.lance", "/C|/data.lance"},
+                 {"file://LoCaL%68oSt/C|/data.lance", "/C|/data.lance"},
+                 {"file://host/C|/data.lance", "/C:/data.lance"},
+                 {"file:///C|/data.lance", "/C|/data.lance"},
+                 {"file:////C|/data.lance", "/C|/data.lance"},
+                 {"file:///../C|/data.lance", "/C:/data.lance"},
+                 {"file:/x/../C|/data.lance", "/C:/data.lance"},
+                 {"file:///C:/../../data.lance", "/C:/data.lance"},
+                 {"file:///C|/../data.lance", "/C|/data.lance"},
+                 {"file:///x/C:/../data.lance", "/x/C:/data.lance"},
+                 {"file:///C%7C/data.lance", "/C|/data.lance"},
+                 {"file:/C%7C/../data.lance", "/data.lance"},
+                 {"file://C:", "/C:/"},
+                 {"file:///C|", "/C|/"},
+                 {"/C|/data.lance", "/C|/data.lance"}}) {
+        SCOPED_TRACE(input.first);
+        io::Path actual;
+        ASSERT_TRUE(io::LocalFileSystem::parse_local_path(input.first, actual).ok());
+        EXPECT_EQ(input.second, actual.string());
+    }
+}
+
 TEST_F(LocalFileSystemTest, TestConvertToAbsPath) {
     io::Path abs_path;
     Status st;
