@@ -85,6 +85,11 @@ private:
     // Options the merge or union of the read is initialized with: the output Block limits and
     // the runtime state. How the rows are merged is _reader_context.merge.
     StorageReadOptions _rows_options;
+    // The readers of the rowsets read, for as long as their segment iterators live: a rowset
+    // reader holds a reference on its rowset (Rowset::acquire).
+    std::vector<RowsetReaderSharedPtr> _rs_readers;
+    // Whether `_rows_iter` merges the segments; for the profile only.
+    bool _merge = false;
     // The rows of the read; empty for a TopN read.
     RowwiseIteratorUPtr _rows_iter;
     // TopN reads only: the key-ordered rows of every rowset, in read order.
