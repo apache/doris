@@ -1427,7 +1427,17 @@ public class DatabaseTransactionMgr {
         }
     }
 
+    // The check removes the commit infos of dropped tables and partitions from the transaction state. A
+    // commit or finish of the same transaction serializes that state for the edit log under its monitor,
+    // so the removal must not run while the serialization does.
     private boolean finishCheckPartitionVersion(TransactionState transactionState, Database db,
+            List<Pair<OlapTable, Partition>> relatedTblPartitions) {
+        synchronized (transactionState) {
+            return unprotectedFinishCheckPartitionVersion(transactionState, db, relatedTblPartitions);
+        }
+    }
+
+    private boolean unprotectedFinishCheckPartitionVersion(TransactionState transactionState, Database db,
             List<Pair<OlapTable, Partition>> relatedTblPartitions) {
         Iterator<TableCommitInfo> tableCommitInfoIterator
                 = transactionState.getIdToTableCommitInfos().values().iterator();
@@ -1478,7 +1488,16 @@ public class DatabaseTransactionMgr {
         return true;
     }
 
+    // Same as finishCheckPartitionVersion: the check removes dropped tables and partitions from the
+    // transaction state, so it holds the monitor that guards the serialization of that state.
     private boolean finishCheckPartitionVersionWithSubTxns(TransactionState transactionState, Database db) {
+        synchronized (transactionState) {
+            return unprotectedFinishCheckPartitionVersionWithSubTxns(transactionState, db);
+        }
+    }
+
+    private boolean unprotectedFinishCheckPartitionVersionWithSubTxns(TransactionState transactionState,
+            Database db) {
         List<Pair<OlapTable, Partition>> relatedTblPartitions = new ArrayList<>();
         Map<Long, Long> partitionToVisibleVersion = new HashMap<>();
         Iterator<Long> iterator = transactionState.getSubTxnIds().iterator();

@@ -29,6 +29,7 @@ import org.apache.doris.journal.JournalBatch;
 import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 
@@ -122,7 +123,7 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
                     newName, currentDbName, newNameVerify);
             LOG.error(msg);
             LogUtils.stderr(msg);
-            System.exit(-1);
+            EditLog.exitOnWriteFailure(new IOException(msg));
         }
     }
 
@@ -194,7 +195,7 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
                         + currentJournalDB.getDatabaseName();
                 LOG.error(msg);
                 LogUtils.stderr(msg);
-                System.exit(-1);
+                EditLog.exitOnWriteFailure(e);
             } catch (DatabaseException e) {
                 LOG.error("catch an exception when writing to database. sleep and retry. the first journal id {}",
                         firstId, e);
@@ -222,7 +223,7 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
                 + currentJournalDB.getDatabaseName();
         LOG.error(msg);
         LogUtils.stderr(msg);
-        System.exit(-1);
+        EditLog.exitOnWriteFailure(new IOException(msg));
         return 0; // unreachable!
     }
 
@@ -298,7 +299,7 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
                         + currentJournalDB.getDatabaseName();
                 LOG.error(msg);
                 LogUtils.stderr(msg);
-                System.exit(-1);
+                EditLog.exitOnWriteFailure(e);
             } catch (DatabaseException e) {
                 LOG.error("catch an exception when writing to database. sleep and retry. journal id {}", id, e);
                 try {
@@ -314,7 +315,7 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
                     + currentJournalDB.getDatabaseName();
             LOG.error(msg);
             LogUtils.stderr(msg);
-            System.exit(-1);
+            EditLog.exitOnWriteFailure(new IOException(msg));
         }
         return id;
     }
