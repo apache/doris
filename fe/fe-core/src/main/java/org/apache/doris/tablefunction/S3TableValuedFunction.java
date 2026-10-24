@@ -21,6 +21,7 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileType;
 
@@ -54,10 +55,21 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         String uri = storageAdapter.validateAndGetUri(props);
         filePath = storageAdapter.validateAndNormalizeUri(uri);
         this.backendConnectProperties.put(URI_KEY, filePath);
+        boolean hadoopStorage = storageAdapter.getType() == StorageTypeId.HDFS
+                || storageAdapter.getType() == StorageTypeId.OSS_HDFS;
+        if (hadoopStorage) {
+            HadoopTvfAdmission.check(HadoopTvfAdmission.Access.HADOOP_READ, filePath, backendConnectProperties);
+        }
         if (!FeConstants.runningUnitTest) {
             parseFile(files);
         } else if (files != null) {
             this.fileStatuses.addAll(files);
+        }
+        if (hadoopStorage) {
+            for (TBrokerFileStatus file : fileStatuses) {
+                HadoopTvfAdmission.check(HadoopTvfAdmission.Access.HADOOP_READ,
+                        file.getPath(), backendConnectProperties);
+            }
         }
     }
 

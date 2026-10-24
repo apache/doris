@@ -30,7 +30,9 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 class HadoopTvfReadAdmissionTest {
@@ -97,6 +99,66 @@ class HadoopTvfReadAdmissionTest {
         Assertions.assertEquals(org.apache.doris.thrift.TFileType.FILE_HDFS, file.getTFileType());
         Assertions.assertEquals("com.aliyun.jindodata.oss.JindoOssFileSystem",
                 file.getBackendConnectProperties().get("fs.oss.impl"));
+        S3TableValuedFunction s3 = new S3TableValuedFunction(properties);
+        Assertions.assertEquals("com.aliyun.jindodata.oss.JindoOssFileSystem",
+                s3.getBackendConnectProperties().get("fs.oss.impl"));
+    }
+
+    @Test
+    void s3CsvWithHadoopStorageRejectsLocalRoutesBeforeListing() {
+        Map<String, String> properties = properties("local");
+        properties.put("fs.hdfs.support", "true");
+        for (boolean enabled : new boolean[] {false, true}) {
+            Config.enable_local_tvf = enabled;
+            try (MockedStatic<FileSystemFactory> factory = Mockito.mockStatic(FileSystemFactory.class)) {
+                Assertions.assertThrows(AnalysisException.class,
+                        () -> new ListedS3Tvf(properties, "local"));
+                factory.verifyNoInteractions();
+            }
+        }
+    }
+
+    @Test
+    void s3HadoopProvidedFilesAreCheckedInBothConstructorBranches() {
+        Config.enable_local_tvf = true;
+        Map<String, String> properties = properties("remote");
+        properties.put("fs.hdfs.support", "true");
+        TBrokerFileStatus local = new TBrokerFileStatus("viewfs://review/local/file.csv", false, 10, true);
+        for (boolean unitTest : new boolean[] {false, true}) {
+            FeConstants.runningUnitTest = unitTest;
+            try (MockedStatic<FileSystemFactory> factory = Mockito.mockStatic(FileSystemFactory.class)) {
+                Assertions.assertThrows(AnalysisException.class,
+                        () -> new S3TableValuedFunction(properties, Collections.singletonList(local)));
+                factory.verifyNoInteractions();
+            }
+        }
+    }
+
+    @Test
+    void s3HadoopRemoteCsvKeepsDeclaredSchemaAndHdfsRanges() throws Exception {
+        Config.enable_local_tvf = false;
+        Map<String, String> properties = properties("remote");
+        properties.put("fs.hdfs.support", "true");
+        S3TableValuedFunction tvf = new ListedS3Tvf(properties, "remote");
+        Assertions.assertEquals("id", tvf.getTableColumns().get(0).getName());
+        Assertions.assertEquals(1, tvf.getFileStatuses().size());
+        String path = tvf.getFileStatuses().get(0).getPath();
+        Assertions.assertEquals("viewfs://review/remote/listed.csv", path);
+        Assertions.assertEquals(org.apache.doris.thrift.TFileType.FILE_HDFS,
+                org.apache.doris.common.util.LocationPath.getTFileTypeForBE(path));
+    }
+
+    @Test
+    void explicitRemoteFallbackKeepsCrossMountGlobAdmission() throws Exception {
+        Config.enable_local_tvf = false;
+        Map<String, String> properties = properties("remote");
+        properties.put("uri", "viewfs://review/*/*.csv");
+        properties.remove("fs.viewfs.mounttable.review.link./local");
+        properties.put("fs.viewfs.mount.links.as.symlinks", "false");
+        properties.put("fs.viewfs.mounttable.review.linkFallback", "hdfs://remote/fallback");
+        Assertions.assertEquals(1, new ListedHdfsTvf(properties, false).getFileStatuses().size());
+        FeConstants.runningUnitTest = true;
+        Assertions.assertDoesNotThrow(() -> new FileTableValuedFunction(properties));
     }
 
     private static Map<String, String> properties(String mount) {
@@ -108,6 +170,24 @@ class HadoopTvfReadAdmissionTest {
         properties.put("format", "csv");
         properties.put("csv_schema", "id:int");
         return properties;
+    }
+
+    private static class ListedS3Tvf extends S3TableValuedFunction {
+        ListedS3Tvf(Map<String, String> properties, String mount)
+                throws org.apache.doris.common.AnalysisException {
+            super(withListing(properties, mount));
+        }
+
+        private static Map<String, String> withListing(Map<String, String> properties, String mount) {
+            properties.put("fs.test.listing", mount);
+            return properties;
+        }
+
+        @Override
+        protected void parseFile(List<TBrokerFileStatus> files) {
+            String mount = backendConnectProperties.get("fs.test.listing");
+            fileStatuses.add(new TBrokerFileStatus("viewfs://review/" + mount + "/listed.csv", false, 10, true));
+        }
     }
 
     private static class ListedHdfsTvf extends HdfsTableValuedFunction {
