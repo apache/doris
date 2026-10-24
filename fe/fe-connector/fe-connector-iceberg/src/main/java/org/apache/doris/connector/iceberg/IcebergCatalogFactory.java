@@ -110,6 +110,7 @@ public final class IcebergCatalogFactory {
     private static final String REST_SIGV4_ENABLED_KEY = "rest.sigv4-enabled";
     private static final String REST_SIGNING_REGION_KEY = "rest.signing-region";
     private static final String SECURITY_TYPE_OAUTH2 = "oauth2";
+    private static final String SECURITY_TYPE_GOOGLE = "google";
 
     // GLUE.
     private static final String GLUE_CREDENTIALS_PROVIDER_KEY = "client.credentials-provider";
@@ -533,8 +534,19 @@ public final class IcebergCatalogFactory {
         // Timeouts: legacy fields default non-blank, so they are effectively always emitted.
         opts.put(REST_CONNECTION_TIMEOUT_MS_KEY, rest.getConnectionTimeoutMs());
         opts.put(REST_SOCKET_TIMEOUT_MS_KEY, rest.getSocketTimeoutMs());
+        putIfNotBlank(opts, CatalogProperties.FILE_IO_IMPL, rest.getIoImpl());
+        putIfNotBlank(opts, "header.x-goog-user-project", rest.getGoogleUserProject());
+        putIfNotBlank(opts, "gcs.oauth2.token", rest.getGcsOauth2Token());
         appendRestOAuth2Properties(opts, rest);
+        appendRestGoogleProperties(opts, rest);
         appendRestSigningProperties(opts, rest, props, chosenS3);
+    }
+
+    private static void appendRestGoogleProperties(Map<String, String> opts, IcebergRestMetaStoreProperties rest) {
+        if (!SECURITY_TYPE_GOOGLE.equalsIgnoreCase(rest.getSecurityType())) {
+            return;
+        }
+        opts.put("rest.auth.type", "org.apache.iceberg.gcp.auth.GoogleAuthManager");
     }
 
     private static void appendRestOAuth2Properties(Map<String, String> opts, IcebergRestMetaStoreProperties rest) {

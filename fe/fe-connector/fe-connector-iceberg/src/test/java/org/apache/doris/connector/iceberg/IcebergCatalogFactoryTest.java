@@ -506,6 +506,75 @@ public class IcebergCatalogFactoryTest {
     }
 
     @Test
+    public void appendRestGoogleSecurityType() {
+        Map<String, String> opts = new HashMap<>();
+        appendRest(opts, props("iceberg.rest.security.type", "google"), Optional.empty());
+        Assertions.assertEquals("org.apache.iceberg.gcp.auth.GoogleAuthManager", opts.get("rest.auth.type"));
+        Assertions.assertFalse(opts.containsKey("credential"));
+        Assertions.assertFalse(opts.containsKey("token"));
+    }
+
+    @Test
+    public void appendRestGoogleWithIoImpl() {
+        Map<String, String> opts = new HashMap<>();
+        appendRest(opts, props("iceberg.rest.security.type", "google",
+                "iceberg.rest.io-impl", "org.apache.iceberg.gcp.gcs.GCSFileIO"), Optional.empty());
+        Assertions.assertEquals("org.apache.iceberg.gcp.gcs.GCSFileIO", opts.get("io-impl"));
+    }
+
+    @Test
+    public void appendRestGoogleWithUserProject() {
+        Map<String, String> opts = new HashMap<>();
+        appendRest(opts, props("iceberg.rest.security.type", "google",
+                "iceberg.rest.google.user-project", "my-billing-project"), Optional.empty());
+        Assertions.assertEquals("my-billing-project", opts.get("header.x-goog-user-project"));
+    }
+
+    @Test
+    public void appendRestGoogleWithGcsToken() {
+        Map<String, String> opts = new HashMap<>();
+        appendRest(opts, props("iceberg.rest.security.type", "google",
+                "iceberg.gcs.oauth2.token", "my-gcs-token"), Optional.empty());
+        Assertions.assertEquals("my-gcs-token", opts.get("gcs.oauth2.token"));
+    }
+
+    @Test
+    public void appendRestGoogleSecurityTypeCaseInsensitive() {
+        Map<String, String> opts = new HashMap<>();
+        appendRest(opts, props("iceberg.rest.security.type", "GOOGLE"), Optional.empty());
+        Assertions.assertEquals("org.apache.iceberg.gcp.auth.GoogleAuthManager", opts.get("rest.auth.type"));
+    }
+
+    @Test
+    public void appendRestOptionalGooglePropertiesWithoutGoogleAuth() {
+        Map<String, String> opts = new HashMap<>();
+        appendRest(opts, props("iceberg.rest.io-impl", "org.apache.iceberg.gcp.gcs.GCSFileIO",
+                "iceberg.rest.google.user-project", "billing-project", "iceberg.gcs.oauth2.token", "gcs-token"),
+                Optional.empty());
+        Assertions.assertEquals("org.apache.iceberg.gcp.gcs.GCSFileIO", opts.get("io-impl"));
+        Assertions.assertEquals("billing-project", opts.get("header.x-goog-user-project"));
+        Assertions.assertEquals("gcs-token", opts.get("gcs.oauth2.token"));
+        Assertions.assertFalse(opts.containsKey("rest.auth.type"));
+    }
+
+    @Test
+    public void appendRestBlankGoogleOptionsAreOmitted() {
+        Map<String, String> opts = new HashMap<>();
+        appendRest(opts, props("iceberg.rest.security.type", "google", "iceberg.rest.io-impl", " ",
+                "iceberg.rest.google.user-project", " ", "iceberg.gcs.oauth2.token", " "), Optional.empty());
+        Assertions.assertFalse(opts.containsKey("io-impl"));
+        Assertions.assertFalse(opts.containsKey("header.x-goog-user-project"));
+        Assertions.assertFalse(opts.containsKey("gcs.oauth2.token"));
+    }
+
+    @Test
+    public void googleRuntimeClassesAreAvailable() {
+        ClassLoader loader = IcebergCatalogFactory.class.getClassLoader();
+        Assertions.assertDoesNotThrow(() -> Class.forName("org.apache.iceberg.gcp.auth.GoogleAuthManager", false, loader));
+        Assertions.assertDoesNotThrow(() -> Class.forName("org.apache.iceberg.gcp.gcs.GCSFileIO", false, loader));
+    }
+
+    @Test
     public void appendRestSigningBlockEmitsSigningKeysAndS3ExplicitCredentials() {
         // WHY: when signing-name is set, legacy emits rest.signing-name/sigv4-enabled/signing-region; for
         // managed signing names get credentials from the chosen S3 store, EXPLICIT (static AK/SK) -> rest.* creds

@@ -112,6 +112,20 @@ under the License.
             <version>${iceberg.version}</version>
         </dependency>
 
+        <!-- GoogleAuthManager and GCSFileIO are loaded by name inside the connector plugin. -->
+        <dependency>
+            <groupId>org.apache.iceberg</groupId>
+            <artifactId>iceberg-gcp</artifactId>
+            <version>${iceberg.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.google.cloud</groupId>
+            <artifactId>google-cloud-storage</artifactId>
+            <version>2.67.0</version>
+            <scope>runtime</scope>
+        </dependency>
+
         <!-- Caffeine: needed on the COMPILE classpath for the vendored split-package
              org.apache.iceberg.DeleteFileIndex (T08). iceberg-core 1.10.1 made DeleteFileIndex package-private,
              so the connector ships its own public copy (mirrors fe-core) to drive manifest-level scan planning;
