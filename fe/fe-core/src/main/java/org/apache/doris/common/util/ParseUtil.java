@@ -60,7 +60,11 @@ public class ParseUtil {
                 unit = tmpUnit.toUpperCase();
             }
             if (validDataVolumnUnitMultiplier.containsKey(unit)) {
-                dataVolumn = dataVolumn * validDataVolumnUnitMultiplier.get(unit);
+                try {
+                    dataVolumn = Math.multiplyExact(dataVolumn, validDataVolumnUnitMultiplier.get(unit));
+                } catch (ArithmeticException e) {
+                    throw new AnalysisException("invalid data volume:" + dataVolumnStr);
+                }
             } else {
                 throw new AnalysisException("invalid unit:" + tmpUnit);
             }
