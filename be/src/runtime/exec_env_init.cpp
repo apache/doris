@@ -476,7 +476,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     init_simdjson_parser();
 
     // Make aws-sdk-cpp InitAPI and ShutdownAPI called in the same thread
-    S3ClientFactory::instance();
+    S3ClientFactory::instance().init_cache();
     return Status::OK();
 }
 
@@ -996,6 +996,7 @@ void ExecEnv::destroy() {
 
     // cache_manager must be destoried after all cache.
     // https://github.com/apache/doris/issues/24082#issuecomment-1712544039
+    S3ClientFactory::instance().close_cache();
     SAFE_DELETE(_cache_manager);
     _file_cache_open_fd_cache.reset(nullptr);
 

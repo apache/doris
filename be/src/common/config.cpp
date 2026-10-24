@@ -1754,6 +1754,13 @@ DEFINE_Int64(wait_cancel_release_memory_ms, "5000");
 DEFINE_mBool(check_segment_when_build_rowset_meta, "false");
 
 DEFINE_mInt32(max_s3_client_retry, "10");
+// Bound retained SDK clients when explicit credentials (including session tokens) rotate.
+// Zero disables retention; in-flight creation is still shared by concurrent callers.
+DEFINE_Int32(s3_client_cache_capacity, "128");
+DEFINE_Validator(s3_client_cache_capacity, [](int32_t value) { return value >= 0; });
+// Idle entries are also removed by the existing CacheManager periodic sweep.
+DEFINE_Int32(s3_client_cache_idle_ttl_seconds, "600");
+DEFINE_Validator(s3_client_cache_idle_ttl_seconds, [](int32_t value) { return value > 0; });
 DEFINE_mInt32(s3_read_base_wait_time_ms, "100");
 DEFINE_mInt32(s3_read_max_wait_time_ms, "800");
 DEFINE_mBool(enable_s3_object_check_after_upload, "true");

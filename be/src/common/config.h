@@ -1850,6 +1850,9 @@ DECLARE_mInt64(s3_put_bytes_per_second_max);
 DECLARE_mInt32(s3_rate_limiter_cpu_cores_override);
 // max s3 client retry times
 DECLARE_mInt32(max_s3_client_retry);
+// Maximum cached object-storage clients and idle retention time. Active users retain ownership.
+DECLARE_Int32(s3_client_cache_capacity);
+DECLARE_Int32(s3_client_cache_idle_ttl_seconds);
 // When meet s3 429 error, the "get" request will
 // sleep s3_read_base_wait_time_ms (*1, *2, *3, *4) ms
 // get try again.

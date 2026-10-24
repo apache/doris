@@ -143,6 +143,29 @@ private:
 
 } // namespace
 
+TEST_F(S3ClientFactoryTest, ExplicitCredentialRotationKeepsTokensIsolated) {
+    auto& factory = S3ClientFactory::instance();
+    int created = 0;
+    factory.set_client_creator_for_test([&](const S3ClientConf&) {
+        ++created;
+        return std::make_shared<io::S3ObjStorageClient>(std::shared_ptr<Aws::S3::S3Client> {});
+    });
+    auto conf = make_factory_conf("credential-rotation.example.com", false);
+    conf.ak = "access-key";
+    conf.sk = "secret-key";
+    conf.token = "first-token";
+    auto first_client = factory.create(conf).value();
+    auto first_provider = factory.create_aws_credentials_provider(conf).provider;
+    conf.token = "second-token";
+    auto second_client = factory.create(conf).value();
+    auto second_provider = factory.create_aws_credentials_provider(conf).provider;
+    EXPECT_NE(first_client, second_client);
+    EXPECT_EQ(factory.create(conf).value(), second_client);
+    EXPECT_EQ(created, 2);
+    EXPECT_EQ(first_provider->GetAWSCredentials().GetSessionToken(), "first-token");
+    EXPECT_EQ(second_provider->GetAWSCredentials().GetSessionToken(), "second-token");
+}
+
 TEST_F(S3ClientFactoryTest, DistinguishesHashCollisions) {
     auto external_conf =
             make_hash_collision_conf("cloud-rate-limit-hash-collision.example.com", false);
