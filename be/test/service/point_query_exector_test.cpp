@@ -21,17 +21,83 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <gtest/gtest.h>
 
+#include "cloud/config.h"
 #include "common/object_pool.h"
 #include "core/block/block.h"
+#include "cpp/sync_point.h"
 #include "exprs/vexpr.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "service/point_query_executor.h"
+#include "storage/mow/mow_transform_test_base.h"
+#include "storage/segment/segment_read_ahead.h"
 #include "storage/tablet/tablet_schema.h"
+#include "util/defer_op.h"
 
 namespace doris {
+
+class PointQueryReadAheadTest : public MowTransformTestBase {};
+
+TEST_F(PointQueryReadAheadTest, RowStoreFallsBackWhenReadAheadSwitchChanges) {
+    auto schema = create_row_store_schema();
+    TabletSharedPtr tablet;
+    auto rowset = write_rowset(schema, 5101, 2, {{1, 11}, {2, 22}}, &tablet);
+    ASSERT_NE(rowset, nullptr);
+    const RowLocation location {rowset->rowset_id(), 0, 1};
+    const std::string key = "key";
+    OlapReaderStatistics expected_stats;
+    std::string expected;
+    ASSERT_TRUE(
+            tablet->lookup_row_data(Slice(key), location, rowset, expected_stats, expected).ok());
+
+    const auto old_cloud_unique_id = config::cloud_unique_id;
+    const bool old_read_ahead = config::enable_query_read_ahead;
+    const bool old_async_write = config::enable_async_file_cache_write;
+    auto* sync_point = SyncPoint::get_instance();
+    Defer restore {[&] {
+        sync_point->disable_processing();
+        config::cloud_unique_id = old_cloud_unique_id;
+        config::enable_query_read_ahead = old_read_ahead;
+        config::enable_async_file_cache_write = old_async_write;
+    }};
+    config::cloud_unique_id = "PointQueryReadAheadTest";
+
+    for (int switch_index = 0; switch_index < 2; ++switch_index) {
+        SCOPED_TRACE(switch_index);
+        config::enable_query_read_ahead = true;
+        config::enable_async_file_cache_write = true;
+        ASSERT_TRUE(segment_v2::SegmentReadAhead::enabled());
+        auto context = std::make_shared<io::FileRangeReadContext>(1024 * 1024);
+
+        // The request has passed enabled(). Close a switch after segment loading, immediately
+        // before the row-store helper calls create_for_query() and observes the new value.
+        bool switched = false;
+        SyncPoint::CallbackGuard guard;
+        sync_point->set_call_back(
+                "BaseTablet::_load_segment",
+                [&](auto&&) {
+                    switched = true;
+                    if (switch_index == 0) {
+                        config::enable_query_read_ahead = false;
+                    } else {
+                        config::enable_async_file_cache_write = false;
+                    }
+                },
+                &guard);
+        sync_point->enable_processing();
+        OlapReaderStatistics stats;
+        std::string actual;
+        const auto status = tablet->lookup_row_data_with_read_ahead(
+                Slice(key), location, rowset, stats, actual, false, nullptr, context);
+        sync_point->disable_processing();
+        ASSERT_TRUE(status.ok()) << status;
+        EXPECT_TRUE(switched);
+        EXPECT_EQ(actual, expected);
+        EXPECT_EQ(context->resident_bytes(), 0);
+    }
+}
 
 // Helper class for setting up Reusable objects to test LookupConnectionCache
 class ReusableTestHelper {
