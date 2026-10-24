@@ -32,6 +32,30 @@ Status EvolutionCast::execute_column_impl(VExprContext* context, const Block* bl
     const auto source = remove_nullable(_children[0]->execute_type(block));
     const auto target = remove_nullable(_data_type);
     const auto primitive = source->get_primitive_type();
+    // An external BINARY table may overlay a GEOMETRY/GEOGRAPHY-annotated Parquet leaf.
+    // Preserve its original WKB in an owning binary column without enabling a SQL spatial CAST.
+    if ((primitive == TYPE_GEOMETRY || primitive == TYPE_GEOGRAPHY) &&
+        target->get_primitive_type() == TYPE_VARBINARY) {
+        ColumnPtr input;
+        RETURN_IF_ERROR(_children[0]->execute_column(context, block, selector, count, input));
+        auto result = _data_type->create_column();
+        for (size_t row = 0; row < count; ++row) {
+            if (input->is_null_at(row)) {
+                // TableReader normally keeps the cast nullable until its final alignment. A
+                // direct required cast must also reject NULL instead of replacing it with bytes.
+                if (!_data_type->is_nullable()) {
+                    return Status::InvalidArgument(
+                            "Cannot read NULL spatial value as required VARBINARY");
+                }
+                result->insert_default();
+            } else {
+                const auto value = input->get_data_at(row);
+                result->insert_data(value.data, value.size);
+            }
+        }
+        result_column = std::move(result);
+        return Status::OK();
+    }
     // Paimon evolution truncates 01.600000 at p0 to 01; ordinary CAST rounds it to 02.
     // Keep this conversion out of SQL casts and other table formats' evolution paths.
     if (!_truncate_datetimev2_precision || primitive != target->get_primitive_type() ||

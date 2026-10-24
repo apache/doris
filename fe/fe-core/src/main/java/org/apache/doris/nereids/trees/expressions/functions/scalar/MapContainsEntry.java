@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.PreferPushDownProject;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
@@ -70,6 +71,16 @@ public class MapContainsEntry extends ScalarFunction
     /** constructor for withChildren and reuse signature */
     public MapContainsEntry(ScalarFunctionParams functionParams) {
         super(functionParams);
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        // Entry lookup compares both keys and values; inspect their original types.
+        for (Expression argument : getArguments()) {
+            if (argument.getDataType().toCatalogDataType().typeContainsSpatialType()) {
+                throw new AnalysisException(getName() + " does not support spatial comparison");
+            }
+        }
     }
 
     /**

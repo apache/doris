@@ -214,7 +214,7 @@ class ConnectorColumnConverterTest {
 
     @Test
     void testUnknownTypeDefaultsToUnsupported() {
-        ConnectorType ct = ConnectorType.of("GEOMETRY", -1, -1);
+        ConnectorType ct = ConnectorType.of("UNKNOWN_TYPE", -1, -1);
         Type back = ConnectorColumnConverter.convertType(ct);
         Assertions.assertTrue(back.isUnsupported());
     }

@@ -473,6 +473,25 @@ public abstract class Type {
         return false;
     }
 
+    /** Whether this type or a nested complex type contains spatial values. */
+    public boolean typeContainsSpatialType() {
+        if (getPrimitiveType() == PrimitiveType.GEOMETRY || getPrimitiveType() == PrimitiveType.GEOGRAPHY) {
+            return true;
+        } else if (isStructType()) {
+            return ((StructType) this).getFields().stream()
+                    .anyMatch(field -> field.getType().typeContainsSpatialType());
+        } else if (isMapType()) {
+            MapType mapType = (MapType) this;
+            return mapType.getKeyType().typeContainsSpatialType()
+                    || mapType.getValueType().typeContainsSpatialType();
+        } else if (isArrayType()) {
+            return ((ArrayType) this).getItemType().typeContainsSpatialType();
+        } else if (isAggStateType()) {
+            return ((AggStateType) this).getSubTypes().stream().anyMatch(Type::typeContainsSpatialType);
+        }
+        return false;
+    }
+
     /** Whether this type or a nested complex type contains Variant. */
     public boolean typeContainsVariant() {
         if (isVariantType()) {
@@ -1008,7 +1027,17 @@ public abstract class Type {
             case SCALAR: {
                 Preconditions.checkState(node.isSetScalarType());
                 TScalarType scalarType = node.getScalarType();
-                if (scalarType.getType() == TPrimitiveType.CHAR) {
+                if (scalarType.getType() == TPrimitiveType.GEOMETRY) {
+                    Preconditions.checkArgument(scalarType.isSetSpatialCrs(), "Missing geometry CRS");
+                    Preconditions.checkArgument(!scalarType.isSetSpatialAlgorithm(),
+                            "Geometry must not specify a geography algorithm");
+                    type = ScalarType.createGeometryType(scalarType.getSpatialCrs());
+                } else if (scalarType.getType() == TPrimitiveType.GEOGRAPHY) {
+                    Preconditions.checkArgument(scalarType.isSetSpatialCrs()
+                            && scalarType.isSetSpatialAlgorithm(), "Missing geography CRS or algorithm");
+                    type = ScalarType.createGeographyType(scalarType.getSpatialCrs(),
+                            scalarType.getSpatialAlgorithm());
+                } else if (scalarType.getType() == TPrimitiveType.CHAR) {
                     Preconditions.checkState(scalarType.isSetLen());
                     type = ScalarType.createCharType(scalarType.getLen());
                 } else if (scalarType.getType() == TPrimitiveType.VARCHAR) {

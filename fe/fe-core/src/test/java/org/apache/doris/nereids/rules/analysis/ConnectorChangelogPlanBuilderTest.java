@@ -46,6 +46,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -168,6 +169,30 @@ class ConnectorChangelogPlanBuilderTest {
 
         Assertions.assertTrue(projections.contains("42"));
         Assertions.assertFalse(projections.contains("DEFAULT"));
+    }
+
+    @Test
+    void spatialUpdateAndMergeRejectCrsChangeBeforeCoercion() {
+        ScalarType geometry = ScalarType.createGeometryType("EPSG:4326");
+        List<Column> schema = ImmutableList.of(SCHEMA.get(0), new Column("value", geometry));
+        LogicalPlan child = new LogicalEmptyRelation(new RelationId(1), ImmutableList.of(
+                new SlotReference("id", IntegerType.INSTANCE, false, ImmutableList.of("target")),
+                new SlotReference("value", DataType.fromCatalogType(geometry), true,
+                        ImmutableList.of("target")),
+                new SlotReference("shape", DataType.fromCatalogType(
+                        ScalarType.createGeometryType("EPSG:3857")), true, ImmutableList.of("source"))));
+        EqualTo assignment = new EqualTo(new UnboundSlot("value"), new UnboundSlot("source", "shape"));
+        ConnectorChangelogRowChangeSpec.Update update = new ConnectorChangelogRowChangeSpec.Update(
+                ImmutableList.of("target"), ImmutableList.of(assignment));
+        ConnectorChangelogRowChangeSpec.Merge merge = new ConnectorChangelogRowChangeSpec.Merge(
+                ImmutableList.of("target"), ImmutableList.of(new MergeMatchedClause(
+                        Optional.empty(), ImmutableList.of(assignment), false)), ImmutableList.of());
+        for (ConnectorChangelogRowChangeSpec spec : ImmutableList.of(update, merge)) {
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> ConnectorChangelogPlanBuilder.build(schema, TARGET_TABLE,
+                            ImmutableList.of("id"), MODE, spec, child, context(child)));
+            Assertions.assertTrue(exception.getMessage().contains("CRS mismatch"));
+        }
     }
 
     @Test

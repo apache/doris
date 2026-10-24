@@ -154,6 +154,12 @@ void VIcebergPartitionWriter::_defer_file_cleanup() {
     // particular, a failed close may leave an asynchronous upload running, and the object must not
     // be visible after the rollback has completed.
     _file_format_transformer.reset();
+    // Stream destruction normally closes the writer. Unsupported compression has no stream;
+    // a failed close may leave pending work, and ASYNC_CLOSING requires a blocking wait.
+    // A failed close without a created writer still uses the outer cleanup callback.
+    if (_file_writer != nullptr && _file_writer->state() != io::FileWriter::State::CLOSED) {
+        WARN_IF_ERROR(_file_writer->close(), fmt::format("failed to close Iceberg file {}", _path));
+    }
     _file_writer.reset();
     if (_closed_file_callback) {
         _closed_file_callback(_fs, _path);

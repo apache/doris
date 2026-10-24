@@ -26,6 +26,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -59,6 +60,21 @@ import java.util.List;
 import java.util.Map;
 
 class StatisticsUtilTest {
+    @Test
+    void testSpatialStatisticsEligibility() {
+        for (String crs : new String[] {"OGC:CRS84", "EPSG:3857", "projjson:my_crs"}) {
+            Assertions.assertTrue(StatisticsUtil.isUnsupportedType(ScalarType.createGeometryType(crs)));
+            for (String algorithm : new String[] {"spherical", "vincenty", "thomas", "andoyer", "karney"}) {
+                Assertions.assertTrue(StatisticsUtil.isUnsupportedType(
+                        ScalarType.createGeographyType(crs, algorithm)));
+            }
+        }
+        Assertions.assertFalse(StatisticsUtil.isUnsupportedType(Type.INT));
+        Assertions.assertFalse(StatisticsUtil.isUnsupportedType(Type.STRING));
+        Assertions.assertTrue(StatisticsUtil.isUnsupportedType(Type.ARRAY));
+        Assertions.assertTrue(StatisticsUtil.isUnsupportedType(Type.JSONB));
+    }
+
     @Test
     void testTimestampNsStatisticsValues() throws AnalysisException {
         String minValue = "1677-09-21 00:12:43.145224192";

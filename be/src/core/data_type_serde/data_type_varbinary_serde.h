@@ -32,9 +32,14 @@
 
 namespace doris {
 
-class DataTypeVarbinarySerDe : public DataTypeSerDe {
+class ColumnSpatial;
+
+// Both columns own raw binary StringViews; bind the storage type once so row loops
+// retain concrete column access rather than paying for an IColumn virtual call per value.
+template <typename ColumnType>
+class DataTypeVarbinarySerDeBase : public DataTypeSerDe {
 public:
-    DataTypeVarbinarySerDe(int nesting_level = 1) : DataTypeSerDe(nesting_level) {};
+    DataTypeVarbinarySerDeBase(int nesting_level = 1) : DataTypeSerDe(nesting_level) {};
 
     std::string get_name() const override { return "Varbinary"; }
 
@@ -119,5 +124,10 @@ public:
     Status from_string(StringRef& str, IColumn& column,
                        const FormatOptions& options) const override;
 };
+
+extern template class DataTypeVarbinarySerDeBase<ColumnVarbinary>;
+extern template class DataTypeVarbinarySerDeBase<ColumnSpatial>;
+
+using DataTypeVarbinarySerDe = DataTypeVarbinarySerDeBase<ColumnVarbinary>;
 
 } // namespace doris

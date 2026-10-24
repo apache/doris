@@ -175,4 +175,29 @@ public class ConnectorTypeTest {
         Assertions.assertEquals("SOMETHING",
                 new ConnectorType("SOMETHING", -1, -1, Arrays.asList(INT, STR)).getTypeName());
     }
+
+    @Test
+    public void testSpatialMetadataIdentityAndCopies() {
+        ConnectorType geography = ConnectorType.of("GEOGRAPHY").withSpatialMetadata("OGC:CRS84", "spherical");
+        ConnectorType same = ConnectorType.of("GEOGRAPHY").withSpatialMetadata("OGC:CRS84", "spherical");
+        Assertions.assertEquals(geography, same);
+        Assertions.assertEquals(geography.hashCode(), same.hashCode());
+        Assertions.assertNotEquals(geography,
+                ConnectorType.of("GEOGRAPHY").withSpatialMetadata("OGC:CRS84", "vincenty"));
+        Assertions.assertNotEquals(geography,
+                ConnectorType.of("GEOGRAPHY").withSpatialMetadata("EPSG:4326", "spherical"));
+        Assertions.assertEquals(geography, geography.withChildrenFieldIds(Collections.emptyList()));
+        ConnectorType struct = ConnectorType.structOf(Collections.singletonList("shape"),
+                Collections.singletonList(geography), Collections.singletonList(false),
+                Collections.singletonList("spatial field"), Collections.singletonList(false))
+                .withChildrenFieldIds(Collections.singletonList(7));
+        ConnectorType copy = struct.withSpatialMetadata(null, null);
+        Assertions.assertEquals(struct, copy);
+        Assertions.assertEquals(7, copy.getChildFieldId(0));
+        Assertions.assertFalse(copy.isChildNullable(0));
+        Assertions.assertFalse(copy.isChildCommentSpecified(0));
+        Assertions.assertEquals("spatial field", copy.getChildComment(0));
+        Assertions.assertEquals(geography, copy.getChildren().get(0));
+    }
+
 }

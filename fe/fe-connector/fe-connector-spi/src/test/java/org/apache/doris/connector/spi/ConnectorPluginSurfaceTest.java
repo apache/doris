@@ -89,8 +89,8 @@ public class ConnectorPluginSurfaceTest {
             version.load(in);
         }
         // Major 19 adds ConnectorColumn#isSourceNullable()/withSourceNullable(boolean); major 20 adds
-        // deleteUsingMetadata to the connector write surface.
-        Assertions.assertEquals("20.0", version.getProperty("api.version"));
+        // deleteUsingMetadata; major 21 adds the opt-in for nested spatial column definitions.
+        Assertions.assertEquals("21.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
@@ -102,6 +102,7 @@ public class ConnectorPluginSurfaceTest {
             Connector.class,
             ConnectorColumnHandle.class,
             ConnectorColumn.class,
+            ConnectorType.class,
             ConnectorTableSchema.class,
             org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot.class,
             org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot.Builder.class,

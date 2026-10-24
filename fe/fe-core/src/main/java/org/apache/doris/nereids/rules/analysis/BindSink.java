@@ -41,6 +41,7 @@ import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.write.ConnectorChangelogMode;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.VariantWritePlanValidator;
+import org.apache.doris.datasource.connector.converter.ConnectorSpatialWriteValidator;
 import org.apache.doris.datasource.connector.converter.ConnectorWriteValueConverter;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
@@ -1005,6 +1006,8 @@ public class BindSink implements AnalysisRuleFactory {
             throw new AnalysisException("insert into cols should be corresponding to the query output. "
                     + "Expected " + boundSink.getCols().size() + " columns but got " + child.getOutput().size());
         }
+        ConnectorSpatialWriteValidator.validate(bindColumns, child.getOutput().stream()
+                .map(NamedExpression.class::cast).collect(ImmutableList.toImmutableList()));
         VariantWritePlanValidator.validateNoLossyCoercion(bindColumns, child, ctx.cascadesContext.getCteContext());
         if (table.requiresFullSchemaWriteOrder()) {
             // Positional-write connector (e.g. MaxCompute): its BE writer maps data columns positionally

@@ -343,6 +343,9 @@ static GeoParseStatus to_s2loop(const GeoCoordinateList& coords, std::unique_ptr
     if (!(*loop)->IsValid()) {
         return GeoParseStatus::GEO_PARSE_LOOP_INVALID;
     }
+    // Calculation rings select the smaller spherical region, regardless of winding.
+    // Reversing a small ring does not select its >hemisphere complement. Typed WKB
+    // storage/accessors preserve the original ring order independently of this parser.
     (*loop)->Normalize();
     return GeoParseStatus::GEO_PARSE_OK;
 }
@@ -425,6 +428,13 @@ std::unique_ptr<GeoShape> GeoShape::from_wkb(const char* data, size_t size,
     }
     std::unique_ptr<GeoShape> shape;
     status = WkbParse::parse_wkb(wkb, shape);
+    return shape;
+}
+
+std::unique_ptr<GeoShape> GeoShape::from_wkb_bytes(const char* data, size_t size,
+                                                   GeoParseStatus& status) {
+    std::unique_ptr<GeoShape> shape;
+    status = WkbParse::parse_wkb_bytes(data, size, shape);
     return shape;
 }
 

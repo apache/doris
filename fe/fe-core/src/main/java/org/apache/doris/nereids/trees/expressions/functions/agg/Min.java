@@ -59,6 +59,9 @@ public class Min extends NullableAggregateFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
+        if (getArgumentType(0).toCatalogDataType().typeContainsSpatialType()) {
+            throw new AnalysisException("min does not support spatial arguments");
+        }
         if (getArgumentType(0).isOnlyMetricType() && !getArgumentType(0).isArrayType()) {
             throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
         }

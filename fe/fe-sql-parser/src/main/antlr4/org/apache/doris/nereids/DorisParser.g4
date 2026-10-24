@@ -2126,6 +2126,8 @@ dataType
     | AGG_STATE LT functionNameIdentifier
         LEFT_PAREN dataTypes+=dataTypeWithNullable
         (COMMA dataTypes+=dataTypeWithNullable)* RIGHT_PAREN GT     #aggStateDataType
+    | spatialType=(GEOMETRY | GEOGRAPHY) (LEFT_PAREN crs=STRING_LITERAL
+      (COMMA algorithm=STRING_LITERAL)? RIGHT_PAREN)?              #spatialDataType
     | primitiveColType (LEFT_PAREN (INTEGER_VALUE | ASTERISK)
       (COMMA INTEGER_VALUE)* RIGHT_PAREN)?                          #primitiveDataType
     ;
@@ -2400,6 +2402,8 @@ nonReserved
     | FUNCTION
     | GENERATED
     | GENERIC
+    | GEOGRAPHY
+    | GEOMETRY
     | GLOBAL
     | GRAPH
     | GROUPING

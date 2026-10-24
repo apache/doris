@@ -17,9 +17,11 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <iosfwd>
 #include <memory>
+#include <string>
 
 #include "exprs/function/geo/geo_common.h"
 #include "exprs/function/geo/wkt_parse_type.h"
@@ -28,6 +30,7 @@ struct WkbParseContext;
 
 namespace doris {
 
+class Status;
 enum class wkbType : int;
 
 class GeoShape;
@@ -35,20 +38,21 @@ class GeoLine;
 class GeoPoint;
 class GeoPolygon;
 
-// WKB format constants
-// According to OpenGIS Implementation Specification:
-// The high bit of the type value is set to 1 if the WKB contains a SRID.
-// Reference: OpenGIS Implementation Specification for Geographic information - Simple feature access - Part 1: Common architecture
-// Bit mask to check if WKB contains SRID
+// Legacy EWKB may embed an SRID; typed WKB carries CRS in its schema instead.
 constexpr uint32_t WKB_SRID_FLAG = 0x20000000;
-
-// The geometry type is stored in the least significant byte of the type value
-// Bit mask to extract the base geometry type
-constexpr uint32_t WKB_TYPE_MASK = 0xFF;
 
 class WkbParse {
 public:
     static GeoParseStatus parse_wkb(std::istream& is, std::unique_ptr<GeoShape>& shape);
+    // Build supported calculation shapes from validated typed WKB without payload copies.
+    static GeoParseStatus parse_wkb_bytes(const char* data, size_t size,
+                                          std::unique_ptr<GeoShape>& shape);
+    static GeoParseStatus validate_wkb_bytes(const char* data, size_t size,
+                                             bool geographic = false);
+    static Status validate_spatial_wkb(const char* data, size_t size, bool geographic, size_t row);
+    static GeoParseStatus wkb_to_wkt(const char* data, size_t size, std::string* wkt);
+    static GeoParseStatus point_coordinates(const char* data, size_t size, double* x, double* y);
+    static GeoParseStatus geometry_type(const char* data, size_t size, std::string* type);
 
 private:
     static void read_hex(std::istream& is, WkbParseContext& ctx);
@@ -68,6 +72,8 @@ private:
     static GeoParseStatus minMemSize(wkbType type, uint64_t size, WkbParseContext& ctx);
 
     static bool readCoordinate(WkbParseContext& ctx);
+    static GeoParseStatus initialize_context(const char* data, size_t size, WkbParseContext* ctx);
+    static GeoParseStatus read_geometry_type(WkbParseContext& ctx, uint32_t* type);
 };
 
 } // namespace doris

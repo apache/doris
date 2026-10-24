@@ -83,7 +83,9 @@ public enum PrimitiveType {
     VARIANT("VARIANT", 24, TPrimitiveType.VARIANT, false),
     TEMPLATE("TEMPLATE", -1, TPrimitiveType.INVALID_TYPE, false),
     // Unsupported scalar types.
-    BINARY("BINARY", -1, TPrimitiveType.BINARY, false);
+    BINARY("BINARY", -1, TPrimitiveType.BINARY, false),
+    GEOMETRY("GEOMETRY", 16, TPrimitiveType.GEOMETRY, false),
+    GEOGRAPHY("GEOGRAPHY", 16, TPrimitiveType.GEOGRAPHY, false);
 
 
     private static final int DATE_INDEX_LEN = 3;
@@ -267,6 +269,10 @@ public enum PrimitiveType {
                 return VARIANT;
             case VARBINARY:
                 return VARBINARY;
+            case GEOMETRY:
+                return GEOMETRY;
+            case GEOGRAPHY:
+                return GEOGRAPHY;
             case ALL:
             default:
                 return INVALID_TYPE;
@@ -468,6 +474,8 @@ public enum PrimitiveType {
             case VARIANT:
                 return MysqlColType.MYSQL_TYPE_JSON;
             case VARBINARY:
+            case GEOMETRY:
+            case GEOGRAPHY:
                 return MysqlColType.MYSQL_TYPE_VARSTRING;
             default:
                 return MysqlColType.MYSQL_TYPE_STRING;

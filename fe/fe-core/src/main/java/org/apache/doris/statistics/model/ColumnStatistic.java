@@ -20,6 +20,8 @@ package org.apache.doris.statistics.model;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.LiteralExprUtils;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.InternalCatalog;
@@ -63,7 +65,15 @@ public class ColumnStatistic {
 
     public static final Set<Type> UNSUPPORTED_TYPE = Sets.newHashSet(Type.HLL, Type.BITMAP, Type.ARRAY, Type.STRUCT,
             Type.MAP, Type.QUANTILE_STATE, Type.JSONB, Type.VARIANT, Type.TIMEV2, Type.LAMBDA_FUNCTION,
-            Type.VARBINARY);
+            Type.VARBINARY, ScalarType.createGeometryType(), ScalarType.createGeographyType());
+
+    public static boolean isUnsupportedType(Type type) {
+        // Metadata is part of spatial type identity: a default instance alone would miss, for
+        // example, GEOMETRY('EPSG:3857') and still schedule an unsupported NDV collection.
+        return type.getPrimitiveType() == PrimitiveType.GEOMETRY
+                || type.getPrimitiveType() == PrimitiveType.GEOGRAPHY
+                || UNSUPPORTED_TYPE.contains(type);
+    }
 
     // ATTENTION: Stats deriving WILL NOT use 'count' field any longer.
     // Use 'rowCount' field in Statistics if needed.

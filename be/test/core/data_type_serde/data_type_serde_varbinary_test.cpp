@@ -36,6 +36,7 @@
 #include "core/column/column_string.h"
 #include "core/column/column_varbinary.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_spatial.h"
 #include "core/data_type/data_type_varbinary.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/data_type_serde/data_type_varbinary_serde.h"
@@ -60,6 +61,178 @@ static std::string make_bytes(size_t n, uint8_t seed = 0x31) {
 }
 
 class DataTypeVarbinarySerDeTest : public ::testing::Test {};
+
+static std::string spatial_serde_point() {
+    return {"\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?"
+            "\x00\x00\x00\x00\x00\x00\x00@",
+            21};
+}
+
+static std::string spatial_serde_collection() {
+    // A valid little-endian collection of 256 Points exercises arena-backed payloads.
+    std::string collection("\x01\x07\x00\x00\x00\x00\x01\x00\x00", 9);
+    for (size_t i = 0; i < 256; ++i) {
+        collection += spatial_serde_point();
+    }
+    return collection;
+}
+
+static void expect_binary_serde_arrow(const DataTypePtr& type,
+                                      const std::shared_ptr<arrow::DataType>& arrow_type) {
+    auto serde = type->get_serde();
+    auto column = type->create_column();
+    const std::vector<std::string> values {"", spatial_serde_point(), "",
+                                           spatial_serde_collection()};
+    for (const auto& value : values) {
+        column->insert_data(value.data(), value.size());
+    }
+    const NullMap nulls {0, 0, 1, 0};
+    auto builder = arrow::MakeBuilder(arrow_type).ValueOrDie();
+    // Append two non-zero slices to the same builder, including a NULL and a large value.
+    ASSERT_TRUE(serde->write_column_to_arrow(*column, &nulls, builder.get(), 1, 2,
+                                             cctz::utc_time_zone())
+                        .ok());
+    ASSERT_TRUE(serde->write_column_to_arrow(*column, &nulls, builder.get(), 2, 4,
+                                             cctz::utc_time_zone())
+                        .ok());
+    std::shared_ptr<arrow::Array> array;
+    ASSERT_TRUE(builder->Finish(&array).ok());
+    ASSERT_TRUE(array->ValidateFull().ok());
+    ASSERT_EQ(array->length(), 3);
+    EXPECT_TRUE(array->IsNull(1));
+    auto restored = type->create_column();
+    ASSERT_TRUE(serde->read_column_from_arrow(*restored, array.get(), 0, 3, cctz::utc_time_zone())
+                        .ok());
+    ASSERT_EQ(restored->size(), 3);
+    EXPECT_EQ(restored->get_data_at(0).to_string(), values[1]);
+    EXPECT_EQ(restored->get_data_at(1).size, 0);
+    EXPECT_EQ(restored->get_data_at(2).to_string(), values[3]);
+}
+
+static void expect_binary_serde_fixed_arrow(const DataTypePtr& type) {
+    auto column = type->create_column();
+    const auto point = spatial_serde_point();
+    column->insert_data(point.data(), point.size());
+    column->insert_default();
+    const NullMap nulls {0, 1};
+    auto serde = type->get_serde();
+    arrow::FixedSizeBinaryBuilder builder(arrow::fixed_size_binary(21));
+    ASSERT_TRUE(serde->write_column_to_arrow(*column, &nulls, &builder, 0, 2, cctz::utc_time_zone())
+                        .ok());
+    std::shared_ptr<arrow::Array> array;
+    ASSERT_TRUE(builder.Finish(&array).ok());
+    ASSERT_TRUE(array->ValidateFull().ok());
+    EXPECT_EQ(static_cast<const arrow::FixedSizeBinaryArray&>(*array).GetView(0), point);
+    EXPECT_TRUE(array->IsNull(1));
+    column->insert_data("short", 5);
+    EXPECT_FALSE(
+            serde->write_column_to_arrow(*column, nullptr, &builder, 2, 3, cctz::utc_time_zone())
+                    .ok());
+}
+
+static void expect_binary_serde_value(const DataTypeSerDe& serde, const IColumn& column, size_t row,
+                                      const std::string& value,
+                                      DataTypeSerDe::FormatOptions& options) {
+    auto text = ColumnString::create();
+    VectorBufferWriter writer(*text);
+    ASSERT_TRUE(serde.serialize_one_cell_to_json(column, row, writer, options).ok());
+    writer.commit();
+    EXPECT_EQ(text->get_data_at(0).to_string(), value);
+    MysqlRowBinaryBuffer actual;
+    MysqlRowBinaryBuffer expected;
+    actual.start_binary_row(1);
+    expected.start_binary_row(1);
+    ASSERT_EQ(expected.push_string(value.data(), value.size()), 0);
+    ASSERT_TRUE(serde.write_column_to_mysql_binary(column, actual, row, false, options).ok());
+    EXPECT_EQ(std::string(actual.buf(), actual.length()),
+              std::string(expected.buf(), expected.length()));
+}
+
+static void expect_binary_serde_cell(const DataTypePtr& type) {
+    const std::vector<std::string> values {"", std::string("\0\xff", 2), spatial_serde_point(),
+                                           spatial_serde_collection()};
+    auto column = type->create_column();
+    auto serde = type->get_serde();
+    auto options = DataTypeSerDe::get_default_format_options();
+    for (const auto& value : values) {
+        Slice input(value);
+        ASSERT_TRUE(serde->deserialize_one_cell_from_json(*column, input, options).ok());
+    }
+    for (size_t row = 0; row < values.size(); ++row) {
+        expect_binary_serde_value(*serde, *column, row, values[row], options);
+    }
+    auto constant = ColumnConst::create(column->cut(2, 1), 5);
+    auto text = ColumnString::create();
+    VectorBufferWriter writer(*text);
+    ASSERT_TRUE(serde->serialize_one_cell_to_json(*constant, 4, writer, options).ok());
+    writer.commit();
+    EXPECT_EQ(text->get_data_at(0).to_string(), values[2]);
+    MysqlRowBinaryBuffer actual;
+    MysqlRowBinaryBuffer expected;
+    actual.start_binary_row(1);
+    expected.start_binary_row(1);
+    ASSERT_EQ(expected.push_string(values[0].data(), values[0].size()), 0);
+    ASSERT_TRUE(serde->write_column_to_mysql_binary(*column, actual, 4, true, options).ok());
+    EXPECT_EQ(std::string(actual.buf(), actual.length()),
+              std::string(expected.buf(), expected.length()));
+}
+
+static void expect_binary_serde_text(const DataTypePtr& type) {
+    const auto value = spatial_serde_point();
+    auto column = type->create_column();
+    column->insert_data(value.data(), value.size());
+    auto options = DataTypeSerDe::get_default_format_options();
+    auto serde = type->get_serde(2);
+    auto text = ColumnString::create();
+    VectorBufferWriter writer(*text);
+    serde->to_string(*column, 0, writer, options);
+    writer.commit();
+    const auto encoded = text->get_data_at(0).to_string();
+    EXPECT_EQ(encoded, "0x0101000000000000000000F03F0000000000000040");
+    auto restored = type->create_column();
+    StringRef input(encoded);
+    ASSERT_TRUE(serde->from_string(input, *restored, options).ok());
+    EXPECT_EQ(restored->get_data_at(0).to_string(), value);
+    auto hive = ColumnString::create();
+    VectorBufferWriter hive_writer(*hive);
+    ASSERT_TRUE(serde->serialize_one_cell_to_hive_text(*column, 0, hive_writer, options).ok());
+    hive_writer.commit();
+    const auto base64 = hive->get_data_at(0).to_string();
+    Slice slice(base64);
+    auto hive_restored = type->create_column();
+    ASSERT_TRUE(serde->deserialize_one_cell_from_hive_text(*hive_restored, slice, options).ok());
+    EXPECT_EQ(hive_restored->get_data_at(0).to_string(), value);
+}
+
+TEST_F(DataTypeVarbinarySerDeTest, ConcreteBinaryColumnsPreserveInheritedTextEncodings) {
+    for (const DataTypePtr& type :
+         {DataTypePtr(std::make_shared<DataTypeVarbinary>()),
+          DataTypePtr(std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY)),
+          DataTypePtr(std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY))}) {
+        expect_binary_serde_text(type);
+    }
+}
+
+TEST_F(DataTypeVarbinarySerDeTest, ConcreteBinaryColumnsPreserveCellCarriers) {
+    for (const DataTypePtr& type :
+         {DataTypePtr(std::make_shared<DataTypeVarbinary>()),
+          DataTypePtr(std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY)),
+          DataTypePtr(std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY))}) {
+        expect_binary_serde_cell(type);
+    }
+}
+
+TEST_F(DataTypeVarbinarySerDeTest, ConcreteBinaryColumnsPreserveArrowSlices) {
+    for (const DataTypePtr& type :
+         {DataTypePtr(std::make_shared<DataTypeVarbinary>()),
+          DataTypePtr(std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY)),
+          DataTypePtr(std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY))}) {
+        for (const auto& arrow_type : {arrow::binary(), arrow::large_binary()}) {
+            expect_binary_serde_arrow(type, arrow_type);
+        }
+        expect_binary_serde_fixed_arrow(type);
+    }
+}
 
 TEST_F(DataTypeVarbinarySerDeTest, HiveTextBinaryUsesBase64InsteadOfJsonBytes) {
     DataTypeVarbinarySerDe serde;
@@ -126,6 +299,26 @@ TEST_F(DataTypeVarbinarySerDeTest, FromHexStringPreservesBinaryPartitionBytes) {
         StringRef input(text);
         EXPECT_FALSE(serde.from_string(input, *column, options).ok());
         EXPECT_EQ(3, column->size());
+    }
+}
+
+TEST_F(DataTypeVarbinarySerDeTest, NestedHexStringsKeepPrefixAndRoundTrip) {
+    DataTypeVarbinarySerDe serde(2);
+    auto input = ColumnVarbinary::create();
+    auto output = ColumnString::create();
+    auto restored = ColumnVarbinary::create();
+    auto options = DataTypeSerDe::get_default_format_options();
+    const std::vector<std::pair<std::string, std::string>> cases = {
+            {"", "0x"}, {"abc", "0x616263"}, {std::string("\0\xff", 2), "0x00FF"}};
+    for (const auto& [bytes, hex] : cases) {
+        input->insert_data(bytes.data(), bytes.size());
+        VectorBufferWriter writer(*output);
+        serde.to_string(*input, input->size() - 1, writer, options);
+        writer.commit();
+        EXPECT_EQ(hex, output->get_data_at(output->size() - 1).to_string());
+        StringRef text(hex);
+        ASSERT_TRUE(serde.from_string(text, *restored, options).ok());
+        EXPECT_EQ(bytes, restored->get_data_at(restored->size() - 1).to_string());
     }
 }
 

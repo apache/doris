@@ -35,6 +35,7 @@
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_spatial.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_timestamp_ns.h"
@@ -1975,7 +1976,8 @@ TEST(ParquetV2NativeDecoderTest, LegacyConvertedTimestampsRemainUtcAdjusted) {
 }
 
 TEST(ParquetV2NativeDecoderTest, GeospatialByteArrayAnnotationsDecodeAsRawBytes) {
-    const std::string wkb("\x01\x01\x00\x00\x00", 5);
+    const std::string wkb(
+            "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@", 21);
     for (const bool geometry : {true, false}) {
         tparquet::LogicalType logical;
         if (geometry) {
@@ -1993,7 +1995,7 @@ TEST(ParquetV2NativeDecoderTest, GeospatialByteArrayAnnotationsDecodeAsRawBytes)
         EXPECT_EQ(context.physical_type, ParquetPhysicalType::BYTE_ARRAY);
         EXPECT_EQ(context.logical_type, ParquetLogicalType::NONE);
 
-        DataTypeString type;
+        DataTypeSpatial type(geometry ? TYPE_GEOMETRY : TYPE_GEOGRAPHY);
         auto plain_column = type.create_column();
         auto encoded = encode_plain_byte_arrays({wkb});
         Slice plain_slice(encoded.data(), encoded.size());
@@ -2031,6 +2033,63 @@ TEST(ParquetV2NativeDecoderTest, GeospatialByteArrayAnnotationsDecodeAsRawBytes)
         EXPECT_TRUE(
                 init_decode_context_for_test(field, nullptr, &context).is<ErrorCode::CORRUPTION>());
     }
+}
+
+TEST(ParquetV2NativeDecoderTest, GeospatialMaterializationRejectsInvalidSelectedWkb) {
+    for (const auto primitive : {TYPE_GEOMETRY, TYPE_GEOGRAPHY}) {
+        tparquet::LogicalType logical;
+        if (primitive == TYPE_GEOMETRY) {
+            logical.__set_GEOMETRY(tparquet::GeometryType());
+        } else {
+            logical.__set_GEOGRAPHY(tparquet::GeographyType());
+        }
+        NativeFieldSchema field;
+        field.name = "spatial";
+        field.physical_type = tparquet::Type::BYTE_ARRAY;
+        field.parquet_schema.__set_logicalType(logical);
+        ParquetDecodeContext context;
+        ASSERT_TRUE(init_decode_context_for_test(field, nullptr, &context).ok());
+        DataTypeSpatial type(primitive);
+        auto column = type.create_column();
+        auto encoded = encode_plain_byte_arrays({"broken"});
+        Slice slice(encoded.data(), encoded.size());
+        std::unique_ptr<Decoder> decoder;
+        ASSERT_TRUE(
+                Decoder::get_decoder(tparquet::Type::BYTE_ARRAY, tparquet::Encoding::PLAIN, decoder)
+                        .ok());
+        ASSERT_TRUE(decoder->set_data(&slice).ok());
+        ParquetMaterializationState state;
+        const auto status =
+                type.get_serde()->read_column_from_parquet(*column, *decoder, context, 1, state);
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("Invalid WKB"), std::string::npos);
+    }
+}
+
+TEST(ParquetV2NativeDecoderTest, GeospatialDictionaryRejectsSelectedInvalidWkb) {
+    NativeFieldSchema field;
+    field.name = "geometry";
+    field.physical_type = tparquet::Type::BYTE_ARRAY;
+    tparquet::LogicalType logical;
+    logical.__set_GEOMETRY(tparquet::GeometryType());
+    field.parquet_schema.__set_logicalType(logical);
+    ParquetDecodeContext context;
+    ASSERT_TRUE(init_decode_context_for_test(field, nullptr, &context).ok());
+    context.encoding = ParquetValueEncoding::DICTIONARY;
+    int32_t dictionary_length = 0;
+    auto dictionary = make_byte_array_dictionary({"unused", "broken"}, &dictionary_length);
+    ByteArrayDictDecoder decoder;
+    ASSERT_TRUE(decoder.set_dict(dictionary, dictionary_length, 2).ok());
+    char index[] = {1, 2, 1};
+    Slice slice(index, sizeof(index));
+    ASSERT_TRUE(decoder.set_data(&slice).ok());
+    DataTypeSpatial type(TYPE_GEOMETRY);
+    auto column = type.create_column();
+    ParquetMaterializationState state;
+    const auto status =
+            type.get_serde()->read_column_from_parquet(*column, decoder, context, 1, state);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("Invalid WKB"), std::string::npos);
 }
 
 TEST(ParquetV2NativeDecoderTest, InvalidLogicalPhysicalPairsFailBeforeDecode) {

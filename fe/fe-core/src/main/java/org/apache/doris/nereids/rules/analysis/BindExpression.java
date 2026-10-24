@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.VariantWritePlanValidator;
+import org.apache.doris.datasource.connector.converter.ConnectorSpatialWriteValidator;
 import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
@@ -79,6 +80,7 @@ import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExternalRowLevelDeleteSink;
@@ -304,6 +306,10 @@ public class BindExpression implements AnalysisRuleFactory {
             validateMergeNoLossyCoercion(sink.getCols(), sink.child(), ctx.cascadesContext.getCteContext());
         }
         List<NamedExpression> castExprs = coerceMergeOutput(sink.getCols(), outputExprs);
+        if (sink.isWritesDataFiles()) {
+            // Delete-only MERGE forwards target values but writes only position-delete row ids.
+            validateMergeSpatialTypes(sink.getCols(), sink.child(), outputExprs);
+        }
         if (castExprs.equals(outputExprs)) {
             if (sink.getOutputExprs().equals(outputExprs)) {
                 return sink;
@@ -312,6 +318,27 @@ public class BindExpression implements AnalysisRuleFactory {
         }
         LogicalProject<?> project = new LogicalProject<>(castExprs, sink.child());
         return (LogicalExternalRowLevelMergeSink<Plan>) sink.withChildAndUpdateOutput(project);
+    }
+
+    static void validateMergeSpatialTypes(List<Column> sinkColumns, Plan sourcePlan,
+            List<NamedExpression> outputExprs) {
+        // MERGE projections already contain target casts. Check the original spatial
+        // expressions by the same positions as coerceMergeOutput; data columns can also
+        // be named "operation", so their names cannot identify routing columns.
+        while (sourcePlan instanceof LogicalCTEAnchor) {
+            sourcePlan = ((LogicalCTEAnchor<?, ?>) sourcePlan).right();
+        }
+        List<? extends NamedExpression> sourceExpressions = sourcePlan instanceof LogicalProject
+                ? ((LogicalProject<?>) sourcePlan).getProjects() : outputExprs;
+        int sourceOrdinal = 2;
+        for (Column column : sinkColumns) {
+            if (column.isVisible()) {
+                ConnectorSpatialWriteValidator.validate(column, sourceExpressions.get(sourceOrdinal));
+            }
+            if (column.isVisible() || column.isReservedPassthrough()) {
+                sourceOrdinal++;
+            }
+        }
     }
 
     /**

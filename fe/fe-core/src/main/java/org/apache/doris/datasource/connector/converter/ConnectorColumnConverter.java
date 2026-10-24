@@ -204,7 +204,8 @@ public final class ConnectorColumnConverter {
             childCommentSpecified.add(type.isChildCommentSpecified(i));
         }
         return new ConnectorType(type.getTypeName(), type.getPrecision(), type.getScale(), childTypes,
-                type.getFieldNames(), childNullable, childComments, childIds, childCommentSpecified);
+                type.getFieldNames(), childNullable, childComments, childIds, childCommentSpecified)
+                .withSpatialMetadata(type.getSpatialCrs(), type.getSpatialAlgorithm());
     }
 
     /**
@@ -273,6 +274,10 @@ public final class ConnectorColumnConverter {
             if (primitiveType == PrimitiveType.DATETIMEV2 || primitiveType == PrimitiveType.TIMESTAMPTZ) {
                 return ConnectorType.of(primitiveType.toString(), scalar.getScalarScale(), 0);
             }
+            if (primitiveType == PrimitiveType.GEOMETRY || primitiveType == PrimitiveType.GEOGRAPHY) {
+                return ConnectorType.of(primitiveType.toString()).withSpatialMetadata(
+                        scalar.getSpatialCrs(), scalar.getSpatialAlgorithm());
+            }
             // Parameterless Doris scalars expose 0/0 through ScalarType, while connector schemas use -1/-1.
             // Canonicalizing them prevents an unchanged schema from being mistaken for concurrent drift.
             return ConnectorType.of(primitiveType.toString());
@@ -295,7 +300,8 @@ public final class ConnectorColumnConverter {
             case "STRUCT":
                 return convertStructType(ct);
             default:
-                return convertScalarType(typeName, ct.getPrecision(), ct.getScale());
+                return convertScalarType(typeName, ct.getPrecision(), ct.getScale(),
+                        ct.getSpatialCrs(), ct.getSpatialAlgorithm());
         }
     }
 
@@ -333,7 +339,8 @@ public final class ConnectorColumnConverter {
         return new StructType(fields);
     }
 
-    private static Type convertScalarType(String typeName, int precision, int scale) {
+    private static Type convertScalarType(String typeName, int precision, int scale,
+            String spatialCrs, String spatialAlgorithm) {
         switch (typeName) {
             case "CHAR":
                 if (precision > 0) {
@@ -376,6 +383,11 @@ public final class ConnectorColumnConverter {
                     return ScalarType.createVarbinaryType(precision);
                 }
                 return ScalarType.createVarbinaryType(ScalarType.MAX_VARBINARY_LENGTH);
+            case "GEOMETRY":
+                return ScalarType.createGeometryType(spatialCrs == null ? "OGC:CRS84" : spatialCrs);
+            case "GEOGRAPHY":
+                return ScalarType.createGeographyType(spatialCrs == null ? "OGC:CRS84" : spatialCrs,
+                        spatialAlgorithm == null ? "spherical" : spatialAlgorithm);
             case "JSONB":
                 return ScalarType.createType("JSON");
             case "VARIANT_COMPUTE_V2":
