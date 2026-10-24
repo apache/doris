@@ -2284,11 +2284,12 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * schema, so a schema's position in the metadata list does not tell when it was last active, and the list may
      * also hold schemas committed after a time-travel or branch target. The scan snapshot's parent chain is
      * therefore searched first, so the definition active on that lineage wins; the whole metadata list, newest
-     * first, is the fallback for schema-only changes and expired ancestors. A dropped key nevertheless takes the
-     * widest type it has in any retained schema: a delete committed after a schema-only promotion holds values of
-     * the promoted type even when no snapshot records it. Current fields remain first, allowing a dropped/re-added
-     * name to resolve the projected field by name while a live historical equality key resolves by its stable
-     * field ID.</p>
+     * first, is the fallback for schema-only changes and expired ancestors. The selected definition keeps its name
+     * and initial default but takes the relaxations its field has in any retained schema
+     * ({@link #withRetainedRelaxations}): a delete committed after a schema-only promotion or required-to-optional
+     * change follows the relaxed definition even when no snapshot records it. Current fields remain first,
+     * allowing a dropped/re-added name to resolve the projected field by name while a live historical equality key
+     * resolves by its stable field ID.</p>
      */
     @VisibleForTesting
     static List<NestedField> schemaForPotentialEqualityDeletes(
@@ -2308,7 +2309,6 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
 
         List<NestedField> fields = new ArrayList<>(scanSchema.columns());
         List<Schema> metadataSchemas = metadataSchemaHistory(table);
-        Map<Integer, Type> widestTypes = widestPromotedTypes(missing, metadataSchemas);
         // Snapshots on one lineage mostly share a schema, so each schema is indexed at most once.
         Set<Integer> lineageSchemaIds = new HashSet<>();
         for (Snapshot snapshot = scanSnapshot; snapshot != null && !missing.isEmpty();
@@ -2322,10 +2322,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 throw new IllegalStateException(
                         "Iceberg snapshot schema " + schemaId + " is absent from table metadata");
             }
-            addHistoricalEqualityFields(fields, missing, lineageSchema, widestTypes);
+            addHistoricalEqualityFields(fields, missing, lineageSchema, metadataSchemas);
         }
         for (int index = metadataSchemas.size() - 1; index >= 0 && !missing.isEmpty(); index--) {
-            addHistoricalEqualityFields(fields, missing, metadataSchemas.get(index), widestTypes);
+            addHistoricalEqualityFields(fields, missing, metadataSchemas.get(index), metadataSchemas);
         }
         if (!missing.isEmpty()) {
             throw new IllegalStateException(
@@ -2342,39 +2342,54 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /**
-     * Field IDs are never reused and a field's type only changes by promotion, which is monotonic, so the widest
-     * type a field has in any retained schema covers every file written for it.
+     * A writer commits with the schema that is current at commit, so a key dropped before its delete commits loses
+     * the schema-only changes made before the drop from every snapshot. Field IDs are never reused and a field
+     * only relaxes compatibly, by promotion or from required to optional, so each field of the selected definition
+     * takes the widest promotion of its type and the optionality it has in any retained schema; neither depends on
+     * the order of the schemas. A field required in every retained schema stays required.
      */
-    private static Map<Integer, Type> widestPromotedTypes(Set<Integer> fieldIds, List<Schema> schemas) {
-        Map<Integer, Type> widestTypes = new HashMap<>();
-        for (Schema schema : schemas) {
-            for (Integer fieldId : fieldIds) {
-                Type type = schema.findType(fieldId);
-                if (type == null) {
+    private static List<NestedField> withRetainedRelaxations(List<NestedField> fields, List<Schema> schemas) {
+        List<NestedField> relaxed = new ArrayList<>(fields.size());
+        for (NestedField field : fields) {
+            Type type = field.type();
+            boolean optional = field.isOptional();
+            for (Schema schema : schemas) {
+                NestedField retained = schema.findField(field.fieldId());
+                if (retained == null) {
                     continue;
                 }
-                Type widest = widestTypes.get(fieldId);
-                if (widest == null || TypeUtil.isPromotionAllowed(widest, type.asPrimitiveType())) {
-                    widestTypes.put(fieldId, type);
+                optional |= retained.isOptional();
+                if (type.isPrimitiveType() && retained.type().isPrimitiveType()
+                        && isWideningPromotion(type.asPrimitiveType(), retained.type().asPrimitiveType())) {
+                    type = retained.type();
                 }
             }
+            if (type.isStructType()) {
+                type = Types.StructType.of(withRetainedRelaxations(type.asStructType().fields(), schemas));
+            }
+            relaxed.add(type.equals(field.type()) && optional == field.isOptional()
+                    ? field : Types.NestedField.from(field).ofType(type).isOptional(optional).build());
         }
-        return widestTypes;
+        return relaxed;
     }
 
-    private static List<NestedField> withWidestTypes(List<NestedField> fields, Map<Integer, Type> widestTypes) {
-        List<NestedField> widened = new ArrayList<>(fields.size());
-        for (NestedField field : fields) {
-            Type type = field.type().isStructType()
-                    ? Types.StructType.of(withWidestTypes(field.type().asStructType().fields(), widestTypes))
-                    : widestTypes.getOrDefault(field.fieldId(), field.type());
-            widened.add(type.equals(field.type()) ? field : Types.NestedField.from(field).ofType(type).build());
+    /**
+     * {@link TypeUtil#isPromotionAllowed} plus the v3 promotion of DATE to an unzoned TIMESTAMP or TIMESTAMP_NS,
+     * which the SDK's schema update does not implement yet but the format allows.
+     */
+    private static boolean isWideningPromotion(Type.PrimitiveType from, Type.PrimitiveType to) {
+        if (TypeUtil.isPromotionAllowed(from, to)) {
+            return true;
         }
-        return widened;
+        if (from.typeId() != Type.TypeID.DATE) {
+            return false;
+        }
+        return to.typeId() == Type.TypeID.TIMESTAMP && !((Types.TimestampType) to).shouldAdjustToUTC()
+                || to.typeId() == Type.TypeID.TIMESTAMP_NANO && !((Types.TimestampNanoType) to).shouldAdjustToUTC();
     }
 
     private static void addHistoricalEqualityFields(List<NestedField> fields, Set<Integer> missingFieldIds,
-            Schema historicalSchema, Map<Integer, Type> widestTypes) {
+            Schema historicalSchema, List<Schema> retainedSchemas) {
         Map<Integer, NestedField> historicalFields = TypeUtil.indexById(historicalSchema.asStruct());
         Set<Integer> selectedFieldIds = new HashSet<>();
         for (Integer fieldId : missingFieldIds) {
@@ -2391,7 +2406,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             return;
         }
         Schema selectedSchema = TypeUtil.select(historicalSchema, selectedFieldIds);
-        mergeHistoricalEqualityFields(fields, withWidestTypes(selectedSchema.columns(), widestTypes));
+        mergeHistoricalEqualityFields(fields, withRetainedRelaxations(selectedSchema.columns(), retainedSchemas));
         missingFieldIds.removeAll(selectedFieldIds);
     }
 
