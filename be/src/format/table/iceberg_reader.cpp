@@ -470,6 +470,36 @@ Status find_projected_equality_key_path(
     return Status::OK();
 }
 
+// A projected column is read through its own schema mapping, as the struct reader resolves each
+// child (`children_file_column_name`), while a hidden key is located in the file by field ID or by
+// its name path. The two can bind different file fields: a plan without the Iceberg scan semantics
+// marker maps a struct level by name when not all of its file children carry field IDs. The key
+// can therefore come from the projected column only when that mapping reads the same file field at
+// every level of the key's physical path.
+bool projected_root_reads_physical_path(const TableSchemaChangeHelper::Node& root_node,
+                                        const std::string& root_name, const DataTypePtr& root_type,
+                                        const std::vector<size_t>& child_indexes,
+                                        const ParquetEqualityFieldPath& file_path) {
+    if (child_indexes.size() + 1 != file_path.fields.size() ||
+        !root_node.children_column_exists(root_name) ||
+        root_node.children_file_column_name(root_name) != file_path.fields.front()->name) {
+        return false;
+    }
+    auto node = root_node.get_children_node(root_name);
+    DataTypePtr type = root_type;
+    for (size_t level = 0; level < child_indexes.size(); ++level) {
+        const auto& struct_type = assert_cast<const DataTypeStruct&>(*remove_nullable(type));
+        const auto& child_name = struct_type.get_element_name(child_indexes[level]);
+        if (!node->children_column_exists(child_name) ||
+            node->children_file_column_name(child_name) != file_path.fields[level + 1]->name) {
+            return false;
+        }
+        node = node->get_children_node(child_name);
+        type = struct_type.get_element(child_indexes[level]);
+    }
+    return true;
+}
+
 } // namespace
 
 const std::string IcebergOrcReader::ICEBERG_ORC_ATTRIBUTE = kIcebergOrcAttribute;
@@ -675,6 +705,7 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
     // Finds a nested key inside its root struct when the query projects that root, so the key is
     // taken from the projected column instead of reading the root a second time.
     const auto find_projected_root = [&](int32_t field_id, const DataTypePtr& key_type,
+                                         const ParquetEqualityFieldPath& file_path,
                                          std::string* root_name,
                                          std::vector<size_t>* child_indexes) -> Status {
         const auto key_path = _find_schema_field_path(field_id);
@@ -699,7 +730,9 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
                                                          &leaf_type, &found));
         // The projected leaf has the table's current type. A key written before a type promotion
         // (INT promoted to BIGINT) keeps its own type, so it still reads the physical root.
-        if (found && remove_nullable(leaf_type)->equals(*remove_nullable(key_type))) {
+        if (found && remove_nullable(leaf_type)->equals(*remove_nullable(key_type)) &&
+            projected_root_reads_physical_path(*ctx->table_info_node, slot->second->col_name(),
+                                               slot->second->type(), *child_indexes, file_path)) {
             *root_name = slot->second->col_name();
         }
         return Status::OK();
@@ -790,7 +823,7 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
             std::string projected_root_name;
             std::vector<size_t> projected_child_indexes;
             if (complete_file_path) {
-                RETURN_IF_ERROR(find_projected_root(field_id, _expand_columns[i].type,
+                RETURN_IF_ERROR(find_projected_root(field_id, _expand_columns[i].type, file_path,
                                                     &projected_root_name,
                                                     &projected_child_indexes));
             }

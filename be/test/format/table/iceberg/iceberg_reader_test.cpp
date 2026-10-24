@@ -324,15 +324,17 @@ void write_iceberg_id_and_nested_struct_parquet_file(const std::string& file_pat
 void write_iceberg_two_child_struct_parquet_file(const std::string& file_path,
                                                  const std::vector<int32_t>* ids,
                                                  const std::vector<int32_t>& existing_values,
-                                                 const std::vector<int32_t>& k_values) {
+                                                 const std::vector<int32_t>& k_values,
+                                                 bool existing_has_field_id = true) {
     DORIS_CHECK(existing_values.size() == k_values.size());
     const auto with_field_id = [](const std::shared_ptr<arrow::Field>& field, int32_t field_id) {
         return field->WithMetadata(
                 arrow::key_value_metadata({"PARQUET:field_id"}, {std::to_string(field_id)}));
     };
-    auto struct_type =
-            arrow::struct_({with_field_id(arrow::field("existing", arrow::int32(), false), 2),
-                            with_field_id(arrow::field("k", arrow::int32(), false), 3)});
+    auto existing_field = arrow::field("existing", arrow::int32(), false);
+    auto struct_type = arrow::struct_(
+            {existing_has_field_id ? with_field_id(existing_field, 2) : existing_field,
+             with_field_id(arrow::field("k", arrow::int32(), false), 3)});
     std::vector<std::shared_ptr<arrow::ArrayBuilder>> field_builders;
     field_builders.emplace_back(std::make_shared<arrow::Int32Builder>());
     field_builders.emplace_back(std::make_shared<arrow::Int32Builder>());
@@ -3509,13 +3511,12 @@ TEST_F(IcebergReaderTest,
 // with the row {20,200} removes id 2. `projected_children` lists the payload children the query
 // projects; empty means the query does not project payload.
 // NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
-void check_two_child_root_equality_delete(const std::string& case_name,
-                                          const std::vector<std::string>& projected_children,
-                                          const std::vector<int32_t>& delete_field_ids,
-                                          const std::vector<std::string>& expected_payloads,
-                                          const cctz::time_zone* timezone,
-                                          FileMetaCache* meta_cache,
-                                          bool filter_out_first_id = false) {
+void check_two_child_root_equality_delete(
+        const std::string& case_name, const std::vector<std::string>& projected_children,
+        const std::vector<int32_t>& delete_field_ids,
+        const std::vector<std::string>& expected_payloads, const cctz::time_zone* timezone,
+        FileMetaCache* meta_cache, bool filter_out_first_id = false, bool legacy_plan = false,
+        const std::string& current_k_name = "k", bool existing_has_field_id = true) {
     const auto test_dir =
             std::filesystem::temp_directory_path() / ("doris_v1_two_child_root_" + case_name);
     std::filesystem::remove_all(test_dir);
@@ -3523,7 +3524,8 @@ void check_two_child_root_equality_delete(const std::string& case_name,
     const auto data_file = (test_dir / "data.parquet").string();
     const auto delete_file = (test_dir / "equality-delete.parquet").string();
     const std::vector<int32_t> ids = {1, 2, 3};
-    write_iceberg_two_child_struct_parquet_file(data_file, &ids, {10, 20, 30}, {100, 200, 300});
+    write_iceberg_two_child_struct_parquet_file(data_file, &ids, {10, 20, 30}, {100, 200, 300},
+                                                existing_has_field_id);
     write_iceberg_two_child_struct_parquet_file(delete_file, nullptr, {20}, {200});
 
     // The schema keeps payload.k even when the projected payload type lacks it, as FE's scan
@@ -3531,15 +3533,18 @@ void check_two_child_root_equality_delete(const std::string& case_name,
     schema::external::TStructField current_root;
     current_root.__set_fields(
             {make_external_int_field("id", 0, std::nullopt),
-             make_external_struct_field("payload", 1,
-                                        {make_external_int_field("existing", 2, std::nullopt),
-                                         make_external_int_field("k", 3, std::nullopt)})});
+             make_external_struct_field(
+                     "payload", 1,
+                     {make_external_int_field("existing", 2, std::nullopt),
+                      make_external_int_field(current_k_name, 3, std::nullopt)})});
     schema::external::TSchema current_schema;
     current_schema.__set_schema_id(100);
     current_schema.__set_root_field(std::move(current_root));
 
     TFileScanRangeParams scan_params;
-    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+    if (!legacy_plan) {
+        scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+    }
     scan_params.__set_file_type(TFileType::FILE_LOCAL);
     scan_params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
     scan_params.__set_current_schema_id(100);
@@ -3675,6 +3680,23 @@ TEST_F(IcebergReaderTest, v1_parquet_equality_keys_come_from_projected_root_afte
     check_two_child_root_equality_delete("projected_root_filtered", {"existing", "k"}, {2, 3},
                                          {"{\"existing\":30, \"k\":300}"}, &timezone_obj,
                                          cache.get(), true);
+}
+
+// The data file's payload holds existing without a field ID and k#3, which the table has renamed
+// to renamed_k. A plan without the Iceberg scan semantics marker maps that payload level by name,
+// so the projected payload reads renamed_k as NULL, while the hidden key finds k#3 by field ID: the
+// key must come from its own carrier, or the delete on renamed_k = 200 keeps id 2. With the marker
+// both sides bind k#3 by field ID, and the key comes from the projected payload.
+TEST_F(IcebergReaderTest,
+       v1_parquet_legacy_plan_key_rereads_root_when_projected_child_matches_by_name) {
+    check_two_child_root_equality_delete(
+            "legacy_plan_renamed_key", {"existing", "renamed_k"}, {3},
+            {"{\"existing\":10, \"renamed_k\":null}", "{\"existing\":30, \"renamed_k\":null}"},
+            &timezone_obj, cache.get(), false, true, "renamed_k", false);
+    check_two_child_root_equality_delete(
+            "marked_plan_renamed_key", {"existing", "renamed_k"}, {3},
+            {"{\"existing\":null, \"renamed_k\":100}", "{\"existing\":null, \"renamed_k\":300}"},
+            &timezone_obj, cache.get(), false, false, "renamed_k", false);
 }
 
 // Data `id INT, v INT, unused INT` holds (1,10,0), (2,20,0) and (3,30,0). The table also has
