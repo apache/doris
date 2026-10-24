@@ -57,13 +57,14 @@ public class HdfsTableValuedFunction extends ExternalFileTableValuedFunction {
             throw new AnalysisException("Failed check storage props, " + e.getMessage(), e);
         }
 
-        HadoopTvfAdmission.check(HadoopTvfAdmission.Access.HADOOP_READ, filePath, backendConnectProperties);
+        HadoopTvfAdmission.check(HadoopTvfAdmission.Access.HADOOP_READ,
+                filePath, backendConnectProperties, needsSchemaDiscovery());
         if (!FeConstants.runningUnitTest) {
             // 4. parse file
             parseFile();
             for (TBrokerFileStatus file : fileStatuses) {
                 HadoopTvfAdmission.check(HadoopTvfAdmission.Access.HADOOP_READ,
-                        file.getPath(), backendConnectProperties);
+                        file.getPath(), backendConnectProperties, needsSchemaDiscovery());
             }
         }
     }

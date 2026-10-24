@@ -76,6 +76,10 @@ public final class HadoopTvfAdmission {
             if (nativeConsumer && "fs.defaultFS".equalsIgnoreCase(entry.getKey())) {
                 continue;
             }
+            if (nativeConsumer && isRoutingKey(asciiCaseFold(nativeStringPrefix(entry.getKey()).trim()))) {
+                checkNativeCharacters(access, entry.getKey());
+                checkNativeCharacters(access, entry.getValue());
+            }
             String key = (nativeConsumer ? nativeStringPrefix(entry.getKey()) : entry.getKey()).trim();
             // Native writes first pass through StringCaseMap, before JNI truncates strings.
             // Its comparator uses strncasecmp followed by the full UTF-8 byte length.
@@ -96,6 +100,12 @@ public final class HadoopTvfAdmission {
 
     /** Reject local/unknown Hadoop TVF routes before listing, deletion, schema discovery or data IO. */
     public static void check(Access access, String path, Map<String, String> normalized) {
+        check(access, path, normalized, true);
+    }
+
+    /** A declared CSV schema skips the schema RPC; listing and data admission still apply. */
+    public static void check(Access access, String path, Map<String, String> normalized,
+            boolean needsSchemaDiscovery) {
         if (access != Access.HADOOP_READ && Config.enable_local_tvf) {
             return;
         }
@@ -124,7 +134,9 @@ public final class HadoopTvfAdmission {
                     HadoopTvfAdmission nativeConsumer = new HadoopTvfAdmission(access, normalized, true);
                     nativeConsumer.checkNativeRead(nameNode, path);
                     // Schema RPCs have no range.fs_name; they use THdfsParams.fs_name instead.
-                    nativeConsumer.checkNativeRead(nativeNameNode(access, normalized), path);
+                    if (needsSchemaDiscovery) {
+                        nativeConsumer.checkNativeRead(nativeNameNode(access, normalized), path);
+                    }
                 }
             }
         } catch (URISyntaxException e) {
@@ -146,6 +158,7 @@ public final class HadoopTvfAdmission {
     }
 
     private void checkNative(String nameNode, String path) throws URISyntaxException {
+        checkNativeCharacters(access, nameNode);
         nameNode = selector(nativeStringPrefix(nameNode)).trim();
         if (nameNode.isEmpty() && access == Access.NATIVE_WRITE) {
             // BE passes fs_name.c_str(), never NULL. libhdfs prefixes this empty string
@@ -229,8 +242,17 @@ public final class HadoopTvfAdmission {
         return REMOTE_SCHEMES.contains(scheme) ? Provider.REMOTE : Provider.UNKNOWN;
     }
 
-    private void checkGlobTargets(String key, Set<String> activeTables) throws URISyntaxException {
-        for (String target : selector(property(key)).split(",", -1)) {
+    private String[] targets(String key, String prefix) {
+        String value = selector(property(key));
+        // InodeTree treats SINGLE, SINGLE_FALLBACK and MERGE_SLASH as one URI.
+        // Commas delimit targets only for MERGE and NFLY links.
+        String entry = key.substring(prefix.length());
+        boolean multiple = entry.startsWith("linkMerge.") || entry.startsWith("linkNfly.");
+        return multiple ? value.split(",", -1) : new String[] {value};
+    }
+
+    private void checkGlobTargets(String key, String prefix, Set<String> activeTables) throws URISyntaxException {
+        for (String target : targets(key, prefix)) {
             if (target.isEmpty()) {
                 reject();
             }
@@ -333,7 +355,7 @@ public final class HadoopTvfAdmission {
                             || entry.startsWith("linkNfly."))) {
                         String mount = entry.substring(sourceStart);
                         if (mount.startsWith(literal) || literal.startsWith(mount + "/")) {
-                            checkGlobTargets(key, activeTables);
+                            checkGlobTargets(key, prefix, activeTables);
                         }
                     }
                 }
@@ -345,7 +367,7 @@ public final class HadoopTvfAdmission {
                         String entry = key.substring(prefix.length());
                         int sourceStart = entry.indexOf('/');
                         if (sourceStart >= 0 && entry.substring(sourceStart).startsWith(subtree)) {
-                            checkGlobTargets(key, activeTables);
+                            checkGlobTargets(key, prefix, activeTables);
                         }
                     }
                 }
@@ -362,8 +384,7 @@ public final class HadoopTvfAdmission {
                 reject();
             }
             for (String key : selectedKeys) {
-                String targets = selector(property(key));
-                for (String target : targets.split(",", -1)) {
+                for (String target : targets(key, prefix)) {
                     if (target.isEmpty()) {
                         reject();
                     }
@@ -403,6 +424,7 @@ public final class HadoopTvfAdmission {
 
     private static URI nativeFileUri(Access access, String path, String nameNode)
             throws URISyntaxException {
+        checkNativeCharacters(access, path);
         // Match BE convert_path before the JNI C-string conversion. A different URI prefix
         // becomes a literal rooted Hadoop path; it must not be parsed as that URI's path.
         if (!nameNode.isEmpty() && path.contains(nameNode)) {
@@ -480,6 +502,16 @@ public final class HadoopTvfAdmission {
             folded.append(c >= 'A' && c <= 'Z' ? (char) (c + ('a' - 'A')) : c);
         }
         return folded.toString();
+    }
+
+    private static void checkNativeCharacters(Access access, String value) {
+        // libhdfs uses NewStringUTF on standard UTF-8 bytes. Surrogates encode differently
+        // in modified UTF-8, so supplementary/unpaired input cannot prove the same route.
+        for (int i = 0; i < value.length() && value.charAt(i) != '\0'; i++) {
+            if (Character.isSurrogate(value.charAt(i))) {
+                reject(access);
+            }
+        }
     }
 
     private static String nativeStringPrefix(String value) {

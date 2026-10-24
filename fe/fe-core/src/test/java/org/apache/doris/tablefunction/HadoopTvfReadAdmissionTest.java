@@ -161,6 +161,126 @@ class HadoopTvfReadAdmissionTest {
         Assertions.assertDoesNotThrow(() -> new FileTableValuedFunction(properties));
     }
 
+    @Test
+    void s3LocalAdapterRejectsBeforeListingEvenWithDeclaredSchema() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("file_path", "/tmp/local_gate_dir");
+        properties.put("fs.local.support", "true");
+        properties.put("format", "csv");
+        properties.put("csv_schema", "id:int");
+        for (boolean enabled : new boolean[] {false, true}) {
+            Config.enable_local_tvf = enabled;
+            try (MockedStatic<FileSystemFactory> factory = Mockito.mockStatic(FileSystemFactory.class)) {
+                Exception error = Assertions.assertThrows(Exception.class,
+                        () -> new S3TableValuedFunction(properties));
+                Assertions.assertTrue(error.getMessage().contains("Use local()"), error.getMessage());
+                factory.verifyNoInteractions();
+            }
+        }
+    }
+
+    @Test
+    void s3BrokerHadoopRangesCannotUseLocalImplementation() {
+        Config.enable_local_tvf = false;
+        Map<String, String> properties = new HashMap<>();
+        properties.put("uri", "hdfs://remote/srv/private.csv");
+        properties.put("fs.defaultFS", "hdfs://remote");
+        properties.put("fs.broker.support", "true");
+        properties.put("broker.name", "review-broker");
+        properties.put("fs.hdfs.impl", "org.apache.hadoop.fs.RawLocalFileSystem");
+        properties.put("format", "csv");
+        properties.put("csv_schema", "id:int");
+        try (MockedStatic<FileSystemFactory> factory = Mockito.mockStatic(FileSystemFactory.class)) {
+            Assertions.assertThrows(AnalysisException.class,
+                    () -> new S3TableValuedFunction(properties));
+            factory.verifyNoInteractions();
+        }
+    }
+
+    @Test
+    void declaredSchemaDoesNotOpenTheUnusedLocalDefault() throws Exception {
+        Config.enable_local_tvf = false;
+        FeConstants.runningUnitTest = true;
+        Map<String, String> properties = new HashMap<>();
+        properties.put("uri", "hdfs://remote/data.csv");
+        properties.put("fs.defaultFS", "file:///");
+        properties.put("format", "csv");
+        properties.put("csv_schema", "id:int");
+        HdfsTableValuedFunction hdfs = new HdfsTableValuedFunction(properties);
+        Assertions.assertEquals("id", hdfs.getTableColumns().get(0).getName());
+        FileTableValuedFunction file = new FileTableValuedFunction(properties);
+        Assertions.assertEquals("id", file.getTableColumns().get(0).getName());
+        properties.put("fs.hdfs.support", "true");
+        Assertions.assertEquals("id", new S3TableValuedFunction(properties).getTableColumns().get(0).getName());
+        properties.remove("csv_schema");
+        Assertions.assertThrows(AnalysisException.class, () -> new HdfsTableValuedFunction(properties));
+    }
+
+    @Test
+    void s3ChecksSuppliedRangeConsumersIndependentlyFromBrokerListing() throws Exception {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("uri", "s3://bucket/listing.csv");
+        properties.put("fs.broker.support", "true");
+        properties.put("broker.name", "review-broker");
+        properties.put("fs.defaultFS", "hdfs://remote");
+        properties.put("fs.hdfs.impl", "org.apache.hadoop.fs.RawLocalFileSystem");
+        properties.put("format", "csv");
+        properties.put("csv_schema", "id:int");
+        for (boolean unitTest : new boolean[] {false, true}) {
+            FeConstants.runningUnitTest = unitTest;
+            for (String path : new String[] {"hdfs://remote/private.csv", "file:///tmp/private.csv"}) {
+                List<TBrokerFileStatus> files = Collections.singletonList(
+                        new TBrokerFileStatus(path, false, 10, true));
+                Assertions.assertThrows(AnalysisException.class,
+                        () -> new SuppliedS3Tvf(properties, files));
+            }
+        }
+        FeConstants.runningUnitTest = true;
+        properties.put("fs.hdfs.impl", "org.apache.hadoop.hdfs.DistributedFileSystem");
+        S3TableValuedFunction remote = new S3TableValuedFunction(properties, Collections.singletonList(
+                new TBrokerFileStatus("hdfs://remote/public.csv", false, 10, true)));
+        Assertions.assertEquals(1, remote.getFileStatuses().size());
+        Assertions.assertEquals("id", remote.getTableColumns().get(0).getName());
+    }
+
+    private static class SuppliedS3Tvf extends S3TableValuedFunction {
+        SuppliedS3Tvf(Map<String, String> properties, List<TBrokerFileStatus> files)
+                throws org.apache.doris.common.AnalysisException {
+            super(properties, files);
+        }
+
+        @Override
+        protected void parseFile(List<TBrokerFileStatus> files) {
+            fileStatuses.addAll(files);
+        }
+    }
+
+    @Test
+    void schemaDiscoveryAlsoChecksTheReturnedFilesDefaultRoute() throws Exception {
+        Config.enable_local_tvf = false;
+        Map<String, String> properties = new HashMap<>();
+        properties.put("uri", "hdfs://initial/data.csv");
+        properties.put("fs.defaultFS", "viewfs://schema");
+        properties.put("fs.viewfs.mounttable.schema.link./hdfs:/initial", "hdfs://remote/base");
+        properties.put("fs.viewfs.mounttable.schema.linkFallback", "file:///tmp");
+        properties.put("format", "csv");
+        // The fake listing separates initial/data/schema identities without filesystem IO.
+        Assertions.assertThrows(AnalysisException.class, () -> new SchemaListedHdfsTvf(properties));
+        properties.put("csv_schema", "id:int");
+        Assertions.assertEquals("id", new SchemaListedHdfsTvf(properties).getTableColumns().get(0).getName());
+    }
+
+    private static class SchemaListedHdfsTvf extends HdfsTableValuedFunction {
+        SchemaListedHdfsTvf(Map<String, String> properties) throws org.apache.doris.common.AnalysisException {
+            super(properties);
+        }
+
+        @Override
+        protected void parseFile() {
+            fileStatuses.add(new TBrokerFileStatus("hdfs://returned/data.csv", false, 10, true));
+        }
+    }
+
     private static Map<String, String> properties(String mount) {
         Map<String, String> properties = new HashMap<>();
         properties.put("uri", "viewfs://review/" + mount + "/file.csv");
