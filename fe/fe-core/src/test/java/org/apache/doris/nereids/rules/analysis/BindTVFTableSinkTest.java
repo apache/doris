@@ -491,7 +491,7 @@ class BindTVFTableSinkTest {
                         "/unmapped/prefix_", properties));
         properties.remove("fs.viewfs.mounttable.cluster.linkFallback");
         for (String key : Arrays.asList("linkMerge./local",
-                "linkNfly.minReplication=2,repairOnRead=true./local", "linkMergeSlash")) {
+                "linkNfly.minReplication=2,repairOnRead=true./local")) {
             String mountKey = "fs.viewfs.mounttable.cluster." + key;
             properties.put(mountKey, "hdfs://namenode:8020/base,file:///tmp");
             Assertions.assertThrows(AnalysisException.class,
@@ -502,6 +502,14 @@ class BindTVFTableSinkTest {
                     "/local/sub/prefix_", properties));
             properties.remove(mountKey);
         }
+        properties.put("fs.viewfs.mounttable.cluster.linkMergeSlash", "file:///tmp");
+        Assertions.assertThrows(AnalysisException.class,
+                () -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.NATIVE_WRITE,
+                        "/local/sub/prefix_", properties));
+        properties.put("fs.viewfs.mounttable.cluster.linkMergeSlash", "hdfs://namenode:8020/base,archive");
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.NATIVE_WRITE,
+                "/local/sub/prefix_", properties));
+        properties.remove("fs.viewfs.mounttable.cluster.linkMergeSlash");
         properties.put("fs.viewfs.mounttable.cluster.link./local", "viewfs://inner/root");
         properties.put("fs.viewfs.mounttable.inner.link./root", "file:///tmp");
         Assertions.assertThrows(AnalysisException.class,

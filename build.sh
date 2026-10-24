@@ -495,11 +495,13 @@ lance_c_source_matches() {
     [[ -f "${source_dir}/build-thirdparty.sh" && -f "${source_dir}/download-thirdparty.sh" &&
        -f "${source_dir}/vars.sh" && -f "${source_dir}/patches/lance-c-storage-bases.patch" ]] || return 1
     grep -Fq 'install_lance_c() {' "${source_dir}/build-thirdparty.sh" || return 1
+    grep -Fq 'build_paimon_rust() {' "${source_dir}/build-thirdparty.sh" || return 1
+    grep -Fq 'install_paimon_rust() {' "${source_dir}/build-thirdparty.sh" || return 1
     grep -Fq 'lance-c-storage-bases.patch' "${source_dir}/download-thirdparty.sh" || return 1
     cmp -s "${DORIS_HOME}/thirdparty/patches/lance-c-storage-bases.patch" \
         "${source_dir}/patches/lance-c-storage-bases.patch" || return 1
-    cmp -s <(grep -E '^LANCE_C_(DOWNLOAD|NAME|SOURCE)=' "${DORIS_HOME}/thirdparty/vars.sh") \
-        <(grep -E '^LANCE_C_(DOWNLOAD|NAME|SOURCE)=' "${source_dir}/vars.sh")
+    cmp -s <(grep -E '^(LANCE_C|PAIMON_RUST)_(DOWNLOAD|NAME|SOURCE)=' "${DORIS_HOME}/thirdparty/vars.sh") \
+        <(grep -E '^(LANCE_C|PAIMON_RUST)_(DOWNLOAD|NAME|SOURCE)=' "${source_dir}/vars.sh")
 }
 
 if [[ "${BUILD_BE}" -eq 1 ]] && ! lance_c_is_compatible "${DORIS_THIRDPARTY}/installed"; then
@@ -508,8 +510,16 @@ if [[ "${BUILD_BE}" -eq 1 ]] && ! lance_c_is_compatible "${DORIS_THIRDPARTY}/ins
         echo "Refresh the compilation image's include/lance and lib64/liblance_c.a together, or set DORIS_THIRDPARTY to matching complete third-party sources." >&2
         exit 1
     fi
-    echo "Rebuilding only lance_c for the TVF storage-base metadata ABI ..."
-    bash "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}" lance_c
+    # Both Rust staticlibs enter BE's link; repairing only Lance can mix std runtimes.
+    if [[ -n "${LANCE_C_CARGO:-}" && -n "${PAIMON_RUST_CARGO:-}" &&
+          "${LANCE_C_CARGO}" != "${PAIMON_RUST_CARGO}" ]]; then
+        echo "Lance/Paimon ABI repair requires the same cargo command; align LANCE_C_CARGO and PAIMON_RUST_CARGO." >&2
+        exit 1
+    fi
+    paired_cargo="${LANCE_C_CARGO:-${PAIMON_RUST_CARGO:-${CARGO:-cargo}}}"
+    echo "Rebuilding lance_c and paimon_rust together for the TVF storage-base metadata ABI ..."
+    LANCE_C_CARGO="${paired_cargo}" PAIMON_RUST_CARGO="${paired_cargo}" \
+        bash "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}" lance_c paimon_rust
     if ! lance_c_is_compatible "${DORIS_THIRDPARTY}/installed"; then
         echo "Rebuilt Lance SDK header/archive pair is incompatible or incomplete; refresh the matching pair before building BE." >&2
         exit 1

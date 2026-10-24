@@ -297,13 +297,21 @@ class HadoopTvfAdmissionTest {
     void selectedMountTargetsMustNotBeEmpty() {
         Map<String, String> properties = viewFs();
         properties.put("fs.viewfs.mounttable.cluster.linkFallback", "file:///tmp");
-        for (String target : new String[] {"", ",", "hdfs://remote/base,"}) {
+        for (String target : new String[] {"", ","}) {
             properties.put("fs.viewfs.mounttable.cluster.link./data", target);
             for (Access access : new Access[] {Access.NATIVE_WRITE, Access.JAVA_DELETE}) {
                 Assertions.assertThrows(AnalysisException.class, () -> HadoopTvfAdmission.check(
                         access, "/data/sub/prefix_", properties));
             }
         }
+        properties.put("fs.viewfs.mounttable.cluster.link./data", "hdfs://remote/base,");
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(
+                Access.NATIVE_WRITE, "/data/sub/prefix_", properties));
+        properties.remove("fs.viewfs.mounttable.cluster.link./data");
+        properties.put("fs.viewfs.mounttable.cluster.linkMerge./data", "hdfs://remote/base,");
+        Assertions.assertThrows(AnalysisException.class, () -> HadoopTvfAdmission.check(
+                Access.NATIVE_WRITE, "/data/sub/prefix_", properties));
+        properties.remove("fs.viewfs.mounttable.cluster.linkMerge./data");
         properties.put("fs.viewfs.mounttable.cluster.link./data", "hdfs://remote/base");
         properties.put("fs.viewfs.mounttable.cluster.link./unused", "");
         Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(
@@ -378,6 +386,71 @@ class HadoopTvfAdmissionTest {
             Assertions.assertThrows(AnalysisException.class, () -> HadoopTvfAdmission.check(
                     Access.JAVA_DELETE, "/exports/", properties));
         }
+    }
+
+    @Test
+    void singleViewFsTargetsKeepCommasWhileMultiTargetsStillRejectLocal() {
+        for (String key : new String[] {"link./data", "linkFallback", "linkMergeSlash"}) {
+            Map<String, String> properties = viewFs();
+            properties.put("fs.viewfs.mounttable.cluster." + key, "hdfs://remote/base,archive");
+            for (Access access : Access.values()) {
+                String path = access == Access.HADOOP_READ
+                        ? "viewfs://cluster/data/file.csv" : "/data/prefix_";
+                Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(access, path, properties));
+            }
+            Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(
+                    Access.HADOOP_READ, "viewfs://cluster/data/*.csv", properties));
+        }
+        for (String key : new String[] {"linkMerge./data", "linkNfly.minReplication=2./data"}) {
+            Map<String, String> properties = viewFs();
+            properties.put("fs.viewfs.mounttable.cluster." + key, "hdfs://remote/base,file:///tmp");
+            for (Access access : Access.values()) {
+                Assertions.assertThrows(AnalysisException.class, () -> HadoopTvfAdmission.check(
+                        access, "viewfs://cluster/data/file.csv", properties));
+            }
+        }
+    }
+
+    @Test
+    void nativeRoutesRejectSupplementaryCharactersBeforeJniDecoding() {
+        Map<String, String> properties = viewFs();
+        properties.put("fs.viewfs.mounttable.cluster.link./data\uD83D\uDE00AAA", "hdfs://remote/base");
+        properties.put("fs.viewfs.mounttable.cluster.linkFallback", "file:///tmp");
+        Assertions.assertThrows(AnalysisException.class, () -> HadoopTvfAdmission.check(
+                Access.NATIVE_WRITE, "/data\uD83D\uDE00AAA/prefix_", properties));
+        // Java deletion does not cross JNI and preserves this otherwise valid URI identity.
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(
+                Access.JAVA_DELETE, "/data\uD83D\uDE00AAA/", properties));
+        Map<String, String> bmp = viewFs();
+        bmp.put("fs.viewfs.mounttable.cluster.link./数据", "hdfs://remote/目录");
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(
+                Access.NATIVE_WRITE, "/数据/prefix_", bmp));
+        Config.enable_local_tvf = true;
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(
+                Access.NATIVE_WRITE, "/data\uD83D\uDE00AAA/prefix_", properties));
+    }
+
+    @Test
+    void nativeCharacterChecksCoverRoutingKeysValuesAndReadPaths() {
+        Map<String, String> properties = viewFs();
+        properties.put("fs.viewfs.mounttable.cluster.link./data", "hdfs://remote/base");
+        for (String value : new String[] {"hdfs://remote/base\uD83D\uDE00AAA", "hdfs://remote/base\uD800"}) {
+            properties.put("fs.viewfs.mounttable.cluster.link./data", value);
+            Assertions.assertThrows(AnalysisException.class, () -> HadoopTvfAdmission.check(
+                    Access.NATIVE_WRITE, "/data/prefix_", properties));
+            Assertions.assertThrows(AnalysisException.class, () -> HadoopTvfAdmission.check(
+                    Access.HADOOP_READ, "viewfs://cluster/data/file.csv", properties));
+        }
+        properties.put("fs.viewfs.mounttable.cluster.link./data", "hdfs://remote/base");
+        Assertions.assertThrows(AnalysisException.class, () -> HadoopTvfAdmission.check(
+                Access.HADOOP_READ, "viewfs://cluster/data/\uD83D\uDE00AAA.csv", properties));
+        properties.put("fs.viewfs.mounttable.cluster.link./unused\uD83D\uDE00AAA", "hdfs://remote/unused");
+        Assertions.assertThrows(AnalysisException.class, () -> HadoopTvfAdmission.check(
+                Access.NATIVE_WRITE, "/data/prefix_", properties));
+        properties.remove("fs.viewfs.mounttable.cluster.link./unused\uD83D\uDE00AAA");
+        properties.put("fs.viewfs.mounttable.cluster.link./data", "hdfs://remote/base\0\uD83D\uDE00AAA");
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(
+                Access.NATIVE_WRITE, "/data/prefix_", properties));
     }
 
     private static Map<String, String> viewFs() {

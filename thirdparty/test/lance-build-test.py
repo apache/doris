@@ -96,7 +96,10 @@ class LanceBuildTest(unittest.TestCase):
         self.env.update(BUILD_LOG=str(self.work / "build.log"), NEW_HEADER=str(new_header),
                         NEW_ARCHIVE=str(new_archive))
         script = '''install_lance_c() { :; }
+build_paimon_rust() { :; }
+install_paimon_rust() { :; }
 printf '%s\\n' "$*" > "$BUILD_LOG"
+printf '%s|%s|%s\\n' "${LANCE_C_CARGO:-}" "${PAIMON_RUST_CARGO:-}" "${RUSTUP_TOOLCHAIN:-}" > "${BUILD_LOG}.toolchain"
 '''
         if repair:
             script += '''cp "$NEW_HEADER" "$DORIS_THIRDPARTY/installed/include/lance/lance.h"
@@ -160,7 +163,7 @@ rm -f "$DORIS_THIRDPARTY/installed/lib64/.lance-installing"
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assert_unrelated_preserved()
 
-    def test_complete_matching_source_rebuilds_only_lance_and_repairs_marker(self):
+    def test_complete_matching_source_rebuilds_paired_rust_dependencies_and_repairs_marker(self):
         for clean in ("0", "1"):
             with self.subTest(clean=clean):
                 self.installed("/* old header */\n", "old_lance_api")
@@ -169,10 +172,30 @@ rm -f "$DORIS_THIRDPARTY/installed/lib64/.lance-installing"
                 self.env["CLEAN"] = clean
                 result = self.run_bash(self.gate())
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual((self.work / "build.log").read_text().strip(), "-j 2 lance_c")
+                self.assertEqual((self.work / "build.log").read_text().strip(), "-j 2 lance_c paimon_rust")
                 self.assertFalse((self.prefix / "installed/lib64/.lance-installing").exists())
                 self.assertEqual(self.compatible().returncode, 0)
                 self.assert_unrelated_preserved()
+
+    def test_abi_repair_uses_one_cargo_command_for_both_dependencies(self):
+        self.installed("/* old header */\n", "old_lance_api")
+        self.matching_source()
+        self.env.update(LANCE_C_CARGO="/selected/cargo", RUSTUP_TOOLCHAIN="1.97.1")
+        result = self.run_bash(self.gate())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.work / "build.log.toolchain").read_text().strip(),
+                         "/selected/cargo|/selected/cargo|1.97.1")
+        self.assert_unrelated_preserved()
+
+    def test_abi_repair_rejects_conflicting_per_library_cargo_overrides(self):
+        self.installed("/* old header */\n", "old_lance_api")
+        self.matching_source()
+        self.env.update(LANCE_C_CARGO="/new/cargo", PAIMON_RUST_CARGO="/old/cargo")
+        result = self.run_bash(self.gate())
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("same cargo command", result.stderr)
+        self.assertFalse((self.work / "build.log").exists())
+        self.assert_unrelated_preserved()
 
     def test_old_or_incomplete_source_is_not_used_for_rebuild(self):
         for defect in ("patch", "pin", "download", "installer"):
