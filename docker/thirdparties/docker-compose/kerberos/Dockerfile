@@ -15,16 +15,11 @@
 # specific language governing permissions and limitations
 # under the License.
 
-FROM apache/hive:3.1.3
+# Hive 3.1.3 with krb5 1.18.3-6+deb11u8, built from the pinned recipe in #68440.
+# Keep this branch's entrypoint and health checks in the small layer below.
+FROM doristhirdpartydocker/hive@sha256:b094fbc1a61c65116fbe2f0bca562687a10af418e7a0b2865f8d7b70cd8ad03e
 
 USER root
-
-RUN apt-get -o Acquire::Retries=3 -o APT::Update::Error-Mode=any update \
-    && DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y \
-        krb5-admin-server \
-        krb5-kdc \
-        krb5-user \
-    && rm -rf /var/lib/apt/lists/*
 
 COPY entrypoint-hive-master.sh /opt/doris/entrypoint.sh
 COPY health-checks/health.sh /opt/doris/health.sh

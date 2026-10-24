@@ -22,20 +22,23 @@ import org.apache.doris.arrowflight.results.FlightSqlChannel;
 import org.apache.doris.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.Status;
+import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.TokenMasker;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
-import org.apache.doris.qe.ConnectPoolMgr;
-import org.apache.doris.qe.ConnectScheduler;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.protocol.ProtocolAdapter;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TResultSinkType;
+import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.apache.arrow.flight.CallStatus;
 import org.apache.logging.log4j.LogManager;
@@ -43,7 +46,9 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -58,6 +63,28 @@ import java.util.concurrent.locks.ReentrantLock;
  * arrive on its own thread, and nothing in the transport serializes them. {@link #runCommand}
  * does, so that a session's {@link ConnectContext}, which is not thread-safe, is only ever used
  * by one command at a time.
+ *
+ * <p>Nor does a query end where the frontend's command does. The client pulls the results from the
+ * backends by itself (DoGet), and the frontend hears nothing of it -- not when it starts, not when
+ * it is done -- so a query may still be running on the backends while the session runs its next
+ * command here. Two things of a request therefore outlive the command that made them, and the
+ * contract for both is that the command stream owns them and nothing else does: the result a
+ * statement materialized on this frontend, cached on the channel until the client's DoGet takes it
+ * or the next request drops it; and the executors of queries whose coordinator must stay alive
+ * until the backends are done with it, the {@link #deferredExecutors}. A deferred executor is a
+ * closed object from the moment it is deferred: it carries what finalizing it needs and reads
+ * nothing of the session's live state afterwards, since the session moves on without it (a session
+ * option's SET, a metadata request, the next request) and since it may be finalized from a thread
+ * that runs no command of the session (the timeout checker, a CloseSession). It is finalized
+ * exactly once, by whoever takes it out of the list under the list's lock -- the next request
+ * ({@link #beginRequest}), the timeout checker ({@link #takeExpiredDeferredExecutors}, each
+ * executor by its own deadline) or teardown ({@link #tearDown}) -- deciding and taking in one
+ * critical section, finalizing outside it. Teardown does not wait for a running command, so a
+ * query may be deferred after teardown took everything the list held; it is then finalized on the
+ * spot by the command that deferred it ({@link #addDeferredExecutor}), since nothing would take it
+ * later. The frontend has no signal for the moment a query is done on the backends; the next
+ * request stands in for it, as it has since #62259, and the deadline bounds the wait when no
+ * request comes.
  */
 public class FlightProtocolAdapter implements ProtocolAdapter {
     private static final Logger LOG = LogManager.getLogger(FlightProtocolAdapter.class);
@@ -83,9 +110,15 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
     // GetFlightInfo would release the SplitSource too early and make the BE's fetchSplitBatch fail
     // with "Split source X is released". These executors are finalized when the next query starts
     // on this connection, when the connection is torn down, or by the idle reaper in
-    // ConnectContext.checkTimeout once the connection has been sleeping for
-    // arrow_flight_deferred_query_idle_timeout_second. See #62259 and #67503.
+    // ConnectContext.checkTimeout once each one's own bound has passed since its query started.
+    // See #62259 and #67503, and the class comment for who owns them. Guarded by its own monitor:
+    // the commands of the session add and take under the command lock, the timeout checker and
+    // teardown take without it.
     private final List<StmtExecutor> deferredExecutors = new ArrayList<>();
+    // Whether the session has been torn down (tearDown): set under the monitor of
+    // deferredExecutors, so that a publication sees either the list or the tombstone; read at the
+    // entry of every command as well.
+    private volatile boolean closed = false;
     // Serializes the commands of this session, see runCommand.
     private final ReentrantLock commandLock = new ReentrantLock();
 
@@ -232,16 +265,36 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
     public void fillForwardRequest(ConnectContext ctx, TMasterOpRequest request) {
     }
 
+    /**
+     * Every Flight SQL session teardown path - the idle timeout (wait_timeout), CloseSession, a
+     * KILL CONNECTION from another connection - reaches here through the pool's
+     * unregisterConnection. The channel-cached Arrow results go first, then the session is closed
+     * for good: teardown does not wait for a command that may still be running, and what that
+     * command defers afterwards is finalized on the spot ({@link #tearDown}).
+     */
     @Override
-    public ConnectPoolMgr connectPool(ConnectScheduler scheduler) {
-        return scheduler.getFlightSqlConnectPoolMgr();
+    public void releaseSession(ConnectContext ctx) {
+        try {
+            channel.close();
+        } catch (Throwable t) {
+            // RootAllocator.close() marks the allocator closed before it reports outstanding
+            // bytes. The error is actionable, but session teardown must still release the
+            // coordinator, transaction and pool bookkeeping. The peer identity IS the bearer
+            // token, so it is logged as a masked id, the same one the sessions manager uses.
+            LOG.warn("failed to close Flight SQL channel while unregistering connection {}, peer identity {}",
+                    ctx.getConnectionId(), TokenMasker.tokenId(peerIdentity), t);
+        }
+        tearDown();
     }
 
     /**
      * A statement forwarded to the master has its outcome carried into this session here, the
      * way {@code MysqlProtocolAdapter.finishCommand} replays it to a MySQL client. And of the
      * statements of one request only the last may produce a result: the FlightInfo returned for
-     * the request describes exactly one.
+     * the request describes exactly one, wherever it is. A result this frontend cached and one
+     * left on the backends count the same -- the endpoints of two queries in one FlightInfo would
+     * be read as the partitions of one result, and a query before a SET would have its endpoints
+     * dropped for the SET's status.
      */
     @Override
     public boolean finishStatement(ConnectContext ctx, StmtExecutor executor, int stmtIndex, int stmtCount)
@@ -250,10 +303,22 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
             carryForwardedOutcome(ctx, executor);
         }
         Preconditions.checkState(channel.resultNum() <= 1);
-        if (channel.resultNum() == 1 && stmtIndex != stmtCount - 1) {
+        // A statement that succeeded produced a result when it cached one on the channel or left
+        // one on the backends for the client to pull (beforeQuery); one that failed produced none,
+        // whatever it registered before failing, and the request stops with the statement's own
+        // error.
+        boolean producedResult = ctx.getState().getStateType() != QueryState.MysqlStateType.ERR
+                && (channel.resultNum() == 1 || !returnResultFromLocal);
+        if (producedResult && stmtIndex != stmtCount - 1) {
             String errMsg = "Only be one stmt that returns the result and it is at the end. "
                     + "stmts.size(): " + stmtCount;
             LOG.warn(errMsg);
+            if (!returnResultFromLocal) {
+                // Nobody will pull this result: stop the query on the backends now rather than
+                // leave it to the BE's result buffer timer (execution_timeout + 5s). A result this
+                // frontend cached (a forwarded SHOW's) has nothing to cancel.
+                executor.cancel(new Status(TStatusCode.CANCELLED, errMsg));
+            }
             ctx.getState().setError(ErrorCode.ERR_ARROW_FLIGHT_SQL_MUST_ONLY_RESULT_STMT, errMsg);
             ctx.getState().setErrType(QueryState.ErrType.OTHER_ERR);
             return false;
@@ -296,7 +361,7 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
     @Override
     public void closeConnection(ConnectContext ctx) {
         // Releases the channel, the deferred executors and the transaction of the session.
-        connectPool(ctx.getConnectScheduler()).unregisterConnection(ctx);
+        ctx.getConnectScheduler().getConnectPoolMgr().unregisterConnection(ctx);
     }
 
     public String getPeerIdentity() {
@@ -350,22 +415,131 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
         returnResultFromLocal = true;
     }
 
+    /**
+     * Keeps a deferred executor for the session to finalize later -- unless the session has been
+     * torn down meanwhile ({@link #tearDown}). Teardown does not wait for a running command, so
+     * its query may be deferred after teardown took everything the list held, and nothing would
+     * take it then: the session runs no next request, and the timeout checker no longer sees it.
+     * Such an executor is finalized here and now, by the command that deferred it.
+     */
     public void addDeferredExecutor(StmtExecutor executor) {
         synchronized (deferredExecutors) {
-            deferredExecutors.add(executor);
+            if (!closed) {
+                deferredExecutors.add(executor);
+                return;
+            }
+        }
+        finalizeDeferredExecutors(Collections.singletonList(executor));
+    }
+
+    /**
+     * Takes every deferred executor out of the list and finalizes it: the next request of the
+     * session ({@link #beginRequest}), which stands in for the end of the previous query's DoGet, and
+     * a request that failed after deferring its query, which no DoGet will ever pull.
+     */
+    public void closeDeferredExecutors() {
+        finalizeDeferredExecutors(takeDeferredExecutors());
+    }
+
+    /**
+     * Like {@link #closeDeferredExecutors()}, for a request that failed after deferring its query:
+     * no DoGet will ever pull the result, so the query is cancelled on the backends first -- a query
+     * still producing would otherwise run on until the BE's result buffer timer
+     * (execution_timeout + 5s) -- and the executor is then finalized.
+     */
+    public void cancelDeferredExecutors(Status cancelReason) {
+        List<StmtExecutor> taken = takeDeferredExecutors();
+        for (StmtExecutor deferredExecutor : taken) {
+            try {
+                deferredExecutor.cancel(cancelReason);
+            } catch (Throwable t) {
+                LOG.warn("failed to cancel deferred arrow flight query {}",
+                        DebugUtil.printId(deferredExecutor.getDeferredQueryId()), t);
+            }
+        }
+        finalizeDeferredExecutors(taken);
+    }
+
+    private List<StmtExecutor> takeDeferredExecutors() {
+        synchronized (deferredExecutors) {
+            if (deferredExecutors.isEmpty()) {
+                return Collections.emptyList();
+            }
+            List<StmtExecutor> taken = new ArrayList<>(deferredExecutors);
+            deferredExecutors.clear();
+            return taken;
         }
     }
 
-    public void closeDeferredExecutors() {
-        List<StmtExecutor> toClose;
+    /**
+     * Tears the session down: takes every deferred executor out of the list and finalizes it, and
+     * closes the list for good. Teardown -- CloseSession, KILL, the timeout checker -- does not
+     * wait for the command that may be running, so that command may still defer its query
+     * afterwards, which is then finalized on the spot ({@link #addDeferredExecutor}); and a command
+     * that was waiting for the session does not run on it ({@link #callCommand}). Reached through
+     * the pool's unregisterConnection.
+     */
+    public void tearDown() {
+        List<StmtExecutor> taken;
         synchronized (deferredExecutors) {
-            if (deferredExecutors.isEmpty()) {
-                return;
-            }
-            toClose = new ArrayList<>(deferredExecutors);
+            closed = true;
+            taken = new ArrayList<>(deferredExecutors);
             deferredExecutors.clear();
         }
-        for (StmtExecutor deferredExecutor : toClose) {
+        finalizeDeferredExecutors(taken);
+    }
+
+    /**
+     * Takes out of the list the deferred executors whose own bound has passed by {@code now} and
+     * returns them for the caller to finalize: the timeout checker's half of the exactly-once rule
+     * in the class comment. Each executor is judged and removed in the same critical section, by
+     * its own deadline -- when its query started plus {@link #deferredBoundMs} -- so that of the
+     * executors of one multi-statement request, each with a start and an execution timeout of its
+     * own, only the overdue ones go, and an executor added while the checker runs, which it never
+     * judged, stays. Takes nothing when the bound is disabled
+     * (Config.arrow_flight_deferred_query_idle_timeout_second is 0).
+     */
+    public List<StmtExecutor> takeExpiredDeferredExecutors(long now) {
+        int configTimeoutS = Config.arrow_flight_deferred_query_idle_timeout_second;
+        if (configTimeoutS <= 0) {
+            return Collections.emptyList();
+        }
+        List<StmtExecutor> expired = new ArrayList<>();
+        synchronized (deferredExecutors) {
+            Iterator<StmtExecutor> iterator = deferredExecutors.iterator();
+            while (iterator.hasNext()) {
+                StmtExecutor deferredExecutor = iterator.next();
+                long deferredMs = now - deferredExecutor.getDeferredStartTimeMs();
+                if (deferredMs > deferredBoundMs(deferredExecutor, configTimeoutS)) {
+                    expired.add(deferredExecutor);
+                    iterator.remove();
+                }
+            }
+        }
+        return expired;
+    }
+
+    /**
+     * How long, in milliseconds, a deferred executor may be kept after its query started before the
+     * timeout checker finalizes it without killing the session: {@code configTimeoutS}
+     * (Config.arrow_flight_deferred_query_idle_timeout_second) floored at the execution timeout the
+     * query ran with -- the client may still be pulling its results from the BE, which still needs
+     * the batch split source the coordinator holds. It counts from the query's own start, not from
+     * the session's last command: a session option or a metadata request that came since neither
+     * finished the query nor may keep its coordinator alive for another bound. A Flight client that
+     * opens a session per query and never closes it would otherwise pin each deferred query's query
+     * queue slot and query registration until wait_timeout (8h by default).
+     */
+    public static long deferredBoundMs(StmtExecutor deferredExecutor, int configTimeoutS) {
+        return Math.max(configTimeoutS, deferredExecutor.getDeferredExecTimeoutS()) * 1000L;
+    }
+
+    /**
+     * Finalizes executors taken out of the list (see {@link StmtExecutor#finalizeArrowFlightQuery}).
+     * One failing does not keep the next from being finalized.
+     */
+    public static void finalizeDeferredExecutors(List<StmtExecutor> takenExecutors) {
+        for (StmtExecutor deferredExecutor : takenExecutors) {
             try {
                 deferredExecutor.finalizeArrowFlightQuery();
             } catch (Throwable t) {
@@ -374,31 +548,12 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
         }
     }
 
-    /**
-     * How long, in seconds, a sleeping connection may keep its deferred executors before the
-     * timeout checker finalizes them without killing the connection
-     * (Config.arrow_flight_deferred_query_idle_timeout_second). A Flight client that opens a
-     * session per query and never closes it would otherwise pin each deferred query's query queue
-     * slot and query registration until wait_timeout (8h by default). The bound is never shorter
-     * than the execution timeout the deferred query was run with: the client may still be pulling
-     * that query's results from the BE, which still needs the batch split source the coordinator
-     * holds. Returns -1 when the bound is disabled or nothing is deferred.
-     */
-    public long getDeferredExecutorsIdleTimeoutS() {
-        int configTimeoutS = Config.arrow_flight_deferred_query_idle_timeout_second;
-        if (configTimeoutS <= 0) {
-            return -1;
-        }
-        long execTimeoutS = -1;
+    /** A snapshot of the deferred executors, in the order they were deferred. */
+    @VisibleForTesting
+    public List<StmtExecutor> getDeferredExecutors() {
         synchronized (deferredExecutors) {
-            if (deferredExecutors.isEmpty()) {
-                return -1;
-            }
-            for (StmtExecutor deferredExecutor : deferredExecutors) {
-                execTimeoutS = Math.max(execTimeoutS, deferredExecutor.getDeferredExecTimeoutS());
-            }
+            return ImmutableList.copyOf(deferredExecutors);
         }
-        return Math.max(configTimeoutS, execTimeoutS);
     }
 
     /** The body of a command run by {@link #runCommand}. */
@@ -415,12 +570,16 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
 
     /**
      * Runs one command of the session, and no other one at the same time: a statement, a prepared
-     * statement action, a DoGet of a frontend-side result, a metadata request. The session's
-     * {@link ConnectContext} is the thread's current context while the command runs. A command
-     * that finds another one still running waits for it up to the session's execution timeout and
-     * then fails with {@code UNAVAILABLE} instead of running concurrently on the same context.
+     * statement action, a DoGet of a frontend-side result, a metadata request, a session option
+     * action. The session's {@link ConnectContext} is the thread's current context while the
+     * command runs, and the command counts as activity of the session's client: wait_timeout starts
+     * over, for a command that runs no statement as much as for one that does. A command that
+     * finds another one still running waits for it up to the session's execution timeout and then
+     * fails with {@code UNAVAILABLE} instead of running concurrently on the same context.
      *
-     * <p>Session teardown (bearer token expiry, CloseSession, KILL) does not go through here.
+     * <p>Session teardown (CloseSession, KILL, the timeout checker) does not go through here and
+     * does not wait for the running command ({@link #tearDown}); a command that gets its turn
+     * after teardown fails with {@code UNAUTHENTICATED}, as any later call of the session would.
      */
     public <E extends Exception> void runCommand(ConnectContext ctx, SessionAction<E> action) throws E {
         this.<Void, E>callCommand(ctx, () -> {
@@ -433,8 +592,14 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
     public <T, E extends Exception> T callCommand(ConnectContext ctx, SessionCommand<T, E> command) throws E {
         acquireCommandLock(ctx);
         ConnectContext previous = ConnectContext.get();
-        ctx.setThreadLocalInfo();
         try {
+            if (closed) {
+                throw CallStatus.UNAUTHENTICATED.withDescription(String.format("this Arrow Flight SQL session "
+                        + "was closed, connection id: %d; reconnect to run further commands", ctx.getConnectionId()))
+                        .toRuntimeException();
+            }
+            ctx.refreshStartTime();
+            ctx.setThreadLocalInfo();
             return command.call();
         } finally {
             if (previous == null) {

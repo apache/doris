@@ -23,13 +23,6 @@ suite("test_iceberg_write_required_null_select_negative",
         return
     }
 
-    // This opt-in switch isolates a write that can publish an unreadable Iceberg data file.
-    String knownBugTestEnabled = context.config.otherConfigs.get("enableIcebergKnownBugTest")
-    if (knownBugTestEnabled == null || !knownBugTestEnabled.equalsIgnoreCase("true")) {
-        logger.info("skip isolated Iceberg known-bug regression")
-        return
-    }
-
     String restPort = context.config.otherConfigs.get("iceberg_rest_uri_port")
     String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
@@ -71,33 +64,48 @@ suite("test_iceberg_write_required_null_select_negative",
     sql """create database ${dbName}"""
     sql """use ${dbName}"""
 
-    sql """
-        create table required_select (
-            id int not null,
-            required_text string not null
-        )
-        partition by list (bucket(8, id)) ()
-        properties ("format-version" = "2")
-    """
-
-    long snapshotsBefore = (sql """select count(*) from required_select\$snapshots""")[0][0] as long
-    long filesBefore = (sql """select count(*) from required_select\$files""")[0][0] as long
-    long rowsBefore = (sql """select count(*) from required_select""")[0][0] as long
-
-    // W07-S02: The metadata and row baselines distinguish an early rejection
-    // from a late failure that has already published a snapshot or data file.
-    test {
+    for (String fileFormat : ["orc", "parquet"]) {
+        String tableName = "required_select_${fileFormat}"
         sql """
-            insert into required_select
-            select id, required_text
-            from internal.${internalDb}.nullable_source
+            create table ${tableName} (
+                id int not null,
+                required_text string not null
+            )
+            partition by list (bucket(8, id)) ()
+            properties (
+                "format-version" = "2",
+                "write.format.default" = "${fileFormat}"
+            )
         """
-        exception "null"
+
+        long snapshotsBefore = (sql """
+            select count(*) from ${tableName}\$snapshots
+        """)[0][0] as long
+        long filesBefore = (sql """
+            select count(*) from ${tableName}\$files
+        """)[0][0] as long
+        long rowsBefore = (sql """
+            select count(*) from ${tableName}
+        """)[0][0] as long
+
+        // W07-S02: The metadata and row baselines distinguish an early rejection
+        // from a late failure that has already published a snapshot or data file.
+        test {
+            sql """
+                insert into ${tableName}
+                select id, required_text
+                from internal.${internalDb}.nullable_source
+            """
+            exception "required field 'required_text' contains NULL"
+        }
+        assertEquals(snapshotsBefore, (sql """
+            select count(*) from ${tableName}\$snapshots
+        """)[0][0] as long)
+        assertEquals(filesBefore, (sql """
+            select count(*) from ${tableName}\$files
+        """)[0][0] as long)
+        assertEquals(rowsBefore, (sql """
+            select count(*) from ${tableName}
+        """)[0][0] as long)
     }
-    assertEquals(snapshotsBefore,
-            (sql """select count(*) from required_select\$snapshots""")[0][0] as long)
-    assertEquals(filesBefore,
-            (sql """select count(*) from required_select\$files""")[0][0] as long)
-    assertEquals(rowsBefore,
-            (sql """select count(*) from required_select""")[0][0] as long)
 }

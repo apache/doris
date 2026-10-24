@@ -19,12 +19,15 @@ package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 
 import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
+import java.util.Optional;
 
 /**
  * Date type in Nereids.
@@ -48,7 +51,13 @@ public class DateType extends DateLikeType {
 
     @Override
     public boolean isInjectiveCastTo(DataType target) {
-        return target instanceof DateType || target instanceof DateV2Type || target instanceof CharacterType;
+        // BE converts DATE to YYYYMMDD for numeric targets. The largest value fits in INT and is
+        // below 2^53, so INT and wider integers as well as DOUBLE preserve every DATE exactly.
+        return target instanceof DateType || target instanceof DateV2Type
+                || target instanceof DateTimeType || target instanceof DateTimeV2Type
+                || target instanceof IntegerType || target instanceof BigIntType
+                || target instanceof LargeIntType || target instanceof DoubleType
+                || target instanceof CharacterType;
     }
 
     @Override
@@ -84,5 +93,10 @@ public class DateType extends DateLikeType {
         } catch (DateTimeException e) {
             return Double.POSITIVE_INFINITY;
         }
+    }
+
+    @Override
+    public Optional<Expression> zeroValue() {
+        return Optional.of(new DateLiteral(0, 1, 1));
     }
 }

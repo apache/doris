@@ -32,6 +32,7 @@ void register_aggregate_function_combinator_foreachv2(AggregateFunctionSimpleFac
 
 void register_aggregate_function_sum(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_minmax(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_count_at_min_max(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_max_min_by(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_avg(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_count(AggregateFunctionSimpleFactory& factory);
@@ -68,7 +69,6 @@ void register_aggregate_function_sequence_match(AggregateFunctionSimpleFactory& 
 void register_aggregate_function_avg_weighted(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_histogram(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_linear_histogram(AggregateFunctionSimpleFactory& factory);
-void register_aggregate_function_map_agg(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_map_agg_v2(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_map_combinator(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_bitmap_agg(AggregateFunctionSimpleFactory& factory);
@@ -90,6 +90,7 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
     std::call_once(oc, [&]() {
         register_aggregate_function_sum(instance);
         register_aggregate_function_minmax(instance);
+        register_aggregate_function_count_at_min_max(instance);
         register_aggregate_function_max_min_by(instance);
         register_aggregate_function_avg(instance);
         register_aggregate_function_count(instance);
@@ -123,7 +124,6 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_avg_weighted(instance);
         register_aggregate_function_histogram(instance);
         register_aggregate_function_linear_histogram(instance);
-        register_aggregate_function_map_agg(instance);
         register_aggregate_function_map_agg_v2(instance);
         register_aggregate_function_map_combinator(instance);
         register_aggregate_function_bitmap_agg(instance);

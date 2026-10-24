@@ -73,6 +73,7 @@ public class TopNScanOpt extends PlanPostProcessor {
                 || dataType.isDateLikeType()
                 || dataType.isTimeType()
                 || dataType.isIPType()
+                || dataType.isUuidType()
                 || dataType.isVarBinaryType();
     }
 

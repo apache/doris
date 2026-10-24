@@ -25,8 +25,7 @@ fe/fe-core/src/main/java/org/apache/doris/fs @CalvinKirs @924060929
 fe/fe-core/src/main/java/org/apache/doris/fsv2 @CalvinKirs
 be/src/olap/rowset/segment_v2/variant @eldenmoon @csun5285
 be/src/storage/index/inverted/ @airborne12 @eldenmoon @csun5285
-be/src/exprs/function/function_search.h @airborne12 @eldenmoon @csun5285
-be/src/exprs/function/function_search.cpp @airborne12 @eldenmoon @csun5285
+be/src/exprs/function/search/ @airborne12 @eldenmoon @csun5285
 be/src/exprs/function/match.cpp @airborne12 @eldenmoon @csun5285
 be/src/exprs/function/match.h @airborne12 @eldenmoon @csun5285
 be/src/exprs/vsearch.h @airborne12 @eldenmoon @csun5285
@@ -158,7 +157,7 @@ cloud/src/gen-cpp                                                           @lia
 cloud/src/meta-service                                                      @liaoxin01 @luwei16 @gavinchou
 cloud/src/meta-store                                                        @luwei16 @gavinchou
 cloud/src/rate-limiter                                                      @luwei16 @gavinchou
-cloud/src/recycler                                                          @liaoxin01 @gavinchou
+cloud/src/recycler                                                          @liaoxin01 @gavinchou @wyxxxcat
 cloud/src/resource-manager                                                  @deardeng @gavinchou
 cloud/src/snapshot                                                          @luwei16 @gavinchou
 cloud/test                                                                  @liaoxin01 @luwei16 @gavinchou

@@ -33,6 +33,7 @@
 #include "core/data_type/storage_field_type.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/value/timestamp_ns_value.h"
+#include "core/value/uuid_value.h"
 #include "core/value/variant/variant_parquet_encoding.h"
 #include "exec/common/format_ip.h"
 #include "exprs/function/parse/variant_jsonb_parse.h"
@@ -124,6 +125,8 @@ Status validate_scalar_cell(BinaryCellCursor& cursor, FieldType field_type, uint
         return cursor.skip(sizeof(IPv4), "IPv4");
     case FieldType::OLAP_FIELD_TYPE_IPV6:
         return cursor.skip(sizeof(IPv6), "IPv6");
+    case FieldType::OLAP_FIELD_TYPE_UUID:
+        return cursor.skip(sizeof(UUIDValueType), "UUID");
     case FieldType::OLAP_FIELD_TYPE_DATE:
         return cursor.skip(sizeof(VecDateTimeValue), "legacy DATE");
     case FieldType::OLAP_FIELD_TYPE_DATETIME:
@@ -293,6 +296,12 @@ Status append_binary_value(BinaryCellCursor& cursor, VariantBatchBuilder::Row& o
         char* end = buffer.data();
         format_ipv6(reinterpret_cast<unsigned char*>(&value), end);
         output.add_string({buffer.data(), static_cast<size_t>(end - buffer.data())});
+        return Status::OK();
+    }
+    case FieldType::OLAP_FIELD_TYPE_UUID: {
+        UUIDValueType value {};
+        RETURN_IF_ERROR(cursor.read(&value, "UUID"));
+        output.add_uuid(UUIDValue::to_big_endian(value));
         return Status::OK();
     }
     case FieldType::OLAP_FIELD_TYPE_DATE: {

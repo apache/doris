@@ -19,6 +19,8 @@ import org.awaitility.Awaitility
 import static java.util.concurrent.TimeUnit.SECONDS
 
 suite("test_ivm_bitmap_agg_2") {
+    // Base-table queries below assert the same rows as the MV, so transparent rewrite must be off.
+    sql """set enable_materialized_view_rewrite = false;"""
     sql """drop materialized view if exists test_ivm_bitmap_agg_2_mv;"""
     sql """drop table if exists test_ivm_bitmap_agg_2_t;"""
     sql """drop materialized view if exists test_ivm_bitmap_agg_2_all_mv;"""
@@ -34,8 +36,7 @@ suite("test_ivm_bitmap_agg_2") {
         DISTRIBUTED BY HASH(id) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true", "changelog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -154,8 +155,7 @@ suite("test_ivm_bitmap_agg_2") {
         DISTRIBUTED BY HASH(id) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true", "changelog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """

@@ -66,12 +66,52 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class ExternalCatalogTest extends TestWithFeService {
     private Env env;
     private CatalogMgr mgr;
     private ConnectContext rootCtx;
+
+    @Test
+    public void testDatabaseLookupPreservesInitializationFailure() {
+        IllegalStateException failure = new IllegalStateException();
+        IncrementalUpdateCatalog catalog = new IncrementalUpdateCatalog() {
+            @Override
+            protected void initLocalObjectsImpl() {
+                throw failure;
+            }
+        };
+        RuntimeException thrown = Assertions.assertThrows(RuntimeException.class,
+                () -> catalog.getDbNullable("db_by_id"));
+        Assertions.assertSame(failure, thrown.getCause());
+    }
+
+    @Test
+    public void testDatabaseDiscoveryFailureIsNotMissingAndCanRecover() {
+        AtomicBoolean unavailable = new AtomicBoolean(true);
+        IllegalStateException failure = new IllegalStateException("Kerberos principal has no matching rule");
+        IncrementalUpdateCatalog catalog = new IncrementalUpdateCatalog() {
+            @Override
+            protected List<String> listDatabaseNames() {
+                if (unavailable.get()) {
+                    throw failure;
+                }
+                return super.listDatabaseNames();
+            }
+        };
+        RuntimeException thrown = Assertions.assertThrows(RuntimeException.class,
+                () -> catalog.getDbNullable("db_by_id"));
+        Throwable cause = thrown;
+        while (cause.getCause() != null) {
+            cause = cause.getCause();
+        }
+        Assertions.assertSame(failure, cause);
+        unavailable.set(false);
+        Assertions.assertNotNull(catalog.getDbNullable("db_by_id"));
+        Assertions.assertNull(catalog.getDbNullable("missing_database"));
+    }
 
     @Test
     public void testScopedWeightAlterStillInvalidatesRemoteBackendsAndRowCounts() throws Exception {
@@ -306,6 +346,29 @@ public class ExternalCatalogTest extends TestWithFeService {
         Assertions.assertTrue(ddl.contains("\"iceberg.rest.oauth2.token\" = \""
                 + DatasourcePrintableMap.PASSWORD_MASK + "\""));
         Assertions.assertFalse(ddl.contains("super-secret-token"));
+
+        Map<String, String> flussProps = Maps.newHashMap();
+        flussProps.put("type", "fluss");
+        flussProps.put("fluss.bootstrap.servers", "localhost:9123");
+        flussProps.put("fluss.client.security.sasl.password", "client-secret");
+        flussProps.put("fluss.lake.paimon.s3.access-key", "lake-access-key");
+        flussProps.put("fluss.lake.paimon.s3.secret-key", "lake-secret-key");
+        flussProps.put("fluss.lake.paimon.s3.endpoint", "http://minio:9000");
+        registerCatalogViaReplay("mask_fluss_credentials", flussProps);
+
+        rows = mgr.showCreateCatalog("mask_fluss_credentials");
+        Assertions.assertEquals(1, rows.size());
+        ddl = rows.get(0).get(1);
+        Assertions.assertTrue(ddl.contains("\"fluss.client.security.sasl.password\" = \""
+                + DatasourcePrintableMap.PASSWORD_MASK + "\""));
+        Assertions.assertTrue(ddl.contains("\"fluss.lake.paimon.s3.access-key\" = \""
+                + DatasourcePrintableMap.PASSWORD_MASK + "\""));
+        Assertions.assertTrue(ddl.contains("\"fluss.lake.paimon.s3.secret-key\" = \""
+                + DatasourcePrintableMap.PASSWORD_MASK + "\""));
+        Assertions.assertTrue(ddl.contains("http://minio:9000"), ddl);
+        Assertions.assertFalse(ddl.contains("client-secret"), ddl);
+        Assertions.assertFalse(ddl.contains("lake-access-key"), ddl);
+        Assertions.assertFalse(ddl.contains("lake-secret-key"), ddl);
     }
 
     private void registerCatalogViaReplay(String name, Map<String, String> props) throws Exception {

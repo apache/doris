@@ -21,9 +21,10 @@ import org.apache.doris.connector.spi.ddl.ConnectorCreateTableRequest;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 
 import java.util.List;
+import java.util.Map;
 
 /**
- * Table-level DDL: create, drop, rename, truncate.
+ * Table-level DDL: create, drop, rename, truncate, set properties.
  *
  * <p><b>The whole domain is optional</b> — a read-only connector implements nothing here and every default
  * fails loud with a "not supported" message, which is the correct answer for it.</p>
@@ -34,7 +35,8 @@ import java.util.List;
  * degraded to it, silently dropping the partition spec, the bucket spec and {@code IF NOT EXISTS} — a
  * connector implementing only the narrow form reported success on a partitioned {@code CREATE TABLE} and
  * created an unpartitioned table. Nothing implemented it, so it is gone rather than documented.
- * {@link #dropTable}, {@link #renameTable} and {@link #truncateTable} are independent and optional.</p>
+ * {@link #dropTable}, {@link #renameTable}, {@link #truncateTable} and {@link #setTableProperties} are
+ * independent and optional.</p>
  */
 public interface ConnectorTableDdlOps {
 
@@ -81,5 +83,23 @@ public interface ConnectorTableDdlOps {
             ConnectorTableHandle handle, List<String> partitions) {
         throw new DorisConnectorException(
                 "TRUNCATE TABLE not supported");
+    }
+
+    /**
+     * Sets connector-native properties on the table identified by {@code handle}, for
+     * {@code ALTER TABLE ... SET ("key" = "value", ...)}. A key in {@code properties} is added or overwritten;
+     * a key not in it keeps its current value.
+     *
+     * <p>The map is one change: the connector must commit every entry or none of them. A statement that
+     * fails after committing part of the map would leave the table in a state the user never asked for.
+     * Properties Doris owns itself, such as {@code auto_analyze_policy}, never reach this method.</p>
+     *
+     * @throws DorisConnectorException if the connector does not support it, or the remote catalog rejects
+     *         the change
+     */
+    default void setTableProperties(ConnectorSession session,
+            ConnectorTableHandle handle, Map<String, String> properties) {
+        throw new DorisConnectorException(
+                "SET TABLE PROPERTIES not supported");
     }
 }

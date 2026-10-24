@@ -19,9 +19,11 @@ package org.apache.doris.system;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
+import org.apache.doris.cloud.proto.Cloud.ClusterStatus;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.GenericPool;
+import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.system.HeartbeatMgr.BrokerHeartbeatHandler;
 import org.apache.doris.system.HeartbeatMgr.FrontendHeartbeatHandler;
@@ -46,6 +48,8 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class HeartbeatMgrTest {
@@ -185,6 +189,62 @@ public class HeartbeatMgrTest {
             Assertions.assertEquals(HbStatus.OK, hbResponse.getStatus());
         } finally {
             ClientPool.brokerPool = originalPool;
+        }
+    }
+
+    @Test
+    public void testNonNormalCloudClusterAbortWindow() throws Exception {
+        SystemInfoService nodeMgr = Mockito.mock(SystemInfoService.class);
+        Backend backend = Mockito.mock(Backend.class);
+        Mockito.when(nodeMgr.getBackend(1L)).thenReturn(backend);
+        Mockito.when(backend.getHost()).thenReturn("127.0.0.1");
+        ThreadPoolExecutor executor = Mockito.mock(ThreadPoolExecutor.class);
+        BackendHbResponse response = new BackendHbResponse(1L, "127.0.0.1", 0, "heartbeat failed");
+        Method handleHbResponse = HeartbeatMgr.class.getDeclaredMethod(
+                "handleHbResponse", HeartbeatResponse.class, boolean.class);
+        handleHbResponse.setAccessible(true);
+        long timeoutMs = Config.abort_txn_after_lost_heartbeat_time_second * 1000L;
+
+        try (MockedStatic<Config> config = Mockito.mockStatic(Config.class);
+                MockedStatic<ThreadPoolManager> threadPools = Mockito.mockStatic(ThreadPoolManager.class)) {
+            config.when(Config::isCloudMode).thenReturn(true);
+            threadPools.when(() -> ThreadPoolManager.newDaemonFixedThreadPool(
+                    Mockito.anyInt(), Mockito.anyInt(), Mockito.anyString(), Mockito.anyBoolean()))
+                    .thenReturn(executor);
+            HeartbeatMgr mgr = new HeartbeatMgr(nodeMgr, false);
+            for (ClusterStatus status : new ClusterStatus[] {ClusterStatus.UNKNOWN, ClusterStatus.SUSPENDED,
+                    ClusterStatus.TO_RESUME, ClusterStatus.MANUAL_SHUTDOWN}) {
+                Mockito.clearInvocations(executor);
+                Mockito.when(backend.getCloudClusterStatus()).thenReturn(status.name());
+
+                Mockito.when(backend.getLastUpdateMs()).thenReturn(System.currentTimeMillis() - timeoutMs / 2);
+                handleHbResponse.invoke(mgr, response, false);
+                Mockito.verify(executor, Mockito.never()).submit(Mockito.any(Runnable.class));
+
+                Mockito.when(backend.getLastUpdateMs()).thenReturn(System.currentTimeMillis() - timeoutMs * 3 / 2);
+                handleHbResponse.invoke(mgr, response, false);
+                Mockito.verify(executor, Mockito.times(1)).submit(Mockito.any(Runnable.class));
+                handleHbResponse.invoke(mgr, response, true);
+                Mockito.verify(executor, Mockito.times(1)).submit(Mockito.any(Runnable.class));
+
+                Mockito.when(backend.getLastUpdateMs()).thenReturn(System.currentTimeMillis() - timeoutMs * 3);
+                handleHbResponse.invoke(mgr, response, false);
+                Mockito.verify(executor, Mockito.times(1)).submit(Mockito.any(Runnable.class));
+            }
+
+            Mockito.clearInvocations(executor);
+            Mockito.when(backend.getCloudClusterStatus()).thenReturn(ClusterStatus.NORMAL.name());
+            handleHbResponse.invoke(mgr, response, false);
+            Mockito.verify(executor, Mockito.times(1)).submit(Mockito.any(Runnable.class));
+
+            config.when(Config::isCloudMode).thenReturn(false);
+            Mockito.when(backend.getCloudClusterStatus()).thenReturn(ClusterStatus.SUSPENDED.name());
+            handleHbResponse.invoke(mgr, response, false);
+            Mockito.verify(executor, Mockito.times(2)).submit(Mockito.any(Runnable.class));
+
+            Mockito.when(backend.getLastUpdateMs()).thenReturn(0L);
+            handleHbResponse.invoke(mgr, response, false);
+            Mockito.verify(executor, Mockito.times(2)).submit(Mockito.any(Runnable.class));
         }
     }
 

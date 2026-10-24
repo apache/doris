@@ -81,6 +81,12 @@ under the License.
             <artifactId>log4j-1.2-api</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- Lets a test observe the static OffHeap calls, such as which blocks a close frees. -->
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-inline</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>

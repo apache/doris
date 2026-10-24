@@ -62,6 +62,8 @@ public:
     virtual Status write_inverted_index() = 0;
     virtual Status write_bloom_filter_index() = 0;
     virtual uint64_t estimate_buffer_size() const = 0;
+    // Sums `getter`, one of the ColumnWriter data bytes getters, over the owned column writers.
+    virtual uint64_t get_total_data_pages_bytes(ColumnWriter::DataBytesGetter getter) const = 0;
     virtual void merge_stats_to(VariantStatistics* stats) const = 0;
 };
 
@@ -80,6 +82,7 @@ public:
     Status write_inverted_index() override;
     Status write_bloom_filter_index() override;
     uint64_t estimate_buffer_size() const override;
+    uint64_t get_total_data_pages_bytes(ColumnWriter::DataBytesGetter getter) const override;
     void merge_stats_to(VariantStatistics* stats) const override;
 
 private:
@@ -127,6 +130,7 @@ public:
     Status write_zone_map() override;
     Status write_inverted_index() override;
     Status write_bloom_filter_index() override;
+    uint64_t get_total_data_pages_bytes(ColumnWriter::DataBytesGetter getter) const override;
     void merge_stats_to(VariantStatistics* stats) const override;
 
 private:
@@ -171,6 +175,7 @@ public:
     Status write_inverted_index();
     Status write_bloom_filter_index();
     uint64_t estimate_buffer_size();
+    uint64_t get_total_data_pages_bytes(ColumnWriter::DataBytesGetter getter) const;
 
 private:
     Status _ensure_writer();
@@ -205,15 +210,15 @@ public:
     ordinal_t get_next_rowid() const override { return _next_rowid; }
 
     uint64_t get_raw_data_bytes() const override {
-        return 0; // TODO
+        return _get_total_data_pages_bytes(&ColumnWriter::get_raw_data_bytes);
     }
 
     uint64_t get_total_uncompressed_data_pages_bytes() const override {
-        return 0; // TODO
+        return _get_total_data_pages_bytes(&ColumnWriter::get_total_uncompressed_data_pages_bytes);
     }
 
     uint64_t get_total_compressed_data_pages_bytes() const override {
-        return 0; // TODO
+        return _get_total_data_pages_bytes(&ColumnWriter::get_total_compressed_data_pages_bytes);
     }
 
     Status append_nulls(size_t num_rows) override {
@@ -228,6 +233,15 @@ public:
     Status finalize();
 
 private:
+    template <typename Func>
+    uint64_t _get_total_data_pages_bytes(Func func) const {
+        uint64_t size = std::invoke(func, _doc_value_column_writer.get());
+        for (const auto& writer : _subcolumn_writers) {
+            size += std::invoke(func, writer.get());
+        }
+        return size;
+    }
+
     Status _append(const uint8_t* null_map, const uint8_t** ptr, size_t num_rows);
     Status _ensure_input_format(const VariantColumnData& column);
     Status _initialize_v2_shredder();

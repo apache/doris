@@ -363,19 +363,26 @@ public class NestedColumnPruning implements CustomRewriter {
     private static boolean isCoveredByAllPath(ColumnAccessPath predicatePath, List<ColumnAccessPath> allPaths) {
         for (ColumnAccessPath allPath : allPaths) {
             if (allPath.getType() == predicatePath.getType()
-                    && isPrefixPath(allPath.getPath(), predicatePath.getPath())) {
+                    && isPrefixPathIgnoreCase(allPath.getPath(), predicatePath.getPath())) {
                 return true;
             }
         }
         return false;
     }
 
-    private static boolean isPrefixPath(List<String> prefix, List<String> path) {
+    /**
+     * Whether {@code prefix} is a prefix of {@code path}, ignoring case. The collected access paths
+     * lower-case every component, but buildColumnAccessPaths rebuilds a whole-column path from the
+     * catalog column name, so for a column named {@code S} the all path {@code [S]} must still cover
+     * the predicate path {@code [s, city]}. Compared case-sensitively, {@code [s, city]} would be
+     * appended next to {@code [S]}.
+     */
+    private static boolean isPrefixPathIgnoreCase(List<String> prefix, List<String> path) {
         if (prefix.size() > path.size()) {
             return false;
         }
         for (int i = 0; i < prefix.size(); ++i) {
-            if (!prefix.get(i).equals(path.get(i))) {
+            if (!prefix.get(i).equalsIgnoreCase(path.get(i))) {
                 return false;
             }
         }

@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <limits>
 #include <regex>
 #include <sstream>
 #include <string>
@@ -43,12 +44,24 @@ public:
     bool from_string(const std::string& ipv6_str) { return from_string(_value, ipv6_str); }
 
     static bool from_uint128_string(IPv6& value, const char* ipv6_str, size_t len) {
+        if (len == 0) {
+            return false;
+        }
+
+        constexpr IPv6 max_value = std::numeric_limits<IPv6>::max();
+        constexpr IPv6 max_value_div_10 = max_value / 10;
+        constexpr IPv6 max_value_mod_10 = max_value % 10;
         value = 0;
         for (size_t i = 0; i < len; ++i) {
             if (ipv6_str[i] < '0' || ipv6_str[i] > '9') {
                 return false; // illegal character for uint128
             }
-            value = value * 10 + (ipv6_str[i] - '0');
+            const auto digit = static_cast<IPv6>(ipv6_str[i] - '0');
+            if (value > max_value_div_10 ||
+                (value == max_value_div_10 && digit > max_value_mod_10)) {
+                return false;
+            }
+            value = value * 10 + digit;
         }
         return true;
     }

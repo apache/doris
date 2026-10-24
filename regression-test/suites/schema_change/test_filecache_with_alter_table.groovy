@@ -108,7 +108,32 @@ suite("test_filecache_with_alter_table", "docker") {
             sleep(pollInterval)
             timeElapsed += pollInterval
         }
-        fail("Wait for ALTER job on table '${tableName}' to finish timed out after ${timeoutMillis}ms.")
+        assertTrue(false,
+                "Wait for ALTER job on table '${tableName}' to finish timed out after ${timeoutMillis}ms.".toString())
+    }
+
+    def listRowsetDataCache = { beHost, beHttpPort, rowsetId ->
+        def data = Http.GET("http://${beHost}:${beHttpPort}/api/file_cache?op=list_cache&value=${rowsetId}_0.dat", true)
+        data.findAll { item -> !item.endsWith("_idx") && !item.endsWith("_disposable") }
+    }
+
+    def waitForRowsetsDataCacheAbsent = { beHost, beHttpPort, rowsets, timeoutMillis ->
+        long deadline = System.currentTimeMillis() + timeoutMillis
+        def pendingRowsets = rowsets.collect { it }
+        def lastByRowset = [:]
+        while (System.currentTimeMillis() < deadline) {
+            pendingRowsets = pendingRowsets.findAll { rowset ->
+                def cached = listRowsetDataCache(beHost, beHttpPort, rowset.id)
+                lastByRowset[rowset.id] = cached
+                !cached.isEmpty()
+            }
+            if (pendingRowsets.isEmpty()) {
+                return
+            }
+            logger.info("waiting async file cache clear, pending rowset ids: ${pendingRowsets.collect { it.id }}")
+            sleep(1000)
+        }
+        assertTrue(false, "Timed out waiting rowset data cache clear, last=${lastByRowset}".toString())
     }
 
     def runSchemaChangeCacheTest = { String testTable, double inputCacheRatio, boolean expectOutputCached ->
@@ -173,10 +198,10 @@ suite("test_filecache_with_alter_table", "docker") {
         originalRowsetInfos.take(numToClear).each { rowset ->
             Http.GET("http://${beHost}:${beHttpPort}/api/file_cache?op=clear&sync=true&value=${rowset.id}_0.dat", true)
         }
+        waitForRowsetsDataCacheAbsent(beHost, beHttpPort, originalRowsetInfos.take(numToClear), 60000)
 
         def cachedInputRowsets = originalRowsetInfos.findAll { rowset ->
-            def data = Http.GET("http://${beHost}:${beHttpPort}/api/file_cache?op=list_cache&value=${rowset.id}_0.dat", true)
-            data.any { item -> !item.endsWith("_idx") && !item.endsWith("_disposable") }
+            !listRowsetDataCache(beHost, beHttpPort, rowset.id).isEmpty()
         }
         
         def actualCachedRatio = cachedInputRowsets.size() / (double)originalRowsetInfos.size()
@@ -203,8 +228,7 @@ suite("test_filecache_with_alter_table", "docker") {
         }.findAll { it.startVersion != 0 }.sort { it.startVersion }
 
         def cachedOutputRowsets = newRowsetInfos.findAll { rowset ->
-            def data = Http.GET("http://${beHost}:${beHttpPort}/api/file_cache?op=list_cache&value=${rowset.id}_0.dat", true)
-            data.any { item -> !item.endsWith("_idx") && !item.endsWith("_disposable") }
+            !listRowsetDataCache(beHost, beHttpPort, rowset.id).isEmpty()
         }
 
         logger.info("After ALTER, found ${cachedOutputRowsets.size()} cached output rowsets out of ${newRowsetInfos.size()}.")

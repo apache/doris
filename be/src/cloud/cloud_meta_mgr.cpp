@@ -885,7 +885,7 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
         }
 
         int64_t now = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
-        tablet->last_sync_time_s = now;
+        tablet->last_sync_rowsets_time_s = now;
 
         if (sync_stats) {
             sync_stats->get_remote_rowsets_rpc_ns +=
@@ -893,7 +893,7 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
             sync_stats->get_remote_rowsets_num += resp.rowset_meta().size();
         }
 
-        // MOW and row-binlog tablets need delete bitmap from meta-service.
+        // MOW and changelog tablets need delete bitmap from meta-service.
         if (options.sync_delete_bitmap && tablet->need_read_delete_bitmap() &&
             tablet->tablet_state() == TABLET_RUNNING) {
             DBUG_EXECUTE_IF("CloudMetaMgr::sync_tablet_rowsets.sync_tablet_delete_bitmap.block",
@@ -1628,18 +1628,18 @@ Status CloudMetaMgr::do_commit_rowset(RowsetMeta& rs_meta, const std::string& jo
 
 Status CloudMetaMgr::commit_rowset(RowsetMeta& rs_meta, const std::string& job_id, int64_t table_id,
                                    RowsetMetaSharedPtr* existed_rs_meta,
-                                   RowsetMeta* attach_row_binlog,
-                                   RowsetMetaSharedPtr* existed_attach_row_binlog) {
-    if (attach_row_binlog == nullptr) {
+                                   RowsetMeta* attach_changelog,
+                                   RowsetMetaSharedPtr* existed_attach_changelog) {
+    if (attach_changelog == nullptr) {
         return do_commit_rowset(rs_meta, job_id, table_id, existed_rs_meta);
     }
 
-    VLOG_DEBUG << "commit rowset with row binlog, tablet_id: " << rs_meta.tablet_id()
+    VLOG_DEBUG << "commit rowset with changelog, tablet_id: " << rs_meta.tablet_id()
                << ", rowset_id: " << rs_meta.rowset_id()
-               << ", attach_row_binlog_tablet_id: " << attach_row_binlog->tablet_id()
-               << ", attach_row_binlog_rowset_id: " << attach_row_binlog->rowset_id()
+               << ", attach_changelog_tablet_id: " << attach_changelog->tablet_id()
+               << ", attach_changelog_rowset_id: " << attach_changelog->rowset_id()
                << " txn_id: " << rs_meta.txn_id();
-    Status st = do_commit_rowset(*attach_row_binlog, job_id, table_id, existed_attach_row_binlog);
+    Status st = do_commit_rowset(*attach_changelog, job_id, table_id, existed_attach_changelog);
     if (!st.ok() && !st.is<ALREADY_EXIST>()) {
         return st;
     }
@@ -1685,18 +1685,18 @@ Status CloudMetaMgr::do_update_tmp_rowset(const RowsetMeta& rs_meta, int64_t tab
 }
 
 Status CloudMetaMgr::update_tmp_rowset(const RowsetMeta& rs_meta, int64_t table_id,
-                                       const RowsetMeta* attach_row_binlog) {
-    if (attach_row_binlog == nullptr) {
+                                       const RowsetMeta* attach_changelog) {
+    if (attach_changelog == nullptr) {
         return do_update_tmp_rowset(rs_meta, table_id);
     }
 
-    VLOG_DEBUG << "update committed rowset with row binlog, tablet_id: " << rs_meta.tablet_id()
+    VLOG_DEBUG << "update committed rowset with changelog, tablet_id: " << rs_meta.tablet_id()
                << ", rowset_id: " << rs_meta.rowset_id()
-               << ", attach_row_binlog_tablet_id: " << attach_row_binlog->tablet_id()
-               << ", attach_row_binlog_rowset_id: " << attach_row_binlog->rowset_id();
+               << ", attach_changelog_tablet_id: " << attach_changelog->tablet_id()
+               << ", attach_changelog_rowset_id: " << attach_changelog->rowset_id();
     DCHECK_EQ(rs_meta.tablet_schema()->num_variant_columns(),
-              attach_row_binlog->tablet_schema()->num_variant_columns());
-    RETURN_IF_ERROR(do_update_tmp_rowset(*attach_row_binlog, table_id));
+              attach_changelog->tablet_schema()->num_variant_columns());
+    RETURN_IF_ERROR(do_update_tmp_rowset(*attach_changelog, table_id));
     return do_update_tmp_rowset(rs_meta, table_id);
 }
 
@@ -2382,6 +2382,16 @@ Status CloudMetaMgr::get_delete_bitmap_update_lock(const CloudTablet& tablet, in
                 "initiator {}",
                 tablet.table_id(), lock_id, initiator);
     }
+    DBUG_EXECUTE_IF("CloudMetaMgr.get_delete_bitmap_update_lock.block_for_restart", {
+        if (st.ok() && res.status().code() == MetaServiceCode::OK &&
+            dp->param<int64_t>("table_id", -1) == tablet.table_id()) {
+            // Pause only a successful acquisition, never a conflict or failed RPC.
+            LOG(INFO) << "delete bitmap restart barrier token="
+                      << dp->param<std::string>("token", "") << " lock_id=" << lock_id
+                      << " tablet_id=" << tablet.tablet_id() << " initiator=" << initiator;
+            DBUG_BLOCK;
+        }
+    });
     return st;
 }
 

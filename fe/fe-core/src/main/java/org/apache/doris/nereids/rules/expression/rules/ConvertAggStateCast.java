@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.MoreFieldsThread;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
@@ -74,7 +75,10 @@ public class ConvertAggStateCast implements ExpressionPatternRuleFactory {
                     }
                     newChildren.add(newChild);
                 }
-                child = child.withChildren(newChildren.build());
+                // An explicit state cast changes the serialized layout, unlike ordinary rewrites.
+                StateCombinator state = (StateCombinator) child;
+                child = MoreFieldsThread.keepFunctionSignature(false,
+                        () -> state.withChildren(newChildren.build()));
                 return cast.withChildren(ImmutableList.of(child));
             }
         }

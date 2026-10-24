@@ -31,6 +31,7 @@
 #include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
@@ -562,7 +563,10 @@ protected:
 class Int64ChildGreaterThanExpr final : public VExpr {
 public:
     explicit Int64ChildGreaterThanExpr(int64_t value)
-            : VExpr(std::make_shared<DataTypeUInt8>(), false), _value(value) {}
+            : VExpr(std::make_shared<DataTypeUInt8>(), false), _value(value) {
+        // A synthetic predicate must not inherit VExpr's default SLOT_REF discriminator.
+        set_node_type(TExprNodeType::FUNCTION_CALL);
+    }
 
     Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
                                size_t count, ColumnPtr& result_column) const override {
@@ -2169,6 +2173,38 @@ TEST(ColumnMapperLocalizeFiltersTest, VisibleLocalFilterAddsPredicateColumnAndCo
     EXPECT_TRUE(localized_slot->data_type()->equals(*int_type));
 }
 
+// DORIS-29685: an ID-less Parquet file is matched by positional ids, so a struct root can be
+// mapped while its children stay unmatched. Final materialization then substitutes NULL for those
+// children, which means the physical slot no longer carries the table value: a whole-root predicate
+// such as LIKE(CAST(s AS STRING), '%null%') must stay above TableReader instead of being evaluated
+// on the raw file slot (which would still see the child's physical value and drop the row).
+TEST(ColumnMapperLocalizeFiltersTest, PartiallyMappedStructRootPredicateStaysAboveFileReader) {
+    auto table_struct = struct_col("s", 1, {field_id_col("inner", 2, i32())});
+    // Positional fallback stamped the root only; the child keeps its physical name identifier.
+    auto file_struct = struct_col("s", 1, {name_col("inner", i32(), 0)}, 0);
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_struct}, {}, {file_struct}).ok());
+
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    ASSERT_TRUE(mapper.mappings()[0].file_local_id.has_value());
+    ASSERT_EQ(mapper.mappings()[0].child_mappings.size(), 1);
+    EXPECT_FALSE(mapper.mappings()[0].child_mappings[0].file_local_id.has_value());
+    EXPECT_FALSE(mapper.mappings()[0].is_trivial);
+
+    auto cast_to_string = cast_expr(table_slot(11, 0, table_struct.type, "s"), str());
+    TableFilter filter {
+            .conjunct = VExprContext::create_shared(like_expr(cast_to_string, "%null%")),
+            .global_indices = {GlobalIndex(0)}};
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.localize_filters({filter}, &request).ok());
+
+    // No file-local copy of the predicate: the row must be filtered on the materialized
+    // {"inner": null} value, not on the physical {"inner": <file value>}.
+    EXPECT_TRUE(request.conjuncts.empty());
+}
+
 TEST(ColumnMapperLocalizeFiltersTest, VarbinaryFilterStaysAboveFileReader) {
     const auto binary_type = varbinary();
     const auto table_column = name_col("partition_key", binary_type);
@@ -2836,6 +2872,37 @@ TEST(ColumnMapperScanRequestTest, FilterOnlyNestedTimestampRetainsTableFormatSem
     ASSERT_NE(ltz_projection, nullptr);
     ASSERT_TRUE(ltz_projection->timestamp_is_adjusted_to_utc.has_value());
     EXPECT_TRUE(*ltz_projection->timestamp_is_adjusted_to_utc);
+}
+
+// A hidden slot can use a full struct type without explicit child mappings. Its physical
+// timestamp overrides must survive even though the parent has no timestamp annotation.
+TEST(ColumnMapperScanRequestTest, HiddenFullStructRetainsNestedTimestampSemantics) {
+    const auto instant_type = timestamptz(6);
+    auto table_id = field_id_col("id", 1, i32());
+    auto file_id = field_id_col("id", 1, i32(), 0);
+    auto file_instant = field_id_col("instant", 3, instant_type, 0);
+    file_instant.timestamp_is_adjusted_to_utc = true;
+    auto file_struct = struct_col("s", 2, {file_instant}, 1);
+    ParquetColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_id}, {}, {file_id, file_struct}).ok());
+    auto expr = null_predicate(
+            struct_element(table_slot(1, 1, file_struct.type, "s"), instant_type, "instant"),
+            false);
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({{.conjunct = VExprContext::create_shared(expr),
+                                             .global_indices = {GlobalIndex(1)}}},
+                                           {table_id}, &request)
+                        .ok());
+    ASSERT_EQ(request.predicate_columns.size(), 1);
+    const auto& root = request.predicate_columns[0];
+    ASSERT_TRUE(root.project_all_children);
+    // These children carry metadata; the normal partial-projection accessor intentionally
+    // ignores them for a full projection.
+    ASSERT_EQ(root.children.size(), 1);
+    const auto& child = root.children.front();
+    EXPECT_EQ(child.local_id(), 0);
+    ASSERT_TRUE(child.timestamp_is_adjusted_to_utc.has_value());
+    EXPECT_TRUE(*child.timestamp_is_adjusted_to_utc);
 }
 
 // Scenario: a filter references a top-level column that is not projected by the query; the mapper
@@ -3578,6 +3645,108 @@ TEST_F(ColumnMapperCastTest, ColumnMapperBuildsCastProjectionForTypeMismatch) {
     EXPECT_EQ(result_column.get_data()[0], 11);
     EXPECT_EQ(result_column.get_data()[1], 22);
 
+    mapping.projection->close();
+}
+
+TEST_F(ColumnMapperCastTest, PaimonTimestampPrecisionNarrowingTruncatesWithoutRounding) {
+    const auto file_type = std::make_shared<DataTypeDateTimeV2>(6);
+    const auto table_type = std::make_shared<DataTypeDateTimeV2>(0);
+    const std::vector<ColumnDefinition> table_schema = {name_col("ts", table_type)};
+    const std::vector<ColumnDefinition> file_schema = {name_col("ts", file_type, 0)};
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME,
+                              .truncate_datetimev2_precision_for_paimon = true});
+    ASSERT_TRUE(mapper.create_mapping(table_schema, {}, file_schema).ok());
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    EXPECT_TRUE(mapper.mappings()[0].truncate_datetimev2_precision);
+    EXPECT_EQ(mapper.mappings()[0].filter_conversion, FilterConversionType::FINALIZE_ONLY);
+
+    FileScanRequest file_request;
+    ASSERT_TRUE(mapper.create_scan_request({}, table_schema, &file_request).ok());
+    const auto& mapping = mapper.mappings()[0];
+    ASSERT_NE(mapping.projection, nullptr);
+
+    auto source = ColumnDateTimeV2::create();
+    DateV2Value<DateTimeV2ValueType> value;
+    value.unchecked_set_time(2025, 1, 1, 0, 0, 1, 600000);
+    source->get_data().push_back(value);
+    Block block;
+    block.insert({std::move(source), file_type, "ts"});
+    int result_column_id = -1;
+    ASSERT_TRUE(prepare_open_execute(mapping.projection.get(), &block, &result_column_id).ok());
+
+    const auto& result =
+            assert_cast<const ColumnDateTimeV2&>(*block.get_by_position(result_column_id).column);
+    ASSERT_EQ(result.size(), 1);
+    EXPECT_EQ(result.get_data()[0].second(), 1);
+    EXPECT_EQ(result.get_data()[0].microsecond(), 0);
+    mapping.projection->close();
+}
+
+TEST_F(ColumnMapperCastTest, PaimonTimestampTzPrecisionNarrowingTruncatesWithoutRounding) {
+    const auto file_type = timestamptz(6);
+    const auto table_type = timestamptz(0);
+    const std::vector<ColumnDefinition> table_schema = {name_col("ts", table_type)};
+    const std::vector<ColumnDefinition> file_schema = {name_col("ts", file_type, 0)};
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME,
+                              .truncate_datetimev2_precision_for_paimon = true});
+    ASSERT_TRUE(mapper.create_mapping(table_schema, {}, file_schema).ok());
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    EXPECT_TRUE(mapper.mappings()[0].truncate_datetimev2_precision);
+    EXPECT_FALSE(mapper.mappings()[0].is_trivial);
+    EXPECT_EQ(mapper.mappings()[0].filter_conversion, FilterConversionType::FINALIZE_ONLY);
+
+    FileScanRequest file_request;
+    ASSERT_TRUE(mapper.create_scan_request({}, table_schema, &file_request).ok());
+    const auto& mapping = mapper.mappings()[0];
+    ASSERT_NE(mapping.projection, nullptr);
+
+    auto source = ColumnTimeStampTz::create();
+    TimestampTzValue value;
+    value.unchecked_set_time(2025, 1, 1, 0, 0, 1, 600000);
+    source->get_data().push_back(value);
+    Block block;
+    block.insert({std::move(source), file_type, "ts"});
+    int result_column_id = -1;
+    ASSERT_TRUE(prepare_open_execute(mapping.projection.get(), &block, &result_column_id).ok());
+
+    const auto& result =
+            assert_cast<const ColumnTimeStampTz&>(*block.get_by_position(result_column_id).column);
+    ASSERT_EQ(result.size(), 1);
+    EXPECT_EQ(result.get_data()[0].second(), 1);
+    EXPECT_EQ(result.get_data()[0].microsecond(), 0);
+    mapping.projection->close();
+}
+
+TEST_F(ColumnMapperCastTest, PaimonTimestampPrecisionNarrowingWrapsRequiredFileColumn) {
+    const auto file_type = std::make_shared<DataTypeDateTimeV2>(6);
+    const auto table_type = make_nullable(std::make_shared<DataTypeDateTimeV2>(0));
+    const std::vector<ColumnDefinition> table_schema = {name_col("ts", table_type)};
+    const std::vector<ColumnDefinition> file_schema = {name_col("ts", file_type, 0)};
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME,
+                              .truncate_datetimev2_precision_for_paimon = true});
+    ASSERT_TRUE(mapper.create_mapping(table_schema, {}, file_schema).ok());
+
+    FileScanRequest file_request;
+    ASSERT_TRUE(mapper.create_scan_request({}, table_schema, &file_request).ok());
+    const auto& mapping = mapper.mappings()[0];
+    ASSERT_NE(mapping.projection, nullptr);
+
+    auto source = ColumnDateTimeV2::create();
+    DateV2Value<DateTimeV2ValueType> value;
+    value.unchecked_set_time(2025, 1, 1, 0, 0, 1, 600000);
+    source->get_data().push_back(value);
+    Block block;
+    block.insert({std::move(source), file_type, "ts"});
+    int result_column_id = -1;
+    ASSERT_TRUE(prepare_open_execute(mapping.projection.get(), &block, &result_column_id).ok());
+
+    const auto& result =
+            assert_cast<const ColumnNullable&>(*block.get_by_position(result_column_id).column);
+    ASSERT_EQ(result.size(), 1);
+    EXPECT_FALSE(result.is_null_at(0));
+    const auto& nested = assert_cast<const ColumnDateTimeV2&>(result.get_nested_column());
+    EXPECT_EQ(nested.get_data()[0].second(), 1);
+    EXPECT_EQ(nested.get_data()[0].microsecond(), 0);
     mapping.projection->close();
 }
 
@@ -4659,7 +4828,7 @@ TEST(ColumnMapperTest, ArrayAndMapNestedVariantPathsReachPhysicalTypedLeaf) {
     }
 }
 
-TEST(ColumnMapperTest, VariantLeafProjectionRequiresLosslessObjectPath) {
+TEST(ColumnMapperTest, VariantLeafProjectionRejectsNumericSegmentsAndMissingPaths) {
     auto field_wrapper = struct_name_col(
             "typed_col", {name_col("value", varbinary(), 0), name_col("typed_value", i64(), 1)}, 0);
     auto dotted_wrapper = struct_name_col(
@@ -4683,9 +4852,8 @@ TEST(ColumnMapperTest, VariantLeafProjectionRequiresLosslessObjectPath) {
                              name_col("value", varbinary(), 1), std::move(typed_value)};
 
     for (const std::vector<std::string>& path :
-         {std::vector<std::string> {"a.b"}, std::vector<std::string> {"a", "b"},
-          std::vector<std::string> {"1"}, std::vector<std::string> {"-1"},
-          std::vector<std::string> {"+1"}, std::vector<std::string> {"NULL"}}) {
+         {std::vector<std::string> {"a", "b"}, std::vector<std::string> {"1"},
+          std::vector<std::string> {"-1"}, std::vector<std::string> {"+1"}}) {
         auto table_variant = field_id_col("v", 10, variant_v2());
         table_variant.variant_access_paths = {path};
         ParquetColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
@@ -4695,6 +4863,68 @@ TEST(ColumnMapperTest, VariantLeafProjectionRequiresLosslessObjectPath) {
         ASSERT_EQ(request.non_predicate_columns.size(), 1);
         EXPECT_TRUE(request.non_predicate_columns[0].project_all_children)
                 << "unsafe Variant path must fall back to the complete physical subtree";
+    }
+
+    for (const std::vector<std::string>& path :
+         {std::vector<std::string> {"a.b"}, std::vector<std::string> {"NULL"}}) {
+        auto table_variant = field_id_col("v", 10, variant_v2());
+        table_variant.variant_access_paths = {path};
+        ParquetColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+        ASSERT_TRUE(mapper.create_mapping({table_variant}, {}, {file_variant}).ok());
+        FileScanRequest request;
+        ASSERT_TRUE(mapper.create_scan_request({}, {table_variant}, &request).ok());
+        ASSERT_EQ(request.non_predicate_columns.size(), 1);
+        EXPECT_FALSE(request.non_predicate_columns[0].project_all_children)
+                << "non-numeric object keys must preserve their exact spelling";
+    }
+
+    auto mixed_table_variant = field_id_col("v", 10, variant_v2());
+    mixed_table_variant.variant_access_paths = {{"typed_col"}, {"1"}};
+    ParquetColumnMapper mixed_mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mixed_mapper.create_mapping({mixed_table_variant}, {}, {file_variant}).ok());
+    FileScanRequest mixed_request;
+    ASSERT_TRUE(mixed_mapper.create_scan_request({}, {mixed_table_variant}, &mixed_request).ok());
+    ASSERT_EQ(mixed_request.non_predicate_columns.size(), 1);
+    EXPECT_TRUE(mixed_request.non_predicate_columns[0].project_all_children)
+            << "one unsupported path must conservatively disable the merged leaf projection";
+}
+
+TEST(ColumnMapperTest, VariantDeepObjectPathProjectsPhysicalTypedLeaf) {
+    auto city_wrapper = struct_name_col(
+            "city", {name_col("value", varbinary(), 0), name_col("typed_value", i64(), 1)}, 0);
+    auto age_wrapper = struct_name_col(
+            "age", {name_col("value", varbinary(), 0), name_col("typed_value", i64(), 1)}, 1);
+    auto object_typed_value =
+            struct_name_col("typed_value", {std::move(city_wrapper), std::move(age_wrapper)}, 1);
+    auto object_wrapper = struct_name_col(
+            "profile", {name_col("value", varbinary(), 0), std::move(object_typed_value)}, 0);
+    auto root_typed_value = struct_name_col("typed_value", {std::move(object_wrapper)}, 2);
+    auto file_variant = field_id_col("v", 10, variant_v2(), 0);
+    file_variant.children = {name_col("metadata", varbinary(), 0),
+                             name_col("value", varbinary(), 1), std::move(root_typed_value)};
+
+    auto table_variant = field_id_col("v", 10, variant_v2());
+    table_variant.variant_access_paths = {{"profile", "city"}, {"profile", "age"}};
+    ParquetColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_variant}, {}, {file_variant}).ok());
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({}, {table_variant}, &request).ok());
+    ASSERT_EQ(request.non_predicate_columns.size(), 1);
+    const auto& root = request.non_predicate_columns[0];
+    ASSERT_FALSE(root.project_all_children);
+    ASSERT_EQ(root.children.size(), 1);
+    EXPECT_EQ(root.children[0].local_id(), 2);
+    ASSERT_EQ(root.children[0].children.size(), 1);
+    EXPECT_EQ(root.children[0].children[0].local_id(), 0);
+    ASSERT_EQ(root.children[0].children[0].children.size(), 1);
+    EXPECT_EQ(root.children[0].children[0].children[0].local_id(), 1);
+    const auto& object_typed = root.children[0].children[0].children[0];
+    ASSERT_EQ(object_typed.children.size(), 2);
+    EXPECT_EQ(object_typed.children[0].local_id(), 0);
+    EXPECT_EQ(object_typed.children[1].local_id(), 1);
+    for (const auto& projected_leaf_wrapper : object_typed.children) {
+        ASSERT_EQ(projected_leaf_wrapper.children.size(), 1);
+        EXPECT_EQ(projected_leaf_wrapper.children[0].local_id(), 1);
     }
 }
 
@@ -4708,6 +4938,27 @@ TEST(ColumnMapperTest, VariantLeafProjectionRequiresObjectTypedValue) {
 
     auto table_variant = field_id_col("v", 10, variant_v2());
     table_variant.variant_access_paths = {{"element"}};
+    ParquetColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_variant}, {}, {file_variant}).ok());
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({}, {table_variant}, &request).ok());
+    ASSERT_EQ(request.non_predicate_columns.size(), 1);
+    EXPECT_TRUE(request.non_predicate_columns[0].project_all_children);
+}
+
+TEST(ColumnMapperTest, VariantDeepLeafProjectionRejectsRepeatedAncestor) {
+    auto element_wrapper = struct_name_col(
+            "element", {name_col("value", varbinary(), 0), name_col("typed_value", i64(), 1)}, 0);
+    auto array_typed_value = array_col("typed_value", -1, std::move(element_wrapper), 1);
+    auto array_wrapper = struct_name_col(
+            "arr", {name_col("value", varbinary(), 0), std::move(array_typed_value)}, 0);
+    auto root_typed_value = struct_name_col("typed_value", {std::move(array_wrapper)}, 2);
+    auto file_variant = field_id_col("v", 10, variant_v2(), 0);
+    file_variant.children = {name_col("metadata", varbinary(), 0),
+                             name_col("value", varbinary(), 1), std::move(root_typed_value)};
+
+    auto table_variant = field_id_col("v", 10, variant_v2());
+    table_variant.variant_access_paths = {{"arr", "element"}};
     ParquetColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
     ASSERT_TRUE(mapper.create_mapping({table_variant}, {}, {file_variant}).ok());
     FileScanRequest request;

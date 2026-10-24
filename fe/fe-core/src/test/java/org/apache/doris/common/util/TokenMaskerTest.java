@@ -22,7 +22,7 @@ import org.junit.jupiter.api.Test;
 
 public class TokenMaskerTest {
 
-    // Same length and alphabet as the tokens FlightTokenManagerImpl mints (130 random bits in
+    // Same length and alphabet as the tokens FlightSessionsInConnectPool mints (130 random bits in
     // base 32), but deliberately low entropy and readable, so that no secret scanner has to
     // decide whether a random-looking 26 character literal in the tree is a real credential.
     private static final String TOKEN = "notarealtokennotarealtoken";

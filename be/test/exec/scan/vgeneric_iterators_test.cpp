@@ -20,6 +20,7 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
+#include <cstring>
 #include <memory>
 #include <vector>
 
@@ -32,7 +33,12 @@
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
+#include "runtime/runtime_state.h"
 #include "storage/olap_common.h"
+#include "storage/olap_define.h"
+#include "storage/olap_tuple.h"
+#include "storage/predicate/block_column_predicate.h"
+#include "storage/predicate/null_predicate.h"
 #include "storage/row_cursor.h"
 #include "storage/schema.h"
 #include "storage/segment/column_reader.h"
@@ -87,7 +93,8 @@ TEST(VGenericIteratorsTest, AutoIncrement) {
     auto schema = create_schema();
     auto iter = new_auto_increment_iterator(schema, 10);
 
-    StorageReadOptions opts;
+    OlapReaderStatistics stats;
+    StorageReadOptions opts(stats);
     auto st = iter->init(opts);
     EXPECT_TRUE(st.ok());
 
@@ -163,11 +170,9 @@ TEST(VGenericIteratorsTest, StatisticsIteratorPreservesNullForNullableChar) {
     std::vector<ColumnId> column_ids {0, 1};
     ReadSchema schema(project_columns_by_ordinal(tablet_schema->columns(), column_ids));
     VStatisticsIterator iterator(segment, schema);
-    StorageReadOptions read_options;
     OlapReaderStatistics stats;
+    StorageReadOptions read_options(stats);
     read_options.push_down_agg_type_opt = TPushAggOp::MINMAX;
-    read_options.stats = &stats;
-    read_options.tablet_schema = tablet_schema;
     ASSERT_TRUE(iterator.init(read_options).ok());
 
     Block block;
@@ -184,6 +189,201 @@ TEST(VGenericIteratorsTest, StatisticsIteratorPreservesNullForNullableChar) {
     ASSERT_TRUE(fs->delete_directory(test_dir).ok());
 }
 
+// A string zone map bound is cut to 512 bytes, and a cut bound is not a value the column holds:
+// the min is a prefix of the smallest value and the max was raised past the largest one. FE pushes
+// MIN/MAX down for every string column, so the segment is the one that has to notice and hand the
+// query back to a normal read.
+class StatisticsIteratorStringBoundsTest : public testing::Test {
+protected:
+    static constexpr auto kTestDir = "./ut_dir/statistics_string_bounds_test";
+
+    void SetUp() override {
+        _fs = io::global_local_filesystem();
+        ASSERT_TRUE(_fs->delete_directory(kTestDir).ok());
+        ASSERT_TRUE(_fs->create_directory(kTestDir).ok());
+    }
+    void TearDown() override { EXPECT_TRUE(_fs->delete_directory(kTestDir).ok()); }
+
+    static TabletSchemaSPtr make_schema() {
+        auto tablet_schema = std::make_shared<TabletSchema>();
+        TabletColumn key;
+        key.set_name("c1");
+        key.set_unique_id(0);
+        key.set_type(FieldType::OLAP_FIELD_TYPE_INT);
+        key.set_length(4);
+        key.set_index_length(4);
+        key.set_is_key(true);
+        key.set_is_nullable(false);
+        tablet_schema->append_column(key);
+
+        TabletColumn value;
+        value.set_name("c2");
+        value.set_unique_id(1);
+        value.set_type(FieldType::OLAP_FIELD_TYPE_VARCHAR);
+        value.set_length(65535);
+        value.set_is_key(false);
+        value.set_is_nullable(false);
+        value.set_aggregation_method(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE);
+        tablet_schema->append_column(value);
+        tablet_schema->set_storage_page_size(4096);
+        return tablet_schema;
+    }
+
+    // Writes one segment holding `values` in the VARCHAR column and returns the iterator that the
+    // pushed-down `agg` would run on. `accept_cut_bound` is what statistics collection sets:
+    // it takes an inexact min/max as an approximation instead of reading the data.
+    // `with_delete` adds a delete predicate, which leaves the zone map covering removed rows.
+    std::unique_ptr<RowwiseIterator> pushdown_iterator_for(
+            const std::string& name, const std::vector<std::string>& values,
+            bool accept_cut_bound = false, bool with_delete = false,
+            TPushAggOp::type agg = TPushAggOp::MINMAX) {
+        auto tablet_schema = make_schema();
+        const std::string segment_path = std::string(kTestDir) + "/" + name + ".dat";
+
+        io::FileWriterPtr file_writer;
+        EXPECT_TRUE(_fs->create_file(segment_path, &file_writer).ok());
+        VerticalSegmentWriterOptions writer_options;
+        writer_options.num_rows_per_block = 1024;
+        TestVerticalSegmentWriter writer(file_writer.get(), 0, tablet_schema, nullptr, nullptr,
+                                         writer_options, nullptr);
+        EXPECT_TRUE(writer.init().ok());
+
+        RowCursor row;
+        OlapTuple tuple;
+        for (size_t i = 0; i < tablet_schema->num_columns(); ++i) {
+            tuple.add_null();
+        }
+        EXPECT_EQ(Status::OK(), row.init(tablet_schema, tuple));
+        for (size_t i = 0; i < values.size(); ++i) {
+            row.mutable_field(0) = Field::create_field<TYPE_INT>(static_cast<int32_t>(i));
+            row.mutable_field(1) = Field::create_field<TYPE_STRING>(String(values[i]));
+            EXPECT_TRUE(writer.append_row(row).ok());
+        }
+        uint64_t file_size = 0;
+        uint64_t index_size = 0;
+        EXPECT_TRUE(writer.finalize_columns(&index_size).ok());
+        EXPECT_TRUE(writer.finalize_footer(&file_size).ok());
+        EXPECT_TRUE(file_writer->close().ok());
+
+        std::shared_ptr<segment_v2::Segment> segment;
+        EXPECT_TRUE(segment_v2::Segment::open(_fs, segment_path, 100, 0, RowsetId {.version = 1},
+                                              tablet_schema, io::FileReaderOptions {}, &segment)
+                            .ok());
+
+        std::vector<ColumnId> column_ids {0, 1};
+        // VStatisticsIterator keeps a reference to the schema, so it has to outlive the iterator.
+        auto schema = std::make_shared<ReadSchema>(
+                project_columns_by_ordinal(tablet_schema->columns(), column_ids));
+        StorageReadOptions read_options(_stats);
+        read_options.push_down_agg_type_opt = agg;
+
+        if (with_delete) {
+            auto del_pred = NullPredicate::create_shared(0, "c1", true, PrimitiveType::TYPE_INT);
+            read_options.delete_condition_predicates->add_column_predicate(
+                    SingleColumnBlockPredicate::create_unique(del_pred));
+        }
+
+        auto state = std::make_unique<RuntimeState>();
+        TQueryOptions query_options;
+        query_options.__set_force_pushdown_zonemap_minmax(accept_cut_bound);
+        state->set_query_options(query_options);
+        read_options.runtime_state = state.get();
+        // The iterator keeps a copy of read_options, so the state has to outlive it.
+        _states.push_back(std::move(state));
+        _schemas.push_back(schema);
+
+        std::unique_ptr<RowwiseIterator> iter;
+        EXPECT_TRUE(segment->new_iterator(schema, read_options, &iter).ok());
+        return iter;
+    }
+
+    std::shared_ptr<io::FileSystem> _fs;
+    OlapReaderStatistics _stats;
+    std::vector<std::unique_ptr<RuntimeState>> _states;
+    std::vector<ReadSchemaSPtr> _schemas;
+};
+
+TEST_F(StatisticsIteratorStringBoundsTest, ShortBoundsAnswerFromTheZoneMap) {
+    // Every value fits well inside the 512-byte bound, so the stored min/max are the real ones.
+    auto iter = pushdown_iterator_for("short", {"aaa", "bbb", "ccc"});
+    EXPECT_NE(dynamic_cast<VStatisticsIterator*>(iter.get()), nullptr)
+            << "exact bounds can answer MIN/MAX without reading the data";
+}
+
+TEST_F(StatisticsIteratorStringBoundsTest, CutBoundsFallBackToReadingTheData) {
+    // The longest value runs past the 512-byte cut, so the stored max is a raised prefix and not a
+    // value in the column. Answering MIN/MAX from it would return a string the table never held.
+    auto iter = pushdown_iterator_for("cut", {"aaa", "bbb", std::string(600, 'c')});
+    EXPECT_EQ(dynamic_cast<VStatisticsIterator*>(iter.get()), nullptr)
+            << "a cut bound is not a value from the data, so the query has to read the rows";
+}
+
+// A VARCHAR(512) column full to its declared length was cut too, and FE used to push MIN/MAX down
+// for it because the length is not over 512.
+TEST_F(StatisticsIteratorStringBoundsTest, BoundsCutExactlyAtTheLimitFallBack) {
+    auto iter = pushdown_iterator_for("exact", {"aaa", std::string(MAX_ZONE_MAP_INDEX_SIZE, 'z')});
+    EXPECT_EQ(dynamic_cast<VStatisticsIterator*>(iter.get()), nullptr);
+}
+
+// Statistics collection only needs an approximation, and reading the data instead would scan the
+// whole table. It keeps the statistics iterator even when the stored bounds were cut.
+TEST_F(StatisticsIteratorStringBoundsTest, CutBoundsAnswerWhenTheCallerTakesAnApproximation) {
+    auto iter = pushdown_iterator_for("cut_approx", {"aaa", "bbb", std::string(600, 'c')},
+                                      /*accept_cut_bound=*/true);
+    EXPECT_NE(dynamic_cast<VStatisticsIterator*>(iter.get()), nullptr)
+            << "statistics collection reads the cut bound rather than scanning the rows";
+}
+
+// A max raised from 0xff wraps to 0x00, so the read side turns pass_all on for that zone. The
+// bounds were parsed before that happened, so statistics collection still reads them.
+TEST_F(StatisticsIteratorStringBoundsTest, PassAllZoneMapAnswersWhenApproximationIsAccepted) {
+    std::string wrapping(MAX_ZONE_MAP_INDEX_SIZE - 1, 'a');
+    wrapping.push_back(static_cast<char>(0xff));
+    auto iter = pushdown_iterator_for("pass_all_approx", {"aaa", wrapping},
+                                      /*accept_cut_bound=*/true);
+    EXPECT_NE(dynamic_cast<VStatisticsIterator*>(iter.get()), nullptr)
+            << "a zone map that gave up its range on read still carries the bounds it parsed";
+
+    Block block;
+    for (const auto& column : iter->schema().columns()) {
+        auto data_type = column->get_vec_type();
+        block.insert(ColumnWithTypeAndName(data_type->create_column(), data_type, column->name()));
+    }
+    EXPECT_TRUE(iter->next_batch(&block).ok()) << "reading the bounds must not trip an assertion";
+}
+
+// With the switch off the same zone map sends the query back to the rows.
+TEST_F(StatisticsIteratorStringBoundsTest, PassAllZoneMapFallsBackToReadingTheData) {
+    std::string wrapping(MAX_ZONE_MAP_INDEX_SIZE - 1, 'a');
+    wrapping.push_back(static_cast<char>(0xff));
+    auto iter = pushdown_iterator_for("pass_all_exact", {"aaa", wrapping});
+    EXPECT_EQ(dynamic_cast<VStatisticsIterator*>(iter.get()), nullptr);
+}
+
+// A delete predicate leaves the zone map covering rows that are gone, so its min/max may name a
+// value the table no longer holds. That is a real answer for every query but statistics
+// collection, which takes the approximation to avoid scanning the table.
+TEST_F(StatisticsIteratorStringBoundsTest, DeletePredicateFallsBackToReadingTheData) {
+    auto iter = pushdown_iterator_for("del_exact", {"aaa", "bbb"}, /*accept_cut_bound=*/false,
+                                      /*with_delete=*/true);
+    EXPECT_EQ(dynamic_cast<VStatisticsIterator*>(iter.get()), nullptr)
+            << "a deleted row may still sit inside the zone map bounds";
+}
+
+TEST_F(StatisticsIteratorStringBoundsTest, DeletePredicateAnswersWhenApproximationIsAccepted) {
+    auto iter = pushdown_iterator_for("del_approx", {"aaa", "bbb"}, /*accept_cut_bound=*/true,
+                                      /*with_delete=*/true);
+    EXPECT_NE(dynamic_cast<VStatisticsIterator*>(iter.get()), nullptr)
+            << "statistics collection keeps the zone map even with a delete predicate";
+}
+
+TEST_F(StatisticsIteratorStringBoundsTest, CountKeepsTheDeletePredicateGuardWhenForced) {
+    auto iter = pushdown_iterator_for("count_del", {"aaa", "bbb"}, /*accept_cut_bound=*/true,
+                                      /*with_delete=*/true, TPushAggOp::COUNT);
+    EXPECT_EQ(dynamic_cast<VStatisticsIterator*>(iter.get()), nullptr)
+            << "COUNT reports the segment row count, which still counts the deleted rows";
+}
+
 TEST(VGenericIteratorsTest, Union) {
     auto schema = create_schema();
     auto output_schema = std::make_shared<ReadSchema>(schema);
@@ -194,7 +394,8 @@ TEST(VGenericIteratorsTest, Union) {
     inputs.push_back(new_auto_increment_iterator(schema, 300));
 
     auto iter = new_union_iterator(std::move(inputs), output_schema);
-    StorageReadOptions opts;
+    OlapReaderStatistics stats;
+    StorageReadOptions opts(stats);
     auto st = iter->init(opts);
     EXPECT_TRUE(st.ok());
 
@@ -239,7 +440,8 @@ TEST(VGenericIteratorsTest, MergeAgg) {
     inputs.push_back(new_auto_increment_iterator(schema, 300));
 
     auto iter = new_merge_iterator(std::move(inputs), -1, false, false, nullptr, output_schema);
-    StorageReadOptions opts;
+    OlapReaderStatistics stats;
+    StorageReadOptions opts(stats);
     auto st = iter->init(opts);
     EXPECT_TRUE(st.ok());
 
@@ -289,7 +491,8 @@ TEST(VGenericIteratorsTest, MergeUnique) {
     inputs.push_back(new_auto_increment_iterator(schema, 300));
 
     auto iter = new_merge_iterator(std::move(inputs), -1, true, false, nullptr, output_schema);
-    StorageReadOptions opts;
+    OlapReaderStatistics stats;
+    StorageReadOptions opts(stats);
     auto st = iter->init(opts);
     EXPECT_TRUE(st.ok());
 
@@ -367,6 +570,10 @@ public:
                     *(double*)data = j == _seq_col_idx ? _seq_col_rows_returned : 1;
                     data_len = sizeof(double);
                     break;
+                case FieldType::OLAP_FIELD_TYPE_STRING:
+                    std::memcpy(data, &_seq_col_rows_returned, sizeof(_seq_col_rows_returned));
+                    data_len = sizeof(_seq_col_rows_returned);
+                    break;
                 default:
                     break;
                 }
@@ -395,6 +602,7 @@ public:
 TEST(VGenericIteratorsTest, MergeWithSeqColumn) {
     EXPECT_TRUE(1);
     auto schema = create_schema();
+    schema.append_compaction_rowid_column();
     auto output_schema = std::make_shared<ReadSchema>(schema);
     std::vector<RowwiseIteratorUPtr> inputs;
 
@@ -413,7 +621,8 @@ TEST(VGenericIteratorsTest, MergeWithSeqColumn) {
 
     auto iter = new_merge_iterator(std::move(inputs), seq_column_id, true, false, nullptr,
                                    output_schema);
-    StorageReadOptions opts;
+    OlapReaderStatistics stats;
+    StorageReadOptions opts(stats);
     auto st = iter->init(opts);
     EXPECT_TRUE(st.ok());
 
@@ -434,6 +643,12 @@ TEST(VGenericIteratorsTest, MergeWithSeqColumn) {
     auto seq_col = block.get_by_position(seq_column_id).column;
     size_t actual_value = (*seq_col)[0].get<TYPE_BIGINT>();
     EXPECT_EQ(seg_iter_num - 1, actual_value);
+
+    const auto rowid = block.get_by_position(schema.rowid_ordinal()).column->get_data_at(0);
+    ASSERT_EQ(sizeof(int), rowid.size);
+    int rowid_value = 0;
+    std::memcpy(&rowid_value, rowid.data, sizeof(rowid_value));
+    EXPECT_EQ(seg_iter_num - 1, rowid_value);
 }
 
 // Mirror of MergeWithSeqColumn but with small_seq_first=true.
@@ -458,7 +673,8 @@ TEST(VGenericIteratorsTest, MergeWithSeqColumnSmallSeqFirst) {
     auto iter = new_merge_iterator(std::move(inputs), seq_column_id, /*is_unique=*/true,
                                    /*is_reverse=*/false, /*merged_rows=*/nullptr, output_schema,
                                    /*small_seq_first=*/true);
-    StorageReadOptions opts;
+    OlapReaderStatistics stats;
+    StorageReadOptions opts(stats);
     auto st = iter->init(opts);
     EXPECT_TRUE(st.ok());
 
@@ -479,20 +695,20 @@ TEST(VGenericIteratorsTest, MergeWithSeqColumnSmallSeqFirst) {
     EXPECT_EQ(0, actual_value);
 }
 
-// Models the row-binlog quick-merge read path: the merge output rowset holds the
-// same user key across multiple segments, each carrying a distinct binlog event
-// (distinct TSO). A row-binlog scan reads it with is_unique=false and the TSO as
+// Models the changelog quick-merge read path: the merge output rowset holds the
+// same user key across multiple segments, each carrying a distinct changelog event
+// (distinct TSO). A changelog scan reads it with is_unique=false and the TSO as
 // the sequence column with small_seq_first=true. Unlike the is_unique=true cases
 // above (which collapse same-key rows to one), the merge iterator must keep EVERY
 // event and emit them ordered by ascending TSO, so a table-stream query over a
 // quick-merge rowset returns the complete, ordered change chain without dropping
 // any event.
-TEST(VGenericIteratorsTest, MergeKeepsAllBinlogEventsOrderedByTso) {
+TEST(VGenericIteratorsTest, MergeKeepsAllChangelogEventsOrderedByTso) {
     auto schema = create_schema();
     auto output_schema = std::make_shared<ReadSchema>(schema);
     std::vector<RowwiseIteratorUPtr> inputs;
 
-    int seq_column_id = 2; // BIGINT column stands in for __DORIS_BINLOG_TSO__.
+    int seq_column_id = 2; // BIGINT column stands in for __DORIS_CHANGELOG_TSO__.
     int num_rows = 1;
     int rows_begin = 0;
     // Same key in every segment, each carrying a distinct TSO. The children are fed in a
@@ -508,11 +724,12 @@ TEST(VGenericIteratorsTest, MergeKeepsAllBinlogEventsOrderedByTso) {
     }
 
     // is_unique=false keeps every same-key event; small_seq_first=true orders by
-    // ascending TSO. This mirrors beta_rowset_reader's row-binlog merge setup.
+    // ascending TSO. This mirrors beta_rowset_reader's changelog merge setup.
     auto iter = new_merge_iterator(std::move(inputs), seq_column_id, /*is_unique=*/false,
                                    /*is_reverse=*/false, /*merged_rows=*/nullptr, output_schema,
                                    /*small_seq_first=*/true);
-    StorageReadOptions opts;
+    OlapReaderStatistics stats;
+    StorageReadOptions opts(stats);
     auto st = iter->init(opts);
     EXPECT_TRUE(st.ok());
 
@@ -595,7 +812,7 @@ private:
 // explicit compare columns are given. The read schema must therefore place its key columns as
 // the leading prefix; if a non-key column precedes a key column, init() must reject the merge
 // with a "compare contract violated" error instead of silently comparing a value column as a key
-// (issue #66390: a ROW-binlog APPEND_ONLY scan projected value columns ahead of a key).
+// (issue #66390: a changelog APPEND_ONLY scan projected value columns ahead of a key).
 TEST(VGenericIteratorsTest, MergeRejectsProjectionMissingKeyPrefix) {
     // Full tablet schema: k0(smallint), k1(int), v2(bigint). Project {v2, k0}: the schema has
     // one key column (k0) but it is not the leading column, so ordinal 0 is a non-key column.
@@ -608,7 +825,8 @@ TEST(VGenericIteratorsTest, MergeRejectsProjectionMissingKeyPrefix) {
     inputs.push_back(std::make_unique<ProjectedColumnsUtIterator>(projected, 10));
 
     auto iter = new_merge_iterator(std::move(inputs), -1, false, false, nullptr, output_schema);
-    StorageReadOptions opts;
+    OlapReaderStatistics stats;
+    StorageReadOptions opts(stats);
     auto st = iter->init(opts);
     EXPECT_FALSE(st.ok());
     EXPECT_TRUE(st.to_string().find("compare contract violated") != std::string::npos)
@@ -629,7 +847,8 @@ TEST(VGenericIteratorsTest, MergeRejectsProjectionWithoutLeadingKey) {
     inputs.push_back(std::make_unique<ProjectedColumnsUtIterator>(projected, 10));
 
     auto iter = new_merge_iterator(std::move(inputs), -1, false, false, nullptr, output_schema);
-    StorageReadOptions opts;
+    OlapReaderStatistics stats;
+    StorageReadOptions opts(stats);
     auto st = iter->init(opts);
     EXPECT_FALSE(st.ok());
     EXPECT_TRUE(st.to_string().find("compare contract violated") != std::string::npos)

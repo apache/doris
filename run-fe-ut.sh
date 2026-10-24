@@ -136,6 +136,8 @@ Usage: $0 <options>
 
   Environment variables:
      EXTRA_FE_MODULES     Optional FE feature modules in feature=module_path format, separated by commas.
+     FE_UT_JAVA_OPTS      Forked fe-core JVM options (set to empty for a baseline run).
+                         Default: -XX:ActiveProcessorCount=2 -XX:TieredStopAtLevel=1
 
   Eg.
     $0                                                                      build and run ut
@@ -195,6 +197,13 @@ EXTRA_FE_MODULES="${EXTRA_FE_MODULES:-}"
 parse_extra_fe_modules "${EXTRA_FE_MODULES}"
 
 FE_MODULES=("fe-common" "fe-core")
+# fe-connector-adbc is not upstream of fe-core, so -am cannot discover its tests
+# unless the module is named explicitly.
+FE_MODULES+=("fe-connector/fe-connector-adbc")
+# The fluss connector. The other connectors' tests run because fe-core declares each one as a test
+# dependency (for Legacy413ProviderTypeContractTest) and -am pulls them into the reactor; fluss is
+# not among them, so it has to be named here or its tests never run.
+FE_MODULES+=("fe-connector/fe-connector-fluss")
 # The BE Java plugin modules. Nothing else runs these tests: no be-java-extensions module is
 # upstream of fe-core, so -am never reaches one, build.sh builds the reactor with -DskipTests, and
 # no GitHub workflow mentions the directory at all. What is in there is the evidence that the
@@ -212,9 +221,10 @@ FE_MODULES=("fe-common" "fe-core")
 # Listed one by one rather than as the aggregator: -pl on an aggregator selects that pom and none
 # of its children. Keep in sync with the module list in build.sh, which is the other complete
 # enumeration of this directory.
-for be_java_extension in jni-spi jni-bootstrap plugin-toolkit hive-apache-shade hive-udf-shade \
+for be_java_extension in jni-spi jni-bootstrap plugin-toolkit fluss-client-patch paimon-common-patch \
+    hive-apache-shade hive-udf-shade \
     hadoop-deps iceberg-metadata-scanner hadoop-hudi-scanner java-udf jdbc-scanner paimon-scanner \
-    max-compute-connector trino-connector-scanner java-writer; do
+    fluss-scanner max-compute-connector trino-connector-scanner java-writer; do
     FE_MODULES+=("be-java-extensions/${be_java_extension}")
 done
 for extra_module_path in "${FE_EXTRA_MODULE_PATHS[@]}"; do
@@ -250,6 +260,10 @@ if [[ -z "${FE_UT_PARALLEL}" ]]; then
 fi
 echo "Unit test parallel is: ${FE_UT_PARALLEL}"
 
+# Reduce GC/compiler overhead in short-lived test JVMs; an explicit empty value restores defaults.
+FE_UT_JAVA_OPTS="${FE_UT_JAVA_OPTS--XX:ActiveProcessorCount=2 -XX:TieredStopAtLevel=1}"
+echo "FE UT fork JVM options: ${FE_UT_JAVA_OPTS}"
+
 if [[ "${RUN}" -eq 1 ]]; then
     echo "Run the specified class: $1"
     # eg:
@@ -257,18 +271,18 @@ if [[ "${RUN}" -eq 1 ]]; then
     # sh run-fe-ut.sh --run org.apache.doris.utframe.DemoTest#testCreateDbAndTable+test2
 
     if [[ "${COVERAGE}" -eq 1 ]]; then
-        "${MVN_CMD}" -Pcoverage test jacoco:report -pl "${MVN_MODULES}" -am -DfailIfNoTests=false -Dtest="$1"
+        "${MVN_CMD}" "-Dfe.ut.jvm.args=${FE_UT_JAVA_OPTS}" -Pcoverage test jacoco:report -pl "${MVN_MODULES}" -am -DfailIfNoTests=false -Dtest="$1"
     else
-        "${MVN_CMD}" test -pl "${MVN_MODULES}" -am -Dcheckstyle.skip=true -DfailIfNoTests=false \
+        "${MVN_CMD}" "-Dfe.ut.jvm.args=${FE_UT_JAVA_OPTS}" test -pl "${MVN_MODULES}" -am -Dcheckstyle.skip=true -DfailIfNoTests=false \
             -Dmaven.build.cache.enabled=false -Dtest="$1"
     fi
 else
     echo "Run Frontend UT"
     if [[ "${COVERAGE}" -eq 1 ]]; then
-        "${MVN_CMD}" -Pcoverage test jacoco:report -pl "${MVN_MODULES}" -am -DfailIfNoTests=false \
+        "${MVN_CMD}" "-Dfe.ut.jvm.args=${FE_UT_JAVA_OPTS}" -Pcoverage test jacoco:report -pl "${MVN_MODULES}" -am -DfailIfNoTests=false \
             -Dmaven.test.failure.ignore=true
     else
-        "${MVN_CMD}" test -pl "${MVN_MODULES}" -am -Dcheckstyle.skip=true -DfailIfNoTests=false \
+        "${MVN_CMD}" "-Dfe.ut.jvm.args=${FE_UT_JAVA_OPTS}" test -pl "${MVN_MODULES}" -am -Dcheckstyle.skip=true -DfailIfNoTests=false \
             -Dmaven.build.cache.enabled=false
     fi
 

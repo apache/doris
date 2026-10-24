@@ -25,6 +25,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.PluginDrivenMvccExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.analysis.PreloadExternalMetadata;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.qe.ConnectContext;
@@ -39,8 +40,43 @@ import org.mockito.Mockito;
 
 import java.util.Collections;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class StatementContextTest {
+
+    @Test
+    public void testChangelogReferenceTsoIsStatementScoped() {
+        StatementContext statementContext = new StatementContext();
+        AtomicInteger calls = new AtomicInteger();
+
+        statementContext.requireChangelogReferenceTso();
+        org.junit.jupiter.api.Assertions.assertTrue(statementContext.isChangelogReferenceTsoRequired());
+        org.junit.jupiter.api.Assertions.assertEquals(101L,
+                statementContext.getOrRegisterChangelogReferenceTso(() -> 100L + calls.incrementAndGet()));
+        org.junit.jupiter.api.Assertions.assertEquals(101L,
+                statementContext.getOrRegisterChangelogReferenceTso(() -> 100L + calls.incrementAndGet()));
+        org.junit.jupiter.api.Assertions.assertEquals(1, calls.get());
+
+        statementContext.resetConnectorStatementScope();
+        org.junit.jupiter.api.Assertions.assertFalse(statementContext.isChangelogReferenceTsoRequired());
+        org.junit.jupiter.api.Assertions.assertThrows(AnalysisException.class,
+                statementContext::getChangelogReferenceTso);
+    }
+
+    @Test
+    public void testExecutionVersionIsFreshForEachPreparedExecution() {
+        StatementContext firstExecution = new StatementContext();
+        firstExecution.initializeBeExecVersion(13);
+
+        StatementContext secondExecution = firstExecution.createNextExecuteContext();
+        org.junit.jupiter.api.Assertions.assertFalse(secondExecution.hasBeExecVersion());
+        secondExecution.initializeBeExecVersion(16);
+
+        org.junit.jupiter.api.Assertions.assertEquals(13, firstExecution.getBeExecVersion());
+        org.junit.jupiter.api.Assertions.assertEquals(16, secondExecution.getBeExecVersion());
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> secondExecution.initializeBeExecVersion(15));
+    }
 
     @Test
     public void testSkipPreloadWhenSessionVariableDisabled() {

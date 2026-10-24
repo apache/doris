@@ -134,7 +134,7 @@ Status FileHeader<MessageType, ExtraType>::prepare() {
     _fixed_file_header.checksum = 0;
     _fixed_file_header.protobuf_length = _proto_string.size();
     _fixed_file_header.file_length = size();
-    _fixed_file_header.version = OLAP_DATA_VERSION_APPLIED;
+    _fixed_file_header.version = static_cast<int32_t>(OLAP_DATA_VERSION_APPLIED);
     _fixed_file_header.magic_number = OLAP_FIX_HEADER_MAGIC_NUMBER;
 
     return Status::OK();
@@ -201,7 +201,7 @@ Status FileHeader<MessageType, ExtraType>::deserialize() {
         _fixed_file_header.protobuf_length = tmp_header.protobuf_length;
         _fixed_file_header.protobuf_checksum = tmp_header.protobuf_checksum;
         _fixed_file_header.magic_number = OLAP_FIX_HEADER_MAGIC_NUMBER;
-        _fixed_file_header.version = OLAP_DATA_VERSION_APPLIED;
+        _fixed_file_header.version = static_cast<int32_t>(OLAP_DATA_VERSION_APPLIED);
         _fixed_file_header_size = sizeof(tmp_header);
     }
 
@@ -290,7 +290,7 @@ Status FileHeader<MessageType, ExtraType>::deserialize_from_memory(const uint8_t
         _fixed_file_header.protobuf_length = tmp_header.protobuf_length;
         _fixed_file_header.protobuf_checksum = tmp_header.protobuf_checksum;
         _fixed_file_header.magic_number = OLAP_FIX_HEADER_MAGIC_NUMBER;
-        _fixed_file_header.version = OLAP_DATA_VERSION_APPLIED;
+        _fixed_file_header.version = static_cast<int32_t>(OLAP_DATA_VERSION_APPLIED);
         _fixed_file_header_size = sizeof(tmp_header);
         ptr = buffer + sizeof(tmp_header);
     }

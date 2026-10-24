@@ -42,6 +42,7 @@
 namespace doris {
 
 class PTabletWriterCancelRequest;
+class EosCompletion;
 class PTabletWriterOpenRequest;
 class Thread;
 
@@ -56,8 +57,11 @@ public:
     // open a new load channel if not exist
     Status open(const PTabletWriterOpenRequest& request);
 
+    // For hang_wait EOS, return a barrier handle to the service, which transfers
+    // the RPC completion after finishing synchronous response writes.
     Status add_batch(const PTabletWriterAddBlockRequest& request,
-                     PTabletWriterAddBlockResult* response);
+                     PTabletWriterAddBlockResult* response,
+                     std::shared_ptr<EosCompletion>* eos_completion);
 
     // cancel all tablet stream for 'load_id' load
     Status cancel(const PTabletWriterCancelRequest& request);
@@ -78,7 +82,10 @@ private:
     Status _get_load_channel(std::shared_ptr<LoadChannel>& channel, bool& is_eof,
                              const UniqueId& load_id, const PTabletWriterAddBlockRequest& request);
 
-    void _finish_load_channel(UniqueId load_id);
+    Status _cancel_load_channel(const std::shared_ptr<LoadChannel>& channel, const Status& reason);
+    void _finish_load_channel(const std::shared_ptr<LoadChannel>& channel);
+    // Caller holds _lock.
+    void _record_cancelled_load_channel(const UniqueId& load_id, const std::string& reason);
 
     Status _start_bg_worker();
 
@@ -86,6 +93,8 @@ private:
     public:
         class CacheValue : public LRUCacheValueBase {
         public:
+            // Unformatted message, without a Status code prefix or stack trace.
+            // A non-null cache value marks cancellation even when the message is empty.
             std::string _cancel_reason;
         };
 

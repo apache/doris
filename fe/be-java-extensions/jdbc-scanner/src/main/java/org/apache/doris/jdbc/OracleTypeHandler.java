@@ -19,6 +19,7 @@ package org.apache.doris.jdbc;
 
 import org.apache.doris.jni.spi.vec.ColumnType;
 import org.apache.doris.jni.spi.vec.ColumnValueConverter;
+import org.apache.doris.jni.toolkit.jdbc.JdbcExceptionUtils;
 
 import com.zaxxer.hikari.HikariDataSource;
 import org.slf4j.Logger;
@@ -38,6 +39,7 @@ import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.sql.Types;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
@@ -52,7 +54,24 @@ import java.time.LocalDateTime;
  *   Old drivers don't support rs.getObject(int, Class), so we fall back to typed getters.
  */
 public class OracleTypeHandler extends DefaultTypeHandler {
+    private static final java.time.format.DateTimeFormatter TIMESTAMP_TZ_FORMAT =
+            java.time.format.DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss.SSSSSS");
     private static final Logger LOG = LoggerFactory.getLogger(OracleTypeHandler.class);
+
+    private final String[] sensitiveValues;
+
+    // Whether the catalog connects through Oracle's driver. An Oracle-mode OceanBase catalog shares this handler but
+    // connects through OceanBase's driver, which has no oracle.jdbc classes.
+    private final boolean oracleDriver;
+
+    public OracleTypeHandler() {
+        this("ORACLE");
+    }
+
+    public OracleTypeHandler(String tableType, String... sensitiveValues) {
+        this.oracleDriver = "ORACLE".equalsIgnoreCase(tableType);
+        this.sensitiveValues = sensitiveValues.clone();
+    }
 
     // Whether the JDBC driver supports JDBC 4.1 getObject(int, Class) method.
     // Determined at runtime from the driver version. Oracle ojdbc6 (< 12.2.0) does not.
@@ -78,7 +97,8 @@ public class OracleTypeHandler extends DefaultTypeHandler {
                         + ", JDBC 4.1 supported: " + jdbc41Supported);
             }
         } catch (SQLException e) {
-            LOG.warn("Failed to detect Oracle driver version, assuming JDBC 4.1: " + e.getMessage());
+            LOG.warn("Failed to detect Oracle driver version, assuming JDBC 4.1: {}",
+                    JdbcExceptionUtils.format("", e, sensitiveValues));
         }
         versionDetected = true;
     }
@@ -108,6 +128,18 @@ public class OracleTypeHandler extends DefaultTypeHandler {
                                                  int fetchSize) throws SQLException {
         // Detect driver version when creating the statement (first time we have access to connection)
         detectDriverVersion(conn);
+        // ALTER SESSION alone leaves the Oracle driver's TSLTZ zone unset. Initialize every borrowed connection.
+        if (oracleDriver) {
+            try {
+                Connection physical = conn.unwrap(Connection.class);
+                Class<?> oracleConnection = Class.forName("oracle.jdbc.OracleConnection", true,
+                        physical.getClass().getClassLoader());
+                oracleConnection.getMethod("setSessionTimeZone", String.class)
+                        .invoke(conn.unwrap(oracleConnection), "UTC");
+            } catch (ReflectiveOperationException e) {
+                throw new SQLException("Failed to initialize Oracle session time zone", e);
+            }
+        }
         PreparedStatement stmt = conn.prepareStatement(sql,
                 ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
         stmt.setFetchSize(fetchSize);
@@ -117,6 +149,11 @@ public class OracleTypeHandler extends DefaultTypeHandler {
     @Override
     public Object getColumnValue(ResultSet rs, int columnIndex, ColumnType type,
                                  ResultSetMetaData metadata) throws SQLException {
+        if (type.getType() == ColumnType.Type.TIMESTAMPTZ) {
+            // Both driver paths preserve the instant instead of passing local wall-clock fields to JNI.
+            Timestamp value = rs.getTimestamp(columnIndex);
+            return value == null ? null : checkedUtcTimestamp(value.toInstant());
+        }
         if (jdbc41Supported) {
             return newGetColumnValue(rs, columnIndex, type);
         } else {
@@ -254,7 +291,8 @@ public class OracleTypeHandler extends DefaultTypeHandler {
                         try {
                             return ((Clob) input).getSubString(1, (int) ((Clob) input).length());
                         } catch (SQLException e) {
-                            LOG.error("Failed to get string from clob", e);
+                            LOG.error("Failed to get string from clob: {}",
+                                    JdbcExceptionUtils.format("", e, sensitiveValues));
                             return null;
                         }
                     } else if (input instanceof byte[]) {
@@ -285,4 +323,18 @@ public class OracleTypeHandler extends DefaultTypeHandler {
     public void setValidationQuery(HikariDataSource ds) {
         ds.setConnectionTestQuery("SELECT 1 FROM dual");
     }
+
+    @Override
+    public void setTimestampTz(java.sql.PreparedStatement statement, int parameterIndex, LocalDateTime value)
+            throws SQLException {
+        // FE wraps this VARCHAR parameter in TO_TIMESTAMP_TZ, including on pre-JDBC-4.2 drivers.
+        statement.setString(parameterIndex,
+                value.format(TIMESTAMP_TZ_FORMAT) + " +00:00");
+    }
+
+    @Override
+    public void setTimestampTzNull(java.sql.PreparedStatement statement, int parameterIndex) throws SQLException {
+        statement.setNull(parameterIndex, Types.VARCHAR);
+    }
+
 }

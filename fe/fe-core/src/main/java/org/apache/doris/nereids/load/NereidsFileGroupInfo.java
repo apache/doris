@@ -276,7 +276,7 @@ public class NereidsFileGroupInfo {
                         fileStatus.path);
                 context.params.setCompressType(compressType);
                 FilePartitionUtils.ParsedColumnsFromPath columnsFromPath =
-                        FilePartitionUtils.parseColumnsFromPathWithNullInfo(fileStatus.path,
+                        FilePartitionUtils.parseColumnsFromPathWithNullInfoForLoad(fileStatus.path,
                                 context.fileGroup.getColumnNamesFromPath(), true, false);
                 List<String> columnsFromPathKeys = context.fileGroup.getColumnNamesFromPath();
                 TFileRangeDesc rangeDesc = createFileRangeDesc(0, fileStatus, fileStatus.size,
@@ -329,7 +329,7 @@ public class NereidsFileGroupInfo {
                     fileStatus.path);
             context.params.setCompressType(compressType);
             FilePartitionUtils.ParsedColumnsFromPath columnsFromPath =
-                    FilePartitionUtils.parseColumnsFromPathWithNullInfo(fileStatus.path,
+                    FilePartitionUtils.parseColumnsFromPathWithNullInfoForLoad(fileStatus.path,
                             context.fileGroup.getColumnNamesFromPath(), true, false);
             List<String> columnsFromPathKeys = context.fileGroup.getColumnNamesFromPath();
             // Assign scan range locations only for broker load.

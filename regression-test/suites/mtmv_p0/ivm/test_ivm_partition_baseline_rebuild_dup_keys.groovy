@@ -31,6 +31,8 @@ import static java.util.concurrent.TimeUnit.SECONDS
  * sets, so row multiplicities are part of the expectation.
  */
 suite("test_ivm_partition_baseline_rebuild_dup_keys") {
+    // Base-table queries below assert the same rows as the MV, so transparent rewrite must be off.
+    sql """set enable_materialized_view_rewrite = false;"""
     def tableName = "ivm_part_dup_t"
     def mvName = "ivm_part_dup_mv"
 
@@ -59,7 +61,7 @@ suite("test_ivm_partition_baseline_rebuild_dup_keys") {
             SELECT Status,
                    CASE WHEN RefreshMode IN ('COMPLETE', 'PARTIAL', 'NOT_REFRESH')
                         THEN RefreshMode ELSE 'NONE' END,
-                   CASE WHEN IvmFallbackReason = 'BINLOG_BROKEN'
+                   CASE WHEN IvmFallbackReason = 'CHANGELOG_BROKEN'
                         THEN IvmFallbackReason ELSE 'NONE' END
             FROM tasks('type'='mv')
             WHERE TaskId = '${taskId}'
@@ -79,8 +81,7 @@ suite("test_ivm_partition_baseline_rebuild_dup_keys") {
         DISTRIBUTED BY HASH(id) BUCKETS 1
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW"
+            "changelog.enable" = "true"
         )
     """
     sql """ALTER TABLE ${tableName} ADD PARTITION p202601 VALUES [('2026-01-01'), ('2026-02-01'))"""

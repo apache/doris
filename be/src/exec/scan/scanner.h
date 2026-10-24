@@ -140,6 +140,15 @@ protected:
         return Status::OK();
     }
 
+    // True once scanners of this operator have produced the whole shared LIMIT. The scanner then
+    // stops reading but does not report EOS for it: EOS means the underlying read is exhausted,
+    // while the LIMIT is applied by the scan operator, which stops the scanners once it holds
+    // enough rows.
+    bool _shared_scan_limit_exhausted() const {
+        return _shared_scan_limit != nullptr &&
+               _shared_scan_limit->load(std::memory_order_acquire) <= 0;
+    }
+
     // Update the counters before closing this scanner
     virtual void _collect_profile_before_close();
 

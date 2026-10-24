@@ -33,6 +33,19 @@ public interface AbstractInsertOverwriteManager {
 
     void taskGroupSuccess(long groupId, OlapTable targetTable, boolean forceDropPartition) throws DdlException;
 
+    /**
+     * The replacement half of {@link #taskGroupSuccess}: makes every replacement the group recorded visible.
+     * A caller that publishes the group itself calls this and then {@link #finishTaskGroup}, so that the task
+     * bookkeeping -- an edit-log write per task, each waiting for its journal -- runs outside whatever lock the
+     * caller holds the replacement under. A manager whose owning frontend runs the whole sequence behind one
+     * call replaces there and finishes there.
+     */
+    void replacePartitionsOfTaskGroup(long groupId, OlapTable targetTable, boolean forceDropPartition)
+            throws DdlException;
+
+    /** The bookkeeping half of {@link #taskGroupSuccess}, after the replacement it follows. */
+    void finishTaskGroup(long groupId);
+
     void taskSuccess(long taskId) throws Exception;
 
     void taskGroupFail(long groupId) throws Exception;

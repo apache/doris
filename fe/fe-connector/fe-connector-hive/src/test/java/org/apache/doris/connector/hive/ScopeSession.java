@@ -35,11 +35,19 @@ final class ScopeSession implements ConnectorSession {
     private final long catalogId;
     private final String queryId;
     private final ConnectorStatementScope scope;
+    private final Map<String, String> sessionProperties;
 
     ScopeSession(long catalogId, String queryId, ConnectorStatementScope scope) {
+        this(catalogId, queryId, scope,
+                Collections.singletonMap("enable_external_scan_task_reuse", "true"));
+    }
+
+    ScopeSession(long catalogId, String queryId, ConnectorStatementScope scope,
+            Map<String, String> sessionProperties) {
         this.catalogId = catalogId;
         this.queryId = queryId;
         this.scope = scope;
+        this.sessionProperties = sessionProperties;
     }
 
     @Override
@@ -85,5 +93,10 @@ final class ScopeSession implements ConnectorSession {
     @Override
     public Map<String, String> getCatalogProperties() {
         return Collections.emptyMap();
+    }
+
+    @Override
+    public Map<String, String> getSessionProperties() {
+        return sessionProperties;
     }
 }

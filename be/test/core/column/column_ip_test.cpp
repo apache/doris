@@ -303,7 +303,8 @@ TEST_F(ColumnIPTest, IPv4ValueFromStringTest) {
 TEST_F(ColumnIPTest, IPv4Parse) {
     std::string ipv4_str = "127.0.0.1";
     Int64 result_value = 0;
-    ASSERT_EQ(try_parse_ipv4(ipv4_str.data(), result_value), true);
+    ASSERT_EQ(try_parse_ipv4(ipv4_str.data(), ipv4_str.data() + ipv4_str.size(), result_value),
+              true);
     ASSERT_EQ(2130706433, result_value);
 };
 

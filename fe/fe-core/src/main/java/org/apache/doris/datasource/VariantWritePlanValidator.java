@@ -1,0 +1,529 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.datasource;
+
+import org.apache.doris.catalog.Column;
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.CTEContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.CTEId;
+import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
+import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.WhenClause;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.RecursiveCte;
+import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
+import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveUnionAnchor;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.trees.plans.logical.LogicalWorkTableReference;
+import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.VariantType;
+
+import com.google.common.collect.ImmutableSet;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+
+/** Shared source-plan validation for external Variant sinks. */
+public final class VariantWritePlanValidator {
+    private VariantWritePlanValidator() {
+    }
+
+    /**
+     * Rejects an implicit Variant-to-non-Variant cast in the lineage of a Variant target column.
+     *
+     * <p>Common-type analysis for UNION, IF and CASE runs before sink binding. Without this
+     * check, an object or array Variant can become SQL NULL while being cast to a scalar, and the
+     * sink will only see that scalar/NULL and encode it back as Variant. Explicit casts remain an
+     * intentional user conversion and are not rejected. Only the expressions whose values can reach
+     * the target are inspected: the condition of an IF or of a CASE branch only chooses a value, so a
+     * Variant path compared with a scalar there loses nothing that is written. Likewise the later
+     * inputs of EXCEPT and INTERSECT only decide which rows of the first input stay, and the partition
+     * and order keys of a window and the ORDER BY of an aggregate function only arrange the rows whose
+     * values are used.</p>
+     */
+    public static void validateNoLossyCoercion(List<Column> targetColumns, Plan sourcePlan) {
+        validateNoLossyCoercion(targetColumns, sourcePlan, Optional.empty());
+    }
+
+    /** Validates a sink while its enclosing CTE producers still live in the analyzer context. */
+    public static void validateNoLossyCoercion(
+            List<Column> targetColumns, Plan sourcePlan, CTEContext cteContext) {
+        validateNoLossyCoercion(targetColumns, sourcePlan, Optional.of(cteContext));
+    }
+
+    private static void validateNoLossyCoercion(
+            List<Column> targetColumns, Plan sourcePlan, Optional<CTEContext> cteContext) {
+        if (targetColumns.size() != sourcePlan.getOutput().size()) {
+            throw new AnalysisException("VARIANT write target and source columns are not aligned");
+        }
+        List<Integer> sourceOrdinals = new ArrayList<>(targetColumns.size());
+        for (int i = 0; i < targetColumns.size(); i++) {
+            sourceOrdinals.add(i);
+        }
+        validateNoLossyCoercion(targetColumns, sourcePlan, sourceOrdinals, cteContext);
+    }
+
+    /**
+     * Validates target columns that are embedded in a wider source output, such as row-level DML
+     * where the operation and row-id routing columns precede the table data columns.
+     */
+    public static void validateNoLossyCoercion(
+            List<Column> targetColumns, Plan sourcePlan, List<Integer> sourceOrdinals) {
+        validateNoLossyCoercion(targetColumns, sourcePlan, sourceOrdinals, Optional.empty());
+    }
+
+    /** Validates mapped source ordinals with analyzer-time CTE producer visibility. */
+    public static void validateNoLossyCoercion(
+            List<Column> targetColumns, Plan sourcePlan, List<Integer> sourceOrdinals,
+            CTEContext cteContext) {
+        validateNoLossyCoercion(targetColumns, sourcePlan, sourceOrdinals, Optional.of(cteContext));
+    }
+
+    private static void validateNoLossyCoercion(
+            List<Column> targetColumns, Plan sourcePlan, List<Integer> sourceOrdinals,
+            Optional<CTEContext> cteContext) {
+        if (targetColumns.size() != sourceOrdinals.size()) {
+            throw new AnalysisException("VARIANT write target and source columns are not aligned");
+        }
+
+        List<Integer> variantTargetOrdinals = new ArrayList<>();
+        for (int i = 0; i < targetColumns.size(); i++) {
+            DataType targetType = DataType.fromCatalogType(targetColumns.get(i).getType());
+            if (VariantType.containsVariant(targetType)) {
+                variantTargetOrdinals.add(i);
+            }
+        }
+        if (variantTargetOrdinals.isEmpty()) {
+            return;
+        }
+
+        TraceContext traceContext = new TraceContext(sourcePlan, cteContext);
+        List<Slot> sourceOutputs = sourcePlan.getOutput();
+        for (int targetOrdinal : variantTargetOrdinals) {
+            int sourceOrdinal = sourceOrdinals.get(targetOrdinal);
+            if (sourceOrdinal < 0 || sourceOrdinal >= sourceOutputs.size()) {
+                throw new AnalysisException("VARIANT write target and source columns are not aligned");
+            }
+            Column targetColumn = targetColumns.get(targetOrdinal);
+            traceOutputLineage(
+                    sourcePlan,
+                    Collections.singleton(sourceOutputs.get(sourceOrdinal).getExprId()),
+                    targetColumn.getName(),
+                    traceContext);
+        }
+    }
+
+    /**
+     * Validates the requested outputs and returns lineage ExprIds supplied by an outer scope.
+     * Scalar subqueries use the returned IDs to continue tracing correlated columns in the
+     * enclosing plan.
+     */
+    private static Set<ExprId> traceOutputLineage(
+            Plan plan, Set<ExprId> requiredExprIds, String targetColumn, TraceContext context) {
+        if (requiredExprIds.isEmpty()) {
+            return Collections.emptySet();
+        }
+        if (plan instanceof SetOperation) {
+            return traceSetOperation(plan, (SetOperation) plan, requiredExprIds, targetColumn, context);
+        }
+        if (plan instanceof RecursiveCte) {
+            return traceRecursiveCte(plan, (RecursiveCte) plan, requiredExprIds, targetColumn, context);
+        }
+        if (plan instanceof LogicalGenerate) {
+            return traceGenerate((LogicalGenerate<?>) plan, requiredExprIds, targetColumn, context);
+        }
+        if (plan instanceof LogicalCTEConsumer) {
+            return traceCteConsumer((LogicalCTEConsumer) plan, requiredExprIds, targetColumn, context);
+        }
+
+        Set<ExprId> unresolvedExprIds = new HashSet<>(requiredExprIds);
+        Set<ExprId> inputExprIds = new HashSet<>();
+        for (Expression expression : plan.getExpressions()) {
+            if (!(expression instanceof NamedExpression)) {
+                continue;
+            }
+            NamedExpression namedExpression = (NamedExpression) expression;
+            if (!requiredExprIds.contains(namedExpression.getExprId())) {
+                continue;
+            }
+            inputExprIds.addAll(validateExpression(namedExpression, targetColumn, context));
+            unresolvedExprIds.remove(namedExpression.getExprId());
+        }
+        inputExprIds.addAll(unresolvedExprIds);
+
+        Set<ExprId> externalExprIds = new HashSet<>(inputExprIds);
+        for (Plan child : plan.children()) {
+            Set<ExprId> childOutputExprIds = child.getOutputExprIdSet();
+            Set<ExprId> childRequiredExprIds = new HashSet<>(inputExprIds);
+            childRequiredExprIds.retainAll(childOutputExprIds);
+            externalExprIds.removeAll(childOutputExprIds);
+            externalExprIds.addAll(traceOutputLineage(child, childRequiredExprIds, targetColumn, context));
+        }
+        return externalExprIds;
+    }
+
+    private static Set<ExprId> traceRecursiveCte(
+            Plan plan, RecursiveCte recursiveCte, Set<ExprId> requiredExprIds,
+            String targetColumn, TraceContext context) {
+        // The recursive term reads the previous iteration through the work table, so a column it writes
+        // can carry the value of another column. Trace those columns as well until no new one is reached.
+        Map<ExprId, Integer> workTableOrdinals = workTableOrdinals(plan);
+        Set<ExprId> externalExprIds = new HashSet<>();
+        Set<Integer> tracedOrdinals = new HashSet<>();
+        Set<Integer> pendingOrdinals = requiredOutputOrdinals(plan, requiredExprIds);
+        while (!pendingOrdinals.isEmpty()) {
+            tracedOrdinals.addAll(pendingOrdinals);
+            Set<ExprId> childExternalExprIds = new HashSet<>();
+            for (int childIndex = 0; childIndex < plan.arity(); childIndex++) {
+                List<SlotReference> childOutputs = recursiveCte.getRegularChildOutput(childIndex);
+                Set<ExprId> childRequiredExprIds = new HashSet<>();
+                for (int ordinal : pendingOrdinals) {
+                    if (ordinal < childOutputs.size()) {
+                        childRequiredExprIds.add(childOutputs.get(ordinal).getExprId());
+                    }
+                }
+                childExternalExprIds.addAll(traceOutputLineage(
+                        plan.child(childIndex), childRequiredExprIds, targetColumn, context));
+            }
+            pendingOrdinals = new HashSet<>();
+            for (ExprId exprId : childExternalExprIds) {
+                Integer ordinal = workTableOrdinals.get(exprId);
+                if (ordinal == null) {
+                    externalExprIds.add(exprId);
+                } else if (!tracedOrdinals.contains(ordinal)) {
+                    pendingOrdinals.add(ordinal);
+                }
+            }
+        }
+        return externalExprIds;
+    }
+
+    /** Maps each column of the work table the recursive term reads to the CTE output ordinal it holds. */
+    private static Map<ExprId, Integer> workTableOrdinals(Plan recursiveCte) {
+        CTEId cteId = ((LogicalRecursiveUnionAnchor<?>) recursiveCte.child(0)).getCteId();
+        List<LogicalWorkTableReference> workTables = recursiveCte.child(1).collectToList(
+                node -> node instanceof LogicalWorkTableReference
+                        && ((LogicalWorkTableReference) node).getCteId().equals(cteId));
+        Map<ExprId, Integer> ordinals = new HashMap<>();
+        for (LogicalWorkTableReference workTable : workTables) {
+            List<Slot> outputs = workTable.getOutput();
+            for (int ordinal = 0; ordinal < outputs.size(); ordinal++) {
+                ordinals.put(outputs.get(ordinal).getExprId(), ordinal);
+            }
+        }
+        return ordinals;
+    }
+
+    private static Set<ExprId> traceGenerate(
+            LogicalGenerate<?> generate, Set<ExprId> requiredExprIds,
+            String targetColumn, TraceContext context) {
+        Set<ExprId> childRequiredExprIds = new HashSet<>(requiredExprIds);
+        List<Slot> generatorOutputs = generate.getGeneratorOutput();
+        List<? extends Expression> generators = generate.getGenerators();
+        for (int ordinal = 0; ordinal < generatorOutputs.size(); ordinal++) {
+            Slot generatorOutput = generatorOutputs.get(ordinal);
+            if (!requiredExprIds.contains(generatorOutput.getExprId())) {
+                continue;
+            }
+            childRequiredExprIds.remove(generatorOutput.getExprId());
+            childRequiredExprIds.addAll(validateExpression(generators.get(ordinal), targetColumn, context));
+        }
+        Set<ExprId> childOutputExprIds = generate.child().getOutputExprIdSet();
+        Set<ExprId> externalExprIds = new HashSet<>(childRequiredExprIds);
+        externalExprIds.removeAll(childOutputExprIds);
+        childRequiredExprIds.retainAll(childOutputExprIds);
+        externalExprIds.addAll(traceOutputLineage(
+                generate.child(), childRequiredExprIds, targetColumn, context));
+        return externalExprIds;
+    }
+
+    private static Set<ExprId> traceSetOperation(
+            Plan plan, SetOperation setOperation, Set<ExprId> requiredExprIds,
+            String targetColumn, TraceContext context) {
+        Set<ExprId> externalExprIds = new HashSet<>();
+        Set<Integer> requiredOrdinals = requiredOutputOrdinals(plan, requiredExprIds);
+
+        if (plan instanceof LogicalUnion) {
+            for (List<NamedExpression> constantRow : ((LogicalUnion) plan).getConstantExprsList()) {
+                for (int ordinal : requiredOrdinals) {
+                    if (ordinal < constantRow.size()) {
+                        externalExprIds.addAll(validateExpression(constantRow.get(ordinal), targetColumn, context));
+                    }
+                }
+            }
+        }
+
+        // EXCEPT and INTERSECT return rows of their first input; the later inputs only decide which of
+        // those rows stay, so none of their values is written.
+        int valueInputs = plan instanceof LogicalExcept || plan instanceof LogicalIntersect
+                ? 1
+                : setOperation.getArity();
+        for (int childIndex = 0; childIndex < valueInputs; childIndex++) {
+            List<SlotReference> childOutputs = setOperation.getRegularChildOutput(childIndex);
+            Set<ExprId> childRequiredExprIds = new HashSet<>();
+            for (int ordinal : requiredOrdinals) {
+                if (ordinal < childOutputs.size()) {
+                    childRequiredExprIds.add(childOutputs.get(ordinal).getExprId());
+                }
+            }
+            externalExprIds.addAll(traceOutputLineage(
+                    plan.child(childIndex), childRequiredExprIds, targetColumn, context));
+        }
+        return externalExprIds;
+    }
+
+    private static Set<Integer> requiredOutputOrdinals(Plan plan, Set<ExprId> requiredExprIds) {
+        Set<Integer> requiredOrdinals = new HashSet<>();
+        List<Slot> outputs = plan.getOutput();
+        for (int i = 0; i < outputs.size(); i++) {
+            if (requiredExprIds.contains(outputs.get(i).getExprId())) {
+                requiredOrdinals.add(i);
+            }
+        }
+        return requiredOrdinals;
+    }
+
+    private static Set<ExprId> traceCteConsumer(
+            LogicalCTEConsumer consumer, Set<ExprId> requiredExprIds,
+            String targetColumn, TraceContext context) {
+        // A producer shared by several consumers is traced once per output, whichever sets of its outputs
+        // the consumers request, so the work stays proportional to the plan rather than to the number of
+        // paths through it or of the sets of outputs requested along them.
+        Set<ExprId> externalExprIds = new HashSet<>();
+        for (Map.Entry<Slot, Slot> mapping : consumer.getConsumerToProducerOutputMap().entrySet()) {
+            if (requiredExprIds.contains(mapping.getKey().getExprId())) {
+                externalExprIds.addAll(traceCteOutput(
+                        consumer, mapping.getValue().getExprId(), targetColumn, context));
+            }
+        }
+        return externalExprIds;
+    }
+
+    private static Set<ExprId> traceCteOutput(
+            LogicalCTEConsumer consumer, ExprId producerExprId, String targetColumn, TraceContext context) {
+        Pair<CTEId, ExprId> traceKey = Pair.of(consumer.getCteId(), producerExprId);
+        Set<ExprId> completedTrace = context.completedCteTraces.get(traceKey);
+        if (completedTrace != null) {
+            return completedTrace;
+        }
+        LogicalCTEProducer<?> producer = context.cteProducers.get(consumer.getCteId());
+        Optional<Plan> producerPlan;
+        if (producer == null) {
+            // A producer taken from the analyzer context is not part of the traced plan, so the
+            // producers of the WITH clauses nested in it have not been collected yet.
+            producerPlan = context.findAnalyzerCteProducer(consumer);
+            producerPlan.ifPresent(context::collectCteProducers);
+        } else {
+            producerPlan = Optional.of(producer.child());
+        }
+        if (!producerPlan.isPresent() || !context.activeCteIds.add(consumer.getCteId())) {
+            return Collections.emptySet();
+        }
+        try {
+            Set<ExprId> externalExprIds = ImmutableSet.copyOf(traceOutputLineage(
+                    producerPlan.get(), Collections.singleton(producerExprId), targetColumn, context));
+            context.completedCteTraces.put(traceKey, externalExprIds);
+            return externalExprIds;
+        } finally {
+            context.activeCteIds.remove(consumer.getCteId());
+        }
+    }
+
+    /**
+     * Validates the casts on the values {@code expression} writes and returns the ExprIds those
+     * values come from: the slots they read, and the correlated slots of their scalar subqueries,
+     * which an outer scope may supply.
+     */
+    private static Set<ExprId> validateExpression(
+            Expression expression, String targetColumn, TraceContext context) {
+        List<Expression> valueNodes = valueNodes(expression);
+        validateLossyCast(valueNodes, targetColumn);
+        Set<ExprId> inputExprIds = new HashSet<>();
+        for (Expression node : valueNodes) {
+            if (node instanceof Slot) {
+                inputExprIds.add(((Slot) node).getExprId());
+            } else if (node instanceof ScalarSubquery) {
+                inputExprIds.addAll(traceScalarSubquery((ScalarSubquery) node, targetColumn, context));
+            }
+        }
+        return inputExprIds;
+    }
+
+    /** Traces a scalar subquery and returns its correlated slots that the subquery itself does not supply. */
+    private static Set<ExprId> traceScalarSubquery(
+            ScalarSubquery scalarSubquery, String targetColumn, TraceContext context) {
+        scalarSubquery.getTypeCoercionExpr()
+                .ifPresent(coercion -> validateLossyCast(valueNodes(coercion), targetColumn));
+        Plan queryPlan = scalarSubquery.getQueryPlan();
+        context.collectCteProducers(queryPlan);
+        Set<ExprId> unresolvedExprIds = new HashSet<>(traceOutputLineage(
+                queryPlan,
+                Collections.singleton(queryPlan.getOutput().get(0).getExprId()),
+                targetColumn,
+                context));
+        Set<ExprId> correlatedExprIds = new HashSet<>();
+        for (Slot correlateSlot : scalarSubquery.getCorrelateSlots()) {
+            correlatedExprIds.add(correlateSlot.getExprId());
+        }
+        unresolvedExprIds.retainAll(correlatedExprIds);
+        return unresolvedExprIds;
+    }
+
+    /**
+     * The nodes of {@code expression} whose values can reach its result, in pre-order: every node
+     * except those under the condition of an IF or of a CASE branch, which only chooses a value, and
+     * those under the partition and order keys of a window or the ORDER BY of an aggregate function
+     * such as GROUP_CONCAT, which only arrange the rows whose values are used.
+     */
+    private static List<Expression> valueNodes(Expression expression) {
+        List<Expression> nodes = new ArrayList<>();
+        collectValueNodes(expression, nodes);
+        return nodes;
+    }
+
+    private static void collectValueNodes(Expression expression, List<Expression> nodes) {
+        nodes.add(expression);
+        if (expression instanceof If) {
+            collectValueNodes(((If) expression).getTrueValue(), nodes);
+            collectValueNodes(((If) expression).getFalseValue(), nodes);
+        } else if (expression instanceof WhenClause) {
+            collectValueNodes(((WhenClause) expression).getResult(), nodes);
+        } else if (expression instanceof WindowExpression) {
+            collectValueNodes(((WindowExpression) expression).getFunction(), nodes);
+        } else {
+            for (Expression child : expression.children()) {
+                if (!(child instanceof OrderExpression)) {
+                    collectValueNodes(child, nodes);
+                }
+            }
+        }
+    }
+
+    private static void validateLossyCast(List<Expression> valueNodes, String targetColumn) {
+        for (Expression node : valueNodes) {
+            if (!(node instanceof Cast)) {
+                continue;
+            }
+            Cast cast = (Cast) node;
+            if (!cast.isExplicitType() && losesVariantLeaf(cast.child().getDataType(), cast.getDataType())) {
+                throw new AnalysisException(
+                        "VARIANT write cannot safely convert input column '" + targetColumn
+                                + "': source expression implicitly casts VARIANT to "
+                                + cast.getDataType().toSql() + " before sink analysis");
+            }
+        }
+    }
+
+    private static boolean losesVariantLeaf(DataType sourceType, DataType targetType) {
+        // Encoding a scalar or supported ARRAY value as one top-level Variant preserves all
+        // nested Variant leaves. The lossy case is a Variant leaf coerced to a non-Variant path.
+        if (targetType instanceof VariantType) {
+            return false;
+        }
+        if (sourceType instanceof VariantType) {
+            return true;
+        }
+        if (sourceType instanceof ArrayType) {
+            return targetType instanceof ArrayType
+                    ? losesVariantLeaf(
+                            ((ArrayType) sourceType).getItemType(),
+                            ((ArrayType) targetType).getItemType())
+                    : VariantType.containsVariant(sourceType);
+        }
+        if (sourceType instanceof MapType) {
+            if (!(targetType instanceof MapType)) {
+                return VariantType.containsVariant(sourceType);
+            }
+            MapType sourceMap = (MapType) sourceType;
+            MapType targetMap = (MapType) targetType;
+            return losesVariantLeaf(sourceMap.getKeyType(), targetMap.getKeyType())
+                    || losesVariantLeaf(sourceMap.getValueType(), targetMap.getValueType());
+        }
+        if (sourceType instanceof StructType) {
+            if (!(targetType instanceof StructType)) {
+                return VariantType.containsVariant(sourceType);
+            }
+            List<StructField> sourceFields = ((StructType) sourceType).getFields();
+            List<StructField> targetFields = ((StructType) targetType).getFields();
+            if (sourceFields.size() != targetFields.size()) {
+                return VariantType.containsVariant(sourceType);
+            }
+            for (int i = 0; i < sourceFields.size(); i++) {
+                if (losesVariantLeaf(sourceFields.get(i).getDataType(), targetFields.get(i).getDataType())) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static final class TraceContext {
+        private final Map<CTEId, LogicalCTEProducer<?>> cteProducers = new HashMap<>();
+        private final Set<CTEId> activeCteIds = new HashSet<>();
+        // Completed traces of producer outputs, keyed by CTE and output, with the ExprIds they return.
+        private final Map<Pair<CTEId, ExprId>, Set<ExprId>> completedCteTraces = new HashMap<>();
+        private final Optional<CTEContext> analyzerCteContext;
+
+        private TraceContext(Plan sourcePlan, Optional<CTEContext> analyzerCteContext) {
+            this.analyzerCteContext = analyzerCteContext;
+            collectCteProducers(sourcePlan);
+        }
+
+        private Optional<Plan> findAnalyzerCteProducer(LogicalCTEConsumer consumer) {
+            return analyzerCteContext
+                    .flatMap(context -> context.findCTEContext(consumer.getName()))
+                    .filter(context -> context.getCteId().equals(consumer.getCteId()))
+                    .flatMap(context -> context.getAnalyzedCTEPlan(consumer.getName()))
+                    .map(Plan.class::cast);
+        }
+
+        private void collectCteProducers(Plan plan) {
+            if (plan instanceof LogicalCTEProducer) {
+                LogicalCTEProducer<?> producer = (LogicalCTEProducer<?>) plan;
+                cteProducers.put(producer.getCteId(), producer);
+            }
+            for (Plan child : plan.children()) {
+                collectCteProducers(child);
+            }
+        }
+    }
+}

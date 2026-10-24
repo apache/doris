@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.connector.ConnectorSessionBuilder;
@@ -27,6 +28,7 @@ import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTransaction;
 import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
 import org.apache.doris.connector.spi.handle.NoOpConnectorTransaction;
+import org.apache.doris.connector.spi.handle.WriteOperation;
 import org.apache.doris.connector.spi.write.ConnectorSinkPlan;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
@@ -113,7 +115,9 @@ public class PluginDrivenInsertExecutorTest {
         ConnectorSession sinkSession = ConnectorSessionBuilder.create().build();
         RecordingWritePlanProvider provider = new RecordingWritePlanProvider();
         PluginDrivenTableSink sink = new PluginDrivenTableSink(
-                null, provider, sinkSession, new ConnectorTableHandle() { }, Collections.emptyList());
+                null, provider, sinkSession, new ConnectorTableHandle() { }, Collections.emptyList(),
+                Collections.emptyList(), null, WriteOperation.INSERT, true, false,
+                null, null, Config.max_be_exec_version);
 
         exec.finalizeSink(null, sink, null);
 

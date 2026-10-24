@@ -17,12 +17,14 @@
 
 package org.apache.doris.metric;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.CloudWarmUpJob;
 import org.apache.doris.cloud.JobWarmUpStats;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.Version;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.JsonUtil;
 import org.apache.doris.ha.FrontendNodeType;
@@ -32,11 +34,16 @@ import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.job.manager.JobManager;
 import org.apache.doris.job.offset.jdbc.JdbcOffset;
 import org.apache.doris.job.offset.jdbc.JdbcSourceOffsetProvider;
+import org.apache.doris.job.offset.s3.S3EventSourceOffsetProvider;
 import org.apache.doris.metric.Metric.MetricUnit;
 import org.apache.doris.monitor.jvm.JvmService;
 import org.apache.doris.monitor.jvm.JvmStats;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.UserProperty;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectPoolTestSupport;
+import org.apache.doris.qe.ConnectScheduler;
+import org.apache.doris.service.ExecuteEnv;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.Lists;
@@ -44,6 +51,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.lang.management.GarbageCollectorMXBean;
 import java.lang.management.ManagementFactory;
@@ -61,6 +70,32 @@ public class MetricsTest {
     public static void setUp() {
         FeConstants.runningUnitTest = true;
         MetricRepo.init();
+    }
+
+    @Test
+    public void testVersionMetricIsExportedWithBuildLabels() {
+        Assertions.assertEquals(26000100L, MetricRepo.encodeVersionMetricValue(26, 0, 1, 0));
+        Assertions.assertEquals(26000101L, MetricRepo.encodeVersionMetricValue(26, 0, 1, 1));
+        Assertions.assertTrue(MetricRepo.encodeVersionMetricValue(4, 99, 0, 0)
+                < MetricRepo.encodeVersionMetricValue(5, 0, 0, 0));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> MetricRepo.encodeVersionMetricValue(26, 0, 100, 0));
+
+        long value = MetricRepo.encodeVersionMetricValue(Version.DORIS_BUILD_VERSION_MAJOR,
+                Version.DORIS_BUILD_VERSION_MINOR, Version.DORIS_BUILD_VERSION_PATCH,
+                Version.DORIS_BUILD_VERSION_HOTFIX);
+
+        String expectedSample = "doris_fe_version{version=\"" + Version.DORIS_BUILD_VERSION
+                + "\", major=\"" + Version.DORIS_BUILD_VERSION_MAJOR
+                + "\", minor=\"" + Version.DORIS_BUILD_VERSION_MINOR
+                + "\", patch=\"" + Version.DORIS_BUILD_VERSION_PATCH
+                + "\", hotfix=\"" + Version.DORIS_BUILD_VERSION_HOTFIX
+                + "\", short_hash=\"" + Version.DORIS_BUILD_SHORT_HASH
+                + "\"} " + value;
+
+        String metricResult = getPrometheusMetrics();
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_version gauge"), metricResult);
+        Assertions.assertTrue(metricResult.contains(expectedSample), metricResult);
     }
 
     @Test
@@ -86,22 +121,34 @@ public class MetricsTest {
 
     @Test
     public void testConnectionMaxMetrics() throws Exception {
-        int originQeMaxConnection = Config.qe_max_connection;
-        int originArrowFlightMaxConnections = Config.arrow_flight_max_connections;
-        try {
-            Config.qe_max_connection = 4321;
-            Config.arrow_flight_max_connections = 8765;
+        // One pool for every protocol: connection_max is its limit, connection_total every
+        // connection in it, and the two arrow_flight gauges the Flight share of each. A scheduler
+        // of known numbers, with one connection of each protocol registered, so that each gauge is
+        // pinned to a literal and not to the getter it reads.
+        ConnectScheduler scheduler = new ConnectScheduler(4321, 300);
+        Env env = ConnectPoolTestSupport.envAllowing(100);
+        ConnectContext mysql = ConnectPoolTestSupport.mysqlConnection(env, UserIdentity.ROOT);
+        ConnectContext flight = ConnectPoolTestSupport.flightSession(env, UserIdentity.ROOT, "metric-token");
+        scheduler.submit(mysql);
+        scheduler.submit(flight);
+        Assertions.assertEquals(-1, scheduler.getConnectPoolMgr().registerConnection(mysql));
+        Assertions.assertEquals(-1, scheduler.getConnectPoolMgr().registerConnection(flight));
+        ExecuteEnv executeEnv = Mockito.mock(ExecuteEnv.class);
+        Mockito.when(executeEnv.getScheduler()).thenReturn(scheduler);
+        try (MockedStatic<ExecuteEnv> mockedExecuteEnv = Mockito.mockStatic(ExecuteEnv.class)) {
+            mockedExecuteEnv.when(ExecuteEnv::getInstance).thenReturn(executeEnv);
             MetricRepo.updateUserConnectionMaxMetric("metric_user", 321L);
 
             MetricVisitor visitor = new PrometheusMetricVisitor();
             MetricRepo.DORIS_METRIC_REGISTER.accept(visitor);
             String metricResult = visitor.finish();
             Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_connection_max gauge"));
-            Assertions.assertTrue(metricResult.contains("doris_fe_connection_max 13086"));
+            Assertions.assertTrue(metricResult.contains("doris_fe_connection_max 4321\n"), metricResult);
+            Assertions.assertTrue(metricResult.contains("doris_fe_connection_total 2\n"), metricResult);
             Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_arrow_flight_connection_total gauge"));
-            Assertions.assertTrue(metricResult.contains("doris_fe_arrow_flight_connection_total 0"));
+            Assertions.assertTrue(metricResult.contains("doris_fe_arrow_flight_connection_total 1\n"), metricResult);
             Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_arrow_flight_connection_max gauge"));
-            Assertions.assertTrue(metricResult.contains("doris_fe_arrow_flight_connection_max 8765"));
+            Assertions.assertTrue(metricResult.contains("doris_fe_arrow_flight_connection_max 300\n"), metricResult);
             Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_user_connection_max gauge"));
             Assertions.assertTrue(metricResult.contains("doris_fe_user_connection_max{user=\"metric_user\"} 321"));
 
@@ -123,8 +170,6 @@ public class MetricsTest {
             Assertions.assertTrue(metricResult.contains("doris_fe_user_connection_max{user=\"root\"} 456"));
             Assertions.assertFalse(metricResult.contains("doris_fe_user_connection_max{user=\"root\"} 789"));
         } finally {
-            Config.qe_max_connection = originQeMaxConnection;
-            Config.arrow_flight_max_connections = originArrowFlightMaxConnections;
             MetricRepo.removeUserConnectionMaxMetric("metric_user");
             Env.getServingEnv().getAuth().updateUserPropertyInternal(Auth.ROOT_USER, Lists.newArrayList(
                     Pair.of(UserProperty.PROP_MAX_USER_CONNECTIONS, "100")), true);
@@ -167,6 +212,34 @@ public class MetricsTest {
                     "doris_fe_streaming_job_per_job_last_task_success_time_seconds"
                             + "{job_id=\"1787039821000\", job_name=\"streaming_metric_job\"} 1787039821"));
             Assertions.assertFalse(metricResult.contains("doris_fe_streaming_job_per_job_lag{"));
+            String messageLag = "doris_fe_streaming_job_per_job_lag_messages"
+                    + "{job_id=\"1787039821000\", job_name=\"streaming_metric_job\"}";
+            Assertions.assertFalse(metricResult.contains(messageLag));
+
+            S3EventSourceOffsetProvider eventProvider = new S3EventSourceOffsetProvider("test-queue");
+            Deencapsulation.setField(job, "offsetProvider", eventProvider);
+            MetricRepo.updateStreamingJobPerJobMetrics();
+            Assertions.assertFalse(getPrometheusMetrics().contains(messageLag));
+
+            Deencapsulation.setField(eventProvider, "approximateNumberOfMessages", 12L);
+            Deencapsulation.setField(eventProvider, "lastSourceEventTimestampSeconds", 1787039800L);
+            MetricRepo.updateStreamingJobPerJobMetrics();
+            metricResult = getPrometheusMetrics();
+            Assertions.assertTrue(metricResult.contains(messageLag + " 12"));
+            Assertions.assertTrue(metricResult.contains(
+                    "doris_fe_streaming_job_per_job_last_source_event_timestamp_seconds"
+                            + "{job_id=\"1787039821000\", job_name=\"streaming_metric_job\"} 1787039800"));
+
+            Deencapsulation.setField(eventProvider, "approximateNumberOfMessages", null);
+            MetricRepo.updateStreamingJobPerJobMetrics();
+            Assertions.assertFalse(getPrometheusMetrics().contains(messageLag));
+
+            Deencapsulation.setField(eventProvider, "approximateNumberOfMessages", 0L);
+            MetricRepo.updateStreamingJobPerJobMetrics();
+            Assertions.assertTrue(getPrometheusMetrics().contains(messageLag + " 0"));
+            jobMap.remove(job.getJobId());
+            MetricRepo.updateStreamingJobPerJobMetrics();
+            Assertions.assertFalse(getPrometheusMetrics().contains(messageLag));
         } finally {
             jobMap.remove(job.getJobId());
             MetricRepo.updateStreamingJobPerJobMetrics();

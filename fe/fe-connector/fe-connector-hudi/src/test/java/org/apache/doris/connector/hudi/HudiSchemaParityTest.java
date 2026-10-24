@@ -79,7 +79,7 @@ public class HudiSchemaParityTest {
             ConnectorType.of("STRING"),
             ConnectorType.of("DECIMALV3", 10, 2),
             ConnectorType.of("DATEV2"),
-            ConnectorType.of("DATETIMEV2", 6, 0),
+            ConnectorType.of("TIMESTAMPTZ", 6, 0),
             ConnectorType.arrayOf(ConnectorType.of("STRING")),
             ConnectorType.mapOf(ConnectorType.of("STRING"), ConnectorType.of("INT")),
             ConnectorType.structOf(Arrays.asList("Street", "zip"),

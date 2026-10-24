@@ -49,6 +49,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -183,6 +184,26 @@ public class OlapTableTest {
         version = olapTable.getPartitionTopologyVersion();
         olapTable.dropPartitionAndReserveTablet("p1");
         Assertions.assertEquals(version + 1, olapTable.getPartitionTopologyVersion());
+    }
+
+    @Test
+    public void testPartitionNameMapToleratesConcurrentAdd() {
+        OlapTable olapTable = new OlapTable();
+        for (int i = 0; i < 3; i++) {
+            olapTable.addPartition(newPartitionForTopologyVersionTest(10 + i, "p" + i));
+        }
+
+        // getPartitionNames() copies nameToPartition's keys without holding any lock, while a writer
+        // holding the table write lock may add a partition at the same time, so the iteration must be
+        // weakly consistent instead of fail fast.
+        Iterator<String> iterator = olapTable.getNameToPartition().keySet().iterator();
+        Assertions.assertTrue(iterator.hasNext());
+        iterator.next();
+        olapTable.addPartition(newPartitionForTopologyVersionTest(20, "p10"));
+        while (iterator.hasNext()) {
+            iterator.next();
+        }
+        Assertions.assertEquals(4, olapTable.getPartitionNames().size());
     }
 
     private void addPartitionForTopologyVersionTest(OlapTable olapTable, long partitionId, String partitionName) {
