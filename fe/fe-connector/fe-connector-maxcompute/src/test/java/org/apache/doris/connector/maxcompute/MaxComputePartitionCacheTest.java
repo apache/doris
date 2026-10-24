@@ -92,6 +92,21 @@ public class MaxComputePartitionCacheTest {
     }
 
     @Test
+    public void submittedMetaCacheKeysMustNameAKnownOption() {
+        MaxComputeConnectorProvider provider = new MaxComputeConnectorProvider();
+        Map<String, String> current = MCTestProperties.minimalMap();
+        IllegalArgumentException misspelled = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> provider.validatePropertiesForUpdate(
+                        current, Map.of("meta.cache.max_compute.partition.max-weigth", "1MB")));
+        Assertions.assertEquals("Unknown external meta cache property: meta.cache.max_compute.partition.max-weigth",
+                misspelled.getMessage());
+        Assertions.assertThrows(IllegalArgumentException.class, () -> provider.validatePropertiesForUpdate(
+                current, Map.of("meta.cache.max_compute.partition.enable", "1")));
+        current.put("meta.cache.max_compute.partition.max-weigth", "1MB");
+        Assertions.assertDoesNotThrow(() -> provider.validatePropertiesForUpdate(current, Map.of("comment", "new")));
+    }
+
+    @Test
     public void managedCacheRetainsOnlySpecsAndHonorsBothLimits() throws Exception {
         Odps odps = new Odps(new AliyunAccount("ak", "sk"));
         PartitionSpec spec = new PartitionSpec("ds='2026-09-11'");
