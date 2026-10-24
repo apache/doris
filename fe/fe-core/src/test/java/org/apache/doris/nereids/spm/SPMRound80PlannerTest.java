@@ -64,7 +64,19 @@ import java.util.Map;
  *   <li>#4 a bracket ARRAY literal cannot hold element markers (it is ONE literal), so its
  *       marker payload has to carry the array type the consumer needs instead;</li>
  *   <li>#5 an ordinary (Java / Python) UDF's nullability is an INSTANCE property, and the
- *       dependency fingerprint has to include it.</li>
+ *       dependency fingerprint has to include it;</li>
+ *   <li>#7 QUALIFY is an alias consumer like HAVING: the predicates bind the block's output
+ *       names first, so an alias permutation keeps both the text and the consumed-name set
+ *       while binding the predicate to another expression;</li>
+ *   <li>#8 the DECLARED RETURN TYPE of a UDF is part of its dependency identity: the frozen
+ *       plan is optimized with it (a TINYINT return type folds a range comparison away);</li>
+ *   <li>#9 the fingerprint / locked-table maps must key table names with the cluster's
+ *       `lower_case_table_names` policy: with 0, `t` and `T` are two tables and lower-casing
+ *       let the second overwrite the first;</li>
+ *   <li>#12 the HAVING repair compares RESOLVED predicates, not the consumed alias NAMES: an
+ *       alias permutation preserves the name set and binds the predicate to another column;</li>
+ *   <li>#13 an ARRAY_CONCAT wrapper over all-NULL arrays is an all-NULL array as well, so its
+ *       marker has to be retyped or the Boolean consumer erases the element_at call.</li>
  * </ul>
  */
 public class SPMRound80PlannerTest {
@@ -232,6 +244,191 @@ public class SPMRound80PlannerTest {
                 "a pure output label may differ between bind and plan");
     }
 
+    // ==================== #7: QUALIFY consumes output aliases ====================
+
+    /**
+     * Bind {@code SELECT k AS x, row_number() OVER(ORDER BY k) AS y FROM t QUALIFY x > y} with a
+     * plan that SWAPS the two labels: the QUALIFY text is identical, the output expressions are
+     * positionally equal (only the labels differ) and the consumed-name set is {x,y} on both
+     * sides - but the bind filters `k > row_number()` while the plan filters
+     * `row_number() > k`, so the frozen replay returns no row where the caller returns (10,1) and
+     * (20,2).
+     */
+    @Test
+    public void testQualifyAliasPermutationIsRejected() {
+        String bind = "SELECT k AS x, row_number() OVER(ORDER BY k) AS y FROM t QUALIFY x > y";
+        String plan = "SELECT k AS y, row_number() OVER(ORDER BY k) AS x FROM t QUALIFY x > y";
+        Assertions.assertThrows(AnalysisException.class,
+                () -> SPMPlanTreeSupport.rejectManualPlanDivergence(parse(bind), parse(plan), bind),
+                "a QUALIFY name binds the block's OUTPUT column first, so swapping the labels"
+                        + " binds the predicate to the other expression");
+    }
+
+    /** The same statement on both sides stays accepted. */
+    @Test
+    public void testIdenticalQualifyAliasesAreAccepted() {
+        String bind = "SELECT k AS x, row_number() OVER(ORDER BY k) AS y FROM t QUALIFY x > y";
+        Assertions.assertDoesNotThrow(
+                () -> SPMPlanTreeSupport.rejectManualPlanDivergence(parse(bind), parse(bind), bind));
+    }
+
+    /** A QUALIFY over BASE columns keeps its meaning under a label swap (no alias is consumed). */
+    @Test
+    public void testQualifyOnBaseColumnsIsAccepted() {
+        String bind = "SELECT k AS x, v AS y FROM t QUALIFY k > 0";
+        String plan = "SELECT k AS y, v AS x FROM t QUALIFY k > 0";
+        Assertions.assertDoesNotThrow(
+                () -> SPMPlanTreeSupport.rejectManualPlanDivergence(parse(bind), parse(plan), bind),
+                "both sides filter the base column k");
+    }
+
+    // ==================== #12: HAVING compares RESOLVED predicates ====================
+
+    /**
+     * Bind {@code SELECT k AS x, v AS y FROM t HAVING x > 0} with a plan that swaps the labels:
+     * both consume {x} and spell the same predicate, but the bind filters k while the plan
+     * filters v - the replayed rows are the other column's.
+     */
+    @Test
+    public void testHavingAliasPermutationIsRejected() {
+        String bind = "SELECT k AS x, v AS y FROM t HAVING x > 0";
+        String plan = "SELECT k AS y, v AS x FROM t HAVING x > 0";
+        Assertions.assertThrows(AnalysisException.class,
+                () -> SPMPlanTreeSupport.rejectManualPlanDivergence(parse(bind), parse(plan), bind),
+                "the consumed alias NAMES match while the resolved predicates do not");
+    }
+
+    /** The same statement on both sides stays accepted. */
+    @Test
+    public void testIdenticalHavingAliasesAreAccepted() {
+        String bind = "SELECT k AS x, v AS y FROM t HAVING x > 0";
+        Assertions.assertDoesNotThrow(
+                () -> SPMPlanTreeSupport.rejectManualPlanDivergence(parse(bind), parse(bind), bind));
+    }
+
+    // ==================== #13: ARRAY_CONCAT wrappers ====================
+
+    /**
+     * `k > 0 OR element_at(array_concat(array(NULL), array(NULL)), 1)`: ARRAY_CONCAT derives its
+     * element type from its inputs, so concatenating only all-NULL arrays keeps
+     * ARRAY&lt;NULL_TYPE&gt; and element_at returns NullType - the wrapper used to be
+     * unrecognized, the Boolean consumer erased the call and its markers, and the
+     * `array(TRUE), array(TRUE)` variant then replayed NULL instead of TRUE.
+     */
+    @Test
+    public void testArrayConcatAllNullArrayKeepsBooleanMarkers() {
+        LogicalPlan plan = parse("SELECT k FROM t WHERE k > 0"
+                + " OR element_at(array_concat(array(NULL), array(NULL)), 1)");
+        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        SPMPlanTreeSupport.transform(plan, builder);
+
+        int booleanNullMarkers = 0;
+        for (PlaceholderExpr marker : builder.getPlaceholderExprs()) {
+            if (!(marker.getPlaceholderExpr() instanceof SpmConstVar)) {
+                continue;
+            }
+            SpmConstVar var = (SpmConstVar) marker.getPlaceholderExpr();
+            if (!var.getValue().isNullLiteral()) {
+                continue;
+            }
+            if (var.getDataType() instanceof BooleanType) {
+                booleanNullMarkers++;
+            }
+        }
+        Assertions.assertTrue(booleanNullMarkers > 0,
+                "the all-NULL concatenation makes element_at a NullType producer, so its markers"
+                        + " have to be BOOLEAN already: " + builder.getPlaceholderExprs());
+    }
+
+    /** A concatenation with a typed part keeps its own element type. */
+    @Test
+    public void testArrayConcatWithATypedPartKeepsItsMarkerType() {
+        LogicalPlan plan = parse("SELECT k FROM t WHERE k > 0"
+                + " OR element_at(array_concat(array(NULL), array(1)), 1)");
+        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        SPMPlanTreeSupport.transform(plan, builder);
+        for (PlaceholderExpr marker : builder.getPlaceholderExprs()) {
+            if (marker.getPlaceholderExpr() instanceof SpmConstVar
+                    && ((SpmConstVar) marker.getPlaceholderExpr()).getValue().isNullLiteral()
+                    && ((SpmConstVar) marker.getPlaceholderExpr()).getDataType()
+                            instanceof BooleanType) {
+                Assertions.fail("only an all-NULL concatenation is retyped: "
+                        + builder.getPlaceholderExprs());
+            }
+        }
+    }
+
+    // ==================== #8: the UDF's DECLARED RETURN TYPE ====================
+
+    /**
+     * Re-creating the SAME function with another DECLARED return type keeps name, arguments and
+     * nullability identical, but the frozen plan was optimized with the old type: a TINYINT
+     * return type folds `f(k) > 200` to FALSE (the range is [-128,127]) while an INT one keeps
+     * the comparison. The dependency fingerprint must separate the two definitions.
+     */
+    @Test
+    public void testUdfReturnTypeIsPartOfTheFingerprint() {
+        ConnectContext ctx = context();
+        try {
+            String tinyint = fingerprint(ctx, "SELECT my_udf(1)",
+                    udfRegistry("my_udf", NullableMode.ALWAYS_NOT_NULLABLE,
+                            org.apache.doris.nereids.types.TinyIntType.INSTANCE));
+            String sameAgain = fingerprint(ctx, "SELECT my_udf(1)",
+                    udfRegistry("my_udf", NullableMode.ALWAYS_NOT_NULLABLE,
+                            org.apache.doris.nereids.types.TinyIntType.INSTANCE));
+            Assertions.assertEquals(tinyint, sameAgain, "the same definition keeps one identity");
+
+            String asInt = fingerprint(ctx, "SELECT my_udf(1)",
+                    udfRegistry("my_udf", NullableMode.ALWAYS_NOT_NULLABLE,
+                            IntegerType.INSTANCE));
+            Assertions.assertNotEquals(tinyint, asInt,
+                    "the declared return type decides what the frozen plan may fold, so it must"
+                            + " change the dependency identity: " + asInt);
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    // ==================== #9: case-sensitive table identities ====================
+
+    /**
+     * With `lower_case_table_names = 0` the tables {@code t} and {@code T} coexist: both must keep
+     * their OWN fingerprint entry. Lower-casing the keys let the second overwrite the first, the
+     * stored dependency set was missing a table while the live pre-match fingerprint resolved
+     * both to their own ids - the identical query then failed the containment check forever.
+     */
+    @Test
+    public void testCaseSensitiveTableNamesKeepBothFingerprintEntries() {
+        int original = org.apache.doris.qe.GlobalVariable.lowerCaseTableNames;
+        try {
+            org.apache.doris.qe.GlobalVariable.lowerCaseTableNames = 0;
+            Map<String, String> entries = new HashMap<>();
+            SPMPlanTreeSupport.recordTableFingerprint(entries, table("t", 1L),
+                    List.of("spm_db", "t"));
+            SPMPlanTreeSupport.recordTableFingerprint(entries, table("T", 2L),
+                    List.of("spm_db", "T"));
+            Assertions.assertNotNull(entries.get("t"), "the lower-case table has its own entry");
+            Assertions.assertNotNull(entries.get("T"), "the upper-case table has its own entry");
+            Assertions.assertNotEquals(entries.get("t"), entries.get("T"),
+                    "two distinct tables must not share one fingerprint entry: " + entries);
+            Assertions.assertNotNull(entries.get("spm_db.t"));
+            Assertions.assertNotNull(entries.get("spm_db.T"));
+
+            // a case-INSENSITIVE cluster folds both spellings onto one table, as before
+            org.apache.doris.qe.GlobalVariable.lowerCaseTableNames = 1;
+            Map<String, String> folded = new HashMap<>();
+            SPMPlanTreeSupport.recordTableFingerprint(folded, table("t", 1L),
+                    List.of("spm_db", "t"));
+            SPMPlanTreeSupport.recordTableFingerprint(folded, table("T", 2L),
+                    List.of("spm_db", "T"));
+            Assertions.assertNotNull(folded.get("t"));
+            Assertions.assertNull(folded.get("T"),
+                    "under lower_case_table_names = 1 the two spellings are one table: " + folded);
+        } finally {
+            org.apache.doris.qe.GlobalVariable.lowerCaseTableNames = original;
+        }
+    }
+
     // ==================== #5: instance nullability of an ordinary UDF ====================
 
     /**
@@ -279,17 +476,38 @@ public class SPMRound80PlannerTest {
 
     /** A registry exposing ONE same-name Java UDF with the given instance nullability. */
     private static FunctionRegistry udfRegistry(String name, NullableMode mode) {
+        return udfRegistry(name, mode, IntegerType.INSTANCE);
+    }
+
+    /** As udfRegistry(String, NullableMode), with an explicit DECLARED return type. */
+    private static FunctionRegistry udfRegistry(String name, NullableMode mode,
+            org.apache.doris.nereids.types.DataType returnType) {
         FunctionRegistry registry = Mockito.mock(FunctionRegistry.class);
         Map<String, List<FunctionBuilder>> builtins = new HashMap<>();
         Mockito.when(registry.getName2BuiltinBuilders()).thenReturn(builtins);
         Mockito.when(registry.findUdfBuilder(Mockito.any(), Mockito.any()))
-                .thenReturn(List.of(javaUdf(name, mode)));
+                .thenReturn(List.of(javaUdf(name, mode, returnType)));
         return registry;
     }
 
+    /** A mocked table for the name-keyed fingerprint maps (see recordTableFingerprint). */
+    private static org.apache.doris.catalog.TableIf table(String name, long id) {
+        org.apache.doris.catalog.TableIf table =
+                Mockito.mock(org.apache.doris.catalog.TableIf.class);
+        Mockito.when(table.getName()).thenReturn(name);
+        Mockito.when(table.getId()).thenReturn(id);
+        Mockito.when(table.getBaseSchema()).thenReturn(List.of());
+        return table;
+    }
+
     private static FunctionBuilder javaUdf(String name, NullableMode mode) {
+        return javaUdf(name, mode, IntegerType.INSTANCE);
+    }
+
+    private static FunctionBuilder javaUdf(String name, NullableMode mode,
+            org.apache.doris.nereids.types.DataType returnType) {
         FunctionSignature signature =
-                FunctionSignature.of(IntegerType.INSTANCE, List.of(IntegerType.INSTANCE));
+                FunctionSignature.of(returnType, List.of(IntegerType.INSTANCE));
         JavaUdf udf = new JavaUdf(name, 1L, "spm_db", BinaryType.JAVA_UDF, signature, mode,
                 FunctionVolatility.IMMUTABLE, VolatileIdentity.NON_VOLATILE,
                 "/tmp/udf.jar", "sym", "", "", "checksum", true, -1L);

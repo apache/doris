@@ -5109,14 +5109,31 @@ public final class SPMPlanTreeSupport {
      */
     private static Set<String> havingConsumedOutputAliases(Plan plan,
             List<NamedExpression> items) {
+        return havingConsumedOutputAliases(plan, items, false);
+    }
+
+    /**
+     * The output ALIASES a statement's HAVING (or QUALIFY) predicates consume (see
+     * havingConsumedOutputAliases(Plan, List)).
+     *
+     * @param plan    the parsed tree
+     * @param items   the block's output items
+     * @param qualify true to inspect the LogicalQualify consumer instead of LogicalHaving
+     * @return the consumed output aliases
+     */
+    private static Set<String> havingConsumedOutputAliases(Plan plan,
+            List<NamedExpression> items, boolean qualify) {
         Set<String> labels = outputLabelSet(items);
         Set<String> referenced = new HashSet<>();
         if (plan == null || labels.isEmpty()) {
             return referenced;
         }
         SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, node -> {
-            if (node instanceof LogicalHaving) {
-                for (Expression conjunct : ((LogicalHaving<?>) node).getConjuncts()) {
+            if (qualify ? node instanceof LogicalQualify : node instanceof LogicalHaving) {
+                Collection<Expression> conjuncts = qualify
+                        ? ((LogicalQualify<?>) node).getConjuncts()
+                        : ((LogicalHaving<?>) node).getConjuncts();
+                for (Expression conjunct : conjuncts) {
                     collectBareSlotNames(conjunct, referenced);
                 }
             }
@@ -5176,7 +5193,7 @@ public final class SPMPlanTreeSupport {
         Map<String, Expression> bindLabels = outputLabelExpressions(bindItems);
         Map<String, Expression> planLabels = outputLabelExpressions(planItems);
         for (int i = 0; i < bindKeys.size(); i++) {
-            if (!sameResolvedKey(bindKeys.get(i).getExpr(), bindLabels,
+            if (!sameResolvedExpression(bindKeys.get(i).getExpr(), bindLabels,
                     planKeys.get(i).getExpr(), planLabels, 0)) {
                 return false;
             }
@@ -5210,13 +5227,14 @@ public final class SPMPlanTreeSupport {
     }
 
     /**
-     * Whether two top-level sort keys RESOLVE to the same expression (see sameResolvedSortKeys).
+     * Whether one bind-side consumer predicate RESOLVES to a plan-side one (see
+     * sameResolvedSortKeys and sameResolvedConsumerPredicates).
      *
      * A bare slot that names an output label resolves to that item's expression (an output name
      * binds before the base columns); any other bare slot resolves to the base column of the same
      * name. Everything else is compared structurally - the same node with the same function name
-     * and recursively the same children - so two keys that only LOOK alike (the same text over
-     * different aliases) are told apart.
+     * and recursively the same children - so two expressions that only LOOK alike (the same text
+     * over different aliases) are told apart.
      *
      * @param bindKey    the bind-side key expression
      * @param bindLabels the bind side's label map
@@ -5225,18 +5243,20 @@ public final class SPMPlanTreeSupport {
      * @param depth      the label-resolution depth (a self-referential alias stops the walk)
      * @return whether both keys yield the same value
      */
-    private static boolean sameResolvedKey(Expression bindKey, Map<String, Expression> bindLabels,
-            Expression planKey, Map<String, Expression> planLabels, int depth) {
+    private static boolean sameResolvedExpression(Expression bindKey,
+            Map<String, Expression> bindLabels, Expression planKey,
+            Map<String, Expression> planLabels, int depth) {
         if (depth > 8) {
             return false;
         }
         Expression resolvedBind = resolveOutputLabel(bindKey, bindLabels);
         if (resolvedBind != null) {
-            return sameResolvedKey(resolvedBind, Map.of(), planKey, planLabels, depth + 1);
+            return sameResolvedExpression(resolvedBind, Map.of(), planKey, planLabels, depth + 1);
         }
         Expression resolvedPlan = resolveOutputLabel(planKey, planLabels);
         if (resolvedPlan != null) {
-            return sameResolvedKey(bindKey, bindLabels, resolvedPlan, Map.of(), depth + 1);
+            return sameResolvedExpression(bindKey, bindLabels, resolvedPlan, Map.of(),
+                    depth + 1);
         }
         List<Expression> bindChildren = bindKey.children();
         List<Expression> planChildren = planKey.children();
@@ -5250,12 +5270,105 @@ public final class SPMPlanTreeSupport {
             return false;
         }
         for (int i = 0; i < bindChildren.size(); i++) {
-            if (!sameResolvedKey(bindChildren.get(i), bindLabels,
+            if (!sameResolvedExpression(bindChildren.get(i), bindLabels,
                     planChildren.get(i), planLabels, depth)) {
                 return false;
             }
         }
         return true;
+    }
+
+    /**
+     * Whether the HAVING (or QUALIFY) predicates of the two statements RESOLVE to the same
+     * expressions (see rejectManualPlanDivergence).
+     *
+     * The consumed alias NAMES alone are not a contract: an alias PERMUTATION keeps the name set
+     * while binding every predicate to another expression. Bind
+     * {@code SELECT k AS x, v AS y FROM t HAVING x > 0} and a plan
+     * {@code SELECT k AS y, v AS x FROM t HAVING x > 0} both consume {x} and spell the same
+     * predicate, but the bind filters k while the plan filters v. Each conjunct is therefore
+     * resolved through its own side's output label map and compared structurally, and the
+     * comparison is order-insensitive (the conjuncts are a Set).
+     *
+     * @param bindPlan  the bind tree
+     * @param bindItems its output list
+     * @param planPlan  the plan tree
+     * @param planItems its output list
+     * @param qualify   true for the LogicalQualify consumer, false for LogicalHaving
+     * @return whether both statements' predicates mean the same thing
+     */
+    private static boolean sameResolvedConsumerPredicates(Plan bindPlan,
+            List<NamedExpression> bindItems, Plan planPlan, List<NamedExpression> planItems,
+            boolean qualify) {
+        List<Expression> bindPredicates = flattenedConsumerConjuncts(bindPlan, qualify);
+        List<Expression> planPredicates = flattenedConsumerConjuncts(planPlan, qualify);
+        if (bindPredicates.size() != planPredicates.size()) {
+            // a missing / differently sized predicate set is the text contract's business
+            return true;
+        }
+        if (bindPredicates.isEmpty()) {
+            return true;
+        }
+        Map<String, Expression> bindLabels = outputLabelExpressions(bindItems);
+        Map<String, Expression> planLabels = outputLabelExpressions(planItems);
+        boolean[] matched = new boolean[planPredicates.size()];
+        for (Expression bindPredicate : bindPredicates) {
+            boolean found = false;
+            for (int i = 0; i < planPredicates.size(); i++) {
+                if (matched[i]) {
+                    continue;
+                }
+                if (sameResolvedExpression(bindPredicate, bindLabels, planPredicates.get(i),
+                        planLabels, 0)) {
+                    matched[i] = true;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * The flattened conjuncts of every HAVING (or QUALIFY) node in one statement (see
+     * sameResolvedConsumerPredicates). An AND is split into its leaves so two texts that only
+     * differ in conjunct order still compare pairwise.
+     *
+     * @param plan    the parsed tree
+     * @param qualify true for the LogicalQualify consumer, false for LogicalHaving
+     * @return the leaf conjuncts, in statement order
+     */
+    private static List<Expression> flattenedConsumerConjuncts(Plan plan, boolean qualify) {
+        List<Expression> collected = new ArrayList<>();
+        if (plan == null) {
+            return collected;
+        }
+        SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, node -> {
+            if (qualify ? node instanceof LogicalQualify : node instanceof LogicalHaving) {
+                Collection<Expression> conjuncts = qualify
+                        ? ((LogicalQualify<?>) node).getConjuncts()
+                        : ((LogicalHaving<?>) node).getConjuncts();
+                for (Expression conjunct : conjuncts) {
+                    collectFlattenedConjuncts(conjunct, collected);
+                }
+            }
+        });
+        return collected;
+    }
+
+    /** One predicate's leaf conjuncts into a list: an AND is split into its children. */
+    private static void collectFlattenedConjuncts(Expression predicate,
+            List<Expression> out) {
+        if (predicate instanceof And) {
+            for (Expression child : ((And) predicate).children()) {
+                collectFlattenedConjuncts(child, out);
+            }
+            return;
+        }
+        out.add(predicate);
     }
 
     /**
@@ -5423,17 +5536,41 @@ public final class SPMPlanTreeSupport {
         // block's output names BEFORE the base columns, so `SELECT k AS x FROM t HAVING x > 0`
         // filters the ALIASED value while a plan that renames the item to `y` makes the same
         // `x` resolve to the BASE column t.x - a different predicate over a different column, and
-        // the label alignment cannot repair a predicate. Every alias a HAVING consumes must
-        // therefore exist on BOTH sides.
+        // the label alignment cannot repair a predicate.
+        //
+        // Comparing the CONSUMED alias NAMES is not enough (round-80): an alias PERMUTATION keeps
+        // the name set while binding the predicate to another expression - bind
+        // `SELECT k AS x, v AS y FROM t HAVING x > 0` vs a plan
+        // `SELECT k AS y, v AS x FROM t HAVING x > 0` both consume {x} and both spell the same
+        // predicate, but the bind filters k and the plan filters v. Compare what each predicate
+        // RESOLVES to on its own side (see sameResolvedConsumerPredicates).
         Set<String> bindHavingAliases = havingConsumedOutputAliases(bindPlan, bindItems);
         Set<String> planHavingAliases = havingConsumedOutputAliases(planPlan, planItems);
-        if (!bindHavingAliases.equals(planHavingAliases)) {
+        if (!sameResolvedConsumerPredicates(bindPlan, bindItems, planPlan, planItems, false)) {
             throw new org.apache.doris.nereids.exceptions.AnalysisException(
                     "SPM cannot align the plan SQL with the bind SQL: their HAVING predicates"
-                            + " consume different output aliases (bind " + bindHavingAliases
-                            + ", plan " + planHavingAliases + "). A HAVING name binds the"
-                            + " block's OUTPUT column first, so renaming that item silently"
-                            + " filters another column: " + bindSql);
+                            + " resolve to different expressions (consumed aliases: bind "
+                            + bindHavingAliases + ", plan " + planHavingAliases + "). A HAVING"
+                            + " name binds the block's OUTPUT column first, so renaming /"
+                            + " re-ordering those items silently filters another column: "
+                            + bindSql);
+        }
+        // QUALIFY is the SAME consumer (round-80): the predicates live on a LogicalQualify node
+        // and bind the block's output names before the base columns exactly like HAVING, so an
+        // alias permutation keeps both the text and the consumed-name set while binding the
+        // predicate to the other expression - bind `SELECT k AS x, row_number() OVER(ORDER BY k)
+        // AS y FROM t QUALIFY x > y` compares k with the window value, the plan
+        // `k AS y, row_number() ... AS x ... QUALIFY x > y` compares it the other way round and
+        // the frozen replay filters every row out.
+        if (!sameResolvedConsumerPredicates(bindPlan, bindItems, planPlan, planItems, true)) {
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                    "SPM cannot align the plan SQL with the bind SQL: their QUALIFY predicates"
+                            + " resolve to different expressions (consumed aliases: bind "
+                            + havingConsumedOutputAliases(bindPlan, bindItems, true) + ", plan "
+                            + havingConsumedOutputAliases(planPlan, planItems, true) + "). A"
+                            + " QUALIFY name binds the block's OUTPUT column first, so renaming /"
+                            + " re-ordering those items silently filters another column: "
+                            + bindSql);
         }
         Set<String> bindFilters = filterConjunctTexts(bindPlan);
         Set<String> planFilters = filterConjunctTexts(planPlan);
@@ -7194,7 +7331,8 @@ public final class SPMPlanTreeSupport {
 
     /**
      * Records the fingerprint entry of ONE table under every name shape a bind relation may
-     * resolve to (bare / db-qualified / catalog.db-qualified, lower case).
+     * resolve to (bare / db-qualified / catalog.db-qualified, in the cluster's table-name case
+     * form - see tableNameKey).
      *
      * The caller MUST run while the planning locks are held (SPMOptimizer's capture
      * statement context calls this from getAndCacheTable): describing a TableIf later reads
@@ -7248,18 +7386,42 @@ public final class SPMPlanTreeSupport {
         // (see recordTableFingerprints), which only works when a later hash may replace an
         // earlier one.
         if (qualifier != null && !qualifier.isEmpty()) {
-            out.put(String.join(".", qualifier).toLowerCase(Locale.ROOT), entry);
+            out.put(tableNameKey(String.join(".", qualifier)), entry);
         }
-        out.put(table.getName().toLowerCase(Locale.ROOT), entry);
+        out.put(tableNameKey(table.getName()), entry);
         if (table.getDatabase() != null && table.getDatabase().getFullName() != null) {
-            out.put((table.getDatabase().getFullName() + "." + table.getName())
-                    .toLowerCase(Locale.ROOT), entry);
+            out.put(tableNameKey(table.getDatabase().getFullName() + "." + table.getName()),
+                    entry);
         }
         if (table.getDatabase() != null && table.getDatabase().getCatalog() != null) {
-            out.put((table.getDatabase().getCatalog().getName() + "."
-                    + table.getDatabase().getFullName() + "." + table.getName())
-                    .toLowerCase(Locale.ROOT), entry);
+            out.put(tableNameKey(table.getDatabase().getCatalog().getName() + "."
+                    + table.getDatabase().getFullName() + "." + table.getName()), entry);
         }
+    }
+
+    /**
+     * The KEY form of one table / database / catalog name in the fingerprint and locked-table maps
+     * (see recordTableFingerprint).
+     *
+     * Lower-casing is only the correct normalization under `lower_case_table_names != 0`, where
+     * the two spellings name the same table. With `lower_case_table_names = 0` (the default) `t`
+     * and `T` are DISTINCT tables, and lower-casing made the second occurrence overwrite the
+     * first under the bare, database-qualified AND catalog-qualified keys (round-80): the capture
+     * stored one dependency instead of two, while the live pre-match fingerprint resolves both
+     * relations to their own ids - so the identical query failed the containment check forever,
+     * and the lost table could not be recovered from the map at all.
+     *
+     * @param name the name as written / as the catalog spells it
+     * @return the key to store it under
+     */
+    private static String tableNameKey(String name) {
+        if (name == null) {
+            return "";
+        }
+        // the cluster-wide policy of the INTERNAL catalog, the one these maps are keyed by; a
+        // case-insensitive cluster keeps folding so `FROM T` and FROM `t` stay one table
+        return org.apache.doris.qe.GlobalVariable.isTableNamesCaseSensitive()
+                ? name : name.toLowerCase(Locale.ROOT);
     }
 
     /**
@@ -7293,14 +7455,14 @@ public final class SPMPlanTreeSupport {
             return null;
         }
         if (qualifier != null && !qualifier.isEmpty()) {
-            String lower = String.join(".", qualifier).toLowerCase(Locale.ROOT);
-            String exact = entries.get(lower);
+            String key = tableNameKey(String.join(".", qualifier));
+            String exact = entries.get(key);
             if (exact != null) {
                 return exact;
             }
-            int dot = lower.indexOf('.');
-            if (dot >= 0 && dot + 1 < lower.length()) {
-                String dbQualified = entries.get(lower.substring(dot + 1));
+            int dot = key.indexOf('.');
+            if (dot >= 0 && dot + 1 < key.length()) {
+                String dbQualified = entries.get(key.substring(dot + 1));
                 if (dbQualified != null) {
                     return dbQualified;
                 }
@@ -7309,7 +7471,7 @@ public final class SPMPlanTreeSupport {
         if (nameParts == null || nameParts.isEmpty()) {
             return null;
         }
-        return entries.get(nameParts.get(nameParts.size() - 1).toLowerCase(Locale.ROOT));
+        return entries.get(tableNameKey(nameParts.get(nameParts.size() - 1)));
     }
 
     /** Bind-side table + function entries (see the callers' contracts). */
@@ -7453,10 +7615,10 @@ public final class SPMPlanTreeSupport {
                     .PhysicalCatalogRelation) {
                 TableIf table = ((org.apache.doris.nereids.trees.plans.physical
                         .PhysicalCatalogRelation) node).getTable();
-                tables.put(table.getName().toLowerCase(Locale.ROOT), table);
+                tables.put(tableNameKey(table.getName()), table);
                 if (table.getDatabase() != null && table.getDatabase().getFullName() != null) {
-                    tables.put((table.getDatabase().getFullName() + "." + table.getName())
-                            .toLowerCase(Locale.ROOT), table);
+                    tables.put(tableNameKey(table.getDatabase().getFullName() + "."
+                            + table.getName()), table);
                 }
             }
         });
@@ -7476,14 +7638,16 @@ public final class SPMPlanTreeSupport {
         }
         boolean explicitNamespace = qualifier != null && !qualifier.isEmpty();
         if (explicitNamespace) {
-            String lower = String.join(".", qualifier).toLowerCase(Locale.ROOT);
-            TableIf exact = lockedTables.get(lower);
+            // the SAME key form the map was filled with (see tableNameKey): under
+            // `lower_case_table_names = 0` `t` and `T` are distinct tables
+            String key = tableNameKey(String.join(".", qualifier));
+            TableIf exact = lockedTables.get(key);
             if (exact != null) {
                 return exact;
             }
-            int dot = lower.indexOf('.');
-            if (dot >= 0 && dot + 1 < lower.length()) {
-                TableIf dbQualified = lockedTables.get(lower.substring(dot + 1));
+            int dot = key.indexOf('.');
+            if (dot >= 0 && dot + 1 < key.length()) {
+                TableIf dbQualified = lockedTables.get(key.substring(dot + 1));
                 if (dbQualified != null) {
                     // The suffix drops the CATALOG component: cat2.db.t must never be
                     // fingerprinted as the bind table of cat1.db.t just because the
@@ -7506,7 +7670,7 @@ public final class SPMPlanTreeSupport {
         if (nameParts == null || nameParts.isEmpty()) {
             return null;
         }
-        String bare = nameParts.get(nameParts.size() - 1).toLowerCase(Locale.ROOT);
+        String bare = tableNameKey(nameParts.get(nameParts.size() - 1));
         TableIf byBare = lockedTables.get(bare);
         if (byBare == null) {
             return null;
@@ -7959,7 +8123,15 @@ public final class SPMPlanTreeSupport {
                 .UdfBuilder) {
             org.apache.doris.nereids.trees.expressions.functions.udf.UdfBuilder udfBuilder =
                     (org.apache.doris.nereids.trees.expressions.functions.udf.UdfBuilder) builder;
-            signature = udfBuilder.getArgTypes() + "|" + udfBuilder.hasVarArguments();
+            // The RETURN TYPE is part of the identity (round-80): analysis INLINES nothing for an
+            // ordinary UDF, but the frozen plan is optimized with the signature's return type -
+            // the type-range simplification folds `f(k) > 200` to FALSE for a TINYINT-returning
+            // f and keeps the comparison for an INT-returning one. Re-creating the very same
+            // function with the same name, arguments and nullability but another return type
+            // therefore changed what the frozen plan computes while the identity stayed equal,
+            // and the replay returned the old folded constant.
+            signature = udfBuilder.getArgTypes() + "|" + udfBuilder.hasVarArguments()
+                    + "|ret=" + declaredReturnTypesOf(udfBuilder);
         }
         if (builder instanceof org.apache.doris.nereids.trees.expressions.functions.udf
                 .AliasUdfBuilder) {
@@ -7974,6 +8146,33 @@ public final class SPMPlanTreeSupport {
         return "other:" + builder.functionClass().getName() + "|" + signature
                 + "|" + planBehaviorOf(builder.functionClass())
                 + "|m=" + instanceNullableModeOf(builder);
+    }
+
+    /**
+     * The DECLARED return types of one UDF builder's signatures (see describeUdfCandidate).
+     *
+     * The declared type - not the type the optimizer happens to derive - decides what the frozen
+     * plan may fold: a TINYINT return type makes `f(k) > 200` false for EVERY row (the range is
+     * [-128,127]), while the same body declared INT keeps the comparison. Rendering uses the SQL
+     * form so a DECIMAL's precision / scale is part of the identity as well.
+     *
+     * @param builder the UDF builder
+     * @return the return types in signature order ('-' when the builder declares none)
+     */
+    private static String declaredReturnTypesOf(
+            org.apache.doris.nereids.trees.expressions.functions.udf.UdfBuilder builder) {
+        List<org.apache.doris.catalog.FunctionSignature> signatures = builder.getSignatures();
+        if (signatures == null || signatures.isEmpty()) {
+            return "-";
+        }
+        StringBuilder out = new StringBuilder();
+        for (org.apache.doris.catalog.FunctionSignature signature : signatures) {
+            if (out.length() > 0) {
+                out.append(',');
+            }
+            out.append(signature.returnType == null ? "-" : signature.returnType.toSql());
+        }
+        return out.toString();
     }
 
     /**

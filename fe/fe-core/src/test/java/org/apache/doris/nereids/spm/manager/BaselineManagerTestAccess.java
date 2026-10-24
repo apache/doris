@@ -222,6 +222,20 @@ public final class BaselineManagerTestAccess {
     }
 
     /**
+     * Installs one row as a COMPLETE by-hash cache entry (the state a warm match leaves
+     * behind), so a test can drive the CACHED branch of a code path deterministically
+     * without depending on what a refresh happens to warm.
+     *
+     * @param manager the manager under test
+     * @param plan    the row to install
+     */
+    public static void installCachedRow(BaselineManager manager, BaselinePlan plan) {
+        invokeOnCache(manager, "putCompleteLocked",
+                new Class<?>[] {long.class, List.class},
+                plan.getBindSqlHash(), java.util.List.of(plan));
+    }
+
+    /**
      * Removes ONLY the row-cache entry of one id (no epoch change, no durable effect):
      * forces the DROP path under test to run its CACHE-MISS branch deterministically.
      */
