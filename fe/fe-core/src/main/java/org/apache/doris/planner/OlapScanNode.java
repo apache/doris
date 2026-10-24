@@ -1200,6 +1200,10 @@ public class OlapScanNode extends ScanNode {
         if (scoreSortLimit != -1) {
             output.append(prefix).append("SCORE SORT LIMIT: ").append(scoreSortLimit).append("\n");
         }
+        if (scoreRangeInfo != null) {
+            // The pushed score predicate is no longer among the scan conjuncts.
+            output.append(prefix).append("SCORE RANGE: ").append(scoreRangeInfo.toSql()).append("\n");
+        }
 
         if (annSortInfo != null) {
             output.append(prefix).append("ANN SORT INFO:\n");
