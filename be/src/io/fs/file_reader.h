@@ -81,6 +81,8 @@ struct FileReaderOptions {
     // Storage resource id of the remote file system. Used by peer fill to reconstruct
     // the source file system without scanning tablet rowsets on the peer.
     std::string storage_resource_id;
+    // Isolate guarded Hadoop TVF bytes from unmarked or differently configured filesystems.
+    std::string external_storage_identity {};
 
     static const FileReaderOptions DEFAULT;
 };

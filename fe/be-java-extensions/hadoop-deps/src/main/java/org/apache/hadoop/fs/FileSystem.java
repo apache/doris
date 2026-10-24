@@ -25,13 +25,15 @@
 //  - FE: fe-core depends on this module (transitives excluded), so the jar
 //    lands in fe/lib/, and bin/start_fe.sh prepends it explicitly.
 //
-// The only functional change: Cache.Key carries one extra dimension read from
+// Credential cache isolation: Cache.Key carries an extra dimension read from
 // the configuration property "doris.fs.cache.key". FE injects a per-catalog /
 // per-TVF credential fingerprint under that property, so FileSystem instances
 // created with different credentials for the same scheme://authority no longer
 // collide in the global FileSystem.CACHE. When the property is absent the key
 // is the empty string and behavior is byte-for-byte identical to vanilla
-// Hadoop. Grep for "DORIS-PATCH" to find every modified line.
+// Hadoop. TVF-only route policies also check the effective Configuration before
+// provider construction and isolate policy/authority identities in that cache.
+// Grep for "DORIS-PATCH" to find every modified line.
 //
 // When upgrading hadoop.version, re-copy this file from the matching sources
 // jar and re-apply the patch; hadoop-deps/pom.xml pins the expected version.
@@ -48,6 +50,7 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.security.PrivilegedExceptionAction;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.EnumSet;
@@ -307,6 +310,8 @@ public abstract class FileSystem extends Configured
    * @throws IOException If an I/O error occurred.
    */
   public static FileSystem get(Configuration conf) throws IOException {
+    // DORIS-PATCH: resolve defaults and authority from the same TVF configuration snapshot.
+    conf = TvfGuard.prepare(conf);
     return get(getDefaultUri(conf), conf);
   }
 
@@ -555,6 +560,8 @@ public abstract class FileSystem extends Configured
    * @throws IOException if the FileSystem cannot be instantiated.
    */
   public static FileSystem get(URI uri, Configuration conf) throws IOException {
+    // DORIS-PATCH: resolve defaults and authority from the same TVF configuration snapshot.
+    conf = TvfGuard.prepare(conf);
     String scheme = uri.getScheme();
     String authority = uri.getAuthority();
 
@@ -614,6 +621,8 @@ public abstract class FileSystem extends Configured
    */
   public static FileSystem newInstance(URI uri, Configuration config)
       throws IOException {
+    // DORIS-PATCH: resolve defaults and authority from the same TVF configuration snapshot.
+    config = TvfGuard.prepare(config);
     String scheme = uri.getScheme();
     String authority = uri.getAuthority();
 
@@ -640,6 +649,8 @@ public abstract class FileSystem extends Configured
    * @throws IOException FS creation or initialization failure.
    */
   public static FileSystem newInstance(Configuration conf) throws IOException {
+    // DORIS-PATCH: resolve defaults and authority from the same TVF configuration snapshot.
+    conf = TvfGuard.prepare(conf);
     return newInstance(getDefaultUri(conf), conf);
   }
 
@@ -3622,6 +3633,619 @@ public abstract class FileSystem extends Configured
    * @return the initialized filesystem.
    * @throws IOException problems loading or initializing the FileSystem
    */
+  // DORIS-PATCH: TVF policy is checked against the frozen configuration used by the consumer.
+  public static int getDorisTvfGuardVersion() {
+    return 1;
+  }
+
+  public static final class TvfGuard {
+    public static final String POLICY_KEY = "fs.doris.tvf.remote.paths";
+    public static final String NATIVE_POLICY = "native";
+    public static final String JAVA_READ_POLICY = "java-read";
+    public static final String ROOT_KEY = "fs.doris.tvf.root";
+    public static final String PATH_KEY = "fs.doris.tvf.path";
+    public static final String CONTEXT_KEY = "fs.doris.tvf.context";
+    private static final ThreadLocal<Context> LAST_NATIVE_CONTEXT = new ThreadLocal<>();
+
+    private TvfGuard() {
+    }
+
+    public static final class Rule {
+      private final String filesystem;
+      private final String path;
+      private final boolean descendants;
+
+      public Rule(String filesystem, String path, boolean descendants) {
+        this.filesystem = filesystem;
+        this.path = path;
+        this.descendants = descendants;
+      }
+    }
+
+    public static String encode(List<Rule> rules) {
+      if (FileSystem.getDorisTvfGuardVersion() != 1) {
+        throw new IllegalStateException("TVF Hadoop runtime policy version mismatch");
+      }
+      try {
+        java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+        java.io.DataOutputStream out = new java.io.DataOutputStream(bytes);
+        out.writeInt(1);
+        out.writeInt(rules.size());
+        for (Rule rule : rules) {
+          out.writeUTF(rule.filesystem);
+          out.writeUTF(rule.path);
+          out.writeBoolean(rule.descendants);
+        }
+        out.flush();
+        return java.util.Base64.getEncoder().encodeToString(bytes.toByteArray());
+      } catch (IOException e) {
+        throw new IllegalArgumentException("Cannot encode TVF Hadoop route policy", e);
+      }
+    }
+
+    private static IOException rejected() {
+      return new IOException("Hadoop TVF requires a proven remote filesystem route. "
+          + "Use local() with LOCAL TVF privileges and secure-path restrictions.");
+    }
+
+    private static Configuration freeze(Configuration conf) throws IOException {
+      // Service providers (notably HDFS) register their default/site resources on first load.
+      // Load them before copying raw values, as an ordinary FileSystem lookup does.
+      if (!FILE_SYSTEMS_LOADED) {
+        loadFileSystems();
+      }
+      if (conf instanceof FrozenConfiguration) {
+        return conf;
+      }
+      return new FrozenConfiguration(conf);
+    }
+
+    private static Configuration prepare(Configuration conf) throws IOException {
+      String policy = conf.getRaw(POLICY_KEY);
+      if (policy == null || policy.isEmpty()) {
+        return conf;
+      }
+      Configuration frozen = freeze(conf);
+      Context context = ((FrozenConfiguration) frozen).context;
+      if (NATIVE_POLICY.equals(policy)) {
+        context.checkNative(frozen.getRaw(ROOT_KEY), frozen.getRaw(PATH_KEY));
+      } else if (JAVA_READ_POLICY.equals(policy)) {
+        context.checkJava(new Path(frozen.getRaw(PATH_KEY)));
+      } else {
+        context.checkRules(policy);
+      }
+      return frozen;
+    }
+
+    public static void check(URI ignored, Configuration conf) throws IOException {
+      prepare(conf);
+    }
+
+    public static void clearNativeContext() {
+      LAST_NATIVE_CONTEXT.remove();
+    }
+
+    public static Context takeNativeContext() {
+      Context result = LAST_NATIVE_CONTEXT.get();
+      LAST_NATIVE_CONTEXT.remove();
+      return result;
+    }
+
+    public static Configuration prepareJavaRead(Configuration conf, Path path, String marker) throws IOException {
+      if (marker == null || marker.isEmpty()) {
+        return conf;
+      }
+      if (!NATIVE_POLICY.equals(marker)) {
+        throw rejected();
+      }
+      Configuration request = new Configuration(conf);
+      request.set(POLICY_KEY, JAVA_READ_POLICY);
+      request.set(ROOT_KEY, path.toUri().toString());
+      request.set(PATH_KEY, path.toString());
+      return prepare(request);
+    }
+
+    public static void checkJavaRead(FileSystem fs, Path path, String marker) throws IOException {
+      if (marker == null || marker.isEmpty()) {
+        return;
+      }
+      if (!NATIVE_POLICY.equals(marker)) {
+        throw rejected();
+      }
+      // The marker is request-owned, never inferred from an unmarked cached filesystem.
+      Configuration conf = fs.getConf();
+      if (JAVA_READ_POLICY.equals(conf.getRaw(POLICY_KEY))) {
+        // S3A derives a Configuration for bucket options. Its copy preserves our internal
+        // marker and raw snapshot values, but not the private Configuration subclass.
+        ((FrozenConfiguration) freeze(conf)).context.checkJava(path);
+      } else {
+        throw rejected();
+      }
+    }
+
+    private static final class FrozenConfiguration extends Configuration {
+      private final Context context;
+
+      private FrozenConfiguration(Configuration source) throws IOException {
+        super(false);
+        setClassLoader(source.getClassLoader());
+        java.util.SortedMap<String, String> values = new java.util.TreeMap<>();
+        for (Map.Entry<String, String> entry : source) {
+          String key = entry.getKey();
+          String value = source.getRaw(key);
+          set(key, value);
+          if (!PATH_KEY.equals(key) && !ROOT_KEY.equals(key) && !CONTEXT_KEY.equals(key)) {
+            values.put(key, value);
+          }
+        }
+        try {
+          java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+          java.io.DataOutputStream output = new java.io.DataOutputStream(
+              new java.security.DigestOutputStream(new java.io.OutputStream() {
+                @Override
+                public void write(int value) {
+                }
+
+                @Override
+                public void write(byte[] values, int offset, int length) {
+                }
+              }, digest));
+          for (Map.Entry<String, String> entry : values.entrySet()) {
+            for (String value : new String[] {entry.getKey(), entry.getValue()}) {
+              // Preserve raw Java code units, including unpaired surrogates. UTF-8 replacement
+              // would give a literal '?' and an unpaired surrogate the same cache profile.
+              output.writeInt(value.length());
+              output.writeChars(value);
+            }
+          }
+          output.flush();
+          StringBuilder identity = new StringBuilder();
+          for (byte value : digest.digest()) {
+            identity.append(Character.forDigit((value & 255) >>> 4, 16));
+            identity.append(Character.forDigit(value & 15, 16));
+          }
+          set(CONTEXT_KEY, identity.toString());
+        } catch (java.security.NoSuchAlgorithmException e) {
+          throw new IOException("SHA-256 is required for TVF Hadoop cache isolation");
+        }
+        context = new Context(this);
+      }
+    }
+
+    public static final class Context {
+      private final Configuration conf;
+      private final Map<String, String> routingKeys = new HashMap<>();
+
+      private Context(Configuration conf) {
+        this.conf = conf;
+        for (Map.Entry<String, String> entry : conf) {
+          String key = entry.getKey();
+          if ("fs.defaultFS".equals(key) || "fs.default.name".equals(key)
+              || key.startsWith("fs.viewfs.") || (key.startsWith("fs.") && key.endsWith(".impl"))) {
+            routingKeys.put(key, entry.getValue());
+          }
+        }
+      }
+
+      private EffectiveRoute route(boolean descendants) {
+        return new EffectiveRoute(routingKeys, descendants, conf);
+      }
+
+      public String profile() {
+        return conf.getRaw(CONTEXT_KEY);
+      }
+
+      public boolean isDirectRemote() throws IOException {
+        String root = conf.getRaw(ROOT_KEY);
+        if (root == null) {
+          throw rejected();
+        }
+        try {
+          URI uri = nativeUri(root);
+          return route(false).provider(uri.getScheme()) == Route.Provider.REMOTE;
+        } catch (RuntimeException | URISyntaxException e) {
+          throw rejected();
+        }
+      }
+
+      private static URI nativeUri(String root) throws URISyntaxException {
+        root = root.trim();
+        if (root.isEmpty() || "default".equals(root)) {
+          throw new URISyntaxException("", "Unproven native filesystem");
+        }
+        return new URI(root.contains("://") ? root : "hdfs://" + root);
+      }
+
+      public void checkNative(String root, String path) throws IOException {
+        if (root == null || path == null || path.isEmpty()) {
+          throw rejected();
+        }
+        try {
+          URI uri = nativeUri(root);
+          String actual = new Path(path).toUri().getPath();
+          route(false).checkRoute(uri, actual, new HashSet<>());
+        } catch (RuntimeException | URISyntaxException e) {
+          throw rejected();
+        }
+      }
+
+      private void checkJava(Path path) throws IOException {
+        try {
+          URI uri = path.toUri();
+          route(false).checkRoute(uri, uri.getPath(), new HashSet<>());
+        } catch (RuntimeException | URISyntaxException e) {
+          throw rejected();
+        }
+      }
+
+      private void checkRules(String policy) throws IOException {
+        try {
+          byte[] bytes = java.util.Base64.getDecoder().decode(policy);
+          java.io.DataInputStream in = new java.io.DataInputStream(new java.io.ByteArrayInputStream(bytes));
+          int version = in.readInt();
+          int count = in.readInt();
+          if (version != 1 || count <= 0 || count > in.available() / 5) {
+            throw rejected();
+          }
+          for (int i = 0; i < count; i++) {
+            URI filesystem = new URI(in.readUTF());
+            String path = in.readUTF();
+            boolean descendants = in.readBoolean();
+            route(descendants).checkRoute(filesystem, path, new HashSet<>());
+          }
+          if (in.available() != 0) {
+            throw rejected();
+          }
+        } catch (RuntimeException | URISyntaxException e) {
+          throw rejected();
+        }
+      }
+    }
+
+    private static final class EffectiveRoute extends Route {
+      private final Configuration conf;
+
+      private EffectiveRoute(Map<String, String> properties, boolean descendants, Configuration conf) {
+        super(properties, descendants);
+        this.conf = conf;
+      }
+
+      @Override
+      protected String property(String key) {
+        return conf.get(key);
+      }
+
+      @Override
+      protected Provider provider(String scheme) {
+        if ("file".equalsIgnoreCase(scheme)) {
+          return Provider.LOCAL;
+        }
+        try {
+          String implementation = FileSystem.getFileSystemClass(scheme, conf).getName();
+          if (Arrays.asList("io.juicefs.JuiceFileSystem", "org.apache.hadoop.fs.ozone.OzoneFileSystem",
+              "org.apache.hadoop.fs.ozone.RootedOzoneFileSystem", "org.apache.hadoop.fs.cosn.CosNFileSystem",
+              "com.qcloud.chdfs.fs.CHDFSHadoopFileSystemAdapter").contains(implementation)) {
+            return Provider.REMOTE;
+          }
+          return implementationProvider(implementation);
+        } catch (IOException | RuntimeException e) {
+          return Provider.UNKNOWN;
+        }
+      }
+    }
+
+    public static class Route {
+      protected enum Provider {
+        REMOTE,
+        LOCAL,
+        MOUNT_TABLE,
+        DYNAMIC,
+        UNKNOWN
+      }
+
+      protected static final Set<String> REMOTE_SCHEMES = new HashSet<>(Arrays.asList(
+          "hdfs", "s3a", "s3n", "oss", "ofs", "jfs", "abfs", "abfss", "wasb", "wasbs", "gs", "cosn"));
+      protected static final Set<String> REMOTE_IMPLEMENTATIONS = new HashSet<>(Arrays.asList(
+          "org.apache.hadoop.hdfs.DistributedFileSystem",
+          "org.apache.hadoop.fs.s3a.S3AFileSystem",
+          "org.apache.hadoop.fs.azurebfs.AzureBlobFileSystem",
+          "org.apache.hadoop.fs.azurebfs.SecureAzureBlobFileSystem",
+          "org.apache.hadoop.fs.azure.NativeAzureFileSystem",
+          "org.apache.hadoop.fs.aliyun.oss.AliyunOSSFileSystem",
+          "com.aliyun.jindodata.oss.JindoOssFileSystem",
+          "org.apache.hadoop.fs.obs.OBSFileSystem",
+          "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem"));
+
+      private final boolean descendants;
+      private final Map<String, String> properties;
+
+      public Route(Map<String, String> properties, boolean descendants) {
+        // Both callers supply a statement-local snapshot that is never mutated afterward.
+        this.properties = properties;
+        this.descendants = descendants;
+      }
+
+      private List<URI> defaults() throws URISyntaxException {
+        List<URI> defaults = new ArrayList<>();
+        for (String key : Arrays.asList("fs.defaultFS", "fs.default.name")) {
+          String value = property(key);
+          if (value != null) {
+            value = selector(value).trim();
+            // FileSystem.fixName treats slash-free host[:port] strings as HDFS defaults.
+            defaults.add(new URI("local".equals(value) ? "file:///"
+                : (value.indexOf('/') < 0 ? "hdfs://" + value : value)));
+          }
+        }
+        if (defaults.isEmpty()) {
+          defaults.add(new URI("file:///"));
+        }
+        return defaults;
+      }
+
+      public void checkRoute(URI filesystem, String path, Set<String> activeTables) throws URISyntaxException {
+        if (filesystem.getScheme() == null) {
+          for (URI defaultFs : defaults()) {
+            checkViewFsEnabled(defaultFs, path, activeTables);
+          }
+          return;
+        }
+        if (filesystem.getAuthority() == null) {
+          boolean completed = false;
+          for (URI defaultFs : defaults()) {
+            if (filesystem.getScheme().equals(defaultFs.getScheme()) && defaultFs.getAuthority() != null) {
+              checkViewFsEnabled(defaultFs, path, activeTables);
+              completed = true;
+            }
+          }
+          if (completed) {
+            return;
+          }
+        }
+        checkViewFsEnabled(filesystem, path, activeTables);
+      }
+
+      protected Provider provider(String scheme) {
+        if ("file".equalsIgnoreCase(scheme)) {
+          return Provider.LOCAL;
+        }
+        String implementation = property("fs." + scheme + ".impl");
+        if (implementation != null) {
+          implementation = selector(implementation).trim();
+          return implementationProvider(implementation);
+        }
+        if ("viewfs".equals(scheme)) {
+          return Provider.MOUNT_TABLE;
+        }
+        return REMOTE_SCHEMES.contains(scheme) ? Provider.REMOTE : Provider.UNKNOWN;
+      }
+
+      protected Provider implementationProvider(String implementation) {
+        if ("org.apache.hadoop.fs.LocalFileSystem".equals(implementation)
+            || "org.apache.hadoop.fs.RawLocalFileSystem".equals(implementation)) {
+          return Provider.LOCAL;
+        }
+        if ("org.apache.hadoop.fs.viewfs.ViewFileSystem".equals(implementation)) {
+          return Provider.MOUNT_TABLE;
+        }
+        if ("org.apache.hadoop.fs.viewfs.ViewFileSystemOverloadScheme".equals(implementation)
+            || "org.apache.hadoop.hdfs.ViewDistributedFileSystem".equals(implementation)) {
+          return Provider.DYNAMIC;
+        }
+        return REMOTE_IMPLEMENTATIONS.contains(implementation) ? Provider.REMOTE : Provider.UNKNOWN;
+      }
+
+      private String[] targets(String key, String prefix) {
+        String value = selector(property(key));
+        // InodeTree treats SINGLE, SINGLE_FALLBACK and MERGE_SLASH as one URI.
+        // Commas delimit targets only for MERGE and NFLY links.
+        String entry = key.substring(prefix.length());
+        boolean multiple = entry.startsWith("linkMerge.") || entry.startsWith("linkNfly.");
+        return multiple ? value.split(",", -1) : new String[] {value};
+      }
+
+      private void checkGlobTargets(String key, String prefix, Set<String> activeTables) throws URISyntaxException {
+        for (String target : targets(key, prefix)) {
+          if (target.isEmpty()) {
+            reject();
+          }
+          URI uri = new URI(target);
+          // Listing can touch any descendant of a selected mount. Reuse the same route
+          // interpreter for nested tables instead of assuming their root is representative.
+          String path = uri.getPath() == null ? "/" : uri.getPath();
+          checkRoute(uri, (path.endsWith("/") ? path : path + "/") + "*", activeTables);
+        }
+      }
+
+      private void checkViewFsEnabled(URI filesystem, String path, Set<String> activeTables) {
+        String scheme = filesystem.getScheme();
+        Provider provider = provider(scheme);
+        if (provider == Provider.LOCAL || provider == Provider.UNKNOWN || provider == Provider.DYNAMIC) {
+          reject();
+        }
+        if (provider != Provider.MOUNT_TABLE) {
+          return;
+        }
+        if (!path.startsWith("/")) {
+          // Java resolves relative paths against the selected filesystem's working directory.
+          // Its user/home configuration is not a proven absolute mount-table path here.
+          reject();
+        }
+        String table = filesystem.getAuthority();
+        String ignorePort = property("fs.viewfs.ignore.port.in.mount.table.name");
+        if (ignorePort != null && Boolean.parseBoolean(selector(ignorePort).trim())
+            && table != null && filesystem.getPort() != -1) {
+          table = filesystem.getHost();
+          if (table == null) {
+            reject();
+          }
+        }
+        if (table == null || table.isEmpty()) {
+          table = property("fs.viewfs.mounttable.default.name.key");
+          table = table == null ? "default" : selector(table);
+        }
+        // Nested ViewFS cycles or arbitrarily deep delegation cannot establish remote storage.
+        if (activeTables.size() >= 32 || !activeTables.add(table)) {
+          reject();
+        }
+        try {
+          String prefix = "fs.viewfs.mounttable." + table + ".";
+          String source = "";
+          List<String> selectedKeys = new ArrayList<>();
+          List<String> mountSources = new ArrayList<>();
+          String fallback = null;
+          String rootMerge = null;
+          for (String key : properties.keySet()) {
+            if (!key.startsWith(prefix)) {
+              continue;
+            }
+            String entry = key.substring(prefix.length());
+            if (entry.equals("linkFallback")) {
+              fallback = key;
+              continue;
+            }
+            if (entry.equals("linkMergeSlash")) {
+              rootMerge = key;
+              continue;
+            }
+            if (entry.startsWith("linkRegex")) {
+              // Regex interception rewrites runtime paths before ordinary mount resolution.
+              reject();
+            }
+            int slash = entry.indexOf('/');
+            if (slash < 0 || !(entry.startsWith("link.") || entry.startsWith("linkMerge.")
+                || entry.startsWith("linkNfly."))) {
+              continue;
+            }
+            String candidate = entry.substring(slash);
+            // InodeTree splits source components and discards trailing empty components.
+            while (candidate.length() > 1 && candidate.endsWith("/")) {
+              candidate = candidate.substring(0, candidate.length() - 1);
+            }
+            mountSources.add(candidate);
+            if (!(path.equals(candidate) || path.startsWith(candidate + "/"))) {
+              continue;
+            }
+            if (candidate.length() > source.length()) {
+              source = candidate;
+              selectedKeys.clear();
+            }
+            if (candidate.equals(source)) {
+              selectedKeys.add(key);
+            }
+          }
+          if (descendants && hasGlob(path)) {
+            String literal = path.substring(0, firstGlob(path));
+            int slash = literal.lastIndexOf('/');
+            literal = slash < 0 ? "/" : literal.substring(0, slash + 1);
+            for (String key : properties.keySet()) {
+              if (!key.startsWith(prefix)) {
+                continue;
+              }
+              String entry = key.substring(prefix.length());
+              int sourceStart = entry.indexOf('/');
+              if (sourceStart >= 0 && (entry.startsWith("link.") || entry.startsWith("linkMerge.")
+                  || entry.startsWith("linkNfly."))) {
+                String mount = entry.substring(sourceStart);
+                if (mount.startsWith(literal) || literal.startsWith(mount + "/")) {
+                  checkGlobTargets(key, prefix, activeTables);
+                }
+              }
+            }
+          }
+          if (descendants && !hasGlob(path)) {
+            String subtree = path.endsWith("/") ? path : path + "/";
+            for (String key : properties.keySet()) {
+              if (key.startsWith(prefix)) {
+                String entry = key.substring(prefix.length());
+                int sourceStart = entry.indexOf('/');
+                if (sourceStart >= 0 && entry.substring(sourceStart).startsWith(subtree)) {
+                  checkGlobTargets(key, prefix, activeTables);
+                }
+              }
+            }
+          }
+          if (rootMerge != null) {
+            selectedKeys.add(rootMerge);
+            source = "";
+          } else if (selectedKeys.isEmpty() && fallback != null) {
+            selectedKeys.add(fallback);
+          }
+          if (selectedKeys.isEmpty()) {
+            // Missing inline fallback does not prove absence of one in default resources.
+            // Keep rejecting unproven routes, including globs that cross mount names.
+            reject();
+          }
+          for (String key : selectedKeys) {
+            for (String target : targets(key, prefix)) {
+              if (target.isEmpty()) {
+                reject();
+              }
+              URI uri = new URI(target);
+              if (uri.getScheme() == null) {
+                reject();
+              }
+              if (provider(uri.getScheme()) == Provider.MOUNT_TABLE) {
+                for (String nested : mountSources) {
+                  if (!nested.startsWith(source + "/")) {
+                    continue;
+                  }
+                  int branchEnd = nested.indexOf('/', source.length() + 1);
+                  String branch = branchEnd < 0 ? nested : nested.substring(0, branchEnd);
+                  if (path.equals(branch) || path.startsWith(branch + "/")) {
+                    // A missing child below an internal nested-mount directory uses
+                    // a different suffix in InodeTree. Do not guess its delegation.
+                    reject();
+                  }
+                }
+              }
+              String base = uri.getPath() == null ? "/" : uri.getPath();
+              String remaining = path.substring(source.length());
+              String nextPath = new URI(null, null,
+                  (base.endsWith("/") ? base : base + "/")
+                      + (remaining.startsWith("/") ? remaining.substring(1) : remaining), null)
+                  .normalize().getPath();
+              checkRoute(uri, nextPath, activeTables);
+            }
+          }
+        } catch (URISyntaxException e) {
+          reject();
+        } finally {
+          activeTables.remove(table);
+        }
+      }
+
+      protected String property(String key) {
+        return properties.get(key);
+      }
+
+      private String selector(String value) {
+        if (value.contains("${")) {
+          reject();
+        }
+        return value;
+      }
+
+      private static int firstGlob(String path) {
+        int first = path.length();
+        for (char marker : new char[] {'*', '?', '[', '{'}) {
+          int index = path.indexOf(marker);
+          if (index >= 0) {
+            first = Math.min(first, index);
+          }
+        }
+        return first;
+      }
+
+      private static boolean hasGlob(String path) {
+        return firstGlob(path) < path.length();
+      }
+
+      protected void reject() {
+        throw new IllegalArgumentException("Hadoop TVF requires a proven remote filesystem route");
+      }
+    }
+  }
+
   private static FileSystem createFileSystem(URI uri, Configuration conf)
       throws IOException {
     Tracer tracer = FsTracer.get(conf);
@@ -3629,6 +4253,8 @@ public abstract class FileSystem extends Configured
         DurationInfo ignored =
             new DurationInfo(LOGGER, false, "Creating FS %s", uri)) {
       scope.addKVAnnotation("scheme", uri.getScheme());
+      // DORIS-PATCH: initialize from the exact private snapshot retained for subsequent TVF IO.
+      conf = TvfGuard.prepare(conf);
       Class<? extends FileSystem> clazz =
           getFileSystemClass(uri.getScheme(), conf);
       FileSystem fs = ReflectionUtils.newInstance(clazz, conf);
@@ -3642,8 +4268,12 @@ public abstract class FileSystem extends Configured
         LOGGER.debug("Failed to initialize filesystem", e);
         // then (robustly) close the FS, so as to invoke any
         // cleanup code.
+        TvfGuard.clearNativeContext();
         IOUtils.cleanupWithLogger(LOGGER, fs);
         throw e;
+      }
+      if (TvfGuard.NATIVE_POLICY.equals(conf.getRaw(TvfGuard.POLICY_KEY))) {
+        TvfGuard.LAST_NATIVE_CONTEXT.set(((TvfGuard.FrozenConfiguration) conf).context);
       }
       return fs;
     }
@@ -3684,12 +4314,14 @@ public abstract class FileSystem extends Configured
     }
 
     FileSystem get(URI uri, Configuration conf) throws IOException{
+      conf = TvfGuard.prepare(conf);
       Key key = new Key(uri, conf);
       return getInternal(uri, conf, key);
     }
 
     /** The objects inserted into the cache using this method are all unique. */
     FileSystem getUnique(URI uri, Configuration conf) throws IOException{
+      conf = TvfGuard.prepare(conf);
       Key key = new Key(uri, conf, unique.getAndIncrement());
       return getInternal(uri, conf, key);
     }
@@ -3899,6 +4531,9 @@ public abstract class FileSystem extends Configured
       final UserGroupInformation ugi;
       final long unique;   // an artificial way to make a key unique
       final String dorisCacheKey;   // DORIS-PATCH
+      final String tvfPolicy;       // DORIS-PATCH: separate from user cache fingerprints.
+      final String tvfContext;
+      final String tvfFileSystem;   // DORIS-PATCH: ViewFS table authority is case-sensitive.
 
       Key(URI uri, Configuration conf) throws IOException {
         this(uri, conf, 0);
@@ -3910,6 +4545,11 @@ public abstract class FileSystem extends Configured
         authority = uri.getAuthority()==null ?
             "" : StringUtils.toLowerCase(uri.getAuthority());
         this.unique = unique;
+        this.tvfPolicy = conf.getRaw(TvfGuard.POLICY_KEY) == null
+            ? "" : conf.getRaw(TvfGuard.POLICY_KEY);
+        this.tvfContext = tvfPolicy.isEmpty() ? "" : conf.get(TvfGuard.CONTEXT_KEY, "");
+        this.tvfFileSystem = tvfPolicy.isEmpty() ? "" : uri.getScheme() + "://"
+            + (uri.getRawAuthority() == null ? "" : uri.getRawAuthority());
         // DORIS-PATCH
         this.dorisCacheKey = conf.get(DORIS_FS_CACHE_KEY_PROPERTY, "");
 
@@ -3919,7 +4559,7 @@ public abstract class FileSystem extends Configured
       @Override
       public int hashCode() {
         return (scheme + authority).hashCode() + ugi.hashCode() + (int)unique
-            + dorisCacheKey.hashCode();   // DORIS-PATCH
+            + dorisCacheKey.hashCode() + tvfPolicy.hashCode() + tvfContext.hashCode() + tvfFileSystem.hashCode(); // DORIS-PATCH
       }
 
       static boolean isEqual(Object a, Object b) {
@@ -3937,6 +4577,9 @@ public abstract class FileSystem extends Configured
                  && isEqual(this.authority, that.authority)
                  && isEqual(this.ugi, that.ugi)
                  && isEqual(this.dorisCacheKey, that.dorisCacheKey)   // DORIS-PATCH
+                 && isEqual(this.tvfPolicy, that.tvfPolicy)
+                 && isEqual(this.tvfContext, that.tvfContext)
+                 && isEqual(this.tvfFileSystem, that.tvfFileSystem)
                  && (this.unique == that.unique);
         }
         return false;

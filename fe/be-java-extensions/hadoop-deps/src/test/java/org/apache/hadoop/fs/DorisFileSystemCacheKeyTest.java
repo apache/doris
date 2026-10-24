@@ -87,4 +87,70 @@ public class DorisFileSystemCacheKeyTest {
         FileSystem fs2 = FileSystem.get(LOCAL, conf2);
         Assertions.assertSame(fs1, fs2);
     }
+    @Test
+    public void testTvfPolicyIsIndependentFromUserCacheFingerprints() throws IOException {
+        Configuration plain = new Configuration(false);
+        Configuration first = new Configuration(false);
+        first.set(FileSystem.TvfGuard.POLICY_KEY, "first-policy");
+        Configuration second = new Configuration(false);
+        second.set(FileSystem.TvfGuard.POLICY_KEY, "second-policy");
+        first.set("doris.fs.cache.key", "same-user-value");
+        second.set("doris.fs.cache.key", "same-user-value");
+        FileSystem.Cache.Key a = new FileSystem.Cache.Key(LOCAL, first);
+        FileSystem.Cache.Key b = new FileSystem.Cache.Key(LOCAL, second);
+        Assertions.assertNotEquals(a, b);
+        Assertions.assertNotEquals(a, new FileSystem.Cache.Key(LOCAL, plain));
+    }
+
+    @Test
+    public void testGuardedViewFsAuthorityCaseIsAnExactCacheDimension() throws IOException {
+        Configuration guarded = new Configuration(false);
+        guarded.set(FileSystem.TvfGuard.POLICY_KEY, "one-policy-with-both-tables");
+        Assertions.assertNotEquals(new FileSystem.Cache.Key(URI.create("viewfs://Cluster"), guarded),
+                new FileSystem.Cache.Key(URI.create("viewfs://cluster"), guarded));
+        Configuration plain = new Configuration(false);
+        Assertions.assertEquals(new FileSystem.Cache.Key(URI.create("viewfs://Cluster"), plain),
+                new FileSystem.Cache.Key(URI.create("viewfs://cluster"), plain));
+    }
+
+
+    @Test
+    public void testActualSnapshotProfilePartitionsCacheBeforeLookup() throws IOException {
+        // A credential helper may initialize local FS while its guarded data route is remote.
+        Configuration first = nativeRequest();
+        first.set("remote.cluster.setting", "first");
+        Configuration second = nativeRequest();
+        second.set("remote.cluster.setting", "second");
+        FileSystem a = FileSystem.get(LOCAL, first);
+        FileSystem b = FileSystem.get(LOCAL, second);
+        Assertions.assertNotSame(a, b);
+        Assertions.assertNotEquals(a.getConf().getRaw(FileSystem.TvfGuard.CONTEXT_KEY),
+                b.getConf().getRaw(FileSystem.TvfGuard.CONTEXT_KEY));
+        Configuration nextPath = new Configuration(first);
+        nextPath.set(FileSystem.TvfGuard.PATH_KEY, "/data/next.csv");
+        Assertions.assertSame(a, FileSystem.get(LOCAL, nextPath));
+        FileSystem.TvfGuard.clearNativeContext();
+    }
+
+    @Test
+    public void testRawConfigurationCodeUnitsRemainDistinctCacheProfiles() throws IOException {
+        java.util.Set<FileSystem> instances = new java.util.HashSet<>();
+        for (String value : new String[] {"?", String.valueOf((char) 0xD800), String.valueOf((char) 0xDC00)}) {
+            Configuration conf = nativeRequest();
+            conf.set("unrelated.raw.setting", value);
+            FileSystem fs = FileSystem.get(LOCAL, conf);
+            Assertions.assertEquals(value, fs.getConf().getRaw("unrelated.raw.setting"));
+            Assertions.assertTrue(instances.add(fs), "different raw settings must not reuse a guarded filesystem");
+        }
+        FileSystem.TvfGuard.clearNativeContext();
+    }
+
+    private static Configuration nativeRequest() {
+        Configuration conf = new Configuration(false);
+        conf.set(FileSystem.TvfGuard.POLICY_KEY, FileSystem.TvfGuard.NATIVE_POLICY);
+        conf.set(FileSystem.TvfGuard.ROOT_KEY, "hdfs://runtime");
+        conf.set(FileSystem.TvfGuard.PATH_KEY, "/data/file.csv");
+        return conf;
+    }
+
 }

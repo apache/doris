@@ -40,6 +40,8 @@ class THdfsParams;
 
 namespace io {
 
+class HdfsTvfPolicy;
+
 class HdfsHandler {
 public:
     hdfsFS hdfs_fs;
@@ -47,6 +49,8 @@ public:
     std::string principal;
     std::string keytab_path;
     std::string fs_name;
+    std::shared_ptr<const THdfsParams> tvf_params;
+    std::shared_ptr<HdfsTvfPolicy> tvf_context;
     uint64_t create_time;
     std::atomic<uint64_t> last_access_time;
     // std::shared_ptr<kerberos::KerberosTicketCache> ticket_cache;

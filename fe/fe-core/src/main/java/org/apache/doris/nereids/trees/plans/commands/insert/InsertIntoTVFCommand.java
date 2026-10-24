@@ -186,6 +186,7 @@ public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Ex
 
         // Copy props for building StorageProperties (exclude write-specific params)
         Map<String, String> fsCopyProps = new HashMap<>(props);
+        HadoopTvfAdmission.removeRuntimePolicy(fsCopyProps);
         fsCopyProps.remove("file_path");
         fsCopyProps.remove("format");
         fsCopyProps.remove("delete_existing_files");
@@ -199,6 +200,10 @@ public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Ex
         if (storageProps instanceof HdfsCompatibleProperties) {
             HadoopTvfAdmission.check(HadoopTvfAdmission.Access.JAVA_DELETE,
                     parentDir, storageProps.getBackendConfigProperties());
+        }
+        if (storageProps instanceof HdfsCompatibleProperties) {
+            storageProps = StorageProperties.createPrimary(HadoopTvfAdmission.protectJava(
+                    HadoopTvfAdmission.Access.JAVA_DELETE, parentDir, fsCopyProps));
         }
         RemoteFileSystem fs = FileSystemFactory.get(storageProps);
         org.apache.doris.backup.Status deleteStatus = fs.deleteDirectory(parentDir);
