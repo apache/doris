@@ -57,8 +57,22 @@ Status resolve_dataset_uri(const TFileRangeDesc& range, const TFileScanRangePara
     if (is_local && range.table_format_params.lance_params.version == 0) {
         // LOCAL Lance bypasses glob because it opens a dataset directory. Apply the same
         // canonical secure-root check before either schema discovery or a cached dataset open.
+        std::string local_input = requested_uri;
+        const auto colon = requested_uri.find(':');
+        const auto slash = requested_uri.find('/');
+        const bool bare_path =
+                colon == std::string::npos || (slash != std::string::npos && slash < colon);
+        if (bare_path && !requested_uri.empty() && requested_uri.find('\0') == std::string::npos &&
+            !config::user_files_secure_path.empty()) {
+            // Lance's PathAbs fallback resolves bare dot segments before following symlinks.
+            // Anchor relative TVF paths to the canonical secure root, not the process cwd.
+            std::string secure_root;
+            RETURN_IF_ERROR(io::global_local_filesystem()->canonicalize(
+                    config::user_files_secure_path, &secure_root));
+            local_input = (io::Path(secure_root) / requested_uri).lexically_normal().string();
+        }
         return io::global_local_filesystem()->canonicalize_local_file(
-                config::user_files_secure_path, requested_uri, uri);
+                config::user_files_secure_path, local_input, uri);
     }
     *uri = requested_uri;
     return Status::OK();
