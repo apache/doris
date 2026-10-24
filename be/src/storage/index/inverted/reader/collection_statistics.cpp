@@ -25,11 +25,13 @@
 
 #include "common/exception.h"
 #include "core/column/column_vector.h"
+#include "core/custom_allocator.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
+#include "runtime/thread_context.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_reader_helper.h"
 #include "storage/index/inverted/analysis/analyzer/analyzer.h"
@@ -49,6 +51,7 @@
 #include "storage/segment/segment.h"
 #include "storage/segment/segment_loader.h"
 #include "storage/tablet/tablet_meta.h"
+#include "util/defer_op.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -160,13 +163,17 @@ Status exclude_hidden_docs(std::span<const uint32_t> hidden_docs, const roaring:
     // The exact token count of the hidden rows is not stored anywhere, and norms hold lengths
     // only approximately, so count the lengths the norms of the returned rows stand for. A
     // replica that has compacted the hidden rows away counts the same rows with the same norms.
-    std::vector<uint32_t> hidden_non_null_docs;
-    hidden_non_null_docs.reserve(hidden_docs.size());
-    std::ranges::copy_if(hidden_docs, std::back_inserter(hidden_non_null_docs),
-                         [&null_docs](uint32_t doc) { return !null_docs.contains(doc); });
+    // Most segments have no NULL rows, and then the hidden rows are summed as they are.
+    DorisVector<uint32_t> hidden_non_null_docs;
+    std::span<const uint32_t> summed_docs = hidden_docs;
+    if (!null_docs.isEmpty()) {
+        std::ranges::copy_if(hidden_docs, std::back_inserter(hidden_non_null_docs),
+                             [&null_docs](uint32_t doc) { return !null_docs.contains(doc); });
+        summed_docs = hidden_non_null_docs;
+    }
     uint64_t hidden_lengths = 0;
-    if (!hidden_non_null_docs.empty()) {
-        RETURN_IF_ERROR(sum_norm_lengths_of(hidden_non_null_docs, &hidden_lengths));
+    if (!summed_docs.empty()) {
+        RETURN_IF_ERROR(sum_norm_lengths_of(summed_docs, &hidden_lengths));
     }
     DORIS_CHECK(hidden_lengths <= non_null_length_sum);
     stats->token_count = non_null_length_sum - hidden_lengths;
@@ -193,7 +200,7 @@ namespace {
 // The rows of a segment that a scan with `hidden_rows` does not return, ascending.
 Status collect_hidden_docs(const RowsetSharedPtr& rowset, const RowsetSegmentView& seg,
                            const TabletSchema& tablet_schema, const MowHiddenRows& hidden_rows,
-                           const io::IOContext* io_ctx, std::vector<uint32_t>* hidden_docs) {
+                           const io::IOContext* io_ctx, DorisVector<uint32_t>* hidden_docs) {
     DORIS_CHECK(hidden_rows.delete_bitmap != nullptr);
     DORIS_CHECK(hidden_rows.version >= 0);
     roaring::Roaring hidden =
@@ -449,7 +456,9 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
         return init_status;
     }
 
-    std::vector<uint32_t> hidden_docs;
+    // Row ID lists are as large as the segment's hidden or NULL rows, so they are charged to the
+    // query's memory.
+    DorisVector<uint32_t> hidden_docs;
     if (hidden_rows != nullptr) {
         RETURN_IF_ERROR(collect_hidden_docs(rowset, seg, *tablet_schema, *hidden_rows, io_ctx,
                                             &hidden_docs));
@@ -482,6 +491,12 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
                 if (scoring_stats.has_norms) {
                     std::vector<uint32_t> null_doc_ids;
                     RETURN_IF_ERROR(logical_reader->read_null_docids(&null_doc_ids));
+                    // The SNII reader returns a plain vector; charge it while it lives.
+                    const auto null_doc_id_bytes =
+                            static_cast<int64_t>(null_doc_ids.capacity() * sizeof(uint32_t));
+                    CONSUME_THREAD_MEM_TRACKER(null_doc_id_bytes);
+                    Defer release_null_doc_ids(
+                            [null_doc_id_bytes] { RELEASE_THREAD_MEM_TRACKER(null_doc_id_bytes); });
                     null_docs.addMany(null_doc_ids.size(), null_doc_ids.data());
                     RETURN_IF_ERROR(collection_statistics_detail::sum_non_null_norm_lengths(
                             source, null_doc_ids, &non_null_length_sum));
@@ -581,7 +596,7 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
                 null_docs = null_bitmap_cache_handle.get_bitmap();
                 DORIS_CHECK(null_docs != nullptr);
                 auto sum_lengths = [&source, &null_docs](uint64_t* out) {
-                    std::vector<uint32_t> null_doc_ids(null_docs->cardinality());
+                    DorisVector<uint32_t> null_doc_ids(null_docs->cardinality());
                     null_docs->toUint32Array(null_doc_ids.data());
                     return collection_statistics_detail::sum_non_null_norm_lengths(
                             *source, null_doc_ids, out);
