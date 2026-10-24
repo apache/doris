@@ -142,12 +142,17 @@ suite("test_variant_predefine_types_with_indexes_profile", "p0,nonConcurrent"){
       }
     }
 
+    // The Bloom filter counts only rows that are still alive when it runs. The inverted indexes on
+    // this table would consume these predicates first, leaving no surviving row for the filter to
+    // reject. Disable the inverted index so the filter is exercised on the whole segment.
     def queryAndCheckWithBloomFilter = { String sqlQuery ->
        try {
         GetDebugPoint().enableDebugPointForAllBEs("bloom_filter_must_filter_data")
+        sql "set enable_inverted_index_query = false"
         sql "${sqlQuery}"
       } finally {
           GetDebugPoint().disableDebugPointForAllBEs("bloom_filter_must_filter_data")
+          sql "set enable_inverted_index_query = true"
       }
     }
 
