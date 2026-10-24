@@ -18,7 +18,16 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.Tablet;
+import org.apache.doris.cloud.catalog.CloudTablet;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.Status;
 import org.apache.doris.planner.OlapTableSink.AdaptiveBucketAssignment;
 import org.apache.doris.planner.OlapTableSink.AdaptiveIndexBucketAssignment;
 import org.apache.doris.system.Backend;
@@ -26,9 +35,13 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TOlapTableIndexTablets;
 import org.apache.doris.thrift.TOlapTableLocationParam;
 import org.apache.doris.thrift.TOlapTablePartition;
+import org.apache.doris.thrift.TOlapTableSink;
 import org.apache.doris.thrift.TTabletLocation;
 
+import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Multimap;
+import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
@@ -40,6 +53,92 @@ import java.util.List;
 import java.util.Map;
 
 public class OlapTableSinkTest {
+    @Test
+    public void testCreateLocationFiltersLoadUnavailableBackendsInSharedNothingMode() throws Exception {
+        String originalDeployMode = Config.deploy_mode;
+        String originalCloudUniqueId = Config.cloud_unique_id;
+        SystemInfoService systemInfoService = Mockito.mock(SystemInfoService.class);
+        Mockito.when(systemInfoService.checkBackendLoadAvailable(1L)).thenReturn(true);
+        Mockito.when(systemInfoService.checkBackendLoadAvailable(2L)).thenReturn(false);
+        Mockito.when(systemInfoService.checkBackendLoadAvailable(3L)).thenReturn(true);
+        Mockito.when(systemInfoService.checkExceedDiskCapacityLimit(Mockito.any(), Mockito.eq(true)))
+                .thenReturn(Status.OK);
+
+        Tablet tablet = Mockito.mock(Tablet.class, Mockito.CALLS_REAL_METHODS);
+        Multimap<Long, Long> backendPaths = HashMultimap.create();
+        backendPaths.put(1L, 101L);
+        backendPaths.put(2L, 102L);
+        backendPaths.put(3L, 103L);
+        Mockito.doReturn(backendPaths).when(tablet).getNormalReplicaBackendPathMap();
+        OlapTable table = mockTableWithSingleTablet(tablet, 2);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
+            Config.deploy_mode = "";
+            Config.cloud_unique_id = "";
+
+            TOlapTableSink thriftSink = new TOlapTableSink();
+            thriftSink.setDbId(100L);
+            OlapTableSink sink = new OlapTableSink(table, null, Collections.singletonList(10L));
+            TOlapTableLocationParam location = sink.initLocationParam(thriftSink);
+
+            Assertions.assertEquals(Sets.newHashSet(1L, 3L),
+                    Sets.newHashSet(location.getTablets().get(0).getNodeIds()));
+        } finally {
+            Config.deploy_mode = originalDeployMode;
+            Config.cloud_unique_id = originalCloudUniqueId;
+        }
+    }
+
+    @Test
+    public void testCreateLocationPreservesResolvedBackendInCloudMode() throws Exception {
+        String originalDeployMode = Config.deploy_mode;
+        String originalCloudUniqueId = Config.cloud_unique_id;
+        CloudSystemInfoService systemInfoService = Mockito.mock(CloudSystemInfoService.class);
+        Mockito.when(systemInfoService.getCurrentClusterId()).thenReturn("cluster-id");
+        Mockito.when(systemInfoService.checkExceedDiskCapacityLimit(Mockito.any(), Mockito.eq(true)))
+                .thenReturn(Status.OK);
+
+        CloudTablet tablet = Mockito.mock(CloudTablet.class, Mockito.CALLS_REAL_METHODS);
+        Multimap<Long, Long> backendPaths = HashMultimap.create();
+        backendPaths.put(2L, 102L);
+        Mockito.doReturn(backendPaths).when(tablet).getNormalReplicaBackendPathMapByClusterId("cluster-id");
+        OlapTable table = mockTableWithSingleTablet(tablet, 1);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
+            Config.deploy_mode = "cloud";
+            Config.cloud_unique_id = "";
+
+            TOlapTableSink thriftSink = new TOlapTableSink();
+            thriftSink.setDbId(100L);
+            OlapTableSink sink = new OlapTableSink(table, null, Collections.singletonList(10L));
+            TOlapTableLocationParam location = sink.initLocationParam(thriftSink);
+
+            Assertions.assertEquals(Collections.singletonList(2L),
+                    location.getTablets().get(0).getNodeIds());
+            Mockito.verify(systemInfoService, Mockito.never()).checkBackendLoadAvailable(Mockito.anyLong());
+        } finally {
+            Config.deploy_mode = originalDeployMode;
+            Config.cloud_unique_id = originalCloudUniqueId;
+        }
+    }
+
+    private OlapTable mockTableWithSingleTablet(Tablet tablet, int loadRequiredReplicaNum) {
+        PartitionInfo partitionInfo = Mockito.mock(PartitionInfo.class);
+        Partition partition = Mockito.mock(Partition.class);
+        MaterializedIndex index = Mockito.mock(MaterializedIndex.class);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(partitionInfo.enableAutomaticPartition()).thenReturn(false);
+        Mockito.when(table.getPartitionInfo()).thenReturn(partitionInfo);
+        Mockito.when(table.getPartition(10L)).thenReturn(partition);
+        Mockito.when(table.getLoadRequiredReplicaNum(10L)).thenReturn(loadRequiredReplicaNum);
+        Mockito.when(partition.getMaterializedIndices(IndexExtState.ALL, true))
+                .thenReturn(Collections.singletonList(index));
+        Mockito.when(index.getTablets()).thenReturn(Collections.singletonList(tablet));
+        return table;
+    }
+
     @Test
     public void testCreateDummyLocationUsesLoadAvailableBackendInCurrentComputeGroup() throws Exception {
         SystemInfoService systemInfoService = Mockito.mock(SystemInfoService.class);
