@@ -59,10 +59,35 @@ public class ExpressionLineageReplacer extends DefaultPlanVisitor<Expression, Ex
             if (!usedExprIdSet.contains(((NamedExpression) expression).getExprId())) {
                 continue;
             }
+            if (isConstantShadowingLowerColumn(plan, (NamedExpression) expression)) {
+                continue;
+            }
             // Get used named expression by used expr id set
             expression.accept(NamedExpressionCollector.INSTANCE, context);
         }
         return super.visit(plan, context);
+    }
+
+    /**
+     * Constant propagation materializes a constant above an aggregate, e.g. {@code 2026 AS dt_year#4},
+     * and reuses the exprId of the replaced output. When the same exprId is still defined by the plan
+     * below, the constant is not the lineage of the expressions which are evaluated there, so it must not
+     * replace them. Otherwise a predicate under the aggregate, such as {@code dt_year#4 = 2026}, would be
+     * rewritten to {@code 2026 = 2026} and removed, and a materialized view rewrite compensating that
+     * predicate would read the unfiltered rows.
+     */
+    private static boolean isConstantShadowingLowerColumn(Plan plan, NamedExpression namedExpression) {
+        if (!(namedExpression instanceof Alias) || !namedExpression.child(0).isConstant()) {
+            return false;
+        }
+        ExprId exprId = namedExpression.getExprId();
+        for (Plan child : plan.children()) {
+            if (child.anyMatch(node -> node instanceof Plan
+                    && ((Plan) node).getOutput().stream().anyMatch(slot -> slot.getExprId().equals(exprId)))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
