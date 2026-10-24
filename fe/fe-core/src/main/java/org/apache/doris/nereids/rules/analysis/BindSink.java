@@ -46,7 +46,9 @@ import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenMetadata;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.dictionary.Dictionary;
+import org.apache.doris.filesystem.FileSystemUtil;
 import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
@@ -104,6 +106,7 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.AutoCloseSessionVariable;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.tablefunction.HadoopTvfAdmission;
 import org.apache.doris.tablefunction.LocalTableValuedFunction;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 
@@ -729,6 +732,19 @@ public class BindSink implements AnalysisRuleFactory {
         if (tvfName.equals("local") && deleteExisting) {
             throw new AnalysisException(
                     "delete_existing_files=true is not supported for local TVF");
+        }
+
+        if ("hdfs".equals(tvfName)) {
+            // Storage normalization loads operator-controlled XML before route classification,
+            // while leaving filesystem construction to execution.
+            Map<String, String> normalized = StorageAdapter.of(properties).getBackendConfigProperties();
+            if (!properties.containsKey("writer_class")) {
+                HadoopTvfAdmission.check(HadoopTvfAdmission.Access.NATIVE_WRITE, filePath, normalized);
+            }
+            if (deleteExisting) {
+                HadoopTvfAdmission.check(HadoopTvfAdmission.Access.JAVA_DELETE,
+                        FileSystemUtil.extractParentDirectory(filePath), normalized);
+            }
         }
 
         LogicalPlan child = ((LogicalPlan) sink.child());

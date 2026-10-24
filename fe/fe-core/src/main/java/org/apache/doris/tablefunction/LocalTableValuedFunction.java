@@ -24,7 +24,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.datasource.storage.StorageAdapter;
-import org.apache.doris.filesystem.FileSystemUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PGlobResponse;
@@ -40,14 +39,9 @@ import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.net.URI;
-import java.net.URISyntaxException;
-import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
@@ -138,7 +132,7 @@ public class LocalTableValuedFunction extends ExternalFileTableValuedFunction {
                                 + ", error msg: " + globResponse.getStatus().getErrorMsgsList());
             }
             for (PFileInfo file : globResponse.getFilesList()) {
-                fileStatuses.add(new TBrokerFileStatus(file.getFile().trim(), false, file.getSize(), true));
+                fileStatuses.add(new TBrokerFileStatus(file.getFile(), false, file.getSize(), true));
                 LOG.info("get file from backend success. file: {}, size: {}", file.getFile(), file.getSize());
             }
         } catch (Exception e) {
@@ -151,15 +145,6 @@ public class LocalTableValuedFunction extends ExternalFileTableValuedFunction {
         if ("local".equalsIgnoreCase(tvfName) || isLocalWriter(properties.getOrDefault("writer_class", ""))) {
             checkEnabled();
         }
-        if ("hdfs".equalsIgnoreCase(tvfName)) {
-            if (!properties.containsKey("writer_class")) {
-                checkHdfsSinkEnabled(properties);
-            }
-            if (Boolean.parseBoolean(properties.getOrDefault("delete_existing_files", "false"))) {
-                checkHadoopFileSystemEnabled(
-                        FileSystemUtil.extractParentDirectory(properties.getOrDefault("file_path", "")), properties);
-            }
-        }
     }
 
     private static boolean isLocalWriter(String writer) {
@@ -167,288 +152,6 @@ public class LocalTableValuedFunction extends ExternalFileTableValuedFunction {
         int separator = writer.indexOf(':');
         return separator > 0 && "java-writer".equals(nativeStringPrefix(writer.substring(0, separator)))
                 && "local-file".equals(nativeStringPrefix(writer.substring(separator + 1)));
-    }
-
-    /** Check the NameNode and provider used by the native FILE_HDFS writer. */
-    public static void checkHdfsSinkEnabled(Map<String, String> properties) {
-        checkHdfsSinkEnabled(properties.getOrDefault("file_path", ""), properties);
-    }
-
-    public static void checkHdfsSinkEnabled(String outputPrefix, Map<String, String> properties) {
-        String nameNode = nativeStringPrefix(properties.getOrDefault("fs.defaultFS", "")).trim();
-        if ("default".equals(nameNode)) {
-            // libhdfs delegates this selector to the BE's defaults, which may select local storage.
-            checkEnabled();
-        }
-        // libhdfs prefixes bare NameNodes with hdfs:// rather than using the output path's scheme.
-        checkHadoopSchemeEnabled(nameNode.contains("://") ? uriScheme(nameNode) : "hdfs", properties);
-        if (!Config.enable_local_tvf) {
-            try {
-                URI filesystem = new URI(nameNode.contains("://") ? nameNode : "hdfs://" + nameNode);
-                // BE appends a generated filename directly to this prefix, then convert_path
-                // removes the NameNode. Resolve its parent, not an exact mount-point filename.
-                String generated = outputPrefix + "doris-tvf-file";
-                String rawNameNode = properties.getOrDefault("fs.defaultFS", "");
-                if (!rawNameNode.isEmpty() && generated.contains(rawNameNode)) {
-                    generated = generated.substring(rawNameNode.length());
-                }
-                if (!generated.startsWith("/")) {
-                    generated = "/" + generated;
-                }
-                String path = hadoopPathUri(nativeStringPrefix(generated)).getPath();
-                path = path.substring(0, path.lastIndexOf('/') + 1);
-                if (path.length() > 1) {
-                    path = path.substring(0, path.length() - 1);
-                }
-                checkViewFsEnabled(filesystem, path, properties, new HashSet<>());
-            } catch (URISyntaxException e) {
-                // Invalid NameNodes remain subject to the existing storage validation.
-            }
-        }
-    }
-
-    /** Check Hadoop's path/default-filesystem selection before FE-side cleanup. */
-    public static void checkHadoopFileSystemEnabled(String path, Map<String, String> properties) {
-        String scheme = uriScheme(path);
-        if (!scheme.isEmpty()) {
-            checkHadoopSchemeEnabled(scheme, properties);
-            checkViewFsPathEnabled(path, path, properties);
-            return;
-        }
-        String defaultFs = hadoopSelectorProperty("fs.defaultFS", properties);
-        String legacyDefaultFs = hadoopSelectorProperty("fs.default.name", properties);
-        // Configuration.set synchronizes aliases; either value can win when the map is applied.
-        // Do not assume that the canonical key overrides a local legacy selector.
-        if (defaultFs != null) {
-            checkHadoopDefaultEnabled(defaultFs, path, properties);
-        }
-        if (legacyDefaultFs != null) {
-            checkHadoopDefaultEnabled(legacyDefaultFs, path, properties);
-        }
-        if (defaultFs == null && legacyDefaultFs == null) {
-            checkHadoopSchemeEnabled("file", properties);
-        }
-    }
-
-    private static void checkHadoopDefaultEnabled(String value, String path, Map<String, String> properties) {
-        value = hadoopSelectorValue(value).trim();
-        // Hadoop retains the old "local" default-FS spelling.
-        String scheme = "local".equals(value) ? "file" : uriScheme(value);
-        checkHadoopSchemeEnabled(scheme.isEmpty() ? "hdfs" : scheme, properties);
-        checkViewFsPathEnabled(scheme.isEmpty() ? "hdfs://" + value : value, path, properties);
-    }
-
-    private static void checkViewFsPathEnabled(String location, String path, Map<String, String> properties) {
-        if (!Config.enable_local_tvf) {
-            try {
-                URI filesystem = uriScheme(path).isEmpty() ? new URI(location) : hadoopPathUri(path);
-                checkViewFsEnabled(filesystem, hadoopPathUri(path).getPath(), properties, new HashSet<>());
-            } catch (URISyntaxException e) {
-                checkEnabled();
-            }
-        }
-    }
-
-    private static void checkHadoopSchemeEnabled(String scheme, Map<String, String> properties) {
-        if ("file".equalsIgnoreCase(scheme)) {
-            checkEnabled();
-        }
-        String implementationKey = "fs." + scheme + ".impl";
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
-            // The native Hadoop configuration boundary consumes C strings for keys and values.
-            if (implementationKey.equals(nativeStringPrefix(entry.getKey()).trim())) {
-                String implementation = hadoopSelectorValue(nativeStringPrefix(entry.getValue())).trim();
-                if ("org.apache.hadoop.fs.LocalFileSystem".equals(implementation)
-                        || "org.apache.hadoop.fs.RawLocalFileSystem".equals(implementation)) {
-                    checkEnabled();
-                }
-            }
-        }
-    }
-
-    private static void checkViewFsEnabled(URI filesystem, String path, Map<String, String> properties,
-            Set<String> activeTables) {
-        if (Config.enable_local_tvf) {
-            return;
-        }
-        String scheme = filesystem.getScheme();
-        checkHadoopSchemeEnabled(scheme, properties);
-        String implementation = hadoopSelectorProperty("fs." + scheme + ".impl", properties);
-        if (implementation != null
-                && "org.apache.hadoop.fs.viewfs.ViewFileSystemOverloadScheme".equals(implementation.trim())) {
-            // OverloadScheme can reload runtime mount tables and overrides provider selection.
-            checkEnabled();
-        }
-        boolean viewFs = isViewFs(scheme, implementation);
-        if (!viewFs) {
-            return;
-        }
-        String table = filesystem.getAuthority();
-        String ignorePort = hadoopSelectorProperty("fs.viewfs.ignore.port.in.mount.table.name", properties);
-        if (ignorePort != null && Boolean.parseBoolean(hadoopSelectorValue(ignorePort).trim())
-                && table != null && filesystem.getPort() != -1) {
-            table = filesystem.getHost();
-            if (table == null) {
-                checkEnabled();
-            }
-        }
-        if (table == null || table.isEmpty()) {
-            table = hadoopSelectorProperty("fs.viewfs.mounttable.default.name.key", properties);
-            table = table == null ? "default" : hadoopSelectorValue(table);
-        }
-        // Nested ViewFS cycles or arbitrarily deep delegation cannot establish remote storage.
-        if (activeTables.size() >= 32 || !activeTables.add(table)) {
-            checkEnabled();
-        }
-        try {
-            String prefix = "fs.viewfs.mounttable." + table + ".";
-            String source = "";
-            List<String> selectedKeys = new ArrayList<>();
-            List<String> mountSources = new ArrayList<>();
-            String fallback = null;
-            String rootMerge = null;
-            for (String rawKey : properties.keySet()) {
-                String key = nativeStringPrefix(rawKey).trim();
-                if (!key.startsWith(prefix)) {
-                    continue;
-                }
-                String entry = key.substring(prefix.length());
-                if (entry.equals("linkFallback")) {
-                    fallback = key;
-                    continue;
-                }
-                if (entry.equals("linkMergeSlash")) {
-                    rootMerge = key;
-                    continue;
-                }
-                if (entry.startsWith("linkRegex")) {
-                    // Regex interception rewrites runtime paths before ordinary mount resolution.
-                    checkEnabled();
-                }
-                int slash = entry.indexOf('/');
-                if (slash < 0 || !(entry.startsWith("link.") || entry.startsWith("linkMerge.")
-                        || entry.startsWith("linkNfly."))) {
-                    continue;
-                }
-                String candidate = entry.substring(slash);
-                // InodeTree splits source components and discards trailing empty components.
-                while (candidate.length() > 1 && candidate.endsWith("/")) {
-                    candidate = candidate.substring(0, candidate.length() - 1);
-                }
-                mountSources.add(candidate);
-                if (!(path.equals(candidate) || path.startsWith(candidate + "/"))) {
-                    continue;
-                }
-                if (candidate.length() > source.length()) {
-                    source = candidate;
-                    selectedKeys.clear();
-                }
-                if (candidate.equals(source)) {
-                    selectedKeys.add(key);
-                }
-            }
-            if (rootMerge != null) {
-                selectedKeys.add(rootMerge);
-                source = "";
-            } else if (selectedKeys.isEmpty() && fallback != null) {
-                selectedKeys.add(fallback);
-            }
-            if (selectedKeys.isEmpty()) {
-                // No explicit target can prove what a BE-inherited mount table will select.
-                checkEnabled();
-            }
-            for (String key : selectedKeys) {
-                String targets = hadoopSelectorValue(hadoopSelectorProperty(key, properties));
-                for (String target : targets.split(",")) {
-                    if (target.isEmpty()) {
-                        continue;
-                    }
-                    URI uri = new URI(target);
-                    if (uri.getScheme() == null) {
-                        checkEnabled();
-                    }
-                    String targetImplementation = hadoopSelectorProperty("fs." + uri.getScheme() + ".impl",
-                            properties);
-                    if (isViewFs(uri.getScheme(), targetImplementation)) {
-                        for (String nested : mountSources) {
-                            if (!nested.startsWith(source + "/")) {
-                                continue;
-                            }
-                            int branchEnd = nested.indexOf('/', source.length() + 1);
-                            String branch = branchEnd < 0 ? nested : nested.substring(0, branchEnd);
-                            if (path.equals(branch) || path.startsWith(branch + "/")) {
-                                // A missing child below an internal nested-mount directory uses
-                                // a different suffix in InodeTree. Do not guess its delegation.
-                                checkEnabled();
-                            }
-                        }
-                    }
-                    String base = uri.getPath() == null ? "/" : uri.getPath();
-                    String remaining = path.substring(source.length());
-                    String nextPath = new URI(null, null,
-                            (base.endsWith("/") ? base : base + "/")
-                                    + (remaining.startsWith("/") ? remaining.substring(1) : remaining), null)
-                            .normalize().getPath();
-                    checkViewFsEnabled(uri, nextPath, properties, activeTables);
-                }
-            }
-        } catch (URISyntaxException e) {
-            checkEnabled();
-        } finally {
-            activeTables.remove(table);
-        }
-    }
-
-    private static boolean isViewFs(String scheme, String implementation) {
-        return implementation == null ? "viewfs".equals(scheme)
-                : "org.apache.hadoop.fs.viewfs.ViewFileSystem".equals(implementation.trim());
-    }
-
-    private static URI hadoopPathUri(String path) throws URISyntaxException {
-        String scheme = uriScheme(path);
-        String authority = null;
-        String relative = scheme.isEmpty() ? path : path.substring(scheme.length() + 1);
-        if (relative.startsWith("//")) {
-            int slash = relative.indexOf('/', 2);
-            authority = slash < 0 ? relative.substring(2) : relative.substring(2, slash);
-            relative = slash < 0 ? "/" : relative.substring(slash);
-        }
-        if (!relative.startsWith("/")) {
-            relative = "/" + relative;
-        }
-        // Hadoop Path(String) quotes path bytes before URI normalization; percent text is literal.
-        return new URI(scheme.isEmpty() ? null : scheme, authority, relative, null, null).normalize();
-    }
-
-    private static String hadoopSelectorProperty(String key, Map<String, String> properties) {
-        String value = null;
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
-            // Configuration.set trims keys; native configuration strings also stop at NUL.
-            if (key.equals(nativeStringPrefix(entry.getKey()).trim())) {
-                String candidate = nativeStringPrefix(entry.getValue());
-                if (value != null && !value.equals(candidate)) {
-                    // FE and BE map iteration can choose different conflicting spellings.
-                    checkEnabled();
-                }
-                value = candidate;
-            }
-        }
-        return value;
-    }
-
-    private static String hadoopSelectorValue(String value) {
-        if (value.contains("${")) {
-            // Hadoop aliases and BE runtime properties can change the referenced value.
-            // An indirect filesystem selector needs opt-in; the FE cannot prove it is remote.
-            checkEnabled();
-        }
-        return value;
-    }
-
-    private static String uriScheme(String path) {
-        int colon = path.indexOf(':');
-        int slash = path.indexOf('/');
-        return colon > 0 && (slash < 0 || colon < slash) ? path.substring(0, colon) : "";
     }
 
     private static String nativeStringPrefix(String value) {

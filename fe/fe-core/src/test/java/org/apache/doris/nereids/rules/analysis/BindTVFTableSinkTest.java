@@ -37,6 +37,7 @@ import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.TVFTableSink;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.tablefunction.HadoopTvfAdmission;
 import org.apache.doris.tablefunction.LocalTableValuedFunction;
 
 import org.junit.jupiter.api.AfterEach;
@@ -203,7 +204,7 @@ class BindTVFTableSinkTest {
         }
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
                 () -> analyzeInsert("INSERT INTO hdfs('fs.defaultFS'='file:///') SELECT 1"));
-        Assertions.assertTrue(exception.getMessage().contains("LOCAL TVF is disabled"));
+        Assertions.assertTrue(exception.getMessage().contains("requires 'file_path'"));
     }
 
     @Test
@@ -276,85 +277,90 @@ class BindTVFTableSinkTest {
         Map<String, String> properties = new HashMap<>();
         properties.put("fs.defaultFS", "hdfs://namenode:8020");
         properties.put("fs.file.impl", "org.apache.hadoop.fs.LocalFileSystem");
-        Assertions.assertDoesNotThrow(() -> LocalTableValuedFunction.checkHadoopFileSystemEnabled(
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.JAVA_DELETE,
                 "/remote/path", properties));
         Assertions.assertThrows(AnalysisException.class,
-                () -> LocalTableValuedFunction.checkHadoopFileSystemEnabled("file:///tmp/prefix_", properties));
+                () -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.JAVA_DELETE,
+                        "file:///tmp/prefix_", properties));
         properties.remove("fs.defaultFS");
         for (String defaultFs : Arrays.asList("local", "file:///")) {
             properties.put("fs.default.name", defaultFs);
             Assertions.assertThrows(AnalysisException.class,
-                    () -> LocalTableValuedFunction.checkHadoopFileSystemEnabled("/tmp/prefix_", properties));
+                    () -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.JAVA_DELETE, "/tmp/prefix_", properties));
         }
         properties.clear();
         Assertions.assertThrows(AnalysisException.class,
-                () -> LocalTableValuedFunction.checkHadoopFileSystemEnabled("/tmp/prefix_", properties));
+                () -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.JAVA_DELETE, "/tmp/prefix_", properties));
         properties.put("fs.defaultFS", "hdfs://namenode:8020");
         properties.put("fs.default.name", "file:///");
         Assertions.assertThrows(AnalysisException.class,
-                () -> LocalTableValuedFunction.checkHadoopFileSystemEnabled("/tmp/prefix_", properties));
+                () -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.JAVA_DELETE, "/tmp/prefix_", properties));
         properties.put("fs.default.name", "hdfs://other-namenode:8020");
-        Assertions.assertDoesNotThrow(() -> LocalTableValuedFunction.checkHadoopFileSystemEnabled(
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.JAVA_DELETE,
                 "/remote/path", properties));
         properties.remove("fs.defaultFS");
-        Assertions.assertDoesNotThrow(() -> LocalTableValuedFunction.checkHadoopFileSystemEnabled(
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.JAVA_DELETE,
                 "/remote/path", properties));
         properties.clear();
         properties.put("fs.defaultFS", "viewfs://cluster");
         properties.put("fs.viewfs.impl", "org.apache.hadoop.fs.RawLocalFileSystem");
         Assertions.assertThrows(AnalysisException.class,
-                () -> LocalTableValuedFunction.checkHadoopFileSystemEnabled("viewfs://cluster/tmp", properties));
+                () -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.JAVA_DELETE,
+                        "viewfs://cluster/tmp", properties));
         properties.clear();
         properties.put("fs.defaultFS", "${fs.selected.uri}");
         properties.put("fs.selected.uri", "file:///");
         Assertions.assertThrows(AnalysisException.class,
-                () -> LocalTableValuedFunction.checkHadoopFileSystemEnabled("/tmp/prefix_", properties));
+                () -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.JAVA_DELETE, "/tmp/prefix_", properties));
         properties.put("fs.selected.uri", "hdfs://namenode:8020");
         Assertions.assertThrows(AnalysisException.class,
-                () -> LocalTableValuedFunction.checkHadoopFileSystemEnabled("/remote/path", properties));
+                () -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.JAVA_DELETE, "/remote/path", properties));
         Config.enable_local_tvf = true;
-        Assertions.assertDoesNotThrow(() -> LocalTableValuedFunction.checkHadoopFileSystemEnabled(
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.JAVA_DELETE,
                 "/remote/path", properties));
         Config.enable_local_tvf = false;
         properties.put("fs.defaultFS", "hdfs://namenode:8020");
         properties.put("fs.hdfs.impl", "${fs.selected.impl}");
         properties.put("fs.selected.impl", "org.apache.hadoop.fs.RawLocalFileSystem");
         Assertions.assertThrows(AnalysisException.class,
-                () -> LocalTableValuedFunction.checkHdfsSinkEnabled(properties));
+                () -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.NATIVE_WRITE, "", properties));
         properties.put("fs.selected.impl", "org.apache.hadoop.hdfs.DistributedFileSystem");
         Assertions.assertThrows(AnalysisException.class,
-                () -> LocalTableValuedFunction.checkHdfsSinkEnabled(properties));
+                () -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.NATIVE_WRITE, "", properties));
         Config.enable_local_tvf = true;
-        Assertions.assertDoesNotThrow(() -> LocalTableValuedFunction.checkHdfsSinkEnabled(properties));
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.NATIVE_WRITE,
+                "", properties));
         Config.enable_local_tvf = false;
         properties.put("fs.hdfs.impl", "${fs.selected.impl}");
         properties.remove("fs.selected.impl");
         properties.put("fs.selected.impl ", "org.apache.hadoop.fs.LocalFileSystem");
         Assertions.assertThrows(AnalysisException.class,
-                () -> LocalTableValuedFunction.checkHdfsSinkEnabled(properties));
+                () -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.NATIVE_WRITE, "", properties));
         properties.put("fs.selected.impl ", "org.apache.hadoop.hdfs.DistributedFileSystem");
         Assertions.assertThrows(AnalysisException.class,
-                () -> LocalTableValuedFunction.checkHdfsSinkEnabled(properties));
+                () -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.NATIVE_WRITE, "", properties));
         Config.enable_local_tvf = true;
-        Assertions.assertDoesNotThrow(() -> LocalTableValuedFunction.checkHdfsSinkEnabled(properties));
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.NATIVE_WRITE,
+                "", properties));
         Config.enable_local_tvf = false;
         // BE consumes canonical defaultFS as its NameNode; the old alias can redefine
         // that key inside Hadoop. Do not infer this indirect provider from the FE's raw map.
         properties.put("fs.default.name", "org.apache.hadoop.fs.LocalFileSystem");
         properties.put("fs.hdfs.impl", "${fs.defaultFS}");
         Assertions.assertThrows(AnalysisException.class,
-                () -> LocalTableValuedFunction.checkHdfsSinkEnabled(properties));
+                () -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.NATIVE_WRITE, "", properties));
         properties.put("fs.hdfs.impl", "${env:TVF_TEST_UNRESOLVED_IMPL}");
         Assertions.assertThrows(AnalysisException.class,
-                () -> LocalTableValuedFunction.checkHdfsSinkEnabled(properties));
+                () -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.NATIVE_WRITE, "", properties));
         Config.enable_local_tvf = true;
-        Assertions.assertDoesNotThrow(() -> LocalTableValuedFunction.checkHdfsSinkEnabled(properties));
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.NATIVE_WRITE,
+                "", properties));
         Config.enable_local_tvf = false;
         properties.clear();
         properties.put("fs.defaultFS", "hdfs://namenode:8020");
         properties.put("fs.hdfs.impl\0ignored", "org.apache.hadoop.fs.LocalFileSystem\0ignored");
         Assertions.assertThrows(AnalysisException.class,
-                () -> LocalTableValuedFunction.checkHdfsSinkEnabled(properties));
+                () -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.NATIVE_WRITE, "", properties));
     }
 
     @Test
@@ -428,17 +434,18 @@ class BindTVFTableSinkTest {
         properties.put("fs.viewfs.mounttable.cluster.link./local", "file:///tmp");
         properties.put("fs.viewfs.mounttable.cluster.linkFallback", "hdfs://namenode:8020/fallback");
         new TVFTableSink(new PlanNodeId(0), "hdfs", properties, Collections.emptyList()).bindDataSink();
-        Assertions.assertDoesNotThrow(() -> LocalTableValuedFunction.checkHdfsSinkEnabled(
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.NATIVE_WRITE,
                 "/locality/prefix_", properties));
         // A prefix naming a mount point generates a sibling filename; a trailing slash writes inside it.
-        Assertions.assertDoesNotThrow(() -> LocalTableValuedFunction.checkHdfsSinkEnabled("/local", properties));
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.NATIVE_WRITE,
+                "/local", properties));
         Assertions.assertInstanceOf(LogicalTVFTableSink.class,
                 analyzeInsert("INSERT INTO hdfs('file_path'='/local', 'format'='csv',"
                         + "'delete_existing_files'='true', 'fs.defaultFS'='viewfs://cluster',"
                         + "'fs.viewfs.mounttable.cluster.link./local'='file:///tmp',"
                         + "'fs.viewfs.mounttable.cluster.linkFallback'='hdfs://namenode:8020/base') SELECT 1"));
         Assertions.assertThrows(AnalysisException.class,
-                () -> LocalTableValuedFunction.checkHdfsSinkEnabled("/local/", properties));
+                () -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.NATIVE_WRITE, "/local/", properties));
         properties.put("file_path", "/local/sub/prefix_");
         TVFTableSink sink = new TVFTableSink(new PlanNodeId(0), "hdfs", properties, Collections.emptyList());
         Assertions.assertThrows(AnalysisException.class, sink::bindDataSink);
@@ -448,57 +455,65 @@ class BindTVFTableSinkTest {
         properties.remove("fs.viewfs.mounttable.cluster.link./local");
         properties.put("fs.viewfs.mounttable.cluster.link./local/", "file:///tmp");
         Assertions.assertThrows(AnalysisException.class,
-                () -> LocalTableValuedFunction.checkHdfsSinkEnabled("/local/sub/prefix_", properties));
+                () -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.NATIVE_WRITE,
+                        "/local/sub/prefix_", properties));
         properties.remove("fs.viewfs.mounttable.cluster.link./local/");
         properties.put("fs.viewfs.mounttable.cluster.link./local", "file:///tmp");
         properties.put("fs.viewfs.mounttable.cluster.link./local/remote", "hdfs://namenode:8020/base");
-        Assertions.assertDoesNotThrow(() -> LocalTableValuedFunction.checkHdfsSinkEnabled(
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.NATIVE_WRITE,
                 "/local/remote/prefix_", properties));
         properties.put("fs.defaultFS", "viewfs://cl%75ster");
         Assertions.assertThrows(AnalysisException.class,
-                () -> LocalTableValuedFunction.checkHdfsSinkEnabled("/local/sub/prefix_", properties));
+                () -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.NATIVE_WRITE,
+                        "/local/sub/prefix_", properties));
         properties.put("fs.defaultFS", "viewfs://cluster_name");
         properties.put("fs.viewfs.ignore.port.in.mount.table.name", "true");
         properties.put("fs.viewfs.mounttable.cluster_name.link./remote", "hdfs://namenode:8020/base");
-        Assertions.assertDoesNotThrow(() -> LocalTableValuedFunction.checkHdfsSinkEnabled(
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.NATIVE_WRITE,
                 "/remote/prefix_", properties));
         properties.put("fs.defaultFS", "viewfs://cluster:8020");
         properties.put("fs.viewfs.ignore.port.in.mount.table.name", "true");
         Assertions.assertThrows(AnalysisException.class,
-                () -> LocalTableValuedFunction.checkHdfsSinkEnabled("/local/sub/prefix_", properties));
+                () -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.NATIVE_WRITE,
+                        "/local/sub/prefix_", properties));
         properties.clear();
         properties.put("fs.defaultFS", "viewfs:///");
         properties.put("fs.viewfs.mounttable.default.name.key", "named");
         properties.put("fs.viewfs.mounttable.named.link./local", "file:///tmp");
         Assertions.assertThrows(AnalysisException.class,
-                () -> LocalTableValuedFunction.checkHdfsSinkEnabled("/local/sub/prefix_", properties));
+                () -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.NATIVE_WRITE,
+                        "/local/sub/prefix_", properties));
         properties.clear();
         properties.put("fs.defaultFS", "viewfs://cluster");
         properties.put("fs.viewfs.mounttable.cluster.linkFallback", "file:///tmp");
         Assertions.assertThrows(AnalysisException.class,
-                () -> LocalTableValuedFunction.checkHdfsSinkEnabled("/unmapped/prefix_", properties));
+                () -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.NATIVE_WRITE,
+                        "/unmapped/prefix_", properties));
         properties.remove("fs.viewfs.mounttable.cluster.linkFallback");
         for (String key : Arrays.asList("linkMerge./local",
                 "linkNfly.minReplication=2,repairOnRead=true./local", "linkMergeSlash")) {
             String mountKey = "fs.viewfs.mounttable.cluster." + key;
             properties.put(mountKey, "hdfs://namenode:8020/base,file:///tmp");
             Assertions.assertThrows(AnalysisException.class,
-                    () -> LocalTableValuedFunction.checkHdfsSinkEnabled("/local/sub/prefix_", properties));
+                    () -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.NATIVE_WRITE,
+                            "/local/sub/prefix_", properties));
             properties.put(mountKey, "hdfs://namenode:8020/base,hdfs://other:8020/base");
-            Assertions.assertDoesNotThrow(() -> LocalTableValuedFunction.checkHdfsSinkEnabled(
+            Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.NATIVE_WRITE,
                     "/local/sub/prefix_", properties));
             properties.remove(mountKey);
         }
         properties.put("fs.viewfs.mounttable.cluster.link./local", "viewfs://inner/root");
         properties.put("fs.viewfs.mounttable.inner.link./root", "file:///tmp");
         Assertions.assertThrows(AnalysisException.class,
-                () -> LocalTableValuedFunction.checkHdfsSinkEnabled("/local/sub/prefix_", properties));
+                () -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.NATIVE_WRITE,
+                        "/local/sub/prefix_", properties));
         properties.put("fs.viewfs.mounttable.inner.link./root", "hdfs://namenode:8020/base");
-        Assertions.assertDoesNotThrow(() -> LocalTableValuedFunction.checkHdfsSinkEnabled(
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.NATIVE_WRITE,
                 "/local/sub/prefix_", properties));
         properties.put("fs.viewfs.mounttable.inner.link./root", "viewfs://cluster/local");
         Assertions.assertThrows(AnalysisException.class,
-                () -> LocalTableValuedFunction.checkHdfsSinkEnabled("/local/sub/prefix_", properties));
+                () -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.NATIVE_WRITE,
+                        "/local/sub/prefix_", properties));
         properties.clear();
         properties.put("fs.defaultFS", "viewfs://A");
         properties.put("fs.viewfs.mounttable.A.link./a", "viewfs://B/base");
@@ -506,21 +521,63 @@ class BindTVFTableSinkTest {
         properties.put("fs.viewfs.mounttable.B.link./base/d", "file:///tmp");
         properties.put("fs.viewfs.mounttable.B.link./base/b/d", "hdfs://namenode:8020/remote");
         properties.put("fs.viewfs.mounttable.B.link./base/z", "hdfs://namenode:8020/remote");
-        Assertions.assertDoesNotThrow(() -> LocalTableValuedFunction.checkHdfsSinkEnabled(
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.NATIVE_WRITE,
                 "/a/z/sub/prefix_", properties));
         Assertions.assertThrows(AnalysisException.class,
-                () -> LocalTableValuedFunction.checkHdfsSinkEnabled("/a/b/d/sub/prefix_", properties));
+                () -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.NATIVE_WRITE,
+                        "/a/b/d/sub/prefix_", properties));
         properties.clear();
         properties.put("fs.defaultFS", "hdfs://cluster:8020");
         properties.put("fs.hdfs.impl", "org.apache.hadoop.fs.viewfs.ViewFileSystemOverloadScheme");
         properties.put("fs.viewfs.mounttable.cluster:8020.link./local", "hdfs://namenode:8020/base");
         properties.put("fs.viewfs.mounttable.cluster.link./local", "file:///tmp");
         Assertions.assertThrows(AnalysisException.class,
-                () -> LocalTableValuedFunction.checkHdfsSinkEnabled("/local/sub/prefix_", properties));
+                () -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.NATIVE_WRITE,
+                        "/local/sub/prefix_", properties));
         properties.clear();
         properties.put("fs.defaultFS", "viewfs://inherited");
         Assertions.assertThrows(AnalysisException.class,
-                () -> LocalTableValuedFunction.checkHdfsSinkEnabled("/unknown/prefix_", properties));
+                () -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.NATIVE_WRITE, "/unknown/prefix_", properties));
+    }
+
+    @Test
+    void explicitRemoteViewFsResourceIsNormalizedBeforeAdmission() throws Exception {
+        String originalConfigDir = Config.hadoop_config_dir;
+        String originalConfigProperty = System.getProperty("doris.hadoop.config.dir");
+        Path directory = Files.createTempDirectory("tvf-remote-viewfs-");
+        Path resource = directory.resolve("remote.xml");
+        try {
+            Files.write(resource, ("<configuration><property>"
+                    + "<name>fs.viewfs.mounttable.cluster.link./data</name>"
+                    + "<value>hdfs://remote/base</value></property></configuration>")
+                    .getBytes(StandardCharsets.UTF_8));
+            Config.hadoop_config_dir = directory.toString() + "/";
+            String statement = "INSERT INTO hdfs('file_path'='/data/sub/prefix_', 'format'='csv',"
+                    + "'fs.defaultFS'='viewfs://cluster', 'hadoop.config.resources'='remote.xml') SELECT 1";
+            try (MockedStatic<FileSystemFactory> factory = Mockito.mockStatic(FileSystemFactory.class)) {
+                for (String prefix : Arrays.asList("", "EXPLAIN ")) {
+                    Assertions.assertInstanceOf(LogicalTVFTableSink.class, analyzeInsert(prefix + statement));
+                }
+                Map<String, String> properties = new HashMap<>();
+                properties.put("file_path", "/data/sub/prefix_");
+                properties.put("format", "csv");
+                properties.put("fs.defaultFS", "viewfs://cluster");
+                properties.put("hadoop.config.resources", "remote.xml");
+                TVFTableSink sink = new TVFTableSink(new PlanNodeId(0), "hdfs", properties,
+                        Collections.emptyList());
+                Assertions.assertDoesNotThrow(sink::bindDataSink);
+                factory.verifyNoInteractions();
+            }
+        } finally {
+            Config.hadoop_config_dir = originalConfigDir;
+            if (originalConfigProperty == null) {
+                System.clearProperty("doris.hadoop.config.dir");
+            } else {
+                System.setProperty("doris.hadoop.config.dir", originalConfigProperty);
+            }
+            Files.deleteIfExists(resource);
+            Files.deleteIfExists(directory);
+        }
     }
 
     @Test
@@ -612,6 +669,26 @@ class BindTVFTableSinkTest {
             Assertions.assertTrue(exception.getCause().getMessage().contains("LOCAL TVF is disabled"));
             factory.verifyNoInteractions();
         }
+    }
+
+    @Test
+    void nativeUriPrefixesCannotSelectAnUncheckedLocalMount() throws Exception {
+        String properties = "'file_path'='hdfs://unrelated/remote/prefix_', 'format'='csv',"
+                + "'fs.defaultFS'='viewfs://cluster',"
+                + "'fs.viewfs.mounttable.cluster.link./remote'='hdfs://remote/base',"
+                + "'fs.viewfs.mounttable.cluster.link./hdfs:'='file:///tmp'";
+        for (String prefix : Arrays.asList("", "EXPLAIN ")) {
+            Assertions.assertThrows(AnalysisException.class,
+                    () -> analyzeInsert(prefix + "INSERT INTO hdfs(" + properties + ") SELECT 1"));
+        }
+        Map<String, String> props = new HashMap<>();
+        props.put("file_path", "hdfs://unrelated/remote/prefix_");
+        props.put("format", "csv");
+        props.put("fs.defaultFS", "viewfs://cluster");
+        props.put("fs.viewfs.mounttable.cluster.link./remote", "hdfs://remote/base");
+        props.put("fs.viewfs.mounttable.cluster.link./hdfs:", "file:///tmp");
+        TVFTableSink sink = new TVFTableSink(new PlanNodeId(0), "hdfs", props, Collections.emptyList());
+        Assertions.assertThrows(AnalysisException.class, sink::bindDataSink);
     }
 
     private Plan analyzeInsert(String sql) {

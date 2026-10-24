@@ -1,0 +1,287 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.tablefunction;
+
+import org.apache.doris.common.Config;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.tablefunction.HadoopTvfAdmission.Access;
+
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import java.util.HashMap;
+import java.util.Map;
+
+class HadoopTvfAdmissionTest {
+    private boolean originalEnable;
+
+    @BeforeEach
+    void setUp() {
+        originalEnable = Config.enable_local_tvf;
+        Config.enable_local_tvf = false;
+    }
+
+    @AfterEach
+    void tearDown() {
+        Config.enable_local_tvf = originalEnable;
+    }
+
+    @Test
+    void javaMountKeysPreserveNulWhileNativeKeysAreCStringPrefixes() {
+        Map<String, String> properties = viewFs();
+        properties.put("fs.viewfs.mounttable.cluster.link./data\0ignored", "hdfs://remote/base");
+        properties.put("fs.viewfs.mounttable.cluster.linkFallback", "file:///tmp");
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(
+                Access.NATIVE_WRITE, "/data/sub/prefix_", properties));
+        Assertions.assertThrows(AnalysisException.class, () -> HadoopTvfAdmission.check(
+                Access.JAVA_DELETE, "/data/sub/", properties));
+        Assertions.assertThrows(AnalysisException.class, () -> HadoopTvfAdmission.check(
+                Access.HADOOP_READ, "viewfs://cluster/data/sub/file.csv", properties));
+    }
+
+    @Test
+    void javaImplementationKeysAreNotTruncatedAtNul() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("fs.defaultFS", "hdfs://remote");
+        properties.put("fs.hdfs.impl\0ignored", "org.apache.hadoop.fs.LocalFileSystem\0ignored");
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(
+                Access.JAVA_DELETE, "/data/sub/", properties));
+        Assertions.assertThrows(AnalysisException.class, () -> HadoopTvfAdmission.check(
+                Access.NATIVE_WRITE, "/data/sub/prefix_", properties));
+    }
+
+    @Test
+    void nativeAuthorityCompletionUsesTheRemainingLegacyConfiguration() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("fs.defaultFS", "viewfs:///");
+        properties.put("fs.default.name", "viewfs://local");
+        properties.put("fs.viewfs.mounttable.default.link./data", "hdfs://remote/base");
+        properties.put("fs.viewfs.mounttable.local.link./data", "file:///tmp");
+        Assertions.assertThrows(AnalysisException.class, () -> HadoopTvfAdmission.check(
+                Access.NATIVE_WRITE, "/data/sub/prefix_", properties));
+        properties.put("fs.viewfs.mounttable.local.link./data", "hdfs://remote/base");
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(
+                Access.NATIVE_WRITE, "/data/sub/prefix_", properties));
+    }
+
+    @Test
+    void distributedViewWrappersCannotBeMistakenForDirectRemoteProviders() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("fs.defaultFS", "hdfs://cluster");
+        properties.put("fs.hdfs.impl", "org.apache.hadoop.hdfs.ViewDistributedFileSystem");
+        properties.put("fs.viewfs.mounttable.cluster.link./data", "file:///tmp");
+        for (Access access : Access.values()) {
+            Assertions.assertThrows(AnalysisException.class, () -> HadoopTvfAdmission.check(
+                    access, "hdfs://cluster/data/sub/file.csv", properties));
+        }
+        Config.enable_local_tvf = true;
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(
+                Access.NATIVE_WRITE, "/data/sub/prefix_", properties));
+        Assertions.assertThrows(AnalysisException.class, () -> HadoopTvfAdmission.check(
+                Access.HADOOP_READ, "hdfs://cluster/data/sub/file.csv", properties));
+    }
+
+    @Test
+    void hadoopReadsRejectLocalDelegationEvenWithLocalOptIn() {
+        Map<String, String> properties = viewFs();
+        properties.put("fs.viewfs.mounttable.cluster.link./data", "file:///tmp");
+        for (boolean enabled : new boolean[] {false, true}) {
+            Config.enable_local_tvf = enabled;
+            AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                    () -> HadoopTvfAdmission.check(Access.HADOOP_READ,
+                            "viewfs://cluster/data/sub/file.csv", properties));
+            Assertions.assertTrue(error.getMessage().contains("Use local()"));
+        }
+    }
+
+    @Test
+    void remoteReadsDoNotRejectAnUnrelatedLocalSiblingMount() {
+        Map<String, String> properties = viewFs();
+        properties.put("fs.viewfs.mounttable.cluster.link./data", "hdfs://remote/base");
+        properties.put("fs.viewfs.mounttable.cluster.link./local", "file:///tmp");
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(
+                Access.HADOOP_READ, "viewfs://cluster/data/file.csv", properties));
+    }
+
+    @Test
+    void readPatternsCheckEveryIntersectingMountBeforeListing() {
+        Map<String, String> properties = viewFs();
+        properties.put("fs.viewfs.mounttable.cluster.link./data", "hdfs://remote/base");
+        properties.put("fs.viewfs.mounttable.cluster.link./data/local", "file:///tmp");
+        for (String pattern : new String[] {"/data/*", "/data/?/file.csv", "/data/{a,b}/file.csv", "/data"}) {
+            Assertions.assertThrows(AnalysisException.class, () -> HadoopTvfAdmission.check(
+                    Access.HADOOP_READ, "viewfs://cluster" + pattern, properties));
+        }
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(
+                Access.HADOOP_READ, "viewfs://cluster/data/remote/file.csv", properties));
+        properties.put("fs.viewfs.mounttable.cluster.link./data/local", "hdfs://remote/other");
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(
+                Access.HADOOP_READ, "viewfs://cluster/data/*", properties));
+    }
+
+    @Test
+    void schemaAndDataReadNameNodesAreCheckedIndependently() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("fs.defaultFS", "viewfs://schema");
+        properties.put("fs.viewfs.mounttable.schema.link./viewfs:", "file:///tmp");
+        properties.put("fs.viewfs.mounttable.data.link./data", "hdfs://remote/base");
+        Assertions.assertThrows(AnalysisException.class, () -> HadoopTvfAdmission.check(
+                Access.HADOOP_READ, "viewfs://data/data/file.csv", properties));
+        properties.put("fs.viewfs.mounttable.schema.link./viewfs:", "hdfs://remote/schema");
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(
+                Access.HADOOP_READ, "viewfs://data/data/file.csv", properties));
+    }
+
+    @Test
+    void unknownImplementationsAndRuntimeMountsNeedExplicitWriteOptIn() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("fs.defaultFS", "hdfs://remote");
+        properties.put("fs.hdfs.impl", "example.DynamicFileSystem");
+        Assertions.assertThrows(AnalysisException.class, () -> HadoopTvfAdmission.check(
+                Access.NATIVE_WRITE, "/data/prefix_", properties));
+        Config.enable_local_tvf = true;
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(
+                Access.NATIVE_WRITE, "/data/prefix_", properties));
+        Assertions.assertThrows(AnalysisException.class, () -> HadoopTvfAdmission.check(
+                Access.HADOOP_READ, "hdfs://remote/data/file.csv", properties));
+    }
+
+    @Test
+    void nativeProjectionRejectsConflictingCStringKeys() {
+        Map<String, String> properties = viewFs();
+        properties.put("fs.viewfs.mounttable.cluster.link./data", "hdfs://remote/base");
+        properties.put("fs.viewfs.mounttable.cluster.link./data\0ignored", "file:///tmp");
+        Assertions.assertThrows(AnalysisException.class, () -> HadoopTvfAdmission.check(
+                Access.NATIVE_WRITE, "/data/sub/prefix_", properties));
+    }
+
+    @Test
+    void nativeNameNodeCaseCollisionsCannotChooseAnUncheckedProvider() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("fs.defaultFS", "hdfs://remote");
+        properties.put("fs.DEFAULTFS", "file:///");
+        Assertions.assertThrows(AnalysisException.class, () -> HadoopTvfAdmission.check(
+                Access.NATIVE_WRITE, "/data/prefix_", properties));
+    }
+
+    @Test
+    void nestedRemoteReadPatternsReuseTheSameMountInterpreter() {
+        Map<String, String> properties = viewFs();
+        properties.put("fs.viewfs.mounttable.cluster.link./data", "viewfs://inner/base");
+        properties.put("fs.viewfs.mounttable.inner.link./base", "hdfs://remote/base");
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(
+                Access.HADOOP_READ, "viewfs://cluster/data/*", properties));
+        properties.put("fs.viewfs.mounttable.inner.link./base/private", "file:///tmp");
+        Assertions.assertThrows(AnalysisException.class, () -> HadoopTvfAdmission.check(
+                Access.HADOOP_READ, "viewfs://cluster/data/*", properties));
+    }
+
+    @Test
+    void emptyNativeWriteNameNodeKeepsExistingAnalysisWithoutSelectingLocal() {
+        Map<String, String> properties = new HashMap<>();
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(
+                Access.NATIVE_WRITE, "remote/data", properties));
+        Assertions.assertThrows(AnalysisException.class, () -> HadoopTvfAdmission.check(
+                Access.HADOOP_READ, "hdfs://remote/data", properties));
+        properties.put("fs.defaultFS", "default");
+        Assertions.assertThrows(AnalysisException.class, () -> HadoopTvfAdmission.check(
+                Access.NATIVE_WRITE, "remote/data", properties));
+        properties.put("fs.defaultFS", "\0ignored");
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(
+                Access.NATIVE_WRITE, "remote/data", properties));
+    }
+
+    @Test
+    void builtInRemoteProviderImplementationsRemainAvailable() {
+        for (String[] provider : new String[][] {
+                {"oss", "com.aliyun.jindodata.oss.JindoOssFileSystem"},
+                {"obs", "org.apache.hadoop.fs.obs.OBSFileSystem"}}) {
+            Map<String, String> properties = new HashMap<>();
+            properties.put("fs.defaultFS", provider[0] + "://bucket");
+            properties.put("fs." + provider[0] + ".impl", provider[1]);
+            for (Access access : Access.values()) {
+                Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(
+                        access, provider[0] + "://bucket/data/file.csv", properties));
+            }
+        }
+    }
+
+    @Test
+    void nativePathsAreRootedBeforeHadoopUriParsing() {
+        Map<String, String> properties = viewFs();
+        properties.put("fs.viewfs.mounttable.cluster.link./remote", "hdfs://remote/base");
+        properties.put("fs.viewfs.mounttable.cluster.link./hdfs:", "file:///tmp");
+        Assertions.assertThrows(AnalysisException.class, () -> HadoopTvfAdmission.check(
+                Access.NATIVE_WRITE, "hdfs://unrelated/remote/prefix_", properties));
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(
+                Access.NATIVE_WRITE, "remote/prefix_", properties));
+
+        properties.put("fs.defaultFS", "viewfs://schema");
+        properties.put("fs.viewfs.mounttable.data.link./remote", "hdfs://remote/base");
+        properties.put("fs.viewfs.mounttable.schema.link./remote", "hdfs://remote/base");
+        properties.put("fs.viewfs.mounttable.schema.link./viewfs:", "file:///tmp");
+        Assertions.assertThrows(AnalysisException.class, () -> HadoopTvfAdmission.check(
+                Access.HADOOP_READ, "viewfs://data/remote/file.csv", properties));
+        properties.put("fs.viewfs.mounttable.schema.link./viewfs:", "hdfs://remote/schema");
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(
+                Access.HADOOP_READ, "viewfs://data/remote/file.csv", properties));
+    }
+
+    @Test
+    void nonPrefixNameNodeMatchesRequireAnEstablishedNativePath() {
+        String nameNode = "viewfs://clüster";
+        Map<String, String> properties = new HashMap<>();
+        properties.put("fs.defaultFS", nameNode);
+        properties.put("fs.viewfs.mounttable.clüster.link./x", "hdfs://remote/base");
+        properties.put("fs.viewfs.mounttable.clüster.link./local", "file:///tmp");
+        String path = "abcdefghijklmnopx/local/prefix_" + nameNode + "/a";
+        Assertions.assertThrows(AnalysisException.class, () -> HadoopTvfAdmission.check(
+                Access.NATIVE_WRITE, path, properties));
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(
+                Access.NATIVE_WRITE, nameNode + "/x/prefix_", properties));
+        Config.enable_local_tvf = true;
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(
+                Access.NATIVE_WRITE, path, properties));
+    }
+
+    @Test
+    void relativeJavaViewFsPathsCannotAssumeTheFilesystemRoot() {
+        Map<String, String> properties = viewFs();
+        properties.put("fs.viewfs.mounttable.cluster.link./data", "hdfs://remote/base");
+        properties.put("fs.viewfs.mounttable.cluster.link./user/tvf/data", "file:///tmp");
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(
+                Access.NATIVE_WRITE, "data/sub/prefix_", properties));
+        Assertions.assertThrows(AnalysisException.class, () -> HadoopTvfAdmission.check(
+                Access.JAVA_DELETE, "data/sub/", properties));
+        properties.put("fs.defaultFS", "hdfs://remote");
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(
+                Access.JAVA_DELETE, "data/sub/", properties));
+        properties.put("fs.defaultFS", "viewfs://cluster");
+        Config.enable_local_tvf = true;
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(
+                Access.JAVA_DELETE, "data/sub/", properties));
+    }
+
+    private static Map<String, String> viewFs() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("fs.defaultFS", "viewfs://cluster");
+        return properties;
+    }
+}

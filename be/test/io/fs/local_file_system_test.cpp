@@ -770,4 +770,30 @@ TEST_F(LocalFileSystemTest, TestEqualOrSubPath) {
     EXPECT_FALSE(io::LocalFileSystem::equal_or_sub_path("/data/store1", "/data/store11/snapshot"));
     EXPECT_FALSE(io::LocalFileSystem::equal_or_sub_path("/data/store/snapshot", "/data/store"));
 }
+
+TEST_F(LocalFileSystemTest, TestSafeGlobPreservesWhitespaceIdentity) {
+    const auto original_secure_path = config::user_files_secure_path;
+    DEFER(config::user_files_secure_path = original_secure_path);
+    const auto root = std::filesystem::canonical(test_dir);
+    const auto secure = root / "whitespace-secure";
+    const auto outside = root / "whitespace-outside.csv";
+    ASSERT_TRUE(std::filesystem::create_directory(secure));
+    ASSERT_TRUE(save_string_file(outside.string(), "outside").ok());
+    ASSERT_TRUE(save_string_file((secure / "name.csv ").string(), "safe").ok());
+    std::filesystem::create_symlink(outside, secure / "name.csv");
+    config::user_files_secure_path = secure.string();
+    std::vector<io::FileInfo> files;
+    auto fs = io::global_local_filesystem();
+    ASSERT_TRUE(fs->safe_glob("name.csv?", &files).ok());
+    ASSERT_EQ(1, files.size());
+    EXPECT_EQ((secure / "name.csv ").string(), files[0].file_name);
+    io::FileReaderSPtr reader;
+    ASSERT_TRUE(fs->open_file(files[0].file_name, &reader).ok());
+    char buffer[4];
+    size_t bytes_read = 0;
+    ASSERT_TRUE(reader->read_at(0, {buffer, sizeof(buffer)}, &bytes_read).ok());
+    EXPECT_EQ("safe", std::string(buffer, bytes_read));
+    EXPECT_FALSE(fs->safe_glob("name.csv", &files).ok());
+}
+
 } // namespace doris

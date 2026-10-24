@@ -25,6 +25,7 @@ import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.OrcFileFormatProperties;
 import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.tablefunction.HadoopTvfAdmission;
 import org.apache.doris.tablefunction.LocalTableValuedFunction;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TDataSink;
@@ -132,7 +133,8 @@ public class TVFTableSink extends DataSink {
         }
 
         if (fileType == TFileType.FILE_HDFS && !properties.containsKey("writer_class")) {
-            LocalTableValuedFunction.checkHdfsSinkEnabled(properties.get("file_path"), backendConnectProps);
+            HadoopTvfAdmission.check(HadoopTvfAdmission.Access.NATIVE_WRITE,
+                    properties.get("file_path"), backendConnectProps);
         }
 
         String filePath = properties.get("file_path");
