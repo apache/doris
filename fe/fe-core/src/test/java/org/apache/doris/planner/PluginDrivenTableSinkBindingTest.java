@@ -208,11 +208,26 @@ public class PluginDrivenTableSinkBindingTest {
         // byte array ([B@...), which names no partition. MUTATION: getStringValue() for a cast binary value -> red.
         Map<String, Expression> partition = Collections.singletonMap("b",
                 new VarBinaryLiteral(new byte[] {0x41, 0x42}));
-        // The type Paimon's VARBINARY maps to.
+        // The type Paimon's BYTES maps to.
         List<Column> schema = Collections.singletonList(
                 new Column("b", ScalarType.createVarbinaryType(ScalarType.MAX_VARBINARY_LENGTH)));
 
         Assertions.assertEquals(Collections.singletonMap("b", "0x4142"), castStaticPartitionSpec(partition, schema));
+    }
+
+    @Test
+    public void staticPartitionBinaryValueKeepsItsBytesForAColumnOfAnyLength() throws AnalysisException {
+        // Paimon's BINARY(n) and VARBINARY(n) map to VARBINARY(n). A binary literal is VARBINARY of the maximum
+        // length, which Literal casts to no other length; the rows keep their bytes in such a column, shorter or
+        // longer than it, and so does the cast value. MUTATION: no binary case in writtenValue -> red ("Cast from
+        // 4142 to VARBINARY(2) not supported").
+        List<Column> schema = Collections.singletonList(new Column("b", ScalarType.createVarbinaryType(2)));
+        for (String hex : Arrays.asList("41", "4142", "414243")) {
+            Map<String, Expression> partition = Collections.singletonMap("b", new VarBinaryLiteral(hex));
+
+            Assertions.assertEquals(Collections.singletonMap("b", "0x" + hex),
+                    castStaticPartitionSpec(partition, schema));
+        }
     }
 
     @Test
