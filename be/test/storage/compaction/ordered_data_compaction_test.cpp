@@ -509,7 +509,7 @@ TEST_F(OrderedDataCompactionTest, test_01) {
 
     // create output rowset reader
     RowsetReaderContext reader_context;
-    reader_context.need_ordered_result = false;
+    reader_context.merge.key_ordered = false;
     auto read_schema = std::make_shared<ReadSchema>(
             project_columns_by_ordinal(tablet_schema->columns(), std::vector<ColumnId> {0, 1}));
     reader_context.read_schema = read_schema;

@@ -45,13 +45,14 @@ public:
 
     ~BetaRowsetReader() override { _rowset->release(); }
 
-    Status init(RowsetReaderContext* read_context, const RowSetSplits& rs_splits) override;
+    Status init(const RowsetReaderContext* read_context, const RowSetSplits& rs_splits) override;
 
-    Status get_segment_iterators(RowsetReaderContext* read_context,
+    Status get_segment_iterators(const RowsetReaderContext* read_context,
                                  std::vector<RowwiseIteratorUPtr>* out_iters,
                                  bool use_cache = false) override;
 
-    Status new_iterator(RowsetReaderContext* read_context, RowwiseIteratorUPtr* out_iter) override;
+    Status new_iterator(const RowsetReaderContext* read_context,
+                        RowwiseIteratorUPtr* out_iter) override;
 
     void reset_read_options() override;
 
@@ -84,7 +85,7 @@ public:
     OlapReaderStatistics* get_stats() { return _stats; }
 
 private:
-    // Whether next_batch() must merge the segments: the read wants key order and the
+    // Whether new_iterator() must merge the segments: the read wants key order and the
     // segments of the read's range overlap on keys.
     bool _needs_segment_merge() const;
 
@@ -104,16 +105,22 @@ private:
     std::pair<int64_t, int64_t> _segment_offsets;
     std::vector<RowRanges> _segment_row_ranges;
 
-    RowsetReaderContext* _read_context = nullptr;
+    const RowsetReaderContext* _read_context = nullptr;
     BetaRowsetSharedPtr _rowset;
 
+    // The statistics the segment reads add to: the context's when the read supplies one (a
+    // query, a compaction), these otherwise (a schema change, which checks the row counts of
+    // every rowset on its own).
     OlapReaderStatistics _owned_stats;
     OlapReaderStatistics* _stats = nullptr;
 
     // The iterator of next_batch(), created on the first call.
     std::unique_ptr<RowwiseIterator> _iterator;
 
+    // The read options of this rowset's segments, built by get_segment_iterators() and shared
+    // by every segment iterator it creates; `_read_options` is the working copy it is built in.
     StorageReadOptions _read_options;
+    std::shared_ptr<const StorageReadOptions> _segment_options;
 };
 
 } // namespace doris

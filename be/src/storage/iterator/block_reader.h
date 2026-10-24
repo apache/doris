@@ -72,21 +72,18 @@ private:
     // Whether the rowsets, in version order, are not already one key-ordered sequence: some
     // rowset has overlapping segments, or two rowsets overlap on keys.
     bool _rowsets_overlap(const ReaderParams& read_params) const;
-    // Whether the rows of the read must be merged by key.
-    bool _needs_merge(const ReaderParams& read_params, bool force_merge,
-                      bool rowsets_overlap) const;
     // Build the rows of the read: `_rows_iter`, or for a TopN read `_rowset_iters`.
     Status _init_rows_iter(const ReaderParams& read_params);
     // The options the rows of the read are initialized with.
     void _init_rows_options(const ReaderParams& read_params);
     // `_rows_iter` over `children`, the segment iterators of every rowset in (rowset version,
     // segment) order: a merge when `merge`, the children one after another otherwise.
-    Status _new_rows_iter(std::vector<RowwiseIteratorUPtr> children, bool merge, bool reverse);
+    Status _new_rows_iter(std::vector<RowwiseIteratorUPtr> children, bool merge);
     // Pick and initialize the TabletBlockIterator of this read.
     Status _init_block_iterator(const ReaderParams& read_params, bool merge_by_sequence_mapping);
 
-    // Options the merge or union of the read is initialized with: the output Block limits,
-    // the tie-break direction and the compare columns.
+    // Options the merge or union of the read is initialized with: the output Block limits and
+    // the runtime state. How the rows are merged is _reader_context.merge.
     StorageReadOptions _rows_options;
     // The rows of the read; empty for a TopN read.
     RowwiseIteratorUPtr _rows_iter;

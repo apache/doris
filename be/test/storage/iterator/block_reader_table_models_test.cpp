@@ -436,12 +436,6 @@ protected:
         params.read_changelog = spec.read_changelog;
         params.changelog_scan_type = spec.changelog_scan_type;
         params.version = Version(0, rowsets.back()->end_version());
-        // The scanner forces changelog MIN_DELTA / DETAIL scans to be globally key-ordered.
-        if (spec.changelog_scan_type == TChangelogScanType::MIN_DELTA ||
-            spec.changelog_scan_type == TChangelogScanType::DETAIL) {
-            params.read_orderby_key = true;
-            params.force_key_ordered_read = true;
-        }
 
         TabletReadSource read_source;
         for (const auto& rowset : rowsets) {

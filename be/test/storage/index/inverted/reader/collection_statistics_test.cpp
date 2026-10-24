@@ -258,12 +258,12 @@ class MockRowsetReader : public RowsetReader {
 public:
     MockRowsetReader(std::shared_ptr<MockRowset> rowset) : _rowset(rowset) {}
 
-    Status init(RowsetReaderContext* read_context, const RowSetSplits& rs_splits) override {
+    Status init(const RowsetReaderContext* read_context, const RowSetSplits& rs_splits) override {
         _read_schema = read_context->read_schema;
         return Status::OK();
     }
 
-    Status get_segment_iterators(RowsetReaderContext* read_context,
+    Status get_segment_iterators(const RowsetReaderContext* read_context,
                                  std::vector<RowwiseIteratorUPtr>* out_iters,
                                  bool use_cache = false) override {
         return Status::OK();
@@ -275,7 +275,8 @@ public:
         return Status::NotSupported("MockRowsetReader::next_batch not implemented");
     }
 
-    Status new_iterator(RowsetReaderContext* read_context, RowwiseIteratorUPtr* out_iter) override {
+    Status new_iterator(const RowsetReaderContext* read_context,
+                        RowwiseIteratorUPtr* out_iter) override {
         return Status::NotSupported("MockRowsetReader::new_iterator not implemented");
     }
 

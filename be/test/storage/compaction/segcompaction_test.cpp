@@ -399,7 +399,7 @@ protected:
                        std::vector<std::pair<int32_t, std::string>>* rows) {
         RowsetReaderContext reader_context;
         reader_context.reader_type = ReaderType::READER_QUERY;
-        reader_context.need_ordered_result = true;
+        reader_context.merge.key_ordered = true;
         std::vector<uint32_t> return_columns = {0, 1};
         auto read_schema = std::make_shared<ReadSchema>(
                 project_columns_by_ordinal(tablet_schema->columns(), return_columns));
@@ -552,7 +552,7 @@ TEST_F(SegCompactionTest, SegCompactionThenRead) {
         RowsetReaderContext reader_context;
         // use this type to avoid cache from other ut
         reader_context.reader_type = ReaderType::READER_CUMULATIVE_COMPACTION;
-        reader_context.need_ordered_result = true;
+        reader_context.merge.key_ordered = true;
         std::vector<uint32_t> return_columns = {0, 1, 2};
         auto read_schema = std::make_shared<ReadSchema>(
                 project_columns_by_ordinal(tablet_schema->columns(), return_columns));
@@ -1062,7 +1062,7 @@ TEST_F(SegCompactionTest, SegCompactionThenReadUniqueTableSmall) {
         RowsetReaderContext reader_context;
         // use this type to avoid cache from other ut
         reader_context.reader_type = ReaderType::READER_CUMULATIVE_COMPACTION;
-        reader_context.need_ordered_result = true;
+        reader_context.merge.key_ordered = true;
         std::vector<uint32_t> return_columns = {0, 1, 2};
         auto read_schema = std::make_shared<ReadSchema>(
                 project_columns_by_ordinal(tablet_schema->columns(), return_columns));
@@ -1073,7 +1073,7 @@ TEST_F(SegCompactionTest, SegCompactionThenReadUniqueTableSmall) {
                                                       /*map_changelog_columns=*/false)
                             .ok());
         reader_context.stats = &_stats;
-        reader_context.is_unique = true;
+        reader_context.merge.drop_older_versions = true;
 
         // without predicates
         {
@@ -1332,7 +1332,7 @@ TEST_F(SegCompactionTest, SegCompactionThenReadAggTableSmall) {
         RowsetReaderContext reader_context;
         // use this type to avoid cache from other ut
         reader_context.reader_type = ReaderType::READER_CUMULATIVE_COMPACTION;
-        reader_context.need_ordered_result = true;
+        reader_context.merge.key_ordered = true;
         std::vector<uint32_t> return_columns = {0, 1, 2};
         auto read_schema = std::make_shared<ReadSchema>(
                 project_columns_by_ordinal(tablet_schema->columns(), return_columns));
@@ -1343,7 +1343,7 @@ TEST_F(SegCompactionTest, SegCompactionThenReadAggTableSmall) {
                                                       /*map_changelog_columns=*/false)
                             .ok());
         reader_context.stats = &_stats;
-        // reader_context.is_unique = true;
+        // reader_context.merge.drop_older_versions = true;
 
         // without predicates
         {

@@ -81,6 +81,7 @@
 #include "storage/tablet/tablet_fwd.h"
 #include "storage/tablet/tablet_manager.h"
 #include "storage/tablet/tablet_meta.h"
+#include "storage/tablet/tablet_reader.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/types.h"
 #include "storage/utils.h"
@@ -1086,21 +1087,19 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
             read_schema->append_dropped_columns(std::move(dropped_columns));
 
             reader_context.reader_type = ReaderType::READER_ALTER_TABLE;
-            reader_context.need_ordered_result = true;
             reader_context.delete_handler = &delete_handler;
             reader_context.read_schema = read_schema;
-            reader_context.is_unique = _base_tablet->keys_type() == UNIQUE_KEYS;
             reader_context.batch_size = ALTER_TABLE_BATCH_SIZE;
             reader_context.delete_bitmap = _base_tablet->tablet_meta()->delete_bitmap_ptr();
             reader_context.version = Version(0, end_version);
-            if (!_base_tablet_schema->cluster_key_uids().empty()) {
-                for (const auto& uid : _base_tablet_schema->cluster_key_uids()) {
-                    cluster_key_idxes.emplace_back(read_schema->ordinal_by_uid(uid));
-                }
-                reader_context.read_orderby_key_columns = &cluster_key_idxes;
-                reader_context.is_unique = false;
-                reader_context.use_sequence_column_for_merge_order = false;
+            // The rows of every rowset are read in key order, by the cluster key when the
+            // table has one.
+            for (const auto& uid : _base_tablet_schema->cluster_key_uids()) {
+                cluster_key_idxes.emplace_back(read_schema->ordinal_by_uid(uid));
             }
+            reader_context.merge = TabletReader::decide_merge(
+                    *_base_tablet_schema, *read_schema, cluster_key_idxes, /*key_ordered=*/true,
+                    /*reverse=*/false, /*older_first=*/false);
             for (auto& rs_split : rs_splits) {
                 res = rs_split.rs_reader->init(&reader_context);
                 if (!res) {

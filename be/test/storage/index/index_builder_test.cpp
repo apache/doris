@@ -726,7 +726,7 @@ protected:
         ASSERT_TRUE(st.ok()) << st;
         OlapReaderStatistics stats;
         StorageReadOptions options(stats);
-        options.version = rowset->version();
+        options.rowset_version = rowset->version();
         options.commit_tso = rowset->rowset_meta()->commit_tso();
         options.io_ctx.reader_type = ReaderType::READER_QUERY;
         segment_v2::ColumnIteratorUPtr iter;

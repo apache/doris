@@ -131,8 +131,9 @@ public:
         VariantCompactionPathsSPtr variant_compaction_paths = nullptr;
         ReaderType reader_type = ReaderType::READER_QUERY;
         bool read_changelog = false;
+        // The storage layer does not fold the rows: the scanner aggregates them itself, or the
+        // tablet holds a single version, or an aggregate is pushed down.
         bool direct_mode = false;
-        bool aggregation = false;
         // for compaction, schema_change, check_sum: we don't use page cache
         // for query, when the BE config disable_storage_page_cache is false, we use page cache
         bool use_page_cache = false;
@@ -179,21 +180,17 @@ public:
         // Used by compaction to initialize source segment row-id mappings.
         RowIdConversion* rowid_conversion = nullptr;
         std::vector<int> topn_filter_source_node_ids;
-        // used for special optimization for query : ORDER BY key LIMIT n
-        bool read_orderby_key = false;
-        // used for special optimization for query : ORDER BY key DESC LIMIT n
+        // The rows must come out in key order whatever the table model asks for: ORDER BY key
+        // LIMIT n pushed down, or the compaction of a changelog tablet. Changelog MIN_DELTA
+        // and DETAIL scans are key-ordered without this flag. See MergeDecision::key_ordered.
+        bool force_key_order = false;
+        // ORDER BY key DESC LIMIT n: keys descending.
         bool read_orderby_key_reverse = false;
-        // For rows with the same key, use ascending order (small-to-large) for tie-breakers.
-        // For example, use lower rowset version / segment id first.
+        // Among the rows of one key, the older one goes first (see MergeDecision::older_first).
         bool use_insert_order_when_same = false;
-        // Force globally key-ordered reading for changelog scans (e.g. so MIN_DELTA can
-        // group consecutive same-key changes across segments). Overlapping segments use the
-        // merge iterator; segments proven non-overlapping use an ordered union.
-        // See BetaRowsetReader::new_iterator() in beta_rowset_reader.cpp.
-        bool force_key_ordered_read = false;
-        // num of columns for orderby key
+        // ORDER BY key LIMIT n: the number of leading key columns sorted by ...
         size_t read_orderby_key_num_prefix_columns = 0;
-        // limit of rows for read_orderby_key
+        // ... and the n; 0 when no TopN is pushed down.
         size_t read_orderby_key_limit = 0;
         // for vertical compaction
         bool is_key_column_group = false;
@@ -280,6 +277,19 @@ public:
             const DeleteHandler& delete_handler, const ReadSchema& read_schema,
             std::map<int32_t, TColumnAccessPaths>& all_access_paths);
 
+    // The MergeDecision of a read of `tablet_schema` through `read_schema` whose rows must
+    // come out in key order when `key_ordered`. `compare_ordinals` empty compares by the whole
+    // key; a cluster key or ORDER BY prefix otherwise. Rows of one key are ordered by the
+    // sequence column, or by the changelog TSO when the read schema has one, and never by a
+    // sequence column for a cluster key table, whose rows are not versions of one key.
+    // Only merge-on-read UNIQUE_KEYS reads compared by the whole key drop the older versions;
+    // a sequence map needs every version, since any of them may hold the winning value of a
+    // column group.
+    static MergeDecision decide_merge(const TabletSchema& tablet_schema,
+                                      const ReadSchema& read_schema,
+                                      std::vector<uint32_t> compare_ordinals, bool key_ordered,
+                                      bool reverse, bool older_first);
+
 protected:
     Status _init_params(const ReaderParams& read_params);
 
@@ -295,7 +305,12 @@ protected:
 
     const BaseTabletSPtr& tablet() { return _tablet; }
 
-    // The read schema shared by the caller, TabletReader, VCollect and each rowset reader.
+    // The merge of this read: whether the rows come out in key order, what they are compared
+    // by, and which versions of a key survive. Decided here once, consumed by the rowset
+    // readers and the iterators above them.
+    MergeDecision _decide_merge(const ReaderParams& read_params) const;
+
+    // The read schema shared by the caller, TabletReader and each rowset reader.
     ReadSchemaSPtr _read_schema;
 
     // used for special optimization for query : ORDER BY key [ASC|DESC] LIMIT n
@@ -311,9 +326,6 @@ protected:
     std::vector<std::shared_ptr<ColumnPredicate>> _value_col_predicates;
     DeleteHandler _delete_handler;
 
-    // Indicates whether the tablets has do a aggregation in storage engine.
-    bool _aggregation = false;
-    // for agg query, we don't need to finalize when scan agg object data
     ReaderType _reader_type = ReaderType::READER_QUERY;
     bool _delete_sign_available = false;
     bool _filter_delete = false;

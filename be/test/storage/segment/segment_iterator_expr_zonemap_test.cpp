@@ -522,7 +522,7 @@ TEST_F(SegmentIteratorExprZonemapTest, RuntimeColumnsUseCurrentReadOptions) {
     ASSERT_NO_FATAL_FAILURE(build_runtime_column_segment(&segment));
 
     StorageReadOptions read_options(_stats);
-    read_options.version = Version(0, 0);
+    read_options.rowset_version = Version(0, 0);
     read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
 
     // Before publish, version [0-0] and TSO [-1--1] identify a physical read. Preserve the
@@ -539,12 +539,12 @@ TEST_F(SegmentIteratorExprZonemapTest, RuntimeColumnsUseCurrentReadOptions) {
     ASSERT_NO_FATAL_FAILURE(expect_bigint_values(commit_tso_column, 0));
 
     // Once a non-zero version is assigned, missing TSO metadata is invalid.
-    read_options.version = Version(1, 1);
+    read_options.rowset_version = Version(1, 1);
     ASSERT_NO_FATAL_FAILURE(
             expect_missing_commit_tso_error(segment, kChangelogTimestampCid, read_options));
     ASSERT_NO_FATAL_FAILURE(expect_missing_commit_tso_error(segment, kCommitTsoCid, read_options));
 
-    read_options.version = Version(7, 7);
+    read_options.rowset_version = Version(7, 7);
     read_options.commit_tso = TsoRange(kCommitTso1, kCommitTso1);
     read_options.read_changelog = true;
     ASSERT_NO_FATAL_FAILURE(read_column(segment, kVersionCid, read_options, &version_column));
@@ -556,7 +556,7 @@ TEST_F(SegmentIteratorExprZonemapTest, RuntimeColumnsUseCurrentReadOptions) {
     ASSERT_NO_FATAL_FAILURE(expect_bigint_values(commit_tso_column, kCommitTso1));
 
     // A second read must observe the new request values instead of a cached constant reader.
-    read_options.version = Version(9, 9);
+    read_options.rowset_version = Version(9, 9);
     read_options.commit_tso = TsoRange(kCommitTso2, kCommitTso2);
     ASSERT_NO_FATAL_FAILURE(read_column(segment, kVersionCid, read_options, &version_column));
     ASSERT_NO_FATAL_FAILURE(read_column(segment, kChangelogTimestampCid, read_options,
@@ -577,7 +577,7 @@ TEST_F(SegmentIteratorExprZonemapTest, RangeVersionUsesPhysicalValues) {
     ASSERT_NO_FATAL_FAILURE(build_runtime_column_segment(&segment));
 
     StorageReadOptions read_options(_stats);
-    read_options.version = Version(0, 9);
+    read_options.rowset_version = Version(0, 9);
     read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
     read_options.read_changelog = true;
 
@@ -616,11 +616,11 @@ TEST_F(SegmentIteratorExprZonemapTest, MissingPhysicalRuntimeColumnsUseReadOptio
     MutableColumnPtr version_column;
     MutableColumnPtr changelog_timestamp_column;
     MutableColumnPtr commit_tso_column;
-    read_options.version = Version(0, 0);
+    read_options.rowset_version = Version(0, 0);
     ASSERT_NO_FATAL_FAILURE(read_column(segment, kVersionCid, read_options, &version_column));
     ASSERT_NO_FATAL_FAILURE(expect_bigint_values(version_column, 0));
 
-    read_options.version = Version(7, 7);
+    read_options.rowset_version = Version(7, 7);
     read_options.commit_tso = TsoRange(kCommitTso, kCommitTso);
     read_options.read_changelog = true;
     ASSERT_NO_FATAL_FAILURE(read_column(segment, kVersionCid, read_options, &version_column));
@@ -659,7 +659,7 @@ TEST_F(SegmentIteratorExprZonemapTest,
             for (int read = 0; read < kReadsPerTask; ++read) {
                 OlapReaderStatistics stats;
                 StorageReadOptions read_options(stats);
-                read_options.version = Version(task_id, task_id);
+                read_options.rowset_version = Version(task_id, task_id);
                 read_options.commit_tso = TsoRange(expected_tso, expected_tso);
                 read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
 
@@ -699,7 +699,7 @@ TEST_F(SegmentIteratorExprZonemapTest, HiddenConstantsFeedStatisticsIterator) {
 
     StorageReadOptions read_options(_stats);
     read_options.runtime_state = &_runtime_state;
-    read_options.version = Version(7, 7);
+    read_options.rowset_version = Version(7, 7);
     read_options.commit_tso = TsoRange(kCommitTso, kCommitTso);
     read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
     read_options.push_down_agg_type_opt = TPushAggOp::MINMAX;
@@ -984,7 +984,7 @@ TEST_F(SegmentIteratorExprZonemapTest, NewIteratorPrunesCommitTsoByReadOptionVal
     auto read_schema = make_read_schema(_tablet_schema);
 
     StorageReadOptions read_options(_stats);
-    read_options.version = Version(7, 7);
+    read_options.rowset_version = Version(7, 7);
     read_options.commit_tso = TsoRange(kCommitTso, kCommitTso);
     read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
     read_options.col_id_to_predicates.emplace(

@@ -391,7 +391,7 @@ protected:
 
         // create output rowset reader
         RowsetReaderContext reader_context;
-        reader_context.need_ordered_result = false;
+        reader_context.merge.key_ordered = false;
         auto read_schema = std::make_shared<ReadSchema>(
                 project_columns_by_ordinal(tablet_schema->columns(), std::vector<ColumnId> {0, 1}));
         reader_context.read_schema = read_schema;
@@ -830,7 +830,7 @@ TEST_F(TestRowIdConversion, SingleRowsetGroupedCompactionRowIdConversionIsComple
         EXPECT_EQ(output_segment_count, output_rowset->num_segments());
 
         RowsetReaderContext reader_context;
-        reader_context.need_ordered_result = false;
+        reader_context.merge.key_ordered = false;
         std::vector<uint32_t> return_columns = {0, 1};
         auto read_schema = std::make_shared<ReadSchema>(
                 project_columns_by_ordinal(tablet_schema->columns(), return_columns));
@@ -1036,7 +1036,7 @@ TEST_F(TestRowIdConversion, SingleRowsetGroupedCompactionRowIdConversionIsComple
             }
 
             RowsetReaderContext second_reader_context;
-            second_reader_context.need_ordered_result = false;
+            second_reader_context.merge.key_ordered = false;
             second_reader_context.read_schema = read_schema;
             EXPECT_TRUE(read_schema
                                 ->init_from_tablet_schema(*tablet_schema,

@@ -359,9 +359,9 @@ bool VerticalMergeIteratorContext::compare(const VerticalMergeIteratorContext& r
         col_cmp_res = _block->compare_column_at(_index_in_block, rhs._index_in_block, _seq_col_idx,
                                                 *rhs._block, -1);
     }
-    auto result = (col_cmp_res == 0) ? (_use_insert_order_when_same ? (_order > rhs.order())
-                                                                    : (_order < rhs.order()))
-                                     : (col_cmp_res < 0);
+    auto result = (col_cmp_res == 0)
+                          ? (_older_first ? (_order > rhs.order()) : (_order < rhs.order()))
+                          : (col_cmp_res < 0);
     result ? set_is_same(true) : rhs.set_is_same(true);
     return result;
 }
@@ -609,8 +609,8 @@ Status VerticalHeapMergeIterator::init(const StorageReadOptions& opts,
     for (size_t seg_order = 0; seg_order < num_iters; ++seg_order) {
         auto& iter = _origin_iters[seg_order];
         auto ctx = std::make_unique<VerticalMergeIteratorContext>(
-                std::move(iter), seg_order, _seq_col_idx, _context_stats,
-                opts.use_insert_order_when_same, _key_group_cluster_key_idxes);
+                std::move(iter), seg_order, _seq_col_idx, _context_stats, _older_first,
+                _key_group_cluster_key_idxes);
         _ori_iter_ctx.push_back(std::move(ctx));
     }
     _origin_iters.clear();
@@ -671,7 +671,7 @@ Status VerticalFifoMergeIterator::next_batch(Block* block) {
                 std::unique_ptr<VerticalMergeIteratorContext> next_ctx(
                         new VerticalMergeIteratorContext(std::move(next_iter), cur_order,
                                                          _seq_col_idx, _context_stats,
-                                                         _opts->use_insert_order_when_same));
+                                                         _older_first));
                 RETURN_IF_ERROR(next_ctx->init(*_opts));
                 if (next_ctx->valid()) {
                     _cur_iter_ctx.swap(next_ctx);
@@ -706,9 +706,8 @@ Status VerticalFifoMergeIterator::init(const StorageReadOptions& opts,
     // will not be pushed into heap, we should init next one util we find a valid iter
     // so this rowset can work in heap
     for (auto& iter : _origin_iters) {
-        std::unique_ptr<VerticalMergeIteratorContext> ctx(
-                new VerticalMergeIteratorContext(std::move(iter), seg_order, _seq_col_idx,
-                                                 _context_stats, opts.use_insert_order_when_same));
+        std::unique_ptr<VerticalMergeIteratorContext> ctx(new VerticalMergeIteratorContext(
+                std::move(iter), seg_order, _seq_col_idx, _context_stats, _older_first));
         RETURN_IF_ERROR(ctx->init(opts, sample_info));
         if (!ctx->valid()) {
             ++seg_order;
@@ -979,21 +978,21 @@ Status VerticalMaskMergeIterator::init(const StorageReadOptions& opts,
 // interfaces to create vertical merge iterator
 std::shared_ptr<RowwiseIterator> new_vertical_heap_merge_iterator(
         std::vector<RowwiseIteratorUPtr>&& inputs, const std::vector<bool>& iterator_init_flag,
-        KeysType keys_type, int32_t seq_col_idx, RowSourcesBuffer* row_sources,
+        KeysType keys_type, int32_t seq_col_idx, bool older_first, RowSourcesBuffer* row_sources,
         VerticalCompactionContextStats* context_stats,
         std::vector<uint32_t> key_group_cluster_key_idxes) {
-    return std::make_shared<VerticalHeapMergeIterator>(std::move(inputs), iterator_init_flag,
-                                                       keys_type, seq_col_idx, row_sources,
-                                                       context_stats, key_group_cluster_key_idxes);
+    return std::make_shared<VerticalHeapMergeIterator>(
+            std::move(inputs), iterator_init_flag, keys_type, seq_col_idx, older_first, row_sources,
+            context_stats, key_group_cluster_key_idxes);
 }
 
 std::shared_ptr<RowwiseIterator> new_vertical_fifo_merge_iterator(
         std::vector<RowwiseIteratorUPtr>&& inputs, const std::vector<bool>& iterator_init_flag,
-        KeysType keys_type, int32_t seq_col_idx, RowSourcesBuffer* row_sources,
+        KeysType keys_type, int32_t seq_col_idx, bool older_first, RowSourcesBuffer* row_sources,
         VerticalCompactionContextStats* context_stats) {
     return std::make_shared<VerticalFifoMergeIterator>(std::move(inputs), iterator_init_flag,
-                                                       keys_type, seq_col_idx, row_sources,
-                                                       context_stats);
+                                                       keys_type, seq_col_idx, older_first,
+                                                       row_sources, context_stats);
 }
 
 std::shared_ptr<RowwiseIterator> new_vertical_mask_merge_iterator(

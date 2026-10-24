@@ -24,12 +24,14 @@ namespace doris::segment_v2 {
 LazyInitSegmentIterator::LazyInitSegmentIterator(BetaRowsetSharedPtr rowset,
                                                  RowsetSegmentRef segment, bool should_use_cache,
                                                  ReadSchemaSPtr schema,
-                                                 const StorageReadOptions& opts)
+                                                 std::shared_ptr<const StorageReadOptions> options,
+                                                 RowRanges row_ranges)
         : _rowset(std::move(rowset)),
           _segment(segment),
           _should_use_cache(should_use_cache),
           _schema(std::move(schema)),
-          _read_options(opts) {}
+          _options(std::move(options)),
+          _row_ranges(std::move(row_ranges)) {}
 
 /// See where the iterator is created in `BetaRowsetReader::get_segment_iterators`
 Status LazyInitSegmentIterator::init(const StorageReadOptions& opts) {
@@ -41,16 +43,26 @@ Status LazyInitSegmentIterator::init(const StorageReadOptions& opts) {
     std::shared_ptr<Segment> segment;
     {
         SegmentCacheHandle segment_cache_handle;
-        // The segment is read with this iterator's own options, the ones its rowset reader
-        // built for it; `opts` only drives the caller's merge or union above.
         RETURN_IF_ERROR(SegmentLoader::instance()->load_segment(
-                _rowset, _segment, &segment_cache_handle, _should_use_cache, false,
-                _read_options.stats, &_read_options.io_ctx));
+                _rowset, _segment, &segment_cache_handle, _should_use_cache, false, _options->stats,
+                &_options->io_ctx));
         const auto& tmp_segments = segment_cache_handle.get_segments();
         segment = tmp_segments[0];
     }
-    RETURN_IF_ERROR(segment->new_iterator(_schema, _read_options, &_inner_iterator));
-    return _inner_iterator->init(_read_options);
+    if (_row_ranges.is_empty()) {
+        RETURN_IF_ERROR(segment->new_iterator(_schema, *_options, &_inner_iterator));
+        return _inner_iterator->init(*_options);
+    }
+    // A split of the segment: its own options with the rows it covers, which are part of the
+    // condition cache key.
+    StorageReadOptions options = *_options;
+    options.row_ranges = _row_ranges;
+    if (options.condition_cache_digest != 0) {
+        options.condition_cache_digest =
+                options.row_ranges.get_digest(options.condition_cache_digest);
+    }
+    RETURN_IF_ERROR(segment->new_iterator(_schema, options, &_inner_iterator));
+    return _inner_iterator->init(options);
 }
 
 } // namespace doris::segment_v2
