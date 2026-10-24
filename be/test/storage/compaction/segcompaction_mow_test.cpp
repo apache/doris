@@ -243,7 +243,7 @@ protected:
         RowsetReaderContext reader_context;
         // use this type to avoid cache from other ut
         reader_context.reader_type = ReaderType::READER_QUERY;
-        reader_context.need_ordered_result = true;
+        reader_context.merge.key_ordered = true;
         std::vector<uint32_t> return_columns = {0, 1, 2};
         auto read_schema = std::make_shared<ReadSchema>(
                 project_columns_by_ordinal(tablet_schema->columns(), return_columns));

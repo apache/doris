@@ -255,7 +255,7 @@ protected:
         return tablet;
     }
 
-    // Read the output rowset in physical (segment) order. need_ordered_result=false makes the
+    // Read the output rowset in physical (segment) order. merge.key_ordered=false makes the
     // reader concatenate segments as written, so the returned sequence reflects the on-disk
     // layout produced by the merge.
     std::vector<std::tuple<int, int, int>> read_all(const RowsetSharedPtr& rowset,
@@ -269,7 +269,7 @@ protected:
                 project_columns_by_ordinal(tablet_schema->columns(), ordinals));
 
         RowsetReaderContext reader_context;
-        reader_context.need_ordered_result = false;
+        reader_context.merge.key_ordered = false;
         reader_context.read_schema = read_schema;
         EXPECT_TRUE(read_schema
                             ->init_from_tablet_schema(*tablet_schema,

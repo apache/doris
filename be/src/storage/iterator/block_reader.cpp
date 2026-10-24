@@ -116,62 +116,20 @@ bool BlockReader::_rowsets_overlap(const ReaderParams& read_params) const {
     return false;
 }
 
-bool BlockReader::_needs_merge(const ReaderParams& read_params, bool force_merge,
-                               bool rowsets_overlap) const {
-    if (!rowsets_overlap) {
-        // The rowsets one after another are already in key order.
-        return false;
-    }
-    if (force_merge) {
-        // Changelog MIN_DELTA and DETAIL scans need their rows in key then TSO order.
-        return true;
-    }
-    if (_reader_context.read_changelog) {
-        // An APPEND_ONLY changelog scan reads the changes unordered, like a DUP_KEYS table.
-        return false;
-    }
-    if (_reader_type == ReaderType::READER_QUERY &&
-        (_direct_mode || _tablet->keys_type() == KeysType::DUP_KEYS ||
-         (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
-          _tablet->enable_unique_key_merge_on_write()))) {
-        // DUP_KEYS keeps every row; merge-on-write resolved the keys when writing; direct
-        // mode means the scanner folds (or does not need to fold) the rows itself.
-        return false;
-    }
-    return true;
-}
-
 void BlockReader::_init_rows_options(const ReaderParams& read_params) {
     _rows_options.block_row_max = cast_set<uint32_t>(batch_max_rows());
     _rows_options.preferred_block_size_bytes = _reader_context.preferred_block_size_bytes;
     _rows_options.runtime_state = read_params.runtime_state;
-    _rows_options.use_insert_order_when_same = _reader_context.use_insert_order_when_same;
-    _rows_options.read_orderby_key_columns = _reader_context.read_orderby_key_columns;
     _rows_options.tablet_id = _tablet->tablet_id();
 }
 
-Status BlockReader::_new_rows_iter(std::vector<RowwiseIteratorUPtr> children, bool merge,
-                                   bool reverse) {
+Status BlockReader::_new_rows_iter(std::vector<RowwiseIteratorUPtr> children, bool merge) {
     SCOPED_RAW_TIMER(&_stats.block_reader_build_heap_init_timer_ns);
+    const MergeDecision& decision = _reader_context.merge;
     if (merge) {
-        // Same-key rows are ordered by the sequence column, or by the changelog TSO (the
-        // smaller one first), and then by (rowset version, segment).
-        int sequence_ordinal = _read_schema->sequence_ordinal();
-        bool small_sequence_first = false;
-        if (const int tso_ordinal = _read_schema->tso_ordinal(); tso_ordinal >= 0) {
-            DCHECK_EQ(sequence_ordinal, -1);
-            sequence_ordinal = tso_ordinal;
-            small_sequence_first = true;
-        }
-        // A sequence map needs every version of a key, since any of them may hold the
-        // winning value of some sequence group; every other UNIQUE_KEYS read only needs the
-        // newest one.
-        const bool skip_same = _tablet_schema->keys_type() == KeysType::UNIQUE_KEYS &&
-                               !_tablet_schema->has_seq_map();
-        _rows_iter = new_merge_iterator(std::move(children), _read_schema, sequence_ordinal,
-                                        small_sequence_first, reverse, skip_same);
+        _rows_iter = new_merge_iterator(std::move(children), _read_schema, decision);
     } else {
-        if (reverse) {
+        if (decision.reverse) {
             std::ranges::reverse(children);
         }
         _rows_iter = new_union_iterator(std::move(children), _read_schema);
@@ -193,13 +151,13 @@ Status BlockReader::_init_rows_iter(const ReaderParams& read_params) {
     // A TopN read (ORDER BY key LIMIT n pushed down) picks its rows per rowset instead of
     // merging; the scanner sets it only for the table models read without a merge.
     const bool topn = _reader_context.read_orderby_key_limit > 0;
-    const bool is_min_delta_scan = read_params.changelog_scan_type == TChangelogScanType::MIN_DELTA;
-    const bool force_merge = read_params.read_orderby_key || is_min_delta_scan;
-    const bool reverse = !is_min_delta_scan && read_params.read_orderby_key_reverse;
+    const MergeDecision& decision = _reader_context.merge;
+    const bool reverse = decision.reverse;
     bool merge = false;
     {
         SCOPED_RAW_TIMER(&_stats.block_reader_vcollect_iter_init_timer_ns);
-        merge = !topn && _needs_merge(read_params, force_merge, _rowsets_overlap(read_params));
+        // The rowsets one after another are already in key order when they do not overlap.
+        merge = !topn && decision.key_ordered && _rowsets_overlap(read_params);
     }
     _init_rows_options(read_params);
 
@@ -246,7 +204,7 @@ Status BlockReader::_init_rows_iter(const ReaderParams& read_params) {
         }
         return Status::OK();
     }
-    return _new_rows_iter(std::move(children), merge, reverse);
+    return _new_rows_iter(std::move(children), merge);
 }
 
 // One TabletBlockIterator per (table model, read mode); see tablet_block_iterator.h.

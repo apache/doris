@@ -54,7 +54,7 @@ private:
 
 // Changelog MIN_DELTA scans: the net change of every primary key within the scanned window.
 //
-// The scan is forced to be globally key-ordered (ReaderParams::force_key_ordered_read), with
+// The scan is read in key order (TabletReader::_decide_merge), with
 // same-key rows ordered by TSO, so all changes of one key are consecutive. The iterator keeps
 // the first and the most recent row of the current key group and, once the key changes, folds
 // the group with the first/last op transition matrix of changelog_block_reader_utils.h into

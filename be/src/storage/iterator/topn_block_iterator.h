@@ -41,10 +41,10 @@ struct RowsetReaderContext;
 // can skip rows that cannot make it into the result.
 class TopNBlockIterator final : public TabletBlockIterator {
 public:
-    // `rowset_iters` yields the rows of every rowset in key order (descending when
-    // read_orderby_key_reverse), in the order the rowsets are read; each is initialized with
-    // `init_options` when it is reached. `context` holds the sort columns, the limit and the
-    // runtime predicate ids.
+    // `rowset_iters` yields the rows of every rowset in key order (descending when the merge
+    // decision says reverse), in the order the rowsets are read; each is initialized with
+    // `init_options` when it is reached. `context` holds the sort columns (the compare
+    // ordinals of its merge decision), the limit and the runtime predicate ids.
     TopNBlockIterator(std::vector<RowwiseIteratorUPtr>* rowset_iters,
                       const StorageReadOptions* init_options, const RowsetReaderContext* context);
 

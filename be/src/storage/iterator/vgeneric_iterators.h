@@ -69,25 +69,26 @@ private:
     static constexpr size_t MAX_ROW_SIZE_IN_COUNT = 65535;
 };
 
-// Merges the key-ordered rows of several iterators into one key-ordered stream.
+// Merges the key-ordered rows of several iterators into one key-ordered stream, the way the
+// read's MergeDecision says.
 //
 // The children are the segment iterators of a read in (rowset version, segment) order, the
 // oldest first: every segment of a rowset whose segments overlap on keys, and one
-// VUnionIterator for a rowset whose segments do not. Two rows of the same key are ordered by
-// the sequence column when there is one (the larger value first, or the smaller one with
+// VUnionIterator for a rowset whose segments do not. Two rows that compare equal are ordered
+// by the sequence column when there is one (the larger value first, or the smaller one with
 // `small_sequence_first`, which changelog TSO merges use), then by child order: a later child
-// holds the newer row and goes first, unless `use_insert_order_when_same` asks for the older
-// one first. Example with key 1 in child 0 (v = 10) and in child 1 (v = 11): the merge hands
-// out v = 11 and then v = 10 with is_same set, and skip_same drops v = 10.
+// holds the newer row and goes first, unless `older_first` asks for the older one first.
+// Example with key 1 in child 0 (v = 10) and in child 1 (v = 11): the merge hands out v = 11
+// and then v = 10 with is_same set, and `drop_older_versions` drops v = 10.
 //
 // There are two ways to consume the merge; a consumer uses one of them:
 //   next_batch(Block*)        copies runs of rows into the caller's Block (DUP_KEYS tables,
-//                             schema changes, TopN); with `skip_same` only the first row of
-//                             every key is copied.
+//                             schema changes, TopN); with `drop_older_versions` only the
+//                             first row of every key is copied.
 //   next_row(IteratorRowRef*) hands out one row at a time with is_same set when its key
 //                             equals the key of the row handed out before it; with
-//                             `skip_same` those rows are not handed out at all. The reference
-//                             stays valid until the next next_row() call.
+//                             `drop_older_versions` those rows are not handed out at all. The
+//                             reference stays valid until the next next_row() call.
 //
 // A run is a stretch of rows of the top child that all sort before the best row of every
 // other child, which is one of the two children of the heap's root. Only the end of a run
@@ -95,18 +96,13 @@ private:
 // a rowset whose keys are far from the others costs one comparison per row.
 class VMergeIterator final : public RowwiseIterator {
 public:
-    // `sequence_ordinal` is the read-schema ordinal of the sequence column, -1 without one.
-    // `is_reverse` orders the keys descending. `skip_same` drops every row whose key equals
-    // the key of the row before it, i.e. every version of a key but the newest.
     VMergeIterator(std::vector<RowwiseIteratorUPtr> children, ReadSchemaSPtr read_schema,
-                   int sequence_ordinal, bool small_sequence_first, bool is_reverse,
-                   bool skip_same);
+                   MergeDecision decision);
 
     ~VMergeIterator() override = default;
 
-    // Reads the first Block of every child. `opts` supplies the output Block limits, the
-    // tie-break direction (use_insert_order_when_same), the columns to compare by
-    // (read_orderby_key_columns, the key columns otherwise) and the runtime state.
+    // Reads the first Block of every child. `opts` supplies the output Block limits and the
+    // runtime state.
     Status init(const StorageReadOptions& opts) override;
 
     Status next_batch(Block* block) override;
@@ -117,7 +113,7 @@ public:
 
     void update_profile(RuntimeProfile* profile) override;
 
-    // Rows dropped by skip_same.
+    // Rows dropped by drop_older_versions.
     uint64_t merged_rows() const override { return _merged_rows; }
 
 private:
@@ -166,24 +162,15 @@ private:
     // sort before the best row of every other child, `cap` at most.
     size_t _run_end(uint32_t top_index, size_t cap) const;
     // Copy the run of the top child into `columns`, at most `max_rows` rows, and move the
-    // heap on; `*rows` grows by the rows copied. With skip_same the first row of the run is
-    // dropped when it repeats the key copied out last.
+    // heap on; `*rows` grows by the rows copied. With drop_older_versions the first row of the
+    // run is dropped when it repeats the key copied out last.
     Status _copy_run(MutableColumns& columns, size_t max_rows, size_t* rows);
 
     std::vector<Child> _children;
     const ReadSchemaSPtr _read_schema;
-    const int _sequence_ordinal;
-    const bool _small_sequence_first;
-    const bool _is_reverse;
-    const bool _skip_same;
+    const MergeDecision _decision;
 
     // From init():
-    // Read-schema ordinals two rows are compared by.
-    std::vector<uint32_t> _key_ordinals;
-    // Whether `_key_ordinals` is the key prefix of the read schema (validated to be keys)
-    // rather than caller-given compare columns.
-    bool _compare_by_key_prefix = true;
-    bool _use_insert_order_when_same = false;
     OutputBlockLimits _limits;
     RuntimeState* _runtime_state = nullptr;
     int64_t _tablet_id = 0;
@@ -200,8 +187,7 @@ private:
 };
 
 RowwiseIteratorUPtr new_merge_iterator(std::vector<RowwiseIteratorUPtr> children,
-                                       ReadSchemaSPtr read_schema, int sequence_ordinal,
-                                       bool small_sequence_first, bool is_reverse, bool skip_same);
+                                       ReadSchemaSPtr read_schema, const MergeDecision& decision);
 
 // The rows of `inputs` one input after another. Every input is initialized when it is reached.
 RowwiseIteratorUPtr new_union_iterator(std::vector<RowwiseIteratorUPtr>&& inputs,

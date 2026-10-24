@@ -147,8 +147,7 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
     if (reader_params.read_changelog) {
         // Changelog horizontal (non-vertical) compaction must produce a globally
         // (key, TSO)-ordered output.
-        reader_params.read_orderby_key = true;
-        reader_params.force_key_ordered_read = true;
+        reader_params.force_key_order = true;
     }
 
     TabletReadSource read_source;

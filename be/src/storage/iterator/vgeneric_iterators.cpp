@@ -85,13 +85,9 @@ Status VStatisticsIterator::next_batch(Block* block) {
 }
 
 VMergeIterator::VMergeIterator(std::vector<RowwiseIteratorUPtr> children,
-                               ReadSchemaSPtr read_schema, int sequence_ordinal,
-                               bool small_sequence_first, bool is_reverse, bool skip_same)
-        : _read_schema(std::move(read_schema)),
-          _sequence_ordinal(sequence_ordinal),
-          _small_sequence_first(small_sequence_first),
-          _is_reverse(is_reverse),
-          _skip_same(skip_same) {
+                               ReadSchemaSPtr read_schema, MergeDecision decision)
+        : _read_schema(std::move(read_schema)), _decision(std::move(decision)) {
+    DCHECK(!_decision.drop_older_versions || _decision.compare_whole_key);
     _children.reserve(children.size());
     for (auto& child : children) {
         _children.emplace_back();
@@ -103,17 +99,8 @@ Status VMergeIterator::init(const StorageReadOptions& opts) {
     DORIS_CHECK_GT(opts.block_row_max, 0);
     _limits = OutputBlockLimits {.max_rows = opts.block_row_max,
                                  .preferred_bytes = opts.preferred_block_size_bytes};
-    _use_insert_order_when_same = opts.use_insert_order_when_same;
     _runtime_state = opts.runtime_state;
     _tablet_id = opts.tablet_id;
-    if (opts.read_orderby_key_columns != nullptr) {
-        _key_ordinals = *opts.read_orderby_key_columns;
-        _compare_by_key_prefix = false;
-    } else {
-        for (size_t ordinal = 0; ordinal < _read_schema->num_key_columns(); ++ordinal) {
-            _key_ordinals.push_back(cast_set<uint32_t>(ordinal));
-        }
-    }
 
     _heap.reserve(_children.size());
     for (size_t index = 0; index < _children.size(); ++index) {
@@ -136,7 +123,7 @@ Status VMergeIterator::init(const StorageReadOptions& opts) {
 }
 
 // The read-schema ordinals the rows are compared by must exist in the merged Blocks and, when
-// they are the key prefix, be key columns: a projection that puts a value column ahead of a
+// they are the whole key, be key columns: a projection that puts a value column ahead of a
 // key would otherwise be merged by that value (issue #66390).
 Status VMergeIterator::_validate_compare_contract(const Block& block) const {
     const size_t block_columns = block.columns();
@@ -145,19 +132,20 @@ Status VMergeIterator::_validate_compare_contract(const Block& block) const {
                 "merge iterator compare contract violated: {}, tablet_id={}, block_columns={}, "
                 "read_columns={}, num_key_columns={}, sequence_ordinal={}",
                 detail, _tablet_id, block_columns, _read_schema->num_block_columns(),
-                _read_schema->num_key_columns(), _sequence_ordinal);
+                _read_schema->num_key_columns(), _decision.sequence_ordinal);
     };
-    for (uint32_t ordinal : _key_ordinals) {
+    for (uint32_t ordinal : _decision.compare_ordinals) {
         if (ordinal >= block_columns) {
             return contract_error("compare column ordinal " + std::to_string(ordinal) +
                                   " out of range");
         }
-        if (_compare_by_key_prefix && !_read_schema->column(ordinal)->is_key()) {
+        if (_decision.compare_whole_key && !_read_schema->column(ordinal)->is_key()) {
             return contract_error("read schema ordinal " + std::to_string(ordinal) +
                                   " is not a key column");
         }
     }
-    if (_sequence_ordinal != -1 && std::cmp_greater_equal(_sequence_ordinal, block_columns)) {
+    if (_decision.sequence_ordinal != -1 &&
+        std::cmp_greater_equal(_decision.sequence_ordinal, block_columns)) {
         return contract_error("sequence column ordinal out of range");
     }
     return Status::OK();
@@ -186,7 +174,7 @@ Status VMergeIterator::_fill(Child& child, bool* exhausted) {
 
 int VMergeIterator::_compare_keys(const Block& a, size_t a_pos, const Block& b,
                                   size_t b_pos) const {
-    return a.compare_at(a_pos, b_pos, &_key_ordinals, b, -1);
+    return a.compare_at(a_pos, b_pos, &_decision.compare_ordinals, b, -1);
 }
 
 bool VMergeIterator::_less(uint32_t a, size_t a_pos, uint32_t b, size_t b_pos) const {
@@ -194,17 +182,17 @@ bool VMergeIterator::_less(uint32_t a, size_t a_pos, uint32_t b, size_t b_pos) c
     const Block& b_block = *_children[b].block;
     const int keys = _compare_keys(a_block, a_pos, b_block, b_pos);
     if (keys != 0) {
-        return _is_reverse ? keys > 0 : keys < 0;
+        return _decision.reverse ? keys > 0 : keys < 0;
     }
-    if (_sequence_ordinal != -1) {
+    if (_decision.sequence_ordinal != -1) {
         const int sequence =
-                a_block.compare_column_at(a_pos, b_pos, _sequence_ordinal, b_block, -1);
+                a_block.compare_column_at(a_pos, b_pos, _decision.sequence_ordinal, b_block, -1);
         if (sequence != 0) {
-            return _small_sequence_first ? sequence < 0 : sequence > 0;
+            return _decision.small_sequence_first ? sequence < 0 : sequence > 0;
         }
     }
     // Same key and sequence: the later child holds the newer row.
-    return _use_insert_order_when_same ? a < b : a > b;
+    return _decision.older_first ? a < b : a > b;
 }
 
 void VMergeIterator::_sift_down(size_t index) {
@@ -248,21 +236,22 @@ void VMergeIterator::_update_second() {
 
 void VMergeIterator::_remember_key(const Block& block, size_t pos) {
     if (_last_key.empty()) {
-        for (uint32_t ordinal : _key_ordinals) {
+        for (uint32_t ordinal : _decision.compare_ordinals) {
             _last_key.push_back(block.get_by_position(ordinal).column->clone_empty());
         }
     }
-    for (size_t i = 0; i < _key_ordinals.size(); ++i) {
+    for (size_t i = 0; i < _decision.compare_ordinals.size(); ++i) {
         _last_key[i]->clear();
-        _last_key[i]->insert_from(*block.get_by_position(_key_ordinals[i]).column, pos);
+        _last_key[i]->insert_from(*block.get_by_position(_decision.compare_ordinals[i]).column,
+                                  pos);
     }
 }
 
 bool VMergeIterator::_key_equals_remembered(const Block& block, size_t pos) const {
     DCHECK(!_last_key.empty());
-    for (size_t i = 0; i < _key_ordinals.size(); ++i) {
-        if (block.get_by_position(_key_ordinals[i]).column->compare_at(pos, 0, *_last_key[i], -1) !=
-            0) {
+    for (size_t i = 0; i < _decision.compare_ordinals.size(); ++i) {
+        if (block.get_by_position(_decision.compare_ordinals[i])
+                    .column->compare_at(pos, 0, *_last_key[i], -1) != 0) {
             return false;
         }
     }
@@ -304,7 +293,7 @@ Status VMergeIterator::next_row(IteratorRowRef* ref) {
                 _eof = true;
                 return Status::EndOfFile("no more rows to merge");
             }
-            if (_skip_same && same) {
+            if (_decision.drop_older_versions && same) {
                 _merged_rows++;
                 continue;
             }
@@ -353,9 +342,10 @@ Status VMergeIterator::_copy_run(MutableColumns& columns, size_t max_rows, size_
     Child& top = _children[top_index];
     const size_t end = _run_end(top_index, std::min(top.rows, top.pos + max_rows));
     size_t start = top.pos;
-    // skip_same: only the first row of the run can repeat the key copied out last, since a
-    // child holds every key once.
-    if (_skip_same && !_last_key.empty() && _key_equals_remembered(*top.block, start)) {
+    // drop_older_versions: only the first row of the run can repeat the key copied out last,
+    // since a child holds every key once.
+    if (_decision.drop_older_versions && !_last_key.empty() &&
+        _key_equals_remembered(*top.block, start)) {
         ++start;
         ++_merged_rows;
     }
@@ -367,7 +357,7 @@ Status VMergeIterator::_copy_run(MutableColumns& columns, size_t max_rows, size_
             }
         });
         *rows += end - start;
-        if (_skip_same) {
+        if (_decision.drop_older_versions) {
             _remember_key(*top.block, end - 1);
         }
     }
@@ -498,11 +488,8 @@ Status VUnionIterator::next_row(IteratorRowRef* ref) {
 }
 
 RowwiseIteratorUPtr new_merge_iterator(std::vector<RowwiseIteratorUPtr> children,
-                                       ReadSchemaSPtr read_schema, int sequence_ordinal,
-                                       bool small_sequence_first, bool is_reverse, bool skip_same) {
-    return std::make_unique<VMergeIterator>(std::move(children), std::move(read_schema),
-                                            sequence_ordinal, small_sequence_first, is_reverse,
-                                            skip_same);
+                                       ReadSchemaSPtr read_schema, const MergeDecision& decision) {
+    return std::make_unique<VMergeIterator>(std::move(children), std::move(read_schema), decision);
 }
 
 RowwiseIteratorUPtr new_union_iterator(std::vector<RowwiseIteratorUPtr>&& inputs,

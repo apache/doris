@@ -114,7 +114,7 @@ Status _init_segment_column_iterator(const BetaRowsetSharedPtr& rowset,
     // This helper bypasses TabletReader. For example, fetching
     // __DORIS_COMMIT_TSO_COL__ from a rowset with commit_tso=100 must synthesize 100 instead of
     // reading the segment placeholder 0.
-    opts.version = rowset->version();
+    opts.rowset_version = rowset->version();
     opts.commit_tso = rowset->commit_tso();
     if (input_io_ctx != nullptr) {
         opts.io_ctx = *input_io_ctx;
