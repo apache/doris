@@ -19,15 +19,20 @@ package org.apache.doris.nereids.rules.expression;
 
 import org.apache.doris.analysis.ExprId;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.rules.expression.check.CheckCast;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnBE;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParse;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -38,8 +43,16 @@ import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.UuidLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
 import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.types.FileType;
+import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.UuidType;
+import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.thrift.TExpr;
 
 import com.google.common.collect.ImmutableList;
@@ -54,6 +67,67 @@ import java.util.Map;
 
 class FoldConstantRuleOnBETest extends ExpressionRewriteTestHelper {
     private static final UuidLiteral UUID = new UuidLiteral("00112233-4455-6677-8899-aabbccddeeff");
+
+    @Test
+    void testJsonToFileUsesGenericJsonFoldingRestriction() {
+        Expression expression = new Cast(new JsonbParse(new StringLiteral(
+                "{\"uri\":\"s3://bucket/object\",\"offset\":null,\"size\":null,"
+                        + "\"content_type\":null,\"checksum\":null,\"inline\":null}")), FileType.INSTANCE);
+        Assertions.assertTrue(expression.isConstant());
+        Assertions.assertTrue(collectConstants(expression).isEmpty());
+    }
+
+    @Test
+    void testFileCastsRemainForRuntimeEvaluation() {
+        StructLiteral fileFields = new StructLiteral(ImmutableList.of(new StringLiteral("urn:x"),
+                new NullLiteral(BigIntType.INSTANCE), new NullLiteral(BigIntType.INSTANCE),
+                new NullLiteral(StringType.INSTANCE), new NullLiteral(StringType.INSTANCE),
+                new NullLiteral(VarBinaryType.INSTANCE)), FileType.INSTANCE.publicStructType());
+        List<Expression> expressions = ImmutableList.of(
+                new Cast(fileFields, FileType.INSTANCE),
+                new Cast(new ArrayLiteral(ImmutableList.of(fileFields)), ArrayType.of(FileType.INSTANCE)),
+                new Cast(new MapLiteral(ImmutableMap.of(new StringLiteral("f"), fileFields)),
+                        MapType.of(StringType.INSTANCE, FileType.INSTANCE)),
+                new Cast(new StructLiteral(ImmutableList.of(fileFields)),
+                        new StructType(ImmutableList.of(new StructField("f", FileType.INSTANCE, true, "")))));
+        for (Expression expression : expressions) {
+            Assertions.assertTrue(expression.isConstant());
+            Assertions.assertTrue(CheckCast.check(expression.child(0).getDataType(), expression.getDataType(), false));
+            Assertions.assertThrows(AnalysisException.class,
+                    () -> expression.child(0).checkedCastTo(expression.getDataType()));
+            Assertions.assertSame(expression, FoldConstantRuleOnFE.VISITOR_INSTANCE.rewrite(expression, context));
+            Assertions.assertTrue(collectConstants(expression).isEmpty(), expression.toSql());
+            Assertions.assertTrue(collectConstants(new IsNull(expression)).isEmpty(), expression.toSql());
+        }
+        Expression supported = new EqualTo(new Add(new IntegerLiteral(1), new IntegerLiteral(2)),
+                new IntegerLiteral(3));
+        Assertions.assertEquals(ImmutableList.of(supported),
+                collectConstants(new And(new IsNull(expressions.get(0)), supported)));
+    }
+
+    @Test
+    void testFileNullCastsUseNativeLiteralFolding() {
+        for (DataType type : ImmutableList.of(FileType.INSTANCE, ArrayType.of(FileType.INSTANCE),
+                MapType.of(StringType.INSTANCE, FileType.INSTANCE),
+                new StructType(ImmutableList.of(new StructField("f", FileType.INSTANCE, true, ""))))) {
+            Assertions.assertEquals(new NullLiteral(type), FoldConstantRuleOnFE.VISITOR_INSTANCE.rewrite(
+                    new Cast(new NullLiteral(), type), context));
+        }
+        ArrayType fileArray = ArrayType.of(FileType.INSTANCE);
+        Assertions.assertEquals(new ArrayLiteral(ImmutableList.of(new NullLiteral(FileType.INSTANCE)), fileArray),
+                FoldConstantRuleOnFE.VISITOR_INSTANCE.rewrite(new Cast(
+                        new ArrayLiteral(ImmutableList.of(new NullLiteral())), fileArray), context));
+    }
+
+    @Test
+    void testNonConstantDivisionDoesNotRecomputePersistedDecimalType() {
+        context.cascadesContext.getConnectContext().getSessionVariable().enableDecimal256 = false;
+        Expression divide = new Divide(
+                new SlotReference("wide", DecimalV3Type.createDecimalV3TypeNotCheck256(52, 20)),
+                new SlotReference("divisor", DecimalV3Type.createDecimalV3Type(38, 10)));
+        Assertions.assertFalse(divide.isConstant());
+        Assertions.assertTrue(collectConstants(divide).isEmpty());
+    }
 
     @Test
     void testSkipUuidElementAt() {

@@ -217,6 +217,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Factorial;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Field;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FindInSet;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FirstSignificantSubdomain;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.FlGetBinary;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Floor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Fmod;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Format;
@@ -547,6 +548,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBitmapWithC
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDateV2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDays;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToFile;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv4;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv4OrDefault;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv4OrNull;
@@ -828,6 +830,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Field.class, "field"),
             scalar(FindInSet.class, "find_in_set"),
             scalar(FirstSignificantSubdomain.class, "first_significant_subdomain"),
+            scalar(FlGetBinary.class, "fl_get_binary"),
             scalar(Floor.class, "floor"),
             scalar(Fmod.class, "fmod"),
             scalar(Format.class, "format"),
@@ -1167,6 +1170,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ToDate.class, "to_date"),
             scalar(ToDateV2.class, "to_datev2"),
             scalar(ToDays.class, "to_days"),
+            scalar(ToFile.class, "to_file"),
             scalar(ToIpv4.class, "to_ipv4"),
             scalar(ToIpv4OrDefault.class, "to_ipv4_or_default"),
             scalar(ToIpv4OrNull.class, "to_ipv4_or_null"),

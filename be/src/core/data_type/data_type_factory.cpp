@@ -46,6 +46,7 @@
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_date_time.h"
 #include "core/data_type/data_type_decimal.h"
+#include "core/data_type/data_type_file.h"
 #include "core/data_type/data_type_fixed_length_object.h"
 #include "core/data_type/data_type_hll.h"
 #include "core/data_type/data_type_ipv4.h"
@@ -326,6 +327,16 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
         nested = std::make_shared<DataTypeMap>(create_data_type(pcolumn.children(0)),
                                                create_data_type(pcolumn.children(1)));
         break;
+    case PGenericType::FILE: {
+        DataTypes children;
+        Strings names;
+        for (const auto& child : pcolumn.children()) {
+            children.push_back(create_data_type(child));
+            names.push_back(child.name());
+        }
+        nested = std::make_shared<DataTypeFile>(children, names);
+        break;
+    }
     case PGenericType::STRUCT: {
         int col_size = pcolumn.children_size();
         DCHECK(col_size >= 1);
@@ -513,6 +524,9 @@ DataTypePtr DataTypeFactory::create_data_type(const PrimitiveType primitive_type
         nested = std::move(temp_nested);
         break;
     }
+    case TYPE_FILE:
+        nested = std::make_shared<DataTypeFile>();
+        break;
     case TYPE_VARBINARY:
         nested = std::make_shared<DataTypeVarbinary>(len, TYPE_VARBINARY);
         break;
@@ -555,6 +569,8 @@ DataTypePtr DataTypeFactory::create_data_type(const std::vector<TTypeNode>& type
             DataTypePtr dt = std::make_shared<DataTypeVariantV2>(
                     scalar_type.variant_max_subcolumns_count, doc_mode);
             return is_nullable ? make_nullable(dt) : dt;
+        } else if (scalar_type.type == TPrimitiveType::FILE) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT, "FILE requires a FILE type node");
         }
         return create_data_type(thrift_to_type(scalar_type.type), is_nullable,
                                 scalar_type.__isset.precision ? scalar_type.precision : 0,
@@ -572,7 +588,26 @@ DataTypePtr DataTypeFactory::create_data_type(const std::vector<TTypeNode>& type
                 create_data_type(types, idx, node.contains_nulls[0]));
         break;
     }
+    case TTypeNodeType::FILE:
     case TTypeNodeType::STRUCT: {
+        if (node.type == TTypeNodeType::FILE &&
+            (node.struct_fields.size() != DataTypeFile::FIELD_COUNT ||
+             types.size() - static_cast<size_t>(*idx) <= DataTypeFile::FIELD_COUNT)) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid FILE type descriptor");
+        }
+        if (node.type == TTypeNodeType::FILE) {
+            constexpr TPrimitiveType::type child_types[] = {
+                    TPrimitiveType::VARCHAR, TPrimitiveType::BIGINT,  TPrimitiveType::BIGINT,
+                    TPrimitiveType::VARCHAR, TPrimitiveType::VARCHAR, TPrimitiveType::VARBINARY};
+            for (size_t i = 0; i < DataTypeFile::FIELD_COUNT; ++i) {
+                const auto& child = types[*idx + i + 1];
+                if (child.type != TTypeNodeType::SCALAR || !child.__isset.scalar_type ||
+                    child.scalar_type.type != child_types[i]) {
+                    throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                    "FILE requires its canonical scalar children");
+                }
+            }
+        }
         DCHECK(!node.__isset.scalar_type);
         DCHECK_LT(*idx, types.size() - 1);
         DCHECK(!node.__isset.contains_nulls);
@@ -587,7 +622,11 @@ DataTypePtr DataTypeFactory::create_data_type(const std::vector<TTypeNode>& type
             data_types.push_back(create_data_type(types, idx, node.struct_fields[i].contains_null));
             names.push_back(node.struct_fields[i].name);
         }
-        nested = std::make_shared<DataTypeStruct>(data_types, names);
+        if (node.type == TTypeNodeType::FILE) {
+            nested = std::make_shared<DataTypeFile>(data_types, names);
+        } else {
+            nested = std::make_shared<DataTypeStruct>(data_types, names);
+        }
         break;
     }
     case TTypeNodeType::MAP: {
@@ -663,6 +702,8 @@ DataTypePtr DataTypeFactory::create_data_type(
         } else if (primitive_type == TYPE_VARIANT) {
             nested = std::make_shared<DataTypeVariantV2>(node.variant_max_subcolumns_count(),
                                                          node.variant_enable_doc_mode());
+        } else if (primitive_type == TYPE_FILE) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT, "FILE requires a FILE type node");
         } else {
             return create_data_type(primitive_type, is_nullable,
                                     scalar_type.has_precision() ? scalar_type.precision() : 0,
@@ -688,7 +729,26 @@ DataTypePtr DataTypeFactory::create_data_type(
         nested = std::make_shared<DataTypeMap>(data_types[0], data_types[1]);
         break;
     }
+    case TTypeNodeType::FILE:
     case TTypeNodeType::STRUCT: {
+        if (node.type() == TTypeNodeType::FILE &&
+            (node.struct_fields_size() != DataTypeFile::FIELD_COUNT ||
+             types.size() - *idx <= DataTypeFile::FIELD_COUNT)) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid FILE protobuf type descriptor");
+        }
+        if (node.type() == TTypeNodeType::FILE) {
+            constexpr TPrimitiveType::type child_types[] = {
+                    TPrimitiveType::VARCHAR, TPrimitiveType::BIGINT,  TPrimitiveType::BIGINT,
+                    TPrimitiveType::VARCHAR, TPrimitiveType::VARCHAR, TPrimitiveType::VARBINARY};
+            for (int i = 0; i < DataTypeFile::FIELD_COUNT; ++i) {
+                const auto& child = types.Get(*idx + i + 1);
+                if (child.type() != TTypeNodeType::SCALAR || !child.has_scalar_type() ||
+                    child.scalar_type().type() != child_types[i]) {
+                    throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                    "FILE requires its canonical scalar children");
+                }
+            }
+        }
         DataTypes data_types;
         Strings names;
         data_types.reserve(node.struct_fields_size());
@@ -696,10 +756,22 @@ DataTypePtr DataTypeFactory::create_data_type(
         for (size_t i = 0; i < node.struct_fields_size(); i++) {
             const auto& field = node.struct_fields(cast_set<int>(i));
             ++(*idx);
-            data_types.push_back(create_data_type(types, idx, field.contains_null()));
+            if (node.type() == TTypeNodeType::FILE) {
+                const auto& scalar_type = types.Get(*idx).scalar_type();
+                data_types.push_back(create_data_type(
+                        thrift_to_type(static_cast<TPrimitiveType::type>(scalar_type.type())),
+                        field.contains_null(), 0, 0,
+                        scalar_type.has_len() ? scalar_type.len() : -1));
+            } else {
+                data_types.push_back(create_data_type(types, idx, field.contains_null()));
+            }
             names.push_back(field.name());
         }
-        nested = std::make_shared<DataTypeStruct>(data_types, names);
+        if (node.type() == TTypeNodeType::FILE) {
+            nested = std::make_shared<DataTypeFile>(data_types, names);
+        } else {
+            nested = std::make_shared<DataTypeStruct>(data_types, names);
+        }
         break;
     }
     case TTypeNodeType::VARIANT: {

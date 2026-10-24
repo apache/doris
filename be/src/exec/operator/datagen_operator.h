@@ -66,6 +66,7 @@ private:
     friend class DataGenLocalState;
     // Tuple id resolved in prepare() to set _tuple_desc;
     TupleId _tuple_id;
+    TDataGenFunctionName::type _function_name = TDataGenFunctionName::NUMBERS;
 
     // Descriptor of tuples generated
     const TupleDescriptor* _tuple_desc = nullptr;

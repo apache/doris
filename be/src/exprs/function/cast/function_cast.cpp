@@ -19,6 +19,7 @@
 
 #include "core/data_type/data_type_agg_state.h"
 #include "core/data_type/data_type_decimal.h"
+#include "core/data_type/data_type_file.h"
 #include "core/data_type/data_type_number.h" // IWYU pragma: keep
 #include "core/data_type/data_type_quantilestate.h"
 #include "core/data_type/data_type_timestamp_ns.h" // IWYU pragma: keep
@@ -214,7 +215,11 @@ WrapperType prepare_remove_nullable(FunctionContext* context, const DataTypePtr&
             /// get_nullable_column_info() already scanned the NULL map of the source, so the mask is
             /// handed to the cast only when it really contains a NULL. An all zero mask is the common
             /// case, and passing it would add a load and a branch to every row of the cast kernels.
-            const NullMap::value_type* arg_null_map = nullptr;
+            // FILE validation must also skip values hidden by an enclosing NULL container.
+            const NullMap::value_type* arg_null_map = (contains_file_type(from_type_not_nullable) ||
+                                                       contains_file_type(to_type_not_nullable))
+                                                              ? null_map
+                                                              : nullptr;
             if (source_info.has_null) {
                 arg_null_map = block.get_by_position(arguments[0])
                                        .get_nullable_null_map_column()
@@ -249,6 +254,20 @@ WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_fro
     auto from_type = get_serialized_type(origin_from_type);
     if (from_type->equals(*to_type)) {
         return create_identity_wrapper(from_type);
+    }
+
+    if (from_type->get_primitive_type() == TYPE_FILE ||
+        to_type->get_primitive_type() == TYPE_FILE) {
+        return create_file_wrapper(from_type, to_type);
+    }
+    if ((contains_file_type(from_type) || contains_file_type(to_type)) &&
+        (from_type->get_primitive_type() == TYPE_JSONB ||
+         to_type->get_primitive_type() == TYPE_JSONB ||
+         from_type->get_primitive_type() == TYPE_VARIANT ||
+         to_type->get_primitive_type() == TYPE_VARIANT ||
+         is_string_type(from_type->get_primitive_type()) ||
+         is_string_type(to_type->get_primitive_type()))) {
+        return create_unsupport_wrapper(from_type->get_name(), to_type->get_name());
     }
 
     const auto* from_variant_v2 =

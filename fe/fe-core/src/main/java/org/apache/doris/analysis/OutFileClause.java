@@ -224,6 +224,12 @@ public class OutFileClause {
                 analyzeForParquetFormat(resultExprs, colLabels);
             } else if (isOrcFormat()) {
                 analyzeForOrcFormat(resultExprs, colLabels);
+            } else if (fileFormatProperties instanceof CsvFileFormatProperties) {
+                for (Expr expr : resultExprs) {
+                    if (expr.getType().typeContainsFile()) {
+                        throw new AnalysisException("CSV OUTFILE does not support FILE");
+                    }
+                }
             }
         }
     }
@@ -458,6 +464,11 @@ public class OutFileClause {
     }
 
     private void analyzeForParquetFormat(List<Expr> resultExprs, List<String> colLabels) throws AnalysisException {
+        for (Expr expr : resultExprs) {
+            if (expr.getType().typeContainsFile()) {
+                throw new AnalysisException("Parquet OUTFILE does not support FILE");
+            }
+        }
         if (this.parquetSchemas.isEmpty()) {
             genParquetColumnName(resultExprs, colLabels);
         }

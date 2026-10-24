@@ -34,8 +34,11 @@
 #include "core/assert_cast.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
+#include "core/column/column_struct.h"
 #include "core/column/column_varbinary.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_varbinary.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/data_type_serde/data_type_varbinary_serde.h"
@@ -187,19 +190,47 @@ TEST_F(DataTypeVarbinarySerDeTest, JsonTextBehavior) {
     }
 }
 
-TEST_F(DataTypeVarbinarySerDeTest, ProtobufNotSupported) {
+TEST_F(DataTypeVarbinarySerDeTest, ProtobufPreservesRawBytesAndSelectedRange) {
     DataTypeVarbinarySerDe serde;
-    auto col = ColumnVarbinary::create();
-    auto* vb = col.get();
-    std::string v = make_bytes(4);
-    vb->insert_data(v.data(), v.size());
+    auto source = ColumnVarbinary::create();
+    const std::vector<std::string> values {"skip", "", make_bytes(8), make_bytes(4096)};
+    for (const auto& bytes : values) {
+        source->insert_data(bytes.data(), bytes.size());
+    }
+    PValues pb;
+    ASSERT_TRUE(serde.write_column_to_pb(*source, pb, 1, source->size()).ok());
+    EXPECT_EQ(pb.type().id(), PGenericType::VARBINARY);
+    ASSERT_EQ(pb.bytes_value_size(), 3);
+    auto restored = ColumnVarbinary::create();
+    ASSERT_TRUE(serde.read_column_from_pb(*restored, pb).ok());
+    source->clear();
+    ASSERT_EQ(restored->size(), 3);
+    for (size_t row = 0; row < restored->size(); ++row) {
+        EXPECT_EQ(restored->get_data_at(row).to_string(), values[row + 1]);
+    }
+}
 
-    PValues pv;
-    auto st1 = serde.write_column_to_pb(*col, pv, 0, 1);
-    EXPECT_FALSE(st1.ok());
-
-    auto st2 = serde.read_column_from_pb(*vb, pv);
-    EXPECT_FALSE(st2.ok());
+TEST_F(DataTypeVarbinarySerDeTest, ProtobufPreservesBinaryStructFieldAndNulls) {
+    const auto binary = make_nullable(std::make_shared<DataTypeVarbinary>());
+    const auto type = std::make_shared<DataTypeStruct>(DataTypes {binary}, Strings {"payload"});
+    auto source = type->create_column();
+    const std::string bytes = make_bytes(4096);
+    source->insert(Field::create_field<TYPE_STRUCT>(
+            Struct {Field::create_field<TYPE_VARBINARY>(StringView(bytes))}));
+    source->insert(Field::create_field<TYPE_STRUCT>(Struct {Field()}));
+    source->insert(Field::create_field<TYPE_STRUCT>(
+            Struct {Field::create_field<TYPE_VARBINARY>(StringView())}));
+    PValues pb;
+    const auto serde = type->get_serde();
+    ASSERT_TRUE(serde->write_column_to_pb(*source, pb, 0, source->size()).ok());
+    auto restored = type->create_column();
+    ASSERT_TRUE(serde->read_column_from_pb(*restored, pb).ok());
+    ASSERT_EQ(restored->size(), 3);
+    const auto& field = assert_cast<const ColumnStruct&>(*restored).get_column(0);
+    EXPECT_EQ(field.get_data_at(0).to_string(), bytes);
+    EXPECT_TRUE(field.is_null_at(1));
+    EXPECT_FALSE(field.is_null_at(2));
+    EXPECT_EQ(field.get_data_at(2).size, 0);
 }
 
 TEST_F(DataTypeVarbinarySerDeTest, JsonbThrows) {

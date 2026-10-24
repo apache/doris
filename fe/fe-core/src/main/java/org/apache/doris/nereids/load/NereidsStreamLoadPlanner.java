@@ -43,6 +43,7 @@ import org.apache.doris.planner.ScanContext;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.CoordinatorContext;
+import org.apache.doris.qe.runtime.ThriftPlansBuilder;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TBrokerFileStatus;
@@ -269,6 +270,7 @@ public class NereidsStreamLoadPlanner {
 
         TPipelineFragmentParams params = new TPipelineFragmentParams();
         params.setProtocolVersion(PaloInternalServiceVersion.V1);
+        params.setS3Resources(ThriftPlansBuilder.collectS3Resources(connectContext));
         params.setFragment(fragment.toThrift());
 
         params.setDescTbl(DescriptorToThriftConverter.toThrift(descriptorTable));

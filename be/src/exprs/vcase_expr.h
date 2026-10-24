@@ -25,6 +25,7 @@
 #include "core/column/column_complex.h"
 #include "core/column/column_const.h"
 #include "core/column/column_decimal.h"
+#include "core/column/column_file.h"
 #include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_struct.h"
@@ -85,6 +86,7 @@ private:
                       std::is_same_v<ColumnType, ColumnArray> ||
                       std::is_same_v<ColumnType, ColumnMap> ||
                       std::is_same_v<ColumnType, ColumnStruct> ||
+                      std::is_same_v<ColumnType, ColumnFile> ||
                       std::is_same_v<ColumnType, ColumnVariantV2> ||
                       std::is_same_v<ColumnType, ColumnHLL> ||
                       std::is_same_v<ColumnType, ColumnQuantileState> ||
@@ -149,6 +151,7 @@ private:
             CASE_TYPE(TYPE_ARRAY, ColumnArray)
             CASE_TYPE(TYPE_MAP, ColumnMap)
             CASE_TYPE(TYPE_STRUCT, ColumnStruct)
+            CASE_TYPE(TYPE_FILE, ColumnFile)
             CASE_TYPE(TYPE_BITMAP, ColumnBitmap)
             CASE_TYPE(TYPE_HLL, ColumnHLL)
             CASE_TYPE(TYPE_QUANTILE_STATE, ColumnQuantileState)
