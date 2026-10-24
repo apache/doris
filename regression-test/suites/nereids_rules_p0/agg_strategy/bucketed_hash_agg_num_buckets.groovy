@@ -17,6 +17,9 @@
 
 suite("bucketed_hash_agg_num_buckets") {
     sql "set enable_sql_cache=false"
+    // Bucketed aggregation is disabled while spill is enabled, including in fuzzy sessions.
+    sql "set enable_spill=false"
+    sql "set enable_force_spill=false"
     sql "set enable_bucketed_hash_agg=false"
     sql "set be_number_for_test=1"
     sql "set agg_phase=1"
