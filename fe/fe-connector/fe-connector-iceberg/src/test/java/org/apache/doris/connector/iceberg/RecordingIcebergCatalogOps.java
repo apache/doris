@@ -130,6 +130,7 @@ final class RecordingIcebergCatalogOps implements IcebergCatalogOps {
     String lastRenameColumnOld;
     String lastRenameColumnNew;
     IcebergColumnChange lastModifyColumn;
+    boolean lastModifyNullableSpecified;
     boolean lastModifyCommentSpecified;
     ConnectorColumnPosition lastModifyColumnPos;
     List<String> lastReorder;
@@ -337,9 +338,10 @@ final class RecordingIcebergCatalogOps implements IcebergCatalogOps {
 
     @Override
     public void modifyColumn(String dbName, String tableName, IcebergColumnChange column,
-            boolean commentSpecified, ConnectorColumnPosition position) {
+            boolean nullableSpecified, boolean commentSpecified, ConnectorColumnPosition position) {
         log.add("modifyColumn:" + dbName + "." + tableName + ":" + column.getName());
         lastModifyColumn = column;
+        lastModifyNullableSpecified = nullableSpecified;
         lastModifyCommentSpecified = commentSpecified;
         lastModifyColumnPos = position;
     }

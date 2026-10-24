@@ -88,7 +88,8 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Major 21 adds the opt-in for nested spatial column definitions.
+        // Major 19 adds ConnectorColumn#isSourceNullable()/withSourceNullable(boolean); major 20 adds
+        // deleteUsingMetadata; major 21 adds the opt-in for nested spatial column definitions.
         Assertions.assertEquals("21.0", version.getProperty("api.version"));
     }
 
