@@ -410,7 +410,11 @@ Status VMergeIterator::_top_moved() {
         bool exhausted = false;
         RETURN_IF_ERROR(_fill(top, &exhausted));
         if (exhausted) {
+            // The child is done: release its segment and its Block now, not at the end of
+            // the merge. A row handed out of this Block keeps the Block alive on its own.
             _pop_top();
+            top.iter.reset();
+            top.block.reset();
             return Status::OK();
         }
     }
@@ -489,7 +493,9 @@ Status VMergeIterator::next_batch(Block* block) {
 
 void VMergeIterator::update_profile(RuntimeProfile* profile) {
     for (auto& child : _children) {
-        child.iter->update_profile(profile);
+        if (child.iter != nullptr) {
+            child.iter->update_profile(profile);
+        }
     }
 }
 

@@ -57,6 +57,8 @@ BlockReader::~BlockReader() = default;
 
 Status BlockReader::next_block_with_aggregation(Block* block, bool* eof) {
     DCHECK(_block_iter != nullptr) << "init() must succeed before reading";
+    SCOPED_RAW_TIMER(_merge ? &_stats.collect_iterator_merge_next_timer
+                            : &_stats.collect_iterator_normal_next_timer);
     auto res = _block_iter->next_block(block, eof);
     if (!config::is_cloud_mode()) {
         if (!res.ok()) [[unlikely]] {
@@ -161,15 +163,23 @@ Status BlockReader::_init_rows_iter(const ReaderParams& read_params) {
     }
     _init_rows_options(read_params);
 
-    // The children of the merge or union, in (rowset version, segment) order.
+    _merge = merge;
+
+    // The children of the merge or union, in (rowset version, segment) order. The same-key
+    // tie-break of the merge is the child order, so the rowsets must come in version order.
     std::vector<RowwiseIteratorUPtr> children;
     RuntimeState* runtime_state = read_params.runtime_state;
+    int64_t previous_start_version = -1;
     {
         SCOPED_RAW_TIMER(&_stats.block_reader_rs_readers_init_timer_ns);
+        _rs_readers.reserve(read_params.rs_splits.size());
         for (const auto& rs_split : read_params.rs_splits) {
             if (runtime_state != nullptr && runtime_state->is_cancelled()) {
                 return runtime_state->cancel_reason();
             }
+            DCHECK_GE(rs_split.rs_reader->rowset()->start_version(), previous_start_version);
+            previous_start_version = rs_split.rs_reader->rowset()->start_version();
+            _rs_readers.push_back(rs_split.rs_reader);
             RETURN_IF_ERROR(rs_split.rs_reader->init(&_reader_context, rs_split));
             if (topn) {
                 RowwiseIteratorUPtr rowset_iter;
@@ -184,7 +194,7 @@ Status BlockReader::_init_rows_iter(const ReaderParams& read_params) {
                 continue;
             }
             const bool segments_overlap = rs_split.rs_reader->rowset()->is_segments_overlapping();
-            if (merge && !(segments_overlap && segment_iters.size() > 1)) {
+            if (merge && segment_iters.size() > 1 && !segments_overlap) {
                 // The segments of this rowset are key-disjoint and ordered: one child, read
                 // backward for ORDER BY key DESC.
                 if (reverse) {
