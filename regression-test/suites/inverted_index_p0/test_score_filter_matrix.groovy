@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_score_filter_matrix", "p0") {
+    sql """ set enable_common_expr_pushdown = true; """
     def predicates = [match: "c1 MATCH 'apple'", search: "search('c1:apple')"]
     for (String format : ["V2", "V3"]) {
         sql "DROP TABLE IF EXISTS test_score_filter_matrix"

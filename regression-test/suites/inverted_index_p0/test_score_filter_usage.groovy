@@ -20,6 +20,7 @@
 // ORDER BY of a SELECT that does not aggregate. A scored SELECT in a subquery, view, CTE or set
 // operation needs ORDER BY score() with LIMIT.
 suite("test_score_filter_usage", "p0") {
+    sql """ set enable_common_expr_pushdown = true; """
     def unsupportedSelect = "score() can only be used in a SELECT that reads one table"
     def nestedSelect = "score() in a subquery, view, CTE or set operation requires ORDER BY score() with LIMIT"
 

@@ -18,6 +18,7 @@
 // The score and ANN TopN and the MATCH projection add virtual columns to the scan of a CTE,
 // which is copied when the optimizer inlines the CTE.
 suite("test_cte_inline_virtual_column") {
+    sql """ set enable_common_expr_pushdown = true; """
     sql "DROP TABLE IF EXISTS test_cte_inline_virtual_column_text"
     sql """
         CREATE TABLE test_cte_inline_virtual_column_text (
