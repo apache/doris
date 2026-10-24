@@ -18,6 +18,7 @@
 // An equality between two columns does not let a MATCH on one column be copied to the other:
 // MATCH depends on the inverted index of its column, and a copy would add to score().
 suite("infer_match_predicate") {
+    sql """ set enable_common_expr_pushdown = true; """
     // c2 has an index without a parser, so MATCH on c2 only matches a whole value.
     sql "DROP TABLE IF EXISTS infer_match_predicate_parser"
     sql """
