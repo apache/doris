@@ -17,6 +17,9 @@
 
 package org.apache.doris.nereids.rules.exploration.mv;
 
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.BaseColInfo;
@@ -35,7 +38,9 @@ import org.apache.doris.nereids.rules.exploration.mv.rollup.ContainDistinctFunct
 import org.apache.doris.nereids.rules.exploration.mv.rollup.DirectRollupHandler;
 import org.apache.doris.nereids.rules.exploration.mv.rollup.MappingRollupHandler;
 import org.apache.doris.nereids.rules.exploration.mv.rollup.SingleCombinatorRollupHandler;
+import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -43,21 +48,30 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -505,45 +519,191 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
      * select b, count(*) from t1 group by b, after rewritten by materialized view successfully
      * If mv part partition is invalid, can not compensate union all, because result is wrong after
      * compensate union all.
+     *
+     * <p>The compensation unions two finished aggregates: what the materialized view answers for the partitions
+     * it keeps, and what the base table answers for the partitions it does not. It is right while no group is
+     * answerable by both, and only a grouping that reaches the column the view is partitioned on keeps the two
+     * apart -- the view's partitions are disjoint in that column, by value for a list partitioned view and by
+     * range for a range partitioned one. A view partitioned by an expression over the column is disjoint in
+     * that expression's value instead, so grouping by the same expression splits the branches the same way:
+     * {@code date_trunc(d, 'month')} over a view partitioned by it answers one month per group, all of it in
+     * one branch. Grouping by another expression over the column does not: {@code date_trunc(d, 'year')} over
+     * that view answers one year out of both branches, the view's months of it and the base table's, and the
+     * two rows come out beside each other. Nor does a grouping set that leaves it out -- the {@code ()} total
+     * of {@code ROLLUP}/{@code CUBE}/{@code GROUPING SETS} puts every partition value in one group, which both
+     * branches answer.
      */
     @Override
     protected boolean canUnionRewrite(Plan queryPlan, AsyncMaterializationContext context,
             CascadesContext cascadesContext) {
-        // Check query plan is contain the partition column
-        // Query plan in the current rule must contain aggregate node, because the rule pattern is
+        // The union is built over the whole query plan, so the outermost aggregate is the one whose groups
+        // the two branches answer. The plan holds one, since the rule's pattern requires it.
         Optional<LogicalAggregate<Plan>> logicalAggregateOptional =
                 queryPlan.collectFirst(planTreeNode -> planTreeNode instanceof LogicalAggregate);
         if (!logicalAggregateOptional.isPresent()) {
             return true;
         }
-        List<Expression> groupByExpressions = logicalAggregateOptional.get().getGroupByExpressions();
+        LogicalAggregate<Plan> queryAggregate = logicalAggregateOptional.get();
+        List<Expression> groupByExpressions = queryAggregate.getGroupByExpressions();
         if (groupByExpressions.isEmpty()) {
             // Scalar aggregate can not compensate union all
             return false;
         }
-        MTMVPartitionInfo mvPartitionInfo = context.getMtmv().getMvPartitionInfo();
-        List<BaseColInfo> pctInfos = mvPartitionInfo.getPctInfos();
-        boolean canUnionRewrite = false;
-        // Check the query plan group by expression contains partition col or not
-        List<? extends Expression> groupByShuttledExpressions =
-                ExpressionUtils.shuttleExpressionWithLineage(groupByExpressions, queryPlan);
-        for (Expression expression : groupByShuttledExpressions) {
-            canUnionRewrite = !expression.collectToSet(expr -> {
-                if (!(expr instanceof SlotReference) || !((SlotReference) expr).isColumnFromTable()) {
-                    return false;
-                }
-                String columnName = ((SlotReference) expr).getOriginalColumn().map(Column::getName).orElse(null);
-                BaseTableInfo baseTableInfo = ((SlotReference) expr).getOriginalTable().map(BaseTableInfo::new)
-                        .orElse(null);
-                return pctInfos.stream().anyMatch(colInfo -> colInfo.getTableInfo().equals(baseTableInfo)
-                        && colInfo.getColName().equals(columnName));
-            }
-            ).isEmpty();
-            if (canUnionRewrite) {
-                break;
+        MTMVPartitionInfo partitionInfo = context.getMtmv().getMvPartitionInfo();
+        List<BaseColInfo> pctInfos = partitionInfo.getPctInfos();
+        // The view has one partition column but it can be tracked by several base columns at once: an inner
+        // join on A.d = B.d records both, and they are one dimension as long as the query holds them equal.
+        Map<BaseColInfo, Set<BaseColInfo>> equalColumns = columnsTheQueryHoldsEqual(queryPlan);
+        Optional<String> partitionTimeUnit = viewPartitionTimeUnit(partitionInfo);
+        Optional<LogicalRepeat<?>> logicalRepeatOptional = queryAggregate.getSourceRepeat();
+        if (!logicalRepeatOptional.isPresent()) {
+            return groupingCoversPartitionColumns(groupByExpressions, queryPlan, pctInfos, equalColumns,
+                    partitionTimeUnit);
+        }
+        // The group by list holds every grouping set's expressions beside the grouping id, so it can not tell
+        // which set a partition column was read from; each set is asked on its own instead.
+        for (List<Expression> groupingSet : logicalRepeatOptional.get().getGroupingSets()) {
+            if (!groupingCoversPartitionColumns(groupingSet, queryPlan, pctInfos, equalColumns,
+                    partitionTimeUnit)) {
+                return false;
             }
         }
-        return canUnionRewrite;
+        return true;
+    }
+
+    /**
+     * The time unit of the view's own partition transform, empty when it partitions by the bare column. An
+     * expression partitioned view always is a date_trunc, the only function its partition clause takes, and
+     * the second argument is the unit.
+     */
+    private static Optional<String> viewPartitionTimeUnit(MTMVPartitionInfo partitionInfo) {
+        Expr partitionExpression = partitionInfo.getExpr();
+        if (partitionExpression == null) {
+            return Optional.empty();
+        }
+        List<Expr> arguments = ((FunctionCallExpr) partitionExpression).getParams().exprs();
+        return Optional.of(((StringLiteral) arguments.get(1)).getStringValue());
+    }
+
+    /**
+     * Whether these grouping expressions reach every column the view is partitioned on, each of them by itself
+     * or equal to one that is -- through another column too, since an equality chain is one equality -- or
+     * under the view's own partition transform. A tracked column that is neither grouped nor tied to a grouped
+     * one by the query varies freely within a group.
+     */
+    private static boolean groupingCoversPartitionColumns(List<Expression> groupingExpressions, Plan queryPlan,
+            List<BaseColInfo> pctInfos, Map<BaseColInfo, Set<BaseColInfo>> equalColumns,
+            Optional<String> partitionTimeUnit) {
+        List<? extends Expression> groupingShuttledExpressions =
+                ExpressionUtils.shuttleExpressionWithLineage(groupingExpressions, queryPlan);
+        Set<BaseColInfo> partitionColumns = Sets.newHashSet(pctInfos);
+        Set<BaseColInfo> groupedTogether = Sets.newHashSet();
+        Deque<BaseColInfo> unvisited = new ArrayDeque<>();
+        for (Expression expression : groupingShuttledExpressions) {
+            Optional<BaseColInfo> grouped = columnGroupedByItself(expression);
+            if (!grouped.isPresent()) {
+                grouped = columnUnderPartitionTransform(expression, partitionTimeUnit);
+            }
+            if (grouped.isPresent() && partitionColumns.contains(grouped.get())) {
+                unvisited.add(grouped.get());
+            }
+        }
+        while (!unvisited.isEmpty()) {
+            BaseColInfo column = unvisited.poll();
+            if (!groupedTogether.add(column)) {
+                continue;
+            }
+            for (BaseColInfo equal : equalColumns.getOrDefault(column, Collections.emptySet())) {
+                if (!groupedTogether.contains(equal)) {
+                    unvisited.add(equal);
+                }
+            }
+        }
+        return groupedTogether.containsAll(partitionColumns);
+    }
+
+    /**
+     * The base column this expression groups by under the view's own partition transform, if it is that
+     * transform itself: the same date_trunc, in the same unit, over a column of a table. A group it forms
+     * lies within one of the view's partitions, which are disjoint in the transform's value, while a coarser
+     * truncation rolls several of them up into a group both branches answer.
+     */
+    private static Optional<BaseColInfo> columnUnderPartitionTransform(Expression expression,
+            Optional<String> partitionTimeUnit) {
+        if (!partitionTimeUnit.isPresent() || !(expression instanceof DateTrunc)) {
+            return Optional.empty();
+        }
+        DateTrunc dateTrunc = (DateTrunc) expression;
+        int dateArgumentIndex = dateTrunc.getMonotonicFunctionChildIndex();
+        // A timezone aware value is truncated in the session timezone, while the view's partition boundaries
+        // are fixed in UTC, so the two can disagree on which of the view's buckets a row's group falls in.
+        if (dateTrunc.getArgument(dateArgumentIndex).getDataType() instanceof TimeStampTzType) {
+            return Optional.empty();
+        }
+        Expression timeUnit = dateTrunc.getArgument(1 - dateArgumentIndex);
+        if (!(timeUnit instanceof StringLikeLiteral)
+                || !((StringLikeLiteral) timeUnit).getStringValue()
+                        .equalsIgnoreCase(partitionTimeUnit.get())) {
+            return Optional.empty();
+        }
+        return columnGroupedByItself(dateTrunc.getArgument(dateArgumentIndex));
+    }
+
+    /**
+     * The base column this expression is by itself: a slot of a column of a table, with nothing over it.
+     */
+    private static Optional<BaseColInfo> columnGroupedByItself(Expression expression) {
+        if (!(expression instanceof SlotReference) || !((SlotReference) expression).isColumnFromTable()) {
+            return Optional.empty();
+        }
+        SlotReference slotReference = (SlotReference) expression;
+        String columnName = slotReference.getOriginalColumn().map(Column::getName).orElse(null);
+        BaseTableInfo tableInfo = slotReference.getOriginalTable().map(BaseTableInfo::new).orElse(null);
+        if (columnName == null || tableInfo == null) {
+            return Optional.empty();
+        }
+        return Optional.of(new BaseColInfo(columnName, tableInfo));
+    }
+
+    /**
+     * The base columns the query holds equal in every row of it: the equalities between two columns that its
+     * inner joins and its filters put on. An outer join's on-predicate is not one of them, since a
+     * null-supplied row does not satisfy it, and neither is an equality under a disjunction.
+     */
+    private static Map<BaseColInfo, Set<BaseColInfo>> columnsTheQueryHoldsEqual(Plan queryPlan) {
+        List<Expression> guaranteed = new ArrayList<>();
+        for (Plan plan : queryPlan.<Plan>collectToList(candidate ->
+                candidate instanceof LogicalFilter<?> || isInnerJoin(candidate))) {
+            if (plan instanceof LogicalFilter<?>) {
+                guaranteed.addAll(((LogicalFilter<?>) plan).getConjuncts());
+            } else {
+                ((LogicalJoin<?, ?>) plan).getOnClauseCondition().ifPresent(guaranteed::add);
+            }
+        }
+        Map<BaseColInfo, Set<BaseColInfo>> equalColumns = Maps.newHashMap();
+        if (guaranteed.isEmpty()) {
+            return equalColumns;
+        }
+        for (Expression expression : Predicates.splitPredicates(ExpressionUtils.and(guaranteed))
+                .getEqualPredicateMap().keySet()) {
+            if (!(expression instanceof EqualTo)) {
+                continue;
+            }
+            EqualTo equalTo = (EqualTo) expression;
+            Optional<BaseColInfo> left = columnGroupedByItself(equalTo.getArgument(0));
+            Optional<BaseColInfo> right = columnGroupedByItself(equalTo.getArgument(1));
+            if (!left.isPresent() || !right.isPresent()) {
+                continue;
+            }
+            equalColumns.computeIfAbsent(left.get(), key -> Sets.newHashSet()).add(right.get());
+            equalColumns.computeIfAbsent(right.get(), key -> Sets.newHashSet()).add(left.get());
+        }
+        return equalColumns;
+    }
+
+    private static boolean isInnerJoin(TreeNode<?> candidate) {
+        return candidate instanceof LogicalJoin<?, ?>
+                && ((LogicalJoin<?, ?>) candidate).getJoinType() == JoinType.INNER_JOIN;
     }
 
     /**

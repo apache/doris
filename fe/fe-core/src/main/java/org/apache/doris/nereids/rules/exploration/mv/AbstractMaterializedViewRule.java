@@ -61,6 +61,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.TableId;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
@@ -357,9 +358,13 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     }
                     return rewriteResults;
                 }
+                Set<String> uncoveredNarrowedBasePartitions = Sets.newHashSet();
                 try {
-                    invalidPartitions = calcInvalidPartitions(queryUsedPartitions, rewrittenPlan,
-                            cascadesContext, (AsyncMaterializationContext) materializationContext);
+                    invalidPartitions = calcInvalidPartitions(queryUsedPartitions,
+                            PartitionCompensator.pctInputsInQuery(queryStructInfo.getRelations(), mtmv),
+                            rewrittenPlan,
+                            cascadesContext, (AsyncMaterializationContext) materializationContext,
+                            uncoveredNarrowedBasePartitions);
                 } catch (AnalysisException e) {
                     materializationContext.recordFailReason(queryStructInfo,
                             "Calc invalid partitions fail",
@@ -377,6 +382,20 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 }
                 boolean needRemoveMvPartitions = !invalidPartitions.key().isEmpty();
                 boolean needBaseTableUnion = !invalidPartitions.value().isEmpty();
+                // An uncovered base partition is read beside the MV partitions that stay, and it can carry a
+                // key one of them already holds: a merged LIST component's MV partition is recorded with
+                // several keys of the MV's partition column. The aggregate compensation unions the MV's answer
+                // with the base table's, so such a group comes out twice instead of once. Answered from the
+                // base table instead of splitting the group. Groupings that cannot keep the two branches apart
+                // for other reasons are declined by canUnionRewrite below.
+                if (queryPlan.anyMatch(LogicalAggregate.class::isInstance)
+                        && needBaseTableUnion && !uncoveredNarrowedBasePartitions.isEmpty()) {
+                    materializationContext.recordFailReason(queryStructInfo,
+                            "compensating an uncovered partition beside an MV partition can split an aggregate group",
+                            () -> String.format("uncovered partitions = %s, queryPlan is %s",
+                                    uncoveredNarrowedBasePartitions, queryPlan.treeString()));
+                    continue;
+                }
                 if (needBaseTableUnion && !canUnionRewrite(queryPlan,
                         (AsyncMaterializationContext) materializationContext, cascadesContext)) {
                     materializationContext.recordFailReason(queryStructInfo,
@@ -390,7 +409,8 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 }
                 if (needBaseTableUnion) {
                     Pair<Plan, Boolean> planAndNeedAddFilterPair =
-                            StructInfo.addFilterOnTableScan(queryPlan, invalidPartitions.value(), cascadesContext);
+                            StructInfo.addFilterOnTableScan(queryPlan, invalidPartitions.value(),
+                                    cascadesContext);
                     if (planAndNeedAddFilterPair == null) {
                         materializationContext.recordFailReason(queryStructInfo,
                                 "Add filter to base table fail when union rewrite",
@@ -525,12 +545,14 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
      */
     protected Pair<Map<BaseTableInfo, Set<String>>, Map<BaseColInfo, Set<String>>> calcInvalidPartitions(
             Map<List<String>, Set<String>> queryUsedBaseTablePartitionMap,
+            int pctInputsInQuery,
             Plan rewrittenPlan,
             CascadesContext cascadesContext,
-            AsyncMaterializationContext materializationContext)
+            AsyncMaterializationContext materializationContext,
+            Set<String> uncoveredNarrowedBasePartitions)
             throws AnalysisException {
-        return PartitionCompensator.calcInvalidPartitions(queryUsedBaseTablePartitionMap, rewrittenPlan,
-                materializationContext, cascadesContext);
+        return PartitionCompensator.calcInvalidPartitions(queryUsedBaseTablePartitionMap, pctInputsInQuery,
+                rewrittenPlan, materializationContext, cascadesContext, uncoveredNarrowedBasePartitions);
     }
 
     /**

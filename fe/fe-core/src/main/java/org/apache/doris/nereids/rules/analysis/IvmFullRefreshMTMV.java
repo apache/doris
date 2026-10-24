@@ -42,6 +42,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -85,6 +86,14 @@ public class IvmFullRefreshMTMV extends OneRewriteRuleFactory {
         }
         Optional<Set<Long>> resetPartitionIds =
                 rewriteContext.getFullRefreshResetPartitionIds(baseTableInfo);
+        if (resetPartitionIds.isPresent() && resetPartitionIds.get().isEmpty()) {
+            // A PCT table this batch's mapping does not name is read as no rows: the partitions it feeds
+            // the batch with are none, and its own ordinary scan would read the ones the alignment no
+            // longer records -- the sync window dropped them, say -- so their rows would enter the MV
+            // partition while the snapshot says the table was not read. Answered here rather than as a
+            // stream scan with no partitions, so that a table read as nothing needs no usable stream.
+            return new LogicalEmptyRelation(StatementScopeIdGenerator.newRelationId(), scan.getOutput());
+        }
         StreamReadMode readMode;
         if (resetPartitionIds.isPresent()) {
             readMode = StreamReadMode.RESET;
