@@ -26,6 +26,7 @@ import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.types.CharType;
 import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.DataTypeRoot;
+import org.apache.paimon.types.VarBinaryType;
 import org.apache.paimon.utils.InstantiationUtil;
 
 import java.io.IOException;
@@ -188,7 +189,7 @@ final class PaimonWriteBinding {
                 value = padChar(value, ((CharType) type).getLength());
             }
             if (isBinary(type)) {
-                value = binaryStaticValue(canonicalName, value);
+                value = binaryStaticValue(canonicalName, value, type);
             }
             if (defaultPartitionName.equals(value)) {
                 // Paimon's static overwrite reads this string as the NULL partition of any partition type, so
@@ -241,21 +242,25 @@ final class PaimonWriteBinding {
     }
 
     /**
-     * Pads a CHAR value with spaces to the column length in code points, as PaimonWriteSchema pads the rows' CHAR
-     * values; a longer value is kept, as it is there.
-     */
-    /**
      * Paimon's static overwrite takes the UTF-8 bytes of a partition value's string, so the bytes the rows carry,
      * which reach it as {@code 0x} and their hex digits, name their partition only as the text they decode to. A
      * wrong name would overwrite another partition without an error, so bytes that are not UTF-8 are rejected;
      * strict decoding also rejects overlong and surrogate sequences, so the text encodes back to the same bytes.
+     * Paimon keeps those bytes for a BINARY column whatever their length, as the rows keep them, and fails the
+     * commit for a VARBINARY value longer than its column, so such a value is rejected here, before any file is
+     * written.
      */
-    private static String binaryStaticValue(String column, String value) {
+    private static String binaryStaticValue(String column, String value, DataType type) {
         if (!value.startsWith("0x")) {
             throw new IllegalStateException("Binary static partition value of column " + column
                     + " lacks the 0x prefix: " + value);
         }
         byte[] bytes = HexFormat.of().parseHex(value.substring(2));
+        if (type.getTypeRoot() == DataTypeRoot.VARBINARY && bytes.length > ((VarBinaryType) type).getLength()) {
+            throw new DorisConnectorException("Static partition value " + value + " of binary column '" + column
+                    + "' has " + bytes.length + " bytes, more than its type " + type + " holds, which a static"
+                    + " overwrite of a Paimon table rejects");
+        }
         try {
             return StandardCharsets.UTF_8.newDecoder()
                     .onMalformedInput(CodingErrorAction.REPORT)
@@ -268,6 +273,10 @@ final class PaimonWriteBinding {
         }
     }
 
+    /**
+     * Pads a CHAR value with spaces to the column length in code points, as PaimonWriteSchema pads the rows' CHAR
+     * values; a longer value is kept, as it is there.
+     */
     private static String padChar(String value, int length) {
         int padLength = length - value.codePointCount(0, value.length());
         return padLength > 0 ? value + " ".repeat(padLength) : value;

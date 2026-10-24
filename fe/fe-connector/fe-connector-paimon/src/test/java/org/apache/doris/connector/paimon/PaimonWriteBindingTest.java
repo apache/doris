@@ -44,6 +44,7 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -230,6 +231,33 @@ public class PaimonWriteBindingTest {
                             true));
             Assertions.assertTrue(error.getMessage().contains("is not UTF-8 text"), error.getMessage());
         }
+    }
+
+    @Test
+    public void staticBinaryPartitionKeepsTheLengthOfTheBytes(@TempDir Path warehouse) {
+        // The rows keep their bytes whatever the column length, and Paimon's static overwrite keeps them for a
+        // BINARY(n) column too. For a VARBINARY(n) column it fails the commit, after the files are written, when the
+        // bytes are longer, so such a value fails while the write is planned. MUTATION: no length check -> red.
+        FileStoreTable binary = partitionedTable(warehouse, NEW_PARTITION_NAMES,
+                new DataField(1, "part", DataTypes.BINARY(2)));
+        for (String castValue : Arrays.asList("0x41", "0x414243")) {
+            String value = PaimonWriteBinding.resolveStaticPartition(binary,
+                    write(true, "part", castValue, castValue), true).get("part");
+            Assertions.assertArrayEquals(HexFormat.of().parseHex(castValue.substring(2)),
+                    (byte[]) TypeUtils.castFromString(value, DataTypes.BINARY(2)), castValue);
+        }
+
+        FileStoreTable varbinary = partitionedTable(warehouse, NEW_PARTITION_NAMES,
+                new DataField(1, "part", DataTypes.VARBINARY(2)));
+        Assertions.assertEquals("A", PaimonWriteBinding.resolveStaticPartition(varbinary,
+                write(true, "part", "0x41", "0x41"), true).get("part"));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> TypeUtils.castFromString("ABC", DataTypes.VARBINARY(2)));
+        DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
+                () -> PaimonWriteBinding.resolveStaticPartition(varbinary,
+                        write(true, "part", "0x414243", "0x414243"), true));
+        Assertions.assertTrue(error.getMessage().contains("has 3 bytes, more than its type VARBINARY(2) holds"),
+                error.getMessage());
     }
 
     @Test
