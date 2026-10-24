@@ -37,6 +37,7 @@
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
 #include "format/orc/orc_memory_pool.h"
+#include "format/orc/orc_memory_stream_test.h"
 #include "format/orc/vorc_reader.h"
 #include "io/fs/file_meta_cache.h"
 #include "orc/sargs/SearchArgument.hh"
@@ -435,6 +436,121 @@ TEST_F(OrcReaderTest, deletion_vector_filters_rows_without_query_conjuncts) {
     auto expected = all_order_keys;
     expected.erase(expected.begin());
     EXPECT_EQ(filtered_order_keys, expected);
+}
+
+TEST_F(OrcReaderTest, orc_init_fails_loudly_when_schema_mapping_misses_projected_column) {
+    // Covers the #61225 guard in OrcReader::_do_init_reader: the projected column is absent
+    // from the table-side schema tree (FE/BE schema contract mismatch), so init_reader must
+    // fail with InternalError instead of aborting the whole BE process via
+    // children_column_exists's children.at() (release) / DCHECK (debug).
+    using namespace orc;
+    size_t rowCount = 10;
+    MemoryOutputStream memStream(100 * 1024 * 1024);
+    MemoryPool* pool = getDefaultPool();
+    auto type = std::unique_ptr<Type>(Type::buildTypeFromString("struct<id:int>"));
+    WriterOptions options;
+    options.setMemoryPool(pool);
+    auto writer = createWriter(*type, &memStream, options);
+    auto batch = writer->createRowBatch(rowCount);
+    writer->add(*batch);
+    writer->close();
+
+    auto inStream = std::make_unique<MemoryInputStream>(memStream.getData(), memStream.getLength());
+    ReaderOptions readerOptions;
+    readerOptions.setMemoryPool(*pool);
+    auto orc_reader = createReader(std::move(inStream), readerOptions);
+
+    TFileScanRangeParams params;
+    TFileRangeDesc range;
+    range.path = "in_memory_schema_guard.orc";
+    auto reader = OrcReader::create_unique(params, range, 4064, "UTC", nullptr, nullptr, true);
+    reader->_reader = std::move(orc_reader);
+
+    // The table-side schema tree only knows "id". tuple_descriptor stays null so that
+    // on_before_init_reader keeps this injected tree instead of rebuilding one by name.
+    auto table_info_node = std::make_shared<TableSchemaChangeHelper::StructNode>();
+    table_info_node->add_children("id", "id", TableSchemaChangeHelper::ConstNode::get_instance());
+
+    // "ghost_col" is the projected column the FE schema info does not know about.
+    std::vector<ColumnDescriptor> column_descs;
+    ColumnDescriptor ghost_desc;
+    ghost_desc.name = "ghost_col";
+    column_descs.push_back(ghost_desc);
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {{"ghost_col", 0}};
+
+    OrcInitContext orc_ctx;
+    orc_ctx.column_descs = &column_descs;
+    orc_ctx.col_name_to_block_idx = &col_name_to_block_idx;
+    orc_ctx.params = &params;
+    orc_ctx.range = &range;
+    orc_ctx.table_info_node = table_info_node;
+
+    auto status = reader->init_reader(&orc_ctx);
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("schema mapping is missing projected column 'ghost_col'"),
+              std::string::npos)
+            << status;
+}
+
+TEST_F(OrcReaderTest, predicate_pushdown_refused_for_column_unknown_to_schema_mapping) {
+    // Covers the #61225 guards in OrcReader::_get_orc_predicate_type and
+    // OrcReader::_check_slot_can_push_down: a slot whose column is absent from the table-side
+    // schema tree must silently refuse pushdown (return false / {false, LONG}) instead of
+    // aborting the BE process via children.at() (release) / DCHECK (debug).
+    TFileScanRangeParams params;
+    TFileRangeDesc range;
+    auto reader = OrcReader::create_unique(params, range, 4064, "UTC", nullptr, nullptr, true);
+
+    auto string_type = DataTypeFactory::instance().create_data_type(TYPE_STRING, false);
+
+    // Branch 1 of the guard in _get_orc_predicate_type: has_children_column is false.
+    auto table_info_node = std::make_shared<TableSchemaChangeHelper::StructNode>();
+    table_info_node->add_children("id", "id", TableSchemaChangeHelper::ConstNode::get_instance());
+    reader->_table_info_node_ptr = table_info_node;
+
+    auto ghost_slot = VSlotRef::create_shared(0, 0, -1, string_type, "ghost_col");
+    auto [ghost_valid, ghost_predicate_type] = reader->_get_orc_predicate_type(ghost_slot.get());
+    EXPECT_FALSE(ghost_valid);
+    EXPECT_EQ(ghost_predicate_type, orc::PredicateDataType::LONG);
+
+    // Branch 2 of the guard in _get_orc_predicate_type: the column is known to the schema
+    // tree but marked not present in the file, so children_column_exists is false.
+    auto missing_node = std::make_shared<TableSchemaChangeHelper::StructNode>();
+    missing_node->add_not_exist_children("missing_col");
+    reader->_table_info_node_ptr = missing_node;
+
+    auto missing_slot = VSlotRef::create_shared(0, 0, -1, string_type, "missing_col");
+    auto [missing_valid, missing_predicate_type] =
+            reader->_get_orc_predicate_type(missing_slot.get());
+    EXPECT_FALSE(missing_valid);
+    EXPECT_EQ(missing_predicate_type, orc::PredicateDataType::LONG);
+
+    // Same unknown-column guard in _check_slot_can_push_down, reached through the expr path.
+    reader->_table_info_node_ptr = table_info_node;
+
+    TFunction fn;
+    TFunctionName fn_name;
+    fn_name.__set_db_name("");
+    fn_name.__set_function_name("eq");
+    fn.__set_name(fn_name);
+    fn.__set_binary_type(TFunctionBinaryType::BUILTIN);
+    fn.__set_arg_types({create_type_desc(TYPE_STRING), create_type_desc(TYPE_STRING)});
+    fn.__set_ret_type(create_type_desc(TYPE_BOOLEAN));
+    fn.__set_has_var_args(false);
+
+    TExprNode eq_node;
+    eq_node.__set_type(create_type_desc(TYPE_BOOLEAN));
+    eq_node.__set_node_type(TExprNodeType::BINARY_PRED);
+    eq_node.__set_opcode(TExprOpcode::EQ);
+    eq_node.__set_fn(fn);
+    eq_node.__set_num_children(2);
+    eq_node.__set_is_nullable(true);
+    auto eq_expr = VectorizedFnCall::create_shared(eq_node);
+    eq_expr->add_child(ghost_slot);
+    eq_expr->add_child(create_string_literal("x"));
+    // The expr is deliberately left unprepared: the guard only inspects children()[0]
+    // before consulting the schema tree.
+    EXPECT_FALSE(reader->_check_slot_can_push_down(eq_expr));
 }
 
 } // namespace doris
