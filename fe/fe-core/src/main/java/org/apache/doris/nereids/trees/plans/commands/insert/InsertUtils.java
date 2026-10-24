@@ -62,6 +62,7 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
@@ -662,6 +663,35 @@ public class InsertUtils {
     public static TableIf getTargetTable(Plan plan, ConnectContext ctx) {
         List<String> tableQualifier = getTargetTableQualified(plan, ctx);
         return RelationUtil.getTable(tableQualifier, ctx.getEnv(), Optional.empty());
+    }
+
+    /**
+     * Build the SELECT-only digest recorded by the audit log for {@code INSERT ... SELECT}.
+     * <p>
+     * The digest must come from the original parse tree: {@code originLogicalQuery} is the
+     * un-analyzed sink built by the parser, so its child has none of the casts, default columns or
+     * other rewrites introduced while planning the write. When the statement carries a WITH
+     * clause, {@code cte} wraps that same child and its digest already contains the WITH list.
+     *
+     * @return the digest, or empty when the source is a VALUES inline table rather than a query
+     */
+    public static Optional<String> getSelectDigestForAudit(LogicalPlan originLogicalQuery,
+            Optional<LogicalPlan> cte) {
+        LogicalPlan source = cte.orElseGet(() -> (LogicalPlan) originLogicalQuery.child(0));
+        // A WITH clause is transparent for the source type: both `WITH c AS (...) INSERT ... VALUES`
+        // and `INSERT INTO ... WITH c AS (...) VALUES` keep the InlineTable below a LogicalCTE.
+        if (unwrapCte(source) instanceof InlineTable) {
+            return Optional.empty();
+        }
+        return Optional.of(source.toDigest());
+    }
+
+    private static Plan unwrapCte(Plan plan) {
+        Plan source = plan;
+        while (source instanceof LogicalCTE) {
+            source = ((LogicalCTE<?>) source).child();
+        }
+        return source;
     }
 
     /**
