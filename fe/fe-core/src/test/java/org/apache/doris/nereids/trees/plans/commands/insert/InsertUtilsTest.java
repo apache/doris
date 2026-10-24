@@ -28,17 +28,33 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundConnectorTableSink;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
+import org.apache.doris.nereids.analyzer.UnboundInlineTable;
+import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.expressions.Default;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
+import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.util.MemoTestUtils;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -47,6 +63,7 @@ import java.util.Optional;
 public class InsertUtilsTest {
 
     private static final int MAX_TOTAL_BYTES = 512;
+    private static final NereidsParser PARSER = new NereidsParser();
 
     private String generateString(int length) {
         return generateString(length, "X");
@@ -354,6 +371,138 @@ public class InsertUtilsTest {
 
         Assertions.assertEquals(
                 "Cannot specify invisible column '_row_id' in INSERT statement", error.getMessage());
+    }
+
+    @Test
+    public void writeOnlyDefaultInValuesResolvesAgainstPinnedWriterSchema() {
+        // insert into t (score, id) values (DEFAULT(score), 4): the read schema of a table with write-only
+        // defaults has no default, so DEFAULT(score) must take the pinned writer column's default.
+        ConnectContext ctx = MemoTestUtils.createConnectContext();
+        try {
+            PluginDrivenExternalTable table = pinWriterSchema(ctx, true);
+            Plan normalized = InsertUtils.normalizePlan(connectorSink(ImmutableList.of("score", "id"),
+                    new UnboundInlineTable(ImmutableList.of(ImmutableList.of(
+                            new UnboundAlias(new Default(new UnboundSlot("score"))),
+                            new UnboundAlias(new IntegerLiteral(4)))))),
+                    table, Optional.empty(), Optional.empty());
+
+            NamedExpression score = ((LogicalInlineTable) normalized.child(0)).getConstantExprsList().get(0).get(0);
+            Assertions.assertEquals(TypeCoercionUtils.castUnbound(PARSER.parseExpression("9"), IntegerType.INSTANCE),
+                    score.child(0));
+
+            AnalysisException unknown = Assertions.assertThrows(AnalysisException.class,
+                    () -> InsertUtils.normalizePlan(connectorSink(ImmutableList.of("id", "score"),
+                            new UnboundInlineTable(ImmutableList.of(ImmutableList.of(
+                                    new UnboundAlias(new IntegerLiteral(6)),
+                                    new UnboundAlias(new Default(new UnboundSlot("no_such_column"))))))),
+                            table, Optional.empty(), Optional.empty()));
+            Assertions.assertTrue(unknown.getMessage().contains("no_such_column"), unknown.getMessage());
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void writeOnlyDefaultInSelectResolvesByTargetColumnName() {
+        // DEFAULT(name) in INSERT ... SELECT names the target column whatever the source is: here a staging
+        // relation whose own column is also called name, and a SELECT without FROM.
+        ConnectContext ctx = MemoTestUtils.createConnectContext();
+        try {
+            PluginDrivenExternalTable table = pinWriterSchema(ctx, true);
+            Expression writeDefault = PARSER.parseExpression("'write-name'");
+
+            Plan fromStaging = InsertUtils.normalizePlan(connectorSink(ImmutableList.of("id", "name"),
+                    PARSER.parseSingle("select id, DEFAULT(name) from "
+                            + "(select 7 as id, 'source-name' as name) staging_source").child(0)),
+                    table, Optional.empty(), Optional.empty());
+            LogicalProject<?> project = (LogicalProject<?>) fromStaging.child(0);
+            Assertions.assertEquals(writeDefault, project.getProjects().get(1).child(0));
+
+            Plan noFrom = InsertUtils.normalizePlan(connectorSink(ImmutableList.of("id", "name"),
+                    new UnboundOneRowRelation(new RelationId(1), ImmutableList.of(
+                            new UnboundAlias(new IntegerLiteral(8)),
+                            new UnboundAlias(new Default(new UnboundSlot("name")))))),
+                    table, Optional.empty(), Optional.empty());
+            UnboundOneRowRelation oneRow = (UnboundOneRowRelation) noFrom.child(0);
+            Assertions.assertEquals(writeDefault, oneRow.getProjects().get(1).child(0));
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void defaultReferenceIsLeftToBindingWithoutWriteOnlyDefaults() {
+        // A connector whose read schema carries its defaults (hive) keeps the existing DEFAULT(column) handling.
+        ConnectContext ctx = MemoTestUtils.createConnectContext();
+        try {
+            PluginDrivenExternalTable table = pinWriterSchema(ctx, false);
+            Plan normalized = InsertUtils.normalizePlan(connectorSink(ImmutableList.of("id", "name"),
+                    new UnboundOneRowRelation(new RelationId(1), ImmutableList.of(
+                            new UnboundAlias(new IntegerLiteral(8)),
+                            new UnboundAlias(new Default(new UnboundSlot("name")))))),
+                    table, Optional.empty(), Optional.empty());
+
+            UnboundOneRowRelation oneRow = (UnboundOneRowRelation) normalized.child(0);
+            Assertions.assertInstanceOf(Default.class, oneRow.getProjects().get(1).child(0));
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void writeOnlyDefaultIsTypedAsItsColumnBeforeBinding() {
+        // bit_count(DEFAULT(bits)) on an INT column whose default is -1 must count the 32 bits of an INT, not the 8
+        // of the TINYINT that -1 parses to; casting the finished value to the INT target cannot restore them.
+        ConnectContext ctx = MemoTestUtils.createConnectContext();
+        try {
+            PluginDrivenExternalTable table = pinWriterSchema(ctx, true);
+            Expression intDefault = TypeCoercionUtils.castUnbound(PARSER.parseExpression("-1"), IntegerType.INSTANCE);
+
+            Expression bitCount = new UnboundFunction("bit_count",
+                    ImmutableList.of(new Default(new UnboundSlot("bits"))));
+            Plan values = InsertUtils.normalizePlan(connectorSink(ImmutableList.of("bits"),
+                    new UnboundInlineTable(ImmutableList.of(ImmutableList.of(new UnboundAlias(bitCount))))),
+                    table, Optional.empty(), Optional.empty());
+            Assertions.assertEquals(intDefault, bitCountArgument(
+                    ((LogicalInlineTable) values.child(0)).getConstantExprsList().get(0).get(0)));
+
+            Plan select = InsertUtils.normalizePlan(connectorSink(ImmutableList.of("bits"),
+                    PARSER.parseSingle("select bit_count(DEFAULT(bits))").child(0)),
+                    table, Optional.empty(), Optional.empty());
+            Assertions.assertEquals(intDefault, bitCountArgument(
+                    ((UnboundOneRowRelation) select.child(0)).getProjects().get(0)));
+            Assertions.assertEquals(IntegerType.INSTANCE, intDefault.getDataType());
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    private static Expression bitCountArgument(Expression value) {
+        UnboundFunction bitCount = value.<UnboundFunction>collectFirst(UnboundFunction.class::isInstance).get();
+        return bitCount.child(0);
+    }
+
+    private static PluginDrivenExternalTable pinWriterSchema(ConnectContext ctx, boolean writeOnlyDefaults) {
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
+        Mockito.when(table.getId()).thenReturn(17L);
+        Mockito.when(table.getName()).thenReturn("t");
+        Mockito.when(table.hasWriteOnlyDefaults()).thenReturn(writeOnlyDefaults);
+        Column id = new Column("id", PrimitiveType.INT, true);
+        id.setConnectorDefaultValueSql("NULL");
+        Column name = new Column("name", PrimitiveType.STRING, true);
+        name.setConnectorDefaultValueSql("'write-name'");
+        Column score = new Column("score", PrimitiveType.INT, true);
+        score.setConnectorDefaultValueSql("9");
+        Column bits = new Column("bits", PrimitiveType.INT, true);
+        bits.setConnectorDefaultValueSql("-1");
+        MemoTestUtils.createStatementContext(ctx, "")
+                .setConnectorWriteSchema(17L, ImmutableList.of(id, name, score, bits));
+        return table;
+    }
+
+    private static UnboundConnectorTableSink<Plan> connectorSink(List<String> columnNames, Plan query) {
+        return new UnboundConnectorTableSink<>(ImmutableList.of("ctl", "db", "t"), columnNames,
+                ImmutableList.of(), ImmutableList.of(), query);
     }
 
     @Test
