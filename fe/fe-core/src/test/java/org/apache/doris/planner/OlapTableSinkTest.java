@@ -17,12 +17,17 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.common.Config;
 import org.apache.doris.planner.OlapTableSink.AdaptiveBucketAssignment;
 import org.apache.doris.planner.OlapTableSink.AdaptiveIndexBucketAssignment;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TDistributionHashType;
 import org.apache.doris.thrift.TOlapTableIndexTablets;
 import org.apache.doris.thrift.TOlapTableLocationParam;
 import org.apache.doris.thrift.TOlapTablePartition;
@@ -40,6 +45,28 @@ import java.util.List;
 import java.util.Map;
 
 public class OlapTableSinkTest {
+    @Test
+    public void testIdentityDistributionRequiresSupportedExecutionVersion() {
+        OlapTable table = Mockito.mock(OlapTable.class);
+        OlapTableSink sink = new OlapTableSink(table, null, Collections.emptyList());
+        HashDistributionInfo identity = new HashDistributionInfo(8,
+                Collections.singletonList(new Column("id", PrimitiveType.BIGINT)));
+        identity.setHashType(HashDistributionInfo.HashType.IDENTITY);
+
+        int originalVersion = Config.be_exec_version;
+        try {
+            Config.be_exec_version = Config.DISTRIBUTION_HASH_TYPE_MIN_BE_EXEC_VERSION - 1;
+            Assertions.assertThrows(IllegalStateException.class,
+                    () -> sink.getTDistributionHashType(identity));
+
+            Config.be_exec_version = Config.DISTRIBUTION_HASH_TYPE_MIN_BE_EXEC_VERSION;
+            Assertions.assertEquals(TDistributionHashType.IDENTITY,
+                    sink.getTDistributionHashType(identity));
+        } finally {
+            Config.be_exec_version = originalVersion;
+        }
+    }
+
     @Test
     public void testCreateDummyLocationUsesLoadAvailableBackendInCurrentComputeGroup() throws Exception {
         SystemInfoService systemInfoService = Mockito.mock(SystemInfoService.class);

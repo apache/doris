@@ -20,6 +20,7 @@ package org.apache.doris.service;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -29,6 +30,8 @@ import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.authenticate.TestLogAppender;
@@ -36,6 +39,7 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.tablefunction.BackendsTableValuedFunction;
 import org.apache.doris.thrift.TBackendsMetadataParams;
@@ -48,6 +52,8 @@ import org.apache.doris.thrift.TFetchSchemaTableDataRequest;
 import org.apache.doris.thrift.TFetchSchemaTableDataResult;
 import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
+import org.apache.doris.thrift.TGetOlapTableMetaRequest;
+import org.apache.doris.thrift.TGetOlapTableMetaResult;
 import org.apache.doris.thrift.TGetTablesParams;
 import org.apache.doris.thrift.TGetTablesResult;
 import org.apache.doris.thrift.TListTableStatusResult;
@@ -77,15 +83,20 @@ import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.Level;
+import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TException;
+import org.apache.thrift.TSerializer;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.io.ByteArrayInputStream;
+import java.io.DataInputStream;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -127,6 +138,64 @@ public class FrontendServiceImplTest extends TestWithFeService {
         Field field = target.getClass().getDeclaredField(fieldName);
         field.setAccessible(true);
         field.set(target, value);
+    }
+
+    @Test
+    public void testGetOlapTableMetaDistributionHashCompatibility() throws Exception {
+        FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+        for (String layout : Arrays.asList("crc32", "identity", "random")) {
+            String tableName = "remote_hash_" + layout;
+            createTable("CREATE TABLE test." + tableName + " (id BIGINT NOT NULL) DUPLICATE KEY(id) "
+                    + "DISTRIBUTED BY " + (layout.equals("random") ? "RANDOM" : "HASH(id)")
+                    + " BUCKETS 8 PROPERTIES('replication_num'='1'"
+                    + (layout.equals("identity") ? ", 'distribution_hash_type'='identity'" : "") + ")");
+            // An absent version is an old client too. Check the exact feature boundary as well
+            // as a newer client, without changing the established CRC32/RANDOM export behavior.
+            for (Integer version : Arrays.asList(null, FeMetaVersion.VERSION_140,
+                    FeMetaVersion.VERSION_141, FeMetaVersion.VERSION_141 + 1)) {
+                TGetOlapTableMetaRequest request = new TGetOlapTableMetaRequest();
+                request.setDb("test");
+                request.setTable(tableName);
+                request.setTableId(-1L);
+                request.setUser("root");
+                request.setPasswd("");
+                if (version != null) {
+                    request.setVersion(version);
+                }
+                // Exercise the wire contract too: table_meta is required even on an error response.
+                TGetOlapTableMetaResult result = new TGetOlapTableMetaResult();
+                new TDeserializer().deserialize(result, new TSerializer().serialize(impl.getOlapTableMeta(request)));
+                String context = "layout=" + layout + ", client version=" + version;
+                if (layout.equals("identity") && (version == null || version < FeMetaVersion.VERSION_141)) {
+                    Assertions.assertEquals(TStatusCode.ANALYSIS_ERROR, result.getStatus().getStatusCode(), context);
+                    Assertions.assertTrue(result.getStatus().getErrorMsgs().get(0)
+                            .contains("IDENTITY distribution requires client metadata version 141 or newer"), context);
+                    Assertions.assertEquals(0, result.getTableMeta().length, context);
+                    Assertions.assertFalse(result.isSetUpdatedPartitions(), context);
+                    Assertions.assertFalse(result.isSetUpdatedTempPartitions(), context);
+                } else {
+                    Assertions.assertEquals(TStatusCode.OK, result.getStatus().getStatusCode(), context);
+                    try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(result.getTableMeta()))) {
+                        OlapTable exported = OlapTable.read(in);
+                        if (!layout.equals("random")) {
+                            HashDistributionInfo.HashType expected = layout.equals("identity")
+                                    ? HashDistributionInfo.HashType.IDENTITY : HashDistributionInfo.HashType.CRC32;
+                            Assertions.assertEquals(expected,
+                                    ((HashDistributionInfo) exported.getDefaultDistributionInfo()).getHashType(), context);
+                            Assertions.assertEquals(1, result.getUpdatedPartitionsSize(), context);
+                            ByteBuffer buffer = result.getUpdatedPartitions().get(0);
+                            try (DataInputStream partitionIn = new DataInputStream(new ByteArrayInputStream(
+                                    buffer.array(), buffer.position(), buffer.remaining()))) {
+                                Partition partition = GsonUtils.GSON.fromJson(Text.readString(partitionIn),
+                                        Partition.class);
+                                Assertions.assertEquals(expected,
+                                        ((HashDistributionInfo) partition.getDistributionInfo()).getHashType(), context);
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     @Test

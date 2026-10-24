@@ -128,7 +128,8 @@ public:
     bool is_null_aware() const { return _null_aware; }
 
     std::shared_ptr<const std::vector<uint32_t>> get_bucket_prune_hashes(
-            const DataTypePtr& target_type) const;
+            const DataTypePtr& target_type, TDistributionHashType::type hash_type,
+            uint32_t bucket_num) const;
 
     std::shared_ptr<RuntimeProfile::Counter> predicate_filtered_rows_counter() const {
         return _rf_filter_rows;

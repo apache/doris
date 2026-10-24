@@ -1136,6 +1136,9 @@ struct TOlapScanNode {
   // equals the sole HASH distribution key, and all scan ranges carry bucket metadata.
   // BE may prune only final inclusive point ranges; absent means disabled.
   29: optional bool enable_scan_key_bucket_prune
+  // Hash function the table's buckets were built with. BE groups point key ranges with the
+  // same function; absent or CRC32 means the legacy raw-byte CRC32 grouping.
+  30: optional Types.TDistributionHashType distribution_hash_type = Types.TDistributionHashType.CRC32
 }
 
 struct TEqJoinCondition {
@@ -1572,6 +1575,8 @@ struct TLocalExchangeNode {
   //    `TPipelineFragmentParams.total_instances`, and mapping global instance index to local instance by
   //    `TPipelineFragmentParams.shuffle_idx_to_instance_idx`
   2: optional list<Exprs.TExpr> distribute_expr_lists
+  // storage bucketing hash for BUCKET_HASH_SHUFFLE; !__isset means CRC32 (legacy)
+  3: optional Types.TDistributionHashType distribution_hash_type = Types.TDistributionHashType.CRC32
 }
 
 struct TOlapRewriteNode {
@@ -1748,6 +1753,9 @@ struct TRuntimeFilterDesc {
   // distribution column. BE still verifies that the delivered filter has an
   // exact IN set before using it for bucket pruning.
   22: optional set<Types.TPlanNodeId> bucket_pruning_target_ids;
+
+  // Storage hash algorithm for each bucket-pruning target. Missing entries are legacy CRC32.
+  23: optional map<Types.TPlanNodeId, Types.TDistributionHashType> bucket_pruning_target_hash_types;
 }
 
 

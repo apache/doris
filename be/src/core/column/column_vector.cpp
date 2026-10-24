@@ -40,6 +40,7 @@
 #include "exec/common/sip_hash.h"
 #include "exec/sort/sort_block.h"
 #include "util/hash_util.hpp"
+#include "util/raw_value.h"
 #include "util/simd/bits.h"
 #include "util/unaligned.h"
 
@@ -222,6 +223,47 @@ uint32_t ColumnVector<T>::_zlib_crc32_hash(uint32_t hash, size_t idx) const {
         return HashUtil::zlib_crc_hash(buf, len, hash);
     } else {
         return HashUtil::zlib_crc32_fixed(data[idx], hash);
+    }
+}
+
+template <PrimitiveType T>
+void ColumnVector<T>::update_identity_hash(uint32_t* __restrict hashes, uint32_t mod,
+                                           const uint8_t* __restrict null_map) const {
+    auto s = size();
+    if constexpr (is_date_or_datetime(T)) {
+        // Canonical bytes of legacy DATE/DATETIME come from to_buffer(), not the in-memory layout.
+        // Null rows keep the RawValue::identity_hash convention (four zero canonical bytes) so a
+        // nullable legacy DATE/DATETIME distribution column routes exactly like the scalar path.
+        for (size_t i = 0; i < s; i++) {
+            if (null_map != nullptr && null_map[i] != 0) {
+                hashes[i] = RawValue::append_identity_bytes(&RawValue::NULL_IDENTITY_BYTES,
+                                                            sizeof(RawValue::NULL_IDENTITY_BYTES),
+                                                            hashes[i], mod);
+                continue;
+            }
+            char buf[64];
+            auto len = static_cast<size_t>(((const VecDateTimeValue&)data[i]).to_buffer(buf));
+            hashes[i] = RawValue::append_identity_bytes(buf, len, hashes[i], mod);
+        }
+        return;
+    }
+    if (null_map == nullptr) {
+        for (size_t i = 0; i < s; i++) {
+            hashes[i] =
+                    RawValue::append_identity_bytes(&data[i], sizeof(value_type), hashes[i], mod);
+        }
+    } else {
+        for (size_t i = 0; i < s; i++) {
+            if (null_map[i] == 0) {
+                hashes[i] = RawValue::append_identity_bytes(&data[i], sizeof(value_type), hashes[i],
+                                                            mod);
+            } else {
+                // Null convention of RawValue::identity_hash: four zero canonical bytes.
+                hashes[i] = RawValue::append_identity_bytes(&RawValue::NULL_IDENTITY_BYTES,
+                                                            sizeof(RawValue::NULL_IDENTITY_BYTES),
+                                                            hashes[i], mod);
+            }
+        }
     }
 }
 

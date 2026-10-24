@@ -37,6 +37,7 @@
 #include "exec/sort/hybrid_sorter.h"
 #include "exec/sort/sort_block.h"
 #include "util/hash_util.hpp"
+#include "util/raw_value.h"
 #include "util/simd/bits.h"
 #include "util/unaligned.h"
 
@@ -217,6 +218,47 @@ void ColumnDecimal<T>::update_crcs_with_value(uint32_t* __restrict hashes, Primi
             for (size_t i = 0; i < s; i++) {
                 if (null_data[i] == 0) decimalv2_do_crc(i, hashes[i]);
             }
+        }
+    }
+}
+
+template <PrimitiveType T>
+void ColumnDecimal<T>::update_identity_hash(uint32_t* __restrict hashes, uint32_t mod,
+                                            const uint8_t* __restrict null_map) const {
+    auto s = size();
+    if constexpr (T != TYPE_DECIMALV2) {
+        if (null_map == nullptr) {
+            for (size_t i = 0; i < s; i++) {
+                hashes[i] =
+                        RawValue::append_identity_bytes(&data[i], sizeof(data[i]), hashes[i], mod);
+            }
+        } else {
+            for (size_t i = 0; i < s; i++) {
+                if (null_map[i] == 0) {
+                    hashes[i] = RawValue::append_identity_bytes(&data[i], sizeof(data[i]),
+                                                                hashes[i], mod);
+                } else {
+                    hashes[i] = RawValue::append_identity_bytes(
+                            &RawValue::NULL_IDENTITY_BYTES, sizeof(RawValue::NULL_IDENTITY_BYTES),
+                            hashes[i], mod);
+                }
+            }
+        }
+    } else {
+        // DecimalV2 canonical bytes are the little-endian fraction followed by the integer part.
+        for (size_t i = 0; i < s; i++) {
+            const auto& dec_val = (const DecimalV2Value&)data[i];
+            const int64_t int_val = dec_val.int_value();
+            const int32_t frac_val = dec_val.frac_value();
+            if (null_map != nullptr && null_map[i] != 0) {
+                hashes[i] = RawValue::append_identity_bytes(&RawValue::NULL_IDENTITY_BYTES,
+                                                            sizeof(RawValue::NULL_IDENTITY_BYTES),
+                                                            hashes[i], mod);
+                continue;
+            }
+            hashes[i] =
+                    RawValue::append_identity_bytes(&frac_val, sizeof(frac_val), hashes[i], mod);
+            hashes[i] = RawValue::append_identity_bytes(&int_val, sizeof(int_val), hashes[i], mod);
         }
     }
 }

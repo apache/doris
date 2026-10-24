@@ -322,6 +322,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
         }
 
+        // Fragment boundaries and receiver/probe layouts are now final. Reject ambiguity before
+        // instance assignment or local exchanges can replace an input's output distribution.
+        for (PlanFragment fragment : context.getPlanFragments()) {
+            fragment.validateStorageHashLayout();
+        }
+
         if (isSimpleQuery(physicalPlan)) {
             // the simple query maybe has two fragments or one fragment
             rootFragment.setForceSingleInstance();
@@ -397,6 +403,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // target data partition
         DataPartition targetDataPartition = toDataPartition(targetDistribution, validOutputIds, context);
         exchangeNode.setPartitionType(targetDataPartition.getType());
+        exchangeNode.setDistributionHashType(targetDataPartition.getHashType());
         exchangeNode.setDistributeExprLists(getDistributeExpr(distribute));
         exchangeNode.setChildrenDistributeExprLists(upstreamDistributeExprs);
         // its source partition is targetDataPartition. and outputPartition is UNPARTITIONED now, will be set when
@@ -3696,7 +3703,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             switch (distributionSpecHash.getShuffleType()) {
                 case STORAGE_BUCKETED:
                     partitionType = TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED;
-                    break;
+                    // Bucket-shuffle re-partitions the shuffled side to the target table's storage
+                    // layout, so the storage hashType must ride along for BE to pick the right partitioner.
+                    return new DataPartition(partitionType, partitionExprs, distributionSpecHash.getHashType());
                 case EXECUTION_BUCKETED:
                     partitionType = TPartitionType.HASH_PARTITIONED;
                     break;

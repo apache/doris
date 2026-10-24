@@ -19,6 +19,7 @@ package org.apache.doris.nereids.properties;
 
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.HashDistributionInfo.HashType;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.hint.DistributeHint;
@@ -44,6 +45,7 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.SortPhase;
+import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
@@ -53,7 +55,9 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.TinyIntType;
@@ -1135,5 +1139,135 @@ class ChildOutputPropertyDeriverTest {
         DataTrait result = builder.build();
 
         Assertions.assertTrue(result.isUniformAndNotNull(rightSlot));
+    }
+
+    private SlotReference slot(String name, long uniqueId) {
+        return new SlotReference(new ExprId((int) uniqueId), name, IntegerType.INSTANCE, false,
+                Collections.emptyList());
+    }
+
+    private LogicalProperties setOpLogicalProperties(SlotReference out1, SlotReference out2) {
+        List<Slot> outputs = Lists.newArrayList(out1, out2);
+        return new LogicalProperties(() -> outputs, () -> DataTrait.EMPTY_TRAIT);
+    }
+
+    private PhysicalSetOperation unionOf(List<SlotReference> leftOutput, List<SlotReference> rightOutput,
+            SlotReference out1, SlotReference out2) {
+        LogicalProperties leftLogical = new LogicalProperties(() -> Lists.newArrayList(leftOutput),
+                () -> DataTrait.EMPTY_TRAIT);
+        LogicalProperties rightLogical = new LogicalProperties(() -> Lists.newArrayList(rightOutput),
+                () -> DataTrait.EMPTY_TRAIT);
+        IdGenerator<GroupId> idGenerator = GroupId.createGenerator();
+        GroupPlan left = new GroupPlan(new Group(idGenerator.getNextId(), leftLogical));
+        GroupPlan right = new GroupPlan(new Group(idGenerator.getNextId(), rightLogical));
+        return new PhysicalUnion(Qualifier.ALL, Lists.newArrayList(out1, out2),
+                ImmutableList.of(leftOutput, rightOutput), ImmutableList.of(),
+                Optional.empty(), setOpLogicalProperties(out1, out2), Lists.newArrayList(left, right));
+    }
+
+    /**
+     * The generic EXECUTION_BUCKETED path must derive the set operation's output hash spec from
+     * the children's specs: same shuffle type, keys mapped to the set operation outputs, and the
+     * hash type EXECUTION_BUCKETED always carries (CRC32, per DistributionSpecHash's
+     * normalization). Each child's equivalence map must cover every regular child output, as a
+     * PhysicalDistribute-derived spec would.
+     */
+    @Test
+    void testSetOperationExecutionOutputDerivesKeys() {
+        SlotReference left1 = slot("l1", 1);
+        SlotReference left2 = slot("l2", 2);
+        SlotReference right1 = slot("r1", 3);
+        SlotReference right2 = slot("r2", 4);
+        SlotReference out1 = slot("o1", 5);
+        SlotReference out2 = slot("o2", 6);
+        PhysicalSetOperation setOperation = unionOf(Lists.newArrayList(left1, left2),
+                Lists.newArrayList(right1, right2), out1, out2);
+
+        // Each child shuffles on its first output column; its equivalence map must contain every
+        // regular child output (the deriver maps each output position through
+        // exprIdToEquivalenceSet and bails out with ANY when one is missing).
+        PhysicalProperties leftChild = new PhysicalProperties(new DistributionSpecHash(
+                Lists.newArrayList(left1.getExprId(), left2.getExprId()),
+                ShuffleType.EXECUTION_BUCKETED, -1L, -1L, Collections.emptySet(), HashType.CRC32));
+        PhysicalProperties rightChild = new PhysicalProperties(new DistributionSpecHash(
+                Lists.newArrayList(right1.getExprId(), right2.getExprId()),
+                ShuffleType.EXECUTION_BUCKETED, -1L, -1L, Collections.emptySet(), HashType.CRC32));
+        PhysicalProperties result = new ChildOutputPropertyDeriver(Lists.newArrayList(leftChild, rightChild))
+                .getOutputProperties(null, new GroupExpression(setOperation));
+
+        DistributionSpecHash output = Assertions.assertInstanceOf(DistributionSpecHash.class,
+                result.getDistributionSpec());
+        Assertions.assertEquals(ShuffleType.EXECUTION_BUCKETED, output.getShuffleType());
+        Assertions.assertEquals(HashType.CRC32, output.getHashType());
+        Assertions.assertEquals(Lists.newArrayList(out1.getExprId(), out2.getExprId()),
+                output.getOrderedShuffledColumns());
+    }
+
+    /**
+     * The storage-layout branch must keep advertising the basic child's layout for a NON-EMPTY key
+     * set (table id and partition ids ride along, keyed by set-operation outputs).
+     */
+    @Test
+    void testSetOperationStorageLayoutOutputKeepsLayout() {
+        SlotReference left1 = slot("l1", 1);
+        SlotReference left2 = slot("l2", 2);
+        SlotReference right1 = slot("r1", 3);
+        SlotReference right2 = slot("r2", 4);
+        SlotReference out1 = slot("o1", 5);
+        SlotReference out2 = slot("o2", 6);
+        PhysicalSetOperation setOperation = unionOf(Lists.newArrayList(left1, left2),
+                Lists.newArrayList(right1, right2), out1, out2);
+
+        PhysicalProperties leftChild = new PhysicalProperties(new DistributionSpecHash(
+                Lists.newArrayList(left1.getExprId()), ShuffleType.STORAGE_BUCKETED, 100L, 7L,
+                Collections.emptySet(), HashType.IDENTITY));
+        PhysicalProperties rightChild = new PhysicalProperties(new DistributionSpecHash(
+                Lists.newArrayList(right1.getExprId()), ShuffleType.STORAGE_BUCKETED, 100L, 7L,
+                Collections.emptySet(), HashType.IDENTITY));
+        PhysicalProperties result = new ChildOutputPropertyDeriver(Lists.newArrayList(leftChild, rightChild))
+                .getOutputProperties(null, new GroupExpression(setOperation));
+
+        DistributionSpecHash output = Assertions.assertInstanceOf(DistributionSpecHash.class,
+                result.getDistributionSpec());
+        Assertions.assertEquals(ShuffleType.STORAGE_BUCKETED, output.getShuffleType());
+        Assertions.assertEquals(HashType.IDENTITY, output.getHashType());
+        Assertions.assertEquals(100L, output.getTableId());
+        Assertions.assertEquals(Lists.newArrayList(out1.getExprId()), output.getOrderedShuffledColumns());
+    }
+
+    /**
+     * A set operation whose basic child shuffles on ZERO columns must not advertise a zero-key
+     * hash spec: containsSatisfy() is vacuously true on the empty equivalence map, so such a
+     * spec satisfies any hash REQUIRE demand and suppresses the parent's exchange. The empty
+     * key set must fall through to the generic loop, whose offset mapping cannot resolve any
+     * child output and degrades to a non-hash property (ANY/STORAGE_ANY) instead.
+     */
+    @Test
+    void testSetOperationZeroShuffleKeysNormalizesToGather() {
+        SlotReference left1 = slot("l1", 1);
+        SlotReference left2 = slot("l2", 2);
+        SlotReference right1 = slot("r1", 3);
+        SlotReference right2 = slot("r2", 4);
+        SlotReference out1 = slot("o1", 5);
+        SlotReference out2 = slot("o2", 6);
+        PhysicalSetOperation setOperation = unionOf(Lists.newArrayList(left1, left2),
+                Lists.newArrayList(right1, right2), out1, out2);
+
+        // Zero shuffled columns on the basic child: the storage-layout branch used to accept
+        // 0 == 0 and return a zero-key DistributionSpecHash (the hazard); it must now fall
+        // through to the generic loop, which returns a non-hash property.
+        PhysicalProperties zeroKeyChild = new PhysicalProperties(new DistributionSpecHash(
+                Collections.emptyList(), ShuffleType.STORAGE_BUCKETED, 100L, 7L,
+                Collections.emptySet(), HashType.IDENTITY));
+        PhysicalProperties otherChild = new PhysicalProperties(new DistributionSpecHash(
+                Lists.newArrayList(right1.getExprId()), ShuffleType.STORAGE_BUCKETED, 100L, 7L,
+                Collections.emptySet(), HashType.IDENTITY));
+        PhysicalProperties result = new ChildOutputPropertyDeriver(
+                Lists.newArrayList(zeroKeyChild, otherChild))
+                .getOutputProperties(null, new GroupExpression(setOperation));
+
+        Assertions.assertFalse(result.getDistributionSpec() instanceof DistributionSpecHash,
+                "zero shuffled columns must not produce a zero-key hash spec, got: "
+                        + result.getDistributionSpec().getClass().getSimpleName());
     }
 }

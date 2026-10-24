@@ -84,6 +84,22 @@ Status Crc32CHashPartitioner::clone(RuntimeState* state,
     return _clone_expr_ctxs(state, new_partitioner->_partition_expr_ctxs);
 }
 
+void IdentityHashPartitioner::_do_hash(const ColumnPtr& column, HashValType* __restrict result,
+                                       int idx) const {
+    // Batch identity hash: keeps virtual dispatch out of the per-row loop and lets each column
+    // hash its own storage directly. Byte semantics (canonical little-endian append, null rows,
+    // seed combination) are owned by RawValue::append_identity_bytes and stay bit-identical with
+    // the scalar RawValue::identity_hash used by tablet routing and bucket pruning.
+    column->update_identity_hash(result, _partition_count);
+}
+
+Status IdentityHashPartitioner::clone(RuntimeState* state,
+                                      std::unique_ptr<PartitionerBase>& partitioner) {
+    auto* new_partitioner = new IdentityHashPartitioner(_partition_count);
+    partitioner.reset(new_partitioner);
+    return _clone_expr_ctxs(state, new_partitioner->_partition_expr_ctxs);
+}
+
 HashPartitionFunction::HashPartitionFunction(HashValType partition_count,
                                              ShuffleHashMethod hash_method)
         : _partition_count(partition_count), _hash_method(hash_method) {}

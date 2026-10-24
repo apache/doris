@@ -21,6 +21,8 @@ import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
 import com.google.common.collect.Lists;
@@ -45,17 +47,25 @@ public class ColocateGroupSchema implements Writable {
     private int bucketsNum;
     @SerializedName(value = "replicaAlloc")
     private ReplicaAllocation replicaAlloc;
+    @SerializedName(value = "hashType")
+    private HashDistributionInfo.HashType hashType;
 
     private ColocateGroupSchema() {
 
     }
 
-    public ColocateGroupSchema(GroupId groupId, List<Column> distributionCols,
-            int bucketsNum, ReplicaAllocation replicaAlloc) {
+    public ColocateGroupSchema(GroupId groupId, List<Column> distributionCols, int bucketsNum,
+            ReplicaAllocation replicaAlloc) {
+        this(groupId, distributionCols, bucketsNum, replicaAlloc, HashDistributionInfo.HashType.CRC32);
+    }
+
+    public ColocateGroupSchema(GroupId groupId, List<Column> distributionCols, int bucketsNum,
+            ReplicaAllocation replicaAlloc, HashDistributionInfo.HashType hashType) {
         this.groupId = groupId;
         this.distributionColTypes = distributionCols.stream().map(c -> c.getType()).collect(Collectors.toList());
         this.bucketsNum = bucketsNum;
         this.replicaAlloc = replicaAlloc;
+        this.hashType = hashType;
     }
 
     public GroupId getGroupId() {
@@ -78,6 +88,12 @@ public class ColocateGroupSchema implements Writable {
         return distributionColTypes;
     }
 
+    public HashDistributionInfo.HashType getHashType() {
+        return hashType == null
+                ? HashDistributionInfo.HashType.CRC32
+                : hashType;
+    }
+
     public void checkColocateSchema(OlapTable tbl) throws DdlException {
         checkDistribution(tbl.getDefaultDistributionInfo());
         // We add a table with many partitions to the colocate group,
@@ -91,6 +107,11 @@ public class ColocateGroupSchema implements Writable {
     public void checkDistribution(DistributionInfo distributionInfo) throws DdlException {
         if (distributionInfo instanceof HashDistributionInfo) {
             HashDistributionInfo info = (HashDistributionInfo) distributionInfo;
+            // hash type
+            if (info.getHashType() != getHashType()) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_MUST_HAS_SAME_DISTRIBUTION_HASH_TYPE,
+                        info.getHashType(), getHashType());
+            }
             // buckets num
             if (info.getBucketNum() != bucketsNum) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_MUST_HAS_SAME_BUCKET_NUM,
@@ -159,6 +180,7 @@ public class ColocateGroupSchema implements Writable {
         }
         out.writeInt(bucketsNum);
         this.replicaAlloc.write(out);
+        Text.writeString(out, getHashType().name());
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -169,5 +191,10 @@ public class ColocateGroupSchema implements Writable {
         }
         bucketsNum = in.readInt();
         this.replicaAlloc = ReplicaAllocation.read(in);
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_141) {
+            this.hashType = HashDistributionInfo.HashType.valueOf(Text.readString(in));
+        } else {
+            this.hashType = HashDistributionInfo.HashType.CRC32;
+        }
     }
 }
