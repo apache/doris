@@ -63,6 +63,12 @@ public class PluginDrivenInsertCommandContext extends BaseExternalTableInsertCom
     // The target schema the sink was bound to, whose column types the static partition values are cast to.
     private List<Column> boundTargetSchema = Collections.emptyList();
     private Optional<String> branchName = Optional.empty();
+    // The writer schema and write metadata identity an INSERT OVERWRITE normalized its plan against; the inner
+    // insert that runs the plan pins them again and must find the same generation (see
+    // InsertUtils#checkNormalizedWriteGeneration). Empty for any other insert, and when the connector pins no
+    // writer schema.
+    private Optional<List<Column>> normalizedWriteSchema = Optional.empty();
+    private Optional<String> normalizedWriteMetadataIdentity = Optional.empty();
 
     public Map<String, String> getStaticPartitionSpec() {
         return staticPartitionSpec;
@@ -162,5 +168,18 @@ public class PluginDrivenInsertCommandContext extends BaseExternalTableInsertCom
 
     public void setBranchName(Optional<String> branchName) {
         this.branchName = branchName == null ? Optional.empty() : branchName;
+    }
+
+    public Optional<List<Column>> getNormalizedWriteSchema() {
+        return normalizedWriteSchema;
+    }
+
+    public Optional<String> getNormalizedWriteMetadataIdentity() {
+        return normalizedWriteMetadataIdentity;
+    }
+
+    public void setNormalizedWriteGeneration(List<Column> writeSchema, Optional<String> writeMetadataIdentity) {
+        this.normalizedWriteSchema = Optional.of(writeSchema);
+        this.normalizedWriteMetadataIdentity = writeMetadataIdentity;
     }
 }
