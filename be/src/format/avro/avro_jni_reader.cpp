@@ -84,6 +84,12 @@ Status AvroJNIReader::init_reader() {
             {"file_type", std::to_string(type)},
             {"is_get_table_schema", "false"},
             {"hive.serde", "org.apache.hadoop.hive.serde2.avro.AvroSerDe"}};
+    // Avro HDFS creates its own Java Configuration; preserve the request-owned TVF marker.
+    for (const auto& conf : _params.hdfs_params.hdfs_conf) {
+        if (conf.key == "fs.doris.tvf.remote.paths") {
+            required_param[conf.key] = conf.value;
+        }
+    }
     if (type == TFileType::FILE_S3) {
         required_param.insert(_params.properties.begin(), _params.properties.end());
     }

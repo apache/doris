@@ -183,6 +183,12 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     }
 
     public Map<String, String> getBackendConnectProperties() {
+        if (isLanceFormat()) {
+            return backendConnectProperties;
+        }
+        if (getTFileType() == TFileType.FILE_HDFS || getTFileType() == TFileType.FILE_S3) {
+            return HadoopTvfAdmission.protectNativeRead(backendConnectProperties);
+        }
         return backendConnectProperties;
     }
 
@@ -243,6 +249,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         // Copy the properties, because we will remove the key from properties.
         Map<String, String> copiedProps = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         copiedProps.putAll(mergedProperties);
+        HadoopTvfAdmission.removeRuntimePolicy(copiedProps);
 
         tableId = Long.valueOf(getOrDefaultAndRemove(copiedProps, PROP_TABLE_ID, "-1"));
 
@@ -578,7 +585,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         TFileScanRangeParams fileScanRangeParams = new TFileScanRangeParams();
         fileScanRangeParams.setFormatType(fileFormatProperties.getFileFormatType());
         Map<String, String> beProperties = new HashMap<>();
-        beProperties.putAll(backendConnectProperties);
+        beProperties.putAll(getBackendConnectProperties());
         fileScanRangeParams.setProperties(beProperties);
         if (fileFormatProperties.getFileFormatType() == TFileFormatType.FORMAT_LANCE) {
             // lance-c opens the dataset itself and needs the options in Lance's own vocabulary.
@@ -608,8 +615,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
         if (getTFileType() == TFileType.FILE_HDFS) {
             THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(
-                    storageProperties.getBackendConfigProperties());
-            String fsName = storageProperties.getBackendConfigProperties().get(HdfsResource.HADOOP_FS_NAME);
+                    getBackendConnectProperties());
+            String fsName = getBackendConnectProperties().get(HdfsResource.HADOOP_FS_NAME);
             tHdfsParams.setFsName(fsName);
             fileScanRangeParams.setHdfsParams(tHdfsParams);
         }

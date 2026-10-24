@@ -21,14 +21,13 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 
+import org.apache.hadoop.fs.FileSystem.TvfGuard;
+
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -44,28 +43,8 @@ public final class HadoopTvfAdmission {
         HADOOP_READ
     }
 
-    private enum Provider {
-        REMOTE,
-        LOCAL,
-        MOUNT_TABLE,
-        DYNAMIC,
-        UNKNOWN
-    }
-
-    private static final Set<String> REMOTE_SCHEMES = new HashSet<>(Arrays.asList(
-            "hdfs", "s3a", "s3n", "oss", "ofs", "jfs", "abfs", "abfss", "wasb", "wasbs", "gs", "cosn"));
-    private static final Set<String> REMOTE_IMPLEMENTATIONS = new HashSet<>(Arrays.asList(
-            "org.apache.hadoop.hdfs.DistributedFileSystem",
-            "org.apache.hadoop.fs.s3a.S3AFileSystem",
-            "org.apache.hadoop.fs.azurebfs.AzureBlobFileSystem",
-            "org.apache.hadoop.fs.azurebfs.SecureAzureBlobFileSystem",
-            "org.apache.hadoop.fs.azure.NativeAzureFileSystem",
-            "org.apache.hadoop.fs.aliyun.oss.AliyunOSSFileSystem",
-            "com.aliyun.jindodata.oss.JindoOssFileSystem",
-            "org.apache.hadoop.fs.obs.OBSFileSystem",
-            "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem"));
-
     private final Access access;
+    private final TvfGuard.Route routes;
     private final Map<String, String> properties = new HashMap<>();
 
     private HadoopTvfAdmission(Access access, Map<String, String> normalized, boolean nativeConsumer) {
@@ -96,6 +75,7 @@ public final class HadoopTvfAdmission {
                 reject();
             }
         }
+        routes = new TvfGuard.Route(properties, access == Access.HADOOP_READ);
     }
 
     /** Reject local/unknown Hadoop TVF routes before listing, deletion, schema discovery or data IO. */
@@ -127,11 +107,7 @@ public final class HadoopTvfAdmission {
                 if (access == Access.HADOOP_READ) {
                     // FileQueryScanNode sends this filesystem identifier in range.fs_name. BE
                     // falls back to hdfs_params.fs_name only when that range field is empty.
-                    URI fileUri = LocationPath.of(path).getPath().toUri();
-                    String nameNode = fileUri.getScheme() + "://" + fileUri.getAuthority();
-                    if (nameNode.isEmpty()) {
-                        nameNode = nativeNameNode(access, normalized);
-                    }
+                    String nameNode = nativeReadNameNode(path, normalized);
                     HadoopTvfAdmission nativeConsumer = new HadoopTvfAdmission(access, normalized, true);
                     nativeConsumer.checkNativeRead(nameNode, path);
                     // Schema RPCs have no range.fs_name; they use THdfsParams.fs_name instead.
@@ -140,9 +116,55 @@ public final class HadoopTvfAdmission {
                     }
                 }
             }
-        } catch (URISyntaxException e) {
+        } catch (URISyntaxException | IllegalArgumentException e) {
             new HadoopTvfAdmission(access, normalized, false).reject();
         }
+    }
+
+    private static String nativeReadNameNode(String path, Map<String, String> normalized) {
+        URI fileUri = LocationPath.of(path).getPath().toUri();
+        String nameNode = fileUri.getScheme() + "://" + fileUri.getAuthority();
+        if (nameNode.isEmpty()) {
+            nameNode = nativeNameNode(Access.HADOOP_READ, normalized);
+        }
+        return nameNode;
+    }
+
+    /** Reserved internal policy must not be selected by SQL/resource property aliases. */
+    public static void removeRuntimePolicy(Map<String, String> properties) {
+        properties.keySet().removeIf(key -> asciiCaseFold(nativeStringPrefix(key)).trim()
+                .startsWith("fs.doris.tvf."));
+    }
+
+    public static Map<String, String> protectJava(Access access, String path, Map<String, String> properties) {
+        Map<String, String> guarded = new HashMap<>(properties);
+        removeRuntimePolicy(guarded);
+        if (access == Access.HADOOP_READ || !Config.enable_local_tvf) {
+            try {
+                URI uri = hadoopPathUri(path.trim());
+                guarded.put(TvfGuard.POLICY_KEY, TvfGuard.encode(java.util.Collections.singletonList(
+                        new TvfGuard.Rule(uri.toString(), uri.getPath(), true))));
+            } catch (URISyntaxException | IllegalArgumentException e) {
+                reject(access);
+            }
+        }
+        return guarded;
+    }
+
+    public static Map<String, String> protectNativeWrite(String path, Map<String, String> normalized) {
+        Map<String, String> guarded = new HashMap<>(normalized);
+        removeRuntimePolicy(guarded);
+        if (!Config.enable_local_tvf) {
+            guarded.put(TvfGuard.POLICY_KEY, TvfGuard.NATIVE_POLICY);
+        }
+        return guarded;
+    }
+
+    public static Map<String, String> protectNativeRead(Map<String, String> normalized) {
+        Map<String, String> guarded = new HashMap<>(normalized);
+        removeRuntimePolicy(guarded);
+        guarded.put(TvfGuard.POLICY_KEY, TvfGuard.NATIVE_POLICY);
+        return guarded;
     }
 
     private static String nativeNameNode(Access access, Map<String, String> normalized) {
@@ -178,249 +200,8 @@ public final class HadoopTvfAdmission {
         checkNative(nameNode, nativeFileUri(access, path, nameNode).getPath());
     }
 
-    private List<URI> defaults() throws URISyntaxException {
-        List<URI> defaults = new ArrayList<>();
-        for (String key : Arrays.asList("fs.defaultFS", "fs.default.name")) {
-            String value = property(key);
-            if (value != null) {
-                value = selector(value).trim();
-                // FileSystem.fixName treats slash-free host[:port] strings as HDFS defaults.
-                defaults.add(new URI("local".equals(value) ? "file:///"
-                        : (value.indexOf('/') < 0 ? "hdfs://" + value : value)));
-            }
-        }
-        if (defaults.isEmpty()) {
-            defaults.add(new URI("file:///"));
-        }
-        return defaults;
-    }
-
     private void checkRoute(URI filesystem, String path, Set<String> activeTables) throws URISyntaxException {
-        if (filesystem.getScheme() == null) {
-            for (URI defaultFs : defaults()) {
-                checkViewFsEnabled(defaultFs, path, activeTables);
-            }
-            return;
-        }
-        if (filesystem.getAuthority() == null) {
-            boolean completed = false;
-            for (URI defaultFs : defaults()) {
-                if (filesystem.getScheme().equals(defaultFs.getScheme()) && defaultFs.getAuthority() != null) {
-                    checkViewFsEnabled(defaultFs, path, activeTables);
-                    completed = true;
-                }
-            }
-            if (completed) {
-                return;
-            }
-        }
-        checkViewFsEnabled(filesystem, path, activeTables);
-    }
-
-    private Provider provider(String scheme) {
-        if ("file".equalsIgnoreCase(scheme)) {
-            return Provider.LOCAL;
-        }
-        String implementation = property("fs." + scheme + ".impl");
-        if (implementation != null) {
-            implementation = selector(implementation).trim();
-            if ("org.apache.hadoop.fs.LocalFileSystem".equals(implementation)
-                    || "org.apache.hadoop.fs.RawLocalFileSystem".equals(implementation)) {
-                return Provider.LOCAL;
-            }
-            if ("org.apache.hadoop.fs.viewfs.ViewFileSystem".equals(implementation)) {
-                return Provider.MOUNT_TABLE;
-            }
-            if ("org.apache.hadoop.fs.viewfs.ViewFileSystemOverloadScheme".equals(implementation)
-                    || "org.apache.hadoop.hdfs.ViewDistributedFileSystem".equals(implementation)) {
-                return Provider.DYNAMIC;
-            }
-            return REMOTE_IMPLEMENTATIONS.contains(implementation) ? Provider.REMOTE : Provider.UNKNOWN;
-        }
-        if ("viewfs".equals(scheme)) {
-            return Provider.MOUNT_TABLE;
-        }
-        return REMOTE_SCHEMES.contains(scheme) ? Provider.REMOTE : Provider.UNKNOWN;
-    }
-
-    private String[] targets(String key, String prefix) {
-        String value = selector(property(key));
-        // InodeTree treats SINGLE, SINGLE_FALLBACK and MERGE_SLASH as one URI.
-        // Commas delimit targets only for MERGE and NFLY links.
-        String entry = key.substring(prefix.length());
-        boolean multiple = entry.startsWith("linkMerge.") || entry.startsWith("linkNfly.");
-        return multiple ? value.split(",", -1) : new String[] {value};
-    }
-
-    private void checkGlobTargets(String key, String prefix, Set<String> activeTables) throws URISyntaxException {
-        for (String target : targets(key, prefix)) {
-            if (target.isEmpty()) {
-                reject();
-            }
-            URI uri = new URI(target);
-            // Listing can touch any descendant of a selected mount. Reuse the same route
-            // interpreter for nested tables instead of assuming their root is representative.
-            String path = uri.getPath() == null ? "/" : uri.getPath();
-            checkRoute(uri, (path.endsWith("/") ? path : path + "/") + "*", activeTables);
-        }
-    }
-
-    private void checkViewFsEnabled(URI filesystem, String path, Set<String> activeTables) {
-        String scheme = filesystem.getScheme();
-        Provider provider = provider(scheme);
-        if (provider == Provider.LOCAL || provider == Provider.UNKNOWN || provider == Provider.DYNAMIC) {
-            reject();
-        }
-        if (provider != Provider.MOUNT_TABLE) {
-            return;
-        }
-        if (!path.startsWith("/")) {
-            // Java resolves relative paths against the selected filesystem's working directory.
-            // Its user/home configuration is not a proven absolute mount-table path here.
-            reject();
-        }
-        String table = filesystem.getAuthority();
-        String ignorePort = property("fs.viewfs.ignore.port.in.mount.table.name");
-        if (ignorePort != null && Boolean.parseBoolean(selector(ignorePort).trim())
-                && table != null && filesystem.getPort() != -1) {
-            table = filesystem.getHost();
-            if (table == null) {
-                reject();
-            }
-        }
-        if (table == null || table.isEmpty()) {
-            table = property("fs.viewfs.mounttable.default.name.key");
-            table = table == null ? "default" : selector(table);
-        }
-        // Nested ViewFS cycles or arbitrarily deep delegation cannot establish remote storage.
-        if (activeTables.size() >= 32 || !activeTables.add(table)) {
-            reject();
-        }
-        try {
-            String prefix = "fs.viewfs.mounttable." + table + ".";
-            String source = "";
-            List<String> selectedKeys = new ArrayList<>();
-            List<String> mountSources = new ArrayList<>();
-            String fallback = null;
-            String rootMerge = null;
-            for (String key : properties.keySet()) {
-                if (!key.startsWith(prefix)) {
-                    continue;
-                }
-                String entry = key.substring(prefix.length());
-                if (entry.equals("linkFallback")) {
-                    fallback = key;
-                    continue;
-                }
-                if (entry.equals("linkMergeSlash")) {
-                    rootMerge = key;
-                    continue;
-                }
-                if (entry.startsWith("linkRegex")) {
-                    // Regex interception rewrites runtime paths before ordinary mount resolution.
-                    reject();
-                }
-                int slash = entry.indexOf('/');
-                if (slash < 0 || !(entry.startsWith("link.") || entry.startsWith("linkMerge.")
-                        || entry.startsWith("linkNfly."))) {
-                    continue;
-                }
-                String candidate = entry.substring(slash);
-                // InodeTree splits source components and discards trailing empty components.
-                while (candidate.length() > 1 && candidate.endsWith("/")) {
-                    candidate = candidate.substring(0, candidate.length() - 1);
-                }
-                mountSources.add(candidate);
-                if (!(path.equals(candidate) || path.startsWith(candidate + "/"))) {
-                    continue;
-                }
-                if (candidate.length() > source.length()) {
-                    source = candidate;
-                    selectedKeys.clear();
-                }
-                if (candidate.equals(source)) {
-                    selectedKeys.add(key);
-                }
-            }
-            if (access == Access.HADOOP_READ && hasGlob(path)) {
-                String literal = path.substring(0, firstGlob(path));
-                int slash = literal.lastIndexOf('/');
-                literal = slash < 0 ? "/" : literal.substring(0, slash + 1);
-                for (String key : properties.keySet()) {
-                    if (!key.startsWith(prefix)) {
-                        continue;
-                    }
-                    String entry = key.substring(prefix.length());
-                    int sourceStart = entry.indexOf('/');
-                    if (sourceStart >= 0 && (entry.startsWith("link.") || entry.startsWith("linkMerge.")
-                            || entry.startsWith("linkNfly."))) {
-                        String mount = entry.substring(sourceStart);
-                        if (mount.startsWith(literal) || literal.startsWith(mount + "/")) {
-                            checkGlobTargets(key, prefix, activeTables);
-                        }
-                    }
-                }
-            }
-            if (access == Access.HADOOP_READ && !hasGlob(path)) {
-                String subtree = path.endsWith("/") ? path : path + "/";
-                for (String key : properties.keySet()) {
-                    if (key.startsWith(prefix)) {
-                        String entry = key.substring(prefix.length());
-                        int sourceStart = entry.indexOf('/');
-                        if (sourceStart >= 0 && entry.substring(sourceStart).startsWith(subtree)) {
-                            checkGlobTargets(key, prefix, activeTables);
-                        }
-                    }
-                }
-            }
-            if (rootMerge != null) {
-                selectedKeys.add(rootMerge);
-                source = "";
-            } else if (selectedKeys.isEmpty() && fallback != null) {
-                selectedKeys.add(fallback);
-            }
-            if (selectedKeys.isEmpty()) {
-                // Missing inline fallback does not prove absence of one in default resources.
-                // Keep rejecting unproven routes, including globs that cross mount names.
-                reject();
-            }
-            for (String key : selectedKeys) {
-                for (String target : targets(key, prefix)) {
-                    if (target.isEmpty()) {
-                        reject();
-                    }
-                    URI uri = new URI(target);
-                    if (uri.getScheme() == null) {
-                        reject();
-                    }
-                    if (provider(uri.getScheme()) == Provider.MOUNT_TABLE) {
-                        for (String nested : mountSources) {
-                            if (!nested.startsWith(source + "/")) {
-                                continue;
-                            }
-                            int branchEnd = nested.indexOf('/', source.length() + 1);
-                            String branch = branchEnd < 0 ? nested : nested.substring(0, branchEnd);
-                            if (path.equals(branch) || path.startsWith(branch + "/")) {
-                                // A missing child below an internal nested-mount directory uses
-                                // a different suffix in InodeTree. Do not guess its delegation.
-                                reject();
-                            }
-                        }
-                    }
-                    String base = uri.getPath() == null ? "/" : uri.getPath();
-                    String remaining = path.substring(source.length());
-                    String nextPath = new URI(null, null,
-                            (base.endsWith("/") ? base : base + "/")
-                                    + (remaining.startsWith("/") ? remaining.substring(1) : remaining), null)
-                            .normalize().getPath();
-                    checkRoute(uri, nextPath, activeTables);
-                }
-            }
-        } catch (URISyntaxException e) {
-            reject();
-        } finally {
-            activeTables.remove(table);
-        }
+        routes.checkRoute(filesystem, path, activeTables);
     }
 
     private static URI nativeFileUri(Access access, String path, String nameNode)
@@ -464,10 +245,6 @@ public final class HadoopTvfAdmission {
         return colon > 0 && (slash < 0 || colon < slash) ? path.substring(0, colon) : "";
     }
 
-    private String property(String key) {
-        return properties.get(key);
-    }
-
     private String selector(String value) {
         if (value.contains("${")) {
             // Runtime environment and Hadoop substitutions are not available to this FE projection.
@@ -479,21 +256,6 @@ public final class HadoopTvfAdmission {
     private static boolean isRoutingKey(String key) {
         return "fs.defaultFS".equalsIgnoreCase(key) || "fs.default.name".equals(key)
                 || key.startsWith("fs.viewfs.") || (key.startsWith("fs.") && key.endsWith(".impl"));
-    }
-
-    private static int firstGlob(String path) {
-        int first = path.length();
-        for (char marker : new char[] {'*', '?', '[', '{'}) {
-            int index = path.indexOf(marker);
-            if (index >= 0) {
-                first = Math.min(first, index);
-            }
-        }
-        return first;
-    }
-
-    private static boolean hasGlob(String path) {
-        return firstGlob(path) < path.length();
     }
 
     private static String asciiCaseFold(String value) {
