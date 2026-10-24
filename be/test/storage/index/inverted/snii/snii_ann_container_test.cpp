@@ -233,9 +233,9 @@ protected:
         for (uint32_t i = 0; i <= kRows; ++i) {
             offsets[i] = static_cast<size_t>(i) * kDim;
         }
-        RETURN_IF_ERROR(ann->add_array_values(sizeof(float), vectors.data(), /*null_map=*/nullptr,
-                                              reinterpret_cast<const uint8_t*>(offsets.data()),
-                                              kRows));
+        RETURN_IF_ERROR(ann->add_array_values(sizeof(float),
+                                              reinterpret_cast<const uint8_t*>(vectors.data()),
+                                              /*null_map=*/nullptr, offsets.data(), kRows));
         return ann->finish();
     }
 
