@@ -77,6 +77,10 @@ void register_aggregate_function_bitmap(AggregateFunctionSimpleFactory& factory)
             creator_without_type::creator<
                     AggregateFunctionBitmapOp<AggregateFunctionBitmapIntersectOp>>);
     factory.register_function_both(
+            "bitmap_intersect_v2",
+            creator_without_type::creator<
+                    AggregateFunctionBitmapOp<AggregateFunctionBitmapIntersectOpV2>>);
+    factory.register_function_both(
             "group_bitmap_xor",
             creator_without_type::creator<
                     AggregateFunctionBitmapOp<AggregateFunctionGroupBitmapXorOp>>);
