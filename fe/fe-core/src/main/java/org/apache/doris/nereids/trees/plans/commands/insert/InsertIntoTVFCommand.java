@@ -193,7 +193,7 @@ public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Ex
         }
         if (storageAdapter.getType() == StorageTypeId.HDFS) {
             LocalTableValuedFunction.checkHadoopFileSystemEnabled(
-                    org.apache.doris.filesystem.FileSystemUtil.extractParentDirectory(props.get("file_path")),
+                    FileSystemUtil.extractParentDirectory(props.get("file_path")),
                     storageAdapter.getBackendConfigProperties());
         }
         // Concrete filesystems only accept their native schemes; normalize legacy compatibility
@@ -201,6 +201,10 @@ public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Ex
         String filePath = storageAdapter.validateAndNormalizeUri(props.get("file_path"));
         // Extract parent directory from prefix path: s3://bucket/path/to/prefix_ -> s3://bucket/path/to/
         String parentDir = FileSystemUtil.extractParentDirectory(filePath);
+        if (storageAdapter.getType() == StorageTypeId.HDFS) {
+            LocalTableValuedFunction.checkHadoopFileSystemEnabled(
+                    parentDir, storageAdapter.getBackendConfigProperties());
+        }
         LOG.info("TVF sink: deleting existing files in directory: {}", parentDir);
         try (org.apache.doris.filesystem.FileSystem fs = FileSystemFactory.getFileSystem(storageAdapter)) {
             fs.delete(Location.of(parentDir), true);

@@ -432,6 +432,11 @@ class BindTVFTableSinkTest {
                 "/locality/prefix_", properties));
         // A prefix naming a mount point generates a sibling filename; a trailing slash writes inside it.
         Assertions.assertDoesNotThrow(() -> LocalTableValuedFunction.checkHdfsSinkEnabled("/local", properties));
+        Assertions.assertInstanceOf(LogicalTVFTableSink.class,
+                analyzeInsert("INSERT INTO hdfs('file_path'='/local', 'format'='csv',"
+                        + "'delete_existing_files'='true', 'fs.defaultFS'='viewfs://cluster',"
+                        + "'fs.viewfs.mounttable.cluster.link./local'='file:///tmp',"
+                        + "'fs.viewfs.mounttable.cluster.linkFallback'='hdfs://namenode:8020/base') SELECT 1"));
         Assertions.assertThrows(AnalysisException.class,
                 () -> LocalTableValuedFunction.checkHdfsSinkEnabled("/local/", properties));
         properties.put("file_path", "/local/sub/prefix_");
