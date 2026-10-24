@@ -183,20 +183,15 @@ public abstract class IvmAggFunctionProcessor {
      */
     protected AggregateFunction hiddenStateAggregate(IvmAggStateKey stateKey, AggregateFunction function,
             long minMaxTopK) {
-        switch (stateKey) {
-            case COUNT:
-                return new Count(function.child(0));
-            case SUM:
-                return new Sum(function.child(0));
-            case BITMAP_UNION:
-                return new BitmapUnion(function.child(0));
-            case MIN_TOPK:
-                return new MinTopK(function.child(0), new BigIntLiteral(minMaxTopK));
-            case MAX_TOPK:
-                return new MaxTopK(function.child(0), new BigIntLiteral(minMaxTopK));
-            default:
-                throw new IllegalArgumentException("Unsupported IVM aggregate state: " + stateKey);
-        }
+        return switch (stateKey) {
+            case COUNT -> new Count(function.child(0));
+            case SUM -> new Sum(function.child(0));
+            case BITMAP_UNION -> new BitmapUnion(function.child(0));
+            case MIN_TOPK -> new MinTopK(function.child(0), new BigIntLiteral(minMaxTopK));
+            case MAX_TOPK -> new MaxTopK(function.child(0), new BigIntLiteral(minMaxTopK));
+            case MIN_TOPK_BOUND, MAX_TOPK_BOUND -> throw new IllegalArgumentException(
+                    "Derived IVM aggregate state has no materializing aggregate: " + stateKey);
+        };
     }
 
     /** Logical delta slots this processor exposes to the apply stage. */
