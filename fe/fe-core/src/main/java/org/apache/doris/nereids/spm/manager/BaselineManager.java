@@ -2722,52 +2722,21 @@ public class BaselineManager {
             // dropped): DROP is keyed by the user-facing id, so no row of this id may
             // survive - identity-deleting only the stale object would report success
             // while the real row stays and keeps matching later reads.
-            // Retain the identity for the KEY CLEANUP below (see
-            // resumePendingDropKeyCleanup): the twin retirement runs AFTER the identity
-            // delete, so a twin whose delete throws leaves the dropped id ABSENT and this
-            // retention is then the only source of the twins that still have to go.
-            retainDropKeyCleanup(removed);
-            List<BaselinePlan> retiredTwins = new ArrayList<>();
-            try {
-                retiredTwins = wipeDurableRowsById(id, removed, retiredTwins);
-            } catch (RuntimeException e) {
-                // The IDENTITY delete is CONFIRMED (persistDeleteByIdentity only returns
-                // once the row is gone): this cached entry's durable row no longer exists,
-                // so it must stop being matchable / replayable on this FE even though the
-                // cleanup of a LINGERING other incarnation could not be read. Keeping the
-                // entry let ordinary queries keep replaying a baseline whose row the DROP
-                // had already deleted; the failure still propagates (retryable), and the
-                // retry takes the cache-miss path which deletes the lingering rows.
-                removeCachedBaseline(removed);
-                // The twins retired BEFORE the failing statement are already GONE durably:
-                // a warm bucket that still held one of them would keep replaying a row the
-                // DROP removed (completeRowsForHash serves a warm bucket before any
-                // tombstone reconciliation), so they leave the cache here with their
-                // publication epoch.
-                evictRetiredRows(retiredTwins);
-                // The identity delete was CONFIRMED before this cleanup read failed, so
-                // the removed row's tombstone may be appended NOW - withholding it (as
-                // the absence fence does for an UNPROVEN delete) would lose the
-                // delayed-commit protection the confirmation already earned. The ID is
-                // condemned as well: the lingering incarnation could not be READ, and the
-                // user dropped the id - any row of it that publishes later must not revive
-                // the baseline (see wipeDurableRowsById).
-                noteDroppedSeqState(removed);
-                noteDroppedIdState(id);
-                oweDropTombstone(id, removed);
-                oweDropIdTombstone(id);
-                // The identity delete was PROVEN (persistDeleteByIdentity only returns once
-                // the row is gone), so the fence is CONFIRMED like an ALTER's proven flip:
-                // the row can stay unreadable past every bound and an expiring fence would
-                // re-publish it (round-76 #7).
-                recordConfirmedAbsenceFence(id);
-                throw e;
-            }
+            // The IDENTITY delete is CONFIRMED from here on (persistDeleteByIdentity only
+            // returns once the row is gone), so TWO obligations must be settled - in this
+            // order, because preparing the second one is a READ that can fail (round-80
+            // #4/#5):
+            //   (1) the dropped baseline stops being matchable / replayable on this FE and its
+            //       durable tombstone obligation exists;
+            //   (2) the KEY CLEANUP below is retained (it needs the id watermark) and the
+            //       lingering rows of this id are wiped.
+            // Settling (2) FIRST let an unreadable watermark throw before (1): the cached
+            // ENABLED baseline stayed matchable although its durable row was already gone, and
+            // the tombstone (plus the retry obligation) a delayed status INSERT of a demoted
+            // master needs to be defeated was never recorded - that row could revive the
+            // DROPped baseline after a cache loss / handoff. The cache-miss path already
+            // settles (1) first (see dropDurableRowByIdIfAbsentFromCache).
             removeCachedBaseline(removed);
-            // The DROP also retired rows DURABLY (same-key twins, lingering incarnations):
-            // a warm bucket that still held one of them would keep replaying it until the
-            // next refresh (see evictRetiredRows).
-            evictRetiredRows(retiredTwins);
             // Two tombstone SCOPES are written on purpose, because the DROP has to defeat two
             // DIFFERENT revivals (round-76 #7: each path writes the scope it means, and every
             // reader asks for both):
@@ -2782,6 +2751,8 @@ public class BaselineManager {
             //   condemned because the user dropped it.
             noteDroppedSeqState(removed);
             noteDroppedIdState(id);
+            oweDropTombstone(id, removed);
+            oweDropIdTombstone(id);
             // Even a CONFIRMED identity delete can stay unreadable to a later local read
             // (its publication lags the confirmation): the fence keeps the refresh / a
             // SHOW reload from re-adding the dropped row until the table shows it gone.
@@ -2791,6 +2762,32 @@ public class BaselineManager {
             // only its publication lags - an EXPIRING fence re-published the pre-DROP row as
             // soon as the bound elapsed.
             recordConfirmedAbsenceFence(id);
+            // Retain the identity for the KEY CLEANUP below (see
+            // resumePendingDropKeyCleanup): the twin retirement runs AFTER the identity
+            // delete, so a twin whose delete throws leaves the dropped id ABSENT and this
+            // retention is then the only source of the twins that still have to go. An
+            // unreadable watermark still fails the DROP retryably, but obligations (1) above
+            // are already settled.
+            retainDropKeyCleanup(removed);
+            List<BaselinePlan> retiredTwins = new ArrayList<>();
+            try {
+                retiredTwins = wipeDurableRowsById(id, removed, retiredTwins);
+            } catch (RuntimeException e) {
+                // The identity delete (and its tombstones / fence) is already settled above:
+                // the lingering incarnation could not be READ, so no more can be done for it -
+                // the failure propagates (retryable) and the retry takes the cache-miss path
+                // which deletes the lingering rows. The twins retired BEFORE the failing
+                // statement are already GONE durably: a warm bucket that still held one of
+                // them would keep replaying a row the DROP removed (completeRowsForHash
+                // serves a warm bucket before any tombstone reconciliation), so they leave the
+                // cache here with their publication epoch.
+                evictRetiredRows(retiredTwins);
+                throw e;
+            }
+            // The DROP also retired rows DURABLY (same-key twins, lingering incarnations):
+            // a warm bucket that still held one of them would keep replaying it until the
+            // next refresh (see evictRetiredRows).
+            evictRetiredRows(retiredTwins);
             // The tombstone appends above only WARN on the wire: report the DROP only
             // once they are readable, or a delayed write of the removed row - or the
             // unreadable loser of a handoff collision - revives the dropped baseline on
@@ -2946,6 +2943,17 @@ public class BaselineManager {
         for (BaselinePlan row : durable) {
             removeCachedBaseline(row);
         }
+        // The ID-scope tombstone and the confirmed absence fence are settled HERE, before the
+        // key-cleanup retention below (round-80 #4/#5): that retention is a READ of the id
+        // watermark and can fail, and the rows above are already deleted - an unreadable
+        // watermark used to escape with the id un-condemned and un-fenced, so a delayed status
+        // INSERT of a demoted master (or of another incarnation of this id) could revive the
+        // DROPped baseline after a cache loss / handoff. The cached path settles the same two
+        // obligations in the same order (see dropBaseline).
+        noteDroppedIdState(id);
+        // Same CONFIRMED absence fence as dropBaseline (round-76 #7): every identity delete of
+        // this branch returned OK, so absence is irreversible and only its publication lags.
+        recordConfirmedAbsenceFence(id);
         // retire the KEY's superseded same-key twins as well: this cache-miss DROP path
         // must not leave the loser of a handoff twin pair durable (see
         // retireSupersededKeyTwins)
@@ -2976,10 +2984,6 @@ public class BaselineManager {
         // evictRetiredRows).
         evictRetiredRows(retiredKeys);
         droppedRows.addAll(retiredKeys);
-        noteDroppedIdState(id);
-        // Same CONFIRMED absence fence as dropBaseline (round-76 #7): every identity delete of
-        // this branch returned OK, so absence is irreversible and only its publication lags.
-        recordConfirmedAbsenceFence(id);
         // The KEY CLEANUP retention is released BEFORE the tombstone confirmation
         // (round-76 #2): the twins above are already retired, and a retention surviving a
         // FAILED confirmation made the absent-row retry resume the cleanup against a key the

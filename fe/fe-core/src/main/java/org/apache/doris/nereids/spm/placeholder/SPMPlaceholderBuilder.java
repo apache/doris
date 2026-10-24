@@ -484,6 +484,14 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
      * accepted: the parsed {@link ArrayLiteral} and the unbound `array(...)` call, which is only
      * a {@link Function} named {@code array} before binding.
      *
+     * An ARRAY_CONCAT WRAPPER is an all-NULL array exactly when every concatenated part is one
+     * (round-80): the function derives its element type from its inputs, so concatenating only
+     * all-NULL arrays keeps ARRAY&lt;NULL_TYPE&gt; - and the wrapper was NOT recognized, so
+     * `k > 0 OR element_at(array_concat(array(NULL), array(NULL)), 1)` kept an ARRAY&lt;NULL_TYPE&gt;
+     * marker, a Boolean consumer erased the element_at call and its markers, and the
+     * `array(TRUE), array(TRUE)` variant had nothing left to substitute (the frozen replay then
+     * returned NULL for a row the caller returns TRUE for).
+     *
      * @param expr the expression to classify
      * @return whether it is an all-NULL array value
      */
@@ -493,6 +501,18 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         }
         if (expr.isNullLiteral()) {
             // a NULL literal is untyped ARRAY<NULL_TYPE> in an array position
+            return true;
+        }
+        if (isArrayConcatCall(expr)) {
+            List<Expression> parts = expr.children();
+            if (parts.isEmpty()) {
+                return false;
+            }
+            for (Expression part : parts) {
+                if (!isAllNullArray(part)) {
+                    return false;
+                }
+            }
             return true;
         }
         if (!isArrayConstructor(expr)) {
@@ -510,6 +530,20 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             }
         }
         return true;
+    }
+
+    /**
+     * Whether the expression is an {@code array_concat} call (see isAllNullArray).
+     *
+     * Matched by NAME through {@link Function}, which covers both the unbound `array_concat(...)`
+     * call and the bound {@code ArrayConcat} node (its function name is {@code array_concat}).
+     *
+     * @param expr the expression to classify
+     * @return whether it is an array_concat call
+     */
+    private static boolean isArrayConcatCall(Expression expr) {
+        return expr instanceof Function
+                && "array_concat".equalsIgnoreCase(((Function) expr).getName());
     }
 
     /**
