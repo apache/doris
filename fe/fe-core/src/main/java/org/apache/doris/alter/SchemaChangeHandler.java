@@ -3888,7 +3888,7 @@ public class SchemaChangeHandler extends AlterHandler {
                     }
 
                     if (hasIndexChangeJobOnPartition(originIndexId, db.getId(), olapTable.getId(),
-                            partitionName, alterIndexes, isDropOp)) {
+                            partitionName, alterIndexes)) {
                         throw new DdlException("partition " + partitionName + " has been built specified index."
                                             + " please check your build stmt.");
                     }
@@ -3965,7 +3965,7 @@ public class SchemaChangeHandler extends AlterHandler {
             // Cheap partition check first, the predicate compares index lists.
             if (partitionNames.contains(indexChangeJob.getPartitionName())
                     && isConflictingIndexChangeJob(indexChangeJob, olapTable.getBaseIndexId(), db.getId(),
-                    olapTable.getId(), alterIndexes, true)) {
+                    olapTable.getId(), alterIndexes)) {
                 throw new DdlException("partition " + indexChangeJob.getPartitionName() + " of table "
                         + olapTable.getName() + " has an unfinished index change job, please retry after it finishes.");
             }
@@ -3973,13 +3973,11 @@ public class SchemaChangeHandler extends AlterHandler {
     }
 
     public boolean hasIndexChangeJobOnPartition(
-            long originIndexId, long dbId, long tableId, String partitionName,
-            List<Index> alterIndexes, boolean isDrop) {
+            long originIndexId, long dbId, long tableId, String partitionName, List<Index> alterIndexes) {
         // TODO: this is temporary methods
         for (IndexChangeJob indexChangeJob : ImmutableList.copyOf(indexChangeJobs.values())) {
             if (indexChangeJob.getPartitionName().equals(partitionName)
-                    && isConflictingIndexChangeJob(indexChangeJob, originIndexId, dbId, tableId, alterIndexes,
-                    isDrop)) {
+                    && isConflictingIndexChangeJob(indexChangeJob, originIndexId, dbId, tableId, alterIndexes)) {
                 return true;
             }
         }
@@ -3987,12 +3985,12 @@ public class SchemaChangeHandler extends AlterHandler {
     }
 
     private static boolean isConflictingIndexChangeJob(IndexChangeJob indexChangeJob, long originIndexId,
-            long dbId, long tableId, List<Index> alterIndexes, boolean isDrop) {
+            long dbId, long tableId, List<Index> alterIndexes) {
         // if JobState is done (CANCELLED or FINISHED), also allow user to create job again
         return indexChangeJob.getOriginIndexId() == originIndexId
                 && indexChangeJob.getDbId() == dbId
                 && indexChangeJob.getTableId() == tableId
-                && ((Config.isNotCloudMode() && indexChangeJob.hasSameAlterInvertedIndex(isDrop, alterIndexes))
+                && ((Config.isNotCloudMode() && indexChangeJob.hasAlterInvertedIndex(alterIndexes))
                 || Config.isCloudMode())
                 && !indexChangeJob.isDone();
     }
