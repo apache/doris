@@ -486,6 +486,12 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             // parse ITS schema (e.g. t$snapshots -> committed_at/snapshot_id/...). Mirrors legacy
             // IcebergSysExternalTable.getSysIcebergTable + getOrCreateSchemaCacheValue; the enable.mapping.*
             // flags are threaded by the shared buildTableSchema -> parseSchema (deviation 5).
+            if (IcebergLabelsSysTable.isLabels(iceHandle)) {
+                // $labels is not an iceberg metadata table: its schema is fixed and needs no table load (the
+                // base table's existence was already checked by getTableHandle).
+                return new ConnectorTableSchema(iceHandle.getTableName(),
+                        parseSchema(IcebergLabelsSysTable.SCHEMA), "ICEBERG", Collections.emptyMap());
+            }
             Table sysTable = loadSysTable(session, iceHandle);
             return buildTableSchema(iceHandle.getTableName(), sysTable, sysTable.schema(), false);
         }
@@ -786,6 +792,9 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         // Mirror getTableSchema: wrap the remote load in the auth context. A sys handle resolves the
         // metadata-table columns (t$snapshots -> committed_at/...) so the generic scan node can look up
         // its pruned sys-table slots by name; a data handle resolves the base table's columns.
+        if (IcebergLabelsSysTable.isLabels(iceHandle)) {
+            return buildColumnHandles(IcebergLabelsSysTable.SCHEMA, false);
+        }
         Table table = iceHandle.isSystemTable() ? loadSysTable(session, iceHandle) : loadTable(session, iceHandle);
         return buildColumnHandles(table.schema(), !iceHandle.isSystemTable());
     }
@@ -1872,6 +1881,9 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      * excluding it here would be a capability regression vs master. Unlike every other entry, its scan takes
      * BE's native reader rather than the JNI serialized-split path (see
      * {@code IcebergScanPlanProvider.doPlanPositionDeletesSystemTableScan}).
+     *
+     * <p>A REST catalog additionally exposes {@code labels} ({@link IcebergLabelsSysTable}), which is not a
+     * {@code MetadataTableType}: its rows are the catalog labels returned with the table load.
      */
     @Override
     public List<String> listSupportedSysTables(ConnectorSession session,
@@ -1879,6 +1891,9 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         List<String> names = new ArrayList<>();
         for (MetadataTableType type : MetadataTableType.values()) {
             names.add(type.name().toLowerCase(Locale.ROOT));
+        }
+        if (supportsLabels()) {
+            names.add(IcebergLabelsSysTable.NAME);
         }
         return Collections.unmodifiableList(names);
     }
@@ -1922,12 +1937,15 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     /**
      * Whether iceberg exposes a system table named {@code sysName} (case-insensitive). Mirrors
      * {@code IcebergSysTable.SUPPORTED_SYS_TABLES}: every {@code MetadataTableType}, {@code POSITION_DELETES}
-     * included (see {@link #listSupportedSysTables}). A {@code null} name is simply not exposed (returns
-     * false, not NPE).
+     * included (see {@link #listSupportedSysTables}), plus {@code labels} for a REST catalog. A {@code null}
+     * name is simply not exposed (returns false, not NPE).
      */
-    private static boolean isSupportedSysTable(String sysName) {
+    private boolean isSupportedSysTable(String sysName) {
         if (sysName == null) {
             return false;
+        }
+        if (IcebergLabelsSysTable.NAME.equalsIgnoreCase(sysName)) {
+            return supportsLabels();
         }
         for (MetadataTableType type : MetadataTableType.values()) {
             if (type.name().equalsIgnoreCase(sysName)) {
@@ -1935,6 +1953,11 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             }
         }
         return false;
+    }
+
+    /** Only a REST catalog returns catalog labels with the table load, so only it exposes {@code $labels}. */
+    private boolean supportsLabels() {
+        return IcebergCatalogProperties.TYPE_REST.equals(catalogProps.getFlavor());
     }
 
     // ========== Write / Transaction (P6.3) ==========
