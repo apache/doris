@@ -50,6 +50,7 @@ import org.apache.doris.thrift.schema.external.TFieldPtr;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.iceberg.AppendFiles;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
@@ -2195,6 +2196,46 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
+    public void equalityCarrierFollowsUnknownKeyPromotedWithoutASnapshot() throws Exception {
+        // v3 lets UNKNOWN become any type, which TypeUtil.isPromotionAllowed does not know. k is promoted to DATE and
+        // then TIMESTAMP_NS without snapshots, and a pending append and a pending delete commit after k is dropped,
+        // so the only snapshot that records k has it as UNKNOWN. An UNKNOWN carrier is sent as STRING, and V2 would
+        // compare 2024-01-02 with 2024-01-02 00:00:00.000000000 and keep the deleted row.
+        Table table = createTable("promoted_unknown_dropped_eq_key", new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "k", Types.UnknownType.get())), PartitionSpec.unpartitioned(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "3"));
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/promoted_unknown_dropped_eq_key/f1.parquet", 1024, null, null)).commit();
+        publishSchema(table, new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "k", Types.DateType.get())), 2);
+        AppendFiles pendingAppend = table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/promoted_unknown_dropped_eq_key/f2.parquet", 1024, null, null));
+        publishSchema(table, new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "k", Types.TimestampNanoType.withoutZone())), 2);
+        RowDelta pendingDelete = table.newRowDelta().addDeletes(equalityDeleteFile(
+                "s3://b/db/promoted_unknown_dropped_eq_key/eq.parquet", FileFormat.PARQUET, 2));
+        table.updateSchema().deleteColumn("k").commit();
+        pendingAppend.commit();
+        pendingDelete.commit();
+        Assertions.assertEquals(Types.UnknownType.get(), table.schemas().get(table.snapshot(table.snapshot(
+                table.currentSnapshot().parentId()).parentId()).schemaId()).findType(2));
+
+        List<NestedField> carrier = IcebergScanPlanProvider.schemaForPotentialEqualityDeletes(
+                table, table.newScan(), table.schema());
+        Assertions.assertEquals(2, carrier.size(), "the dropped equality key must stay resolvable: " + carrier);
+        Assertions.assertEquals(Types.TimestampNanoType.withoutZone(), carrier.get(1).type());
+        Assertions.assertTrue(carrier.get(1).isOptional(), carrier.toString());
+
+        IcebergScanPlanProvider provider = providerOver(table);
+        Map<String, String> props = provider.getScanNodeProperties(null,
+                new IcebergTableHandle("db1", "promoted_unknown_dropped_eq_key"),
+                Collections.singletonList(new IcebergColumnHandle("id", 1)), Optional.empty());
+        Assertions.assertEquals(TPrimitiveType.TIMESTAMP_NS,
+                dictFieldById(dictRootFields(provider, props), 2).getType().getType());
+    }
+
+    @Test
     public void equalityCarrierConvertsDefaultsOfDateKeyPromotedToTimestamp() throws Exception {
         assertPromotedDateKeyDefaults("promoted_date_default_eq_key", Types.TimestampType.withoutZone());
     }
@@ -2207,8 +2248,8 @@ public class IcebergScanPlanProviderTest {
     /**
      * Gives a v3 DATE key both defaults, promotes it to {@code promotedType} without a snapshot and drops it while an
      * equality delete on it is pending. The lineage selects the DATE definition and the carrier rebuilds it in the
-     * promoted type, which casts both defaults; a DATE literal converts only to DATE, so an unconverted default
-     * fails planning with "Cannot cast default value".
+     * promoted type, which casts its initial default; a DATE literal converts only to DATE, so an unconverted
+     * initial default fails planning with "Cannot cast default value". The rebuilt field has no write default.
      */
     private static void assertPromotedDateKeyDefaults(String name, Type promotedType) {
         Literal<Integer> date = Literal.of("2024-01-02").to(Types.DateType.get());
@@ -2235,13 +2276,50 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertEquals(2, carrier.size(), "the dropped equality key must stay resolvable: " + carrier);
         Assertions.assertEquals(promotedType, carrier.get(1).type());
         Assertions.assertEquals(midnight, carrier.get(1).initialDefaultLiteral());
-        Assertions.assertEquals(midnight, carrier.get(1).writeDefaultLiteral());
+        Assertions.assertNull(carrier.get(1).writeDefaultLiteral());
 
         IcebergScanPlanProvider provider = providerOver(table);
         Map<String, String> props = provider.getScanNodeProperties(null, new IcebergTableHandle("db1", name),
                 Collections.singletonList(new IcebergColumnHandle("id", 1)), Optional.empty());
         Assertions.assertEquals("2024-01-02 00:00:00",
                 dictFieldById(dictRootFields(provider, props), 2).getInitialDefaultValue());
+    }
+
+    @Test
+    public void equalityCarrierDropsStaleWriteDefaultOfPromotedDateKey() throws Exception {
+        // The snapshot that records k has a DATE write default outside the TIMESTAMP_NS range. The write default is
+        // cleared and k is promoted to TIMESTAMP_NS without snapshots, then k is dropped while a delete on it is
+        // pending. No reader uses a write default, so the carrier must not convert the stale one, which overflows.
+        Literal<Integer> outOfRange = Literal.of("1000-01-01").to(Types.DateType.get());
+        Table table = createTable("stale_write_default_eq_key", new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional("k").withId(2).ofType(Types.DateType.get())
+                        .withWriteDefault(outOfRange).build()), PartitionSpec.unpartitioned(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "3"));
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/stale_write_default_eq_key/f1.parquet", 1024, null, null)).commit();
+        table.updateSchema().updateColumnDefault("k", null).commit();
+        publishSchema(table, new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "k", Types.TimestampNanoType.withoutZone())), 2);
+        RowDelta pendingDelete = table.newRowDelta().addDeletes(equalityDeleteFile(
+                "s3://b/db/stale_write_default_eq_key/eq.parquet", FileFormat.PARQUET, 2));
+        table.updateSchema().deleteColumn("k").commit();
+        pendingDelete.commit();
+        Assertions.assertEquals(outOfRange.value(), table.schemas()
+                .get(table.snapshot(table.currentSnapshot().parentId()).schemaId()).findField(2).writeDefault());
+
+        List<NestedField> carrier = IcebergScanPlanProvider.schemaForPotentialEqualityDeletes(
+                table, table.newScan(), table.schema());
+        Assertions.assertEquals(2, carrier.size(), "the dropped equality key must stay resolvable: " + carrier);
+        Assertions.assertEquals(Types.TimestampNanoType.withoutZone(), carrier.get(1).type());
+        Assertions.assertNull(carrier.get(1).initialDefaultLiteral());
+        Assertions.assertNull(carrier.get(1).writeDefaultLiteral());
+
+        IcebergScanPlanProvider provider = providerOver(table);
+        Map<String, String> props = provider.getScanNodeProperties(null,
+                new IcebergTableHandle("db1", "stale_write_default_eq_key"),
+                Collections.singletonList(new IcebergColumnHandle("id", 1)), Optional.empty());
+        Assertions.assertFalse(dictFieldById(dictRootFields(provider, props), 2).isSetInitialDefaultValue());
     }
 
     @Test

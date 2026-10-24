@@ -2348,8 +2348,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * the schema-only changes made before the drop from every snapshot. Field IDs are never reused and a field
      * only relaxes compatibly, by promotion or from required to optional, so each field of the selected definition
      * takes the widest promotion of its type and the optionality it has in any retained schema; neither depends on
-     * the order of the schemas. A field required in every retained schema stays required, and a promoted field
-     * keeps its defaults in the promoted type ({@link #promotedDefault}).
+     * the order of the schemas. A field required in every retained schema stays required; a rebuilt field keeps its
+     * initial default in the promoted type ({@link #promotedDefault}) and drops its write default, which no reader
+     * uses and whose stale value may not fit the promoted type.
      */
     private static List<NestedField> withRetainedRelaxations(List<NestedField> fields, List<Schema> schemas) {
         List<NestedField> relaxed = new ArrayList<>(fields.size());
@@ -2373,18 +2374,21 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             relaxed.add(type.equals(field.type()) && optional == field.isOptional()
                     ? field : Types.NestedField.from(field).ofType(type).isOptional(optional)
                             .withInitialDefault(promotedDefault(field.initialDefaultLiteral(), field.type(), type))
-                            .withWriteDefault(promotedDefault(field.writeDefaultLiteral(), field.type(), type))
+                            .withWriteDefault((Literal<?>) null)
                             .build());
         }
         return relaxed;
     }
 
     /**
-     * {@link TypeUtil#isPromotionAllowed} plus the v3 promotion of DATE to an unzoned TIMESTAMP or TIMESTAMP_NS,
-     * which the SDK's schema update does not implement yet but the format allows.
+     * {@link TypeUtil#isPromotionAllowed} plus the v3 promotions that the SDK's schema update does not implement yet
+     * but the format allows: UNKNOWN to any primitive type, and DATE to an unzoned TIMESTAMP or TIMESTAMP_NS.
      */
     private static boolean isWideningPromotion(Type.PrimitiveType from, Type.PrimitiveType to) {
         if (TypeUtil.isPromotionAllowed(from, to)) {
+            return true;
+        }
+        if (from.typeId() == Type.TypeID.UNKNOWN) {
             return true;
         }
         if (from.typeId() != Type.TypeID.DATE) {
@@ -2395,10 +2399,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /**
-     * {@code value}, a default of a field of type {@code from}, in the type {@code to} the field is rebuilt with.
-     * NestedField casts both defaults to its type, which converts the literals of the SDK promotions, but in Iceberg
-     * 1.12.0 a DATE literal converts only to DATE: a DATE default moves to midnight of its day in the promoted
-     * TIMESTAMP or TIMESTAMP_NS, and a date outside that type's range throws, as the format requires.
+     * {@code value}, the initial default of a field of type {@code from}, in the type {@code to} the field is rebuilt
+     * with. NestedField casts the initial default to its type, which converts the literals of the SDK promotions,
+     * but in Iceberg 1.12.0 a DATE literal converts only to DATE: a DATE default moves to midnight of its day in the
+     * promoted TIMESTAMP or TIMESTAMP_NS, and a date outside that type's range throws, as the format requires.
      */
     private static Literal<?> promotedDefault(Literal<?> value, Type from, Type to) {
         if (value == null || from.typeId() != Type.TypeID.DATE || to.equals(from)) {
