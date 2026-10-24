@@ -249,6 +249,42 @@ TEST_F(CloudCompactionTest, failure_cumu_compaction_tablet_sleep_test) {
     ASSERT_EQ(tablets.size(), 0);
 }
 
+TEST_F(CloudCompactionTest, disable_auto_compaction_toggle_is_read_from_tablet_meta) {
+    auto filter_out = [](CloudTablet* t) { return false; };
+    CloudTabletMgr mgr(_engine);
+
+    std::vector<RowsetMetaSharedPtr> rs_metas;
+    init_rs_meta_small_base(&rs_metas);
+
+    CloudTabletSPtr tablet1 = std::make_shared<CloudTablet>(_engine, _tablet_meta);
+    for (auto& rs_meta : rs_metas) {
+        static_cast<void>(_tablet_meta->add_rs_meta(rs_meta));
+    }
+    tablet1->tablet_meta()->_tablet_id = 10000;
+    tablet1->set_last_cumu_compaction_failure_time(0);
+    tablet1->_approximate_cumu_num_deltas = 10;
+    mgr.put_tablet_for_UT(tablet1);
+
+    CompactionScoreStats score_stats;
+    std::vector<std::shared_ptr<CloudTablet>> tablets {};
+
+    // ALTER TABLE ... SET ("disable_auto_compaction" = "true") synced to the tablet
+    tablet1->tablet_meta()->set_disable_auto_compaction(true);
+    Status st = mgr.get_topn_tablets_to_compact(1, CompactionType::CUMULATIVE_COMPACTION,
+                                                filter_out, &tablets, &score_stats);
+    ASSERT_EQ(st, Status::OK());
+    ASSERT_EQ(tablets.size(), 0);
+    // The shared TabletSchema object is never mutated by the per-tablet flag
+    ASSERT_FALSE(tablet1->tablet_meta()->tablet_schema()->disable_auto_compaction());
+
+    // ALTER TABLE ... SET ("disable_auto_compaction" = "false") synced again
+    tablet1->tablet_meta()->set_disable_auto_compaction(false);
+    st = mgr.get_topn_tablets_to_compact(1, CompactionType::CUMULATIVE_COMPACTION, filter_out,
+                                         &tablets, &score_stats);
+    ASSERT_EQ(st, Status::OK());
+    ASSERT_EQ(tablets.size(), 1);
+}
+
 TEST_F(CloudCompactionTest, changelog_compaction_max_score_ignores_normal_tablets) {
     auto filter_out = [](CloudTablet* t) { return !t->is_changelog_tablet(); };
     CloudTabletMgr mgr(_engine);
