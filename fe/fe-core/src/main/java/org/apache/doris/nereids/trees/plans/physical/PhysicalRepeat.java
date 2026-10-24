@@ -234,8 +234,9 @@ public class PhysicalRepeat<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
 
     @Override
     public PhysicalRepeat<CHILD_TYPE> resetLogicalProperties() {
-        return new PhysicalRepeat<>(groupingSets, outputExpressions, groupingId, groupingIdValues, groupExpression,
-                null, physicalProperties, statistics, child());
+        return rebuildKeepingStates(this,
+                new PhysicalRepeat<>(groupingSets, outputExpressions, groupingId, groupingIdValues, groupExpression,
+                null, physicalProperties, statistics, child()));
     }
 
     @Override

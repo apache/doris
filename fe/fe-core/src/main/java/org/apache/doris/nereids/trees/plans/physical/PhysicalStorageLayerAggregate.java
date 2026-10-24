@@ -89,16 +89,24 @@ public class PhysicalStorageLayerAggregate extends PhysicalCatalogRelation {
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalStorageLayerAggregate[" + relationId.asInt() + "]" + getGroupIdWithPrefix(),
+        return Utils.toSqlString("PhysicalStorageLayerAggregate[" + relationId.asInt() + "]"
+                + getGroupIdWithPrefix(),
                 "pushDownAggOp", aggOp,
                 "relation", relation,
                 "stats", statistics
         );
     }
 
+    /**
+     * Replace the relation this aggregation reads. Only the relation changes: the node stays the plan node
+     * it was, so it keeps the group expression and the states it carries (see
+     * {@link AbstractPlan#rebuildKeepingStates}) - a rebuild which drops them makes the node
+     * unaddressable, and the annotation can only report that its group is unknown.
+     */
     public PhysicalStorageLayerAggregate withPhysicalOlapScan(PhysicalOlapScan physicalOlapScan) {
-        return AbstractPlan.copyWithSameId(this, () -> new PhysicalStorageLayerAggregate(
-                physicalOlapScan, aggOp, countArgumentExprIds));
+        return AbstractPlan.rebuildKeepingStates(this, AbstractPlan.copyWithSameId(this,
+                () -> new PhysicalStorageLayerAggregate(physicalOlapScan, aggOp, countArgumentExprIds,
+                        getGroupExpression(), getLogicalProperties(), physicalProperties, statistics)));
     }
 
     @Override
