@@ -183,9 +183,8 @@ public:
     // size should be the size of the page instead of shared_ptr.
     // Internal implementation will wrap shared_ptr with MemoryTrackedPageWithPagePtr
     // Since we are using std::shared_ptr, so lify cycle of the page is not managed by
-    // this cache alone.
-    // User could store a weak_ptr to the page, and lock it when needed.
-    // See Segment::_get_segment_footer for example.
+    // this cache alone. Access the page through cache lookup (PageCacheHandle) so the
+    // cache observes accesses and the LRU order reflects actual usage.
     template <typename T>
     void insert(const CacheKey& key, T data, size_t size, PageCacheHandle* handle,
                 segment_v2::PageTypePB page_type, bool in_memory = false);
