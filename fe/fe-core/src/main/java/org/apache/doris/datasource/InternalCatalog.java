@@ -3151,8 +3151,9 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
         }
         // check colocation properties
+        String colocateGroup;
         try {
-            String colocateGroup = PropertyAnalyzer.analyzeColocate(properties);
+            colocateGroup = PropertyAnalyzer.analyzeColocate(properties);
             if (colocateGroup != null) {
                 if (defaultDistributionInfo.getType() == DistributionInfoType.RANDOM) {
                     throw new AnalysisException("Random distribution for colocate table is unsupported");
@@ -3167,10 +3168,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                     groupSchema.checkColocateSchema(olapTable);
                     groupSchema.checkDynamicPartition(properties, olapTable.getDefaultDistributionInfo());
                 }
-                // add table to this group, if group does not exist, create a new one
-                Env.getCurrentColocateIndex()
-                        .addTableToGroup(db.getId(), olapTable, fullGroupName, null /* generate group id inside */);
-                olapTable.setColocateGroup(colocateGroup);
             }
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
@@ -3305,6 +3302,13 @@ public class InternalCatalog implements CatalogIf<Database> {
         // create partition
         boolean hadLogEditCreateTable = false;
         try {
+            if (colocateGroup != null) {
+                String fullGroupName = GroupId.getFullGroupName(db.getId(), colocateGroup);
+                // add table to this group, if group does not exist, create a new one
+                Env.getCurrentColocateIndex()
+                        .addTableToGroup(db.getId(), olapTable, fullGroupName, null /* generate group id inside */);
+                olapTable.setColocateGroup(colocateGroup);
+            }
             if (partitionInfo.getType() == PartitionType.UNPARTITIONED) {
                 if (properties != null && !properties.isEmpty()) {
                     // here, all properties should be checked
