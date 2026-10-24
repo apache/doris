@@ -79,6 +79,7 @@ import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.InclusiveMetricsEvaluator;
+import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.expressions.ManifestEvaluator;
 import org.apache.iceberg.expressions.Projections;
 import org.apache.iceberg.expressions.ResidualEvaluator;
@@ -92,6 +93,7 @@ import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.types.Types.NestedField;
+import org.apache.iceberg.util.DateTimeUtil;
 import org.apache.iceberg.util.ScanTaskUtil;
 import org.apache.iceberg.util.TableScanUtil;
 import org.apache.logging.log4j.LogManager;
@@ -2346,7 +2348,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * the schema-only changes made before the drop from every snapshot. Field IDs are never reused and a field
      * only relaxes compatibly, by promotion or from required to optional, so each field of the selected definition
      * takes the widest promotion of its type and the optionality it has in any retained schema; neither depends on
-     * the order of the schemas. A field required in every retained schema stays required.
+     * the order of the schemas. A field required in every retained schema stays required, and a promoted field
+     * keeps its defaults in the promoted type ({@link #promotedDefault}).
      */
     private static List<NestedField> withRetainedRelaxations(List<NestedField> fields, List<Schema> schemas) {
         List<NestedField> relaxed = new ArrayList<>(fields.size());
@@ -2368,7 +2371,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 type = Types.StructType.of(withRetainedRelaxations(type.asStructType().fields(), schemas));
             }
             relaxed.add(type.equals(field.type()) && optional == field.isOptional()
-                    ? field : Types.NestedField.from(field).ofType(type).isOptional(optional).build());
+                    ? field : Types.NestedField.from(field).ofType(type).isOptional(optional)
+                            .withInitialDefault(promotedDefault(field.initialDefaultLiteral(), field.type(), type))
+                            .withWriteDefault(promotedDefault(field.writeDefaultLiteral(), field.type(), type))
+                            .build());
         }
         return relaxed;
     }
@@ -2386,6 +2392,20 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         }
         return to.typeId() == Type.TypeID.TIMESTAMP && !((Types.TimestampType) to).shouldAdjustToUTC()
                 || to.typeId() == Type.TypeID.TIMESTAMP_NANO && !((Types.TimestampNanoType) to).shouldAdjustToUTC();
+    }
+
+    /**
+     * {@code value}, a default of a field of type {@code from}, in the type {@code to} the field is rebuilt with.
+     * NestedField casts both defaults to its type, which converts the literals of the SDK promotions, but in Iceberg
+     * 1.12.0 a DATE literal converts only to DATE: a DATE default moves to midnight of its day in the promoted
+     * TIMESTAMP or TIMESTAMP_NS, and a date outside that type's range throws, as the format requires.
+     */
+    private static Literal<?> promotedDefault(Literal<?> value, Type from, Type to) {
+        if (value == null || from.typeId() != Type.TypeID.DATE || to.equals(from)) {
+            return value;
+        }
+        return Literal.of(DateTimeUtil.microsFromTimestamp(
+                DateTimeUtil.dateFromDays((Integer) value.value()).atStartOfDay())).to(to);
     }
 
     private static void addHistoricalEqualityFields(List<NestedField> fields, Set<Integer> missingFieldIds,

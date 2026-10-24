@@ -89,6 +89,7 @@ import org.apache.iceberg.mapping.NameMapping;
 import org.apache.iceberg.mapping.NameMappingParser;
 import org.apache.iceberg.metrics.ScanReport;
 import org.apache.iceberg.types.Conversions;
+import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.types.Types.NestedField;
 import org.junit.jupiter.api.Assertions;
@@ -2191,6 +2192,56 @@ public class IcebergScanPlanProviderTest {
                 table, table.newScan(), table.schema());
         Assertions.assertEquals(2, carrier.size(), "the dropped equality key must stay resolvable: " + carrier);
         Assertions.assertEquals(Types.TimestampNanoType.withoutZone(), carrier.get(1).type());
+    }
+
+    @Test
+    public void equalityCarrierConvertsDefaultsOfDateKeyPromotedToTimestamp() throws Exception {
+        assertPromotedDateKeyDefaults("promoted_date_default_eq_key", Types.TimestampType.withoutZone());
+    }
+
+    @Test
+    public void equalityCarrierConvertsDefaultsOfDateKeyPromotedToTimestampNs() throws Exception {
+        assertPromotedDateKeyDefaults("promoted_date_nanos_default_eq_key", Types.TimestampNanoType.withoutZone());
+    }
+
+    /**
+     * Gives a v3 DATE key both defaults, promotes it to {@code promotedType} without a snapshot and drops it while an
+     * equality delete on it is pending. The lineage selects the DATE definition and the carrier rebuilds it in the
+     * promoted type, which casts both defaults; a DATE literal converts only to DATE, so an unconverted default
+     * fails planning with "Cannot cast default value".
+     */
+    private static void assertPromotedDateKeyDefaults(String name, Type promotedType) {
+        Literal<Integer> date = Literal.of("2024-01-02").to(Types.DateType.get());
+        Literal<Long> midnight = Literal.of("2024-01-02T00:00:00").to(promotedType);
+        Table table = createTable(name, new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional("k").withId(2).ofType(Types.DateType.get())
+                        .withInitialDefault(date).withWriteDefault(date).build()), PartitionSpec.unpartitioned(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "3"));
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/" + name + "/f1.parquet", 1024, null, null))
+                .commit();
+        publishSchema(table, new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional("k").withId(2).ofType(promotedType)
+                        .withInitialDefault(midnight).withWriteDefault(midnight).build()), 2);
+        RowDelta pendingDelete = table.newRowDelta().addDeletes(equalityDeleteFile(
+                "s3://b/db/" + name + "/eq.parquet", FileFormat.PARQUET, 2));
+        table.updateSchema().deleteColumn("k").commit();
+        pendingDelete.commit();
+        Assertions.assertEquals(Types.DateType.get(), table.schemas()
+                .get(table.snapshot(table.currentSnapshot().parentId()).schemaId()).findType(2));
+
+        List<NestedField> carrier = IcebergScanPlanProvider.schemaForPotentialEqualityDeletes(
+                table, table.newScan(), table.schema());
+        Assertions.assertEquals(2, carrier.size(), "the dropped equality key must stay resolvable: " + carrier);
+        Assertions.assertEquals(promotedType, carrier.get(1).type());
+        Assertions.assertEquals(midnight, carrier.get(1).initialDefaultLiteral());
+        Assertions.assertEquals(midnight, carrier.get(1).writeDefaultLiteral());
+
+        IcebergScanPlanProvider provider = providerOver(table);
+        Map<String, String> props = provider.getScanNodeProperties(null, new IcebergTableHandle("db1", name),
+                Collections.singletonList(new IcebergColumnHandle("id", 1)), Optional.empty());
+        Assertions.assertEquals("2024-01-02 00:00:00",
+                dictFieldById(dictRootFields(provider, props), 2).getInitialDefaultValue());
     }
 
     @Test
