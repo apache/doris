@@ -34,6 +34,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -270,6 +271,35 @@ class MetaCacheWeightGovernanceTest {
             entry.invalidateKey("two");
             Assertions.assertEquals(0L, entry.metrics().getEstimatedWeight());
             Assertions.assertEquals(ENTRY_OVERHEAD + 256L, entry.metrics().getEvictionWeight());
+        }
+    }
+
+    @Test
+    void evictionWeightKeepsTheAdmittedBytesWhenInvalidationReleasesFirst() {
+        MetaCacheBudgetManager manager = new MetaCacheBudgetManager(OptionalLong.of(4096L));
+        MetaCacheBudgetManager.EntryBudget budget = manager.createEntryBudget(
+                28L, "iceberg", "table", "table", OptionalLong.empty(), OptionalLong.empty());
+        try (ScopedMetaCacheRegistry registry = new ScopedMetaCacheRegistry()) {
+            ScopedMetaCache<String, String> cache = registry.createCacheWithMetaRemovalListener(
+                    "table", CacheSpec.of(true, -1L, 1L), null, null, null, null,
+                    (key, value) -> MetaCacheSizeEstimate.complete(256L), budget);
+            cache.put("one", ScopePath.catalog(), "value");
+            AtomicBoolean evictedInsideTheDeferral = new AtomicBoolean();
+            // forEach defers the removals its callback causes, so the capacity eviction of either key is drained
+            // only after both exact invalidations have released the reservations, which zeroes them.
+            cache.forEach((key, value) -> {
+                if (evictedInsideTheDeferral.compareAndSet(false, true)) {
+                    cache.put("two", ScopePath.catalog(), "value");
+                    cache.invalidateKey("one");
+                    cache.invalidateKey("two");
+                }
+            });
+
+            Assertions.assertTrue(evictedInsideTheDeferral.get());
+            Assertions.assertEquals(1L, cache.metrics().getEvictionCount());
+            Assertions.assertEquals(ENTRY_OVERHEAD + 256L, cache.metrics().getEvictionWeight(),
+                    "eviction must count the bytes the evicted generation was admitted with");
+            Assertions.assertEquals(0L, manager.getGlobalUsedWeight());
         }
     }
 

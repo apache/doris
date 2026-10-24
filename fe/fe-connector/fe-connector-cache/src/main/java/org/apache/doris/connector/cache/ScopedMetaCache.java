@@ -832,7 +832,7 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         for (Map.Entry<K, VersionedValue<K, V>> candidate : coldest.entrySet()) {
             VersionedValue<K, V> current = data.getIfPresent(candidate.getKey());
             if (current == candidate.getValue()) {
-                long weight = current.registration.reservation.getBytes();
+                long weight = current.registration.admittedBytes;
                 budgetEvictionRegistration.set(current.registration);
                 try {
                     if (data.asMap().remove(candidate.getKey(), current)) {
@@ -1151,9 +1151,9 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         if (cause.wasEvicted() || budgetEviction) {
             evictionCount.increment();
             if (weightBounded) {
-                // Every value of a bounded cache holds a reservation; it is released below.
-                evictionWeight.accumulateAndGet(
-                        versioned.registration.reservation.getBytes(), JvmSizeUtils::saturatedAdd);
+                // Releasing a reservation zeroes it, and an exact invalidation can release the evicted generation
+                // before this deferred removal runs, so count the bytes the generation was admitted with.
+                evictionWeight.accumulateAndGet(versioned.registration.admittedBytes, JvmSizeUtils::saturatedAdd);
             }
         } else if (cause == RemovalCause.EXPLICIT) {
             invalidateCount.increment();
@@ -1604,6 +1604,9 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
     /** Lightweight ownership token: deliberately does not retain the cached value. */
     private static final class Registration {
         private final MetaCacheBudgetManager.AdmissionReservation reservation;
+        // Read when the generation is created, right after its reservation is admitted: releasing the
+        // reservation zeroes its bytes, while eviction accounting still needs them.
+        private final long admittedBytes;
         private final CacheAddress address;
         private final ScopeSnapshot scopeSnapshot;
         private final AtomicBoolean released = new AtomicBoolean(false);
@@ -1611,6 +1614,7 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         private Registration(MetaCacheBudgetManager.AdmissionReservation reservation,
                 CacheAddress address, ScopeSnapshot scopeSnapshot) {
             this.reservation = reservation;
+            this.admittedBytes = reservation == null ? 0L : reservation.getBytes();
             this.address = address;
             this.scopeSnapshot = scopeSnapshot;
         }
