@@ -52,7 +52,9 @@ public class BdbjeJournalDataProcNode implements ProcNodeInterface  {
         BDBDebugger.JournalEntityWrapper entity = env.getJournalEntity(dbName, journalId);
 
         short opCode = entity.entity == null ? -1 : entity.entity.getOpCode();
-        String data = entity.entity == null ? entity.errMsg : entity.entity.getData().toString();
+        // The readers of retired operation types (e.g. the PL/SQL and Lance index job tombstones) consume the
+        // payload without keeping it; print such a record the way BDBTool does.
+        String data = entity.entity == null ? entity.errMsg : String.valueOf(entity.entity.getData());
         result.addRow(Lists.newArrayList(entity.journalId.toString(),
                     OperationType.getOpName(opCode), entity.size.toString(), data));
 
