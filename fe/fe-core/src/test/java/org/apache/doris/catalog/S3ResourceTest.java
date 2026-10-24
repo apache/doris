@@ -48,6 +48,10 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class S3ResourceTest {
     private static final Logger LOG = LogManager.getLogger(S3ResourceTest.class);
@@ -211,6 +215,69 @@ public class S3ResourceTest {
         // 3. delete
         s3Dis.close();
         Files.deleteIfExists(path);
+    }
+
+    @Test
+    public void testConcurrentAltersPreserveBothUpdates() throws Exception {
+        CountDownLatch firstReady = new CountDownLatch(1);
+        CountDownLatch releaseFirst = new CountDownLatch(1);
+        CountDownLatch secondStarted = new CountDownLatch(1);
+        AtomicBoolean first = new AtomicBoolean(true);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        S3Resource resource = new S3Resource("concurrent_alter") {
+            @Override
+            public void writeLock() {
+                if (first.compareAndSet(true, false)) {
+                    firstReady.countDown();
+                    try {
+                        Assertions.assertTrue(releaseFirst.await(10, TimeUnit.SECONDS));
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new AssertionError(e);
+                    }
+                }
+                super.writeLock();
+            }
+        };
+        resource.setProperties(ImmutableMap.copyOf(s3Properties));
+        Thread updateConnections = new Thread(() -> {
+            try {
+                resource.modifyProperties(ImmutableMap.of(S3ResourceCompat.MAX_CONNECTIONS, "77"));
+            } catch (Throwable e) {
+                failure.compareAndSet(null, e);
+            }
+        });
+        Thread updateTimeout = new Thread(() -> {
+            secondStarted.countDown();
+            try {
+                resource.modifyProperties(ImmutableMap.of(S3ResourceCompat.REQUEST_TIMEOUT_MS, "8888"));
+            } catch (Throwable e) {
+                failure.compareAndSet(null, e);
+            }
+        });
+        try {
+            updateConnections.start();
+            Assertions.assertTrue(firstReady.await(10, TimeUnit.SECONDS));
+            updateTimeout.start();
+            Assertions.assertTrue(secondStarted.await(10, TimeUnit.SECONDS));
+            // The second ALTER either waits for the first one's monitor, or (before the fix)
+            // finishes and is subsequently overwritten by the first one's stale snapshot.
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+            while (updateTimeout.isAlive() && updateTimeout.getState() != Thread.State.BLOCKED
+                    && System.nanoTime() < deadline) {
+                Thread.yield();
+            }
+            Assertions.assertTrue(!updateTimeout.isAlive() || updateTimeout.getState() == Thread.State.BLOCKED);
+        } finally {
+            releaseFirst.countDown();
+            updateConnections.join(10000);
+            updateTimeout.join(10000);
+        }
+        Assertions.assertFalse(updateConnections.isAlive());
+        Assertions.assertFalse(updateTimeout.isAlive());
+        Assertions.assertNull(failure.get());
+        Assertions.assertEquals("77", resource.getProperty(S3ResourceCompat.MAX_CONNECTIONS));
+        Assertions.assertEquals("8888", resource.getProperty(S3ResourceCompat.REQUEST_TIMEOUT_MS));
     }
 
     @Test
