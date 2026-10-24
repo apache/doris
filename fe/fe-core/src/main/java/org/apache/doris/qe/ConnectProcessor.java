@@ -159,11 +159,14 @@ public abstract class ConnectProcessor {
     }
 
     protected void handleStmtResetById(int stmtId) {
-        if (ctx.getPreparedStementContext(String.valueOf(stmtId)) == null) {
+        PreparedStatementContext prepared = ctx.getPreparedStementContext(String.valueOf(stmtId));
+        if (prepared == null) {
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_STMT_HANDLER,
                     String.format("Unknown prepared statement handler (%s) given to mysqld_stmt_reset", stmtId));
             return;
         }
+        prepared.clearLongData();
+        prepared.setEmptyCursorOpen(false);
         ctx.getState().setOk();
     }
 
@@ -619,6 +622,9 @@ public abstract class ConnectProcessor {
         // and expected by MySQL Connector/J 9.5.0+.
         if (ctx.getState().getStateType() == QueryState.MysqlStateType.EOF
                 && ctx.getMysqlChannel().clientDeprecatedEOF()) {
+            if (ctx.isEmptyCursorSupported() && ctx.isCursorFetchRequested() && !ctx.hasMysqlResultRows()) {
+                ctx.getState().serverStatus |= MysqlServerStatusFlag.SERVER_STATUS_CURSOR_EXISTS;
+            }
             packet = new MysqlResultSetEndPacket(ctx.getState());
         } else {
             packet = ctx.getState().toResponsePacket();
@@ -664,6 +670,14 @@ public abstract class ConnectProcessor {
             return;
         }
 
+        PreparedStatementContext prepared = ctx.getExecutingPreparedStatement();
+        if (prepared != null) {
+            // The master encoded a forwarded EXECUTE's final packet. Retain its empty cursor
+            // on the client-facing FE so the following FETCH can complete without another RPC.
+            boolean cursorOpen = Byte.toUnsignedInt(packet.get(packet.position())) == 0xFE
+                    && (packet.get(packet.position() + 3) & MysqlServerStatusFlag.SERVER_STATUS_CURSOR_EXISTS) != 0;
+            prepared.setEmptyCursorOpen(cursorOpen);
+        }
         LOG.debug("Send to mysql channel for query {}", DebugUtil.printId(ctx.queryId));
         MysqlChannel channel = ctx.getMysqlChannel();
         channel.sendAndFlush(packet);
@@ -843,6 +857,7 @@ public abstract class ConnectProcessor {
         // Old followers do not carry the cursor flag. Keep their existing behavior; they must
         // be upgraded to preserve cursor intent. Do not reject their ordinary prepared statements.
         context.setCursorFetchRequested(request.isSetCursorFetchRequested() && request.isCursorFetchRequested());
+        context.setEmptyCursorSupported(request.isSetEmptyCursorSupported() && request.isEmptyCursorSupported());
     }
 
     static void restoreForwardedSessionContext(ConnectContext context, TMasterOpRequest request) {

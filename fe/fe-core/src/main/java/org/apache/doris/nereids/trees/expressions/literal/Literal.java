@@ -742,6 +742,12 @@ public abstract class Literal extends Expression implements LeafExpression {
             case MYSQL_TYPE_VARCHAR:
                 literal = handleVarcharLiteral(data);
                 break;
+            case MYSQL_TYPE_TINY_BLOB:
+            case MYSQL_TYPE_MEDIUM_BLOB:
+            case MYSQL_TYPE_LONG_BLOB:
+            case MYSQL_TYPE_BLOB:
+                literal = new VarBinaryLiteral(MysqlProto.readLenEncodedString(data));
+                break;
             default:
                 throw new AnalysisException("Unsupported MySQL type: " + mysqlType);
         }
