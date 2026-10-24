@@ -461,14 +461,41 @@ Observation observe(const Sample& sample, const OpenedSample& opened, const Quer
 
 // ---------------------------------------------------------------- fixture
 
+std::filesystem::path corpus_directory(std::string_view explicit_dir, std::string_view doris_home,
+                                       const std::filesystem::path& source_file) {
+    // Explicit directories select an external corpus or a write destination.
+    if (!explicit_dir.empty()) return std::filesystem::path(explicit_dir);
+    // The runner starts at DORIS_HOME, where build-relative paths such as ../test miss the corpus.
+    const auto source_dir = doris_home.empty() ? source_file.parent_path()
+                                               : std::filesystem::path(doris_home) /
+                                                         "be/test/storage/index/inverted/snii";
+    return source_dir / "testdata" / "compatibility_corpus";
+}
+
+TEST(SniiGoldenCorpusPath, ExplicitDirectoryOverridesDorisHome) {
+    EXPECT_EQ(corpus_directory("/external/corpus", "/checkout", "../test/corpus_test.cpp"),
+              std::filesystem::path("/external/corpus"));
+}
+
+TEST(SniiGoldenCorpusPath, DorisHomeResolvesBuildRelativeSourcePath) {
+    EXPECT_EQ(corpus_directory("", "/checkout", "../test/corpus_test.cpp"),
+              std::filesystem::path("/checkout/be/test/storage/index/inverted/snii/testdata/"
+                                    "compatibility_corpus"));
+}
+
+TEST(SniiGoldenCorpusPath, SourcePathWorksWithoutDorisHome) {
+    EXPECT_EQ(corpus_directory("", "", "/checkout/be/test/corpus_test.cpp"),
+              std::filesystem::path("/checkout/be/test/testdata/compatibility_corpus"));
+}
+
 class SniiGoldenCorpus : public testing::Test {
 protected:
     void SetUp() override {
         const char* dir = std::getenv("SNII_GOLDEN_DIR");
-        _dir = dir != nullptr && *dir != '\0' ? dir
-                                              : (std::filesystem::path(__FILE__).parent_path() /
-                                                 "testdata" / "compatibility_corpus")
-                                                        .string();
+        const char* doris_home = std::getenv("DORIS_HOME");
+        _dir = corpus_directory(dir != nullptr ? dir : "", doris_home != nullptr ? doris_home : "",
+                                __FILE__)
+                       .string();
         const char* mode = std::getenv("SNII_GOLDEN_MODE");
         _write_mode = mode != nullptr && std::string_view(mode) == "write";
         if (_write_mode && (dir == nullptr || *dir == '\0')) {
