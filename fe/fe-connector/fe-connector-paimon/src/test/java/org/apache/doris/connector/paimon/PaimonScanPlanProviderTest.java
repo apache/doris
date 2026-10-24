@@ -80,6 +80,7 @@ import org.apache.paimon.table.source.DeletionFile;
 import org.apache.paimon.table.source.RawFile;
 import org.apache.paimon.table.source.Split;
 import org.apache.paimon.table.system.ReadOptimizedTable;
+import org.apache.paimon.table.system.SystemTableLoader;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.DataTypes;
@@ -1085,6 +1086,91 @@ public class PaimonScanPlanProviderTest {
         }
     }
 
+    @Test
+    public void fallbackBinaryPartitionsUseTheNamingOfTheirBranch(@TempDir Path warehouse) throws Exception {
+        // A partition missing on the main branch is planned and read under the options of the fallback branch,
+        // while the table and its $audit_log wrapper report the options of the main branch.
+        for (boolean fallbackUsesBytes : new boolean[] {true, false}) {
+            try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                    new org.apache.paimon.fs.Path(warehouse.resolve("fallback_bytes_" + fallbackUsesBytes).toUri()))) {
+                catalog.createDatabase("db", false);
+                Map<String, String> byBytes = Collections.singletonMap("partition.legacy-name", "false");
+                // The main branch only holds the NULL partition, which every naming finds.
+                FileStoreTable main = (FileStoreTable) binaryPartitionTable(catalog, "main",
+                        fallbackUsesBytes ? Collections.emptyMap() : byBytes, (byte[]) null);
+                FileStoreTable fallback = (FileStoreTable) binaryPartitionTable(catalog, "fallback",
+                        fallbackUsesBytes ? byBytes : Collections.emptyMap(), new byte[] {0x41, 0x42});
+                FallbackReadFileStoreTable pair = new FallbackReadFileStoreTable(main, fallback, true);
+                if (!fallbackUsesBytes) {
+                    Map<String, Supplier<List<ConnectorScanRange>>> plans = new LinkedHashMap<>();
+                    plans.put("table", () -> planBinaryPartitionScan(pair, false));
+                    plans.put("$audit_log", () -> planSystemTableScan("audit_log", pair));
+                    plans.forEach((name, plan) -> {
+                        DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
+                                plan::get, name);
+                        Assertions.assertTrue(error.getMessage().startsWith("Cannot read Paimon table db.main: the"
+                                + " table uses legacy partition names ('partition.legacy-name' = 'true'), under which"
+                                + " Paimon names partition key = 0x4142"), error.getMessage());
+                    });
+                    continue;
+                }
+                List<ConnectorScanRange> ranges = planBinaryPartitionScan(pair, false);
+                Assertions.assertEquals(2, ranges.size());
+                for (ConnectorScanRange range : ranges) {
+                    String path = range.getPath().orElseThrow(AssertionError::new);
+                    Assertions.assertTrue(LocalFileIO.create().exists(new org.apache.paimon.fs.Path(path)), path);
+                }
+                Assertions.assertTrue(ranges.stream().anyMatch(range -> range.getPath().get().contains("/key=AB/")));
+
+                List<ConnectorScanRange> auditLog = planSystemTableScan("audit_log", pair);
+                Assertions.assertEquals(2, auditLog.size());
+                List<String> rows = new ArrayList<>();
+                SystemTableLoader.load("audit_log", pair).newReadBuilder().newRead()
+                        .createReader(deserializeJniSplits(auditLog))
+                        .forEachRemaining(row -> rows.add(row.getString(0) + " " + (row.isNullAt(2) ? "NULL"
+                                : java.util.HexFormat.of().withUpperCase().formatHex(row.getBinary(2)))));
+                rows.sort(Comparator.naturalOrder());
+                Assertions.assertEquals(Arrays.asList("+I 4142", "+I NULL"), rows);
+            }
+        }
+    }
+
+    @Test
+    public void fileCreationTimeScanOfFallbackTableChecksBinaryPartitionsOfTheMainBranch(@TempDir Path warehouse)
+            throws Exception {
+        // A scan.file-creation-time-millis read plans a fallback table through its SnapshotReader, which reads the
+        // main branch and returns plain DataSplits rather than the FallbackSplits of the fallback scan.
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Map<String, String> byBytes = Collections.singletonMap("partition.legacy-name", "false");
+            FileStoreTable main = (FileStoreTable) binaryPartitionTable(catalog, "main", byBytes,
+                    new byte[] {0x41, 0x42});
+            FileStoreTable fallback = (FileStoreTable) binaryPartitionTable(catalog, "fallback", byBytes,
+                    new byte[] {0x43, 0x44});
+            FallbackReadFileStoreTable pair = new FallbackReadFileStoreTable(main, fallback, true);
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = pair;
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+            PaimonTableHandle handle = new PaimonTableHandle("db", "main", Collections.emptyList(),
+                    Collections.emptyList()).withScanOptions(PaimonScanParams.markAsOptions(
+                            PaimonScanParams.resolveOptions(pair, Collections.singletonMap(
+                                    CoreOptions.SCAN_FILE_CREATION_TIME_MILLIS.key(), "0"))));
+            List<ConnectorScanRange> ranges = provider.planScan(
+                    sessionWithProps(Collections.emptyMap(), new TestStatementScope()),
+                    ConnectorScanRequest.builder(handle, Arrays.asList(new PaimonColumnHandle("id", 0),
+                            new PaimonColumnHandle("key", 1))).build());
+            Assertions.assertEquals(1, ranges.size());
+            String path = ranges.get(0).getPath().orElseThrow(AssertionError::new);
+            Assertions.assertTrue(path.contains("/key=AB/"), path);
+
+            DataSplit split = (DataSplit) pair.newSnapshotReader().read().splits().get(0);
+            Assertions.assertFalse(split instanceof FallbackReadFileStoreTable.FallbackSplit);
+            Assertions.assertSame(main, PaimonScanPlanProvider.legacyOrcSplitTable(pair, split));
+        }
+    }
+
     private static Table binaryPartitionTable(Catalog catalog, String name, Map<String, String> options,
             byte[]... keys) throws Exception {
         Identifier id = Identifier.create("db", name);
@@ -1118,6 +1204,21 @@ public class PaimonScanPlanProviderTest {
         return provider.planScan(sessionWithProps(Collections.emptyMap(), new TestStatementScope()),
                 ConnectorScanRequest.builder(handle, Arrays.asList(new PaimonColumnHandle("id", 0),
                         new PaimonColumnHandle("key", 1))).countPushdown(countPushdown).build());
+    }
+
+    /** Plans a scan of {@code source$kind} the way the connector metadata builds its system table handle. */
+    private static List<ConnectorScanRange> planSystemTableScan(String kind, FileStoreTable source) {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        ops.table = source;
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+        PaimonTableHandle handle = PaimonTableHandle.forSystemTable("db", source.name(), kind,
+                PaimonScanParams.requiresPaimonReader(kind));
+        handle.setPaimonTable(SystemTableLoader.load(kind, source));
+        handle.setSysBaseTable(source);
+        handle.setSystemTableSource(source);
+        return provider.planScan(sessionWithProps(Collections.emptyMap(), new TestStatementScope()),
+                ConnectorScanRequest.builder(handle, Collections.emptyList()).build());
     }
 
     private static Table deletionVectorBinaryPartitionTable(Catalog catalog, String name, Path warehouse)

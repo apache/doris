@@ -992,6 +992,12 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         // $ro wraps the pinned file-store table; resolve its schema dictionary once, only if native is considered.
         java.util.function.Supplier<Table> legacyOrcSchemaTable = com.google.common.base.Suppliers.memoize(
                 () -> resolveSchemaDictTable(table, paimonHandle));
+        // The wrappers read through JNI report the options of the main branch, but their splits come from a branch
+        // of the pinned source, which the timestamp-history checks resolve the same way.
+        java.util.function.Supplier<Table> binaryPartitionSourceTable = paimonHandle.isForceJni()
+                ? com.google.common.base.Suppliers.memoize(() -> withSchemaHistoryAuthentication(
+                        () -> resolveTimestampHistoryTable(table, paimonHandle)))
+                : legacyOrcSchemaTable;
         int[] binaryPartitionFields = binaryPartitionFields(table);
         Map<FileStoreTable, Map<Long, Boolean>> legacyPartitionNameSchemas = new java.util.IdentityHashMap<>();
         Map<String, Boolean> fileExistence = new HashMap<>();
@@ -1006,7 +1012,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             }
             if (binaryPartitionFields.length > 0) {
                 checkBinaryPartitionFiles(paimonHandle, table, dataSplit, binaryPartitionFields,
-                        legacyOrcSchemaTable, legacyPartitionNameSchemas, fileExistence);
+                        binaryPartitionSourceTable, legacyPartitionNameSchemas, fileExistence);
             }
 
             Map<String, String> partitionValues = getPartitionInfoMap(
@@ -2294,6 +2300,11 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         FileStoreTable base = PaimonTableDecorators.unwrapToFallbackOrBase(table);
         if (base instanceof FallbackReadFileStoreTable) {
             FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) base;
+            if (!(split instanceof FallbackReadFileStoreTable.FallbackSplit)) {
+                // A split planned through the pair's SnapshotReader (a file-creation-time read) comes from its
+                // wrapped branch.
+                return pair.wrapped();
+            }
             boolean fallback = ((FallbackReadFileStoreTable.FallbackSplit) split).isFallback();
             // Match the SDK reader's branch selection before reading either options or historical schemas.
             return PaimonReaderOptions.isWrappedFirst(pair) != fallback ? pair.wrapped() : pair.other();
@@ -2316,9 +2327,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      * is the Java array object ({@code [B@1b6d3586}) rather than its bytes, and every resolution of the name
      * differs. A file written under such a name, or looked up under one, is never found: Paimon's own read fails,
      * while the BE skips a missing file of an external table and would silently drop the partition's rows. A file
-     * with an external path is found by the path its metadata records. Without a schema dictionary (system tables
-     * other than {@code $ro}, which the JNI reader reads with Paimon's own reader) the schemas of the files are not
-     * consulted.
+     * with an external path is found by the path its metadata records. A system wrapper reports the options of the
+     * main branch while a fallback split is planned and read under its own branch, so the options and schemas come
+     * from the branch that produced the split; for the wrappers read through JNI that branch is resolved from the
+     * pinned source of the wrapper.
      *
      * <p>The schema a file refers to does not prove how the file was named, because dynamic options
      * ({@code spark.paimon.*}, Flink hints, {@code Table.copy}) keep the schema ID: a file whose schema uses legacy
