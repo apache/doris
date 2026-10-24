@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -25,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Explode;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
@@ -35,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Interval.TimeUnit;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -73,13 +76,19 @@ class DateArithmeticFilterPushDownTest {
     private final LogicalOneRowRelation relation = new LogicalOneRowRelation(
             StatementScopeIdGenerator.newRelationId(), ImmutableList.of(datetime, id));
 
-    private List<Expression> dateExpressions() {
+    private List<Expression> addSubExpressions(Expression offset) {
         return ImmutableList.of(
-                new WeeksAdd(datetime.toSlot(), new IntegerLiteral(5)),
-                new HoursAdd(datetime.toSlot(), new IntegerLiteral(5)),
-                new SecondCeil(datetime.toSlot(), new IntegerLiteral(5)),
-                new YearCeil(datetime.toSlot(), new IntegerLiteral(5)),
-                new DaysAdd(datetime.toSlot(), new IntegerLiteral(5)));
+                new WeeksAdd(datetime.toSlot(), offset),
+                new HoursAdd(datetime.toSlot(), offset),
+                new DaysAdd(datetime.toSlot(), offset),
+                new TimestampArithmetic(Operator.ADD, datetime.toSlot(), offset, TimeUnit.WEEK),
+                new TimestampArithmetic(Operator.SUBTRACT, datetime.toSlot(), offset, TimeUnit.WEEK));
+    }
+
+    private List<Expression> dateExpressions() {
+        return ImmutableList.<Expression>builder().addAll(addSubExpressions(new IntegerLiteral(5)))
+                .add(new SecondCeil(datetime.toSlot(), new IntegerLiteral(5)),
+                        new YearCeil(datetime.toSlot(), new IntegerLiteral(5))).build();
     }
 
     @Test
@@ -121,22 +130,23 @@ class DateArithmeticFilterPushDownTest {
 
     private void assertRejectingBoundary(Plan logicalInput, Plan physicalInput) {
         for (int offset : new int[] {0, 5}) {
-            Alias result = new Alias(new Cast(new WeeksAdd(datetime.toSlot(), new IntegerLiteral(offset)),
-                    DateTimeV2Type.of(0)), "result");
-            Expression predicate = new EqualTo(result.toSlot(), new DateTimeV2Literal("2020-02-05 00:00:00"));
-            LogicalProject<?> project = new LogicalProject<>(ImmutableList.of(result), logicalInput);
-            LogicalFilter<?> filter = new LogicalFilter<>(ImmutableSet.of(predicate), project);
-            Plan rewritten = PlanChecker.from(MemoTestUtils.createConnectContext(), filter)
-                    .applyTopDown(new PushDownFilterThroughProject()).getPlan();
-            Assertions.assertEquals(offset == 0 ? LogicalProject.class : LogicalFilter.class, rewritten.getClass());
-            PhysicalProject<?> physicalProject = new PhysicalProject<>(ImmutableList.of(result),
-                    project.getLogicalProperties(), physicalInput);
-            PhysicalFilter<?> physicalFilter = new PhysicalFilter<>(ImmutableSet.of(predicate),
-                    physicalProject.getLogicalProperties(), physicalProject);
-            Plan physicalRewritten = physicalFilter.accept(
-                    new org.apache.doris.nereids.processor.post.PushDownFilterThroughProject(), null);
-            Assertions.assertEquals(offset == 0 ? PhysicalProject.class : PhysicalFilter.class,
-                    physicalRewritten.getClass());
+            for (Expression expression : addSubExpressions(new IntegerLiteral(offset))) {
+                Alias result = new Alias(new Cast(expression, DateTimeV2Type.of(0)), "result");
+                Expression predicate = new EqualTo(result.toSlot(), new DateTimeV2Literal("2020-02-05 00:00:00"));
+                LogicalProject<?> project = new LogicalProject<>(ImmutableList.of(result), logicalInput);
+                LogicalFilter<?> filter = new LogicalFilter<>(ImmutableSet.of(predicate), project);
+                Plan rewritten = PlanChecker.from(MemoTestUtils.createConnectContext(), filter)
+                        .applyTopDown(new PushDownFilterThroughProject()).getPlan();
+                Assertions.assertEquals(offset == 0 ? LogicalProject.class : LogicalFilter.class, rewritten.getClass());
+                PhysicalProject<?> physicalProject = new PhysicalProject<>(ImmutableList.of(result),
+                        project.getLogicalProperties(), physicalInput);
+                PhysicalFilter<?> physicalFilter = new PhysicalFilter<>(ImmutableSet.of(predicate),
+                        physicalProject.getLogicalProperties(), physicalProject);
+                Plan physicalRewritten = physicalFilter.accept(
+                        new org.apache.doris.nereids.processor.post.PushDownFilterThroughProject(), null);
+                Assertions.assertEquals(offset == 0 ? PhysicalProject.class : PhysicalFilter.class,
+                        physicalRewritten.getClass());
+            }
         }
     }
 
@@ -160,29 +170,31 @@ class DateArithmeticFilterPushDownTest {
     @Test
     void pushZeroOffsetDatePredicateThroughLowerFilter() {
         for (Expression zero : ImmutableList.of(new IntegerLiteral(0), new BigIntLiteral(0))) {
-            Alias result = new Alias(new DaysAdd(datetime.toSlot(), zero), "result");
-            LogicalFilter<?> input = new LogicalFilter<>(
-                    ImmutableSet.of(new EqualTo(id.toSlot(), new IntegerLiteral(0))), relation);
-            LogicalProject<?> project = new LogicalProject<>(ImmutableList.of(result, id.toSlot()), input);
-            Expression predicate = new EqualTo(result.toSlot(), new DateTimeV2Literal("2020-01-01 00:00:00"));
-            LogicalFilter<?> filter = new LogicalFilter<>(ImmutableSet.of(predicate), project);
-            Plan rewritten = PlanChecker.from(MemoTestUtils.createConnectContext(), filter)
-                    .applyTopDown(new PushDownFilterThroughProject()).getPlan();
-            Assertions.assertInstanceOf(LogicalProject.class, rewritten);
-            Assertions.assertInstanceOf(LogicalFilter.class, rewritten.child(0));
+            for (Expression expression : addSubExpressions(zero)) {
+                Alias result = new Alias(expression, "result");
+                LogicalFilter<?> input = new LogicalFilter<>(
+                        ImmutableSet.of(new EqualTo(id.toSlot(), new IntegerLiteral(0))), relation);
+                LogicalProject<?> project = new LogicalProject<>(ImmutableList.of(result, id.toSlot()), input);
+                Expression predicate = new EqualTo(result.toSlot(), new DateTimeV2Literal("2020-01-01 00:00:00"));
+                LogicalFilter<?> filter = new LogicalFilter<>(ImmutableSet.of(predicate), project);
+                Plan rewritten = PlanChecker.from(MemoTestUtils.createConnectContext(), filter)
+                        .applyTopDown(new PushDownFilterThroughProject()).getPlan();
+                Assertions.assertInstanceOf(LogicalProject.class, rewritten);
+                Assertions.assertInstanceOf(LogicalFilter.class, rewritten.child(0));
 
-            PhysicalOneRowRelation source = new PhysicalOneRowRelation(relation.getRelationId(),
-                    relation.getProjects(), relation.getLogicalProperties());
-            PhysicalFilter<?> physicalInput = new PhysicalFilter<>(input.getConjuncts(),
-                    source.getLogicalProperties(), source);
-            PhysicalProject<?> physicalProject = new PhysicalProject<>(project.getProjects(),
-                    project.getLogicalProperties(), physicalInput);
-            PhysicalFilter<?> physicalFilter = new PhysicalFilter<>(ImmutableSet.of(predicate),
-                    physicalProject.getLogicalProperties(), physicalProject);
-            Plan physicalRewritten = physicalFilter.accept(
-                    new org.apache.doris.nereids.processor.post.PushDownFilterThroughProject(), null);
-            Assertions.assertInstanceOf(PhysicalProject.class, physicalRewritten);
-            Assertions.assertInstanceOf(PhysicalFilter.class, physicalRewritten.child(0));
+                PhysicalOneRowRelation source = new PhysicalOneRowRelation(relation.getRelationId(),
+                        relation.getProjects(), relation.getLogicalProperties());
+                PhysicalFilter<?> physicalInput = new PhysicalFilter<>(input.getConjuncts(),
+                        source.getLogicalProperties(), source);
+                PhysicalProject<?> physicalProject = new PhysicalProject<>(project.getProjects(),
+                        project.getLogicalProperties(), physicalInput);
+                PhysicalFilter<?> physicalFilter = new PhysicalFilter<>(ImmutableSet.of(predicate),
+                        physicalProject.getLogicalProperties(), physicalProject);
+                Plan physicalRewritten = physicalFilter.accept(
+                        new org.apache.doris.nereids.processor.post.PushDownFilterThroughProject(), null);
+                Assertions.assertInstanceOf(PhysicalProject.class, physicalRewritten);
+                Assertions.assertInstanceOf(PhysicalFilter.class, physicalRewritten.child(0));
+            }
         }
     }
 
@@ -240,16 +252,29 @@ class DateArithmeticFilterPushDownTest {
     }
 
     @Test
-    void keepLogicalDatePredicateAboveLimitProject() {
-        Alias result = new Alias(new WeeksAdd(datetime.toSlot(), new IntegerLiteral(5)), "result");
-        LogicalProject<?> project = new LogicalProject<>(ImmutableList.of(result), relation);
-        LogicalLimit<?> limit = new LogicalLimit<>(0, 0, LimitPhase.ORIGIN, project);
-        LogicalFilter<?> filter = new LogicalFilter<>(ImmutableSet.of(
-                new EqualTo(result.toSlot(), new DateTimeV2Literal("2020-01-01 00:00:00"))), limit);
-        Plan rewritten = PlanChecker.from(MemoTestUtils.createConnectContext(), filter)
-                .applyTopDown(new PushDownFilterThroughProject()).getPlan();
-        Assertions.assertInstanceOf(LogicalFilter.class, rewritten);
-        Assertions.assertInstanceOf(LogicalLimit.class, rewritten.child(0));
+    void liftDateEvaluationAboveLimitProject() {
+        LogicalFilter<?> filtered = new LogicalFilter<>(
+                ImmutableSet.of(new EqualTo(id.toSlot(), new IntegerLiteral(1))), relation);
+        for (Plan input : ImmutableList.of(relation, filtered)) {
+            for (long offset : new long[] {1, 100, 0}) {
+                for (Expression expression : dateExpressions()) {
+                    Alias result = new Alias(new Cast(expression, DateTimeV2Type.of(0)), "result");
+                    LogicalProject<?> project = new LogicalProject<>(ImmutableList.of(result), input);
+                    LogicalLimit<?> limit = new LogicalLimit<>(1, offset, LimitPhase.ORIGIN, project);
+                    LogicalFilter<?> filter = new LogicalFilter<>(ImmutableSet.of(
+                            new EqualTo(result.toSlot(), new DateTimeV2Literal("2020-02-05 00:00:00"))), limit);
+                    Plan rewritten = PlanChecker.from(MemoTestUtils.createConnectContext(), filter)
+                            .applyTopDown(new PushDownFilterThroughProject()).getPlan();
+                    Assertions.assertInstanceOf(LogicalProject.class, rewritten);
+                    Assertions.assertInstanceOf(LogicalFilter.class, rewritten.child(0));
+                    Assertions.assertInstanceOf(LogicalLimit.class, rewritten.child(0).child(0));
+                    LogicalLimit<?> liftedLimit = (LogicalLimit<?>) rewritten.child(0).child(0);
+                    Assertions.assertEquals(offset, liftedLimit.getOffset());
+                    Assertions.assertEquals(1, liftedLimit.getLimit());
+                    Assertions.assertEquals(input.getClass(), liftedLimit.child().getClass());
+                }
+            }
+        }
     }
 
     @Test
