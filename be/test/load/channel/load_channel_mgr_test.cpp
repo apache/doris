@@ -19,6 +19,8 @@
 
 #include <gtest/gtest.h>
 
+#include <chrono>
+#include <future>
 #include <thread>
 
 #include "runtime/exec_env.h"
@@ -81,6 +83,28 @@ protected:
     std::unique_ptr<FragmentMgr> _fragment_mgr;
     std::unique_ptr<LoadChannelMgr> _mgr;
 };
+
+TEST_F(LoadChannelMgrTest, GracefulShutdownCountsReceiverUntilFinish) {
+    EXPECT_EQ(_mgr->num_active_channels(), 0);
+    auto channel = create_channel();
+    EXPECT_EQ(_mgr->num_active_channels(), 1);
+    _mgr->_finish_load_channel(channel);
+    EXPECT_EQ(_mgr->num_active_channels(), 0);
+}
+
+TEST_F(LoadChannelMgrTest, GracefulShutdownCensusDoesNotWaitForManagerLock) {
+    // Model an open() holding the manager lock while QueryContext cleanup stalls.
+    std::unique_lock<std::mutex> manager_lock(_mgr->_lock);
+    std::promise<size_t> census;
+    auto result = census.get_future();
+    std::thread polling([&] { census.set_value(_mgr->num_active_channels()); });
+    auto status = result.wait_for(std::chrono::seconds(5));
+    manager_lock.unlock();
+    polling.join();
+    EXPECT_EQ(status, std::future_status::ready);
+    EXPECT_EQ(result.get(), 1);
+    EXPECT_EQ(_mgr->num_active_channels(), 0);
+}
 
 TEST_F(LoadChannelMgrTest, FailedBatchCancelsRetainedChannelAndCachesReason) {
     auto channel = create_channel();

@@ -819,7 +819,9 @@ int main(int argc, char** argv) {
     __llvm_profile_write_file();
     LOG(INFO) << "Flush profile file.";
 #endif
-    // For graceful shutdown, need to wait for all running queries to stop
+    // Keep serving while the master learns shutdown and followers replay the heartbeat.
+    exec_env->wait_for_shutdown_heartbeat();
+    // For graceful shutdown, need to wait for all running queries and loads to stop.
     exec_env->wait_for_all_tasks_done();
 
     if (!doris::config::enable_graceful_exit_check) {
