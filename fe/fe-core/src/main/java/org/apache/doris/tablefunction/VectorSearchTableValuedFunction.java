@@ -19,6 +19,7 @@ package org.apache.doris.tablefunction;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.datasource.lance.LanceExternalTable;
 import org.apache.doris.datasource.lance.metadata.LanceTableMetadata;
 import org.apache.doris.thrift.TExternalSearchQuery;
 import org.apache.doris.thrift.TExternalSearchRequest;
@@ -82,18 +83,36 @@ public class VectorSearchTableValuedFunction extends LanceExternalSearchTableVal
         super(prepare(properties, deferQueryVector));
     }
 
+    /** Builds a search from a bound scan without reopening latest or resolving the table again. */
+    public static VectorSearchTableValuedFunction forScan(Map<String, String> properties,
+            LanceExternalTable table, LanceTableMetadata metadata, byte[] substraitFilter)
+            throws AnalysisException {
+        return new VectorSearchTableValuedFunction(prepare(properties, false, table, metadata), substraitFilter);
+    }
+
+    private VectorSearchTableValuedFunction(PreparedSearch prepared, byte[] substraitFilter) {
+        super(prepared, substraitFilter);
+    }
+
     private static PreparedSearch prepare(Map<String, String> properties, boolean deferQueryVector)
             throws AnalysisException {
+        return prepare(properties, deferQueryVector, null, null);
+    }
+
+    private static PreparedSearch prepare(Map<String, String> properties, boolean deferQueryVector,
+            LanceExternalTable table, LanceTableMetadata metadata) throws AnalysisException {
         Map<String, String> params = normalizeProperties(properties, PROPERTIES, NAME);
         TVectorSearchParams vectorParams = parseDistanceBounds(params);
         boolean hasDistanceRange = vectorParams.isSetDistanceLowerBound() || vectorParams.isSetDistanceUpperBound();
         boolean useIndex = !params.containsKey(USE_INDEX)
                 || parseBoolean(params.get(USE_INDEX), USE_INDEX);
-        CommonSearch common = prepareCommon(params, NAME,
-                "VectorSearchTableValuedFunction", "vector search", useIndex);
+        CommonSearch common = table == null
+                ? prepareCommon(params, NAME, "VectorSearchTableValuedFunction", "vector search", useIndex)
+                : prepareCommonForScan(params, "VectorSearchTableValuedFunction",
+                        parseTableName(required(params, TABLE, NAME)), table, metadata);
 
         Field vectorField = requireSearchColumn(
-                common.metadata().getSchema(), required(params, COLUMN, NAME), "vector");
+                common.metadata().getSchema(), required(params, COLUMN, NAME, table == null), "vector");
         // Reject matrices at PREPARE as well as EXECUTE; lance-c only supports single-vector ranges.
         if (hasDistanceRange && vectorField.getType() instanceof ArrowType.List) {
             throw new AnalysisException("Distance bounds are not supported for Lance multi-vector search");

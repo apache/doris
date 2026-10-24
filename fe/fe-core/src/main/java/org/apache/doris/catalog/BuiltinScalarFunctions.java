@@ -147,7 +147,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTz;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cos;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cosh;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CosineDistance;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CosineDistanceApproximate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CosineSimilarity;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CosineSimilarityApproximate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CountEqual;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CountSubstring;
@@ -237,6 +239,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.GetVariantTyp
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Greatest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Grouping;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingId;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HammingDistance;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HammingDistanceApproximate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Hex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllCardinality;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllEmpty;
@@ -731,6 +735,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ConvertTo.class, "convert_to"),
             scalar(ConvertTz.class, "convert_tz"),
             scalar(Cos.class, "cos"),
+            scalar(CosineDistanceApproximate.class, "cosine_distance_approximate"),
+            scalar(CosineSimilarityApproximate.class, "cosine_similarity_approximate"),
             scalar(Csc.class, "csc"),
             scalar(Cosh.class, "cosh"),
             scalar(Cot.class, "cot"),
@@ -818,6 +824,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Greatest.class, "greatest"),
             scalar(Grouping.class, "grouping"),
             scalar(GroupingId.class, "grouping_id"),
+            scalar(HammingDistance.class, "hamming_distance"),
+            scalar(HammingDistanceApproximate.class, "hamming_distance_approximate"),
             scalar(Hex.class, "hex"),
             scalar(HllCardinality.class, "hll_cardinality"),
             scalar(HllEmpty.class, "hll_empty"),

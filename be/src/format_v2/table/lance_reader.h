@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "core/custom_allocator.h"
 #include "format_v2/lance/lance_record_batch_converter.h"
 #include "format_v2/table_reader.h"
 #include "runtime/runtime_profile.h"
@@ -82,6 +83,15 @@ private:
     std::string _snapshot_description() const;
     Status _prepare_fts_query_context();
     Status _open_scanner(const TFileRangeDesc& range);
+    struct RowIdPrefilter {
+        Status status;
+        // Empty selects no rows; nullopt keeps the provider's native filter for a broad result.
+        // Charge both collection and cache retention to the query's memory limit.
+        std::optional<DorisVector<uint64_t>> row_ids;
+    };
+    Status _check_row_id_prefilter_stop() const;
+    Status _read_row_id_prefilter(const std::string& filter, RowIdPrefilter* result);
+    Status _apply_row_id_prefilter(LanceScanner* scanner, bool* applied);
     void _init_scanner_profile();
     Status _configure_scan_options(LanceScanner* scanner) const;
     Status _configure_normal_scan(LanceScanner* scanner, const TLanceFileDesc& lance_params) const;
@@ -118,6 +128,10 @@ private:
     RuntimeProfile::Counter* _scanner_configure_time = nullptr;
     RuntimeProfile::Counter* _runtime_filter_sql_translation_time = nullptr;
     RuntimeProfile::Counter* _scanner_next_time = nullptr;
+    RuntimeProfile::Counter* _row_id_prefilter_time = nullptr;
+    RuntimeProfile::Counter* _row_id_prefilter_rows = nullptr;
+    RuntimeProfile::Counter* _row_id_prefilter_cache_hits = nullptr;
+    RuntimeProfile::Counter* _row_id_prefilter_fallbacks = nullptr;
     RuntimeProfile::Counter* _arrow_to_doris_block_time = nullptr;
     RuntimeProfile::Counter* _row_id_take_read_time = nullptr;
     RuntimeProfile::Counter* _row_id_fetch_total_time = nullptr;

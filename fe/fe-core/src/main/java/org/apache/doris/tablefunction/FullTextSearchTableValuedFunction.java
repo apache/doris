@@ -18,6 +18,7 @@
 package org.apache.doris.tablefunction;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.datasource.lance.LanceExternalTable;
 import org.apache.doris.datasource.lance.metadata.LanceTableMetadata;
 import org.apache.doris.thrift.TExternalSearchQuery;
 import org.apache.doris.thrift.TExternalSearchRequest;
@@ -55,15 +56,32 @@ public class FullTextSearchTableValuedFunction extends LanceExternalSearchTableV
         super(prepare(properties));
     }
 
-    private static PreparedSearch prepare(Map<String, String> properties)
+    /** Builds a search from the metadata snapshot already bound to the source scan. */
+    public static FullTextSearchTableValuedFunction forScan(Map<String, String> properties,
+            LanceExternalTable table, LanceTableMetadata metadata, byte[] substraitFilter)
             throws AnalysisException {
-        Map<String, String> params = normalizeProperties(properties, PROPERTIES, NAME);
-        CommonSearch common = prepareCommon(params, NAME,
-                "FullTextSearchTableValuedFunction", "full-text search", true);
+        return new FullTextSearchTableValuedFunction(prepare(properties, table, metadata), substraitFilter);
+    }
 
-        Field field = findStringField(common.metadata(), required(params, COLUMN, NAME));
+    private FullTextSearchTableValuedFunction(PreparedSearch prepared, byte[] substraitFilter) {
+        super(prepared, substraitFilter);
+    }
+
+    private static PreparedSearch prepare(Map<String, String> properties) throws AnalysisException {
+        return prepare(properties, null, null);
+    }
+
+    private static PreparedSearch prepare(Map<String, String> properties,
+            LanceExternalTable table, LanceTableMetadata metadata) throws AnalysisException {
+        Map<String, String> params = normalizeProperties(properties, PROPERTIES, NAME);
+        CommonSearch common = table == null
+                ? prepareCommon(params, NAME, "FullTextSearchTableValuedFunction", "full-text search", true)
+                : prepareCommonForScan(params, "FullTextSearchTableValuedFunction",
+                        parseTableName(required(params, TABLE, NAME)), table, metadata);
+
+        Field field = findStringField(common.metadata(), required(params, COLUMN, NAME, table == null));
         int fieldId = requireLanceFieldId(common.metadata(), field, "full-text");
-        String query = required(params, QUERY, NAME);
+        String query = required(params, QUERY, NAME, table == null);
         if (query.indexOf('\0') >= 0) {
             throw new AnalysisException("'query' must not contain an embedded NUL byte");
         }

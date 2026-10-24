@@ -157,7 +157,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTz;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cos;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cosh;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CosineDistance;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CosineDistanceApproximate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CosineSimilarity;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CosineSimilarityApproximate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CountEqual;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CountSubstring;
@@ -250,6 +252,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Gcd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetFormat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetVariantType;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Greatest;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HammingDistance;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HammingDistanceApproximate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Hex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllCardinality;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllEmpty;
@@ -1135,6 +1139,14 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(cosineDistance, context);
     }
 
+    default R visitCosineDistanceApproximate(CosineDistanceApproximate function, C context) {
+        return visitScalarFunction(function, context);
+    }
+
+    default R visitCosineSimilarityApproximate(CosineSimilarityApproximate function, C context) {
+        return visitScalarFunction(function, context);
+    }
+
     default R visitCosineSimilarity(CosineSimilarity cosineSimilarity, C context) {
         return visitScalarFunction(cosineSimilarity, context);
     }
@@ -1297,6 +1309,14 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitMonthsSub(MonthsSub monthsSub, C context) {
         return visitScalarFunction(monthsSub, context);
+    }
+
+    default R visitHammingDistance(HammingDistance function, C context) {
+        return visitScalarFunction(function, context);
+    }
+
+    default R visitHammingDistanceApproximate(HammingDistanceApproximate function, C context) {
+        return visitScalarFunction(function, context);
     }
 
     default R visitHoursSub(HoursSub hoursSub, C context) {
