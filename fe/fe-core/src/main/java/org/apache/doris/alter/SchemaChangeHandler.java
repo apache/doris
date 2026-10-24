@@ -3960,11 +3960,14 @@ public class SchemaChangeHandler extends AlterHandler {
     // Throws if any of the partitions still has an unfinished index change job on the base index.
     private void checkNoIndexChangeJobOnPartitions(Database db, OlapTable olapTable, List<Index> alterIndexes,
             Set<String> partitionNames) throws DdlException {
-        for (String partitionName : partitionNames) {
-            if (hasIndexChangeJobOnPartition(olapTable.getBaseIndexId(), db.getId(), olapTable.getId(),
-                    partitionName, alterIndexes, true)) {
-                throw new DdlException("partition " + partitionName + " has been built specified index."
-                        + " please check your build stmt.");
+        // Scan the retained job history once instead of once per partition, the table write lock is held here.
+        for (IndexChangeJob indexChangeJob : ImmutableList.copyOf(indexChangeJobs.values())) {
+            // Cheap partition check first, the predicate compares index lists.
+            if (partitionNames.contains(indexChangeJob.getPartitionName())
+                    && isConflictingIndexChangeJob(indexChangeJob, olapTable.getBaseIndexId(), db.getId(),
+                    olapTable.getId(), alterIndexes, true)) {
+                throw new DdlException("partition " + indexChangeJob.getPartitionName() + " of table "
+                        + olapTable.getName() + " has an unfinished index change job, please retry after it finishes.");
             }
         }
     }
@@ -3974,18 +3977,24 @@ public class SchemaChangeHandler extends AlterHandler {
             List<Index> alterIndexes, boolean isDrop) {
         // TODO: this is temporary methods
         for (IndexChangeJob indexChangeJob : ImmutableList.copyOf(indexChangeJobs.values())) {
-            if (indexChangeJob.getOriginIndexId() == originIndexId
-                    && indexChangeJob.getDbId() == dbId
-                    && indexChangeJob.getTableId() == tableId
-                    && indexChangeJob.getPartitionName().equals(partitionName)
-                    && ((Config.isNotCloudMode() && indexChangeJob.hasSameAlterInvertedIndex(isDrop, alterIndexes))
-                    || Config.isCloudMode())
-                    && !indexChangeJob.isDone()) {
-                // if JobState is done (CANCELLED or FINISHED), also allow user to create job again
+            if (indexChangeJob.getPartitionName().equals(partitionName)
+                    && isConflictingIndexChangeJob(indexChangeJob, originIndexId, dbId, tableId, alterIndexes,
+                    isDrop)) {
                 return true;
             }
         }
         return false;
+    }
+
+    private static boolean isConflictingIndexChangeJob(IndexChangeJob indexChangeJob, long originIndexId,
+            long dbId, long tableId, List<Index> alterIndexes, boolean isDrop) {
+        // if JobState is done (CANCELLED or FINISHED), also allow user to create job again
+        return indexChangeJob.getOriginIndexId() == originIndexId
+                && indexChangeJob.getDbId() == dbId
+                && indexChangeJob.getTableId() == tableId
+                && ((Config.isNotCloudMode() && indexChangeJob.hasSameAlterInvertedIndex(isDrop, alterIndexes))
+                || Config.isCloudMode())
+                && !indexChangeJob.isDone();
     }
 
     // schema change job is not allowed when index change job is running
