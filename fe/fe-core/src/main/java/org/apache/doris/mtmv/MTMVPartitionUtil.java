@@ -435,6 +435,11 @@ public class MTMVPartitionUtil {
      * them has to read again. A table named with an empty set is not read at all, and a table absent from
      * the map keeps the MV partitions' own key ranges.
      *
+     * <p>Every table the MV is partitioned on is named, olap or external: a table the mapping does not name
+     * for these MV partitions feeds them nothing -- the sync window dropped its partitions, say -- and its
+     * MV key range reads rows the snapshot records no partition for. The empty set says that outright,
+     * which is what separates it from a table that is not one of the MV partition column's sources at all.
+     *
      * <p>The tables are named by {@link BaseTableInfo} rather than by the table object: the mapping is keyed
      * by the tables the MV's partition info holds and this reads them by the name it is given, so what
      * identifies a table here is the table it names, not which of the two objects it was read from.
@@ -443,9 +448,7 @@ public class MTMVPartitionUtil {
             MTMVRefreshContext context, Set<String> mvPartitionNames) {
         Map<BaseTableInfo, Set<String>> res = Maps.newHashMap();
         for (TableIf table : tableWithPartKey.keySet()) {
-            if (table instanceof OlapTable) {
-                res.put(new BaseTableInfo(table), Sets.newHashSet());
-            }
+            res.put(new BaseTableInfo(table), Sets.newHashSet());
         }
         for (String mvPartitionName : mvPartitionNames) {
             for (Entry<MTMVRelatedTableIf, Set<String>> entry
