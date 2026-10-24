@@ -32,6 +32,11 @@ import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndNotCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ParseToVariant;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StAsEwkb;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StM;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StNDims;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StZ;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StZmFlag;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TryParseToVariant;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Year;
@@ -42,6 +47,7 @@ import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -113,6 +119,29 @@ public class FunctionRegistryTest implements MemoPatternMatchSupported {
         Expression canonicalFunction = canonicalBuilder.build("bitmap_and_not_count", arguments).first;
         Assertions.assertInstanceOf(BitmapAndNotCount.class, canonicalFunction);
         Assertions.assertFalse(canonicalFunction.nullable());
+    }
+
+    @Test
+    public void testDimensionalGeoFunctionsRegistered() {
+        FunctionRegistry functionRegistry = new FunctionRegistry();
+        ImmutableList<Expression> arguments = ImmutableList.of(
+                new SlotReference("geometry", VarcharType.SYSTEM_DEFAULT, true));
+
+        Assertions.assertInstanceOf(StZ.class,
+                functionRegistry.findFunctionBuilder("st_z", arguments)
+                        .build("st_z", arguments).first);
+        Assertions.assertInstanceOf(StM.class,
+                functionRegistry.findFunctionBuilder("st_m", arguments)
+                        .build("st_m", arguments).first);
+        Assertions.assertInstanceOf(StNDims.class,
+                functionRegistry.findFunctionBuilder("st_ndims", arguments)
+                        .build("st_ndims", arguments).first);
+        Assertions.assertInstanceOf(StZmFlag.class,
+                functionRegistry.findFunctionBuilder("st_zmflag", arguments)
+                        .build("st_zmflag", arguments).first);
+        Assertions.assertInstanceOf(StAsEwkb.class,
+                functionRegistry.findFunctionBuilder("st_asewkb", arguments)
+                        .build("st_asewkb", arguments).first);
     }
 
     @Test
