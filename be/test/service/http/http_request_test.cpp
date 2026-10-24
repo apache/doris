@@ -21,6 +21,7 @@
 #include <gtest/gtest.h>
 
 #include <cstring>
+#include <map>
 #include <string>
 #include <utility>
 #include <vector>
@@ -45,6 +46,22 @@ std::string debug_string_with_header(const std::string& name, const std::string&
     auto* evhttp_req = evhttp_request_new(nullptr, nullptr);
     HttpRequest req(evhttp_req);
     req.set_header(name, value);
+    std::string dumped = req.debug_string();
+    evhttp_request_free(evhttp_req);
+    return dumped;
+}
+
+// Renders debug_string() for a request carrying the given URI and query parameters. A real
+// request has both: init_from_evhttp() keeps the raw URI and parses the same query string into
+// the parameter map, so a value that survives either one has leaked.
+std::string debug_string_with_query(const std::string& uri,
+                                    const std::map<std::string, std::string>& params) {
+    auto* evhttp_req = evhttp_request_new(nullptr, nullptr);
+    HttpRequest req(evhttp_req);
+    req.set_uri(uri);
+    for (const auto& [name, value] : params) {
+        req.params()->emplace(name, value);
+    }
     std::string dumped = req.debug_string();
     evhttp_request_free(evhttp_req);
     return dumped;
@@ -137,6 +154,69 @@ TEST_F(HttpRequestTest, non_sensitive_headers_are_untouched) {
 
     EXPECT_NE(dumped.find("key=User-Agent, value=curl/7.76.1"), std::string::npos) << dumped;
     EXPECT_EQ(dumped.find(kMasked), std::string::npos) << dumped;
+}
+
+// The cluster token travels as a query parameter of the download endpoints, so a credential can
+// leak through the query string just as easily as through a header.
+TEST_F(HttpRequestTest, sensitive_query_params_are_masked) {
+    const std::string dumped =
+            debug_string_with_query("/api/_binlog/_download?method=get_binlog&token=SUPERSECRET123",
+                                    {{"method", "get_binlog"}, {"token", "SUPERSECRET123"}});
+
+    EXPECT_EQ(dumped.find("SUPERSECRET123"), std::string::npos) << dumped;
+    EXPECT_NE(dumped.find("key=token, value=" + std::string(kMasked)), std::string::npos) << dumped;
+    EXPECT_NE(dumped.find("token=" + std::string(kMasked)), std::string::npos) << dumped;
+    // Masking a parameter must not swallow the ones around it.
+    EXPECT_NE(dumped.find("key=method, value=get_binlog"), std::string::npos) << dumped;
+    EXPECT_NE(dumped.find("method=get_binlog"), std::string::npos) << dumped;
+}
+
+// /api/update_config carries "<config name>=<new value>" in the query string, so a config that
+// holds a secret makes the parameter that names it sensitive.
+TEST_F(HttpRequestTest, sensitive_config_names_are_masked_as_query_params) {
+    const std::string dumped = debug_string_with_query(
+            "/api/update_config?tls_private_key_password=hunter2&persist=true",
+            {{"tls_private_key_password", "hunter2"}, {"persist", "true"}});
+
+    EXPECT_EQ(dumped.find("hunter2"), std::string::npos) << dumped;
+    EXPECT_NE(dumped.find("tls_private_key_password=" + std::string(kMasked)), std::string::npos)
+            << dumped;
+    EXPECT_NE(dumped.find("key=persist, value=true"), std::string::npos) << dumped;
+}
+
+TEST_F(HttpRequestTest, non_sensitive_query_params_are_untouched) {
+    const std::string dumped = debug_string_with_query("/api/show_config?conf_item=be_port",
+                                                       {{"conf_item", "be_port"}});
+
+    EXPECT_NE(dumped.find("uri:/api/show_config?conf_item=be_port"), std::string::npos) << dumped;
+    EXPECT_NE(dumped.find("key=conf_item, value=be_port"), std::string::npos) << dumped;
+    EXPECT_EQ(dumped.find(kMasked), std::string::npos) << dumped;
+}
+
+// A URI is masked textually, so the shapes a query string can take must not confuse it.
+TEST_F(HttpRequestTest, uri_masking_handles_query_string_edge_cases) {
+    const std::vector<std::pair<std::string, std::string>> cases = {
+            // no query string at all
+            {"/api/health", "/api/health"},
+            // an empty query string
+            {"/api/health?", "/api/health?"},
+            // a valueless parameter has nothing to leak
+            {"/api/health?token", "/api/health?token"},
+            // a trailing separator must survive
+            {"/api/health?token=s&", "/api/health?token=***MASKED***&"},
+            // an empty value is masked like any other
+            {"/api/health?token=", "/api/health?token=***MASKED***"},
+            // the name is url encoded, the match is on the decoded name
+            {"/api/health?%74oken=s", "/api/health?%74oken=***MASKED***"},
+            // a value containing '=' is replaced whole
+            {"/api/health?token=a=b&x=1", "/api/health?token=***MASKED***&x=1"},
+    };
+
+    for (const auto& [uri, expected] : cases) {
+        const std::string dumped = debug_string_with_query(uri, {});
+        EXPECT_NE(dumped.find("uri:" + expected + "\n"), std::string::npos)
+                << "uri=" << uri << ", dumped=" << dumped;
+    }
 }
 
 } // namespace doris

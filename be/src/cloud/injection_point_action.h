@@ -15,13 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "service/http/http_handler.h"
+#pragma once
+
+#include "service/http/http_handler_with_auth.h"
 
 namespace doris {
 
-class InjectionPointAction : public HttpHandler {
+class ExecEnv;
+
+// Only registered under the ENABLE_INJECTION_POINT build flag, but it still goes through the
+// same auth gate as every other handler: inheriting HttpHandler directly is what bypasses the
+// gate entirely, and there is no reason for a debug-only endpoint to be the exception.
+class InjectionPointAction : public HttpHandlerWithAuth {
 public:
-    InjectionPointAction();
+    // The single-argument base constructor defaults to GLOBAL/ADMIN.
+    InjectionPointAction(ExecEnv* exec_env);
 
     ~InjectionPointAction() override = default;
 
