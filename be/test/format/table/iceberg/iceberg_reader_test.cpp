@@ -28,6 +28,7 @@
 #include <parquet/arrow/writer.h>
 
 #include <array>
+#include <bit>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -1402,6 +1403,44 @@ protected:
     std::unordered_map<std::string, uint32_t> delete_file_col_name_to_block_idx = {{"file_path", 0},
                                                                                    {"pos", 1}};
 };
+
+TEST_F(IcebergReaderTest, materializes_complex_double_initial_default_at_full_precision) {
+    auto element = std::make_shared<schema::external::TField>();
+    element->__set_name("element");
+    element->__set_id(2);
+    element->__set_is_optional(false);
+    TColumnType element_thrift_type;
+    element_thrift_type.__set_type(TPrimitiveType::DOUBLE);
+    element->__set_type(element_thrift_type);
+    schema::external::TFieldPtr element_ptr;
+    element_ptr.__set_field_ptr(std::move(element));
+
+    schema::external::TField values;
+    values.__set_name("values");
+    values.__set_id(1);
+    values.__set_is_optional(true);
+    values.__set_initial_default_value("[0.18172760479972437302]");
+    TColumnType values_thrift_type;
+    values_thrift_type.__set_type(TPrimitiveType::ARRAY);
+    values.__set_type(values_thrift_type);
+    schema::external::TArrayField array_metadata;
+    array_metadata.__set_item_field(std::move(element_ptr));
+    values.nestedField.__set_array_field(std::move(array_metadata));
+    values.__isset.nestedField = true;
+
+    const auto double_type = std::make_shared<DataTypeFloat64>();
+    const auto values_type = make_nullable(std::make_shared<DataTypeArray>(double_type));
+    ColumnPtr default_column;
+    ASSERT_TRUE(iceberg::create_initial_default_column(values, values_type, &default_column).ok());
+    const auto& nullable = assert_cast<const ColumnNullable&>(*default_column);
+    ASSERT_FALSE(nullable.is_null_at(0));
+    const auto& array = assert_cast<const ColumnArray&>(nullable.get_nested_column());
+    const auto& nullable_doubles = assert_cast<const ColumnNullable&>(array.get_data());
+    ASSERT_FALSE(nullable_doubles.is_null_at(0));
+    const auto& doubles = assert_cast<const ColumnFloat64&>(nullable_doubles.get_nested_column());
+    ASSERT_EQ(doubles.size(), 1);
+    EXPECT_EQ(std::bit_cast<uint64_t>(doubles.get_data()[0]), 0x3fc742d9a3b296dcULL);
+}
 
 TEST_F(IcebergReaderTest, detects_fully_dictionary_encoded_parquet_column) {
     tparquet::ColumnMetaData column_metadata;

@@ -55,12 +55,10 @@ import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.io.DataInputViewStreamWrapper;
 import org.apache.paimon.predicate.Predicate;
-import org.apache.paimon.privilege.AllGrantedPrivilegeChecker;
-import org.apache.paimon.privilege.PrivilegedFileStoreTable;
 import org.apache.paimon.reader.RecordReader;
+import org.apache.paimon.schema.FileSystemSchemaManager;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.SchemaChange;
-import org.apache.paimon.schema.SchemaManager;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
@@ -1032,6 +1030,11 @@ public class PaimonScanPlanProviderTest {
         Files.write(dataDir.resolve("000-empty.csv"), new byte[0]);
         Files.write(dataDir.resolve("999-live.csv"), Collections.singletonList("7"),
                 StandardCharsets.UTF_8);
+        Map<String, String> formatOptions = new HashMap<>();
+        formatOptions.put(CoreOptions.FILE_FORMAT.key(), "csv");
+        // Paimon 2.0 packs small files into one split by default. Keep one file per split so
+        // an unsafe limit based on split count would still discard the live file.
+        formatOptions.put(CoreOptions.SOURCE_SPLIT_TARGET_SIZE.key(), "1 mb");
         FormatTable table = FormatTable.builder()
                 .fileIO(new OrderedLocalFileIO())
                 .identifier(Identifier.create("db", "format_limit"))
@@ -1039,13 +1042,13 @@ public class PaimonScanPlanProviderTest {
                 .partitionKeys(Collections.emptyList())
                 .location(dataDir.toUri().toString())
                 .format(FormatTable.Format.CSV)
-                .options(Collections.singletonMap(CoreOptions.FILE_FORMAT.key(), "csv"))
+                .options(formatOptions)
                 .build();
         List<Split> plannedSplits = table.newReadBuilder().newScan().plan().splits();
         Assertions.assertTrue(plannedSplits.size() >= 2,
                 "fixture must expose both the empty and live format files");
         Assertions.assertEquals("000-empty.csv",
-                ((FormatDataSplit) plannedSplits.get(0)).filePath().getName(),
+                ((FormatDataSplit) plannedSplits.get(0)).files().get(0).filePath().getName(),
                 "the unsafe file-count limit must encounter the empty file first");
         RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
         ops.table = table;
@@ -1187,30 +1190,26 @@ public class PaimonScanPlanProviderTest {
             }
 
             FallbackReadFileStoreTable pair = new FallbackReadFileStoreTable(main, fallback, true);
-            FileStoreTable decorated = PrivilegedFileStoreTable.wrap(
-                    pair, new AllGrantedPrivilegeChecker(), mainId);
-            for (Table planningTable : Arrays.asList(pair, decorated)) {
-                RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
-                ops.table = planningTable;
-                PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
-                        PaimonCatalogProperties.of(Collections.emptyMap()), ops);
-                PaimonTableHandle handle = new PaimonTableHandle(
-                        "db", "fallback_main", Collections.emptyList(), Collections.emptyList());
-                List<ConnectorScanRange> ranges = provider.planScan(
-                        sessionWithProps(Collections.singletonMap("force_jni_scanner", "true")),
-                        ConnectorScanRequest.builder(handle, Collections.emptyList())
-                                .limit(1)
-                                .build());
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = pair;
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "fallback_main", Collections.emptyList(), Collections.emptyList());
+            List<ConnectorScanRange> ranges = provider.planScan(
+                    sessionWithProps(Collections.singletonMap("force_jni_scanner", "true")),
+                    ConnectorScanRequest.builder(handle, Collections.emptyList())
+                            .limit(1)
+                            .build());
 
-                RecordReader<InternalRow> reader = pair.newReadBuilder()
-                        .newRead()
-                        .createReader(deserializeJniSplits(ranges));
-                List<Integer> values = new ArrayList<>();
-                reader.forEachRemaining(row -> values.add(row.getInt(2)));
-                values.sort(Integer::compareTo);
-                Assertions.assertEquals(Arrays.asList(100, 200), values,
-                        "direct and decorated fallback tables must never expose stale rows");
-            }
+            RecordReader<InternalRow> reader = pair.newReadBuilder()
+                    .newRead()
+                    .createReader(deserializeJniSplits(ranges));
+            List<Integer> values = new ArrayList<>();
+            reader.forEachRemaining(row -> values.add(row.getInt(2)));
+            values.sort(Integer::compareTo);
+            Assertions.assertEquals(Arrays.asList(100, 200), values,
+                    "fallback tables must never expose stale rows");
 
             RecordingPaimonCatalogOps systemOps = new RecordingPaimonCatalogOps();
             systemOps.table = pair;
@@ -1220,7 +1219,7 @@ public class PaimonScanPlanProviderTest {
                     "db", "fallback_main", "ro", false);
             systemHandle.setPaimonTable(new ReadOptimizedTable(pair));
             systemHandle.setSysBaseTable(pair);
-            systemHandle.setSystemTableSource(decorated);
+            systemHandle.setSystemTableSource(pair);
             ConnectorSession forceJni = sessionWithProps(
                     Collections.singletonMap("force_jni_scanner", "true"));
             List<ConnectorScanRange> unlimitedSystemRanges = systemProvider.planScan(
@@ -1842,7 +1841,7 @@ public class PaimonScanPlanProviderTest {
             }
             long dataSnapshotId = firstGeneration.latestSnapshot()
                     .orElseThrow(AssertionError::new).id();
-            new SchemaManager(firstGeneration.fileIO(), firstGeneration.location())
+            new FileSystemSchemaManager(firstGeneration.fileIO(), firstGeneration.location())
                     .commitChanges(SchemaChange.addColumn("added", DataTypes.INT()));
             FileStoreTable latestGeneration = (FileStoreTable) catalog.getTable(id);
 
@@ -1889,7 +1888,7 @@ public class PaimonScanPlanProviderTest {
             }
             long dataSnapshotId = firstGeneration.latestSnapshot()
                     .orElseThrow(AssertionError::new).id();
-            new SchemaManager(firstGeneration.fileIO(), firstGeneration.location())
+            new FileSystemSchemaManager(firstGeneration.fileIO(), firstGeneration.location())
                     .commitChanges(SchemaChange.addColumn("added", DataTypes.INT()));
             FileStoreTable latestGeneration = (FileStoreTable) catalog.getTable(id);
 
@@ -2352,7 +2351,7 @@ public class PaimonScanPlanProviderTest {
                 }
             }
             long oldSnapshotId = firstGeneration.latestSnapshot().orElseThrow(AssertionError::new).id();
-            new SchemaManager(firstGeneration.fileIO(), firstGeneration.location())
+            new FileSystemSchemaManager(firstGeneration.fileIO(), firstGeneration.location())
                     .commitChanges(SchemaChange.renameColumn("old_name", "new_name"));
             FileStoreTable latestGeneration = (FileStoreTable) catalog.getTable(id);
 

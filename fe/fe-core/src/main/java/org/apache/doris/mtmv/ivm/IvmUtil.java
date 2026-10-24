@@ -382,7 +382,7 @@ public class IvmUtil {
             return;
         }
         OlapTable table = scan.getTable();
-        if (!table.hasChangelog()) {
+        if (!scan.isChangelogEnabled()) {
             throw new IvmException(IvmFailureReason.CHANGELOG_NOT_ENABLED,
                     "SQL can be incrementally refreshed, but changelog is not enabled for table: "
                             + table.getName()

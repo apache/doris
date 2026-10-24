@@ -123,6 +123,23 @@ final class IcebergWriterHelper {
     }
 
     /**
+     * Rejects {@code columnName} as the new name of a top-level column of {@code table} when it is a format-version
+     * 3 row-lineage column name ({@code _row_id}, {@code _last_updated_sequence_number}, in any case). Such a table
+     * reads both as hidden columns, so a column that takes either name makes every later read of the table fail with
+     * a duplicate column. Nested fields and older format versions may use the names, and dropping such a column or
+     * renaming it away stays allowed: that is how a table that already holds one becomes readable again.
+     */
+    static void validateNotRowLineageColumn(Table table, String columnName, String operation) {
+        int formatVersion = getFormatVersion(table);
+        if (formatVersion >= ICEBERG_ROW_LINEAGE_MIN_VERSION
+                && (MetadataColumns.ROW_ID.name().equalsIgnoreCase(columnName)
+                || MetadataColumns.LAST_UPDATED_SEQUENCE_NUMBER.name().equalsIgnoreCase(columnName))) {
+            throw new DorisConnectorException("Cannot " + operation + " Iceberg v" + formatVersion
+                    + " reserved row lineage column: " + columnName);
+        }
+    }
+
+    /**
      * Converts the BE data-file commit fragments into an iceberg {@link WriteResult} of {@link DataFile}s
      * (the INSERT / OVERWRITE / MERGE-data path). A partitioned table requires non-empty partition values per
      * file; {@code "null"} partition tokens map to a real {@code null}.

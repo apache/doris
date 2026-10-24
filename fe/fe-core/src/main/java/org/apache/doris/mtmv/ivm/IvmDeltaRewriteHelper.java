@@ -44,6 +44,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.trees.plans.logical.SupportChangelog;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.collect.ImmutableList;
@@ -419,6 +420,34 @@ public class IvmDeltaRewriteHelper {
             projects.add(new Alias(target.getExprId(), source, target.getName()));
         }
         return new LogicalProject<>(projects.build(), union);
+    }
+
+    Pair<Plan, Map<Slot, Slot>> preSnapshot(Plan plan, IvmDeltaRewriteState rewriteState) {
+        return rewriteSnapshot(plan, rewriteState, true);
+    }
+
+    Pair<Plan, Map<Slot, Slot>> postSnapshot(Plan plan, IvmDeltaRewriteState rewriteState) {
+        return rewriteSnapshot(plan, rewriteState, false);
+    }
+
+    private Pair<Plan, Map<Slot, Slot>> rewriteSnapshot(Plan plan, IvmDeltaRewriteState rewriteState,
+            boolean preSnapshot) {
+        Plan rewritten = plan.rewriteDownShortCircuit(node -> {
+            // IVM reads only changelog-capable scans as base scans. A stream scan is such a scan only
+            // through its supertype, and an IVM query never contains one, so leave it untouched.
+            if (!(node instanceof SupportChangelog) || node instanceof LogicalOlapTableStreamScan) {
+                return node;
+            }
+            LogicalOlapScan scan = (LogicalOlapScan) node;
+            if (rewriteState.isExcluded(scan)) {
+                // Excluded tables produce no delta, but their snapshot side still joins
+                // the delta side; apply the window so the property also saves their scan.
+                return rewriteState.restrictWindow(scan);
+            }
+            scan = rewriteState.restrictWindow(scan);
+            return remapOlapScanToPlan(scan, scan.withSnapshot(preSnapshot, rewriteState.getStream(scan)));
+        });
+        return freshPlan(rewritten);
     }
 
     /**
