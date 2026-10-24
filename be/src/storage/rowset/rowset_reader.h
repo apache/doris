@@ -51,7 +51,8 @@ struct RowSetSplits {
 
 // The reader of one rowset: turns the read's RowsetReaderContext into the read options of
 // every segment of the rowset (its delete predicates, its delete bitmap, the key ranges and
-// predicates to push down, ...) and creates the segment iterators.
+// predicates to push down, ...) and creates the segment iterators. It never writes into the
+// context, which every rowset of the read shares.
 //
 // BlockReader merges or concatenates the segment iterators of all rowsets itself, through
 // get_segment_iterators(). A reader of a single rowset, like a schema change, reads the
@@ -60,18 +61,19 @@ class RowsetReader {
 public:
     virtual ~RowsetReader() = default;
 
-    virtual Status init(RowsetReaderContext* read_context, const RowSetSplits& rs_splits = {}) = 0;
+    virtual Status init(const RowsetReaderContext* read_context,
+                        const RowSetSplits& rs_splits = {}) = 0;
 
     // One iterator per segment of the read's segment range, in segment order; every segment
     // iterator carries this rowset's read options.
-    virtual Status get_segment_iterators(RowsetReaderContext* read_context,
+    virtual Status get_segment_iterators(const RowsetReaderContext* read_context,
                                          std::vector<RowwiseIteratorUPtr>* out_iters,
                                          bool use_cache = false) = 0;
 
     // The rows of this rowset as one key-ordered iterator when the read needs them ordered
     // (a merge of the segments when they overlap on keys), the segments one after another
     // otherwise. The caller initializes the iterator.
-    virtual Status new_iterator(RowsetReaderContext* read_context,
+    virtual Status new_iterator(const RowsetReaderContext* read_context,
                                 RowwiseIteratorUPtr* out_iter) = 0;
 
     virtual void reset_read_options() = 0;

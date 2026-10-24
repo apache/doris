@@ -110,6 +110,7 @@ private:
 
 private:
     size_t _id;
+    bool _is_key_column_group = false;
     std::shared_ptr<RowwiseIterator> _vcollect_iter;
     IteratorRowRef _next_row {{}, -1, false};
 

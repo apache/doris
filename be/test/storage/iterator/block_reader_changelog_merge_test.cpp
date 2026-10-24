@@ -187,12 +187,16 @@ void configure_two_rowset_merge(BlockReader& reader, std::vector<Row> rowset0_ro
             std::make_unique<FakeRowsIterator>(std::move(rowset0_rows), reader._read_schema));
     children.push_back(
             std::make_unique<FakeRowsIterator>(std::move(rowset1_rows), reader._read_schema));
-    reader._rows_iter = new_merge_iterator(std::move(children), reader._read_schema,
-                                           /*sequence_ordinal=*/TSO_IDX,
-                                           /*small_sequence_first=*/true, /*is_reverse=*/false,
-                                           /*skip_same=*/false);
+    // What TabletReader decides for a changelog merge scan: key order, every change kept,
+    // same-key changes by ascending TSO and then in insertion order.
+    MergeDecision decision;
+    decision.key_ordered = true;
+    decision.compare_ordinals = {KEY_IDX};
+    decision.sequence_ordinal = TSO_IDX;
+    decision.small_sequence_first = true;
+    decision.older_first = true;
+    reader._rows_iter = new_merge_iterator(std::move(children), reader._read_schema, decision);
     reader._rows_options.block_row_max = batch_size;
-    reader._rows_options.use_insert_order_when_same = true;
     ASSERT_TRUE(reader._rows_iter->init(reader._rows_options).ok());
 }
 

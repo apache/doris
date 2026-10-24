@@ -423,7 +423,7 @@ TEST_F(VariantDocModeCompactionTest, variant_doc_mode_compaction_merge_10_segmen
                   << " elapsed_ms=" << import_elapsed_ms << std::endl;
         if (i == 0) {
             RowsetReaderContext input_reader_context;
-            input_reader_context.need_ordered_result = false;
+            input_reader_context.merge.key_ordered = false;
             std::vector<uint32_t> input_return_columns = {1};
             auto input_read_schema = std::make_shared<ReadSchema>(
                     project_columns_by_ordinal(tablet_schema->columns(), input_return_columns));
@@ -476,7 +476,7 @@ TEST_F(VariantDocModeCompactionTest, variant_doc_mode_compaction_merge_10_segmen
     ASSERT_EQ(static_cast<int64_t>(kRowsPerSegment) * 10, out_rowset->rowset_meta()->num_rows());
 
     RowsetReaderContext reader_context;
-    reader_context.need_ordered_result = false;
+    reader_context.merge.key_ordered = false;
     std::vector<uint32_t> return_columns = {0};
     auto read_schema = std::make_shared<ReadSchema>(
             project_columns_by_ordinal(tablet_schema->columns(), return_columns));

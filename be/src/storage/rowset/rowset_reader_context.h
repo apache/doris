@@ -28,6 +28,7 @@
 #include "io/io_common.h"
 #include "runtime/runtime_state.h"
 #include "storage/index/ann/ann_topn_runtime.h"
+#include "storage/iterators.h"
 #include "storage/olap_common.h"
 #include "storage/predicate/column_predicate.h"
 #include "storage/row_cursor.h"
@@ -41,23 +42,21 @@ class DeleteBitmap;
 class DeleteHandler;
 class TabletSchema;
 
+// What the TabletReader tells the readers of its rowsets: the read schema, the version read,
+// the predicates and key ranges to push down, how the rows are merged, and the knobs of the
+// segment reads. It is read-only for the rowset readers; one context serves every rowset of
+// the read.
 struct RowsetReaderContext {
     ReaderType reader_type = ReaderType::READER_QUERY;
     bool read_changelog = false;
+    // The version range of the read, [0, N] for a query.
     Version version {-1, -1};
     // Set only by compaction, alongside its extended tablet_schema.
     VariantCompactionPathsSPtr variant_compaction_paths;
     std::vector<int> topn_filter_source_node_ids;
-    // whether rowset should return ordered rows.
-    bool need_ordered_result = true;
-    // used for special optimization for query : ORDER BY key DESC LIMIT n
-    bool read_orderby_key_reverse = false;
-    // For rows with the same key, use ascending order (small-to-large) for tie-breakers.
-    // For example, use lower rowset version / segment id first.
-    bool use_insert_order_when_same = false;
-    // ordinals (positions in read_schema) of the orderby key columns
-    std::vector<uint32_t>* read_orderby_key_columns = nullptr;
-    // limit of rows for read_orderby_key
+    MergeDecision merge;
+    // ORDER BY key LIMIT n pushed down: every segment stops after this many rows, and the TopN
+    // read keeps the best n of every rowset.
     size_t read_orderby_key_limit = 0;
     ReadSchemaSPtr read_schema = nullptr;
     TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
@@ -75,18 +74,14 @@ struct RowsetReaderContext {
     RuntimeState* runtime_state = nullptr;
     VExprContextSPtrs common_expr_ctxs_push_down;
     bool use_page_cache = false;
-    // Whether equal-key merge should use the sequence column as its tie-break column.
-    bool use_sequence_column_for_merge_order = true;
     int batch_size = 1024;
     // Effective adaptive batch size byte budget. 0 means disabled internally.
     size_t preferred_block_size_bytes = 8388608UL;
 
-    bool is_unique = false;
     // for unique key merge on write
     bool enable_unique_key_merge_on_write = false;
     DeleteBitmapPtr delete_bitmap = nullptr;
     RowIdConversion* rowid_conversion = nullptr;
-    bool is_key_column_group = false;
     // column unique ids referenced by output/orderby exprs (NOT ordinals)
     const std::set<int32_t>* output_columns = nullptr;
     std::set<ColumnId> extra_columns;

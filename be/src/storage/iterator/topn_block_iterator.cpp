@@ -152,8 +152,7 @@ Status TopNBlockIterator::next_block(Block* block, bool* eof) {
 
 Status TopNBlockIterator::_collect(Block* block) {
     DORIS_CHECK(block != nullptr);
-    const std::vector<uint32_t>* sort_columns = _context->read_orderby_key_columns;
-    DORIS_CHECK(sort_columns != nullptr);
+    const std::vector<uint32_t>* sort_columns = &_context->merge.compare_ordinals;
     DORIS_CHECK(!sort_columns->empty());
     const size_t limit = _context->read_orderby_key_limit;
     DORIS_CHECK_GT(limit, 0);
@@ -168,8 +167,7 @@ Status TopNBlockIterator::_collect(Block* block) {
         clone_block.get_by_position(ordinal).column =
                 expr_ctx->root()->data_type()->create_column();
     }
-    Candidates candidates(std::move(clone_block), sort_columns, _context->read_orderby_key_reverse,
-                          limit);
+    Candidates candidates(std::move(clone_block), sort_columns, _context->merge.reverse, limit);
 
     for (size_t i = 0; i < _rowset_iters->size(); i++) {
         RETURN_IF_ERROR(_collect_rowset(*(*_rowset_iters)[i], block, &candidates));
@@ -209,7 +207,7 @@ Status TopNBlockIterator::_collect_rowset(RowwiseIterator& rowset_iter, Block* b
 // column value to the TopN runtime predicate of every source node.
 Status TopNBlockIterator::_update_runtime_predicate(const Candidates& candidates) {
     Field new_top;
-    candidates.worst_value((*_context->read_orderby_key_columns)[0], &new_top);
+    candidates.worst_value(_context->merge.compare_ordinals[0], &new_top);
     auto* query_ctx = _context->runtime_state->get_query_ctx();
     for (int id : _context->topn_filter_source_node_ids) {
         RETURN_IF_ERROR(query_ctx->get_runtime_predicate(id).update(new_top));

@@ -640,7 +640,7 @@ TEST_F(VerticalCompactionTest, TestDupKeyVerticalMerge) {
 
     // create output rowset reader
     RowsetReaderContext reader_context;
-    reader_context.need_ordered_result = false;
+    reader_context.merge.key_ordered = false;
     auto read_schema = std::make_shared<ReadSchema>(
             project_columns_by_ordinal(tablet_schema->columns(), std::vector<ColumnId> {0, 1}));
     reader_context.read_schema = read_schema;
@@ -782,7 +782,7 @@ TEST_F(VerticalCompactionTest, MergeHonorsKeyRanges) {
         ASSERT_EQ(expected_end - expected_begin, output_rowset->num_rows());
 
         RowsetReaderContext reader_context;
-        reader_context.need_ordered_result = false;
+        reader_context.merge.key_ordered = false;
         auto read_schema = std::make_shared<ReadSchema>(
                 project_columns_by_ordinal(tablet_schema->columns(), std::vector<ColumnId> {0, 1}));
         reader_context.read_schema = read_schema;
@@ -903,7 +903,7 @@ TEST_F(VerticalCompactionTest, TestDupWithoutKeyVerticalMerge) {
 
     // create output rowset reader
     RowsetReaderContext reader_context;
-    reader_context.need_ordered_result = false;
+    reader_context.merge.key_ordered = false;
     auto read_schema = std::make_shared<ReadSchema>(
             project_columns_by_ordinal(tablet_schema->columns(), std::vector<ColumnId> {0, 1}));
     reader_context.read_schema = read_schema;
@@ -1014,7 +1014,7 @@ TEST_F(VerticalCompactionTest, TestUniqueKeyVerticalMerge) {
 
     // create output rowset reader
     RowsetReaderContext reader_context;
-    reader_context.need_ordered_result = false;
+    reader_context.merge.key_ordered = false;
     auto read_schema = std::make_shared<ReadSchema>(
             project_columns_by_ordinal(tablet_schema->columns(), std::vector<ColumnId> {0, 1}));
     reader_context.read_schema = read_schema;
@@ -1279,7 +1279,7 @@ TEST_F(VerticalCompactionTest, TestUniqueKeySegmentContextMemoryAmplification) {
         ASSERT_EQ(total_rows, output_rowset->num_rows());
 
         RowsetReaderContext reader_context;
-        reader_context.need_ordered_result = false;
+        reader_context.merge.key_ordered = false;
         auto read_schema = std::make_shared<ReadSchema>(project_columns_by_ordinal(
                 tablet_schema->columns(), std::vector<ColumnId> {0, 1, 2}));
         reader_context.read_schema = read_schema;
@@ -1402,7 +1402,7 @@ TEST_F(VerticalCompactionTest, TestDupKeyVerticalMergeWithDelete) {
 
     // create output rowset reader
     RowsetReaderContext reader_context;
-    reader_context.need_ordered_result = false;
+    reader_context.merge.key_ordered = false;
     auto read_schema = std::make_shared<ReadSchema>(
             project_columns_by_ordinal(tablet_schema->columns(), std::vector<ColumnId> {0, 1}));
     reader_context.read_schema = read_schema;
@@ -1508,7 +1508,7 @@ TEST_F(VerticalCompactionTest, TestDupWithoutKeyVerticalMergeWithDelete) {
 
     // create output rowset reader
     RowsetReaderContext reader_context;
-    reader_context.need_ordered_result = false;
+    reader_context.merge.key_ordered = false;
     auto read_schema = std::make_shared<ReadSchema>(
             project_columns_by_ordinal(tablet_schema->columns(), std::vector<ColumnId> {0, 1}));
     reader_context.read_schema = read_schema;
@@ -1603,7 +1603,7 @@ TEST_F(VerticalCompactionTest, TestAggKeyVerticalMerge) {
 
     // create output rowset reader
     RowsetReaderContext reader_context;
-    reader_context.need_ordered_result = false;
+    reader_context.merge.key_ordered = false;
     auto read_schema = std::make_shared<ReadSchema>(
             project_columns_by_ordinal(tablet_schema->columns(), std::vector<ColumnId> {0, 1}));
     reader_context.read_schema = read_schema;
@@ -1802,7 +1802,7 @@ TEST_F(VerticalCompactionTest, TestUniqueKeyVerticalMergeWithNullableSparseColum
     ASSERT_EQ(Status::OK(), output_rs_writer->build(out_rowset));
 
     RowsetReaderContext reader_context;
-    reader_context.need_ordered_result = false;
+    reader_context.merge.key_ordered = false;
     auto read_schema = std::make_shared<ReadSchema>(
             project_columns_by_ordinal(tablet_schema->columns(), std::vector<ColumnId> {0, 1, 2}));
     reader_context.read_schema = read_schema;

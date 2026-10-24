@@ -163,13 +163,13 @@ class VerticalMergeIteratorContext {
 public:
     VerticalMergeIteratorContext(RowwiseIteratorUPtr&& iter, uint32_t order, int32_t seq_col_idx,
                                  VerticalCompactionContextStats* context_stats,
-                                 bool use_insert_order_when_same = false,
+                                 bool older_first = false,
                                  std::vector<uint32_t> key_group_cluster_key_idxes = {})
             : _iter(std::move(iter)),
               _order(order),
               _seq_col_idx(seq_col_idx),
               _num_key_columns(_iter->schema().num_key_columns()),
-              _use_insert_order_when_same(use_insert_order_when_same),
+              _older_first(older_first),
               _key_group_cluster_key_idxes(std::move(key_group_cluster_key_idxes)),
               _context_stats(context_stats) {}
 
@@ -263,7 +263,8 @@ private:
     int32_t _index_in_block = -1;
     size_t _block_row_max = 0;
     int64_t _num_key_columns;
-    const bool _use_insert_order_when_same = false;
+    // Among the rows of one key and sequence value, the older segment's row goes first.
+    const bool _older_first = false;
     const std::vector<uint32_t> _key_group_cluster_key_idxes;
     VerticalCompactionContextStats* _context_stats;
     size_t _cur_batch_num = 0;
@@ -283,13 +284,15 @@ public:
     // VerticalMergeIterator takes the ownership of input iterators
     VerticalHeapMergeIterator(std::vector<RowwiseIteratorUPtr>&& iters,
                               std::vector<bool> iterator_init_flags, KeysType keys_type,
-                              int32_t seq_col_idx, RowSourcesBuffer* row_sources_buf,
+                              int32_t seq_col_idx, bool older_first,
+                              RowSourcesBuffer* row_sources_buf,
                               VerticalCompactionContextStats* context_stats,
                               std::vector<uint32_t> key_group_cluster_key_idxes)
             : _origin_iters(std::move(iters)),
               _iterator_init_flags(std::move(iterator_init_flags)),
               _keys_type(keys_type),
               _seq_col_idx(seq_col_idx),
+              _older_first(older_first),
               _row_sources_buf(row_sources_buf),
               _context_stats(context_stats),
               _key_group_cluster_key_idxes(std::move(key_group_cluster_key_idxes)) {}
@@ -328,6 +331,8 @@ private:
     int _block_row_max = 0;
     KeysType _keys_type;
     int32_t _seq_col_idx = -1;
+    // Among the rows of one key and sequence value, the older segment's row goes first.
+    bool _older_first = false;
     RowSourcesBuffer* _row_sources_buf;
     VerticalCompactionContextStats* _context_stats;
     uint32_t _merged_rows = 0;
@@ -343,12 +348,14 @@ public:
     // VerticalFifoMergeIterator takes the ownership of input iterators
     VerticalFifoMergeIterator(std::vector<RowwiseIteratorUPtr>&& iters,
                               std::vector<bool> iterator_init_flags, KeysType keys_type,
-                              int32_t seq_col_idx, RowSourcesBuffer* row_sources_buf,
+                              int32_t seq_col_idx, bool older_first,
+                              RowSourcesBuffer* row_sources_buf,
                               VerticalCompactionContextStats* context_stats)
             : _origin_iters(std::move(iters)),
               _iterator_init_flags(std::move(iterator_init_flags)),
               _keys_type(keys_type),
               _seq_col_idx(seq_col_idx),
+              _older_first(older_first),
               _row_sources_buf(row_sources_buf),
               _context_stats(context_stats) {}
 
@@ -374,6 +381,7 @@ private:
     int _block_row_max = 0;
     KeysType _keys_type;
     int32_t _seq_col_idx = -1;
+    bool _older_first = false;
     RowSourcesBuffer* _row_sources_buf;
     VerticalCompactionContextStats* _context_stats;
     uint32_t _merged_rows = 0;
@@ -452,13 +460,13 @@ private:
 // segment merge iterator
 std::shared_ptr<RowwiseIterator> new_vertical_heap_merge_iterator(
         std::vector<RowwiseIteratorUPtr>&& inputs, const std::vector<bool>& iterator_init_flag,
-        KeysType key_type, int32_t seq_col_idx, RowSourcesBuffer* row_sources_buf,
+        KeysType key_type, int32_t seq_col_idx, bool older_first, RowSourcesBuffer* row_sources_buf,
         VerticalCompactionContextStats* context_stats,
         std::vector<uint32_t> key_group_cluster_key_idxes);
 
 std::shared_ptr<RowwiseIterator> new_vertical_fifo_merge_iterator(
         std::vector<RowwiseIteratorUPtr>&& inputs, const std::vector<bool>& iterator_init_flag,
-        KeysType key_type, int32_t seq_col_idx, RowSourcesBuffer* row_sources_buf,
+        KeysType key_type, int32_t seq_col_idx, bool older_first, RowSourcesBuffer* row_sources_buf,
         VerticalCompactionContextStats* context_stats);
 
 std::shared_ptr<RowwiseIterator> new_vertical_mask_merge_iterator(
