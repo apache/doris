@@ -536,6 +536,11 @@ struct TQueryOptions {
 
   // FE can explicitly and idempotently acknowledge external-file commit reports.
   236: optional bool supports_external_file_report_ack = false;
+
+  // Pre-filter column predicates into the ANN candidate bitmap (IDSelector) instead of falling
+  // back to a brute-force distance scan when an ANN TopN query carries a column predicate.
+  237: optional bool enable_ann_topn_predicate_prefilter = false
+
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.
