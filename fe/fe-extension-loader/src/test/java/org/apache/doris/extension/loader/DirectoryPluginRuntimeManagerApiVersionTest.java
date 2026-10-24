@@ -25,9 +25,17 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.CodeSource;
+import java.security.ProtectionDomain;
+import java.security.cert.Certificate;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.jar.JarEntry;
+import java.util.jar.JarOutputStream;
 
 /**
  * The gate as the directory loader applies it: what a real plugin jar declares in its MANIFEST decides
@@ -45,6 +53,8 @@ import java.util.Collections;
 class DirectoryPluginRuntimeManagerApiVersionTest {
 
     private static final ApiVersionGate GATE = DirectoryPluginRuntimeManagerMetadataTest.TEST_GATE;
+    private static final ApiVersionGate LEGACY_GATE = ApiVersionGate.forFamilyAllowingUnversioned(
+            "test", DirectoryPluginRuntimeManagerApiVersionTest.class, "7.0");
 
     @TempDir
     Path tempDir;
@@ -78,6 +88,70 @@ class DirectoryPluginRuntimeManagerApiVersionTest {
         LoadReport<PluginFactory> report = loadWithDeclaredVersion("malformed", "seven-point-two");
 
         assertRefused(report, "seven-point-two", "7.2");
+    }
+
+    @Test
+    void testReadableUnversionedLegacyPluginLoads() throws IOException {
+        Path root = tempDir.resolve("legacy");
+        DirectoryPluginRuntimeManagerMetadataTest.createPluginJar(
+                root.resolve("metadata-test").resolve("metadata-test.jar"),
+                MetadataTestPluginFactory.class, "3.1.4", null);
+        DirectoryPluginRuntimeManager<PluginFactory> manager = new DirectoryPluginRuntimeManager<>();
+        LoadReport<PluginFactory> report = manager.loadAll(Collections.singletonList(root),
+                Thread.currentThread().getContextClassLoader(), PluginFactory.class, null, LEGACY_GATE);
+
+        Assertions.assertEquals(1, report.getSuccesses().size(), () -> describe(report));
+        Assertions.assertEquals("3.1.4", report.getSuccesses().get(0).getVersion());
+        manager.discard("metadata-test");
+    }
+
+    @Test
+    void testLegacyGateStillRejectsExplicitInvalidDeclarations() throws IOException {
+        for (String version : Arrays.asList("", "seven-point-two", "6.0")) {
+            Path root = tempDir.resolve("invalid-legacy-" + version);
+            DirectoryPluginRuntimeManagerMetadataTest.createPluginJar(
+                    root.resolve("metadata-test").resolve("metadata-test.jar"),
+                    MetadataTestPluginFactory.class, "3.1.4", version);
+            LoadReport<PluginFactory> report = new DirectoryPluginRuntimeManager<PluginFactory>().loadAll(
+                    Collections.singletonList(root), Thread.currentThread().getContextClassLoader(),
+                    PluginFactory.class, null, LEGACY_GATE);
+
+            assertRefused(report, "Doris-Test-Plugin-Api-Version", "7.2");
+        }
+    }
+
+    @Test
+    void testUnreadableDefiningJarIsRefusedInsteadOfUsingAnotherCandidate() throws IOException {
+        Path definingJar = tempDir.resolve("unreadable.jar");
+        Files.write(definingJar, "not a jar".getBytes(StandardCharsets.UTF_8));
+
+        assertRefused(loadWithFactoryCodeSource(definingJar, true),
+                "Failed to read Doris-Test-Plugin-Api-Version", "metadata-test");
+    }
+
+    @Test
+    void testUnreadableManifestIsRefusedAsApiVersionFailure() throws IOException {
+        Path definingJar = tempDir.resolve("bad-manifest.jar");
+        try (JarOutputStream jar = new JarOutputStream(Files.newOutputStream(definingJar))) {
+            jar.putNextEntry(new JarEntry("META-INF/MANIFEST.MF"));
+            jar.write("invalid manifest header\n".getBytes(StandardCharsets.UTF_8));
+            jar.closeEntry();
+        }
+
+        assertRefused(loadWithFactoryCodeSource(definingJar, false),
+                "Failed to read Doris-Test-Plugin-Api-Version", "invalid header");
+    }
+
+    @Test
+    void testMissingDefiningJarIsRefusedInsteadOfBeingTreatedAsLegacy() throws IOException {
+        assertRefused(loadWithFactoryCodeSource(tempDir.resolve("missing.jar"), true),
+                "Failed to read Doris-Test-Plugin-Api-Version", "missing.jar");
+    }
+
+    @Test
+    void testUnresolvedDefiningJarIsRefusedInsteadOfBeingTreatedAsLegacy() throws IOException {
+        assertRefused(loadWithFactoryCodeSource(null, false),
+                "Failed to read Doris-Test-Plugin-Api-Version", "Cannot locate defining jar");
     }
 
     @Test
@@ -125,6 +199,51 @@ class DirectoryPluginRuntimeManagerApiVersionTest {
                 PluginFactory.class,
                 null,
                 GATE);
+    }
+
+    private LoadReport<PluginFactory> loadWithFactoryCodeSource(Path definingJar, boolean includeFactory)
+            throws IOException {
+        Path root = tempDir.resolve("lookup-failure");
+        Path pluginJar = root.resolve("metadata-test").resolve("metadata-test.jar");
+        if (includeFactory) {
+            // This readable candidate must not hide a failure to read the actual defining jar.
+            DirectoryPluginRuntimeManagerMetadataTest.createPluginJar(
+                    pluginJar, MetadataTestPluginFactory.class, "3.1.4", null);
+        } else {
+            Files.createDirectories(pluginJar.getParent());
+            try (JarOutputStream jar = new JarOutputStream(Files.newOutputStream(pluginJar))) {
+                jar.putNextEntry(new JarEntry("META-INF/services/" + PluginFactory.class.getName()));
+                jar.write((MetadataTestPluginFactory.class.getName() + "\n").getBytes(StandardCharsets.UTF_8));
+                jar.closeEntry();
+            }
+        }
+        // Define the factory before the separate manifest lookup, with controlled provenance. This makes
+        // missing/unreadable metadata deterministic without racing filesystem mutation against loading.
+        ClassLoader parent = new FactoryClassLoader(definingJar);
+        ClassLoadingPolicy policy = new ClassLoadingPolicy(
+                Collections.singletonList(MetadataTestPluginFactory.class.getName()));
+        DirectoryPluginRuntimeManager<PluginFactory> manager = new DirectoryPluginRuntimeManager<>();
+        LoadReport<PluginFactory> report = manager.loadAll(Collections.singletonList(root),
+                parent, PluginFactory.class, policy, LEGACY_GATE);
+
+        Assertions.assertTrue(manager.list().isEmpty(), "failed verification must not publish a handle");
+        Assertions.assertFalse(manager.get("metadata-test").isPresent());
+        return report;
+    }
+
+    private static class FactoryClassLoader extends ClassLoader {
+        FactoryClassLoader(Path definingJar) throws IOException {
+            super(Thread.currentThread().getContextClassLoader());
+            String name = MetadataTestPluginFactory.class.getName();
+            String classEntry = name.replace('.', '/') + ".class";
+            try (InputStream in = MetadataTestPluginFactory.class.getResourceAsStream("/" + classEntry)) {
+                Assertions.assertNotNull(in);
+                byte[] bytes = in.readAllBytes();
+                CodeSource source = definingJar == null ? null
+                        : new CodeSource(definingJar.toUri().toURL(), (Certificate[]) null);
+                defineClass(name, bytes, 0, bytes.length, new ProtectionDomain(source, null));
+            }
+        }
     }
 
     private static void assertRefused(LoadReport<PluginFactory> report, String... mustMention) {
