@@ -631,7 +631,9 @@ class GitHubAPITest(unittest.TestCase):
             stderr="", stdout='[[{"id":1}], [{"id":2}]]'
         )) as command:
             self.assertEqual([{"id": 1}, {"id": 2}], submitter.api("reviews", lambda: 7, paginated=True))
-        self.assertEqual(7, command.call_args.kwargs["timeout"])
+        # The shared GET deadline also accounts for helper setup time.
+        self.assertGreater(command.call_args.kwargs["timeout"], 0)
+        self.assertLessEqual(command.call_args.kwargs["timeout"], 7)
         self.assertIn("--paginate", command.call_args.args[0])
         self.assertIn("--slurp", command.call_args.args[0])
 

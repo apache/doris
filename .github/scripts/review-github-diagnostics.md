@@ -8,7 +8,21 @@ submission helper and head watchdog.
 Use python3 "$REVIEW_GH_HELPER" api ... in these workflow steps. Python helpers
 use run_gh with captured text output, check=True and their existing timeout;
 use decode_json when decoding its result. Request arguments, normal stdout,
-write deduplication, permission decisions and retry policy remain unchanged.
+write deduplication and permission decisions remain unchanged.
+
+Body-free REST GETs using the pipeline's known gh api arguments retry HTTP
+502/503/504 at most twice. Each attempt is limited to 30 seconds; all attempts
+and waits share 90 seconds, or the caller's shorter timeout. Retry-After
+(seconds or an HTTP date) is respected; a malformed header or a wait exceeding
+the remaining budget stops retries. Each failed attempt keeps its diagnostic.
+Only a successful attempt's complete stdout is returned; failed pagination
+output is discarded before restarting the full read. Exhaustion still fails.
+
+Writes, GraphQL, fields/input, unknown argument forms, transport/timeouts, JSON
+parse failures and other HTTP statuses retain single-attempt behavior. The
+failure notification can use the authorized event/input PR number when input
+resolution failed before producing outputs; this does not authorize status
+writes for an unresolved head/base.
 
 On a failure, the helper prints a short diagnostic and saves one JSON record
 under REVIEW_GITHUB_DIAGNOSTICS_DIR. Records include the command exit status or
