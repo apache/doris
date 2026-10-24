@@ -466,6 +466,38 @@ Status LocalFileSystem::canonicalize_local_file(const std::string& dir,
     Path local_path;
     // Convert file: URIs to filesystem paths and reject remote schemes before any reader opens them.
     RETURN_IF_ERROR(convert_to_abs_path(file_path, local_path));
+    if (file_path.rfind("file:", 0) == 0) {
+        // file:a%20b names "a b", but a bare path containing "%20" must stay literal.
+        // Decode once, preserve '+' and invalid escapes, matching Lance's file provider.
+        auto encoded = local_path.string();
+        // Query and fragment are URI components, not part of the filesystem path.
+        encoded = encoded.substr(0, encoded.find_first_of("?#"));
+        const auto hex_digit = [](char c) -> int {
+            if (c >= '0' && c <= '9') return c - '0';
+            if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+            if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+            return -1;
+        };
+        std::string decoded;
+        decoded.reserve(encoded.size());
+        for (size_t i = 0; i < encoded.size(); ++i) {
+            if (encoded[i] == '%' && i + 2 < encoded.size()) {
+                const int high = hex_digit(encoded[i + 1]);
+                const int low = hex_digit(encoded[i + 2]);
+                if (high >= 0 && low >= 0) {
+                    decoded += static_cast<char>((high << 4) | low);
+                    i += 2;
+                    continue;
+                }
+            }
+            decoded += encoded[i];
+        }
+        // %00 must not truncate the path when canonicalization reaches C filesystem APIs.
+        if (decoded.find('\0') != std::string::npos) {
+            return Status::InvalidArgument("local file path must not contain NUL");
+        }
+        local_path = std::move(decoded);
+    }
     std::string secure_path;
     RETURN_IF_ERROR(canonicalize(dir, &secure_path));
     std::string canonical_path;
@@ -489,7 +521,16 @@ Status LocalFileSystem::safe_glob(const std::string& path, std::vector<FileInfo>
     }
     std::string secure_path;
     RETURN_IF_ERROR(canonicalize(config::user_files_secure_path, &secure_path));
-    std::string full_path = secure_path + "/" + path;
+    // A symlink root may canonicalize to a directory such as "user_files[prod]".
+    // The root is literal; only the user-supplied suffix may contain glob operators.
+    std::string full_path;
+    for (char c : secure_path) {
+        if (c == '\\' || c == '*' || c == '?' || c == '[' || c == ']') {
+            full_path += '\\';
+        }
+        full_path += c;
+    }
+    full_path += "/" + path;
     std::vector<std::string> files;
     RETURN_IF_ERROR(_glob(full_path, &files));
     for (auto& file : files) {
