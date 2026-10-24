@@ -499,6 +499,23 @@ UInt128Wrapper BlockFileCache::hash(const std::string& path) {
     return UInt128Wrapper(value);
 }
 
+std::string BlockFileCache::doris_table_cache_file_name(std::string_view path) {
+    // Length of a rowset id string (version 2), which is the directory name of a rowset in path
+    // version 1. Tablet ids, the parent directory in path version 0, have at most 19 digits.
+    constexpr size_t ROWSET_ID_LENGTH = 48;
+    size_t file_name_pos = path.rfind('/') + 1; // tricky: npos + 1 == 0
+    std::string_view file_name = path.substr(file_name_pos);
+    if (file_name_pos <= 1) {
+        return std::string(file_name);
+    }
+    std::string_view dir = path.substr(0, file_name_pos - 1);
+    std::string_view parent = dir.substr(dir.rfind('/') + 1);
+    if (parent.size() != ROWSET_ID_LENGTH) {
+        return std::string(file_name);
+    }
+    return fmt::format("{}_{}", parent, file_name);
+}
+
 BlockFileCache::QueryFileCacheContextHolderPtr BlockFileCache::get_query_context_holder(
         const TUniqueId& query_id, int file_cache_query_limit_percent) {
     SCOPED_CACHE_LOCK(_mutex, this);

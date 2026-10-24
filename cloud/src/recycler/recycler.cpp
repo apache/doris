@@ -753,6 +753,17 @@ int InstanceRecycler::init_storage_vault_accessors() {
         }
         TEST_SYNC_POINT_CALLBACK("InstanceRecycler::init_storage_vault_accessors.mock_vault",
                                  &accessor_map_, &vault);
+        auto path_format = path_format_from_pb(vault.path_format());
+        if (!path_format.is_supported()) {
+            // Recycling with a wrong layout would miss or wrongly delete objects
+            LOG_WARNING("failed to init accessor for vault because of unsupported path format")
+                    .tag("instance_id", instance_id_)
+                    .tag("resource_id", vault.id())
+                    .tag("name", vault.name())
+                    .tag("path_format", vault.path_format().ShortDebugString());
+            continue;
+        }
+        path_format_map_.emplace(vault.id(), path_format);
         if (vault.has_hdfs_info()) {
 #ifdef ENABLE_HDFS_STORAGE_VAULT
             auto accessor = std::make_shared<HdfsAccessor>(vault.hdfs_info());
@@ -3917,24 +3928,27 @@ int InstanceRecycler::delete_rowset_data(const RowsetMetaCloudPB& rs_meta_pb) {
         return -1;
     }
     auto& accessor = it->second;
+    auto path_format = path_format_of(rs_meta_pb.resource_id());
 
     int64_t tablet_id = rs_meta_pb.tablet_id();
     const auto& rowset_id = rs_meta_pb.rowset_id_v2();
     for (int64_t i = 0; i < num_segments; ++i) {
         auto segment_id = rowset_segment_id(rs_meta_pb, i);
-        add_file_to_delete_if_not_packed(rs_meta_pb, segment_path(tablet_id, rowset_id, segment_id),
-                                         &file_paths);
+        add_file_to_delete_if_not_packed(
+                rs_meta_pb, segment_path(tablet_id, rowset_id, segment_id, path_format),
+                &file_paths);
         if (index_format == InvertedIndexStorageFormatPB::V1) {
             for (const auto& index_id : index_ids) {
                 add_file_to_delete_if_not_packed(
                         rs_meta_pb,
                         inverted_index_path_v1(tablet_id, rowset_id, segment_id, index_id.first,
-                                               index_id.second),
+                                               index_id.second, path_format),
                         &file_paths);
             }
         } else if (!index_ids.empty()) {
             add_file_to_delete_if_not_packed(
-                    rs_meta_pb, inverted_index_path_v2(tablet_id, rowset_id, segment_id),
+                    rs_meta_pb,
+                    inverted_index_path_v2(tablet_id, rowset_id, segment_id, path_format),
                     &file_paths);
         }
     }
@@ -3950,7 +3964,7 @@ int InstanceRecycler::delete_rowset_data(const RowsetMetaCloudPB& rs_meta_pb) {
         return -1;
     }
     if (delete_bitmap_storage_type == DeleteBitmapStorageType::STANDALONE_FILE) {
-        file_paths.push_back(delete_bitmap_path(tablet_id, rowset_id));
+        file_paths.push_back(delete_bitmap_path(tablet_id, rowset_id, path_format));
     }
     // TODO(AlexYue): seems could do do batch
     return accessor->delete_files(file_paths);
@@ -4593,6 +4607,7 @@ int InstanceRecycler::delete_rowset_data(
         }
 
         auto& file_paths = resource_file_paths[rs.resource_id()];
+        auto path_format = path_format_of(rs.resource_id());
         const auto& rowset_id = rs.rowset_id_v2();
         int64_t tablet_id = rs.tablet_id();
         LOG_INFO("recycle rowset merge index size")
@@ -4621,7 +4636,7 @@ int InstanceRecycler::delete_rowset_data(
             delete_bitmap_key_groups->emplace_back(std::move(rowset_dbm_keys));
         }
         if (delete_bitmap_storage_type == DeleteBitmapStorageType::STANDALONE_FILE) {
-            file_paths.push_back(delete_bitmap_path(tablet_id, rowset_id));
+            file_paths.push_back(delete_bitmap_path(tablet_id, rowset_id, path_format));
         }
 
         // Process inverted indexes
@@ -4695,14 +4710,14 @@ int InstanceRecycler::delete_rowset_data(
         }
         for (int64_t i = 0; i < num_segments; ++i) {
             auto segment_id = rowset_segment_id(rs, i);
-            add_file_to_delete_if_not_packed(rs, segment_path(tablet_id, rowset_id, segment_id),
-                                             &file_paths);
+            add_file_to_delete_if_not_packed(
+                    rs, segment_path(tablet_id, rowset_id, segment_id, path_format), &file_paths);
             if (index_format == InvertedIndexStorageFormatPB::V1) {
                 for (const auto& index_id : index_ids) {
                     add_file_to_delete_if_not_packed(
                             rs,
                             inverted_index_path_v1(tablet_id, rowset_id, segment_id, index_id.first,
-                                                   index_id.second),
+                                                   index_id.second, path_format),
                             &file_paths);
                 }
             } else if (!index_ids.empty() || inverted_index_get_ret == 1) {
@@ -4713,10 +4728,12 @@ int InstanceRecycler::delete_rowset_data(
                     LOG_INFO("delete rowset data schema kv not found, try to delete index file")
                             .tag("instance_id", instance_id_)
                             .tag("inverted index v2 path",
-                                 inverted_index_path_v2(tablet_id, rowset_id, segment_id));
+                                 inverted_index_path_v2(tablet_id, rowset_id, segment_id,
+                                                        path_format));
                 }
                 add_file_to_delete_if_not_packed(
-                        rs, inverted_index_path_v2(tablet_id, rowset_id, segment_id), &file_paths);
+                        rs, inverted_index_path_v2(tablet_id, rowset_id, segment_id, path_format),
+                        &file_paths);
             }
         }
     }
@@ -4738,6 +4755,7 @@ int InstanceRecycler::delete_rowset_data(
                 return -1;
             }
             auto& accessor = accessor_map_[*rid];
+            auto path_format = path_format_of(*rid);
             int ret = accessor->delete_files(*paths);
             if (!ret) {
                 // deduplication of different files with the same rowset id
@@ -4746,14 +4764,11 @@ int InstanceRecycler::delete_rowset_data(
                 std::set<std::string> deleted_rowset_id;
 
                 std::for_each(paths->begin(), paths->end(),
-                              [&metrics_context, &rowsets, &deleted_rowset_id,
+                              [&metrics_context, &rowsets, &deleted_rowset_id, &path_format,
                                this](const std::string& path) {
-                                  std::vector<std::string> str;
-                                  butil::SplitString(path, '/', &str);
-                                  std::string rowset_id;
-                                  if (auto pos = str.back().find('_'); pos != std::string::npos) {
-                                      rowset_id = str.back().substr(0, pos);
-                                  } else {
+                                  std::string rowset_id =
+                                          remote_rowset_id_from_path(path, path_format);
+                                  if (rowset_id.empty()) {
                                       if (path.find("packed_file/") != std::string::npos) {
                                           return; // packed files do not have rowset_id encoded
                                       }
@@ -4819,7 +4834,17 @@ int InstanceRecycler::delete_rowset_data(const std::string& resource_id, int64_t
         return -1;
     }
     auto& accessor = it->second;
-    return accessor->delete_prefix(rowset_path_prefix(tablet_id, rowset_id));
+    auto path_format = path_format_of(resource_id);
+    if (int ret = accessor->delete_prefix(rowset_path_prefix(tablet_id, rowset_id, path_format));
+        ret != 0) {
+        return ret;
+    }
+    if (path_format.path_version == 0) {
+        // The rowset prefix covers the delete bitmap file
+        return 0;
+    }
+    // Under path_version 1 the delete bitmap file is outside of the rowset directory
+    return accessor->delete_file(delete_bitmap_path(tablet_id, rowset_id, path_format));
 }
 
 bool InstanceRecycler::is_tablet_recycled(int64_t tablet_id) {
@@ -5345,18 +5370,19 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id, RecyclerMetricsContext& 
     //       vault id is not attached to TabletMeta...
     for (const auto& resource_id : resource_ids) {
         g_bvar_recycler_vault_recycle_task_status.put({instance_id_, resource_id, "submitted"}, 1);
-        concurrent_delete_executor.add(
-                [&, rs_id = resource_id,
-                 accessor_ptr = accessor_map_[resource_id]]() -> decltype(auto) {
-                    int res = accessor_ptr->delete_directory(tablet_path_prefix(tablet_id));
-                    if (res != 0) {
-                        LOG(WARNING) << "failed to delete rowset data of tablet " << tablet_id
-                                     << " path=" << accessor_ptr->uri()
-                                     << " task type=" << metrics_context.operation_type;
-                        return std::make_pair(-1, rs_id);
-                    }
-                    return std::make_pair(0, rs_id);
-                });
+        concurrent_delete_executor.add([&, rs_id = resource_id,
+                                        accessor_ptr = accessor_map_[resource_id],
+                                        path_format =
+                                                path_format_of(resource_id)]() -> decltype(auto) {
+            int res = accessor_ptr->delete_directory(tablet_path_prefix(tablet_id, path_format));
+            if (res != 0) {
+                LOG(WARNING) << "failed to delete rowset data of tablet " << tablet_id
+                             << " path=" << accessor_ptr->uri()
+                             << " task type=" << metrics_context.operation_type;
+                return std::make_pair(-1, rs_id);
+            }
+            return std::make_pair(0, rs_id);
+        });
     }
 
     bool finished = true;

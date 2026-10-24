@@ -47,7 +47,8 @@ public:
      * - For backup, not implemented
      *
      * @param storage_resource. Used for set the resource id.
-     * @param file_mapping. A map to store file mappings. (source files -> target files).
+     * @param file_mapping. A map to store file mappings. (source file names in the backup ->
+     *        full target paths in the layout of `storage_resource`).
      * @param is_restore. Whether the snapshot is for a restore job. (default: false).
      * @param slice. For hdr data input, only used for restore job. (default: nullptr).
      * @return status.

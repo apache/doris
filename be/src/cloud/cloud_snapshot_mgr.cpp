@@ -30,6 +30,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "cpp/remote_path.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
@@ -234,11 +235,17 @@ Status CloudSnapshotMgr::_create_rowset_meta(
     }
     rowset_id_mapping[src_rs_id] = dst_rs_id;
 
+    // Source files are named as in the backup repository, e.g. {rowset_id}_{seg}.dat. The targets
+    // follow the layout of the destination storage resource, e.g. a path_version 1 vault reads
+    // segment 0 from data/{shard}/{tablet_id}/{rowset_id}/0.dat, not from {rowset_id}_0.dat in the
+    // tablet directory.
+    const auto& layout = storage_resource.path_format;
+    const std::string dst_rs_id_str = dst_rs_id.to_string();
     for (int i = 0; i < source_meta_pb.num_segments(); ++i) {
         auto segment_id = rowset_segment_id(source_meta_pb, i);
         std::string src_segment_file = fmt::format("{}_{}.dat", src_rs_id.to_string(), segment_id);
-        std::string dst_segment_file = fmt::format("{}_{}.dat", dst_rs_id.to_string(), segment_id);
-        file_mapping[src_segment_file] = dst_segment_file;
+        file_mapping[src_segment_file] =
+                remote_segment_path(layout, target_tablet_id, dst_rs_id_str, segment_id);
         if (context.tablet_schema->get_inverted_index_storage_format() ==
             InvertedIndexStorageFormatPB::V1) {
             for (const auto& index : context.tablet_schema->inverted_indexes()) {
@@ -246,18 +253,16 @@ Status CloudSnapshotMgr::_create_rowset_meta(
                 std::string src_index_file = InvertedIndexDescriptor::get_index_file_path_v1(
                         InvertedIndexDescriptor::get_index_file_path_prefix(src_segment_file),
                         index_id, index->get_index_suffix());
-                std::string dst_index_file = InvertedIndexDescriptor::get_index_file_path_v1(
-                        InvertedIndexDescriptor::get_index_file_path_prefix(dst_segment_file),
-                        index_id, index->get_index_suffix());
-                file_mapping[src_index_file] = dst_index_file;
+                file_mapping[src_index_file] = remote_inverted_index_path_v1(
+                        layout, target_tablet_id, dst_rs_id_str, segment_id, index_id,
+                        index->get_index_suffix());
             }
         } else {
             if (context.tablet_schema->has_inverted_or_ann_index()) {
                 std::string src_index_file = InvertedIndexDescriptor::get_index_file_path_v2(
                         InvertedIndexDescriptor::get_index_file_path_prefix(src_segment_file));
-                std::string dst_index_file = InvertedIndexDescriptor::get_index_file_path_v2(
-                        InvertedIndexDescriptor::get_index_file_path_prefix(dst_segment_file));
-                file_mapping[src_index_file] = dst_index_file;
+                file_mapping[src_index_file] = remote_inverted_index_path_v2(
+                        layout, target_tablet_id, dst_rs_id_str, segment_id);
             }
         }
     }
