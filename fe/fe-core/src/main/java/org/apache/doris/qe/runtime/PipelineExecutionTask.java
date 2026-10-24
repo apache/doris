@@ -18,10 +18,10 @@
 package org.apache.doris.qe.runtime;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.QueryLogContext;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
-import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.nereids.trees.plans.distribute.worker.BackendWorker;
 import org.apache.doris.proto.InternalService.PExecPlanFragmentResult;
@@ -174,12 +174,12 @@ public class PipelineExecutionTask extends AbstractRuntimeTask<BackendWorker, Mu
                     "timeout before waiting %s rpc, query timeout:%d sec, already elapsed:%d sec, "
                     + "left for this:%d ms",
                     operation, queryOptions.getExecutionTimeout(), elapsed, leftTimeMs);
-            LOG.warn("Query {} {}", DebugUtil.printId(queryId), msg);
+            LOG.warn("Query{} {}", QueryLogContext.queryIdSuffix(queryId), msg);
             if (!queryOptions.isSetExecutionTimeout() || !queryOptions.isSetQueryTimeout()) {
-                LOG.warn("Query {} does not set timeout info, execution timeout: is_set:{}, value:{}"
+                LOG.warn("Query{} does not set timeout info, execution timeout: is_set:{}, value:{}"
                                 + ", query timeout: is_set:{}, value: {}, "
                                 + "coordinator timeout deadline {}, cur time millis: {}",
-                        DebugUtil.printId(queryId),
+                        QueryLogContext.queryIdSuffix(queryId),
                         queryOptions.isSetExecutionTimeout(), queryOptions.getExecutionTimeout(),
                         queryOptions.isSetQueryTimeout(), queryOptions.getQueryTimeout(),
                         timeoutDeadline, currentTimeMillis);
@@ -236,7 +236,7 @@ public class PipelineExecutionTask extends AbstractRuntimeTask<BackendWorker, Mu
                 errMsg = String.format(
                         "timeout when waiting for %s rpc, query timeout:%d, left timeout for this operation:%d",
                         operation, queryOptions.getExecutionTimeout(), timeoutMs / 1000);
-                LOG.warn("Query {} {}", DebugUtil.printId(queryId), errMsg);
+                LOG.warn("Query{} {}", QueryLogContext.queryIdSuffix(queryId), errMsg);
                 code = TStatusCode.TIMEOUT;
                 backendServiceProxy.removeProxy(brpcAddress);
             }

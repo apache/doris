@@ -22,18 +22,25 @@ import org.apache.doris.arrowflight.auth2.FlightAuthResult;
 import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter;
 import org.apache.doris.arrowflight.results.FlightSqlChannel;
 import org.apache.doris.arrowflight.sessions.FlightSessionsManager;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.IncrWindowNotReadyException;
+import org.apache.doris.common.QueryLogContext;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.mysql.MysqlCommand;
+import org.apache.doris.mysql.authenticate.TestLogAppender;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectPoolTestSupport;
 import org.apache.doris.qe.ConnectScheduler;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.protobuf.Any;
+import com.google.protobuf.ByteString;
 import org.apache.arrow.flight.ActionType;
 import org.apache.arrow.flight.CallStatus;
 import org.apache.arrow.flight.CloseSessionRequest;
@@ -41,7 +48,9 @@ import org.apache.arrow.flight.CloseSessionResult;
 import org.apache.arrow.flight.ErrorFlightMetadata;
 import org.apache.arrow.flight.FlightConstants;
 import org.apache.arrow.flight.FlightDescriptor;
+import org.apache.arrow.flight.FlightInfo;
 import org.apache.arrow.flight.FlightProducer.CallContext;
+import org.apache.arrow.flight.FlightProducer.ServerStreamListener;
 import org.apache.arrow.flight.FlightProducer.StreamListener;
 import org.apache.arrow.flight.FlightRuntimeException;
 import org.apache.arrow.flight.FlightStatusCode;
@@ -55,11 +64,19 @@ import org.apache.arrow.flight.SetSessionOptionsResult;
 import org.apache.arrow.flight.SetSessionOptionsResult.ErrorValue;
 import org.apache.arrow.flight.sql.FlightSqlUtils;
 import org.apache.arrow.flight.sql.impl.FlightSql.ActionCreatePreparedStatementRequest;
+import org.apache.arrow.flight.sql.impl.FlightSql.CommandPreparedStatementQuery;
 import org.apache.arrow.flight.sql.impl.FlightSql.CommandStatementQuery;
+import org.apache.arrow.flight.sql.impl.FlightSql.TicketStatementQuery;
+import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.logging.log4j.Level;
+import org.apache.logging.log4j.ThreadContext;
+import org.apache.logging.log4j.core.LogEvent;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedConstruction;
 import org.mockito.Mockito;
 
@@ -74,6 +91,9 @@ import java.util.stream.Collectors;
 public class DorisFlightSqlProducerTest {
 
     private boolean prevRunningUnitTest;
+    private boolean savedQueryIdLogging;
+    private String savedLogQueryId;
+    private ConnectContext savedConnectContext;
 
     @Test
     public void testWindowNotReadyHasRetryableFlightStatusAndStableBusinessCode() {
@@ -161,12 +181,171 @@ public class DorisFlightSqlProducerTest {
         // ConnectContext.init() only reaches Env when this is false; keep it true so the
         // context can be built without a running FE.
         prevRunningUnitTest = FeConstants.runningUnitTest;
+        savedQueryIdLogging = Config.sys_log_enable_query_id;
+        savedLogQueryId = ThreadContext.get(QueryLogContext.QUERY_ID);
+        savedConnectContext = ConnectContext.get();
         FeConstants.runningUnitTest = true;
+        Config.sys_log_enable_query_id = true;
     }
 
     @AfterEach
     public void tearDown() {
+        ConnectContext.remove();
+        if (savedConnectContext != null) {
+            savedConnectContext.setThreadLocalInfo();
+        }
+        if (savedLogQueryId == null) {
+            ThreadContext.remove(QueryLogContext.QUERY_ID);
+        } else {
+            ThreadContext.put(QueryLogContext.QUERY_ID, savedLogQueryId);
+        }
+        Config.sys_log_enable_query_id = savedQueryIdLogging;
         FeConstants.runningUnitTest = prevRunningUnitTest;
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    public void testGetStreamUsesRetainedResultIdentityAfterSessionQueryChanges(boolean enabled) throws Exception {
+        Config.sys_log_enable_query_id = enabled;
+        ConnectContext caller = new ConnectContext();
+        caller.setThreadLocalInfo();
+        ThreadContext.put(QueryLogContext.QUERY_ID, "worker");
+        ConnectContext session = ConnectContext.forFlight("token");
+        FlightSqlChannel channel = session.getFlightSqlChannel();
+        String ticket = "result-ticket-is-not-the-query-id";
+        TUniqueId queryId = new TUniqueId(1, 2);
+        channel.addOKResult(ticket, "SET query_timeout = 10", queryId);
+        queryId.setLo(3);
+        session.setQueryId(new TUniqueId(4, 5));
+        VectorSchemaRoot result = channel.getResult(ticket).getVectorSchemaRoot();
+        List<String> observed = new ArrayList<>();
+        ServerStreamListener listener = recordingListener(observed);
+        try (DorisFlightSqlProducer producer = new DorisFlightSqlProducer(
+                Location.forGrpcInsecure("127.0.0.1", 9090), sessionsOf(session))) {
+            producer.getStreamStatement(TicketStatementQuery.newBuilder()
+                    .setStatementHandle(ByteString.copyFromUtf8("token:" + ticket)).build(), callOf("other-token"),
+                    listener);
+            Mockito.verify(listener).start(result);
+            Mockito.verify(listener).putNext();
+            Mockito.verify(listener).completed();
+            Mockito.verify(listener, Mockito.never()).error(Mockito.any());
+            String expected = enabled ? "1-2" : "worker";
+            Assertions.assertEquals(ImmutableList.of(expected, expected, expected), observed);
+            Assertions.assertNull(channel.getResult(ticket));
+            Assertions.assertEquals(0, channel.getAllocatedMemory());
+            Assertions.assertSame(caller, ConnectContext.get());
+            Assertions.assertEquals("worker", ThreadContext.get(QueryLogContext.QUERY_ID));
+        } finally {
+            session.releaseProtocolSession();
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    public void testGetStreamFailureUsesResultIdentityOrNoIdentityForExpiredResult(boolean cached) throws Exception {
+        ConnectContext caller = new ConnectContext();
+        caller.setThreadLocalInfo();
+        ThreadContext.put(QueryLogContext.QUERY_ID, "worker");
+        ConnectContext session = ConnectContext.forFlight("token");
+        session.setQueryId(new TUniqueId(4, 5));
+        FlightSqlChannel channel = session.getFlightSqlChannel();
+        String ticket = "independent-ticket";
+        if (cached) {
+            channel.addOKResult(ticket, "SELECT 1", new TUniqueId(1, 2));
+        }
+        List<String> observed = new ArrayList<>();
+        ServerStreamListener listener = recordingListener(observed);
+        Mockito.doAnswer(invocation -> {
+            observed.add(ThreadContext.get(QueryLogContext.QUERY_ID));
+            throw new IllegalStateException("stream send failed");
+        }).when(listener).putNext();
+        try (DorisFlightSqlProducer producer = new DorisFlightSqlProducer(
+                Location.forGrpcInsecure("127.0.0.1", 9090), sessionsOf(session));
+                TestLogAppender appender = TestLogAppender.attach(DorisFlightSqlProducer.class, Level.ERROR)) {
+            FlightRuntimeException failure = Assertions.assertThrows(FlightRuntimeException.class,
+                    () -> producer.getStreamPreparedStatement(CommandPreparedStatementQuery.newBuilder()
+                            .setPreparedStatementHandle(ByteString.copyFromUtf8("token:" + ticket)).build(),
+                            callOf("other-token"), listener));
+            Assertions.assertEquals(FlightStatusCode.INTERNAL, failure.status().code());
+            if (cached) {
+                Assertions.assertInstanceOf(IllegalStateException.class, failure.getCause());
+            } else {
+                Assertions.assertInstanceOf(NullPointerException.class, failure.getCause());
+            }
+            Mockito.verify(listener).error(Mockito.any(FlightRuntimeException.class));
+            Mockito.verify(listener).completed();
+            Assertions.assertEquals(cached ? 4 : 2, observed.size());
+            String expected = cached ? "1-2" : null;
+            observed.forEach(id -> Assertions.assertEquals(expected, id));
+            List<LogEvent> events = Deencapsulation.getField(appender, "events");
+            Assertions.assertEquals(1, events.size());
+            Assertions.assertEquals(expected, events.get(0).getContextData().getValue(QueryLogContext.QUERY_ID));
+            Assertions.assertNull(channel.getResult(ticket));
+            Assertions.assertEquals(0, channel.getAllocatedMemory());
+            Assertions.assertSame(caller, ConnectContext.get());
+            Assertions.assertEquals("worker", ThreadContext.get(QueryLogContext.QUERY_ID));
+        } finally {
+            session.releaseProtocolSession();
+        }
+    }
+
+    private static ServerStreamListener recordingListener(List<String> observed) {
+        ServerStreamListener listener = Mockito.mock(ServerStreamListener.class);
+        Mockito.doAnswer(invocation -> {
+            observed.add(ThreadContext.get(QueryLogContext.QUERY_ID));
+            return null;
+        }).when(listener).start(Mockito.any(VectorSchemaRoot.class));
+        Mockito.doAnswer(invocation -> {
+            observed.add(ThreadContext.get(QueryLogContext.QUERY_ID));
+            return null;
+        }).when(listener).putNext();
+        Mockito.doAnswer(invocation -> {
+            observed.add(ThreadContext.get(QueryLogContext.QUERY_ID));
+            return null;
+        }).when(listener).error(Mockito.any(Throwable.class));
+        Mockito.doAnswer(invocation -> {
+            observed.add(ThreadContext.get(QueryLogContext.QUERY_ID));
+            return null;
+        }).when(listener).completed();
+        return listener;
+    }
+
+    @Test
+    public void testGetFlightInfoCreatesIndependentTicketWithExecutedQueryIdentity() throws Exception {
+        ConnectContext session = ConnectContext.forFlight("token");
+        session.setQueryId(new TUniqueId(4, 5));
+        ThreadContext.put(QueryLogContext.QUERY_ID, "worker");
+        List<TUniqueId> idsBeforeExecution = new ArrayList<>();
+        List<String> logIdsBeforeExecution = new ArrayList<>();
+        try (DorisFlightSqlProducer producer = new DorisFlightSqlProducer(
+                Location.forGrpcInsecure("127.0.0.1", 9090), sessionsOf(session));
+                MockedConstruction<FlightSqlConnectProcessor> mocked = Mockito.mockConstruction(
+                        FlightSqlConnectProcessor.class, (processor, ignored) -> {
+                            Mockito.doAnswer(invocation -> {
+                                idsBeforeExecution.add(session.queryId());
+                                logIdsBeforeExecution.add(ThreadContext.get(QueryLogContext.QUERY_ID));
+                                session.setQueryId(new TUniqueId(1, 2));
+                                return null;
+                            }).when(processor).handleQuery(Mockito.anyString());
+                        })) {
+            FlightInfo info = producer.getFlightInfoStatement(CommandStatementQuery.newBuilder()
+                    .setQuery("SET query_timeout = 10").build(), callOf("token"),
+                    FlightDescriptor.command(new byte[0]));
+            TicketStatementQuery ticket = Any.parseFrom(info.getEndpoints().get(0).getTicket().getBytes())
+                    .unpack(TicketStatementQuery.class);
+            String[] handle = ticket.getStatementHandle().toStringUtf8().split(":");
+            Assertions.assertEquals("token", handle[0]);
+            Assertions.assertNotEquals("1-2", handle[1]);
+            Assertions.assertEquals(new TUniqueId(1, 2),
+                    session.getFlightSqlChannel().getResult(handle[1]).getQueryId());
+            Assertions.assertEquals(1, idsBeforeExecution.size());
+            Assertions.assertNull(idsBeforeExecution.get(0));
+            Assertions.assertNull(logIdsBeforeExecution.get(0));
+            Assertions.assertEquals("worker", ThreadContext.get(QueryLogContext.QUERY_ID));
+            Mockito.verify(mocked.constructed().get(0)).close();
+        } finally {
+            session.releaseProtocolSession();
+        }
     }
 
     /**

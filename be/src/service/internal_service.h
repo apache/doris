@@ -32,6 +32,8 @@ class RpcController;
 
 namespace doris {
 
+class ScopedQueryLogContext;
+
 class StorageEngine;
 class ExecEnv;
 class PHandShakeRequest;
@@ -259,8 +261,8 @@ private:
 
     Status _exec_plan_fragment_impl(const std::string& s_request, PFragmentRequestVersion version,
                                     bool compact,
-                                    const std::function<void(RuntimeState*, Status*)>& cb =
-                                            std::function<void(RuntimeState*, Status*)>());
+                                    const std::function<void(RuntimeState*, Status*)>& cb = {},
+                                    ScopedQueryLogContext* query_log_scope = nullptr);
 
     void _transmit_block(::google::protobuf::RpcController* controller,
                          const ::doris::PTransmitDataParams* request,

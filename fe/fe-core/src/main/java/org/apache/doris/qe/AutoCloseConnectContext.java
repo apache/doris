@@ -17,15 +17,19 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.common.QueryLogContext;
+
 public class AutoCloseConnectContext implements AutoCloseable {
 
     public final ConnectContext connectContext;
 
     private final ConnectContext previousContext;
+    private final QueryLogContext queryLogContext;
 
     public AutoCloseConnectContext(ConnectContext connectContext) {
         this.previousContext = ConnectContext.get();
         this.connectContext = connectContext;
+        this.queryLogContext = QueryLogContext.open(connectContext.queryId());
         connectContext.setThreadLocalInfo();
     }
 
@@ -36,10 +40,14 @@ public class AutoCloseConnectContext implements AutoCloseable {
 
     @Override
     public void close() {
-        connectContext.clear();
-        ConnectContext.remove();
-        if (previousContext != null) {
-            previousContext.setThreadLocalInfo();
+        try {
+            connectContext.clear();
+            ConnectContext.remove();
+            if (previousContext != null) {
+                previousContext.setThreadLocalInfo();
+            }
+        } finally {
+            queryLogContext.close();
         }
     }
 }

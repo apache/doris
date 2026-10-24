@@ -37,6 +37,8 @@ public:
 
     /* common action
     */
+    virtual bool is_query_task() const { return false; }
+
     const TUniqueId& task_id() const { return task_id_; }
     void set_task_id(TUniqueId task_id) {
         task_id_ = task_id;

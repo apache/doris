@@ -280,8 +280,8 @@ public class CascadesContext implements ScheduleContext {
                 // tmp rewritten plan output is different from final rewritten plan output
                 if (!rewrittenPlan.getLogicalProperties().equals(plan.getLogicalProperties())) {
                     LOG.error("rewritten plan in rbo logical properties are "
-                                    + "different from original plan, query id is {}",
-                            getConnectContext().getQueryIdentifier());
+                                    + "different from original plan, statement {}",
+                            getConnectContext().getQueryLogIdentifier());
                     continue;
                 }
                 this.memo.copyIn(rewrittenPlan, this.memo.getRoot(), false);

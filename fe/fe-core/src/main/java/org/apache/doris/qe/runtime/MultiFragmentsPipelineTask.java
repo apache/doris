@@ -17,8 +17,8 @@
 
 package org.apache.doris.qe.runtime;
 
+import org.apache.doris.common.QueryLogContext;
 import org.apache.doris.common.Status;
-import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PCancelPlanFragmentResult;
 import org.apache.doris.proto.InternalService.PExecPlanFragmentResult;
@@ -104,13 +104,13 @@ public class MultiFragmentsPipelineTask extends AbstractRuntimeTask<Integer, Sin
     public synchronized void cancelExecute(Status cancelReason) {
         TUniqueId queryId = coordinatorContext.queryId;
         if (LOG.isDebugEnabled()) {
-            LOG.debug("cancelRemoteFragments backend: {}, query={}, reason: {}",
-                    backend, DebugUtil.printId(queryId), cancelReason.toString());
+            LOG.debug("cancelRemoteFragments backend: {}, query{}, reason: {}",
+                    backend, QueryLogContext.queryIdSuffix(queryId), cancelReason.toString());
         }
 
         if (this.hasCancelled.get() || this.cancelInProcess.get()) {
-            LOG.info("Fragment has already been cancelled. Query {} backend: {}",
-                    DebugUtil.printId(queryId), backend);
+            LOG.info("Fragment has already been cancelled. Query{} backend: {}",
+                    QueryLogContext.queryIdSuffix(queryId), backend);
             return;
         }
         try {
@@ -127,12 +127,12 @@ public class MultiFragmentsPipelineTask extends AbstractRuntimeTask<Integer, Sin
                                 if (status.getErrorCode() == TStatusCode.OK) {
                                     hasCancelled.set(true);
                                 } else {
-                                    LOG.warn("Failed to cancel query {} backend: {}, reason: {}",
-                                            DebugUtil.printId(queryId), backend, status.toString());
+                                    LOG.warn("Failed to cancel query{} backend: {}, reason: {}",
+                                            QueryLogContext.queryIdSuffix(queryId), backend, status.toString());
                                 }
                             } else {
-                                LOG.warn("Failed to cancel query {} backend: {} reason: {}",
-                                        DebugUtil.printId(queryId), backend, "without status");
+                                LOG.warn("Failed to cancel query{} backend: {} reason: {}",
+                                        QueryLogContext.queryIdSuffix(queryId), backend, "without status");
                             }
                         } finally {
                             cancelInProcess.set(false);
@@ -141,10 +141,10 @@ public class MultiFragmentsPipelineTask extends AbstractRuntimeTask<Integer, Sin
 
                     public void onFailure(Throwable t) {
                         cancelInProcess.set(false);
-                        LOG.warn("Failed to cancel query {} backend: {}, reason: {}",
-                                DebugUtil.printId(queryId), backend,  cancelReason.toString(), t);
+                        LOG.warn("Failed to cancel query{} backend: {}, reason: {}",
+                                QueryLogContext.queryIdSuffix(queryId), backend,  cancelReason.toString(), t);
                     }
-                }, Coordinator.backendRpcCallbackExecutor);
+                }, QueryLogContext.executor(Coordinator.backendRpcCallbackExecutor, queryId));
                 cancelInProcess.set(true);
             } catch (RpcException e) {
                 LOG.warn("cancel plan fragment get a exception, address={}:{}", brpcAddress.getHostname(),

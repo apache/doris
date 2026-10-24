@@ -27,6 +27,7 @@
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/macros.h"
+#include "common/query_log_context.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/memory/thread_mem_tracker_mgr.h"
 #include "util/defer_op.h" // IWYU pragma: keep
@@ -334,6 +335,9 @@ public:
     void init(const std::shared_ptr<ResourceContext>& rc);
 
     ~AttachTask();
+
+private:
+    ScopedQueryLogContext _query_log_scope;
 };
 
 class SwitchResourceContext {
@@ -344,6 +348,7 @@ public:
 
 private:
     std::shared_ptr<ResourceContext> old_resource_ctx_ {nullptr};
+    ScopedQueryLogContext _query_log_scope;
 };
 
 class SwitchThreadMemTrackerLimiter {

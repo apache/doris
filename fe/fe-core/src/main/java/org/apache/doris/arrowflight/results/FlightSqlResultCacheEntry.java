@@ -17,19 +17,24 @@
 
 package org.apache.doris.arrowflight.results;
 
+import org.apache.doris.thrift.TUniqueId;
+
 import org.apache.arrow.vector.VectorSchemaRoot;
 
 import java.util.Objects;
-
 
 public final class FlightSqlResultCacheEntry implements AutoCloseable {
 
     private final VectorSchemaRoot vectorSchemaRoot;
     private final String query;
+    private final TUniqueId queryId;
 
-    public FlightSqlResultCacheEntry(final VectorSchemaRoot vectorSchemaRoot, final String query) {
+    public FlightSqlResultCacheEntry(final VectorSchemaRoot vectorSchemaRoot, final String query,
+            final TUniqueId queryId) {
         this.vectorSchemaRoot = Objects.requireNonNull(vectorSchemaRoot, "result cannot be null.");
         this.query = query;
+        // The cache key can be an independent UUID, so retain the actual query identity separately.
+        this.queryId = queryId == null ? null : queryId.deepCopy();
     }
 
     public VectorSchemaRoot getVectorSchemaRoot() {
@@ -38,6 +43,10 @@ public final class FlightSqlResultCacheEntry implements AutoCloseable {
 
     public String getQuery() {
         return query;
+    }
+
+    public TUniqueId getQueryId() {
+        return queryId == null ? null : queryId.deepCopy();
     }
 
     @Override

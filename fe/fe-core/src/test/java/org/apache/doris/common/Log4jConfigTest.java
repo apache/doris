@@ -17,6 +17,15 @@
 
 package org.apache.doris.common;
 
+import org.apache.doris.thrift.TUniqueId;
+
+import org.apache.logging.log4j.Level;
+import org.apache.logging.log4j.ThreadContext;
+import org.apache.logging.log4j.core.LogEvent;
+import org.apache.logging.log4j.core.impl.Log4jLogEvent;
+import org.apache.logging.log4j.core.layout.PatternLayout;
+import org.apache.logging.log4j.message.ParameterizedMessage;
+import org.apache.logging.log4j.message.SimpleMessage;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -24,6 +33,81 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 
 public class Log4jConfigTest {
+
+    @Test
+    public void testQueryIdAppearsOnceWithAndWithoutThePrefix() {
+        boolean savedEnabled = Config.sys_log_enable_query_id;
+        String savedQueryId = ThreadContext.get(QueryLogContext.QUERY_ID);
+        TUniqueId queryId = new TUniqueId(1, 2);
+        try {
+            for (boolean enabled : new boolean[] {true, false}) {
+                Config.sys_log_enable_query_id = enabled;
+                ThreadContext.remove(QueryLogContext.QUERY_ID);
+                PatternLayout layout = PatternLayout.newBuilder()
+                        .withPattern(Log4jConfig.getQueryLogPattern() + "%m").build();
+                LogEvent captured;
+                try (QueryLogContext ignored = QueryLogContext.open(queryId)) {
+                    captured = Log4jLogEvent.newBuilder().setLevel(Level.INFO)
+                            .setMessage(new ParameterizedMessage("Query{} finished",
+                                    QueryLogContext.queryIdSuffix(queryId))).build().toImmutable();
+                }
+                // The async formatter can run after this worker has started a different query.
+                QueryLogContext.setQueryId(new TUniqueId(3, 4));
+                Assertions.assertEquals(enabled ? "[1-2] Query finished" : "Query [1-2] finished",
+                        layout.toSerializable(captured));
+
+                ThreadContext.remove(QueryLogContext.QUERY_ID);
+                LogEvent missingContext = Log4jLogEvent.newBuilder().setLevel(Level.INFO)
+                        .setMessage(new ParameterizedMessage("Query{} finished",
+                                QueryLogContext.queryIdSuffix(queryId))).build().toImmutable();
+                Assertions.assertEquals("Query [1-2] finished", layout.toSerializable(missingContext));
+            }
+        } finally {
+            Config.sys_log_enable_query_id = savedEnabled;
+            if (savedQueryId == null) {
+                ThreadContext.remove(QueryLogContext.QUERY_ID);
+            } else {
+                ThreadContext.put(QueryLogContext.QUERY_ID, savedQueryId);
+            }
+        }
+    }
+
+    @Test
+    public void testQueryLogPatternFormatsTheEventSnapshot() {
+        boolean savedEnabled = Config.sys_log_enable_query_id;
+        String savedQueryId = ThreadContext.get(QueryLogContext.QUERY_ID);
+        try {
+            Config.sys_log_enable_query_id = true;
+            ThreadContext.remove(QueryLogContext.QUERY_ID);
+            PatternLayout layout = PatternLayout.newBuilder()
+                    .withPattern(Log4jConfig.getQueryLogPattern() + "%m").build();
+            LogEvent withoutQuery = Log4jLogEvent.newBuilder().setLevel(Level.INFO)
+                    .setMessage(new SimpleMessage("message")).build();
+            Assertions.assertEquals("message", layout.toSerializable(withoutQuery));
+
+            LogEvent captured;
+            try (QueryLogContext ignored = QueryLogContext.open(new TUniqueId(0x1234, 0xabcd))) {
+                captured = Log4jLogEvent.newBuilder().setLevel(Level.INFO)
+                        .setMessage(new SimpleMessage("message")).build().toImmutable();
+            }
+            QueryLogContext.setQueryId(new TUniqueId(5, 6));
+            // Delayed formatting must use the event's ID rather than the thread's next query.
+            Assertions.assertEquals("[1234-abcd] message", layout.toSerializable(captured));
+
+            Config.sys_log_enable_query_id = false;
+            Assertions.assertEquals("", Log4jConfig.getQueryLogPattern());
+            PatternLayout disabledLayout = PatternLayout.newBuilder()
+                    .withPattern(Log4jConfig.getQueryLogPattern() + "%m").build();
+            Assertions.assertEquals("message", disabledLayout.toSerializable(captured));
+        } finally {
+            Config.sys_log_enable_query_id = savedEnabled;
+            if (savedQueryId == null) {
+                ThreadContext.remove(QueryLogContext.QUERY_ID);
+            } else {
+                ThreadContext.put(QueryLogContext.QUERY_ID, savedQueryId);
+            }
+        }
+    }
 
     /**
      * Test that getXmlConfByStrategy correctly reads Config.log_rollover_strategy
