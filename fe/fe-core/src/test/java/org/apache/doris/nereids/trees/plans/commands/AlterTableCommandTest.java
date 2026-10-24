@@ -27,6 +27,7 @@ import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.mvcc.PluginDrivenMvccExternalTable;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.info.AddColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddColumnsOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterTableOp;
@@ -316,7 +317,7 @@ public class AlterTableCommandTest {
                 () -> AlterTableCommand.checkColumnOperationsSupported(table, parseAlter(
                         "ALTER TABLE t MODIFY COLUMN st STRUCT<v: INT> DEFAULT 'x'").getOps()));
         Assertions.assertTrue(complexDefaultException.getMessage()
-                .contains("Struct type column default value just support null"));
+                .contains("Struct type column default value only supports struct literals or DEFAULT NULL"));
 
         AnalysisException onUpdateException = Assertions.assertThrows(AnalysisException.class,
                 () -> AlterTableCommand.checkColumnOperationsSupported(table, parseAlter(
@@ -436,6 +437,39 @@ public class AlterTableCommandTest {
             op.setTableName(new TableNameInfo("iceberg", "db", "t"));
             op.validate(null);
         }
+    }
+
+    @Test
+    void testAddColumnComplexDefaultSqlRoundTrip() {
+        // The serialized ALTER is also stored as the binlog rawSql, and its re-execution keeps the text
+        // between the default quotes verbatim, so nested double quotes must not be escaped.
+        AlterTableCommand command = parseAlter(
+                "ALTER TABLE t ADD COLUMN m MAP<STRING, INT> DEFAULT '{\"a\":1}'");
+        AddColumnOp addColumnOp = (AddColumnOp) command.getOps().get(0);
+        addColumnOp.getColumnDef().validateComplexTypeDefaultValue();
+        Assertions.assertEquals("{\"a\":1}", addColumnOp.getColumnDef().getDefaultValueString());
+
+        String serialized = command.toSql();
+        Assertions.assertTrue(serialized.contains("DEFAULT '{\"a\":1}'"), serialized);
+
+        AddColumnOp replayedOp = (AddColumnOp) parseAlter(serialized).getOps().get(0);
+        replayedOp.getColumnDef().validateComplexTypeDefaultValue();
+        Assertions.assertEquals("{\"a\":1}", replayedOp.getColumnDef().getDefaultValueString());
+    }
+
+    @Test
+    void testAddColumnScalarDefaultKeepsEscapedQuotes() {
+        // Unlike the canonical complex default text, a scalar default may contain both quote
+        // characters, and the single-quote form cannot represent that, so the scalar keeps escaped
+        // double quotes; the backslash escaping is what keeps the serialized ALTER parseable.
+        AlterTableCommand command = parseAlter(
+                "ALTER TABLE t ADD COLUMN s STRING DEFAULT 'a\"b''c'");
+        AddColumnOp addColumnOp = (AddColumnOp) command.getOps().get(0);
+        Assertions.assertEquals("a\"b''c", addColumnOp.getColumnDef().getDefaultValueString());
+
+        String serialized = command.toSql();
+        Assertions.assertTrue(serialized.contains("DEFAULT \"a\\\"b''c\""), serialized);
+        Assertions.assertDoesNotThrow(() -> parseAlter(serialized));
     }
 
     private AlterTableCommand parseAlter(String sql) {

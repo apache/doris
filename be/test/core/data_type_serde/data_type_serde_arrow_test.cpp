@@ -1414,6 +1414,13 @@ TEST(DataTypeSerDeArrowTest, CharToFixedSizeBinaryPadsZeros) {
     const char expected[] = {'a', 'b', '\0', '\0'};
     EXPECT_EQ(0, std::memcmp(assert_cast<const arrow::FixedSizeBinaryArray&>(*result).GetValue(0),
                              expected, sizeof(expected)));
+
+    auto read_column = ColumnString::create();
+    ASSERT_TRUE(type.get_serde()
+                        ->read_column_from_arrow(*read_column, result.get(), 0, 1,
+                                                 cctz::utc_time_zone())
+                        .ok());
+    EXPECT_EQ(read_column->get_data_at(0).to_string(), "ab");
 }
 
 TEST(DataTypeSerDeArrowTest, StringToLargeBinary) {

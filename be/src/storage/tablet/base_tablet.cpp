@@ -119,7 +119,8 @@ Status _init_segment_column_iterator(const BetaRowsetSharedPtr& rowset,
     if (input_io_ctx != nullptr) {
         opts.io_ctx = *input_io_ctx;
     }
-    RETURN_IF_ERROR(segment->new_column_iterator(target_column, column_iterator, &opts));
+    RETURN_IF_ERROR(segment->new_column_iterator(target_column, target_column.get_vec_type(),
+                                                 column_iterator, &opts));
     auto io_ctx = opts.io_ctx;
     io_ctx.reader_type = ReaderType::READER_QUERY;
     io_ctx.file_cache_stats = &stats.file_cache_stats;

@@ -300,8 +300,15 @@ public class ColumnDefinition {
                     if (exprDef != null) {
                         sb.append("DEFAULT ").append(value).append(" ");
                     } else {
-                        sb.append("DEFAULT ").append("\"").append(SqlUtils.escapeQuota(value)).append("\"")
-                                .append(" ");
+                        // Same replay-safe quoting as Column.toSql(): the DDL parser keeps the text between
+                        // the quotes verbatim, so a complex default containing nested double quotes must be
+                        // wrapped in single quotes instead of escaping them. A scalar default may itself
+                        // contain both quote characters, and the canonical complex text never contains a
+                        // single quote, so keep the escaped double quotes for scalars.
+                        String quotedValue = type.isArrayType() || type.isMapType() || type.isStructType()
+                                ? Column.quoteDefaultValue(value)
+                                : "\"" + SqlUtils.escapeQuota(value) + "\"";
+                        sb.append("DEFAULT ").append(quotedValue).append(" ");
                     }
                 } else if (type.isBitmapType()) {
                     sb.append("DEFAULT ").append(exprDef.getExprName()).append(" ");
@@ -543,17 +550,11 @@ public class ColumnDefinition {
                         + DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE);
             }
             defaultValue = Optional.of(DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE);
-        } else if (type.isArrayType() && defaultValue.isPresent() && isOlap
-                && defaultValue.get() != DefaultValue.NULL_DEFAULT_VALUE && !defaultValue.get()
-                .getValue().equals(DefaultValue.ARRAY_EMPTY_DEFAULT_VALUE.getValue())) {
-            throw new AnalysisException("Array type column default value only support null or "
-                    + DefaultValue.ARRAY_EMPTY_DEFAULT_VALUE);
         } else {
             validateComplexTypeDefaultValue();
         }
 
-        if (!isNullable && defaultValue.isPresent()
-                && defaultValue.get() == DefaultValue.NULL_DEFAULT_VALUE) {
+        if (!isNullable && hasNullDefaultValue()) {
             throw new AnalysisException(
                     "Can not set null default value to non nullable column: " + name);
         }
@@ -640,18 +641,26 @@ public class ColumnDefinition {
 
     /**
      * Validate non-null defaults for complex types before connector-specific validation.
+     * ARRAY, MAP and STRUCT defaults are rewritten into the canonical literal text that BE parses.
      */
     public void validateComplexTypeDefaultValue() throws AnalysisException {
-        if (!defaultValue.isPresent() || defaultValue.get() == DefaultValue.NULL_DEFAULT_VALUE) {
+        if (!hasNonNullDefaultValue()) {
             return;
         }
-        if (type.isMapType()) {
-            throw new AnalysisException("Map type column default value just support null");
-        } else if (type.isStructType()) {
-            throw new AnalysisException("Struct type column default value just support null");
+        if (type.isArrayType() || type.isMapType() || type.isStructType()) {
+            defaultValue = Optional.of(new DefaultValue(
+                    ComplexTypeDefaultValue.canonicalize(type, defaultValue.get().getValue())));
         } else if (type.isJsonType() || type.isVariantType()) {
-            throw new AnalysisException("Json or Variant type column default value just support null");
+            throw new AnalysisException("Json or Variant type column default value only supports DEFAULT NULL");
         }
+    }
+
+    private boolean hasNonNullDefaultValue() {
+        return defaultValue.isPresent() && defaultValue.get().getValue() != null;
+    }
+
+    private boolean hasNullDefaultValue() {
+        return defaultValue.isPresent() && defaultValue.get().getValue() == null;
     }
 
     /**

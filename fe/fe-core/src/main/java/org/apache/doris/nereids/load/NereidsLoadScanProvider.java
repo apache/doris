@@ -32,20 +32,35 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToJson;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.plans.commands.info.ComplexTypeDefaultValue;
 import org.apache.doris.nereids.trees.plans.commands.info.DefaultValue;
+import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.TimeStampTzType;
+import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.thrift.TFileFormatType;
@@ -57,6 +72,7 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -458,6 +474,7 @@ public class NereidsLoadScanProvider {
             // the unknown column will be checked later.
             return originExpr;
         }
+        boolean nativeComplex = readsNativeComplexType(column);
 
         // To compatible with older load version
         if (originExpr instanceof Function) {
@@ -483,14 +500,15 @@ public class NereidsLoadScanProvider {
                     exprs.add(new Not(new IsNull(slot)));
                     exprs.add(slot);
                     if (funcExpr.children().size() > 1) {
-                        exprs.add(funcExpr.child(1));
+                        exprs.add(mappingValue(column, funcExpr.child(1), nativeComplex));
                     } else {
                         if (column.getDefaultValue() != null) {
                             String exprSql = column.getDefaultValueSql();
-                            exprs.add(NereidsLoadUtils.parseExpressionSeq(exprSql).get(0));
+                            exprs.add(mappingValue(column, NereidsLoadUtils.parseExpressionSeq(exprSql).get(0),
+                                    nativeComplex));
                         } else {
                             if (column.isAllowNull()) {
-                                exprs.add(new NullLiteral(VarcharType.SYSTEM_DEFAULT));
+                                exprs.add(nullMappingValue(nativeComplex));
                             } else {
                                 throw new UserException("Column(" + columnName + ") has no default value.");
                             }
@@ -500,17 +518,18 @@ public class NereidsLoadScanProvider {
                     // case 2
                     exprs.add(new Not(new IsNull(slot)));
                     List<Expression> innerIfExprs = Lists.newArrayList();
-                    innerIfExprs.add(new Not(new EqualTo(slot, funcExpr.child(0))));
+                    innerIfExprs.add(new Not(searchValueComparison(slot, column, funcExpr.child(0), nativeComplex)));
                     innerIfExprs.add(slot);
                     if (funcExpr.children().size() > 1) {
-                        innerIfExprs.add(funcExpr.child(1));
+                        innerIfExprs.add(mappingValue(column, funcExpr.child(1), nativeComplex));
                     } else {
                         if (column.getDefaultValue() != null) {
                             String exprSql = column.getDefaultValueSql();
-                            innerIfExprs.add(NereidsLoadUtils.parseExpressionSeq(exprSql).get(0));
+                            innerIfExprs.add(mappingValue(column,
+                                    NereidsLoadUtils.parseExpressionSeq(exprSql).get(0), nativeComplex));
                         } else {
                             if (column.isAllowNull()) {
-                                innerIfExprs.add(new NullLiteral(VarcharType.SYSTEM_DEFAULT));
+                                innerIfExprs.add(nullMappingValue(nativeComplex));
                             } else {
                                 throw new UserException("Column(" + columnName + ") has no default value.");
                             }
@@ -518,7 +537,7 @@ public class NereidsLoadScanProvider {
                     }
                     UnboundFunction innerIfFn = new UnboundFunction("if", innerIfExprs);
                     exprs.add(innerIfFn);
-                    exprs.add(new NullLiteral(VarcharType.SYSTEM_DEFAULT));
+                    exprs.add(nullMappingValue(nativeComplex));
                 }
 
                 if (LOG.isDebugEnabled()) {
@@ -571,7 +590,7 @@ public class NereidsLoadScanProvider {
 
                 return unixTimeFunc;
             } else if (funcName.equalsIgnoreCase("default_value")) {
-                return funcExpr.child(0);
+                return canonicalizeComplexValue(column, funcExpr.child(0));
             } else if (funcName.equalsIgnoreCase("now")) {
                 UnboundFunction newFunc = new UnboundFunction("now", Lists.newArrayList());
                 return newFunc;
@@ -580,5 +599,326 @@ public class NereidsLoadScanProvider {
             }
         }
         return originExpr;
+    }
+
+    /**
+     * The explicit value of a default_value or replace_value mapping on an ARRAY/MAP/STRUCT column was
+     * validated by {@link NereidsDataDescription#validateMappingFunction} as a SQL literal, but BE casts
+     * the mapping expression as a string. Replace it with the canonical text so that both agree, e.g.
+     * {@code '[1e3]'} for an array of INT is written as {@code [1000]} instead of a NULL element.
+     */
+    private static Expression canonicalizeComplexValue(Column column, Expression value) {
+        if (!column.getOriginType().isComplexType() || !(value instanceof StringLikeLiteral)) {
+            return value;
+        }
+        return new StringLiteral(ComplexTypeDefaultValue.canonicalizeForLoad(
+                DataType.fromCatalogType(column.getOriginType()), ((StringLikeLiteral) value).getStringValue()));
+    }
+
+    /**
+     * Arrow reads a column with its declared type, so an ARRAY/MAP/STRUCT column keeps the complex type
+     * in its scan slot instead of being read as VARCHAR like the text formats. The mapping expressions
+     * have to work on that complex type, otherwise the IF branches mix complex and string values.
+     */
+    private boolean readsNativeComplexType(Column column) {
+        return column.getOriginType().isComplexType()
+                && fileGroupInfo.getFileGroup().getFileFormatProperties().getFileFormatType()
+                        == TFileFormatType.FORMAT_ARROW;
+    }
+
+    /**
+     * The mapping value of a complex column is written as canonical text. When the scan slot keeps the
+     * native complex type, parse that text into the column type: a string branch and a complex branch
+     * have no common type under the legacy type coercion behavior ({@code
+     * enable_new_type_coercion_behavior=false}).
+     */
+    private static Expression mappingValue(Column column, Expression value, boolean nativeComplex) {
+        Expression canonical = canonicalizeComplexValue(column, value);
+        if (!nativeComplex) {
+            return canonical;
+        }
+        return new Cast(canonical, DataType.fromCatalogType(column.getOriginType()));
+    }
+
+    /**
+     * The NULL branch of a mapping IF. The typed VARCHAR NULL used for text sources has no common type
+     * with a native complex branch under the legacy type coercion behavior, so leave it untyped.
+     */
+    private static Expression nullMappingValue(boolean nativeComplex) {
+        return nativeComplex ? new NullLiteral() : new NullLiteral(VarcharType.SYSTEM_DEFAULT);
+    }
+
+    /**
+     * A text source compares its raw value with the search value of {@code replace_value}. A native
+     * complex slot needs a type-aware comparison instead of the display text, whose nested strings are
+     * not escaped: a single element {@code a", "b} renders exactly like the two element array
+     * {@code ["a", "b"]}. The search is a transient comparison value, so it must not be canonicalized
+     * as a column default, whose format rejects quotes and backslashes that the complex cast accepts.
+     */
+    private static Expression searchValueComparison(Expression slot, Column column, Expression search,
+            boolean nativeComplex) throws AnalysisException {
+        if (!nativeComplex) {
+            return new EqualTo(slot, search);
+        }
+        DataType complexType = DataType.fromCatalogType(column.getOriginType());
+        // Cast the search expression, literal or slot, to the column type so that the comparison sees
+        // exactly the bytes the sink writes. The cast is strict: Stream Load disables
+        // enable_strict_cast, so a malformed non-NULL search would otherwise become SQL NULL, which
+        // the mapping IF treats as "not equal" and replaces every row, including rows that do not
+        // match the search. A strict cast fails the load instead.
+        Expression typedSearch = new Cast(search, complexType, false, true);
+        return buildEquality(slot, typedSearch, complexType, true, column.getOriginType().toSql());
+    }
+
+    /**
+     * Equality of two expressions of {@code type}, built from comparisons the engine can evaluate.
+     * Primitive values and arrays of them are compared structurally ({@code compare_at}), which keeps
+     * nested NULLs apart from values and treats two NULLs as equal like the engine does inside a
+     * complex value; {@code <=>} expresses that for a nested value. MAP and STRUCT are rejected by
+     * {@code ComparisonPredicate}, so their sub-values are compared recursively: a MAP is identified
+     * by its deduplicated keys and values in order, and a STRUCT that cannot be serialized losslessly
+     * enough for a whole JSON comparison both by its own NULL flag and by its fields. A STRUCT whose
+     * JSON text is a lossless identity is compared as one value, and a STRUCT whose leaves have no
+     * lossless JSON identity but are comparable recursively is compared by one engine call, so the
+     * search is parsed a bounded number of times instead of once per field.
+     *
+     * <p>JSON is used only for a value the engine cannot compare structurally. A MAP is never
+     * rendered as a JSON object: JSONB object keys are limited to 255 bytes and lose the key NULL
+     * flag, so the empty string key and a NULL key would render the same. Nested MAPs are rejected
+     * for the same reason.
+     *
+     * @param topLevel whether this is the whole search comparison. A NULL search then keeps the SQL
+     *                 three-valued result of the text formats instead of matching a NULL value.
+     */
+    private static Expression buildEquality(Expression left, Expression right, DataType type,
+            boolean topLevel, String columnTypeSql) throws AnalysisException {
+        if (supportsStructuralComparison(type)) {
+            // A top level ARRAY is compared by EqualTo, which is NULL when the search is NULL; a
+            // nested value uses <=> so that two NULLs match, like compare_at inside a complex value.
+            return topLevel ? new EqualTo(left, right) : new NullSafeEqual(left, right);
+        }
+        if (type.isMapType()) {
+            MapType mapType = (MapType) type;
+            DataType keyType = mapType.getKeyType();
+            DataType valueType = mapType.getValueType();
+            if (!supportsStructuralComparison(keyType) || !supportsMapValueComparison(valueType)) {
+                throw unsupportedComplexSearch(columnTypeSql, type);
+            }
+            // An Arrow MAP keeps every entry, so a repeated key makes its key and value arrays
+            // longer than the ones of the search text, which the string cast deduplicates with the
+            // last value winning. The sink applies the same last-wins rule before it writes the
+            // column, so normalize the native source the same way; otherwise a row that is written
+            // as the search value would not match it and would not be replaced.
+            Expression leftMap = deduplicateMap(left);
+            // The search may itself be a native MAP slot (even the source slot). Its same-type
+            // cast does not parse or deduplicate it, so normalize both sides, including at top level.
+            Expression rightMap = deduplicateMap(right);
+            List<Expression> equalities = Lists.newArrayList(
+                    new NullSafeEqual(mapFunction("map_keys", leftMap), mapFunction("map_keys", rightMap)));
+            if (supportsStructuralComparison(valueType)) {
+                equalities.add(new NullSafeEqual(mapFunction("map_values", leftMap),
+                        mapFunction("map_values", rightMap)));
+            } else {
+                // The value contains a STRUCT or an ARRAY of one, which the engine cannot compare as
+                // an array element. Its JSON rendering is escaped, keeps NULL apart from the "null"
+                // text and never uses the value as a JSON object key.
+                equalities.add(new NullSafeEqual(jsonText(mapFunction("map_values", leftMap)),
+                        jsonText(mapFunction("map_values", rightMap))));
+            }
+            Expression equality = new And(equalities);
+            return topLevel ? guardNullSearch(right, equality) : equality;
+        }
+        if (type.isStructType()) {
+            if (supportsJsonEncoding(type)) {
+                // The engine rejects a direct STRUCT comparison, so its JSON text is the comparison
+                // key. Compare the whole value at once: expanding the fields would embed the typed
+                // search in every field comparison and each occurrence parses the whole search
+                // string, which makes a dynamic search over an N field STRUCT convert N times the
+                // N fields for every row.
+                return topLevel
+                        ? new EqualTo(jsonText(left), jsonText(right))
+                        : new NullSafeEqual(jsonText(left), jsonText(right));
+            }
+            if (supportsDeepStructuralComparison(type)) {
+                // The JSON text is not a lossless identity for this STRUCT (a float signed zero, a
+                // version one DATE/DATETIME, DECIMALV2, ...), so the fields have to be compared
+                // one by one. Doing that in the expression tree embeds the typed search in every
+                // field comparison, and each occurrence parses the whole search string: an N field
+                // STRUCT converts N fields N+1 times per row. One engine call compares both values
+                // recursively instead, so the search is parsed once.
+                Expression equality = complexEquals(left, right);
+                return topLevel ? guardNullSearch(right, equality) : equality;
+            }
+            List<StructField> fields = ((StructType) type).getFields();
+            List<Expression> equalities = Lists.newArrayListWithCapacity(fields.size());
+            for (int i = 0; i < fields.size(); i++) {
+                equalities.add(buildEquality(
+                        structField(left, i), structField(right, i),
+                        fields.get(i).getDataType(), false, columnTypeSql));
+            }
+            Expression equality;
+            if (equalities.isEmpty()) {
+                equality = BooleanLiteral.TRUE;
+            } else if (equalities.size() == 1) {
+                equality = equalities.get(0);
+            } else {
+                equality = new And(equalities);
+            }
+            if (topLevel) {
+                return guardNullSearch(right, equality);
+            }
+            // element_at merges a NULL parent STRUCT into every field, so the field comparisons
+            // alone cannot tell a NULL nested STRUCT from a non-NULL one whose fields are all NULL.
+            return new And(new EqualTo(new IsNull(left), new IsNull(right)), equality);
+        }
+        if (type.isArrayType() && supportsJsonEncoding(((ArrayType) type).getItemType())) {
+            // An ARRAY of STRUCT is not comparable by the engine. Its JSON rendering is escaped and
+            // keeps NULL apart from the "null" text, and object keys are never involved.
+            return topLevel
+                    ? new EqualTo(jsonText(left), jsonText(right))
+                    : new NullSafeEqual(jsonText(left), jsonText(right));
+        }
+        throw unsupportedComplexSearch(columnTypeSql, type);
+    }
+
+    /**
+     * The rewritten search comparison of a top level MAP or STRUCT: keep the text format behavior,
+     * where a NULL search is unknown and therefore replaces the value. A nested value uses
+     * {@code <=>}, so the comparison is only guarded where the search is the whole search.
+     */
+    private static Expression guardNullSearch(Expression search, Expression equality) {
+        // All top-level searches arrive as a strict cast. A non-NULL value either parses or raises
+        // an error in equality, so its NULL guard can inspect the raw input without parsing it again.
+        Preconditions.checkArgument(search instanceof Cast && ((Cast) search).isStrict());
+        return new UnboundFunction("if", Lists.newArrayList(
+                new IsNull(search.child(0)), new NullLiteral(BooleanType.INSTANCE), equality));
+    }
+
+    private static Expression mapFunction(String name, Expression map) {
+        return new UnboundFunction(name, Lists.newArrayList(map));
+    }
+
+    private static Expression deduplicateMap(Expression map) {
+        // The BE function keeps the last value of a repeated key, like the sink and the string cast.
+        return new UnboundFunction("deduplicate_map", Lists.newArrayList(map));
+    }
+
+    private static Expression complexEquals(Expression left, Expression right) {
+        // The BE function compares two values of the same complex type recursively, with the NULL
+        // semantics of a nested value (two NULLs are equal) and without parsing a search again.
+        return new UnboundFunction("complex_equals", Lists.newArrayList(left, right));
+    }
+
+    private static Expression structField(Expression struct, int index) {
+        // element_at resolves a STRUCT field by its 1-based constant index.
+        return new UnboundFunction("element_at", Lists.newArrayList(struct, new IntegerLiteral(index + 1)));
+    }
+
+    private static Expression jsonText(Expression value) {
+        // to_json returns JSONB, which is not comparable; its text is.
+        return new Cast(new ToJson(value), StringType.INSTANCE);
+    }
+
+    private static AnalysisException unsupportedComplexSearch(String columnTypeSql, DataType type) {
+        return new AnalysisException(String.format(
+                "replace_value search on %s is not supported for Arrow files: no lossless comparison "
+                        + "is available for %s",
+                columnTypeSql, type.toSql()));
+    }
+
+    /**
+     * Whether the engine has a structural comparison for the type. Mirrors
+     * {@code TypeCoercionUtils#supportCompare(type, false)}: ARRAYs recurse into their item type, and
+     * JSON, Variant and the non-primitive types are not comparable.
+     */
+    private static boolean supportsStructuralComparison(DataType type) {
+        if (type.isArrayType()) {
+            return supportsStructuralComparison(((ArrayType) type).getItemType());
+        }
+        return type.isPrimitive() && !type.isJsonType() && !type.isObjectOrVariantType();
+    }
+
+    /**
+     * Whether a value can be compared by its JSON text. A MAP anywhere inside the value is rejected
+     * because JSONB object keys are limited to 255 bytes and lose the key NULL flag; a STRUCT field
+     * name is such a key and is checked at every level. Floats are rejected because the text keeps
+     * the sign of zero while numeric equality does not, and TIMEV2/TIMESTAMPTZ below the maximum
+     * scale because the text drops the stored microseconds that the Arrow reader keeps. The version
+     * one DATE/DATETIME, DECIMALV2 and the sketch types have no JSONB serde.
+     */
+    private static boolean supportsJsonEncoding(DataType type) {
+        if (type.isArrayType()) {
+            return supportsJsonEncoding(((ArrayType) type).getItemType());
+        }
+        if (type.isMapType()) {
+            return false;
+        }
+        if (type.isStructType()) {
+            for (StructField field : ((StructType) type).getFields()) {
+                // A nested STRUCT field name becomes a JSONB object key, which the BE serde limits
+                // to 255 UTF-8 bytes.
+                if (field.getName().getBytes(StandardCharsets.UTF_8).length > 255
+                        || !supportsJsonEncoding(field.getDataType())) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        // A float keeps its sign bit in the JSON text (-0.0 renders as "-0"), while numeric equality
+        // treats -0.0 and 0.0 as equal, so their JSON text is not a lossless equality key.
+        return type.isPrimitive() && !type.isFloatLikeType() && !type.isDateType()
+                && !type.isDateTimeType() && !hasLossyJsonScale(type)
+                && !type.isDecimalV2Type() && !type.isHllType()
+                && !type.isBitmapType() && !type.isQuantileStateType() && !type.isAggStateType();
+    }
+
+    /**
+     * Whether {@code Column::compare_at} can compare every leaf of the type, including nested
+     * ARRAY and STRUCT values. The engine call normalizes nested MAPs on owned copies before
+     * comparing them. Keep the same MAP key/value capabilities as the explicit map branch; sketch
+     * and aggregate state types are excluded because their comparison is only implemented for tests.
+     */
+    private static boolean supportsDeepStructuralComparison(DataType type) {
+        if (type.isArrayType()) {
+            return supportsDeepStructuralComparison(((ArrayType) type).getItemType());
+        }
+        if (type.isStructType()) {
+            for (StructField field : ((StructType) type).getFields()) {
+                if (!supportsDeepStructuralComparison(field.getDataType())) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        if (type.isMapType()) {
+            MapType map = (MapType) type;
+            return supportsStructuralComparison(map.getKeyType())
+                    && supportsMapValueComparison(map.getValueType())
+                    && supportsDeepStructuralComparison(map.getValueType());
+        }
+        return type.isPrimitive() && !type.isJsonType() && !type.isObjectOrVariantType()
+                && !type.isHllType() && !type.isBitmapType()
+                && !type.isQuantileStateType() && !type.isAggStateType();
+    }
+
+    /**
+     * Whether the JSON text of a scaled time type drops digits that the stored value keeps. The
+     * Arrow reader stores the full microseconds of TIMEV2 and TIMESTAMPTZ whatever the declared
+     * scale is, while their JSON text is written at that scale, so two different values can render
+     * the same text. Only the maximum scale keeps every stored digit. DATETIMEV2 is not affected:
+     * its reader rounds the payload to the declared scale before it is stored.
+     */
+    private static boolean hasLossyJsonScale(DataType type) {
+        if (type.isTimeStampTzType()) {
+            return ((TimeStampTzType) type).getScale() != TimeStampTzType.MAX_SCALE;
+        }
+        if (type.isTimeType()) {
+            return ((TimeV2Type) type).getScale() != TimeV2Type.MAX_SCALE;
+        }
+        return false;
+    }
+
+    private static boolean supportsMapValueComparison(DataType type) {
+        return supportsStructuralComparison(type) || supportsJsonEncoding(type);
     }
 }

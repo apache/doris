@@ -157,8 +157,11 @@ public:
 
     MOCK_FUNCTION uint32_t num_rows() const { return _num_rows; }
 
+    // `read_type` is the type the caller materializes the column into. It equals the declared
+    // type unless nested column pruning requested a subset of STRUCT fields, in which case a
+    // constant default parsed with the declared type is projected onto it.
     // if variant_sparse_column_cache is nullptr, means the sparse column cache is not used
-    Status new_column_iterator(const TabletColumn& tablet_column,
+    Status new_column_iterator(const TabletColumn& tablet_column, const DataTypePtr& read_type,
                                std::unique_ptr<ColumnIterator>* iter, const StorageReadOptions* opt,
                                const std::unordered_map<int32_t, PathToBinaryColumnCacheUPtr>*
                                        variant_sparse_column_cache = nullptr);
