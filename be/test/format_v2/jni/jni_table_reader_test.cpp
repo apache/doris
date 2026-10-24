@@ -19,7 +19,9 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <chrono>
+#include <limits>
 #include <map>
 #include <memory>
 #include <optional>
@@ -27,9 +29,15 @@
 #include <thread>
 #include <vector>
 
+#include "core/column/variant_v2/column_variant_v2.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_timestamp_ns.h"
+#include "core/data_type/data_type_variant_v2.h"
+#include "core/value/variant/variant_parquet_encoding.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vslot_ref.h"
 #include "format/jni/jni_data_bridge.h"
@@ -55,9 +63,9 @@ public:
     std::chrono::milliseconds close_delay {0};
 
 protected:
-    std::string connector_class() const override {
+    Jni::PluginRef plugin_ref() const override {
         std::this_thread::sleep_for(init_delay);
-        return "test/FakeJniScanner";
+        return {"test", "fake"};
     }
 
     Status build_scanner_params(std::map<std::string, std::string>* params) const override {
@@ -134,6 +142,69 @@ TEST(JniTableReaderTest, EncodedTypeDescriptorsPreserveNestedQuotedIdentifiers) 
     // verbatim, and field names whose length is not divisible by three require trailing '=' bytes.
     EXPECT_EQ(JniDataBridge::get_jni_type_with_encoded_struct_fields(type),
               "struct<$aGFzaCNuYW1l:string,$cmVnaW9uLGNvZGU=:string,$Y29sb246bmFtZQ==:string>");
+}
+
+TEST(JniTableReaderTest, TimestampNsTypeDescriptorPreservesNestedTypes) {
+    const auto timestamp_ns = std::make_shared<DataTypeTimeStampNs>();
+    const auto type = std::make_shared<DataTypeStruct>(
+            DataTypes {timestamp_ns, std::make_shared<DataTypeArray>(timestamp_ns),
+                       std::make_shared<DataTypeMap>(std::make_shared<DataTypeString>(),
+                                                     timestamp_ns)},
+            Strings {"ts", "items", "by_name"});
+
+    EXPECT_EQ(JniDataBridge::get_jni_type(timestamp_ns), "timestamp_ns");
+    EXPECT_EQ(JniDataBridge::get_jni_type(type),
+              "struct<ts:timestamp_ns,items:array<timestamp_ns>,by_name:map<string,timestamp_ns>>");
+}
+
+TEST(JniTableReaderTest, FillTimestampNsColumnFromEpochNanoseconds) {
+    const std::array<Int64, 5> epoch_nanos = {std::numeric_limits<Int64>::min(), -1, 0,
+                                              1'708'000'496'123'456'789,
+                                              std::numeric_limits<Int64>::max()};
+    const std::array<bool, epoch_nanos.size()> null_map = {};
+    const std::array<long, 2> meta = {reinterpret_cast<long>(null_map.data()),
+                                      reinterpret_cast<long>(epoch_nanos.data())};
+    JniDataBridge::TableMetaAddress address(reinterpret_cast<long>(meta.data()));
+    const DataTypePtr data_type = std::make_shared<DataTypeTimeStampNs>();
+    ColumnPtr column = data_type->create_column();
+
+    ASSERT_TRUE(JniDataBridge::fill_column(address, column, data_type, epoch_nanos.size()).ok());
+
+    const auto& column_data = assert_cast<const ColumnTimeStampNs&>(*column).get_data();
+    ASSERT_EQ(column_data.size(), epoch_nanos.size());
+    for (size_t i = 0; i < epoch_nanos.size(); ++i) {
+        EXPECT_EQ(column_data[i].epoch_nanos(), epoch_nanos[i]);
+    }
+}
+
+TEST(JniTableReaderTest, FillVariantColumnFromEncodedRows) {
+    constexpr size_t num_rows = 1;
+    const std::array<bool, num_rows> null_map = {};
+    const std::array<uint32_t, 2> metadata_offsets = {0, VARIANT_EMPTY_METADATA.size()};
+    const std::array<uint32_t, num_rows> metadata_ids = {0};
+    const std::array<uint32_t, 2> value_offsets = {0, 1};
+    const std::array<char, 1> values = {static_cast<char>(
+            static_cast<uint8_t>(VariantPrimitiveId::NULL_VALUE) << VARIANT_VALUE_HEADER_SHIFT)};
+    const std::array<long, 7> meta = {
+            reinterpret_cast<long>(null_map.data()),
+            1,
+            reinterpret_cast<long>(metadata_offsets.data()),
+            reinterpret_cast<long>(VARIANT_EMPTY_METADATA.data()),
+            reinterpret_cast<long>(metadata_ids.data()),
+            reinterpret_cast<long>(value_offsets.data()),
+            reinterpret_cast<long>(values.data()),
+    };
+    JniDataBridge::TableMetaAddress address(reinterpret_cast<long>(meta.data()));
+    const DataTypePtr data_type = std::make_shared<DataTypeVariantV2>();
+    ColumnPtr column = data_type->create_column();
+
+    ASSERT_TRUE(JniDataBridge::fill_column(address, column, data_type, num_rows).ok());
+
+    const auto& variant = assert_cast<const ColumnVariantV2&>(*column);
+    ASSERT_EQ(variant.size(), num_rows);
+    EXPECT_TRUE(variant.read_view().value_at(0).is_null());
+    EXPECT_EQ(JniDataBridge::get_jni_type(data_type), "variant");
+    EXPECT_EQ(JniDataBridge::get_jni_type_with_different_string(data_type), "variant");
 }
 
 TEST(JniTableReaderTest, GenericConnectorDoesNotPublishPaimonEncodedSchema) {

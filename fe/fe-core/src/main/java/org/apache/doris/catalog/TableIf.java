@@ -23,9 +23,9 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.systable.SysTable;
-import org.apache.doris.statistics.AnalysisInfo;
-import org.apache.doris.statistics.BaseAnalysisTask;
-import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.analysis.AnalysisInfo;
+import org.apache.doris.statistics.analysis.BaseAnalysisTask;
+import org.apache.doris.statistics.model.ColumnStatistic;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.collect.ImmutableList;
@@ -173,7 +173,32 @@ public interface TableIf {
         }
     }
 
+    /** {@link #getBaseSchemaOrEmpty()} over the metadata view; see {@link #getBaseSchemaForDisplay()}. */
+    default List<Column> getBaseSchemaForDisplayOrEmpty() {
+        try {
+            return getBaseSchemaForDisplay();
+        } catch (Exception e) {
+            LOG.warn("failed to get base schema for table {}", getName(), e);
+            return Lists.newArrayList();
+        }
+    }
+
     List<Column> getBaseSchema(boolean full);
+
+    /**
+     * The base schema shown by metadata statements (DESC, SHOW CREATE TABLE, SHOW COLUMNS and
+     * information_schema.columns). It differs from {@link #getBaseSchema()} only for a table whose source
+     * declares columns NOT NULL that are still read as nullable. Execution (scans, the optimizer, write
+     * validation, the BE descriptor) must keep using {@link #getBaseSchema()}.
+     */
+    default List<Column> getBaseSchemaForDisplay() {
+        return getBaseSchema();
+    }
+
+    /** Same as {@link #getBaseSchemaForDisplay()}, with the hidden-column choice of {@link #getBaseSchema(boolean)}. */
+    default List<Column> getBaseSchemaForDisplay(boolean full) {
+        return getBaseSchema(full);
+    }
 
     void setNewFullSchema(List<Column> newSchema);
 

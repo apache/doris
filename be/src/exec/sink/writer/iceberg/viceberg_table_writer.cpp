@@ -18,6 +18,7 @@
 #include "exec/sink/writer/iceberg/viceberg_table_writer.h"
 
 #include <algorithm>
+#include <boost/uuid/string_generator.hpp>
 
 #include "common/exception.h"
 #include "core/block/block.h"
@@ -28,10 +29,12 @@
 #include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type_serde/data_type_serde.h"
+#include "exec/sink/writer/external_file_writer_compatibility.h"
 #include "exec/sink/writer/iceberg/iceberg_partition_path.h"
-#include "exec/sink/writer/iceberg/iceberg_writer_compatibility.h"
+#include "exec/sink/writer/iceberg/iceberg_write_validator.h"
 #include "exec/sink/writer/iceberg/partition_transformers.h"
 #include "exec/sink/writer/iceberg/viceberg_partition_writer.h"
 #include "exec/sink/writer/iceberg/viceberg_sort_writer.h"
@@ -41,6 +44,7 @@
 #include "format/table/iceberg/schema_parser.h"
 #include "io/fs/file_system.h"
 #include "runtime/runtime_state.h"
+#include "util/url_coding.h"
 
 namespace doris {
 
@@ -57,7 +61,7 @@ Status VIcebergTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
     _state = state;
     _operator_profile = profile;
 
-    RETURN_IF_ERROR(validate_iceberg_external_file_report_ack(state->query_options()));
+    RETURN_IF_ERROR(validate_external_file_report_ack(state->query_options()));
 
     // Get target file size from query options
     // If value is 0 or not set, use config::iceberg_sink_max_file_size
@@ -130,6 +134,14 @@ VIcebergTableWriter::_to_iceberg_partition_columns() {
     std::vector<IcebergPartitionColumn> partition_columns;
 
     for (const auto& partition_field : _partition_spec->fields()) {
+        if (partition_field.transform() == "void") {
+            // A void field is NULL for every row. A v1 table keeps one for each dropped partition
+            // field and may drop its source column later, so the source is not resolved.
+            partition_columns.emplace_back(partition_field, TYPE_NULL, -1, std::vector<size_t> {},
+                                           std::make_unique<VoidPartitionColumnTransform>(
+                                                   std::make_shared<DataTypeString>()));
+            continue;
+        }
         const auto* field_path = _schema->find_field_path(partition_field.source_id());
         if (field_path == nullptr || field_path->empty()) {
             throw Exception(
@@ -243,6 +255,7 @@ void VIcebergTableWriter::_init_static_partition_values() {
 
     size_t num_cols = _iceberg_partition_columns.size();
     _partition_column_static_values.resize(num_cols);
+    _partition_column_static_path_values.resize(num_cols);
     _partition_column_is_static.assign(num_cols, 0);
 
     size_t dynamic_count = 0;
@@ -251,7 +264,74 @@ void VIcebergTableWriter::_init_static_partition_values() {
         auto it = static_values_map.find(col_name);
         if (it != static_values_map.end()) {
             _partition_column_static_values[i] = it->second;
+            _partition_column_static_path_values[i] = it->second;
             _partition_column_is_static[i] = 1;
+            auto type =
+                    _iceberg_partition_columns[i].partition_column_transform().get_result_type();
+            if (iceberg_sink.static_partition_null_keys.contains(col_name)) {
+                // SQL NULL is not a UUID/hex string, and must not share the empty-byte path.
+                _partition_column_static_values[i] =
+                        _iceberg_partition_columns[i]
+                                .partition_column_transform()
+                                .get_partition_value(type, std::any {});
+                _partition_column_static_path_values[i] =
+                        _partition_value_to_human_string(i, std::any {});
+                continue;
+            }
+            if (type->get_primitive_type() == TYPE_VARBINARY) {
+                // Static and dynamic partitions share typed hex commit values, but Iceberg paths
+                // render binary as base64 (UUID as canonical text). Decode before rendering.
+                // Nullable SerDe turns malformed bytes into NULL. Non-null wire values must fail
+                // validation instead of being silently rendered as an empty binary partition.
+                auto non_null_type = remove_nullable(type);
+                auto column = non_null_type->create_column();
+                auto& encoded = _partition_column_static_values[i];
+                if (_schema->find_type(_iceberg_partition_columns[i].field().source_id())
+                                    ->type_id() == iceberg::TypeID::UUID &&
+                    !encoded.starts_with("0x")) {
+                    // Preserve the canonical UUID string input accepted before VARBINARY mapping.
+                    boost::uuids::uuid uuid;
+                    try {
+                        uuid = boost::uuids::string_generator()(encoded);
+                    } catch (const std::runtime_error&) {
+                        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                        "Invalid UUID partition value");
+                    }
+                    encoded = _iceberg_partition_columns[i]
+                                      .partition_column_transform()
+                                      .get_partition_value(type,
+                                                           std::string(uuid.begin(), uuid.end()));
+                }
+                StringRef value(encoded.data(), encoded.size());
+                DataTypeSerDe::FormatOptions options;
+                auto status = non_null_type->get_serde()->from_string(value, *column, options);
+                if (!status.ok()) {
+                    throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid binary partition: {}",
+                                    status.to_string());
+                }
+                _partition_column_static_path_values[i] =
+                        _partition_value_to_human_string(i, column->get_data_at(0).to_string());
+            } else if (type->get_primitive_type() == TYPE_TIMESTAMPTZ) {
+                // Static literals and dynamic rows must commit the same UTC value even if their
+                // input offsets differ. Unqualified static literals still use the insert session.
+                auto non_null_type = remove_nullable(type);
+                auto column = non_null_type->create_column();
+                auto& encoded = _partition_column_static_values[i];
+                StringRef input(encoded.data(), encoded.size());
+                DataTypeSerDe::FormatOptions options;
+                options.timezone = &_state->timezone_obj();
+                auto status = non_null_type->get_serde()->from_string(input, *column, options);
+                if (!status.ok()) {
+                    throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid timestamp partition: {}",
+                                    status.to_string());
+                }
+                const auto value = assert_cast<const ColumnTimeStampTz&>(*column).get_data()[0];
+                encoded = _iceberg_partition_columns[i]
+                                  .partition_column_transform()
+                                  .get_partition_value(type, value);
+                _partition_column_static_path_values[i] =
+                        _partition_value_to_human_string(i, value);
+            }
         } else {
             dynamic_count++;
         }
@@ -285,7 +365,7 @@ std::string VIcebergTableWriter::_build_static_partition_path() {
             }
             first = false;
             ss << _escape(_iceberg_partition_columns[i].field().name()) << "="
-               << _escape(_partition_column_static_values[i]);
+               << _escape(_partition_column_static_path_values[i]);
         }
     }
     return ss.str();
@@ -332,6 +412,7 @@ Status VIcebergTableWriter::_process_row_lineage_columns(Block& block) {
 
 Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
     RETURN_IF_ERROR(_process_row_lineage_columns(output_block));
+    RETURN_IF_ERROR(iceberg::validate_write_block(*_schema, output_block));
 
     std::unordered_map<std::shared_ptr<IPartitionWriterBase>, IColumn::Permutation>
             writer_positions;
@@ -437,14 +518,34 @@ Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
             if (_has_static_partition && _partition_column_is_static[i]) {
                 auto result_type =
                         iceberg_partition_columns.partition_column_transform().get_result_type();
+                const bool is_null = _t_sink.iceberg_table_sink.static_partition_null_keys.contains(
+                        iceberg_partition_columns.field().name());
+                if (is_null) {
+                    result_type = make_nullable(result_type);
+                }
                 auto data_col = result_type->create_column();
-                StringRef str_ref(_partition_column_static_values[i].data(),
-                                  _partition_column_static_values[i].size());
-                DataTypeSerDe::FormatOptions options;
-                RETURN_IF_ERROR(result_type->get_serde()->from_string(str_ref, *data_col, options));
+                if (is_null) {
+                    // The wire placeholder is not a textual value to parse in hybrid routing.
+                    data_col->insert_default();
+                } else {
+                    StringRef str_ref(_partition_column_static_values[i].data(),
+                                      _partition_column_static_values[i].size());
+                    DataTypeSerDe::FormatOptions options;
+                    RETURN_IF_ERROR(
+                            result_type->get_serde()->from_string(str_ref, *data_col, options));
+                }
                 auto col = ColumnConst::create(std::move(data_col), output_block.rows());
                 transformed_block.insert(
                         {std::move(col), result_type, iceberg_partition_columns.field().name()});
+            } else if (iceberg_partition_columns.source_idx() < 0) {
+                // A void field has no source column; materialize its NULLs, since partition values
+                // are read row by row.
+                auto result_type = make_nullable(
+                        iceberg_partition_columns.partition_column_transform().get_result_type());
+                auto data_col = result_type->create_column();
+                data_col->insert_many_defaults(output_block.rows());
+                transformed_block.insert({std::move(data_col), result_type,
+                                          iceberg_partition_columns.field().name()});
             } else {
                 Block source_block;
                 source_block.insert(
@@ -463,7 +564,7 @@ Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
             }
             std::string partition_name;
             try {
-                partition_name = _partition_to_path(partition_data.value());
+                partition_name = _partition_to_writer_key(partition_data.value());
             } catch (doris::Exception& e) {
                 return e.to_status();
             }
@@ -489,8 +590,14 @@ Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
             if (writer_iter == _partitions_to_writers.end()) {
                 if (_partitions_to_writers.size() + 1 >
                     config::table_sink_partition_write_max_partition_nums_per_writer) {
-                    return Status::InternalError(
-                            "Too many open partitions {}",
+                    return Status::InvalidArgument(
+                            "Too many open partitions for Iceberg writer: open partitions={}, "
+                            "attempted partitions={}, limit={}. This is a per-writer limit "
+                            "controlled by BE configuration "
+                            "'table_sink_partition_write_max_partition_nums_per_writer'. "
+                            "Split the write into multiple statements or increase this "
+                            "configuration.",
+                            _partitions_to_writers.size(), _partitions_to_writers.size() + 1,
                             config::table_sink_partition_write_max_partition_nums_per_writer);
                 }
                 RETURN_IF_ERROR(create_and_open_writer(partition_name, i, nullptr, 0, writer));
@@ -626,6 +733,43 @@ void VIcebergTableWriter::_cleanup_closed_files() {
     _closed_files.clear();
 }
 
+std::string VIcebergTableWriter::_partition_value_to_human_string(size_t index,
+                                                                  const std::any& value) {
+    auto& partition = _iceberg_partition_columns[index];
+    auto& transform = partition.partition_column_transform();
+    auto type = transform.get_result_type();
+    if (type->get_primitive_type() != TYPE_VARBINARY || !value.has_value()) {
+        return transform.to_human_string(type, value);
+    }
+    const auto& bytes = std::any_cast<const std::string&>(value);
+    if (_schema->find_type(partition.field().source_id())->type_id() == iceberg::TypeID::UUID) {
+        if (bytes.size() != 16) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT, "UUID partition requires 16 bytes");
+        }
+        boost::uuids::uuid uuid;
+        std::copy(bytes.begin(), bytes.end(), uuid.begin());
+        return boost::uuids::to_string(uuid);
+    }
+    std::string encoded;
+    base64_encode(bytes, &encoded);
+    return encoded;
+}
+
+std::string VIcebergTableWriter::_partition_to_writer_key(const doris::iceberg::StructLike& data) {
+    std::string key = _partition_to_path(data);
+    // Iceberg paths encode both NULL and binary 0x9ee965 as "null". Keep their writers and
+    // commit metadata separate without changing the standard, externally visible path.
+    key.push_back('\0');
+    for (size_t i = 0; i < _iceberg_partition_columns.size(); ++i) {
+        // Static fields are constant for this writer; only dynamic fields can collide.
+        key.push_back((_has_static_partition && _partition_column_is_static[i]) ||
+                                      data.get(i).has_value()
+                              ? '1'
+                              : '0');
+    }
+    return key;
+}
+
 std::string VIcebergTableWriter::_partition_to_path(const doris::iceberg::StructLike& data) {
     std::stringstream ss;
     for (size_t i = 0; i < _iceberg_partition_columns.size(); i++) {
@@ -636,12 +780,10 @@ std::string VIcebergTableWriter::_partition_to_path(const doris::iceberg::Struct
         // In hybrid mode, check if this column is statically specified
         if (_has_static_partition && _partition_column_is_static[i]) {
             // Use static partition value
-            value_string = _partition_column_static_values[i];
+            value_string = _partition_column_static_path_values[i];
         } else {
             // Compute from data (dynamic partition)
-            value_string = iceberg_partition_column.partition_column_transform().to_human_string(
-                    iceberg_partition_column.partition_column_transform().get_result_type(),
-                    data.get(i));
+            value_string = _partition_value_to_human_string(i, data.get(i));
         }
 
         if (i > 0) {
@@ -826,6 +968,10 @@ std::any VIcebergTableWriter::_get_iceberg_partition_value(
     case TYPE_DOUBLE: {
         return *reinterpret_cast<const Float64*>(item);
     }
+    case TYPE_UUID:
+        // Identity partition paths and commit metadata use canonical UUID text.
+        return UUIDValue::to_string(assert_cast<const ColumnUUID&>(*col_ptr).get_data()[position]);
+    case TYPE_VARBINARY:
     case TYPE_VARCHAR:
     case TYPE_CHAR:
     case TYPE_STRING: {
@@ -842,6 +988,12 @@ std::any VIcebergTableWriter::_get_iceberg_partition_value(
     }
     case TYPE_DATETIMEV2: {
         return binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(*(int64_t*)item);
+    }
+    case TYPE_TIMESTAMP_NS:
+        return assert_cast<const ColumnTimeStampNs&>(*col_ptr).get_data()[position];
+    case TYPE_TIMESTAMPTZ: {
+        // Keep the UTC carrier typed through identity routing and FE commit serialization.
+        return assert_cast<const ColumnTimeStampTz&>(*col_ptr).get_data()[position];
     }
     case TYPE_DECIMALV2: {
         return *(Decimal128V2*)(item);

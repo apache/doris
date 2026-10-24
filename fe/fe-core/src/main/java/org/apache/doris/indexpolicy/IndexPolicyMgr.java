@@ -31,7 +31,6 @@ import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ShowResultSet;
 
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
@@ -41,9 +40,10 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
@@ -57,13 +57,65 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
     private final Map<Long, IndexPolicy> idToIndexPolicy = Maps.newHashMap();
     // Keys are normalized to lowercase for case-insensitive lookup
     private final Map<String, IndexPolicy> nameToIndexPolicy = Maps.newHashMap();
+    // Legacy metadata can contain case-distinct names that share a normalized key. Keep exact
+    // bindings separately so a saved analyzer continues to resolve its original component.
+    private final transient Map<String, IndexPolicy> exactNameToIndexPolicy = Maps.newHashMap();
 
     /**
      * Normalize policy name to lowercase for case-insensitive lookup.
      * Policy names are case-insensitive in Doris.
      */
     private static String normalizeKey(String name) {
-        return name == null ? null : name.trim().toLowerCase();
+        return name == null ? null : name.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private static String exactKey(String name) {
+        return name == null ? null : name.trim();
+    }
+
+    // Callers hold either the read or write lock. Prefer an exact legacy name binding and
+    // retain normalized lookup only for interactive case-insensitive fallback.
+    private IndexPolicy getPolicyByNameLocked(String name) {
+        IndexPolicy exactPolicy = exactNameToIndexPolicy.get(exactKey(name));
+        return exactPolicy != null ? exactPolicy : nameToIndexPolicy.get(normalizeKey(name));
+    }
+
+    // Callers hold either the read or write lock. BE dispatches a canonical built-in analyzer, then an
+    // exact policy, then a built-in by normalized name; return a spelling that reaches that built-in,
+    // or null for a policy.
+    private String resolveTopLevelBuiltinLocked(String name, Set<String> builtins) {
+        String exactName = exactKey(name);
+        if (IndexPolicy.BUILTIN_ANALYZERS.contains(exactName) && builtins.contains(exactName)) {
+            return exactName;
+        }
+        if (exactNameToIndexPolicy.containsKey(exactName)) {
+            return null;
+        }
+        String normalizedName = normalizeKey(name);
+        if (!builtins.contains(normalizedName)) {
+            return null;
+        }
+        // BE checks an exact policy before the built-in normalizer, so the canonical spelling binds
+        // that policy instead; only the spelling given here still reaches the built-in.
+        if (!IndexPolicy.BUILTIN_ANALYZERS.contains(normalizedName)
+                && exactNameToIndexPolicy.containsKey(normalizedName)) {
+            return exactName;
+        }
+        return normalizedName;
+    }
+
+    /**
+     * The spelling that makes an index's analyzer or normalizer name bind a built-in from
+     * {@code builtins}, or null when {@link #getPolicyByName} gives its binding. Validation uses the
+     * same order.
+     */
+    public String getTopLevelBuiltin(String name, Set<String> builtins) {
+        readLock();
+        try {
+            return resolveTopLevelBuiltinLocked(name, builtins);
+        } finally {
+            readUnlock();
+        }
     }
 
     private void writeLock() {
@@ -82,10 +134,51 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
         lock.readLock().unlock();
     }
 
+    // Keep exact bindings and use the highest policy ID for normalized-name fallback.
+    // Callers hold the write lock.
+    private void registerPolicyNameLocked(IndexPolicy indexPolicy) {
+        String exactName = exactKey(indexPolicy.getName());
+        IndexPolicy exactCurrent = exactNameToIndexPolicy.get(exactName);
+        if (exactCurrent == null || indexPolicy.getId() > exactCurrent.getId()) {
+            exactNameToIndexPolicy.put(exactName, indexPolicy);
+        }
+
+        String normalizedName = normalizeKey(indexPolicy.getName());
+        IndexPolicy current = nameToIndexPolicy.get(normalizedName);
+        if (current == null || indexPolicy.getId() > current.getId()) {
+            nameToIndexPolicy.put(normalizedName, indexPolicy);
+        }
+        if (current != null && current.getId() != indexPolicy.getId()) {
+            LOG.warn("Index policies '{}' (id={}) and '{}' (id={}) have the same normalized name; "
+                            + "using the policy with the higher ID for name lookup",
+                    current.getName(), current.getId(), indexPolicy.getName(), indexPolicy.getId());
+        }
+    }
+
+    private void unregisterPolicyNameLocked(IndexPolicy indexPolicy) {
+        String exactName = exactKey(indexPolicy.getName());
+        String normalizedName = normalizeKey(indexPolicy.getName());
+        IndexPolicy exactCurrent = exactNameToIndexPolicy.get(exactName);
+        IndexPolicy current = nameToIndexPolicy.get(normalizedName);
+        if (exactCurrent != null && exactCurrent.getId() == indexPolicy.getId()) {
+            exactNameToIndexPolicy.remove(exactName);
+        }
+        if (current != null && current.getId() == indexPolicy.getId()) {
+            nameToIndexPolicy.remove(normalizedName);
+        }
+        for (IndexPolicy remaining : idToIndexPolicy.values()) {
+            if (exactName.equals(exactKey(remaining.getName()))
+                    || normalizedName.equals(normalizeKey(remaining.getName()))) {
+                registerPolicyNameLocked(remaining);
+            }
+        }
+    }
+
     public List<IndexPolicy> getCopiedIndexPolicies() {
         List<IndexPolicy> copiedPolicies = Lists.newArrayList();
         readLock();
         try {
+            // Send every legacy policy to BE so exact bindings survive normalized-name collisions.
             copiedPolicies.addAll(idToIndexPolicy.values());
         } finally {
             readUnlock();
@@ -94,15 +187,12 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
     }
 
     public void validateAnalyzerExists(String analyzerName) throws DdlException {
-        String normalizedName = normalizeKey(analyzerName);
-        // Built-in analyzers are stored in lowercase, so use normalized name for comparison
-        if (IndexPolicy.BUILTIN_ANALYZERS.contains(normalizedName)) {
-            return;
-        }
-
         readLock();
         try {
-            IndexPolicy policy = nameToIndexPolicy.get(normalizedName);
+            if (resolveTopLevelBuiltinLocked(analyzerName, IndexPolicy.BUILTIN_ANALYZERS) != null) {
+                return;
+            }
+            IndexPolicy policy = getPolicyByNameLocked(analyzerName);
             if (policy == null) {
                 throw new DdlException("Analyzer '" + analyzerName + "' does not exist");
             }
@@ -112,49 +202,149 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
             if (policy.isInvalid()) {
                 throw new DdlException("Analyzer '" + analyzerName + "' is invalid");
             }
+            validateReferencedComponentsUsableLocked(analyzerName, policy);
         } finally {
             readUnlock();
         }
     }
 
     /**
-     * Validate that {@code analyzerName} resolves to a usable analyzer graph and report whether
-     * that graph ends in a common_grams token filter. Callers need the flag because CommonGrams
-     * indexes store gram terms, which only SNII can read back.
+     * Older metadata may retain components that current validation rejects. Load these policies so
+     * one obsolete policy cannot prevent FE startup, but reject analyzers that reference them before
+     * BE tries to construct the analyzer during index construction or querying.
      */
-    public boolean validateAnalyzerUsesCommonGrams(String analyzerName) throws DdlException {
+    private void validateReferencedComponentsUsableLocked(String analyzerName, IndexPolicy analyzer)
+            throws DdlException {
+        Map<String, String> analyzerProperties = analyzer.getProperties();
+        if (analyzerProperties == null) {
+            return;
+        }
+        String tokenizerName = analyzerProperties.get(IndexPolicy.PROP_TOKENIZER);
+        IndexPolicy tokenizer = tokenizerName == null
+                ? null : getPolicyByNameLocked(tokenizerName);
+        if (tokenizer != null && tokenizer.getType() != IndexPolicyTypeEnum.TOKENIZER) {
+            throw new DdlException("Referenced policy '" + tokenizerName + "' is of type "
+                    + tokenizer.getType() + " but expected " + IndexPolicyTypeEnum.TOKENIZER);
+        }
+        if (tokenizer != null && tokenizer.isInvalid()) {
+            throw new DdlException("Analyzer '" + analyzerName + "' references invalid tokenizer '"
+                    + tokenizerName + "'");
+        }
+
+        String tokenFilterNames = analyzerProperties.get(IndexPolicy.PROP_TOKEN_FILTER);
+        if (tokenFilterNames != null && !tokenFilterNames.isEmpty()) {
+            for (String tokenFilterName : tokenFilterNames.split(",\\s*")) {
+                IndexPolicy tokenFilter = getPolicyByNameLocked(tokenFilterName);
+                if (tokenFilter != null && tokenFilter.getType() != IndexPolicyTypeEnum.TOKEN_FILTER) {
+                    throw new DdlException("Referenced policy '" + tokenFilterName + "' is of type "
+                            + tokenFilter.getType() + " but expected " + IndexPolicyTypeEnum.TOKEN_FILTER);
+                }
+                if (tokenFilter != null && tokenFilter.isInvalid()) {
+                    throw new DdlException("Analyzer '" + analyzerName + "' references token filter '"
+                            + tokenFilterName + "' of type '"
+                            + tokenFilter.getProperties().get(IndexPolicy.PROP_TYPE)
+                            + "', which is no longer supported");
+                }
+            }
+        }
+
+        validateReferencedFilterTypesLocked(analyzerProperties.get(IndexPolicy.PROP_CHAR_FILTER),
+                IndexPolicyTypeEnum.CHAR_FILTER);
+    }
+
+    private void validateReferencedFilterTypesLocked(String filterNames, IndexPolicyTypeEnum expectedType)
+            throws DdlException {
+        if (filterNames == null || filterNames.isEmpty()) {
+            return;
+        }
+        for (String filterName : filterNames.split(",\\s*")) {
+            IndexPolicy filter = getPolicyByNameLocked(filterName);
+            if (filter != null && filter.getType() != expectedType) {
+                throw new DdlException("Referenced policy '" + filterName + "' is of type "
+                        + filter.getType() + " but expected " + expectedType);
+            }
+            if (filter != null && filter.isInvalid()) {
+                throw new DdlException("Referenced " + expectedType + " policy '" + filterName
+                        + "' is invalid");
+            }
+        }
+    }
+
+    /**
+     * Decides whether {@code analyzerName} is a "gram family" analyzer: an ngram tokenizer that
+     * explicitly carries mode (sparse/auto/dense). On the BE side a gram-family analyzer produces
+     * only sparse/dense gram postings, which only the SNII storage format can read and which carry
+     * no positions (no phrase queries); the caller (currently
+     * {@code InvertedIndexUtil.checkAnalyzerName}) uses this to constrain the index properties.
+     *
+     * <p>Returns {@code Optional.empty()} when this is not a custom analyzer (null, a built-in
+     * analyzer name, not found, wrong type), when the tokenizer is not ngram, or when the ngram
+     * carries no mode (the legacy min_gram/max_gram usage). On a hit it returns the lower-cased mode
+     * value.
+     */
+    public Optional<String> resolveGramTokenizerMode(String analyzerName) {
+        if (analyzerName == null) {
+            return Optional.empty();
+        }
         String normalizedName = normalizeKey(analyzerName);
         if (IndexPolicy.BUILTIN_ANALYZERS.contains(normalizedName)) {
-            return false;
+            return Optional.empty();
         }
 
         readLock();
         try {
-            IndexPolicy analyzer = requireAnalyzerLocked(analyzerName);
-            return validateAnalyzerGraphLocked(analyzer.getName(), analyzer.getProperties());
+            IndexPolicy analyzer = nameToIndexPolicy.get(normalizedName);
+            if (analyzer == null || analyzer.getType() != IndexPolicyTypeEnum.ANALYZER) {
+                return Optional.empty();
+            }
+            String tokenizerRef = analyzer.getProperties().get(IndexPolicy.PROP_TOKENIZER);
+            ResolvedAnalyzerComponent tokenizer;
+            try {
+                tokenizer = resolveAnalyzerComponentLocked(tokenizerRef, IndexPolicyTypeEnum.TOKENIZER);
+            } catch (DdlException e) {
+                // A dangling tokenizer reference (dropped, say) is not this method's problem to
+                // report; other validation paths handle it.
+                return Optional.empty();
+            }
+            if (!"ngram".equals(tokenizer.componentType)) {
+                return Optional.empty();
+            }
+            String mode = tokenizer.properties.get("mode");
+            return (mode == null || mode.isEmpty()) ? Optional.empty() : Optional.of(mode.toLowerCase());
         } finally {
             readUnlock();
         }
     }
 
     public void validateNormalizerExists(String normalizerName) throws DdlException {
-        String normalizedName = normalizeKey(normalizerName);
-        // Built-in normalizers are stored in lowercase, so use normalized name for comparison
-        if (IndexPolicy.BUILTIN_NORMALIZERS.contains(normalizedName)) {
-            return;
-        }
-
         readLock();
         try {
-            IndexPolicy policy = nameToIndexPolicy.get(normalizedName);
+            if (resolveTopLevelBuiltinLocked(normalizerName, IndexPolicy.BUILTIN_NORMALIZERS) != null) {
+                return;
+            }
+            IndexPolicy policy = getPolicyByNameLocked(normalizerName);
             if (policy == null) {
                 throw new DdlException("Normalizer '" + normalizerName + "' does not exist");
             }
             if (policy.getType() != IndexPolicyTypeEnum.NORMALIZER) {
                 throw new DdlException("Policy '" + normalizerName + "' is not a normalizer");
             }
+            // BE merges the normalizer property into the analyzer name and builds a built-in analyzer
+            // for these names before it looks up any policy, so such a binding never runs the policy.
+            if (IndexPolicy.BUILTIN_ANALYZERS.contains(policy.getName())) {
+                throw new DdlException("Normalizer '" + normalizerName + "' binds policy '" + policy.getName()
+                        + "', whose name is a built-in analyzer name and is therefore never used;"
+                        + " rename the policy or use the built-in analyzer instead");
+            }
             if (policy.isInvalid()) {
                 throw new DdlException("Normalizer '" + normalizerName + "' is invalid");
+            }
+            Map<String, String> properties = policy.getProperties();
+            if (properties != null) {
+                validateReferencedFilterTypesLocked(properties.get(IndexPolicy.PROP_TOKEN_FILTER),
+                        IndexPolicyTypeEnum.TOKEN_FILTER);
+                validateReferencedFilterTypesLocked(properties.get(IndexPolicy.PROP_CHAR_FILTER),
+                        IndexPolicyTypeEnum.CHAR_FILTER);
             }
         } finally {
             readUnlock();
@@ -168,26 +358,34 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
         }
         // Normalize policy name for case-insensitive comparison with built-in names
         String normalizedName = normalizeKey(policyName);
-        if (IndexPolicy.BUILTIN_TOKENIZERS.contains(normalizedName)) {
-            throw new DdlException("Policy name '" + policyName + "' conflicts with built-in tokenizer name");
-        }
-        if (IndexPolicy.BUILTIN_TOKEN_FILTERS.contains(normalizedName)) {
-            throw new DdlException("Policy name '" + policyName + "' conflicts with built-in token filter name");
-        }
-        if (IndexPolicy.BUILTIN_CHAR_FILTERS.contains(normalizedName)) {
-            throw new DdlException("Policy name '" + policyName + "' conflicts with built-in char filter name");
-        }
-        if (IndexPolicy.BUILTIN_ANALYZERS.contains(normalizedName)) {
-            throw new DdlException("Policy name '" + policyName + "' conflicts with built-in analyzer name");
-        }
-
         writeLock();
         try {
-            validatePolicyProperties(type, properties);
-            if (type == IndexPolicyTypeEnum.ANALYZER) {
-                validateAnalyzerGraphLocked(policyName, properties);
+            if (ifNotExists && nameToIndexPolicy.containsKey(normalizedName)) {
+                return;
             }
-            IndexPolicy indexPolicy = IndexPolicy.create(policyName, type, properties);
+            if (IndexPolicy.BUILTIN_TOKENIZERS.contains(normalizedName)) {
+                throw new DdlException("Policy name '" + policyName + "' conflicts with built-in tokenizer name");
+            }
+            if (IndexPolicy.BUILTIN_TOKEN_FILTERS.contains(normalizedName)) {
+                throw new DdlException("Policy name '" + policyName + "' conflicts with built-in token filter name");
+            }
+            if (IndexPolicy.BUILTIN_CHAR_FILTERS.contains(normalizedName)) {
+                throw new DdlException("Policy name '" + policyName + "' conflicts with built-in char filter name");
+            }
+            if (IndexPolicy.BUILTIN_ANALYZERS.contains(normalizedName)) {
+                throw new DdlException("Policy name '" + policyName + "' conflicts with built-in analyzer name");
+            }
+
+            Map<String, String> storedProperties = properties == null
+                    ? null : Maps.newHashMap(properties);
+            validatePolicyProperties(type, storedProperties);
+            if (type == IndexPolicyTypeEnum.TOKENIZER
+                    && "ngram".equals(storedProperties.get(IndexPolicy.PROP_TYPE))) {
+                // Presence distinguishes policies created with the absolute-size limit from
+                // compatible policies replayed from a version before max_ngram_diff existed.
+                storedProperties.putIfAbsent("max_ngram_diff", "1");
+            }
+            IndexPolicy indexPolicy = IndexPolicy.create(policyName, type, storedProperties);
 
             if (nameToIndexPolicy.containsKey(normalizedName)) {
                 if (ifNotExists) {
@@ -200,9 +398,8 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
                 throw new DdlException("Index policy number cannot exceed 100");
             }
 
-            // Store with normalized key for case-insensitive lookup
-            nameToIndexPolicy.put(normalizedName, indexPolicy);
             idToIndexPolicy.put(indexPolicy.getId(), indexPolicy);
+            registerPolicyNameLocked(indexPolicy);
             Env.getCurrentEnv().getEditLog().logCreateIndexPolicy(indexPolicy);
         } finally {
             writeUnlock();
@@ -213,7 +410,7 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
     public IndexPolicy getPolicyByName(String name) {
         readLock();
         try {
-            return nameToIndexPolicy.get(normalizeKey(name));
+            return getPolicyByNameLocked(name);
         } finally {
             readUnlock();
         }
@@ -276,81 +473,59 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
                 validatePolicyReference(filter, IndexPolicyTypeEnum.CHAR_FILTER);
             }
         }
+        validateGramFamilyAnalyzerLocked(properties);
     }
 
-    // CommonGrams pairs each token with its neighbour, so it is only correct when every token
-    // upstream of it advances the position by exactly one. These are the tokenizers and token
-    // filters that guarantee that; anything else (a synonym expander, a word splitter, an
-    // asciifolding that preserves the original) can stack tokens at one position and would make
-    // the resulting grams span the wrong terms.
-    private static final Set<String> UNIT_POSITION_TOKENIZERS =
-            ImmutableSet.of("empty", "char_group", "ngram", "edge_ngram");
-    private static final Set<String> UNIT_POSITION_TOKEN_FILTERS =
-            ImmutableSet.of("empty", "lowercase", "icu_normalizer", "asciifolding");
-
-    private boolean validateAnalyzerGraphLocked(String analyzerName,
-            Map<String, String> properties) throws DdlException {
+    // Gram-family constraint: when the tokenizer is ngram and carries mode (sparse/auto/dense
+    // -- any value, dense included), the analyzer may not stack any char filter or token
+    // filter on top -- the gram split boundaries must be drawn entirely by the tokenizer itself
+    // (case folding and the like go through the tokenizer's own lower_case property and happen
+    // before the split), otherwise a stacked filter would transform the text or the terms
+    // around the gram boundaries and break the reproducible semantics of a sparse/dense gram
+    // index.
+    //
+    // This mirrors BE exactly. CustomAnalyzerProvider only derives a gram scheme when
+    // `char_filter_configs` and `token_filter_configs` are both empty, so an analyzer that FE
+    // let through with a char filter would be constrained here like a gram index (SNII
+    // required, support_phrase forced to false) while BE built one that can never accelerate
+    // LIKE/REGEXP -- silently degraded, with no error anywhere.
+    private void validateGramFamilyAnalyzerLocked(Map<String, String> properties) throws DdlException {
         ResolvedAnalyzerComponent tokenizer = resolveAnalyzerComponentLocked(
                 properties.get(IndexPolicy.PROP_TOKENIZER), IndexPolicyTypeEnum.TOKENIZER);
-        List<ResolvedAnalyzerComponent> tokenFilters = new ArrayList<>();
+        if (!"ngram".equals(tokenizer.componentType)) {
+            return;
+        }
+        String gramMode = tokenizer.properties.get("mode");
+        if (gramMode == null || gramMode.isEmpty()) {
+            return;
+        }
+        String charFilterNames = properties.get(IndexPolicy.PROP_CHAR_FILTER);
+        if (charFilterNames != null && !charFilterNames.isEmpty()) {
+            throw new DdlException("char filter '" + charFilterNames
+                    + "' cannot be combined with ngram tokenizer mode=" + gramMode.toLowerCase()
+                    + " (gram-family analyzers must be tokenizer-only)");
+        }
         String tokenFilterNames = properties.get(IndexPolicy.PROP_TOKEN_FILTER);
-        if (tokenFilterNames != null && !tokenFilterNames.isEmpty()) {
-            for (String tokenFilterName : tokenFilterNames.split(",\\s*")) {
-                tokenFilters.add(resolveAnalyzerComponentLocked(
-                        tokenFilterName, IndexPolicyTypeEnum.TOKEN_FILTER));
+        if (tokenFilterNames == null || tokenFilterNames.isEmpty()) {
+            return;
+        }
+        // Any token filter in the chain is rejected; if one of them is lowercase, prefer that
+        // more specific hint (even when it is not the first), because "use the tokenizer's own
+        // lower_case" is the only correct fix for that spelling.
+        String[] tokenFilters = tokenFilterNames.split(",\\s*");
+        for (String tokenFilterName : tokenFilters) {
+            ResolvedAnalyzerComponent tokenFilter = resolveAnalyzerComponentLocked(
+                    tokenFilterName, IndexPolicyTypeEnum.TOKEN_FILTER);
+            if ("lowercase".equals(tokenFilter.componentType)) {
+                throw new DdlException("lowercase token filter cannot be combined with ngram tokenizer mode="
+                        + gramMode.toLowerCase()
+                        + "; use the tokenizer's own lower_case=true "
+                        + "(folding must happen before gram boundaries)");
             }
         }
-
-        int commonGramsIndex = -1;
-        int commonGramsCount = 0;
-        for (int i = 0; i < tokenFilters.size(); i++) {
-            if (IndexPolicy.COMMON_GRAMS_TYPE.equals(tokenFilters.get(i).componentType)) {
-                commonGramsIndex = i;
-                commonGramsCount++;
-            }
-        }
-        if (commonGramsCount == 0) {
-            return false;
-        }
-        if (commonGramsCount != 1 || commonGramsIndex != tokenFilters.size() - 1) {
-            throw new DdlException("CommonGrams analyzer '" + analyzerName
-                    + "' requires common_grams exactly once as the terminal token filter");
-        }
-
-        if (!UNIT_POSITION_TOKENIZERS.contains(tokenizer.componentType)) {
-            throw new DdlException("CommonGrams analyzer '" + analyzerName
-                    + "' tokenizer '" + tokenizer.referenceName
-                    + "' does not guarantee unit position increments");
-        }
-        for (int i = 0; i < commonGramsIndex; i++) {
-            ResolvedAnalyzerComponent tokenFilter = tokenFilters.get(i);
-            boolean unitPositionFilter =
-                    UNIT_POSITION_TOKEN_FILTERS.contains(tokenFilter.componentType);
-            if (unitPositionFilter && "asciifolding".equals(tokenFilter.componentType)) {
-                unitPositionFilter = "false".equalsIgnoreCase(
-                        tokenFilter.properties.getOrDefault("preserve_original", "false"));
-            }
-            if (!unitPositionFilter) {
-                throw new DdlException("CommonGrams analyzer '" + analyzerName
-                        + "' token filter '" + tokenFilter.referenceName
-                        + "' does not guarantee unit position increments");
-            }
-        }
-        return true;
-    }
-
-    private IndexPolicy requireAnalyzerLocked(String analyzerName) throws DdlException {
-        IndexPolicy analyzer = nameToIndexPolicy.get(normalizeKey(analyzerName));
-        if (analyzer == null) {
-            throw new DdlException("Analyzer '" + analyzerName + "' does not exist");
-        }
-        if (analyzer.getType() != IndexPolicyTypeEnum.ANALYZER) {
-            throw new DdlException("Policy '" + analyzerName + "' is not an analyzer");
-        }
-        if (analyzer.isInvalid()) {
-            throw new DdlException("Analyzer '" + analyzerName + "' is invalid");
-        }
-        return analyzer;
+        throw new DdlException("token filter '" + tokenFilters[0]
+                + "' cannot be combined with ngram tokenizer mode=" + gramMode.toLowerCase()
+                + " (gram-family analyzers must be tokenizer-only)");
     }
 
     private ResolvedAnalyzerComponent resolveAnalyzerComponentLocked(String referenceName,
@@ -429,6 +604,17 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
     private void validatePolicyReference(String name, IndexPolicyTypeEnum expectedType)
             throws DdlException {
         String normalizedName = normalizeKey(name);
+        IndexPolicy policy = getPolicyByName(name);
+        if (policy != null) {
+            if (policy.getType() != expectedType) {
+                throw new DdlException("Referenced policy '" + name + "' is of type "
+                        + policy.getType() + " but expected " + expectedType);
+            }
+            if (policy.isInvalid()) {
+                throw new DdlException("Referenced " + expectedType + " policy '" + name + "' is invalid");
+            }
+            return;
+        }
         if (expectedType == IndexPolicyTypeEnum.TOKENIZER
                 && IndexPolicy.BUILTIN_TOKENIZERS.contains(normalizedName)) {
             return;
@@ -441,15 +627,7 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
                 && IndexPolicy.BUILTIN_CHAR_FILTERS.contains(normalizedName)) {
             return;
         }
-
-        IndexPolicy policy = getPolicyByName(name);
-        if (policy == null) {
-            throw new DdlException("Referenced " + expectedType + " policy '" + name + "' does not exist");
-        }
-        if (policy.getType() != expectedType) {
-            throw new DdlException("Referenced policy '" + name + "' is of type "
-                    + policy.getType() + " but expected " + expectedType);
-        }
+        throw new DdlException("Referenced " + expectedType + " policy '" + name + "' does not exist");
     }
 
     private void validateTokenizerProperties(Map<String, String> properties) throws DdlException {
@@ -486,6 +664,10 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
             case "basic":
                 validator = new BasicTokenizerValidator();
                 break;
+            case "ik_smart":
+            case "ik_max_word":
+                validator = new NoOperationValidator(type + " tokenizer");
+                break;
             default:
                 Set<String> userFacingTypes = IndexPolicy.BUILTIN_TOKENIZERS.stream()
                         .filter(t -> !t.equals("empty"))
@@ -520,12 +702,6 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
                 break;
             case "icu_normalizer":
                 validator = new ICUNormalizerTokenFilterValidator();
-                break;
-            case "common_grams":
-                // No properties beyond the type: the word list it grams against is a BE-local file
-                // named by be.conf's common_grams_wordset_path, deliberately not selectable per
-                // policy, since every replica of a tablet must gram the same terms.
-                validator = new NoOperationValidator("common_grams token filter");
                 break;
             default:
                 Set<String> userFacingTypes = IndexPolicy.BUILTIN_TOKEN_FILTERS.stream()
@@ -565,10 +741,9 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
 
     public void dropIndexPolicy(boolean isIfExists, String indexPolicyName,
             IndexPolicyTypeEnum type) throws DdlException, AnalysisException {
-        String normalizedName = normalizeKey(indexPolicyName);
         writeLock();
         try {
-            IndexPolicy policyToDrop = nameToIndexPolicy.get(normalizedName);
+            IndexPolicy policyToDrop = getPolicyByNameLocked(indexPolicyName);
             if (policyToDrop == null) {
                 if (isIfExists) {
                     return;
@@ -580,9 +755,9 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
                         + indexPolicyName + "' by DROP " + type + " statement.");
             }
             if (policyToDrop.getType() == IndexPolicyTypeEnum.ANALYZER) {
-                checkAnalyzerNotUsedByIndex(policyToDrop.getName());
+                checkAnalyzerNotUsedByIndex(policyToDrop);
             } else if (policyToDrop.getType() == IndexPolicyTypeEnum.NORMALIZER) {
-                checkNormalizerNotUsedByIndex(policyToDrop.getName());
+                checkNormalizerNotUsedByIndex(policyToDrop);
             }
             if (policyToDrop.getType() == IndexPolicyTypeEnum.TOKENIZER
                     || policyToDrop.getType() == IndexPolicyTypeEnum.TOKEN_FILTER
@@ -591,7 +766,7 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
             }
             long id = policyToDrop.getId();
             idToIndexPolicy.remove(id);
-            nameToIndexPolicy.remove(normalizedName);
+            unregisterPolicyNameLocked(policyToDrop);
             Env.getCurrentEnv().getEditLog().logDropIndexPolicy(new DropIndexPolicyLog(id));
         } finally {
             writeUnlock();
@@ -606,11 +781,10 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
      * tables, and indexes. In large-scale clusters with many tables, this can be slow.
      * Consider maintaining a reverse index (analyzer -> tables) if this becomes a bottleneck.
      *
-     * @param analyzerName the analyzer name to check
+     * @param analyzer the analyzer policy to check
      * @throws DdlException if the analyzer is in use by any index
      */
-    private void checkAnalyzerNotUsedByIndex(String analyzerName) throws DdlException {
-        String normalizedName = normalizeKey(analyzerName);
+    private void checkAnalyzerNotUsedByIndex(IndexPolicy analyzer) throws DdlException {
         List<Database> databases = Env.getCurrentEnv().getInternalCatalog().getDbs();
         for (Database db : databases) {
             List<Table> tables = db.getTables();
@@ -621,9 +795,8 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
                         Map<String, String> properties = index.getProperties();
                         String indexAnalyzer = properties == null ? null
                                 : properties.get(IndexPolicy.PROP_ANALYZER);
-                        if (indexAnalyzer != null
-                                && normalizedName.equals(normalizeKey(indexAnalyzer))) {
-                            throw new DdlException("the analyzer " + analyzerName + " is used by index: "
+                        if (indexBindsPolicyLocked(indexAnalyzer, IndexPolicy.BUILTIN_ANALYZERS, analyzer)) {
+                            throw new DdlException("the analyzer " + analyzer.getName() + " is used by index: "
                                     + index.getIndexName() + " in table: "
                                     + db.getFullName() + "." + table.getName());
                         }
@@ -640,11 +813,10 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
      * tables, and indexes. In large-scale clusters with many tables, this can be slow.
      * Consider maintaining a reverse index (normalizer -> tables) if this becomes a bottleneck.
      *
-     * @param normalizerName the normalizer name to check
+     * @param normalizer the normalizer policy to check
      * @throws DdlException if the normalizer is in use by any index
      */
-    private void checkNormalizerNotUsedByIndex(String normalizerName) throws DdlException {
-        String normalizedName = normalizeKey(normalizerName);
+    private void checkNormalizerNotUsedByIndex(IndexPolicy normalizer) throws DdlException {
         List<Database> databases = Env.getCurrentEnv().getInternalCatalog().getDbs();
         for (Database db : databases) {
             List<Table> tables = db.getTables();
@@ -655,9 +827,8 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
                         Map<String, String> properties = index.getProperties();
                         String indexNormalizer = properties == null ? null
                                 : properties.get(IndexPolicy.PROP_NORMALIZER);
-                        if (indexNormalizer != null
-                                && normalizedName.equals(normalizeKey(indexNormalizer))) {
-                            throw new DdlException("the normalizer " + normalizerName + " is used by index: "
+                        if (indexBindsPolicyLocked(indexNormalizer, IndexPolicy.BUILTIN_NORMALIZERS, normalizer)) {
+                            throw new DdlException("the normalizer " + normalizer.getName() + " is used by index: "
                                     + index.getIndexName() + " in table: "
                                     + db.getFullName() + "." + table.getName());
                         }
@@ -668,7 +839,6 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
     }
 
     private void checkPolicyNotReferenced(IndexPolicy policy) throws DdlException {
-        String policyName = policy.getName();
         IndexPolicyTypeEnum policyType = policy.getType();
 
         for (IndexPolicy otherPolicy : idToIndexPolicy.values()) {
@@ -683,28 +853,38 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
             if (policyType == IndexPolicyTypeEnum.TOKENIZER
                     && otherType == IndexPolicyTypeEnum.ANALYZER) {
                 String tokenizer = properties.get(IndexPolicy.PROP_TOKENIZER);
-                if (normalizeKey(policyName).equals(normalizeKey(tokenizer))) {
-                    throw new DdlException("Cannot drop " + policyType + " policy '" + policyName
+                if (resolvesToPolicyLocked(tokenizer, policy)) {
+                    throw new DdlException("Cannot drop " + policyType + " policy '" + policy.getName()
                             + "' as it is referenced by " + otherType + " policy '"
                             + otherPolicy.getName() + "'");
                 }
             } else if (policyType == IndexPolicyTypeEnum.TOKEN_FILTER) {
-                checkFilterReference(policyName, policyType, otherType, otherPolicy,
+                checkFilterReference(policy, otherType, otherPolicy,
                         properties.get(IndexPolicy.PROP_TOKEN_FILTER));
             } else if (policyType == IndexPolicyTypeEnum.CHAR_FILTER) {
-                checkFilterReference(policyName, policyType, otherType, otherPolicy,
+                checkFilterReference(policy, otherType, otherPolicy,
                         properties.get(IndexPolicy.PROP_CHAR_FILTER));
             }
         }
     }
 
-    private void checkFilterReference(String policyName, IndexPolicyTypeEnum policyType,
-            IndexPolicyTypeEnum referencingType, IndexPolicy referencingPolicy,
-            String filterList) throws DdlException {
+    private boolean resolvesToPolicyLocked(String policyName, IndexPolicy expectedPolicy) {
+        IndexPolicy resolvedPolicy = policyName == null ? null : getPolicyByNameLocked(policyName);
+        return resolvedPolicy != null && resolvedPolicy.getId() == expectedPolicy.getId();
+    }
+
+    // An index's analyzer or normalizer name reaches a policy only when no built-in takes precedence.
+    private boolean indexBindsPolicyLocked(String name, Set<String> builtins, IndexPolicy expectedPolicy) {
+        return name != null && resolveTopLevelBuiltinLocked(name, builtins) == null
+                && resolvesToPolicyLocked(name, expectedPolicy);
+    }
+
+    private void checkFilterReference(IndexPolicy policy, IndexPolicyTypeEnum referencingType,
+            IndexPolicy referencingPolicy, String filterList) throws DdlException {
         if (filterList != null && !filterList.isEmpty()) {
             for (String filter : filterList.split(",\\s*")) {
-                if (normalizeKey(policyName).equals(normalizeKey(filter))) {
-                    throw new DdlException("Cannot drop " + policyType + " policy '" + policyName
+                if (resolvesToPolicyLocked(filter, policy)) {
+                    throw new DdlException("Cannot drop " + policy.getType() + " policy '" + policy.getName()
                             + "' as it is referenced by " + referencingType + " policy '"
                             + referencingPolicy.getName() + "'");
                 }
@@ -734,9 +914,9 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
     public void replayCreateIndexPolicy(IndexPolicy indexPolicy) {
         writeLock();
         try {
+            warnIfUnsupported(indexPolicy);
             idToIndexPolicy.put(indexPolicy.getId(), indexPolicy);
-            // Store with normalized key for case-insensitive lookup
-            nameToIndexPolicy.put(normalizeKey(indexPolicy.getName()), indexPolicy);
+            registerPolicyNameLocked(indexPolicy);
             LOG.debug("Replayed index policy: id={}, name={}",
                     indexPolicy.getId(), indexPolicy.getName());
         } finally {
@@ -753,7 +933,7 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
             }
             IndexPolicy indexPolicy = idToIndexPolicy.get(id);
             idToIndexPolicy.remove(id);
-            nameToIndexPolicy.remove(normalizeKey(indexPolicy.getName()));
+            unregisterPolicyNameLocked(indexPolicy);
             LOG.debug("Replayed drop index policy: {}", indexPolicy.getName());
         } finally {
             writeUnlock();
@@ -774,11 +954,27 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
 
     @Override
     public void gsonPostProcess() throws IOException {
-        // Store with normalized key for case-insensitive lookup
-        nameToIndexPolicy.clear();
-        idToIndexPolicy.forEach(
-                (id, indexPolicy) ->
-                        nameToIndexPolicy.put(normalizeKey(indexPolicy.getName()), indexPolicy));
+        writeLock();
+        try {
+            nameToIndexPolicy.clear();
+            exactNameToIndexPolicy.clear();
+            idToIndexPolicy.forEach(
+                    (id, indexPolicy) -> {
+                        warnIfUnsupported(indexPolicy);
+                        registerPolicyNameLocked(indexPolicy);
+                    });
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    private static void warnIfUnsupported(IndexPolicy indexPolicy) {
+        if (indexPolicy.isInvalid()) {
+            LOG.error("Index policy '{}' (id={}, type={}) is not valid in this version; analyzers"
+                    + " referencing it will be rejected. Drop the indexes and policies that depend"
+                    + " on it.", indexPolicy.getName(), indexPolicy.getId(),
+                    indexPolicy.getProperties().get(IndexPolicy.PROP_TYPE));
+        }
     }
 
 }

@@ -79,9 +79,28 @@ public class PaimonScanRange implements ConnectorScanRange {
         Map<String, String> props = new HashMap<>();
         if (builder.paimonSplit != null) {
             props.put("paimon.split", builder.paimonSplit);
+            props.put("paimon.reader_type", builder.readerType.name());
+        }
+        if (builder.paimonTable != null) {
+            props.put("paimon.table", builder.paimonTable);
+        }
+        if (builder.databaseName != null) {
+            props.put("paimon.database_name", builder.databaseName);
+        }
+        if (builder.tableName != null) {
+            props.put("paimon.table_name", builder.tableName);
+        }
+        if (builder.tableSchemaJson != null) {
+            props.put("paimon.table_schema_json", builder.tableSchemaJson);
+        }
+        if (builder.branchName != null) {
+            props.put("paimon.branch_name", builder.branchName);
         }
         if (builder.schemaId != null) {
             props.put("paimon.schema_id", String.valueOf(builder.schemaId));
+        }
+        if (builder.originalFilePath != null) {
+            props.put("paimon.original_file_path", builder.originalFilePath);
         }
         if (builder.deletionFilePath != null) {
             props.put("paimon.deletion_file.path", builder.deletionFilePath);
@@ -120,6 +139,11 @@ public class PaimonScanRange implements ConnectorScanRange {
     @Override
     public Optional<String> getPath() {
         return Optional.ofNullable(path);
+    }
+
+    @Override
+    public String getSplitIdentity() {
+        return path != null ? path : properties.getOrDefault("paimon.split", "paimon");
     }
 
     @Override
@@ -207,11 +231,20 @@ public class PaimonScanRange implements ConnectorScanRange {
 
         String paimonSplitVal = props.get("paimon.split");
         if (paimonSplitVal != null) {
-            // JNI reader path
+            // Logical split path: Java JNI or paimon-rust.
             rangeDesc.setFormatType(TFileFormatType.FORMAT_JNI);
-            // A serialized logical split is always consumed by the Java JNI reader.
-            fileDesc.setReaderType(TPaimonReaderType.PAIMON_JNI);
+            fileDesc.setReaderType(TPaimonReaderType.valueOf(props.get("paimon.reader_type")));
             fileDesc.setPaimonSplit(paimonSplitVal);
+            if (fileDesc.getReaderType() == TPaimonReaderType.PAIMON_RUST) {
+                fileDesc.setPaimonTable(props.get("paimon.table"));
+                fileDesc.setDbName(props.get("paimon.database_name"));
+                fileDesc.setTableName(props.get("paimon.table_name"));
+                fileDesc.setPaimonTableSchemaJson(props.get("paimon.table_schema_json"));
+                String branchName = props.get("paimon.branch_name");
+                if (branchName != null) {
+                    fileDesc.setPaimonBranch(branchName);
+                }
+            }
             String weightStr = props.get("paimon.self_split_weight");
             if (weightStr != null) {
                 rangeDesc.setSelfSplitWeight(Long.parseLong(weightStr));
@@ -229,6 +262,10 @@ public class PaimonScanRange implements ConnectorScanRange {
             String schemaIdStr = props.get("paimon.schema_id");
             if (schemaIdStr != null) {
                 fileDesc.setSchemaId(Long.parseLong(schemaIdStr));
+            }
+            String originalFilePath = props.get("paimon.original_file_path");
+            if (originalFilePath != null) {
+                fileDesc.setOriginalFilePath(originalFilePath);
             }
         }
 
@@ -301,9 +338,16 @@ public class PaimonScanRange implements ConnectorScanRange {
 
         // JNI reader fields
         private String paimonSplit;
+        private TPaimonReaderType readerType = TPaimonReaderType.PAIMON_JNI;
+        private String paimonTable;
+        private String databaseName;
+        private String tableName;
+        private String tableSchemaJson;
+        private String branchName;
 
         // Native reader fields
         private Long schemaId;
+        private String originalFilePath;
         private String deletionFilePath;
         private long deletionFileOffset;
         private long deletionFileLength;
@@ -359,8 +403,25 @@ public class PaimonScanRange implements ConnectorScanRange {
             return this;
         }
 
+        public Builder rustSplit(String paimonSplit, String paimonTable, String databaseName,
+                String tableName, String tableSchemaJson, String branchName) {
+            this.paimonSplit = paimonSplit;
+            this.readerType = TPaimonReaderType.PAIMON_RUST;
+            this.paimonTable = paimonTable;
+            this.databaseName = databaseName;
+            this.tableName = tableName;
+            this.tableSchemaJson = tableSchemaJson;
+            this.branchName = branchName;
+            return this;
+        }
+
         public Builder schemaId(long schemaId) {
             this.schemaId = schemaId;
+            return this;
+        }
+
+        public Builder originalFilePath(String originalFilePath) {
+            this.originalFilePath = originalFilePath;
             return this;
         }
 

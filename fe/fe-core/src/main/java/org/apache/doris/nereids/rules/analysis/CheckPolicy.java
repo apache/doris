@@ -61,27 +61,21 @@ public class CheckPolicy implements AnalysisRuleFactory {
                 RuleType.CHECK_ROW_POLICY.build(
                         logicalCheckPolicy(any().when(child -> !(child instanceof UnboundRelation))).thenApply(ctx -> {
                             LogicalCheckPolicy<Plan> checkPolicy = ctx.root;
-                            LogicalFilter<Plan> upperFilter = null;
                             Plan upAgg = null;
 
                             Plan child = checkPolicy.child();
-                            // Because the unique table will automatically include a filter condition
-                            if ((child instanceof LogicalFilter)) {
-                                upperFilter = (LogicalFilter) child;
-                                if (child.child(0) instanceof LogicalRelation) {
-                                    child = child.child(0);
-                                } else if (child.child(0) instanceof LogicalAggregate
-                                        && child.child(0).child(0) instanceof LogicalRelation) {
-                                    upAgg = child.child(0);
-                                    child = child.child(0).child(0);
-                                }
+                            Set<Expression> upperFilterConjuncts = new LinkedHashSet<>();
+                            // Unique tables and time-travel reconstruction can add a chain of filters around
+                            // the relation. Keep all of them below a policy mask when the policy is expanded.
+                            while (child instanceof LogicalFilter) {
+                                upperFilterConjuncts.addAll(((LogicalFilter<?>) child).getConjuncts());
+                                child = child.child(0);
                             }
                             if ((child instanceof LogicalAggregate) && child.child(0) instanceof LogicalRelation) {
                                 upAgg = child;
                                 child = child.child(0);
                             }
-                            if (!(child instanceof LogicalRelation || isView(child))
-                                    || ctx.connectContext.getSessionVariable().isPlayNereidsDump()) {
+                            if (!(child instanceof LogicalRelation || isView(child))) {
                                 return ctx.root.child();
                             }
                             LogicalPlan relation = child instanceof LogicalSubQueryAlias ? (LogicalPlan) child.child(0)
@@ -105,9 +99,7 @@ public class CheckPolicy implements AnalysisRuleFactory {
                             relatedPolicy.rowPolicyFilter.ifPresent(expression -> combineFilter.addAll(
                                     ExpressionUtils.extractConjunctionToSet(expression)));
                             Plan result = upAgg != null ? upAgg.withChildren(child) : child;
-                            if (upperFilter != null) {
-                                combineFilter.addAll(upperFilter.getConjuncts());
-                            }
+                            combineFilter.addAll(upperFilterConjuncts);
                             if (!combineFilter.isEmpty()) {
                                 result = new LogicalFilter<>(combineFilter, result);
                             }

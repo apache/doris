@@ -115,6 +115,9 @@ final class RecordingIcebergCatalogOps implements IcebergCatalogOps {
     String lastRenameTableDb;
     String lastRenameTableOld;
     String lastRenameTableNew;
+    String lastSetPropertiesDb;
+    String lastSetPropertiesTable;
+    Map<String, String> lastSetProperties;
     /** Canned location answers for the load-before-drop helpers (default: absent). */
     Optional<String> tableLocation = Optional.empty();
     Optional<String> namespaceLocation = Optional.empty();
@@ -127,6 +130,7 @@ final class RecordingIcebergCatalogOps implements IcebergCatalogOps {
     String lastRenameColumnOld;
     String lastRenameColumnNew;
     IcebergColumnChange lastModifyColumn;
+    boolean lastModifyNullableSpecified;
     boolean lastModifyCommentSpecified;
     ConnectorColumnPosition lastModifyColumnPos;
     List<String> lastReorder;
@@ -283,6 +287,14 @@ final class RecordingIcebergCatalogOps implements IcebergCatalogOps {
     }
 
     @Override
+    public void setTableProperties(String dbName, String tableName, Map<String, String> properties) {
+        log.add("setTableProperties:" + dbName + "." + tableName + ":" + properties);
+        lastSetPropertiesDb = dbName;
+        lastSetPropertiesTable = tableName;
+        lastSetProperties = properties;
+    }
+
+    @Override
     public Optional<String> loadTableLocation(String dbName, String tableName) {
         log.add("loadTableLocation:" + dbName + "." + tableName);
         return tableLocation;
@@ -326,9 +338,10 @@ final class RecordingIcebergCatalogOps implements IcebergCatalogOps {
 
     @Override
     public void modifyColumn(String dbName, String tableName, IcebergColumnChange column,
-            boolean commentSpecified, ConnectorColumnPosition position) {
+            boolean nullableSpecified, boolean commentSpecified, ConnectorColumnPosition position) {
         log.add("modifyColumn:" + dbName + "." + tableName + ":" + column.getName());
         lastModifyColumn = column;
+        lastModifyNullableSpecified = nullableSpecified;
         lastModifyCommentSpecified = commentSpecified;
         lastModifyColumnPos = position;
     }

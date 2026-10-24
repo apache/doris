@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.MasterDaemon;
+import org.apache.doris.qe.VariableMgr;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
@@ -56,6 +57,13 @@ public class CloudSyncVersionDaemon extends MasterDaemon {
     @Override
     protected void runAfterCatalogReady() {
         if (!Config.cloud_enable_version_syncer) {
+            return;
+        }
+        // This daemon has no ConnectContext, so use the global/default TTLs to decide whether
+        // the shared version caches need proactive refresh. Finite TTLs refresh lazily on reads,
+        // while Long.MAX_VALUE never expires and requires this daemon to keep the cache current.
+        if (VariableMgr.getDefaultSessionVariable().cloudPartitionVersionCacheTtlMs != Long.MAX_VALUE
+                && VariableMgr.getDefaultSessionVariable().cloudTableVersionCacheTtlMs != Long.MAX_VALUE) {
             return;
         }
         LOG.info("begin sync cloud table and partition version");
@@ -121,18 +129,13 @@ public class CloudSyncVersionDaemon extends MasterDaemon {
             List<Long> tableIds, List<OlapTable> tables) {
         return GET_VERSION_THREAD_POOL.submit(() -> {
             try {
-                List<Long> versions = OlapTable.getVisibleVersionFromMeta(dbIds, tableIds);
+                List<Long> versions = OlapTable.getVisibleVersionFromMeta(
+                        dbIds, tableIds, Config.cloud_version_syncer_get_version_retry_times);
                 for (int i = 0; i < tables.size(); i++) {
                     OlapTable table = tables.get(i);
                     long version = versions.get(i);
                     if (version > table.getCachedTableVersion()) {
-                        tableVersionMap.compute(table, (k, v) -> {
-                            if (v == null || version > v) {
-                                return version;
-                            } else {
-                                return v;
-                            }
-                        });
+                        prepareTableForVersionSync(tableVersionMap, table, version);
                     } else {
                         // update lastTableVersionCachedTimeMs
                         table.setCachedTableVersion(version);
@@ -143,6 +146,24 @@ public class CloudSyncVersionDaemon extends MasterDaemon {
             }
             return null;
         });
+    }
+
+    private void prepareTableForVersionSync(Map<OlapTable, Long> tableVersionMap, OlapTable table, long version) {
+        // Stop serving potentially stale partition caches while refresh is queued or fails.
+        table.readLock();
+        try {
+            table.versionWriteLock();
+            try {
+                for (Partition partition : table.getAllPartitions()) {
+                    ((CloudPartition) partition).invalidateCachedVisibleVersion();
+                }
+            } finally {
+                table.versionWriteUnlock();
+            }
+        } finally {
+            table.readUnlock();
+        }
+        tableVersionMap.merge(table, version, Math::max);
     }
 
     private void syncPartitionVersion(Map<OlapTable, Long> tableVersionMap) {
@@ -190,7 +211,8 @@ public class CloudSyncVersionDaemon extends MasterDaemon {
     private Future<Void> submitGetPartitionVersionTask(Set<Long> failedTables, List<CloudPartition> partitions) {
         return GET_VERSION_THREAD_POOL.submit(() -> {
             try {
-                CloudPartition.getSnapshotVisibleVersionFromMs(partitions, false);
+                CloudPartition.getSnapshotVisibleVersionFromMs(
+                        partitions, false, Config.cloud_version_syncer_get_version_retry_times);
             } catch (Exception e) {
                 LOG.warn("get partition version error", e);
                 Set<Long> failedTableIds = partitions.stream().map(p -> p.getTableId())

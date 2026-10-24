@@ -35,6 +35,5 @@ string_search.hpp
 coding.*
 condition_variable.*
 murmur_hash3.*
-utf8_check.cpp
 .markdownlintignore
 sse2neon.h

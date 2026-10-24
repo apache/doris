@@ -64,10 +64,17 @@ struct TMetaAccessPath {
   1: required list<string> path
 }
 
+const i32 TCOLUMN_ACCESS_PATH_VERSION_LEGACY = 0
+const i32 TCOLUMN_ACCESS_PATH_VERSION_TYPED = 1
+
 struct TColumnAccessPath {
   1: required TAccessPathType type
   2: optional TDataAccessPath data_access_path
   3: optional TMetaAccessPath meta_access_path
+  // The version is absent for legacy senders. Legacy paths all have DATA type and encode
+  // KEYS/VALUES/* selectors plus NULL/OFFSET metadata in data_access_path. Starting from the
+  // typed version, type selects the authoritative payload and META may use meta_access_path.
+  4: optional i32 version
 }
 
 struct TColumn {
@@ -100,6 +107,9 @@ struct TColumn {
   27: optional i64 variant_doc_materialization_min_rows
   28: optional i32 variant_doc_hash_shard_count
   29: optional bool variant_enable_nested_group
+  // Dynamic default expression retained separately when default_value is a schema-change
+  // backfill literal. New writes must evaluate this expression at write time.
+  30: optional string default_value_expr
 }
 
 struct TSlotDescriptor {
@@ -345,7 +355,8 @@ struct TOlapTableIndexSchema {
     4: optional list<TColumn> columns_desc
     5: optional list<TOlapTableIndex> indexes_desc
     6: optional Exprs.TExpr where_clause
-    7: optional i64 row_binlog_id
+    // ATTN(changelog-rename): formerly "row_binlog_id"
+    7: optional i64 changelog_index_id
 }
 
 struct TOlapTableSchemaParam {
@@ -367,13 +378,14 @@ struct TOlapTableSchemaParam {
     14: optional Types.TUniqueKeyUpdateMode unique_key_update_mode
     15: optional i32 sequence_map_col_unique_id = -1
     16: optional TPartialUpdateNewRowPolicy partial_update_new_key_policy
-    17: optional list<TOlapTableIndexSchema> row_binlog_index_schemas
+    // ATTN(changelog-rename): formerly "row_binlog_index_schemas"
+    17: optional list<TOlapTableIndexSchema> changelog_index_schemas
 }
 
 struct TTabletLocation {
     1: required i64 tablet_id
     2: required list<i64> node_ids
-    // used to write binlog tablet by base tablet with the same bucket idx
+    // used to write changelog tablet by base tablet with the same bucket idx
     3: optional i64 base_tablet_id
 }
 

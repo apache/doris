@@ -344,10 +344,10 @@ public:
 
     QueryCache* cache() const { return _cache; }
 
-    // Row-binlog scans read a different data stream and must not serve or fill
+    // Changelog scans read a different data stream and must not serve or fill
     // the query cache. Called while building the operator tree (single
     // threaded, before any local state init), so no locking is needed.
-    void disable_for_binlog_scan() { _binlog_scan = true; }
+    void disable_for_changelog_scan() { _changelog_scan = true; }
 
     // Idempotent: the first call for a given instance (identified by the cache
     // key derived from its scan ranges) makes the decision, later calls return
@@ -393,7 +393,7 @@ private:
 
     TQueryCacheParam _param;
     QueryCache* _cache = nullptr;
-    bool _binlog_scan = false;
+    bool _changelog_scan = false;
 
     std::mutex _lock;
     std::map<std::string, std::shared_ptr<QueryCacheInstanceDecision>> _decisions;

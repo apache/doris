@@ -19,6 +19,7 @@ import java.util.concurrent.TimeUnit
 import org.awaitility.Awaitility
 
 suite("test_variant_bloom_filter", "nonConcurrent") {
+    def variantV2Function = "parse_to_variant"
 
     def index_table = "test_variant_bloom_filter"
 
@@ -75,10 +76,10 @@ suite("test_variant_bloom_filter", "nonConcurrent") {
     """
     sql """
         INSERT INTO test_variant_typed_int_bloom_filter VALUES
-            (1, '{"int_1": 1}'),
-            (2, '{"int_1": 2}'),
-            (3, '{"int_1": 100}'),
-            (4, '{"int_1": 101}');
+            (1, ${variantV2Function}('{"int_1": 1}')),
+            (2, ${variantV2Function}('{"int_1": 2}')),
+            (3, ${variantV2Function}('{"int_1": 100}')),
+            (4, ${variantV2Function}('{"int_1": 101}'));
     """
     sql """sync"""
 
@@ -101,7 +102,7 @@ suite("test_variant_bloom_filter", "nonConcurrent") {
     }
 
     sql """DROP TABLE IF EXISTS ${index_table}"""
-    int seed = Math.floor(Math.random() * 7) 
+    int seed = Math.floor(Math.random() * 7)
     def var_def = "variant"
     if (seed % 2 == 0) {
         var_def = "variant<'repo.id' : bigint, 'repo.name' : string, 'repo.url' : string, 'repo.description' : string, 'repo.created_at' : string>"

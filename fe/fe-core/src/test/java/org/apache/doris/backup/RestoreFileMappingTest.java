@@ -19,9 +19,9 @@ package org.apache.doris.backup;
 
 import org.apache.doris.backup.RestoreFileMapping.IdChain;
 
-import junit.framework.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 public class RestoreFileMappingTest {
 
@@ -29,7 +29,7 @@ public class RestoreFileMappingTest {
     private IdChain src;
     private IdChain dest;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         src = new IdChain(10005L, 10006L, 10005L, 10007L, 10008L, -1L);
         dest = new IdChain(10004L, 10003L, 10004L, 10007L, -1L, -1L);
@@ -39,21 +39,21 @@ public class RestoreFileMappingTest {
     @Test
     public void test() {
         IdChain key = new IdChain(10005L, 10006L, 10005L, 10007L, 10008L, -1L);
-        Assert.assertEquals(key, src);
-        Assert.assertEquals(src, key);
+        Assertions.assertEquals(key, src);
+        Assertions.assertEquals(src, key);
         IdChain val = fileMapping.get(key);
-        Assert.assertNotNull(val);
-        Assert.assertEquals(dest, val);
+        Assertions.assertNotNull(val);
+        Assertions.assertEquals(dest, val);
 
         Long l1 = new Long(10005L);
         Long l2 = new Long(10005L);
-        Assert.assertFalse(l1 == l2);
-        Assert.assertEquals(l1, l2);
+        Assertions.assertFalse(l1 == l2);
+        Assertions.assertEquals(l1, l2);
 
         Long l3 = new Long(1L);
         Long l4 = new Long(1L);
-        Assert.assertFalse(l3 == l4);
-        Assert.assertEquals(l3, l4);
+        Assertions.assertFalse(l3 == l4);
+        Assertions.assertEquals(l3, l4);
     }
 
 }

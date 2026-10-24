@@ -104,6 +104,28 @@ public interface ConnectorSession {
     }
 
     /**
+     * Returns whether equivalent external scan plans may be reused within the current statement.
+     *
+     * <p>The property must be explicitly present and {@code true}. Sessions created by an older engine or by
+     * offline tooling do not carry this setting and therefore keep the optimization disabled.</p>
+     */
+    default boolean isExternalScanTaskReuseEnabled() {
+        return "true".equalsIgnoreCase(
+                getSessionProperties().get("enable_external_scan_task_reuse"));
+    }
+
+    /**
+     * Query-wide backend execution version selected by the engine, for planning decisions that depend on a
+     * backend capability (for example a write distribution whose partition function older backends reject).
+     * Mirrors {@link org.apache.doris.connector.spi.handle.ConnectorWriteHandle#getBeExecVersion()}, which
+     * carries the same value at {@code planWrite}. Offline and third-party sessions default to the
+     * newest-capability side of any fence.
+     */
+    default int getBeExecVersion() {
+        return Integer.MAX_VALUE;
+    }
+
+    /**
      * Returns the transaction this session is currently bound to, if any.
      *
      * <p>Used by connectors whose {@code begin*} write operations need to

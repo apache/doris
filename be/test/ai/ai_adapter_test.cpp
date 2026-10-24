@@ -32,6 +32,146 @@
 #include "exprs/function/ai/ai_summarize.h"
 
 namespace doris {
+
+TEST(AI_ADAPTER_TEST, parses_only_reported_usage_fields) {
+    struct UsageCase {
+        const char* provider;
+        const char* body;
+        std::optional<int64_t> prompt;
+        std::optional<int64_t> completion;
+        std::optional<int64_t> total;
+    };
+    const UsageCase cases[] = {
+            {.provider = "OPENAI",
+             .body = R"({"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}})",
+             .prompt = 7,
+             .completion = 3,
+             .total = 10},
+            {.provider = "OPENAI",
+             .body = R"({"usage":{"input_tokens":7,"output_tokens":3,"total_tokens":10}})",
+             .prompt = 7,
+             .completion = 3,
+             .total = 10},
+            {.provider = "OPENAI",
+             .body = R"({"usage":{"prompt_tokens":7,"total_tokens":7}})",
+             .prompt = 7,
+             .completion = std::nullopt,
+             .total = 7},
+            {.provider = "OPENAI",
+             .body = R"({"usage":{"prompt_tokens":0,"completion_tokens":0}})",
+             .prompt = 0,
+             .completion = 0,
+             .total = std::nullopt},
+            {.provider = "DEEPSEEK",
+             .body = R"({"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}})",
+             .prompt = 7,
+             .completion = 3,
+             .total = 10},
+            {.provider = "MOONSHOT",
+             .body = R"({"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}})",
+             .prompt = 7,
+             .completion = 3,
+             .total = 10},
+            {.provider = "MINIMAX",
+             .body = R"({"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}})",
+             .prompt = 7,
+             .completion = 3,
+             .total = 10},
+            {.provider = "ZHIPU",
+             .body = R"({"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}})",
+             .prompt = 7,
+             .completion = 3,
+             .total = 10},
+            {.provider = "BAICHUAN",
+             .body = R"({"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}})",
+             .prompt = 7,
+             .completion = 3,
+             .total = 10},
+            {.provider = "ANTHROPIC",
+             .body = R"({"usage":{"input_tokens":7,"output_tokens":3,"cache_read_input_tokens":20}})",
+             .prompt = 7,
+             .completion = 3,
+             .total = std::nullopt},
+            {.provider = "GEMINI",
+             .body = R"({"usageMetadata":{"promptTokenCount":7,"candidatesTokenCount":3,"totalTokenCount":12}})",
+             .prompt = 7,
+             .completion = 3,
+             .total = 12},
+            {.provider = "QWEN",
+             .body = R"({"usage":{"input_tokens":7,"output_tokens":3,"total_tokens":10}})",
+             .prompt = 7,
+             .completion = 3,
+             .total = 10},
+            {.provider = "QWEN",
+             .body = R"({"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}})",
+             .prompt = 7,
+             .completion = 3,
+             .total = 10},
+            {.provider = "LOCAL",
+             .body = R"({"prompt_eval_count":7,"eval_count":3})",
+             .prompt = 7,
+             .completion = 3,
+             .total = std::nullopt},
+            {.provider = "LOCAL",
+             .body = R"({"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}})",
+             .prompt = 7,
+             .completion = 3,
+             .total = 10},
+            {.provider = "VOYAGEAI",
+             .body = R"({"usage":{"total_tokens":7}})",
+             .prompt = std::nullopt,
+             .completion = std::nullopt,
+             .total = 7},
+            {.provider = "JINA",
+             .body = R"({"usage":{"total_tokens":7}})",
+             .prompt = std::nullopt,
+             .completion = std::nullopt,
+             .total = 7},
+            {.provider = "OPENAI",
+             .body = R"({"error":{"message":"rate limited"},"usage":{"prompt_tokens":7}})",
+             .prompt = 7,
+             .completion = std::nullopt,
+             .total = std::nullopt},
+    };
+    for (const auto& test : cases) {
+        SCOPED_TRACE(test.provider);
+        SCOPED_TRACE(test.body);
+        const auto adapter = AIAdapterFactory::create_adapter(test.provider);
+        const auto usage = adapter->parse_usage(test.body);
+        EXPECT_EQ(usage.prompt_tokens, test.prompt);
+        EXPECT_EQ(usage.completion_tokens, test.completion);
+        EXPECT_EQ(usage.total_tokens, test.total);
+    }
+}
+
+TEST(AI_ADAPTER_TEST, missing_or_malformed_usage_is_absent) {
+    for (const auto* provider :
+         {"OPENAI", "ANTHROPIC", "GEMINI", "QWEN", "LOCAL", "VOYAGEAI", "MOCK"}) {
+        const auto adapter = AIAdapterFactory::create_adapter(provider);
+        for (const auto* body :
+             {"", "not json", "null", "[]", "{}", R"({"usage":[]})",
+              R"({"usage":null,"usageMetadata":false})",
+              R"({"usage":{"prompt_tokens":-1,"completion_tokens":"3","total_tokens":1.5,"input_tokens":true,"output_tokens":null},"usageMetadata":{"promptTokenCount":-1,"candidatesTokenCount":"3","totalTokenCount":1.5},"prompt_eval_count":-1,"eval_count":false})",
+              R"({"usage":{"total_tokens":9223372036854775808}})"}) {
+            SCOPED_TRACE(provider);
+            SCOPED_TRACE(body);
+            const auto usage = adapter->parse_usage(body);
+            EXPECT_FALSE(usage.prompt_tokens.has_value());
+            EXPECT_FALSE(usage.completion_tokens.has_value());
+            EXPECT_FALSE(usage.total_tokens.has_value());
+        }
+    }
+}
+
+TEST(AI_ADAPTER_TEST, malformed_usage_field_does_not_discard_other_counts) {
+    OpenAIAdapter adapter;
+    const auto usage = adapter.parse_usage(
+            R"({"usage":{"prompt_tokens":-1,"completion_tokens":3,"total_tokens":9223372036854775807}})");
+    EXPECT_FALSE(usage.prompt_tokens.has_value());
+    EXPECT_EQ(usage.completion_tokens, 3);
+    EXPECT_EQ(usage.total_tokens, INT64_MAX);
+}
+
 class MockHttpClient : public HttpClient {
 public:
     curl_slist* get() { return this->_header_list; }
@@ -248,6 +388,7 @@ TEST(AI_ADAPTER_TEST, openai_adapter_completions_request) {
     config.temperature = 0.5;
     config.max_tokens = 64;
     config.api_key = "test_openai_key";
+    config.effort = "low";
     adapter.init(config);
 
     // header
@@ -284,6 +425,8 @@ TEST(AI_ADAPTER_TEST, openai_adapter_completions_request) {
     ASSERT_TRUE(doc.HasMember("max_tokens")) << "Missing max_tokens field";
     ASSERT_TRUE(doc["max_tokens"].IsInt()) << "Max_tokens field is not an integer";
     ASSERT_EQ(doc["max_tokens"].GetInt(), 64);
+    ASSERT_TRUE(doc.HasMember("reasoning_effort"));
+    ASSERT_STREQ(doc["reasoning_effort"].GetString(), "low");
     // msg
     ASSERT_TRUE(doc.HasMember("messages")) << "Missing messages field";
     ASSERT_TRUE(doc["messages"].IsArray()) << "Messages is not an array";
@@ -321,6 +464,7 @@ TEST(AI_ADAPTER_TEST, openai_adatper_responses_request) {
     config.max_tokens = 64;
     config.api_key = "test_openai_key";
     config.endpoint = "https://api.openai.com/v1/responses";
+    config.effort = "max";
     adapter.init(config);
 
     // header
@@ -357,6 +501,9 @@ TEST(AI_ADAPTER_TEST, openai_adatper_responses_request) {
     ASSERT_TRUE(doc.HasMember("max_output_tokens")) << "Missing max_output_tokens field";
     ASSERT_TRUE(doc["max_output_tokens"].IsInt()) << "max_output_tokens field is not an integer";
     ASSERT_EQ(doc["max_output_tokens"].GetInt(), 64);
+    ASSERT_TRUE(doc.HasMember("reasoning"));
+    ASSERT_TRUE(doc["reasoning"].IsObject());
+    ASSERT_STREQ(doc["reasoning"]["effort"].GetString(), "max");
 
     // input
     ASSERT_TRUE(doc.HasMember("input")) << "Missing input field";
@@ -381,14 +528,271 @@ TEST(AI_ADAPTER_TEST, openai_adatper_responses_request) {
     ASSERT_STREQ(input[1]["content"].GetString(), inputs[0].c_str());
 }
 
-TEST(AI_ADAPTER_TEST, openai_adapter_responses_parse_response) {
+TEST(AI_ADAPTER_TEST, openai_adapter_responses_parse_response_skips_empty_reasoning) {
     OpenAIAdapter adapter;
-    std::string resp = R"({"output":[{"content":[{"text":"openai response result"}]}]})";
+    std::string resp = R"({
+        "id": "resp_123", 
+        "object": "response",
+        "status": "completed",
+        "output": [
+            {
+                "id": "rs_123",
+                "type": "reasoning",
+                "content": [],
+                "summary": []
+            },
+            {
+                "id": "msg_123",
+                "type": "message",
+                "status": "completed",
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "output_text",
+                        "text": "openai response result",
+                        "annotations": []
+                    }
+                ]
+            }
+        ]
+    })";
     std::vector<std::string> results;
     Status st = adapter.parse_response(resp, results);
-    ASSERT_TRUE(st.ok());
+    ASSERT_TRUE(st.ok()) << st.to_string();
     ASSERT_EQ(results.size(), 1);
     ASSERT_EQ(results[0], "openai response result");
+}
+
+TEST(AI_ADAPTER_TEST, openai_adapter_responses_parse_response_skips_reasoning_text) {
+    OpenAIAdapter adapter;
+    std::string resp = R"({
+        "id": "resp_456",
+        "object": "response",
+        "status": "completed",
+        "output": [
+            {
+                "id": "rs_456",
+                "type": "reasoning",
+                "status": "completed",
+                "content": [
+                    {
+                        "type": "reasoning_text",
+                        "text": "The model reasoning must not become a batch result."
+                    }
+                ],
+                "summary": []
+            },
+            {
+                "id": "msg_456",
+                "type": "message",
+                "status": "completed",
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "output_text",
+                        "text": "[\"translation one\",\"translation two\"]",
+                        "annotations": []
+                    }
+                ]
+            }
+        ]
+    })";
+    std::vector<std::string> results;
+    Status st = adapter.parse_response(resp, results);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    ASSERT_EQ(results.size(), 2);
+    EXPECT_EQ(results[0], "translation one");
+    EXPECT_EQ(results[1], "translation two");
+}
+
+TEST(AI_ADAPTER_TEST, openai_adapter_responses_parse_response_rejects_incomplete_status) {
+    OpenAIAdapter adapter;
+    std::string resp = R"({
+        "id": "resp_incomplete",
+        "object": "response",
+        "status": "incomplete",
+        "incomplete_details": {
+            "reason": "max_output_tokens"
+        },
+        "output": [
+            {
+                "id": "msg_incomplete",
+                "type": "message",
+                "status": "incomplete",
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "output_text",
+                        "text": "[\"truncated result\"",
+                        "annotations": []
+                    }
+                ]
+            }
+        ]
+    })";
+    std::vector<std::string> results;
+    Status st = adapter.parse_response(resp, results);
+    ASSERT_FALSE(st.ok());
+    EXPECT_THAT(st.to_string(), ::testing::HasSubstr("incomplete"));
+    EXPECT_THAT(st.to_string(), ::testing::HasSubstr("max_output_tokens"));
+    EXPECT_TRUE(results.empty());
+}
+
+TEST(AI_ADAPTER_TEST, openai_adapter_responses_status_cannot_fall_back_to_choices) {
+    OpenAIAdapter adapter;
+    std::string resp = R"({
+        "object": "response",
+        "status": "incomplete",
+        "incomplete_details": {
+            "reason": "max_output_tokens"
+        },
+        "output": null,
+        "choices": [
+            {
+                "message": {
+                    "content": "[\"partial result\"]"
+                }
+            }
+        ]
+    })";
+    std::vector<std::string> results;
+    Status st = adapter.parse_response(resp, results);
+    ASSERT_FALSE(st.ok());
+    EXPECT_THAT(st.to_string(), ::testing::HasSubstr("incomplete"));
+    EXPECT_THAT(st.to_string(), ::testing::HasSubstr("max_output_tokens"));
+    EXPECT_TRUE(results.empty());
+}
+
+TEST(AI_ADAPTER_TEST, openai_adapter_responses_parse_response_rejects_missing_final_text) {
+    OpenAIAdapter adapter;
+    std::string resp = R"({
+        "id": "resp_no_text",
+        "object": "response",
+        "status": "completed",
+        "output": [
+            {
+                "id": "rs_no_text",
+                "type": "reasoning",
+                "status": "completed",
+                "content": [],
+                "summary": []
+            }
+        ]
+    })";
+    std::vector<std::string> results;
+    Status st = adapter.parse_response(resp, results);
+    ASSERT_FALSE(st.ok());
+    EXPECT_TRUE(results.empty());
+}
+
+TEST(AI_ADAPTER_TEST, openai_adapter_responses_parse_response_joins_output_text_before_parsing) {
+    OpenAIAdapter adapter;
+    std::string resp = R"({
+        "id": "resp_split_text",
+        "object": "response",
+        "status": "completed",
+        "output": [
+            {
+                "id": "msg_split_text_1",
+                "type": "message",
+                "status": "completed",
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "output_text",
+                        "text": "[\"translation",
+                        "annotations": []
+                    },
+                    {
+                        "type": "output_text",
+                        "text": " one\",",
+                        "annotations": []
+                    }
+                ]
+            },
+            {
+                "id": "msg_split_text_2",
+                "type": "message",
+                "status": "completed",
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "output_text",
+                        "text": "\"translation two\"]",
+                        "annotations": []
+                    }
+                ]
+            }
+        ]
+    })";
+    std::vector<std::string> results;
+    Status st = adapter.parse_response(resp, results);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    ASSERT_EQ(results.size(), 2);
+    EXPECT_EQ(results[0], "translation one");
+    EXPECT_EQ(results[1], "translation two");
+}
+
+TEST(AI_ADAPTER_TEST, openai_adapter_responses_parse_response_keeps_json_array_in_opaque_mode) {
+    OpenAIAdapter adapter;
+    std::string resp = R"({
+        "id": "resp_opaque",
+        "object": "response",
+        "status": "completed",
+        "output": [
+            {
+                "id": "msg_opaque",
+                "type": "message",
+                "status": "completed",
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "output_text",
+                        "text": "[\"north\",",
+                        "annotations": []
+                    },
+                    {
+                        "type": "output_text",
+                        "text": "\"south\"]",
+                        "annotations": []
+                    }
+                ]
+            }
+        ]
+    })";
+    std::vector<std::string> results;
+    Status st = adapter.parse_response(resp, results, false);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    ASSERT_EQ(results.size(), 1);
+    EXPECT_EQ(results[0], R"(["north","south"])");
+}
+
+TEST(AI_ADAPTER_TEST, non_openai_text_adapters_keep_json_array_in_opaque_mode) {
+    auto check_opaque_mode = [](const char* provider, AIAdapter& adapter,
+                                const std::string& response) {
+        SCOPED_TRACE(provider);
+        std::vector<std::string> results;
+        Status st = adapter.parse_response(response, results, false);
+        ASSERT_TRUE(st.ok()) << st.to_string();
+        ASSERT_EQ(results.size(), 1);
+        EXPECT_EQ(results[0], R"(["north","south"])");
+    };
+
+    LocalAdapter local_adapter;
+    check_opaque_mode("local", local_adapter,
+                      R"({"choices":[{"message":{"content":"[\"north\",\"south\"]"}}]})");
+
+    GeminiAdapter gemini_adapter;
+    check_opaque_mode(
+            "gemini", gemini_adapter,
+            R"({"candidates":[{"content":{"parts":[{"text":"[\"north\",\"south\"]"}]}}]})");
+
+    AnthropicAdapter anthropic_adapter;
+    check_opaque_mode("anthropic", anthropic_adapter,
+                      R"({"content":[{"type":"text","text":"[\"north\",\"south\"]"}]})");
+
+    MockAdapter mock_adapter;
+    check_opaque_mode("mock", mock_adapter, R"(["north","south"])");
 }
 
 TEST(AI_ADAPTER_TEST, openai_adapter_parse_response_keeps_mask_literals) {
@@ -414,6 +818,7 @@ TEST(AI_ADAPTER_TEST, gemini_adapter_request) {
     config.temperature = 0.2;
     config.max_tokens = 32;
     config.api_key = "test_gemini_key";
+    config.effort = "high";
     adapter.init(config);
 
     // header test
@@ -448,6 +853,9 @@ TEST(AI_ADAPTER_TEST, gemini_adapter_request) {
     ASSERT_TRUE(gen_cfg.HasMember("maxOutputTokens")) << "Missing maxOutputTokens field";
     ASSERT_TRUE(gen_cfg["maxOutputTokens"].IsInt());
     ASSERT_EQ(gen_cfg["maxOutputTokens"].GetInt(), 32);
+    ASSERT_TRUE(gen_cfg.HasMember("thinkingConfig"));
+    ASSERT_TRUE(gen_cfg["thinkingConfig"].IsObject());
+    ASSERT_STREQ(gen_cfg["thinkingConfig"]["thinkingLevel"].GetString(), "high");
 
     // system_prompt
     ASSERT_TRUE(doc.HasMember("systemInstruction")) << "Missing system field";
@@ -496,6 +904,7 @@ TEST(AI_ADAPTER_TEST, anthropic_adapter_request) {
     config.max_tokens = 256;
     config.api_key = "test_anthropic_key";
     config.anthropic_version = "2023-06-01";
+    config.effort = "medium";
     adapter.init(config);
 
     // header
@@ -533,6 +942,9 @@ TEST(AI_ADAPTER_TEST, anthropic_adapter_request) {
     ASSERT_TRUE(doc.HasMember("max_tokens")) << "Missing max_tokens field";
     ASSERT_TRUE(doc["max_tokens"].IsInt()) << "Max_tokens field is not an integer";
     ASSERT_EQ(doc["max_tokens"].GetInt(), 256);
+    ASSERT_TRUE(doc.HasMember("output_config"));
+    ASSERT_TRUE(doc["output_config"].IsObject());
+    ASSERT_STREQ(doc["output_config"]["effort"].GetString(), "medium");
 
     // system_prompt
     ASSERT_TRUE(doc.HasMember("system")) << "Missing system field";
@@ -606,6 +1018,20 @@ TEST(AI_ADAPTER_TEST, parse_response_wrong_type) {
                 ::testing::HasSubstr("Unsupported response format from local AI."));
 }
 
+TEST(AI_ADAPTER_TEST, local_adapter_rejects_non_object_choice) {
+    LocalAdapter adapter;
+    std::vector<std::string> results;
+    Status st = adapter.parse_response(R"({"choices":[1]})", results);
+    ASSERT_FALSE(st.ok());
+}
+
+TEST(AI_ADAPTER_TEST, local_adapter_rejects_non_object_message) {
+    LocalAdapter adapter;
+    std::vector<std::string> results;
+    Status st = adapter.parse_response(R"({"choices":[{"message":1}]})", results);
+    ASSERT_FALSE(st.ok());
+}
+
 TEST(AI_ADAPTER_TEST, openai_adapter_parse_response_choice_format_error) {
     OpenAIAdapter adapter;
     // message field missing
@@ -621,6 +1047,20 @@ TEST(AI_ADAPTER_TEST, openai_adapter_parse_response_choice_format_error) {
     st = adapter.parse_response(resp, results);
     ASSERT_FALSE(st.ok());
     EXPECT_THAT(st.to_string().c_str(), ::testing::HasSubstr("Invalid choice format in  response"));
+}
+
+TEST(AI_ADAPTER_TEST, openai_adapter_rejects_non_object_choice) {
+    OpenAIAdapter adapter;
+    std::vector<std::string> results;
+    Status st = adapter.parse_response(R"({"choices":[1]})", results);
+    ASSERT_FALSE(st.ok());
+}
+
+TEST(AI_ADAPTER_TEST, openai_adapter_rejects_non_object_message) {
+    OpenAIAdapter adapter;
+    std::vector<std::string> results;
+    Status st = adapter.parse_response(R"({"choices":[{"message":1}]})", results);
+    ASSERT_FALSE(st.ok());
 }
 
 TEST(AI_ADAPTER_TEST, openai_adapter_parse_response_parse_error) {
@@ -659,6 +1099,27 @@ TEST(AI_ADAPTER_TEST, gemini_parse_response_missing_candidates) {
     EXPECT_THAT(st.to_string().c_str(), ::testing::HasSubstr("Invalid  response format"));
 }
 
+TEST(AI_ADAPTER_TEST, gemini_adapter_rejects_non_object_candidate) {
+    GeminiAdapter adapter;
+    std::vector<std::string> results;
+    Status st = adapter.parse_response(R"({"candidates":[1]})", results);
+    ASSERT_FALSE(st.ok());
+}
+
+TEST(AI_ADAPTER_TEST, gemini_adapter_rejects_non_object_content) {
+    GeminiAdapter adapter;
+    std::vector<std::string> results;
+    Status st = adapter.parse_response(R"({"candidates":[{"content":1}]})", results);
+    ASSERT_FALSE(st.ok());
+}
+
+TEST(AI_ADAPTER_TEST, gemini_adapter_rejects_non_object_part) {
+    GeminiAdapter adapter;
+    std::vector<std::string> results;
+    Status st = adapter.parse_response(R"({"candidates":[{"content":{"parts":[1]}}]})", results);
+    ASSERT_FALSE(st.ok());
+}
+
 TEST(AI_ADAPTER_TEST, anthropic_adapter_parse_response_parse_error) {
     AnthropicAdapter adapter;
     std::string resp = "not a json";
@@ -675,6 +1136,13 @@ TEST(AI_ADAPTER_TEST, anthropic_adapter_parse_response_content_not_array) {
     Status st = adapter.parse_response(resp, results);
     ASSERT_FALSE(st.ok());
     EXPECT_THAT(st.to_string().c_str(), ::testing::HasSubstr("Invalid  response format"));
+}
+
+TEST(AI_ADAPTER_TEST, anthropic_adapter_rejects_non_object_content_item) {
+    AnthropicAdapter adapter;
+    std::vector<std::string> results;
+    Status st = adapter.parse_response(R"({"content":[1]})", results);
+    ASSERT_FALSE(st.ok());
 }
 
 TEST(AI_ADAPTER_TEST, voyage_adapter_chat_test) {

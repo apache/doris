@@ -30,8 +30,8 @@ import com.google.common.cache.LoadingCache;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import org.gaul.modernizer_maven_annotations.SuppressModernizer;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
 import java.util.ArrayList;
@@ -81,7 +81,7 @@ public class TestEvictableCache {
         Cache<Integer, String> cache = EvictableCacheBuilder.newBuilder()
                 .maximumSize(10_000)
                 .build();
-        Assert.assertEquals("abc", cache.get(42, () -> "abc"));
+        Assertions.assertEquals("abc", cache.get(42, () -> "abc"));
     }
 
     @Test
@@ -95,15 +95,15 @@ public class TestEvictableCache {
 
         for (int i = 0; i < 10_000; i++) {
             int value = i * 10;
-            Assert.assertEquals(value, (Object) cache.get(i, () -> value));
+            Assertions.assertEquals(value, (Object) cache.get(i, () -> value));
         }
         cache.cleanUp();
-        Assert.assertEquals(maximumSize, cache.size());
-        Assert.assertEquals(maximumSize, ((EvictableCache<?, ?>) cache).tokensCount());
+        Assertions.assertEquals(maximumSize, cache.size());
+        Assertions.assertEquals(maximumSize, ((EvictableCache<?, ?>) cache).tokensCount());
 
         // Ensure cache is effective, i.e. some entries preserved
         int lastKey = 10_000 - 1;
-        Assert.assertEquals(lastKey * 10, (Object) cache.get(lastKey, () -> {
+        Assertions.assertEquals(lastKey * 10, (Object) cache.get(lastKey, () -> {
             throw new UnsupportedOperationException();
         }));
     }
@@ -118,32 +118,32 @@ public class TestEvictableCache {
 
         for (int i = 0; i < 10; i++) {
             String value = String.join("", Collections.nCopies(i, "a"));
-            Assert.assertEquals(value, cache.get(i, () -> value));
+            Assertions.assertEquals(value, cache.get(i, () -> value));
         }
 
         cache.cleanUp();
         // It's not deterministic which entries get evicted
         int cacheSize = Math.toIntExact(cache.size());
 
-        Assert.assertEquals(cacheSize, ((EvictableCache<?, ?>) cache).tokensCount());
-        Assert.assertEquals(cacheSize, cache.asMap().keySet().size());
+        Assertions.assertEquals(cacheSize, ((EvictableCache<?, ?>) cache).tokensCount());
+        Assertions.assertEquals(cacheSize, cache.asMap().keySet().size());
 
         int keySum = cache.asMap().keySet().stream()
                 .mapToInt(i -> i)
                 .sum();
-        Assert.assertTrue("key sum should be <= 20", keySum <= 20);
+        Assertions.assertTrue(keySum <= 20, "key sum should be <= 20");
 
-        Assert.assertEquals(cacheSize, cache.asMap().values().size());
+        Assertions.assertEquals(cacheSize, cache.asMap().values().size());
 
         int valuesLengthSum = cache.asMap().values().stream()
                 .mapToInt(String::length)
                 .sum();
-        Assert.assertTrue("values length sum should be <= 20", valuesLengthSum <= 20);
+        Assertions.assertTrue(valuesLengthSum <= 20, "values length sum should be <= 20");
 
         // Ensure cache is effective, i.e. some entries preserved
         int lastKey = 9; // 10 - 1
         String expected = String.join("", Collections.nCopies(lastKey, "a")); // java8 替代 repeat
-        Assert.assertEquals(expected, cache.get(lastKey, () -> {
+        Assertions.assertEquals(expected, cache.get(lastKey, () -> {
             throw new UnsupportedOperationException();
         }));
     }
@@ -158,17 +158,17 @@ public class TestEvictableCache {
                 .expireAfterWrite(ttl, TimeUnit.MILLISECONDS)
                 .build();
 
-        Assert.assertEquals("1 ala ma kota", cache.get(1, () -> "1 ala ma kota"));
+        Assertions.assertEquals("1 ala ma kota", cache.get(1, () -> "1 ala ma kota"));
         ticker.increment(ttl, TimeUnit.MILLISECONDS);
-        Assert.assertEquals("2 ala ma kota", cache.get(2, () -> "2 ala ma kota"));
+        Assertions.assertEquals("2 ala ma kota", cache.get(2, () -> "2 ala ma kota"));
         cache.cleanUp();
 
         // First entry should be expired and its token removed
         int cacheSize = Math.toIntExact(cache.size());
-        Assert.assertEquals(1, cacheSize);
-        Assert.assertEquals(cacheSize, ((EvictableCache<?, ?>) cache).tokensCount());
-        Assert.assertEquals(cacheSize, cache.asMap().keySet().size());
-        Assert.assertEquals(cacheSize, cache.asMap().values().size());
+        Assertions.assertEquals(1, cacheSize);
+        Assertions.assertEquals(cacheSize, ((EvictableCache<?, ?>) cache).tokensCount());
+        Assertions.assertEquals(cacheSize, cache.asMap().keySet().size());
+        Assertions.assertEquals(cacheSize, cache.asMap().values().size());
     }
 
     @Test
@@ -182,23 +182,23 @@ public class TestEvictableCache {
                 .build();
         int key = 11;
 
-        Assert.assertEquals("11 ala ma kota", cache.get(key, () -> "11 ala ma kota"));
-        Assert.assertEquals(1, ((EvictableCache<?, ?>) cache).tokensCount());
+        Assertions.assertEquals("11 ala ma kota", cache.get(key, () -> "11 ala ma kota"));
+        Assertions.assertEquals(1, ((EvictableCache<?, ?>) cache).tokensCount());
 
-        Assert.assertEquals("11 ala ma kota", cache.get(key, () -> "something else"));
-        Assert.assertEquals(1, ((EvictableCache<?, ?>) cache).tokensCount());
+        Assertions.assertEquals("11 ala ma kota", cache.get(key, () -> "something else"));
+        Assertions.assertEquals(1, ((EvictableCache<?, ?>) cache).tokensCount());
 
         ticker.increment(ttl, TimeUnit.MILLISECONDS);
-        Assert.assertEquals("new value", cache.get(key, () -> "new value"));
-        Assert.assertEquals(1, ((EvictableCache<?, ?>) cache).tokensCount());
+        Assertions.assertEquals("new value", cache.get(key, () -> "new value"));
+        Assertions.assertEquals(1, ((EvictableCache<?, ?>) cache).tokensCount());
 
-        Assert.assertEquals("new value", cache.get(key, () -> "something yet different"));
-        Assert.assertEquals(1, ((EvictableCache<?, ?>) cache).tokensCount());
+        Assertions.assertEquals("new value", cache.get(key, () -> "something yet different"));
+        Assertions.assertEquals(1, ((EvictableCache<?, ?>) cache).tokensCount());
 
-        Assert.assertEquals(1, cache.size());
-        Assert.assertEquals(1, ((EvictableCache<?, ?>) cache).tokensCount());
-        Assert.assertEquals(1, cache.asMap().keySet().size());
-        Assert.assertEquals(1, cache.asMap().values().size());
+        Assertions.assertEquals(1, cache.size());
+        Assertions.assertEquals(1, ((EvictableCache<?, ?>) cache).tokensCount());
+        Assertions.assertEquals(1, cache.asMap().keySet().size());
+        Assertions.assertEquals(1, cache.asMap().values().size());
     }
 
     @Test
@@ -214,34 +214,34 @@ public class TestEvictableCache {
 
         cache.get(key, () -> initialValue);
 
-        Assert.assertTrue("Should successfully replace value", cache.asMap().replace(key, initialValue, replacedValue));
-        Assert.assertEquals("Cache should contain replaced value", replacedValue, cache.getIfPresent(key).intValue());
+        Assertions.assertTrue(cache.asMap().replace(key, initialValue, replacedValue), "Should successfully replace value");
+        Assertions.assertEquals(replacedValue, cache.getIfPresent(key).intValue(), "Cache should contain replaced value");
 
-        Assert.assertFalse("Should not replace when current value is different", cache.asMap().replace(key, initialValue, replacedValue));
-        Assert.assertEquals("Cache should maintain replaced value", replacedValue, cache.getIfPresent(key).intValue());
+        Assertions.assertFalse(cache.asMap().replace(key, initialValue, replacedValue), "Should not replace when current value is different");
+        Assertions.assertEquals(replacedValue, cache.getIfPresent(key).intValue(), "Cache should maintain replaced value");
 
-        Assert.assertFalse("Should not replace non-existent key", cache.asMap().replace(100000, replacedValue, 22));
-        Assert.assertEquals("Cache should only contain original key", ImmutableSet.of(key), cache.asMap().keySet());
-        Assert.assertEquals("Original key should maintain its value", replacedValue, cache.getIfPresent(key).intValue());
+        Assertions.assertFalse(cache.asMap().replace(100000, replacedValue, 22), "Should not replace non-existent key");
+        Assertions.assertEquals(ImmutableSet.of(key), cache.asMap().keySet(), "Cache should only contain original key");
+        Assertions.assertEquals(replacedValue, cache.getIfPresent(key).intValue(), "Original key should maintain its value");
 
         int anotherKey = 13;
         int anotherInitialValue = 14;
         cache.get(anotherKey, () -> anotherInitialValue);
         cache.invalidate(anotherKey);
 
-        Assert.assertFalse("Should not replace after invalidation", cache.asMap().replace(anotherKey, anotherInitialValue, 15));
-        Assert.assertEquals("Cache should only contain original key after invalidation", ImmutableSet.of(key), cache.asMap().keySet());
+        Assertions.assertFalse(cache.asMap().replace(anotherKey, anotherInitialValue, 15), "Should not replace after invalidation");
+        Assertions.assertEquals(ImmutableSet.of(key), cache.asMap().keySet(), "Cache should only contain original key after invalidation");
     }
 
     @Test
     @Timeout(TEST_TIMEOUT_SECONDS)
     public void testDisabledCache() throws Exception {
-        Exception exception = Assert.assertThrows(IllegalStateException.class, () ->
+        Exception exception = Assertions.assertThrows(IllegalStateException.class, () ->
                 EvictableCacheBuilder.newBuilder()
                         .maximumSize(0)
                         .build());
 
-        Assert.assertEquals("Even when cache is disabled, the loads are synchronized and both load results and failures are shared between threads. "
+        Assertions.assertEquals("Even when cache is disabled, the loads are synchronized and both load results and failures are shared between threads. "
                         + "This is rarely desired, thus builder caller is expected to either opt-in into this behavior with shareResultsAndFailuresEvenIfDisabled(), "
                         + "or choose not to share results (and failures) between concurrent invocations with shareNothingWhenDisabled().",
                 exception.getMessage());
@@ -262,13 +262,13 @@ public class TestEvictableCache {
     private void testDisabledCache(Cache<Integer, Integer> cache) throws Exception {
         for (int i = 0; i < 10; i++) {
             int value = i * 10;
-            Assert.assertEquals(value, cache.get(i, () -> value).intValue());
+            Assertions.assertEquals(value, cache.get(i, () -> value).intValue());
         }
 
         cache.cleanUp();
-        Assert.assertEquals(0, cache.size());
-        Assert.assertTrue(cache.asMap().keySet().isEmpty());
-        Assert.assertTrue(cache.asMap().values().isEmpty());
+        Assertions.assertEquals(0, cache.size());
+        Assertions.assertTrue(cache.asMap().keySet().isEmpty());
+        Assertions.assertTrue(cache.asMap().values().isEmpty());
     }
 
     private static class CacheStatsAssertions {
@@ -327,9 +327,9 @@ public class TestEvictableCache {
             long missesDelta = afterStats.missCount() - beforeStats.missCount();
             long hitsDelta = afterStats.hitCount() - beforeStats.hitCount();
 
-            Assert.assertEquals(loads, loadDelta);
-            Assert.assertEquals(hits, hitsDelta);
-            Assert.assertEquals(misses, missesDelta);
+            Assertions.assertEquals(loads, loadDelta);
+            Assertions.assertEquals(hits, hitsDelta);
+            Assertions.assertEquals(misses, missesDelta);
 
             return value;
         }
@@ -344,24 +344,24 @@ public class TestEvictableCache {
                 .recordStats()
                 .build();
 
-        Assert.assertEquals(new CacheStats(0, 0, 0, 0, 0, 0), cache.stats());
+        Assertions.assertEquals(new CacheStats(0, 0, 0, 0, 0, 0), cache.stats());
 
         String value = CacheStatsAssertions.assertCacheStats(cache)
                 .misses(1)
                 .loads(1)
                 .calling(() -> cache.get(42, () -> "abc"));
-        Assert.assertEquals("abc", value);
+        Assertions.assertEquals("abc", value);
 
         value = CacheStatsAssertions.assertCacheStats(cache)
                 .hits(1)
                 .calling(() -> cache.get(42, () -> "xyz"));
-        Assert.assertEquals("abc", value);
+        Assertions.assertEquals("abc", value);
 
         // with equal, but not the same key
         value = CacheStatsAssertions.assertCacheStats(cache)
                 .hits(1)
                 .calling(() -> cache.get(newInteger(42), () -> "xyz"));
-        Assert.assertEquals("abc", value);
+        Assertions.assertEquals("abc", value);
     }
 
     @Test
@@ -393,12 +393,12 @@ public class TestEvictableCache {
                     return cache.get(key, () -> {
                         if (first) {
                             Thread secondThread = exchanger.exchange(null, 10, TimeUnit.SECONDS);
-                            Assert.assertTrue(secondUnblocked.await(10, TimeUnit.SECONDS));
+                            Assertions.assertTrue(secondUnblocked.await(10, TimeUnit.SECONDS));
                             // Wait for the second one to hang inside the cache.get call.
                             long start = System.nanoTime();
                             while (!Thread.currentThread().isInterrupted()) {
                                 try {
-                                    Assert.assertNotEquals(Thread.State.RUNNABLE, secondThread.getState());
+                                    Assertions.assertNotEquals(Thread.State.RUNNABLE, secondThread.getState());
                                     break;
                                 } catch (Exception | AssertionError e) {
                                     if (System.nanoTime() - start > TimeUnit.SECONDS.toNanos(30)) {
@@ -431,12 +431,12 @@ public class TestEvictableCache {
             // Note: if this starts to fail, that suggests that Guava implementation changed and NoopCache may be redundant now.
             String expectedError = "com.google.common.util.concurrent.UncheckedExecutionException: "
                     + "java.lang.RuntimeException: first attempt is poised to fail";
-            Assert.assertEquals(2, results.size());
-            Assert.assertEquals(expectedError, results.get(0));
-            Assert.assertEquals(expectedError, results.get(1));
+            Assertions.assertEquals(2, results.size());
+            Assertions.assertEquals(expectedError, results.get(0));
+            Assertions.assertEquals(expectedError, results.get(1));
         } finally {
             executor.shutdownNow();
-            Assert.assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+            Assertions.assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
         }
     }
 
@@ -445,7 +445,7 @@ public class TestEvictableCache {
         Integer integer = value;
         @SuppressWarnings({"UnnecessaryBoxing", "BoxedPrimitiveConstructor", "CachedNumberConstructorCall", "removal"})
         Integer newInteger = new Integer(value);
-        Assert.assertNotSame(integer, newInteger);
+        Assertions.assertNotSame(integer, newInteger);
         return newInteger;
     }
 
@@ -485,7 +485,7 @@ public class TestEvictableCache {
                             concurrentInvocations.decrementAndGet();
                             return -key;
                         });
-                        Assert.assertEquals(-invocation, value);
+                        Assertions.assertEquals(-invocation, value);
                     }
                     return null;
                 }));
@@ -494,16 +494,14 @@ public class TestEvictableCache {
             for (Future<?> future : futures) {
                 future.get(10, TimeUnit.SECONDS);
             }
-            Assert.assertTrue(
-                    String.format(
+            Assertions.assertTrue(loads.intValue() >= invocationsPerThread && loads.intValue() <= threads * invocationsPerThread - 1, String.format(
                             "loads (%d) should be between %d and %d",
                             loads.intValue(),
                             invocationsPerThread,
-                            threads * invocationsPerThread - 1),
-                    loads.intValue() >= invocationsPerThread && loads.intValue() <= threads * invocationsPerThread - 1);
+                            threads * invocationsPerThread - 1));
         } finally {
             executor.shutdownNow();
-            Assert.assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+            Assertions.assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
         }
     }
 
@@ -537,7 +535,7 @@ public class TestEvictableCache {
                 Future<String> threadA = executor.submit(() -> {
                     String value = cache.get(key, () -> {
                         loadOngoing.countDown(); // 1
-                        Assert.assertTrue(invalidated.await(10, TimeUnit.SECONDS)); // 2
+                        Assertions.assertTrue(invalidated.await(10, TimeUnit.SECONDS)); // 2
                         return "stale value";
                     });
                     getReturned.countDown(); // 3
@@ -546,7 +544,7 @@ public class TestEvictableCache {
 
                 // thread B
                 Future<String> threadB = executor.submit(() -> {
-                    Assert.assertTrue(loadOngoing.await(10, TimeUnit.SECONDS)); // 1
+                    Assertions.assertTrue(loadOngoing.await(10, TimeUnit.SECONDS)); // 1
 
                     switch (invalidation) {
                         case INVALIDATE_KEY:
@@ -570,16 +568,16 @@ public class TestEvictableCache {
 
                     invalidated.countDown(); // 2
                     // Cache may persist value after loader returned, but before `cache.get(...)` returned. Ensure the latter completed.
-                    Assert.assertTrue(getReturned.await(10, TimeUnit.SECONDS)); // 3
+                    Assertions.assertTrue(getReturned.await(10, TimeUnit.SECONDS)); // 3
 
                     return cache.get(key, () -> "fresh value");
                 });
 
-                Assert.assertEquals("stale value", threadA.get());
-                Assert.assertEquals("fresh value", threadB.get());
+                Assertions.assertEquals("stale value", threadA.get());
+                Assertions.assertEquals("fresh value", threadB.get());
             } finally {
                 executor.shutdownNow();
-                Assert.assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+                Assertions.assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
             }
         }
     }
@@ -607,7 +605,7 @@ public class TestEvictableCache {
                 List<Future<Void>> futures = IntStream.range(0, threads)
                         .mapToObj(threadNumber -> executor.submit(() -> {
                             // prime the cache
-                            Assert.assertEquals(1L, (long) cache.get(key, remoteState::get));
+                            Assertions.assertEquals(1L, (long) cache.get(key, remoteState::get));
                             int prime = primes[threadNumber];
 
                             barrier.await(10, TimeUnit.SECONDS);
@@ -654,11 +652,11 @@ public class TestEvictableCache {
                     }
                 }
 
-                Assert.assertEquals(2 * 3 * 5 * 7, remoteState.get());
-                Assert.assertEquals(remoteState.get(), (long) cache.get(key, remoteState::get));
+                Assertions.assertEquals(2 * 3 * 5 * 7, remoteState.get());
+                Assertions.assertEquals(remoteState.get(), (long) cache.get(key, remoteState::get));
             } finally {
                 executor.shutdownNow();
-                Assert.assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+                Assertions.assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
             }
         }
     }
@@ -674,10 +672,10 @@ public class TestEvictableCache {
 
             int key = 0;
             int value = 1;
-            Assert.assertNull(cacheMap.put(key, value));
-            Assert.assertNull(cacheMap.put(key, value));
-            Assert.assertNull(cacheMap.putIfAbsent(key, value));
-            Assert.assertNull(cacheMap.putIfAbsent(key, value));
+            Assertions.assertNull(cacheMap.put(key, value));
+            Assertions.assertNull(cacheMap.put(key, value));
+            Assertions.assertNull(cacheMap.putIfAbsent(key, value));
+            Assertions.assertNull(cacheMap.putIfAbsent(key, value));
         }
     }
 
@@ -691,17 +689,13 @@ public class TestEvictableCache {
         int key = 0;
         int value = 1;
 
-        Exception putException = Assert.assertThrows("put operation should throw UnsupportedOperationException",
-                UnsupportedOperationException.class,
-                () -> cacheMap.put(key, value));
-        Assert.assertEquals(
+        Exception putException = Assertions.assertThrows(UnsupportedOperationException.class, () -> cacheMap.put(key, value), "put operation should throw UnsupportedOperationException");
+        Assertions.assertEquals(
                 "The operation is not supported, as in inherently races with cache invalidation. Use get(key, callable) instead.",
                 putException.getMessage());
 
-        Exception putIfAbsentException = Assert.assertThrows("putIfAbsent operation should throw UnsupportedOperationException",
-                UnsupportedOperationException.class,
-                () -> cacheMap.putIfAbsent(key, value));
-        Assert.assertEquals(
+        Exception putIfAbsentException = Assertions.assertThrows(UnsupportedOperationException.class, () -> cacheMap.putIfAbsent(key, value), "putIfAbsent operation should throw UnsupportedOperationException");
+        Assertions.assertEquals(
                 "The operation is not supported, as in inherently races with cache invalidation",
                 putIfAbsentException.getMessage());
     }

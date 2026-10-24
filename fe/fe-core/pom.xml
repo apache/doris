@@ -34,6 +34,8 @@ under the License.
         <doris.home>${basedir}/../../</doris.home>
         <doris.thirdparty>${basedir}/../../thirdparty</doris.thirdparty>
         <fe_ut_parallel>1</fe_ut_parallel>
+        <!-- Set by run-fe-ut.sh; direct Maven invocations keep the JVM defaults. -->
+        <fe.ut.jvm.args></fe.ut.jvm.args>
 
         <!--
           The LINEAGE plugin API version, declared exactly once. Filtered into this module's
@@ -42,7 +44,7 @@ under the License.
           (org.apache.doris.nereids.lineage) is part of fe-core itself.
 
           Bump the MAJOR (and zero the minor) in the SAME commit as ANY change to the lineage SPI
-          surface - additions included. A change to fe-extension-spi means bumping all four families.
+          surface - additions included. A change to fe-extension-spi means bumping all five families.
           See plan-doc/designs/2026-07-29-plugin-api-version-check-design.md.
         -->
         <lineage.plugin.api.version>1.0</lineage.plugin.api.version>
@@ -153,6 +155,29 @@ under the License.
                 </exclusion>
             </exclusions>
         </dependency>
+        <!-- Shared, dependency-free Java 8 JDBC diagnostics, also used by the BE plugin. -->
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>plugin-toolkit</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!--
+          Completes the Jersey 1.x stack on the FE's own classpath. jersey-core arrives here
+          transitively already, and both com.sun. and javax. are mandatory parent-first for every
+          plugin classloader (ChildFirstClassLoader.DEFAULT_PARENT_FIRST_PACKAGES), so a plugin that
+          bundles Jersey still links against this copy of com.sun.jersey.core - and that copy needs
+          the javax.ws.rs types and the client half to be reachable from here too, or it fails with
+          NoClassDefFoundError the moment a plugin builds a client. The Ranger authorization sources
+          are the ones that do, through RangerAdminRESTClient. Same shape as
+          FileSystemPluginManager.FS_PARENT_FIRST_PREFIXES making hadoop the host's: one copy of a
+          shared library, the plugin's bundled one only a fallback.
+          Brings javax.ws.rs:jsr311-api with it.
+        -->
+        <dependency>
+            <groupId>com.sun.jersey</groupId>
+            <artifactId>jersey-client</artifactId>
+        </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>fe-foundation</artifactId>
@@ -169,7 +194,7 @@ under the License.
             <exclusions>
                 <!-- fe-common transitively drags in io.trino:trino-main, which brings the Jetty
                      Servlet 5.0 API repackage. Its jakarta.servlet.http.Cookie lacks getAttributes()
-                     and would shadow the Servlet 6.1 jakarta.servlet-api that Jetty 12.0.34 needs,
+                     and would shadow the Servlet 6.1 jakarta.servlet-api that Jetty EE11 needs,
                      re-introducing the NoSuchMethodError. Keep it off fe-core's classpath. -->
                 <exclusion>
                     <groupId>org.eclipse.jetty.toolchain</groupId>
@@ -396,6 +421,16 @@ under the License.
             <version>${project.version}</version>
         </dependency>
         <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-authorization-api</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-authorization-spi</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-devtools</artifactId>
             <scope>runtime</scope>
@@ -415,11 +450,6 @@ under the License.
         <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-text</artifactId>
-        </dependency>
-        <!-- https://mvnrepository.com/artifact/cglib/cglib -->
-        <dependency>
-            <groupId>cglib</groupId>
-            <artifactId>cglib</artifactId>
         </dependency>
         <!-- https://mvnrepository.com/artifact/commons-cli/commons-cli -->
         <dependency>
@@ -602,10 +632,6 @@ under the License.
             <groupId>org.roaringbitmap</groupId>
             <artifactId>RoaringBitmap</artifactId>
         </dependency>
-        <dependency>
-            <groupId>com.amazonaws</groupId>
-            <artifactId>aws-java-sdk-s3</artifactId>
-        </dependency>
         <!-- antl4 The version of antlr-runtime in trino parser is need to be consistent with doris,
             when upgrade doris antlr-runtime version, should take care of trino-parser.-->
         <dependency>
@@ -618,10 +644,14 @@ under the License.
             <artifactId>fe-sql-parser</artifactId>
             <version>${project.version}</version>
         </dependency>
-        <!-- https://mvnrepository.com/artifact/org.springframework.boot/spring-boot-starter-web -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-web</artifactId>
+            <artifactId>spring-boot-starter-webmvc</artifactId>
+        </dependency>
+        <!-- Preserve the Jackson 2 response format used by existing FE HTTP clients. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-jackson2</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -727,6 +757,10 @@ under the License.
         </dependency>
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
+            <artifactId>sqs</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
             <artifactId>sts</artifactId>
             <exclusions>
                 <exclusion>
@@ -774,9 +808,29 @@ under the License.
             <artifactId>okhttp-jvm</artifactId>
         </dependency>
 
+        <!--
+            The Ranger authorization sources are plugins now, installed from plugins/authorization/ and
+            reached only through the AuthorizationPlugin contract, so nothing here compiles against Ranger.
+            Test scope, because the access-control behaviour baseline records what a Ranger-governed
+            instance decides for every user and every privilege, and the only way to record that is to run
+            the production controller. Same shape as the connector and filesystem plugin modules below.
+
+            The doris-service source is the one the baseline runs; the hive-service source is here so that
+            the module's own tests run at all. run-fe-ut.sh builds `-pl fe-common,fe-core -am`, which pulls in
+            what fe-core depends on and nothing else - so a plugin module no module in that set depends on
+            never reaches the reactor, and its tests are never executed by any pipeline.
+        -->
         <dependency>
-            <groupId>org.apache.ranger</groupId>
-            <artifactId>ranger-plugins-common</artifactId>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-authorization-plugin-ranger-doris</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-authorization-plugin-ranger-hive</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
         </dependency>
 
         <!-- Provides com.esotericsoftware.minlog.Log used by WorkloadSchedPolicy (not a datasource dep) -->
@@ -805,6 +859,7 @@ under the License.
         <dependency>
             <groupId>org.apache.arrow</groupId>
             <artifactId>flight-sql-jdbc-driver</artifactId>
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>io.grpc</groupId>
@@ -850,11 +905,8 @@ under the License.
             <groupId>org.immutables</groupId>
             <artifactId>value</artifactId>
         </dependency>
-        <!-- The FE HTTP server runs on Jetty 12.0.34, which calls jakarta.servlet.http.Cookie
-             #getAttributes() (a Jakarta Servlet 6.1 method) whenever it writes a Set-Cookie header.
-             Declare the servlet API explicitly so fe-core resolves 6.1.0 instead of the transitive
-             6.0.0 from spring-boot; otherwise the server throws NoSuchMethodError while setting the
-             session cookie (surfaced by removing io.trino:trino-main; see RemoteDorisRestClientTest). -->
+        <!-- Declare the Servlet 6.1 API required by Spring Framework 7 and Jetty EE11 explicitly;
+             cookie attributes such as SameSite must also resolve against this API. -->
         <dependency>
             <groupId>jakarta.servlet</groupId>
             <artifactId>jakarta.servlet-api</artifactId>
@@ -877,7 +929,8 @@ under the License.
         <dependency>
             <groupId>com.taobao.arthas</groupId>
             <artifactId>arthas-packaging</artifactId>
-            <version>4.0.5</version>
+            <!-- Arthas embeds its own Netty; the FE BOM cannot update that copy. -->
+            <version>4.3.5</version>
         </dependency>
         <dependency>
             <groupId>org.mockito</groupId>
@@ -987,7 +1040,7 @@ under the License.
                     <reuseForks>false</reuseForks>
                     <useFile>false</useFile>
                     <argLine>
-                        -Xmx1024m --add-reads=org.apache.arrow.flight.core=ALL-UNNAMED --add-opens=java.base/java.nio=org.apache.arrow.memory.core,ALL-UNNAMED @{argLine}
+                        -Xmx1024m ${fe.ut.jvm.args} --add-reads=org.apache.arrow.flight.core=ALL-UNNAMED --add-opens=java.base/java.nio=org.apache.arrow.memory.core,ALL-UNNAMED @{argLine}
                     </argLine>
                 </configuration>
             </plugin>

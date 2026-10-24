@@ -19,8 +19,8 @@ package org.apache.doris.kerberos;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.CommonConfigurationKeysPublic;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 public class AuthenticationTest {
 
@@ -29,18 +29,18 @@ public class AuthenticationTest {
         Configuration conf = new Configuration();
 
         AuthenticationConfig conf1 = AuthenticationConfig.getKerberosConfig(conf);
-        Assert.assertEquals(SimpleAuthenticationConfig.class, conf1.getClass());
+        Assertions.assertEquals(SimpleAuthenticationConfig.class, conf1.getClass());
 
         conf.set(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION, "kerberos");
 
         AuthenticationConfig conf2 = AuthenticationConfig.getKerberosConfig(conf);
-        Assert.assertEquals(SimpleAuthenticationConfig.class, conf2.getClass());
+        Assertions.assertEquals(SimpleAuthenticationConfig.class, conf2.getClass());
 
         conf.set(AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL, "principal");
         conf.set(AuthenticationConfig.HADOOP_KERBEROS_KEYTAB, "keytab");
 
         AuthenticationConfig conf3 = AuthenticationConfig.getKerberosConfig(conf);
-        Assert.assertEquals(KerberosAuthenticationConfig.class, conf3.getClass());
+        Assertions.assertEquals(KerberosAuthenticationConfig.class, conf3.getClass());
     }
 
     @Test
@@ -49,12 +49,12 @@ public class AuthenticationTest {
         conf.set(AuthenticationConfig.HADOOP_USER_NAME, "hms-user");
         HadoopAuthenticator authenticator = HadoopAuthenticator.getHadoopAuthenticator(conf);
 
-        RuntimeException error = Assert.assertThrows(RuntimeException.class,
+        RuntimeException error = Assertions.assertThrows(RuntimeException.class,
                 () -> authenticator.doAs(() -> {
                     throw new Exception("Database db is not empty.");
                 }));
 
-        Assert.assertEquals("Database db is not empty.", error.getMessage());
-        Assert.assertEquals(Exception.class, error.getCause().getClass());
+        Assertions.assertEquals("Database db is not empty.", error.getMessage());
+        Assertions.assertEquals(Exception.class, error.getCause().getClass());
     }
 }

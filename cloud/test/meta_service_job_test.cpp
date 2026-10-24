@@ -27,6 +27,7 @@
 #include <functional>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <random>
 #include <string>
 
@@ -181,7 +182,8 @@ void finish_rowset_compaction_job(
         TabletCompactionJobPB::CompactionType type, const doris::RowsetMetaCloudPB& output_rowset,
         int num_input_rowsets, int64_t output_cumulative_point, FinishTabletJobResponse& res,
         int64_t proposal_base_compaction_cnt = 0, int64_t proposal_cumulative_compaction_cnt = 0,
-        bool include_proposal_snapshot = true) {
+        bool include_proposal_snapshot = true,
+        std::optional<int64_t> changelog_ttl_seconds = std::nullopt) {
     brpc::Controller cntl;
     FinishTabletJobRequest req;
     req.set_action(FinishTabletJobRequest::COMMIT);
@@ -190,6 +192,9 @@ void finish_rowset_compaction_job(
     compaction->set_id(job_id);
     compaction->set_initiator("BE1");
     compaction->set_type(type);
+    if (changelog_ttl_seconds.has_value()) {
+        compaction->set_changelog_ttl_seconds(*changelog_ttl_seconds);
+    }
     if (include_proposal_snapshot) {
         compaction->set_base_compaction_cnt(proposal_base_compaction_cnt);
         compaction->set_cumulative_compaction_cnt(proposal_cumulative_compaction_cnt);
@@ -1078,7 +1083,6 @@ TEST(MetaServiceJobTest, CompactionJobTest) {
         std::mt19937 rng(std::chrono::system_clock::now().time_since_epoch().count());
         std::uniform_int_distribution<int> dist(1, 10000); // Positive numbers
 
-        compaction->set_output_cumulative_point(tablet_stats_pb.cumulative_point() + dist(rng));
         compaction->set_num_output_rows(dist(rng));
         compaction->set_num_output_rowsets(dist(rng));
         compaction->set_num_output_segments(dist(rng));
@@ -1122,6 +1126,9 @@ TEST(MetaServiceJobTest, CompactionJobTest) {
         int64_t input_version_end = input_version_start + 100;
         compaction->add_input_versions(input_version_start);
         compaction->add_input_versions(input_version_end);
+        // Keep the proposed point past the output rowset. A point inside the random input
+        // range is deliberately advanced by Meta Service and would change the expected result.
+        compaction->set_output_cumulative_point(input_version_end + 1);
         compaction->add_output_versions(input_version_end);
         compaction->add_output_rowset_ids("output rowset id");
 
@@ -1778,6 +1785,140 @@ TEST(MetaServiceJobTest, StopTokenSkipsStaleTabletCacheCheck) {
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK)
                 << "STOP_TOKEN with stale counts should NOT be rejected; got: "
                 << res.status().msg();
+    }
+}
+
+// A STOP_TOKEN left behind by a schema change run whose BE
+// died before unregistering it stays valid until its lease expires. The re-sent ALTER task
+// registers a new STOP_TOKEN with a fresh delete_bitmap_lock_initiator; it must replace the
+// stale token and release the schema change delete bitmap lock the dead run still holds,
+// instead of being rejected with JOB_TABLET_BUSY (which makes FE cancel the whole job).
+TEST(MetaServiceJobTest, StopTokenReplacesStaleStopToken) {
+    auto meta_service = get_meta_service();
+
+    auto sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    int64_t table_id = 1, index_id = 2, partition_id = 3, tablet_id = 102;
+    constexpr int64_t stale_initiator = 111;
+    constexpr int64_t new_initiator = 222;
+
+    {
+        auto index_key = meta_tablet_idx_key({instance_id, tablet_id});
+        TabletIndexPB idx_pb;
+        idx_pb.set_table_id(table_id);
+        idx_pb.set_index_id(index_id);
+        idx_pb.set_partition_id(partition_id);
+        idx_pb.set_tablet_id(tablet_id);
+        std::string stats_key =
+                stats_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+        TabletStatsPB stats;
+        stats.set_base_compaction_cnt(0);
+        stats.set_cumulative_compaction_cnt(0);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(index_key, idx_pb.SerializeAsString());
+        txn->put(stats_key, stats.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    auto register_stop_token = [&](const std::string& job_id, int64_t initiator,
+                                   StartTabletJobResponse& res) {
+        brpc::Controller cntl;
+        StartTabletJobRequest req;
+        req.mutable_job()->mutable_idx()->set_tablet_id(tablet_id);
+        auto* compaction = req.mutable_job()->add_compaction();
+        compaction->set_id(job_id);
+        compaction->set_initiator("ip:port");
+        compaction->set_type(TabletCompactionJobPB::STOP_TOKEN);
+        compaction->set_base_compaction_cnt(0);
+        compaction->set_cumulative_compaction_cnt(0);
+        long now = time(nullptr);
+        compaction->set_expiration(now + 12);
+        compaction->set_lease(now + 80);
+        compaction->set_delete_bitmap_lock_initiator(initiator);
+        meta_service->start_tablet_job(&cntl, &req, &res, nullptr);
+    };
+    auto read_tablet_job = [&]() {
+        TabletJobInfoPB job_pb;
+        std::unique_ptr<Transaction> txn;
+        EXPECT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string job_val;
+        EXPECT_EQ(
+                txn->get(job_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id}),
+                         &job_val),
+                TxnErrorCode::TXN_OK);
+        EXPECT_TRUE(job_pb.ParseFromString(job_val));
+        return job_pb;
+    };
+
+    // The dead run registered its STOP_TOKEN and still holds the schema change lock.
+    {
+        StartTabletJobResponse res;
+        register_stop_token("stale_stop_token", stale_initiator, res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+    }
+    {
+        DeleteBitmapUpdateLockPB lock_info;
+        lock_info.set_lock_id(SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID);
+        lock_info.set_expiration(time(nullptr) + 60);
+        lock_info.add_initiators(stale_initiator);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(meta_delete_bitmap_update_lock_key({instance_id, table_id, -1}),
+                 lock_info.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // A regular compaction is still blocked by the unexpired STOP_TOKEN.
+    {
+        StartTabletJobResponse res;
+        start_compaction_job(meta_service.get(), tablet_id, "cumu_job_1", "ip:port",
+                             /*base_cnt=*/0, /*cumu_cnt=*/0, TabletCompactionJobPB::CUMULATIVE,
+                             res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::JOB_TABLET_BUSY);
+    }
+
+    // The re-sent ALTER task registers a new STOP_TOKEN: it replaces the stale one and the
+    // dead run's schema change lock is released.
+    {
+        StartTabletJobResponse res;
+        register_stop_token("new_stop_token", new_initiator, res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK)
+                << "new STOP_TOKEN must replace the stale one; got: " << res.status().msg();
+        auto job_pb = read_tablet_job();
+        ASSERT_EQ(job_pb.compaction_size(), 1);
+        EXPECT_EQ(job_pb.compaction(0).id(), "new_stop_token");
+        EXPECT_EQ(job_pb.compaction(0).delete_bitmap_lock_initiator(), new_initiator);
+        check_delete_bitmap_lock(meta_service.get(), instance_id, table_id,
+                                 SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID, /*exist=*/false);
+    }
+
+    // Re-registering the same STOP_TOKEN (RPC retry) is idempotent.
+    {
+        StartTabletJobResponse res;
+        register_stop_token("new_stop_token", new_initiator, res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        auto job_pb = read_tablet_job();
+        ASSERT_EQ(job_pb.compaction_size(), 1);
+        EXPECT_EQ(job_pb.compaction(0).id(), "new_stop_token");
+    }
+
+    // The live token keeps blocking regular compactions.
+    {
+        StartTabletJobResponse res;
+        start_compaction_job(meta_service.get(), tablet_id, "cumu_job_2", "ip:port",
+                             /*base_cnt=*/0, /*cumu_cnt=*/0, TabletCompactionJobPB::CUMULATIVE,
+                             res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::JOB_TABLET_BUSY);
     }
 }
 
@@ -4760,6 +4901,120 @@ TEST(MetaServiceJobTest, LegacyParallelCumuFinishValidatesCurrentInputRange) {
     run_case(40005, true, 6, 2);
 }
 
+// Keep dependent transaction assertions and policy variants together; assertion macros
+// inflate the branch count without adding independent production control flow.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+TEST(MetaServiceJobTest, ChangelogTtlCommitChecksCurrentConfiguration) {
+    for (bool versioned : {false, true}) {
+        auto meta_service = get_meta_service(!versioned);
+        const std::string ttl_instance = "changelog_ttl_commit";
+        MOCK_GET_INSTANCE_ID(ttl_instance);
+        if (versioned) {
+            create_and_refresh_instance(meta_service.get(), ttl_instance);
+        }
+        constexpr int64_t table_id = 1, index_id = 2, partition_id = 3, tablet_id = 4;
+        ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), table_id, index_id, partition_id,
+                                              tablet_id, false));
+        ASSERT_NO_FATAL_FAILURE(insert_rowset(meta_service.get(), 1, "ttl_input_1", table_id,
+                                              partition_id, tablet_id));
+        ASSERT_NO_FATAL_FAILURE(insert_rowset(meta_service.get(), 1, "ttl_input_2", table_id,
+                                              partition_id, tablet_id));
+
+        auto update_ttl = [&](int64_t seconds) {
+            brpc::Controller cntl;
+            UpdateTabletRequest request;
+            auto* meta = request.add_tablet_meta_infos();
+            meta->set_tablet_id(tablet_id);
+            auto* config = meta->mutable_binlog_config();
+            config->set_enable(true);
+            config->set_binlog_format(doris::BinlogFormatPB::CHANGELOG);
+            config->set_ttl_seconds(seconds);
+            config->set_max_bytes(1024);
+            config->set_max_history_nums(10);
+            UpdateTabletResponse response;
+            meta_service->update_tablet(&cntl, &request, &response, nullptr);
+            ASSERT_EQ(response.status().code(), MetaServiceCode::OK) << response.DebugString();
+        };
+        ASSERT_NO_FATAL_FAILURE(update_ttl(60));
+        StartTabletJobResponse start;
+        start_compaction_job(meta_service.get(), tablet_id, "ttl", "BE1", 0, 0,
+                             TabletCompactionJobPB::CUMULATIVE, start, {2, 3});
+        ASSERT_EQ(start.status().code(), MetaServiceCode::OK) << start.DebugString();
+        auto output = create_rowset(tablet_id, 2, 3, 0);
+        CreateRowsetResponse rowset_response;
+        prepare_rowset(meta_service.get(), output, rowset_response);
+        ASSERT_EQ(rowset_response.status().code(), MetaServiceCode::OK);
+        commit_rowset(meta_service.get(), output, rowset_response);
+        ASSERT_EQ(rowset_response.status().code(), MetaServiceCode::OK);
+
+        // Neither changing nor disabling TTL may publish output built with the old
+        // expiration policy.
+        for (int64_t seconds : {61, -1}) {
+            ASSERT_NO_FATAL_FAILURE(update_ttl(seconds));
+            FinishTabletJobResponse finish;
+            finish_rowset_compaction_job(meta_service.get(), tablet_id, "ttl",
+                                         TabletCompactionJobPB::CUMULATIVE, output, 2, 4, finish, 0,
+                                         0, true, 60);
+            EXPECT_EQ(finish.status().code(), MetaServiceCode::INVALID_ARGUMENT)
+                    << finish.DebugString();
+            EXPECT_NE(finish.status().msg().find("TTL changed during compaction"),
+                      std::string::npos);
+            TabletStatsPB stats;
+            get_tablet_stats(meta_service.get(), tablet_id, stats);
+            EXPECT_EQ(stats.cumulative_compaction_cnt(), 0);
+        }
+        ASSERT_NO_FATAL_FAILURE(update_ttl(60));
+        FinishTabletJobResponse finish;
+        finish_rowset_compaction_job(meta_service.get(), tablet_id, "ttl",
+                                     TabletCompactionJobPB::CUMULATIVE, output, 2, 4, finish, 0, 0,
+                                     true, 60);
+        ASSERT_EQ(finish.status().code(), MetaServiceCode::OK) << finish.DebugString();
+        EXPECT_EQ(finish.stats().cumulative_compaction_cnt(), 1);
+    }
+}
+
+TEST(MetaServiceJobTest, ChangelogConfigRejectsOutOfOrderUpdates) {
+    for (bool versioned : {false, true}) {
+        auto service = get_meta_service(!versioned);
+        const std::string instance = "changelog_config_generation";
+        MOCK_GET_INSTANCE_ID(instance);
+        if (versioned) {
+            create_and_refresh_instance(service.get(), instance);
+        }
+        constexpr int64_t tablet_id = 4;
+        ASSERT_NO_FATAL_FAILURE(create_tablet(service.get(), 1, 2, 3, tablet_id, false));
+        auto update = [&](int64_t version, int64_t ttl) {
+            brpc::Controller controller;
+            UpdateTabletRequest request;
+            auto* meta = request.add_tablet_meta_infos();
+            meta->set_tablet_id(tablet_id);
+            auto* config = meta->mutable_binlog_config();
+            config->set_enable(true);
+            config->set_binlog_format(doris::BinlogFormatPB::CHANGELOG);
+            config->set_ttl_seconds(ttl);
+            config->set_max_bytes(1024);
+            config->set_max_history_nums(10);
+            config->set_config_version(version);
+            UpdateTabletResponse response;
+            service->update_tablet(&controller, &request, &response, nullptr);
+            return response.status().code();
+        };
+        EXPECT_EQ(MetaServiceCode::OK, update(2, 3600));
+        EXPECT_EQ(MetaServiceCode::OK, update(2, 3600));
+        EXPECT_EQ(MetaServiceCode::INVALID_ARGUMENT, update(1, 60));
+        EXPECT_EQ(MetaServiceCode::INVALID_ARGUMENT, update(0, 60));
+        brpc::Controller controller;
+        GetTabletRequest request;
+        request.set_tablet_id(tablet_id);
+        GetTabletResponse response;
+        service->get_tablet(&controller, &request, &response, nullptr);
+        ASSERT_EQ(MetaServiceCode::OK, response.status().code()) << response.DebugString();
+        EXPECT_EQ(2, response.tablet_meta().binlog_config().config_version());
+        EXPECT_EQ(3600, response.tablet_meta().binlog_config().ttl_seconds());
+        EXPECT_EQ(MetaServiceCode::OK, update(3, 60));
+    }
+}
+
 TEST(MetaServiceJobTest, ParallelCumuCompactionUsesPointProposalSnapshot) {
     auto meta_service = get_meta_service();
 
@@ -6904,7 +7159,7 @@ TEST(MetaServiceJobTest, AbortTxnForRelatedRowsetTest3) {
             if (!arena) delete req;
             // Should fail because transaction is aborted
             ASSERT_NE(res.status().code(), MetaServiceCode::OK);
-            ASSERT_TRUE(res.status().msg().find("rowset has already been marked as recycled") !=
+            ASSERT_TRUE(res.status().msg().find("recycle rowset key not found") !=
                         std::string::npos)
                     << res.status().msg();
             LOG(INFO) << "Step 5: commit_rowset correctly failed for aborted txn";
@@ -7016,7 +7271,7 @@ TEST(MetaServiceJobTest, AbortJobForRelatedRowsetTest3) {
             if (!arena) delete req;
             // Should fail because recycle_rowset_key is marked recycled
             ASSERT_NE(res.status().code(), MetaServiceCode::OK);
-            ASSERT_TRUE(res.status().msg().find("rowset has already been marked as recycled") !=
+            ASSERT_TRUE(res.status().msg().find("recycle rowset key not found") !=
                         std::string::npos)
                     << res.status().msg();
             LOG(INFO) << "Step 5: commit_rowset executed with code=" << res.status().code();

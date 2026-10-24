@@ -160,8 +160,8 @@ public class JdbcResource extends Resource {
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(TEST_CONNECTION, "true");
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(ExternalCatalog.USE_META_CACHE,
                 String.valueOf(ExternalCatalog.DEFAULT_USE_META_CACHE));
-        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(CatalogProperty.ENABLE_MAPPING_VARBINARY, "false");
-        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(CatalogProperty.ENABLE_MAPPING_TIMESTAMP_TZ, "false");
+        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(CatalogProperty.ENABLE_MAPPING_VARBINARY, "true");
+        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(CatalogProperty.ENABLE_MAPPING_TIMESTAMP_TZ, "true");
     }
 
     // timeout for both connection and read. 10 seconds is long enough.
@@ -325,7 +325,7 @@ public class JdbcResource extends Resource {
             // legacy JDBC consumers call it directly, with no create/alter or replay context), so it
             // deliberately applies no new restriction here: an unmodified historical catalog must keep
             // resolving exactly as before. The mandatory bare-name grammar is enforced only when a
-            // catalog is created or altered, in JdbcDorisConnector.checkDriverUrlSecurityRule.
+            // catalog is created or altered, in JdbcDriverUrlSecurity.check.
             return checkAndReturnDefaultDriverUrl(driverUrl);
         }
 

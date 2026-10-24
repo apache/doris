@@ -24,6 +24,7 @@
 #include <openssl/md5.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 #include <unistd.h>
 
 #include <filesystem>
@@ -384,6 +385,21 @@ Status LocalFileSystem::get_space_info_impl(const Path& path, size_t* capacity, 
     }
     *capacity = info.capacity;
     *available = info.available;
+    return Status::OK();
+}
+
+Status LocalFileSystem::get_inode_info(const Path& path, size_t* total, size_t* available) {
+    FILESYSTEM_M(get_inode_info_impl(path, total, available));
+}
+
+Status LocalFileSystem::get_inode_info_impl(const Path& path, size_t* total, size_t* available) {
+    struct statvfs vfs {};
+    if (::statvfs(path.c_str(), &vfs) != 0) {
+        return localfs_error(errno,
+                             fmt::format("failed to get inode info for path {}", path.native()));
+    }
+    *total = vfs.f_files;
+    *available = vfs.f_favail;
     return Status::OK();
 }
 

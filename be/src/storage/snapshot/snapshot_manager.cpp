@@ -355,8 +355,8 @@ Status SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb,
     // keep segments_overlap same as origin rowset
     context.segments_overlap = rowset_meta->segments_overlap();
     context.compaction_level = org_rowset_meta->compaction_level();
-    if (org_rowset_meta->is_row_binlog()) {
-        context.write_binlog_opt().enable = true;
+    if (org_rowset_meta->is_changelog()) {
+        context.write_changelog_opt().enable = true;
     }
     // propagate MOW flag so that non-MOW key-bounds aggregation is not applied
     // when restoring a MOW tablet's rowset
@@ -375,6 +375,9 @@ Status SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb,
                                    "failed to build rowset when rename rowset id");
     RETURN_IF_ERROR(new_rowset->load(false));
     new_rowset->rowset_meta()->to_rowset_pb(new_rs_meta_pb);
+    if (rs_meta_pb.has_commit_tso()) {
+        new_rs_meta_pb->mutable_commit_tso()->CopyFrom(rs_meta_pb.commit_tso());
+    }
     RETURN_IF_ERROR(org_rowset->remove());
     return Status::OK();
 }
@@ -514,7 +517,7 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
         /// make the full snapshot of the tablet.
         {
             std::shared_lock rdlock(ref_tablet->get_header_lock());
-            if (ref_tablet->tablet_state() == TABLET_SHUTDOWN) {
+            if (ref_tablet->tablet_state() == TabletState::TABLET_SHUTDOWN) {
                 return Status::Aborted("tablet has shutdown");
             }
             bool is_single_rowset_clone =

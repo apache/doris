@@ -71,7 +71,7 @@ suite("index_meta", "p0") {
     assertEquals(show_result[1][4], "name")
     assertEquals(show_result[1][10], "INVERTED")
     assertEquals(show_result[1][11], "index for name")
-    assertEquals(show_result[1][12], "(\"lower_case\" = \"true\", \"parser\" = \"none\", \"support_phrase\" = \"true\")")
+    assertEquals(show_result[1][12], "(\"lower_case\" = \"true\", \"parser\" = \"none\")")
 
     // add index on column description
     sql "create index idx_desc on ${tableName}(description) USING INVERTED PROPERTIES(\"parser\"=\"standard\") COMMENT 'index for description';"
@@ -90,7 +90,7 @@ suite("index_meta", "p0") {
     assertEquals(show_result[1][4], "name")
     assertEquals(show_result[1][10], "INVERTED")
     assertEquals(show_result[1][11], "index for name")
-    assertEquals(show_result[1][12], "(\"lower_case\" = \"true\", \"parser\" = \"none\", \"support_phrase\" = \"true\")")
+    assertEquals(show_result[1][12], "(\"lower_case\" = \"true\", \"parser\" = \"none\")")
     assertEquals(show_result[2][2], "idx_desc")
     assertEquals(show_result[2][4], "description")
     assertEquals(show_result[2][10], "INVERTED")

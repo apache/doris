@@ -19,6 +19,7 @@ package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorDatabaseMetadata;
+import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorTableSchema;
 import org.apache.doris.connector.spi.ConnectorViewDefinition;
 import org.apache.doris.connector.spi.DorisConnectorException;
@@ -32,6 +33,7 @@ import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.RowLevelOperationMode;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SortOrder;
+import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -315,21 +317,157 @@ public class IcebergConnectorMetadataTest {
 
     @Test
     public void validateStaticPartitionColumnsRejectsUnknownColumn() {
-        // WHY: a PARTITION(col=..) naming a column that is not a partition FIELD must fail loud at analysis time
-        // (byte-identical to legacy validateStaticPartition), else the unknown column is silently swallowed by the
-        // sink's materialize block and surfaces as an unrelated planning error ("Cannot find snapshot"). The lookup
-        // is keyed by partition FIELD name, so "id" (the bucket's SOURCE column, not a field) is also "unknown" —
-        // mirroring regression test_iceberg_static_partition_overwrite TC29 PARTITION(category) over bucket(category).
-        // MUTATION: dropping the containsKey/null check -> unknown column admitted -> red.
+        // WHY: a PARTITION(col=..) naming nothing the spec can write must fail loud at analysis time, else the name
+        // is silently swallowed by the sink's materialize block and surfaces as an unrelated planning error
+        // ("Cannot find snapshot"). The available list is the identity partitions' SOURCE columns — the names a
+        // static write can actually use — not the raw field-name set.
+        // MUTATION: dropping the last-resort throw -> unknown column admitted -> red.
         Schema schema = idNameSchema();
         IcebergConnectorMetadata md = metadataWithSpec(schema,
                 PartitionSpec.builderFor(schema).identity("name").bucket("id", 8).build());
-        for (String bad : new String[] {"invalid_col", "id"}) {
-            DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
-                    () -> md.validateStaticPartitionColumns(
-                            null, new IcebergTableHandle("db1", "t1"), Collections.singletonList(bad)));
-            Assertions.assertTrue(e.getMessage().contains("Unknown partition column"), e.getMessage());
-        }
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> md.validateStaticPartitionColumns(
+                        null, new IcebergTableHandle("db1", "t1"), Collections.singletonList("invalid_col")));
+        Assertions.assertTrue(e.getMessage().contains("Unknown partition column"), e.getMessage());
+        Assertions.assertTrue(e.getMessage().contains("[name]"), e.getMessage());
+    }
+
+    @Test
+    public void validateStaticPartitionColumnsRejectsBucketSourceColumnAsNonIdentity() {
+        // WHY: "id" feeds bucket(8, id), so it cannot be written statically — but it is a real column, and it is the
+        // name a user reads off SHOW CREATE TABLE (`BUCKET(8, `id`)`). Reporting it as an unknown COLUMN would send
+        // them looking for a spelling mistake; the non-identity reason is the actionable one (Spark rejects the same
+        // name as "not a partition column"). Upstream #65991 case 5.5 / TC29 PARTITION(category) over bucket(category).
+        // MUTATION: matching only identity fields and skipping this branch -> wrong message -> red.
+        Schema schema = idNameSchema();
+        IcebergConnectorMetadata md = metadataWithSpec(schema,
+                PartitionSpec.builderFor(schema).identity("name").bucket("id", 8).build());
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> md.validateStaticPartitionColumns(
+                        null, new IcebergTableHandle("db1", "t1"), Collections.singletonList("id")));
+        Assertions.assertTrue(
+                e.getMessage().contains("Cannot use static partition syntax for non-identity partition field 'id'"),
+                e.getMessage());
+    }
+
+    @Test
+    public void validateStaticPartitionColumnsUsesTheIdentitySourceColumnNotTheRenamedField() {
+        // WHY: ADD PARTITION KEY id AS id_identity renames the partition FIELD away from its source column. A static
+        // partition value must then be written through the SOURCE column (Spark's contract: partitionColumnNames
+        // takes the identity transform's field reference, and the static value is materialized into that column),
+        // while the field name is not a table column at all — accepting it is what produced the binder's
+        // "Column has no default value, column=id". MUTATION: keying the lookup by field name -> 'id' reads as
+        // unknown (red) and 'id_identity' is admitted even though no row column can carry it (red).
+        Schema schema = idNameSchema();
+        IcebergConnectorMetadata md = metadataWithSpec(schema,
+                PartitionSpec.builderFor(schema).identity("id", "id_identity").build());
+        Assertions.assertDoesNotThrow(() -> md.validateStaticPartitionColumns(
+                null, new IcebergTableHandle("db1", "t1"), Collections.singletonList("id")));
+        // Doris folds identifiers case-insensitively, so the same name in any case must resolve.
+        Assertions.assertDoesNotThrow(() -> md.validateStaticPartitionColumns(
+                null, new IcebergTableHandle("db1", "t1"), Collections.singletonList("ID")));
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> md.validateStaticPartitionColumns(
+                        null, new IcebergTableHandle("db1", "t1"), Collections.singletonList("id_identity")));
+        Assertions.assertTrue(e.getMessage().contains("is a partition field name, not a table column"),
+                e.getMessage());
+        Assertions.assertTrue(e.getMessage().contains("source column 'id'"), e.getMessage());
+    }
+
+    @Test
+    public void validateStaticPartitionColumnsPrefersTheIdentitySourceOverACaseFoldedAlias() {
+        // PartitionSpec.Builder checks field names case-SENSITIVELY, so a field may be named "ID" over source
+        // "other" next to identity(id) named "id_identity". The static name "id" addresses the SOURCE column, so
+        // it must resolve to that identity field and never to the earlier alias. MUTATION: matching field names
+        // before sources -> "id" resolves to the field over "other" -> red.
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "other", Types.IntegerType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema)
+                .identity("other", "ID")
+                .identity("id", "id_identity")
+                .build();
+        IcebergConnectorMetadata md = metadataWithSpec(schema, spec);
+
+        Assertions.assertDoesNotThrow(() -> md.validateStaticPartitionColumns(
+                null, new IcebergTableHandle("db1", "t1"), Collections.singletonList("id")));
+    }
+
+    @Test
+    public void validateStaticPartitionColumnsFindsIdentityAfterANonIdentityFieldOnTheSameSource() {
+        // A legal spec may declare bucket(8, id) before identity(id); static writes address the identity field, so
+        // the identity must be found regardless of field order. MUTATION: failing on the first source match ->
+        // a writable table is rejected as non-identity -> red.
+        Schema schema = idNameSchema();
+        PartitionSpec spec = PartitionSpec.builderFor(schema).bucket("id", 8).identity("id").build();
+        IcebergConnectorMetadata md = metadataWithSpec(schema, spec);
+
+        Assertions.assertDoesNotThrow(() -> md.validateStaticPartitionColumns(
+                null, new IcebergTableHandle("db1", "t1"), Collections.singletonList("id")));
+    }
+
+    @Test
+    public void validateStaticPartitionColumnsRejectsNestedPartitionSources() {
+        // NestedField#name() is only the LEAF name: a nested identity source must never be reachable through the
+        // top-level column sharing that leaf name, because the binder materializes the literal into top-level
+        // columns only - accepting it would commit a file whose nested partition value came from another column.
+        // MUTATION: matching the source by leaf name -> "id" is accepted -> red.
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "payload", Types.StructType.of(
+                        Types.NestedField.required(3, "id", Types.IntegerType.get()))));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("payload.id", "nested_id").build();
+        IcebergConnectorMetadata md = metadataWithSpec(schema, spec);
+
+        DorisConnectorException leafName = Assertions.assertThrows(DorisConnectorException.class,
+                () -> md.validateStaticPartitionColumns(
+                        null, new IcebergTableHandle("db1", "t1"), Collections.singletonList("id")));
+        Assertions.assertTrue(leafName.getMessage().contains("Unknown partition column 'id'"),
+                leafName.getMessage());
+        DorisConnectorException byFieldName = Assertions.assertThrows(DorisConnectorException.class,
+                () -> md.validateStaticPartitionColumns(
+                        null, new IcebergTableHandle("db1", "t1"), Collections.singletonList("nested_id")));
+        Assertions.assertTrue(byFieldName.getMessage().contains("source is a nested field"),
+                byFieldName.getMessage());
+    }
+
+    @Test
+    public void validateStaticPartitionColumnsUsesThePinnedBranchWriterSchema() {
+        // INSERT INTO t@branch(old) pins the BRANCH's writer schema before analysis completes, and binding,
+        // planning and the BE sink all consume that pinned copy. After a main-only rename (id -> key) the current
+        // metadata no longer has column "id" while the branch still does, so validating against the current schema
+        // would reject the branch statement's own partition column and advise a name that branch does not carry.
+        // MUTATION: validating against table.schema() -> the pinned assertion turns red (the unpinned one below
+        // pins the divergence that makes the pin observable).
+        Schema branchSchema = idNameSchema();
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("pinned", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db1"));
+        Table branchTable = catalog.createTable(TableIdentifier.of("db1", "t1"), branchSchema,
+                PartitionSpec.builderFor(branchSchema).identity("id").build());
+        IcebergWriteSchemaContext pinned = IcebergWriteSchemaContext.create(
+                branchTable, "t1", Optional.empty(), false, false);
+        TestStatementScope scope = new TestStatementScope();
+        ConnectorSession session = new IcebergStatementScopeTest.ScopeSession(1L, "q1", scope);
+        IcebergStatementScope.writeSchema(session, "db1", "t1", Optional.empty(), () -> pinned);
+
+        Schema renamedSchema = new Schema(
+                Types.NestedField.required(1, "key", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "name", Types.StringType.get()));
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = new FakeIcebergTable("t1", renamedSchema,
+                PartitionSpec.builderFor(renamedSchema).identity("key", "id").build(),
+                "s3://bucket/db1/t1", Collections.emptyMap());
+        IcebergConnectorMetadata md = new IcebergConnectorMetadata(ops,
+                IcebergCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext());
+
+        Assertions.assertDoesNotThrow(() -> md.validateStaticPartitionColumns(
+                session, new IcebergTableHandle("db1", "t1"), Collections.singletonList("id")));
+        DorisConnectorException currentOnly = Assertions.assertThrows(DorisConnectorException.class,
+                () -> md.validateStaticPartitionColumns(
+                        null, new IcebergTableHandle("db1", "t1"), Collections.singletonList("id")));
+        Assertions.assertTrue(currentOnly.getMessage().contains("source column 'key'"),
+                currentOnly.getMessage());
     }
 
     @Test
@@ -650,11 +788,19 @@ public class IcebergConnectorMetadataTest {
         Assertions.assertTrue(ops.log.contains("loadTable:db1.t1"),
                 "getTableSchema must load the table via the seam using the handle coordinates");
         List<ConnectorColumn> cols = schema.getColumns();
-        Assertions.assertEquals(2, cols.size());
+        Assertions.assertEquals(4, cols.size());
         Assertions.assertEquals("id", cols.get(0).getName());
         Assertions.assertEquals("INT", cols.get(0).getType().getTypeName());
         Assertions.assertEquals("name", cols.get(1).getName());
         Assertions.assertEquals("STRING", cols.get(1).getType().getTypeName());
+        Assertions.assertEquals("_file", cols.get(2).getName());
+        Assertions.assertEquals("STRING", cols.get(2).getType().getTypeName());
+        Assertions.assertFalse(cols.get(2).isNullable());
+        Assertions.assertFalse(cols.get(2).isVisible());
+        Assertions.assertEquals("_pos", cols.get(3).getName());
+        Assertions.assertEquals("BIGINT", cols.get(3).getType().getTypeName());
+        Assertions.assertFalse(cols.get(3).isNullable());
+        Assertions.assertFalse(cols.get(3).isVisible());
         Assertions.assertEquals(IcebergWritePlanProvider.writeMetadataIdentity(ops.table),
                 schema.getWriteMetadataIdentity(),
                 "the bind-time schema and write fence must be derived from the exact same table load");
@@ -691,6 +837,37 @@ public class IcebergConnectorMetadataTest {
     }
 
     @Test
+    public void externalPhysicalMetadataColumnFailsBeforeSyntheticSchemaAssembly() {
+        // An externally-created Iceberg table may legally contain a physical _file or _pos field. The
+        // connector cannot expose that table together with Doris's synthetic metadata columns because the
+        // schema/handle maps are name-keyed. Reject the collision before appending synthetic fields instead of
+        // silently replacing the physical field handle with a metadata handle.
+        for (String reserved : new String[] {"_file", "_pos", "_FILE", "_POS"}) {
+            Schema physicalSchema = new Schema(
+                    Types.NestedField.optional(1, reserved, Types.StringType.get()),
+                    Types.NestedField.optional(2, "id", Types.IntegerType.get()));
+
+            RecordingIcebergCatalogOps schemaOps = new RecordingIcebergCatalogOps();
+            schemaOps.table = new FakeIcebergTable(
+                    "t1", physicalSchema, PartitionSpec.unpartitioned(),
+                    "s3://bucket/db1/t1", Collections.emptyMap());
+            DorisConnectorException schemaException = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> metadataWith(schemaOps).getTableSchema(null, new IcebergTableHandle("db1", "t1")));
+            Assertions.assertTrue(schemaException.getMessage().contains("reserved metadata column"),
+                    schemaException.getMessage());
+
+            RecordingIcebergCatalogOps handleOps = new RecordingIcebergCatalogOps();
+            handleOps.table = new FakeIcebergTable(
+                    "t1", physicalSchema, PartitionSpec.unpartitioned(),
+                    "s3://bucket/db1/t1", Collections.emptyMap());
+            DorisConnectorException handleException = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> metadataWith(handleOps).getColumnHandles(null, new IcebergTableHandle("db1", "t1")));
+            Assertions.assertTrue(handleException.getMessage().contains("reserved metadata column"),
+                    handleException.getMessage());
+        }
+    }
+
+    @Test
     public void getTableSchemaCarriesFieldDocAsComment() {
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         Schema docSchema = new Schema(
@@ -709,6 +886,25 @@ public class IcebergConnectorMetadataTest {
         Assertions.assertEquals("the primary id", schema.getColumns().get(0).getComment());
         Assertions.assertEquals("", schema.getColumns().get(1).getComment(),
                 "a doc-less Iceberg field must yield an empty (not null) comment");
+    }
+
+    @Test
+    public void getTableSchemaDeclaresRequiredFieldsNotNull() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = new FakeIcebergTable(
+                "t1", idNameSchema(), PartitionSpec.unpartitioned(),
+                "s3://bucket/db1/t1", Collections.emptyMap());
+
+        ConnectorTableSchema schema =
+                metadataWith(ops).getTableSchema(null, new IcebergTableHandle("db1", "t1"));
+
+        // Required fields are read as nullable but displayed as NOT NULL.
+        ConnectorColumn id = schema.getColumns().get(0);
+        Assertions.assertTrue(id.isNullable());
+        Assertions.assertFalse(id.isSourceNullable());
+        ConnectorColumn name = schema.getColumns().get(1);
+        Assertions.assertTrue(name.isNullable());
+        Assertions.assertTrue(name.isSourceNullable());
     }
 
     @Test
@@ -1027,8 +1223,8 @@ public class IcebergConnectorMetadataTest {
         ConnectorTableSchema schema =
                 metadataWith(ops).getTableSchema(null, new IcebergTableHandle("db1", "t1"));
 
-        Assertions.assertEquals(2, schema.getColumns().size(),
-                "an absent format-version must default below 3 (no row-lineage columns)");
+        Assertions.assertEquals(4, schema.getColumns().size(),
+                "an absent format-version must still expose file metadata but no row-lineage columns");
         // And byte-faithful: the internal iceberg.format-version key must not leak into the rendered PROPERTIES
         // (legacy iceberg SHOW CREATE dumped only the raw table.properties()).
         Assertions.assertFalse(schema.getProperties().containsKey("iceberg.format-version"),
@@ -1057,12 +1253,14 @@ public class IcebergConnectorMetadataTest {
 
         // The two data columns (id, name) come first, then the two appended lineage columns IN ORDER
         // (legacy appends _row_id before _last_updated_sequence_number, after the data columns).
-        Assertions.assertEquals(4, cols.size(),
-                "format-version >= 3 must append the two row-lineage columns after the data columns");
+        Assertions.assertEquals(6, cols.size(),
+                "format-version >= 3 must append file metadata and row-lineage columns after the data columns");
         Assertions.assertEquals("id", cols.get(0).getName());
         Assertions.assertEquals("name", cols.get(1).getName());
+        Assertions.assertEquals("_file", cols.get(2).getName());
+        Assertions.assertEquals("_pos", cols.get(3).getName());
 
-        ConnectorColumn rowId = cols.get(2);
+        ConnectorColumn rowId = cols.get(4);
         Assertions.assertEquals("_row_id", rowId.getName());
         Assertions.assertEquals("BIGINT", rowId.getType().getTypeName(), "_row_id is BIGINT");
         Assertions.assertFalse(rowId.isVisible(), "_row_id must be hidden");
@@ -1072,7 +1270,7 @@ public class IcebergConnectorMetadataTest {
         Assertions.assertTrue(rowId.isNullable(), "_row_id is nullable (legacy isAllowNull=true)");
         Assertions.assertFalse(rowId.isKey(), "_row_id is not a key (legacy isKey=false)");
 
-        ConnectorColumn seq = cols.get(3);
+        ConnectorColumn seq = cols.get(5);
         Assertions.assertEquals("_last_updated_sequence_number", seq.getName());
         Assertions.assertEquals("BIGINT", seq.getType().getTypeName(),
                 "_last_updated_sequence_number is BIGINT");
@@ -1102,10 +1300,10 @@ public class IcebergConnectorMetadataTest {
         List<ConnectorColumn> cols =
                 metadataWith(ops).getTableSchema(null, new IcebergTableHandle("db1", "t1")).getColumns();
 
-        Assertions.assertEquals(4, cols.size(),
-                "format-version > 3 must also append the two row-lineage columns (gate is an inclusive >= 3)");
-        Assertions.assertEquals("_row_id", cols.get(2).getName());
-        Assertions.assertEquals("_last_updated_sequence_number", cols.get(3).getName());
+        Assertions.assertEquals(6, cols.size(),
+                "format-version > 3 must also append file metadata and row-lineage columns");
+        Assertions.assertEquals("_row_id", cols.get(4).getName());
+        Assertions.assertEquals("_last_updated_sequence_number", cols.get(5).getName());
     }
 
     @Test
@@ -1126,8 +1324,8 @@ public class IcebergConnectorMetadataTest {
         List<ConnectorColumn> cols =
                 metadataWith(ops).getTableSchema(null, new IcebergTableHandle("db1", "t1")).getColumns();
 
-        Assertions.assertEquals(2, cols.size(),
-                "format-version < 3 must NOT append row-lineage columns");
+        Assertions.assertEquals(4, cols.size(),
+                "format-version < 3 must append file metadata but not row-lineage columns");
         Assertions.assertTrue(cols.stream().noneMatch(c -> c.getName().equals("_row_id")
                         || c.getName().equals("_last_updated_sequence_number")),
                 "no row-lineage columns below format-version 3");
@@ -1169,7 +1367,7 @@ public class IcebergConnectorMetadataTest {
                 Types.NestedField.optional(2, "ts_ntz", Types.TimestampType.withoutZone()),
                 Types.NestedField.optional(3, "id", Types.IntegerType.get()));
 
-        // Mapping flag OFF (default): with-zone ts maps to DATETIMEV2 but STILL carries the marker.
+        // Legacy false flags preserve the source instant type and its marker.
         RecordingIcebergCatalogOps offOps = new RecordingIcebergCatalogOps();
         offOps.table = new FakeIcebergTable(
                 "t1", tsSchema, PartitionSpec.unpartitioned(), "s3://b/t1", Collections.emptyMap());
@@ -1177,8 +1375,8 @@ public class IcebergConnectorMetadataTest {
                 metadataWith(offOps).getTableSchema(null, new IcebergTableHandle("db1", "t1")).getColumns();
         Assertions.assertTrue(offCols.get(0).isWithTimeZone(),
                 "with-zone timestamp must carry the WITH_TIMEZONE marker even with mapping flag OFF");
-        Assertions.assertEquals("DATETIMEV2", offCols.get(0).getType().getTypeName(),
-                "with mapping flag off the with-zone timestamp is still mapped to DATETIMEV2");
+        Assertions.assertEquals("TIMESTAMPTZ", offCols.get(0).getType().getTypeName(),
+                "the source instant type must survive a legacy false flag");
         Assertions.assertFalse(offCols.get(1).isWithTimeZone(),
                 "a without-zone timestamp must NOT carry the WITH_TIMEZONE marker");
         Assertions.assertFalse(offCols.get(2).isWithTimeZone(),
@@ -1253,7 +1451,7 @@ public class IcebergConnectorMetadataTest {
     }
 
     @Test
-    public void getTableSchemaDefaultsMappingFlagsOff() {
+    public void getTableSchemaDefaultsPreserveBytesAndInstants() {
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         Schema binTsSchema = new Schema(
                 Types.NestedField.optional(1, "b", Types.BinaryType.get()),
@@ -1266,13 +1464,11 @@ public class IcebergConnectorMetadataTest {
         ConnectorTableSchema schema =
                 metadataWith(ops).getTableSchema(null, new IcebergTableHandle("db1", "t1"));
 
-        // WHY: with the toggles absent, BINARY must map to STRING and TIMESTAMP-with-zone to DATETIMEV2
-        // (default false). This guards against a fix that accidentally flips the defaults on. MUTATION:
-        // defaulting either flag to true -> VARBINARY / TIMESTAMPTZ -> red.
-        Assertions.assertEquals("STRING", schema.getColumns().get(0).getType().getTypeName(),
-                "absent enable.mapping.varbinary must leave Iceberg BINARY as STRING (default off)");
-        Assertions.assertEquals("DATETIMEV2", schema.getColumns().get(1).getType().getTypeName(),
-                "absent enable.mapping.timestamp_tz must leave Iceberg TIMESTAMP-with-zone as DATETIMEV2");
+        // Catalog defaults preserve source bytes and instants without requiring legacy opt-in properties.
+        Assertions.assertEquals("VARBINARY", schema.getColumns().get(0).getType().getTypeName(),
+                "Iceberg BINARY maps to VARBINARY without an opt-in flag");
+        Assertions.assertEquals("TIMESTAMPTZ", schema.getColumns().get(1).getType().getTypeName(),
+                "Iceberg TIMESTAMP-with-zone maps to TIMESTAMPTZ without an opt-in flag");
     }
 
     // ---------------------------------------------------------------------
@@ -1356,9 +1552,13 @@ public class IcebergConnectorMetadataTest {
         Map<String, ConnectorColumnHandle> handles =
                 metadataWith(ops).getColumnHandles(null, new IcebergTableHandle("db1", "t1"));
 
-        Assertions.assertEquals(2, handles.size());
+        Assertions.assertEquals(5, handles.size());
         Assertions.assertTrue(handles.containsKey("ID"));
         Assertions.assertTrue(handles.containsKey("Name"));
+        Assertions.assertTrue(handles.containsKey("_file"));
+        Assertions.assertTrue(handles.containsKey("_pos"));
+        // The hidden DML row-id column, so the scan provider can tell a scan that produces row IDs.
+        Assertions.assertEquals(-1, ((IcebergColumnHandle) handles.get("__DORIS_ICEBERG_ROWID_COL__")).getFieldId());
         Assertions.assertFalse(handles.containsKey("id"), "post-#65094 the handle key keeps the iceberg case");
         Assertions.assertEquals(7, ((IcebergColumnHandle) handles.get("ID")).getFieldId());
         Assertions.assertEquals(9, ((IcebergColumnHandle) handles.get("Name")).getFieldId());

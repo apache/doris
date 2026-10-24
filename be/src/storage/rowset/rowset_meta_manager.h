@@ -61,7 +61,7 @@ public:
             OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id,
             const RowsetMetaPB& rowset_meta_pb,
             std::optional<BinlogFormatPB> binlog_format = std::nullopt,
-            const std::optional<RowsetMetaPB>& attach_row_binlog_rowset_meta = std::nullopt);
+            const std::optional<RowsetMetaPB>& attach_changelog_rowset_meta = std::nullopt);
 
     // STATEMENT_AND_SNAPSHOT
     static Status save(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id,
@@ -120,10 +120,10 @@ private:
     static Status _save_with_ccr_binlog(OlapMeta* meta, TabletUid tablet_uid,
                                         const RowsetId& rowset_id,
                                         const RowsetMetaPB& rowset_meta_pb);
-    static Status _save_with_row_binlog(OlapMeta* meta, TabletUid tablet_uid,
-                                        const RowsetId& rowset_id,
-                                        const RowsetMetaPB& rowset_meta_pb,
-                                        const RowsetMetaPB& attach_row_binlog_rowset_meta);
+    static Status _save_with_changelog(OlapMeta* meta, TabletUid tablet_uid,
+                                       const RowsetId& rowset_id,
+                                       const RowsetMetaPB& rowset_meta_pb,
+                                       const RowsetMetaPB& attach_changelog_rowset_meta);
     static Status _get_rowset_binlog_metas(OlapMeta* meta, const TabletUid tablet_uid,
                                            const std::vector<int64_t>& binlog_versions,
                                            RowsetBinlogMetasPB* metas_pb);

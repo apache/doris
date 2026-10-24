@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.trees.expressions.Expression;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -27,6 +28,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -176,5 +178,10 @@ public class AggStateType extends DataType {
     @Override
     public String toSql() {
         return toCatalogDataType().toSql();
+    }
+
+    @Override
+    public Optional<Expression> zeroValue() {
+        return Optional.empty();
     }
 }

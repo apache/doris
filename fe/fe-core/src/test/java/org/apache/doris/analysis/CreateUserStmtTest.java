@@ -26,9 +26,9 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateUserInfo;
 import org.apache.doris.qe.ConnectContext;
 
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -36,7 +36,7 @@ import java.util.Collections;
 
 public class CreateUserStmtTest {
 
-    @Before
+    @BeforeEach
     public void setUp() {
         ConnectContext ctx = new ConnectContext();
         ctx.setRemoteIP("192.168.1.1");
@@ -66,18 +66,18 @@ public class CreateUserStmtTest {
         try (MockedStatic<Env> ignored = mockValidateEnv(env, auth, accessManager)) {
             CreateUserInfo info = new CreateUserInfo(new UserDesc(new UserIdentity("user", "%"), "passwd", true));
             info.validate();
-            Assert.assertEquals("user", info.getUserIdent().getQualifiedUser());
-            Assert.assertEquals("*59C70DA2F3E3A5BDF46B68F5C8B8F25762BCCEF0", new String(info.getPassword()));
+            Assertions.assertEquals("user", info.getUserIdent().getQualifiedUser());
+            Assertions.assertEquals("*59C70DA2F3E3A5BDF46B68F5C8B8F25762BCCEF0", new String(info.getPassword()));
 
             info = new CreateUserInfo(
                     new UserDesc(new UserIdentity("user", "%"),
                             "*59c70da2f3e3a5bdf46b68f5c8b8f25762bccef0", false));
             info.validate();
-            Assert.assertEquals("*59C70DA2F3E3A5BDF46B68F5C8B8F25762BCCEF0", new String(info.getPassword()));
+            Assertions.assertEquals("*59C70DA2F3E3A5BDF46B68F5C8B8F25762BCCEF0", new String(info.getPassword()));
 
             info = new CreateUserInfo(new UserDesc(new UserIdentity("user", "%"), "", false));
             info.validate();
-            Assert.assertEquals("", new String(info.getPassword()));
+            Assertions.assertEquals("", new String(info.getPassword()));
         }
     }
 
@@ -93,8 +93,8 @@ public class CreateUserStmtTest {
             info.validate();
 
             UserIdentity userIdent = info.getUserIdent();
-            Assert.assertFalse(userIdent.hasTlsRequirements());
-            Assert.assertNull(userIdent.getSan());
+            Assertions.assertFalse(userIdent.hasTlsRequirements());
+            Assertions.assertNull(userIdent.getSan());
         }
     }
 
@@ -111,55 +111,63 @@ public class CreateUserStmtTest {
             info.validate();
 
             UserIdentity userIdent = info.getUserIdent();
-            Assert.assertEquals("DNS:example.com", userIdent.getSan());
+            Assertions.assertEquals("DNS:example.com", userIdent.getSan());
         }
     }
 
-    @Test(expected = AnalysisException.class)
+    @Test
     public void testTlsRequireSanEmptyValue() throws AnalysisException {
-        Env env = Mockito.mock(Env.class);
-        Auth auth = Mockito.mock(Auth.class);
-        AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
-        try (MockedStatic<Env> ignored = mockValidateEnv(env, auth, accessManager)) {
-            CreateUserInfo info = new CreateUserInfo(false,
-                    new UserDesc(new UserIdentity("tls_user", "%"), "passwd", true),
-                    null, null, null, TlsOptions.of(Collections.singletonList(Pair.of("SAN", ""))));
-            info.validate();
-        }
+        Assertions.assertThrows(AnalysisException.class, () -> {
+            Env env = Mockito.mock(Env.class);
+            Auth auth = Mockito.mock(Auth.class);
+            AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+            try (MockedStatic<Env> ignored = mockValidateEnv(env, auth, accessManager)) {
+                CreateUserInfo info = new CreateUserInfo(false,
+                        new UserDesc(new UserIdentity("tls_user", "%"), "passwd", true),
+                        null, null, null, TlsOptions.of(Collections.singletonList(Pair.of("SAN", ""))));
+                info.validate();
+            }
+        });
     }
 
-    @Test(expected = AnalysisException.class)
+    @Test
     public void testTlsUnsupportedOption() throws AnalysisException {
-        Env env = Mockito.mock(Env.class);
-        Auth auth = Mockito.mock(Auth.class);
-        AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
-        try (MockedStatic<Env> ignored = mockValidateEnv(env, auth, accessManager)) {
-            CreateUserInfo info = new CreateUserInfo(false,
-                    new UserDesc(new UserIdentity("tls_user", "%"), "passwd", true),
-                    null, null, null, TlsOptions.of(Collections.singletonList(Pair.of("ISSUER", "ca"))));
-            info.validate();
-        }
+        Assertions.assertThrows(AnalysisException.class, () -> {
+            Env env = Mockito.mock(Env.class);
+            Auth auth = Mockito.mock(Auth.class);
+            AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+            try (MockedStatic<Env> ignored = mockValidateEnv(env, auth, accessManager)) {
+                CreateUserInfo info = new CreateUserInfo(false,
+                        new UserDesc(new UserIdentity("tls_user", "%"), "passwd", true),
+                        null, null, null, TlsOptions.of(Collections.singletonList(Pair.of("ISSUER", "ca"))));
+                info.validate();
+            }
+        });
     }
 
-    @Test(expected = AnalysisException.class)
+    @Test
     public void testEmptyUser() throws AnalysisException {
-        Env env = Mockito.mock(Env.class);
-        Auth auth = Mockito.mock(Auth.class);
-        AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
-        try (MockedStatic<Env> ignored = mockValidateEnv(env, auth, accessManager)) {
-            CreateUserInfo info = new CreateUserInfo(new UserDesc(new UserIdentity("", "%"), "passwd", true));
-            info.validate();
-        }
+        Assertions.assertThrows(AnalysisException.class, () -> {
+            Env env = Mockito.mock(Env.class);
+            Auth auth = Mockito.mock(Auth.class);
+            AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+            try (MockedStatic<Env> ignored = mockValidateEnv(env, auth, accessManager)) {
+                CreateUserInfo info = new CreateUserInfo(new UserDesc(new UserIdentity("", "%"), "passwd", true));
+                info.validate();
+            }
+        });
     }
 
-    @Test(expected = AnalysisException.class)
+    @Test
     public void testBadPass() throws AnalysisException {
-        Env env = Mockito.mock(Env.class);
-        Auth auth = Mockito.mock(Auth.class);
-        AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
-        try (MockedStatic<Env> ignored = mockValidateEnv(env, auth, accessManager)) {
-            CreateUserInfo info = new CreateUserInfo(new UserDesc(new UserIdentity("", "%"), "passwd", false));
-            info.validate();
-        }
+        Assertions.assertThrows(AnalysisException.class, () -> {
+            Env env = Mockito.mock(Env.class);
+            Auth auth = Mockito.mock(Auth.class);
+            AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+            try (MockedStatic<Env> ignored = mockValidateEnv(env, auth, accessManager)) {
+                CreateUserInfo info = new CreateUserInfo(new UserDesc(new UserIdentity("", "%"), "passwd", false));
+                info.validate();
+            }
+        });
     }
 }

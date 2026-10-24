@@ -78,4 +78,51 @@ TEST(AggregateWindowNthValueTest, UpperBoundedLowerUnboundedFrame) {
     function->destroy(place);
 }
 
+TEST(AggregateWindowValueTest, OwnsValueAfterSourceColumnIsCleared) {
+    AggregateFunctionSimpleFactory factory;
+    register_aggregate_function_window_lead_lag_first_last(factory);
+
+    for (const std::string function_name :
+         {"first_value", "last_value", "nth_value", "lead", "lag"}) {
+        SCOPED_TRACE(function_name);
+        DataTypes argument_types = {std::make_shared<DataTypeString>()};
+        if (function_name == "nth_value") {
+            argument_types.push_back(std::make_shared<DataTypeInt64>());
+        } else if (function_name == "lead" || function_name == "lag") {
+            argument_types.push_back(std::make_shared<DataTypeInt64>());
+            argument_types.push_back(std::make_shared<DataTypeString>());
+        }
+        auto function = factory.get(function_name, argument_types, nullptr, true, -1,
+                                    {.is_window_function = true, .column_names = {}});
+        ASSERT_NE(function, nullptr);
+
+        auto value_column = ColumnString::create();
+        value_column->insert_data("A", 1);
+        value_column->insert_data("B", 1);
+        value_column->insert_data("C", 1);
+        auto offset_column = ColumnInt64::create();
+        offset_column->insert_value(1);
+        auto default_column = ColumnString::create();
+        default_column->insert_data("default", 7);
+        const IColumn* columns[] = {value_column.get(), offset_column.get(), default_column.get()};
+
+        Arena arena;
+        auto* place = reinterpret_cast<AggregateDataPtr>(arena.alloc(function->size_of_data()));
+        function->create(place);
+        UInt8 use_null_result = false;
+        UInt8 could_use_previous_result = false;
+        function->add_range_single_place(0, 3, 1, 2, place, columns, arena, &use_null_result,
+                                         &could_use_previous_result);
+
+        value_column->clear();
+        auto result_column = ColumnNullable::create(ColumnString::create(), ColumnUInt8::create());
+        function->insert_result_into(place, *result_column);
+
+        ASSERT_EQ(result_column->size(), 1);
+        EXPECT_FALSE(result_column->is_null_at(0));
+        EXPECT_EQ(result_column->get_data_at(0).to_string(), "B");
+        function->destroy(place);
+    }
+}
+
 } // namespace doris

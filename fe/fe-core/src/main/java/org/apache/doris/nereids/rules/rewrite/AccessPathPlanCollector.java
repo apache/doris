@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeMap
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeOuter;
 import org.apache.doris.nereids.trees.expressions.functions.generator.PosExplode;
 import org.apache.doris.nereids.trees.expressions.functions.generator.PosExplodeOuter;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -48,6 +49,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.types.NestedColumnPrunable;
+import org.apache.doris.nereids.types.VariantType;
 
 import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.Multimap;
@@ -101,21 +103,35 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
                     for (Expression child : function.children()) {
                         exprCollector.collect(child);
                     }
+                } else if (function.arity() == 1
+                        && function.child(0).getDataType().isVariantType()
+                        && !isNestedGroupVariant(function.child(0))) {
+                    // A generator may change the Variant container kind, which the legacy path
+                    // cannot encode. Preserve the whole input container so residual values stay visible.
+                    exprCollector.collect(function.child(0));
                 } else {
+                    if (function.arity() > 1) {
+                        // Every argument of a multi-argument explode determines how many rows it
+                        // generates, including one whose generated field is never read: in
+                        // explode(v1, v2) AS (x1, x2), a row with v1 = [{"k":1}] and v2 = [1, 2]
+                        // yields two rows even if only x1 is used. Keep the whole container of each
+                        // ordinary Variant argument, not only of those whose field is referenced.
+                        for (Expression argument : function.children()) {
+                            if (argument.getDataType().isVariantType() && !isNestedGroupVariant(argument)) {
+                                exprCollector.collect(argument);
+                            }
+                        }
+                    }
                     for (CollectAccessPathResult accessPath : accessPaths) {
                         List<String> path = accessPath.getPath();
                         if (function.arity() == 1) {
                             // $c$1.VALUES.b
                             CollectorContext argumentContext = new CollectorContext(context, false);
                             argumentContext.setType(accessPath.getType());
-                            if (function.child(0).getDataType().isVariantType()) {
-                                argumentContext.getAccessPathBuilder()
-                                        .addSuffix(path.subList(1, path.size()));
-                            } else {
-                                argumentContext.getAccessPathBuilder()
-                                        .addSuffix(AccessPathInfo.ACCESS_ALL)
-                                        .addSuffix(path.subList(1, path.size()));
+                            if (!isNestedGroupVariant(function.child(0))) {
+                                argumentContext.getAccessPathBuilder().addSuffix(AccessPathInfo.ACCESS_ALL);
                             }
+                            argumentContext.getAccessPathBuilder().addSuffix(path.subList(1, path.size()));
                             function.child(0).accept(exprCollector, argumentContext);
                             continue;
                         } else if (path.size() >= 2) {
@@ -125,9 +141,13 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
                             int colIndex = Integer.parseInt(colName.substring(StructLiteral.COL_PREFIX.length())) - 1;
                             CollectorContext argumentContext = new CollectorContext(context, false);
                             argumentContext.setType(accessPath.getType());
-                            if (function.child(colIndex).getDataType().isVariantType()) {
-                                argumentContext.getAccessPathBuilder()
-                                        .addSuffix(path.subList(2, path.size()));
+                            if (function.child(colIndex).getDataType().isVariantType()
+                                    && !isNestedGroupVariant(function.child(colIndex))) {
+                                // Its whole container is collected above, so an output-field path
+                                // must not narrow it.
+                                continue;
+                            } else if (function.child(colIndex).getDataType().isVariantType()) {
+                                argumentContext.getAccessPathBuilder().addSuffix(path.subList(2, path.size()));
                             } else {
                                 argumentContext.getAccessPathBuilder()
                                         .addSuffix(AccessPathInfo.ACCESS_ALL)
@@ -230,6 +250,17 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
             }
         }
         return generate.child().accept(this, context);
+    }
+
+    // element_at keeps only the max sub-column count of a Variant input, so a NestedGroup argument
+    // such as v['arr'] is recognized by the column its element_at chain reads.
+    private static boolean isNestedGroupVariant(Expression argument) {
+        Expression root = argument;
+        while (root instanceof ElementAt && root.child(0).getDataType().isVariantType()) {
+            root = root.child(0);
+        }
+        return root.getDataType() instanceof VariantType
+                && ((VariantType) root.getDataType()).getEnableNestedGroup();
     }
 
     @Override
@@ -361,7 +392,8 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
             }
             Collection<CollectAccessPathResult> accessPaths = allSlotToAccessPaths.get(slot.getExprId().asInt());
             if (!accessPaths.isEmpty()) {
-                scanSlotToAccessPaths.put(slot, normalizeDataSkippingOnlyAccessPaths(accessPaths));
+                scanSlotToAccessPaths.put(
+                        slot, normalizeDataSkippingOnlyAccessPaths(accessPaths));
             }
         }
         return null;
@@ -375,7 +407,8 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
             }
             Collection<CollectAccessPathResult> accessPaths = allSlotToAccessPaths.get(slot.getExprId().asInt());
             if (!accessPaths.isEmpty()) {
-                scanSlotToAccessPaths.put(slot, normalizeDataSkippingOnlyAccessPaths(accessPaths));
+                scanSlotToAccessPaths.put(
+                        slot, normalizeDataSkippingOnlyAccessPaths(accessPaths));
             }
         }
         return null;
@@ -408,7 +441,7 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
         List<CollectAccessPathResult> normalizedAccessPaths = new ArrayList<>();
         for (CollectAccessPathResult accessPath : accessPaths) {
             List<String> path = accessPath.getPath();
-            if (isDataSkippingOnlyAccessPath(path) && path.size() > 1) {
+            if (path.size() > 1 && accessPath.getType() == ColumnAccessPathType.META) {
                 // NULL/OFFSET suffixes are OLAP segment-reader-only optimizations. External
                 // table and TVF readers use access paths as real nested field paths, so read
                 // the referenced column/sub-column normally instead of sending a pseudo field.
@@ -421,14 +454,5 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
             }
         }
         return normalizedAccessPaths;
-    }
-
-    private static boolean isDataSkippingOnlyAccessPath(List<String> path) {
-        if (path.isEmpty()) {
-            return false;
-        }
-        String lastComponent = path.get(path.size() - 1);
-        return AccessPathInfo.ACCESS_NULL.equals(lastComponent)
-                || AccessPathInfo.ACCESS_OFFSET.equals(lastComponent);
     }
 }

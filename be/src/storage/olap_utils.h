@@ -84,7 +84,7 @@ public:
     }
 };
 
-enum SQLFilterOp {
+enum class SQLFilterOp {
     FILTER_LARGER = 0,
     FILTER_LARGER_OR_EQUAL = 1,
     FILTER_LESS = 2,
@@ -100,24 +100,24 @@ constexpr bool always_false_v = false;
 
 inline SQLFilterOp to_olap_filter_type(const std::string& function_name) {
     if (function_name == "lt") {
-        return FILTER_LESS;
+        return SQLFilterOp::FILTER_LESS;
     } else if (function_name == "gt") {
-        return FILTER_LARGER;
+        return SQLFilterOp::FILTER_LARGER;
     } else if (function_name == "le") {
-        return FILTER_LESS_OR_EQUAL;
+        return SQLFilterOp::FILTER_LESS_OR_EQUAL;
     } else if (function_name == "ge") {
-        return FILTER_LARGER_OR_EQUAL;
+        return SQLFilterOp::FILTER_LARGER_OR_EQUAL;
     } else if (function_name == "eq") {
-        return FILTER_EQ;
+        return SQLFilterOp::FILTER_EQ;
     } else if (function_name == "ne") {
-        return FILTER_NE;
+        return SQLFilterOp::FILTER_NE;
     } else if (function_name == "in") {
-        return FILTER_IN;
+        return SQLFilterOp::FILTER_IN;
     } else if (function_name == "not_in") {
-        return FILTER_NOT_IN;
+        return SQLFilterOp::FILTER_NOT_IN;
     } else {
         DCHECK(false) << "Function Name: " << function_name;
-        return FILTER_IN;
+        return SQLFilterOp::FILTER_IN;
     }
 }
 

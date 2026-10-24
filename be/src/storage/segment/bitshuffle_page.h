@@ -47,7 +47,7 @@
 namespace doris {
 namespace segment_v2 {
 
-enum { BITSHUFFLE_PAGE_HEADER_SIZE = 16 };
+static constexpr size_t BITSHUFFLE_PAGE_HEADER_SIZE = 16;
 
 void warn_with_bitshuffle_error(int64_t val);
 
@@ -237,7 +237,7 @@ private:
         return ret;
     }
 
-    enum { SIZE_OF_TYPE = TypeTraits<Type>::size };
+    static constexpr size_t SIZE_OF_TYPE = TypeTraits<Type>::size;
     PageBuilderOptions _options;
     uint32_t _count;
     uint32_t _remain_element_capacity;
@@ -451,7 +451,7 @@ private:
 
     using CppType = typename TypeTraits<Type>::CppType;
 
-    enum { SIZE_OF_TYPE = TypeTraits<Type>::size };
+    static constexpr size_t SIZE_OF_TYPE = TypeTraits<Type>::size;
 
     Slice _data;
     PageDecoderOptions _options;

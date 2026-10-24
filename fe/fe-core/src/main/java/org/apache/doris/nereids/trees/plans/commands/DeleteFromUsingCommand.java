@@ -20,10 +20,14 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
@@ -55,6 +59,14 @@ public class DeleteFromUsingCommand extends DeleteFromCommand implements Support
                     + " Please check the following session variables: "
                     + ctx.getSessionVariable().printDebugModeVariables());
         }
+        TableIf table = RelationUtil.getTable(RelationUtil.getQualifierName(ctx, nameParts),
+                ctx.getEnv(), Optional.empty());
+        Optional<RowLevelDmlTransform> transform = RowLevelDmlRegistry.find(table);
+        if (transform.isPresent()) {
+            RowLevelDmlArgs args = rowLevelDmlArgs(table);
+            new RowLevelDmlCommand(transform.get(), args, RowLevelDmlOp.DELETE).run(ctx, executor);
+            return;
+        }
         // NOTE: delete from using command is executed as insert command, so txn insert can support it
         new InsertIntoTableCommand(completeQueryPlan(ctx, logicalQuery), Optional.empty(), Optional.empty(),
                 Optional.empty(), true, Optional.empty()).run(ctx, executor);
@@ -66,6 +78,22 @@ public class DeleteFromUsingCommand extends DeleteFromCommand implements Support
             logicalPlan = ((LogicalPlan) cte.get().withChildren(logicalPlan));
         }
         return logicalPlan;
+    }
+
+    @Override
+    protected RowLevelDmlArgs rowLevelDmlArgs(TableIf table) {
+        return RowLevelDmlArgs.forDelete(
+                table, nameParts, tableAlias, isTempPart, partitions,
+                handleCte(logicalQuery), mayDuplicateTargetRows());
+    }
+
+    private boolean mayDuplicateTargetRows() {
+        // The parser attaches every regular USING relation through a LogicalJoin. UNNEST is the
+        // exception: withRelations replaces its one-row child with the target and produces a
+        // LogicalGenerate. CTE, ORDER BY/LIMIT, and simple-DELETE fallback plans contain neither,
+        // so their target rows do not need primary-key deduplication.
+        return logicalQuery.anyMatch(plan -> plan instanceof LogicalJoin
+                || plan instanceof LogicalGenerate);
     }
 
     /**

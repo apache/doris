@@ -154,6 +154,22 @@ public class HiveConnectorMetadataFreshnessTest {
         Assertions.assertEquals(300_000L, freshness.getTimestampMillis());
     }
 
+    @Test
+    public void testPartitionedFreshnessOmitsPartitionDroppedAfterNameListing() {
+        FakeHmsClient client = new FakeHmsClient()
+                .partition("year=2024/month=01", 300L)
+                .listedPartition("year=2024/month=02");
+
+        ConnectorTableFreshness freshness =
+                metadata(client).getTableFreshness(null, partitionedHandle()).orElse(null);
+
+        Assertions.assertNotNull(freshness);
+        Assertions.assertEquals("year=2024/month=01", freshness.getName());
+        Assertions.assertEquals(300_000L, freshness.getTimestampMillis());
+        Assertions.assertEquals(Arrays.asList("year=2024/month=01", "year=2024/month=02"),
+                client.lastRequestedPartitionNames);
+    }
+
     // ==================== per-partition freshness ====================
 
     @Test
@@ -188,6 +204,38 @@ public class HiveConnectorMetadataFreshnessTest {
                 "a vanished partition must yield empty (fe-core throws 'can not find partition')");
     }
 
+    @Test
+    public void testBulkPartitionFreshnessUsesOneHmsObjectRequest() {
+        FakeHmsClient client = new FakeHmsClient()
+                .partition("year=2024/month=01", 300L)
+                .partition("year=2024/month=02", 400L);
+        List<String> names = Arrays.asList("year=2024/month=01", "year=2024/month=02");
+
+        Map<String, Long> freshness = metadata(client)
+                .getPartitionsFreshnessMillis(null, partitionedHandle(), names);
+
+        Map<String, Long> expected = new LinkedHashMap<>();
+        expected.put("year=2024/month=01", 300_000L);
+        expected.put("year=2024/month=02", 400_000L);
+        Assertions.assertEquals(expected, freshness);
+        Assertions.assertEquals(1, client.getPartitionsCalls);
+        Assertions.assertEquals(names, client.lastRequestedPartitionNames);
+    }
+
+    @Test
+    public void testBulkPartitionFreshnessOmitsVanishedPartition() {
+        FakeHmsClient client = new FakeHmsClient()
+                .partition("year=2024/month=01", 300L);
+        List<String> names = Arrays.asList("year=2024/month=01", "year=2024/month=02");
+
+        Map<String, Long> freshness = metadata(client)
+                .getPartitionsFreshnessMillis(null, partitionedHandle(), names);
+
+        Assertions.assertEquals(Collections.singletonMap("year=2024/month=01", 300_000L), freshness);
+        Assertions.assertEquals(1, client.getPartitionsCalls);
+        Assertions.assertEquals(names, client.lastRequestedPartitionNames);
+    }
+
     // ==================== query-begin pin: flags last-modified freshness ====================
 
     @Test
@@ -214,8 +262,11 @@ public class HiveConnectorMetadataFreshnessTest {
         // Insertion-ordered so getPartitions returns partitions in registration order (drives the tie test).
         private final Map<String, Long> partitionDdlSeconds = new LinkedHashMap<>();
         private final List<String> paramlessPartitions = new ArrayList<>();
+        private final List<String> listedPartitions = new ArrayList<>();
         private boolean listPartitionNamesCalled;
         private boolean getPartitionsCalled;
+        private int getPartitionsCalls;
+        private List<String> lastRequestedPartitionNames;
 
         FakeHmsClient partition(String name, long ddlSeconds) {
             partitionDdlSeconds.put(name, ddlSeconds);
@@ -224,6 +275,11 @@ public class HiveConnectorMetadataFreshnessTest {
 
         FakeHmsClient partitionNoParam(String name) {
             paramlessPartitions.add(name);
+            return this;
+        }
+
+        FakeHmsClient listedPartition(String name) {
+            listedPartitions.add(name);
             return this;
         }
 
@@ -244,12 +300,29 @@ public class HiveConnectorMetadataFreshnessTest {
             listPartitionNamesCalled = true;
             List<String> names = new ArrayList<>(partitionDdlSeconds.keySet());
             names.addAll(paramlessPartitions);
+            names.addAll(listedPartitions);
             return names;
         }
 
         @Override
         public List<HmsPartitionInfo> getPartitions(String dbName, String tableName, List<String> partNames) {
+            List<HmsPartitionInfo> result = loadExistingPartitions(partNames);
+            if (result.size() != partNames.size()) {
+                throw new AssertionError("exact partition lookup received a missing partition");
+            }
+            return result;
+        }
+
+        @Override
+        public List<HmsPartitionInfo> getExistingPartitions(
+                String dbName, String tableName, List<String> partNames) {
+            return loadExistingPartitions(partNames);
+        }
+
+        private List<HmsPartitionInfo> loadExistingPartitions(List<String> partNames) {
             getPartitionsCalled = true;
+            getPartitionsCalls++;
+            lastRequestedPartitionNames = new ArrayList<>(partNames);
             List<HmsPartitionInfo> result = new ArrayList<>();
             for (String name : partNames) {
                 if (partitionDdlSeconds.containsKey(name) || paramlessPartitions.contains(name)) {

@@ -57,8 +57,7 @@ suite("test_auth_remote_ip", "arrow_flight_sql") {
         Class.forName("org.apache.arrow.driver.jdbc.ArrowFlightJdbcDriver")
         String arrowFlightSqlHost = context.config.otherConfigs.get("extArrowFlightSqlHost")
         String arrowFlightSqlPort = context.config.otherConfigs.get("extArrowFlightSqlPort")
-        String arrowFlightSqlUrl = "jdbc:arrow-flight-sql://${arrowFlightSqlHost}:${arrowFlightSqlPort}" +
-                "/?useServerPrepStmts=false&useSSL=false&useEncryption=false"
+        String arrowFlightSqlUrl = context.config.getArrowFlightSqlJdbcUrl(arrowFlightSqlHost, arrowFlightSqlPort)
 
         Connection conn = DriverManager.getConnection(arrowFlightSqlUrl, user, password)
         try {

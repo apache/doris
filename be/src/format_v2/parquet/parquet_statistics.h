@@ -23,6 +23,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "common/status.h"
@@ -131,7 +132,8 @@ struct ParquetStatisticsUtils {
 
     static ParquetColumnStatistics TransformColumnStatistics(
             const ParquetColumnSchema& column_schema, const tparquet::Statistics* statistics,
-            int64_t column_value_count, const cctz::time_zone* timezone = nullptr);
+            int64_t column_value_count, const cctz::time_zone* timezone = nullptr,
+            bool null_count_trusted = true);
 
     static bool NativeBloomFilterExcludes(const ParquetColumnSchema& column_schema, int slot_index,
                                           const VExprContextSPtrs& conjuncts,
@@ -146,7 +148,8 @@ Status select_row_groups_by_metadata(
         ParquetPruningStats* pruning_stats, const cctz::time_zone* timezone = nullptr,
         const RuntimeState* runtime_state = nullptr, ParquetFileContext* file_context = nullptr,
         const ParquetColumnReaderProfile& column_reader_profile = {},
-        ParquetMetadataProbeMode probe_mode = ParquetMetadataProbeMode::ALL);
+        ParquetMetadataProbeMode probe_mode = ParquetMetadataProbeMode::ALL,
+        const std::unordered_set<int>* requested_leaf_ids = nullptr);
 
 Status select_row_group_ranges_by_native_page_index(
         const tparquet::FileMetaData& metadata, const tparquet::RowGroup& row_group,

@@ -35,7 +35,6 @@
 #include "core/column/column_decimal.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
-#include "core/column/column_variant.h"
 #include "core/column/column_vector.h"
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_date.h"
@@ -63,9 +62,7 @@ namespace doris {
 namespace {
 
 VariantField encode_json(std::string_view json) {
-    JsonStringToVariantEncoder encoder({.max_json_key_length = 255,
-                                        .throw_on_invalid_json = true,
-                                        .check_duplicate_json_path = false});
+    JsonStringToVariantEncoder encoder({.max_json_key_length = 255, .throw_on_invalid_json = true});
     encoder.add_json({json.data(), json.size()});
     VariantBatchBuilder block = encoder.finish_batch();
     return VariantField::from_ref(block.value_at(0));
@@ -240,20 +237,19 @@ TEST(DataTypeVariantV2SerDeBinaryRoundTripTest, ComputeVariantTypeRoundTripsEnco
 }
 
 TEST(DataTypeVariantV2SerDeBinaryRoundTripTest, ExecutionTypeSelectsPhysicalColumn) {
-    DataTypeVariant legacy;
+    DataTypeVariant variant;
     DataTypeVariantV2 compute_v2;
 
-    MutableColumnPtr legacy_column = legacy.create_column();
+    MutableColumnPtr variant_column = variant.create_column();
     MutableColumnPtr compute_v2_column = compute_v2.create_column();
-    EXPECT_NE(dynamic_cast<ColumnVariant*>(legacy_column.get()), nullptr);
-    EXPECT_EQ(dynamic_cast<ColumnVariantV2*>(legacy_column.get()), nullptr);
+    EXPECT_NE(dynamic_cast<ColumnVariantV2*>(variant_column.get()), nullptr);
     EXPECT_NE(dynamic_cast<ColumnVariantV2*>(compute_v2_column.get()), nullptr);
-    EXPECT_TRUE(legacy.check_column(*legacy_column).ok());
-    EXPECT_FALSE(legacy.check_column(*compute_v2_column).ok());
+    EXPECT_TRUE(variant.check_column(*variant_column).ok());
+    EXPECT_TRUE(variant.check_column(*compute_v2_column).ok());
     EXPECT_TRUE(compute_v2.check_column(*compute_v2_column).ok());
-    EXPECT_FALSE(compute_v2.check_column(*legacy_column).ok());
-    EXPECT_FALSE(legacy.equals(compute_v2));
-    EXPECT_FALSE(compute_v2.equals(legacy));
+    EXPECT_TRUE(compute_v2.check_column(*variant_column).ok());
+    EXPECT_TRUE(variant.equals(compute_v2));
+    EXPECT_TRUE(compute_v2.equals(variant));
     EXPECT_TRUE(compute_v2.equals(DataTypeVariantV2 {}));
 }
 

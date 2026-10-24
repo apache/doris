@@ -37,8 +37,10 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
+import org.apache.doris.common.util.ExceptionDiagnosticUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.connector.cache.CacheSpec;
+import org.apache.doris.connector.cache.MetaCacheBudgetManager;
 import org.apache.doris.datasource.doris.RemoteDorisExternalDatabase;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
@@ -65,7 +67,6 @@ import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -212,11 +213,11 @@ public abstract class ExternalCatalog
         // set default value to true, no matter is replaying or not.
         // After 4.0, all external catalogs will use meta cache by default.
         catalogProperty.addProperty(USE_META_CACHE, String.valueOf(DEFAULT_USE_META_CACHE));
-        if (catalogProperty.getOrDefault(CatalogProperty.ENABLE_MAPPING_VARBINARY, "").isEmpty()) {
-            catalogProperty.setEnableMappingVarbinary(false);
-        }
-        if (catalogProperty.getOrDefault(CatalogProperty.ENABLE_MAPPING_TIMESTAMP_TZ, "").isEmpty()) {
-            catalogProperty.setEnableMappingTimestampTz(false);
+        // New CREATE logs include the marker. Preserve old replayed values so master promotion
+        // can migrate them through a replicated ALTER log rather than a process-local rewrite.
+        if (!isReplay) {
+            catalogProperty.setEnableMappingVarbinary(true);
+            catalogProperty.setEnableMappingTimestampTz(true);
         }
     }
 
@@ -349,8 +350,13 @@ public abstract class ExternalCatalog
                 this.errorMsg = "";
             }
         } catch (Exception e) {
-            LOG.warn("failed to init catalog {}:{}", name, id, e);
-            this.errorMsg = ExceptionUtils.getRootCauseMessage(e);
+            this.errorMsg = initErrorMessage(e);
+            String diagnosticTrace = initErrorStackTrace(e);
+            if (diagnosticTrace != null) {
+                LOG.warn("failed to init catalog {}:{}: {}", name, id, diagnosticTrace);
+            } else {
+                LOG.warn("failed to init catalog {}:{}", name, id, e);
+            }
             throw new RuntimeException("Failed to init catalog: " + name + ", error: " + this.errorMsg, e);
         } finally {
             isInitializing = false;
@@ -367,7 +373,16 @@ public abstract class ExternalCatalog
      * {@code alter catalog ... set properties} triggers {@link #resetToUninitialized(boolean)}.
      */
     protected void recordDeferredInitError(Throwable t) {
-        this.errorMsg = ExceptionUtils.getRootCauseMessage(t);
+        this.errorMsg = initErrorMessage(t);
+    }
+
+    public static String initErrorMessage(Throwable error) {
+        return ExceptionDiagnosticUtils.message(error);
+    }
+
+    @Nullable
+    public static String initErrorStackTrace(Throwable error) {
+        return ExceptionDiagnosticUtils.sanitizedStackTrace(error);
     }
 
     protected final void initLocalObjects() {
@@ -436,6 +451,11 @@ public abstract class ExternalCatalog
     protected void checkProperties(CatalogProperty property) throws DdlException {
         // check refresh parameter of catalog
         Map<String, String> properties = property.getProperties();
+        try {
+            checkMetaCacheWeightProperties(properties);
+        } catch (IllegalArgumentException e) {
+            throw new DdlException(e.getMessage());
+        }
         if (properties.containsKey(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC)) {
             try {
                 int metadataRefreshIntervalSec = Integer.parseInt(
@@ -457,6 +477,11 @@ public abstract class ExternalCatalog
         }
     }
 
+    /** Strict CREATE/ALTER validation for the core metadata-cache namespace owned by this catalog. */
+    protected void checkMetaCacheWeightProperties(Map<String, String> properties) {
+        CacheSpec.checkWeightProperties(properties, "default", "schema");
+    }
+
     /**
      * Validate an ALTER candidate without publishing it to this catalog. A true return value
      * declares that the connector performed complete detached validation; false retains the
@@ -470,10 +495,15 @@ public abstract class ExternalCatalog
     /**
      * eg:
      * (
-     * ""access_controller.class" = "org.apache.doris.mysql.privilege.RangerHiveAccessControllerFactory",
+     * "access_controller.class" = "ranger-hive",
      * "access_controller.properties.prop1" = "xxx",
      * "access_controller.properties.prop2" = "yyy",
      * )
+     * <p>
+     * The name the source is published under, not the class name of its factory: a class name ties the
+     * catalog to where the source happens to live today, which is exactly what broke when the Ranger
+     * sources moved out of fe-core. Factory class names are still accepted, see
+     * {@code AccessControllerManager#getPluginIdentifierForAccessController}.
      * <p>
      * isDryRun: if true, it will try to create the custom access controller, but will not add it to the access manager.
      */
@@ -604,14 +634,24 @@ public abstract class ExternalCatalog
     }
 
     private Runnable resetToUninitialized(boolean invalidCache, boolean deferAccessControllerCleanup) {
-        Runnable accessControllerCleanup;
-        synchronized (this) {
-            this.objectCreated = false;
-            this.initialized = false;
-            accessControllerCleanup = detachAccessController();
-            closeResourcesQuietly("resetting catalog");
-        }
+        return resetToUninitialized(invalidCache, deferAccessControllerCleanup, () -> { });
+    }
+
+    private Runnable resetToUninitialized(boolean invalidCache, boolean deferAccessControllerCleanup,
+            Runnable retireCaches) {
+        Runnable accessControllerCleanup = () -> { };
         try {
+            synchronized (this) {
+                this.objectCreated = false;
+                this.initialized = false;
+                accessControllerCleanup = detachAccessController();
+                try {
+                    closeResourcesQuietly("resetting catalog");
+                } finally {
+                    // Retire core and connector budgets before lazy initialization can publish a new limit.
+                    retireCaches.run();
+                }
+            }
             onRefreshCache(invalidCache);
         } catch (RuntimeException | Error e) {
             accessControllerCleanup.run();
@@ -714,7 +754,12 @@ public abstract class ExternalCatalog
             try {
                 return getDbNames();
             } catch (Exception e) {
-                LOG.warn("failed to get db names in catalog {}", getName(), e);
+                String diagnosticTrace = initErrorStackTrace(e);
+                if (diagnosticTrace != null) {
+                    LOG.warn("failed to get db names in catalog {}: {}", getName(), diagnosticTrace);
+                } else {
+                    LOG.warn("failed to get db names in catalog {}", getName(), e);
+                }
                 return Lists.newArrayList();
             }
         } else {
@@ -734,12 +779,8 @@ public abstract class ExternalCatalog
         if (StringUtils.isEmpty(dbName)) {
             return null;
         }
-        try {
-            makeSureInitialized();
-        } catch (Exception e) {
-            LOG.warn("failed to get db {} in catalog {}", dbName, name, e);
-            return null;
-        }
+        // Initialization errors do not establish that the requested database is absent.
+        makeSureInitialized();
 
         SessionContext sessionContext = SessionContext.current();
         if (shouldBypassDbNameCache(sessionContext)) {
@@ -819,7 +860,12 @@ public abstract class ExternalCatalog
         try {
             makeSureInitialized();
         } catch (Exception e) {
-            LOG.warn("failed to get db {} in catalog {}", dbId, name, e);
+            String diagnosticTrace = initErrorStackTrace(e);
+            if (diagnosticTrace != null) {
+                LOG.warn("failed to get db {} in catalog {}: {}", dbId, name, diagnosticTrace);
+            } else {
+                LOG.warn("failed to get db {} in catalog {}", dbId, name, e);
+            }
             return null;
         }
 
@@ -848,7 +894,6 @@ public abstract class ExternalCatalog
 
     @Override
     public void modifyCatalogProps(Map<String, String> props) {
-        catalogProperty.modifyCatalogProps(props);
         notifyPropertiesUpdated(props);
     }
 
@@ -857,7 +902,6 @@ public abstract class ExternalCatalog
      * blocking close operation to CatalogMgr so it can run after releasing the global catalog write lock.
      */
     public Runnable modifyCatalogPropsWithDeferredAccessControllerCleanup(Map<String, String> props) {
-        catalogProperty.modifyCatalogProps(props);
         return resetAfterPropertyUpdate(props, true);
     }
 
@@ -867,28 +911,38 @@ public abstract class ExternalCatalog
 
     private void invalidateCachesAfterPropertyUpdate(Map<String, String> updatedProps) {
         ExternalMetaCacheMgr cacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
-        if (updatedProps.get(SCHEMA_CACHE_TTL_SECOND) != null) {
+        if (updatedProps.get(SCHEMA_CACHE_TTL_SECOND) != null
+                || updatedProps.containsKey(MetaCacheBudgetManager.CATALOG_MAX_WEIGHT_PROPERTY)) {
             cacheMgr.removeCatalog(id);
-        } else {
-            cacheMgr.invalidateCatalog(id);
+            return;
         }
+        Set<String> removedEngines = Sets.newHashSet();
+        for (String key : updatedProps.keySet()) {
+            if (key == null || !key.startsWith("meta.cache.")) {
+                continue;
+            }
+            String remainder = key.substring("meta.cache.".length());
+            int separator = remainder.indexOf('.');
+            if (separator <= 0) {
+                continue;
+            }
+            String engine = remainder.substring(0, separator);
+            if (cacheMgr.isEngineRegistered(engine) && removedEngines.add(engine)) {
+                cacheMgr.removeCatalogByEngine(id, engine);
+            }
+        }
+        // Scoped removal does not clear other engines or row counts. ALTER may also change the endpoint,
+        // including when a tolerated cache property names an engine that this catalog does not use.
+        cacheMgr.invalidateCatalog(id);
     }
 
     private Runnable resetAfterPropertyUpdate(Map<String, String> updatedProps,
             boolean deferAccessControllerCleanup) {
-        Runnable accessControllerCleanup = () -> { };
-        // Property and connector state may already have changed when reset fails, so cache invalidation is mandatory.
-        try {
-            accessControllerCleanup = resetToUninitialized(false, deferAccessControllerCleanup);
-        } finally {
-            try {
-                invalidateCachesAfterPropertyUpdate(updatedProps);
-            } catch (RuntimeException | Error e) {
-                accessControllerCleanup.run();
-                throw e;
-            }
-        }
-        return accessControllerCleanup;
+        return resetToUninitialized(false, deferAccessControllerCleanup,
+                () -> {
+                    catalogProperty.modifyCatalogProps(updatedProps);
+                    invalidateCachesAfterPropertyUpdate(updatedProps);
+                });
     }
 
     public void rollBackCatalogProps(Map<String, String> props) {
@@ -1035,30 +1089,14 @@ public abstract class ExternalCatalog
         // When running ut, disable this check to make ut pass.
         // Because in ut, the database is not created in remote system.
         if (checkExists && (!FeConstants.runningUnitTest || this instanceof TestExternalCatalog)) {
-            try {
-                final String lookupLocalDbName = localDbName;
-                // Reuse the shared names lookup helper so existence checks follow the same miss-refresh policy.
-                Boolean exists = resolveDatabaseNameFromSnapshot(lookupLocalDbName, false,
-                        namesValue -> namesValue.containsLocalName(lookupLocalDbName) ? Boolean.TRUE : null);
-                if (!Boolean.TRUE.equals(exists)) {
-                    LOG.warn("Database {} does not exist in the remote system. Skipping initialization.",
-                            localDbName);
-                    return null;
-                }
-            } catch (RuntimeException e) {
-                // Handle "Found conflicting" exception explicitly
-                if (e.getMessage().contains(FOUND_CONFLICTING)) {
-                    LOG.error(e.getMessage());
-                    throw e; // Rethrow to let the caller handle this critical issue
-                } else {
-                    // Any errors other than name conflicts, we default to not finding the database
-                    LOG.warn("Failed to check db {} exist in remote system, ignore it.", localDbName, e);
-                    return null;
-                }
-            } catch (Exception e) {
-                // If connection failed, it will throw exception.
-                // ignore it and treat it as not exist.
-                LOG.warn("Failed to check db {} exist in remote system, ignore it.", localDbName, e);
+            // Authentication and connection failures must propagate; only a successful lookup can prove absence.
+            final String lookupLocalDbName = localDbName;
+            // Reuse the shared names lookup helper so existence checks follow the same miss-refresh policy.
+            Boolean exists = resolveDatabaseNameFromSnapshot(lookupLocalDbName, false,
+                    namesValue -> namesValue.containsLocalName(lookupLocalDbName) ? Boolean.TRUE : null);
+            if (!Boolean.TRUE.equals(exists)) {
+                LOG.warn("Database {} does not exist in the remote system. Skipping initialization.",
+                        localDbName);
                 return null;
             }
         }
@@ -1787,5 +1825,12 @@ public abstract class ExternalCatalog
         makeSureInitialized();
         Preconditions.checkState(dorisTable instanceof ExternalTable, dorisTable.getName());
         throw new DdlException("Reorder columns operation is not supported for catalog: " + getName());
+    }
+
+    @Override
+    public void updateTableProperties(TableIf dorisTable, Map<String, String> properties) throws UserException {
+        makeSureInitialized();
+        Preconditions.checkState(dorisTable instanceof ExternalTable, dorisTable.getName());
+        throw new DdlException("Update table properties operation is not supported for catalog: " + getName());
     }
 }

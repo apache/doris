@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector;
 
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.ConnectorWriteOps;
@@ -40,14 +41,17 @@ import org.mockito.Mockito;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 
 /**
  * Tests for the per-statement {@link ConnectorStatementScope}: the {@link ConnectorStatementScope#NONE} no-op,
  * the memoizing {@link ConnectorStatementScopeImpl}, the {@link StatementContext} hosting + per-execution
- * reset a reused prepared statement relies on, and that {@link ExecuteCommand} actually invokes that reset on
- * every execution (external/connector tables are planned through the reused prepared context, so a missing
- * reset would leak one execution's loaded table into the next — see {@code executeCommandResetsConnectorScope*}).
+ * reset primitive, and that {@link ExecuteCommand} allocates a fresh StatementContext (and therefore a fresh
+ * connector scope) on every execution (external/connector tables are planned through the context, so a missing
+ * fresh context would leak one execution's loaded table into the next — see
+ * {@code executeCommandAllocatesFreshConnectorScopePerExecution}).
  */
 public class ConnectorStatementScopeTest {
 
@@ -90,6 +94,106 @@ public class ConnectorStatementScopeTest {
 
         Object b = scope.computeIfAbsent("B", Object::new);
         Assertions.assertNotSame(firstA, b, "different keys are isolated (cross-catalog / cross-table)");
+    }
+
+    @Test
+    public void nonePlanningValuesAreNeverMemoized() {
+        // Under NONE a value only planning reads is loaded on every call too, and ending planning has nothing to do.
+        // MUTATION: NONE memoizing planning values -> one load -> red.
+        AtomicInteger loads = new AtomicInteger();
+        Supplier<Object> loader = () -> {
+            loads.incrementAndGet();
+            return new Object();
+        };
+        ConnectorStatementScope none = ConnectorStatementScope.NONE;
+
+        Assertions.assertNotSame(none.computeIfAbsentForPlanning("k", loader),
+                none.computeIfAbsentForPlanning("k", loader));
+        none.endPlanning();
+        Assertions.assertEquals(2, loads.get(), "NONE must run the loader every time (no memo)");
+    }
+
+    @Test
+    public void endPlanningDropsOnlyThePlanningValues() throws Exception {
+        // Identical scans share their planned ranges only within one plan, so a value only planning reads is dropped
+        // when planning ends, while the values the statement keeps (its tables, metadata, transactions) stay until
+        // closeAll. A later plan of the same statement registers the value again, and the end of that plan drops it.
+        // MUTATION: endPlanning dropping nothing, dropping every value, or forgetting a value registered again -> red.
+        ConnectorStatementScope scope = new ConnectorStatementScopeImpl();
+        AtomicInteger memoLoads = new AtomicInteger();
+        Supplier<Object> memoLoader = () -> {
+            memoLoads.incrementAndGet();
+            return new Object();
+        };
+        Object memo = scope.computeIfAbsentForPlanning("memo", memoLoader);
+        Assertions.assertSame(memo, scope.computeIfAbsentForPlanning("memo", memoLoader),
+                "within one plan the value is shared");
+        Object table = scope.computeIfAbsent("table", Object::new);
+        AtomicInteger closes = new AtomicInteger();
+        AutoCloseable metadata = () -> closes.incrementAndGet();
+        scope.computeIfAbsent("metadata", () -> metadata);
+
+        scope.endPlanning();
+
+        Assertions.assertSame(table, scope.computeIfAbsent("table", Object::new), "statement values outlive planning");
+        Object memoOfNextPlan = scope.computeIfAbsentForPlanning("memo", memoLoader);
+        Assertions.assertNotSame(memo, memoOfNextPlan, "the next plan of the statement loads the value again");
+        scope.endPlanning();
+        Assertions.assertNotSame(memoOfNextPlan, scope.computeIfAbsentForPlanning("memo", memoLoader));
+        Assertions.assertEquals(3, memoLoads.get());
+
+        scope.closeAll();
+        Assertions.assertEquals(1, closes.get(), "closeAll still closes the statement values");
+    }
+
+    @Test
+    public void planningValueMustHoldNothingToClose() {
+        // endPlanning drops a value without closing it, so a closeable one would leak. MUTATION: dropping the check
+        // -> no exception -> red.
+        ConnectorStatementScope scope = new ConnectorStatementScopeImpl();
+        AutoCloseable closeable = () -> { };
+
+        Assertions.assertThrows(IllegalStateException.class,
+                () -> scope.computeIfAbsentForPlanning("closeable", () -> closeable));
+    }
+
+    @Test
+    public void releasingPlannerResourcesEndsThePlanningOfTheScope() {
+        // NereidsPlanner.planWithLock releases the planner resources when planning is over, which ends connector
+        // planning; a statement no connector has touched has no scope to end. MUTATION: releasePlannerResources not
+        // ending connector planning -> red.
+        StatementContext ctx = new StatementContext();
+        ctx.releasePlannerResources();
+        ConnectorStatementScope scope = ctx.getOrCreateConnectorStatementScope();
+        Object memo = scope.computeIfAbsentForPlanning("memo", Object::new);
+        Object table = scope.computeIfAbsent("table", Object::new);
+
+        ctx.releasePlannerResources();
+
+        Assertions.assertSame(scope, ctx.getOrCreateConnectorStatementScope(), "ending planning keeps the scope");
+        Assertions.assertSame(table, scope.computeIfAbsent("table", Object::new));
+        Assertions.assertNotSame(memo, scope.computeIfAbsentForPlanning("memo", Object::new));
+    }
+
+    @Test
+    public void releasingPlannerResourcesEndsPlanningWhenAResourceFailsToClose() {
+        // A table lock that fails to unlock still reaches the caller, after the planning values are gone.
+        // MUTATION: ending connector planning only after the release succeeded -> the memo survives -> red.
+        StatementContext ctx = new StatementContext();
+        ConnectorStatementScope scope = ctx.getOrCreateConnectorStatementScope();
+        Object memo = scope.computeIfAbsentForPlanning("memo", Object::new);
+        TableIf table = Mockito.mock(TableIf.class);
+        Mockito.when(table.needReadLockWhenPlan()).thenReturn(true);
+        Mockito.when(table.tryReadLock(Mockito.anyLong(), Mockito.any(TimeUnit.class))).thenReturn(true);
+        Mockito.when(table.getNameWithFullQualifiers()).thenReturn("internal.db.t");
+        IllegalStateException unlockFailure = new IllegalStateException("unlock failed");
+        Mockito.doThrow(unlockFailure).when(table).readUnlock();
+        ctx.getTables().put(Arrays.asList("internal", "db", "t"), table);
+        ctx.lock();
+
+        Assertions.assertSame(unlockFailure,
+                Assertions.assertThrows(IllegalStateException.class, ctx::releasePlannerResources));
+        Assertions.assertNotSame(memo, scope.computeIfAbsentForPlanning("memo", Object::new));
     }
 
     @Test
@@ -184,21 +288,27 @@ public class ConnectorStatementScopeTest {
     }
 
     @Test
-    public void executeCommandResetsConnectorScopePerExecution() throws Exception {
-        // WIRING test: the reset above is only load-bearing if ExecuteCommand.run() actually calls it. A prepared
-        // statement reuses ONE StatementContext across every EXECUTE, and an EXTERNAL/connector table is planned
-        // through that reused context each execution (external tables never take the OLAP short-circuit fast path;
-        // they always fall to the normal executor.execute() planner, which re-resolves the table per execution).
-        // So run() must drop the connector per-statement scope at the top of every execution, or a prior execution's
-        // memoized (loaded) table leaks into the next. The tests above cover only the reset PRIMITIVE; this covers
-        // that the command invokes it. MUTATION: delete `statementContext.resetConnectorStatementScope()` from
-        // ExecuteCommand.run() -> the seeded value survives -> the assertNotSame below flips -> red.
+    public void executeCommandAllocatesFreshConnectorScopePerExecution() throws Exception {
+        // WIRING test: a prepared statement lives as long as its connection, so ExecuteCommand must not let one
+        // execution's connector state leak into the next. Previously run() reused ONE StatementContext and reset
+        // its connector per-statement scope at the top of every execution; now it allocates a brand-new
+        // StatementContext per EXECUTE (dropping the previous one, whose per-statement maps were the OOM source
+        // on long-lived connections), so the fresh context starts with a brand-new connector scope by
+        // construction. External/connector tables never take the OLAP short-circuit fast path; they always fall
+        // to the normal executor.execute() planner, which re-resolves the table per execution through that fresh
+        // context. MUTATION: reverting to reusing one StatementContext across executions (without a reset) -> the
+        // seeded value survives in the context still used by the next execution -> the assertNotSame below flips
+        // -> red.
         StatementContext statementContext = new StatementContext();
-        // Seed a value the way a first execution's connector planning would (one loaded table the statement shares).
+        // Seed values the way a first execution's connector planning would (one loaded table the statement
+        // shares, plus closeable metadata that must be finalized when the context is dropped).
         ConnectorStatementScope firstScope = statementContext.getOrCreateConnectorStatementScope();
         Object memoizedTable = firstScope.computeIfAbsent("table:1", Object::new);
+        AtomicInteger closes = new AtomicInteger();
+        AutoCloseable closeable = () -> closes.incrementAndGet();
+        firstScope.computeIfAbsent("closeable:1", () -> closeable);
 
-        // A prepared statement wrapping that reused StatementContext, with a plain (non-cache, non-insert) plan.
+        // A prepared statement wrapping that StatementContext, with a plain (non-cache, non-insert) plan.
         LogicalPlan plan = Mockito.mock(LogicalPlan.class);
         PrepareCommand prepareCommand = Mockito.mock(PrepareCommand.class);
         Mockito.when(prepareCommand.getLogicalPlan()).thenReturn(plan);
@@ -213,15 +323,25 @@ public class ConnectorStatementScopeTest {
         Mockito.when(ctx.getSessionVariable()).thenReturn(sessionVariable);
         Mockito.when(ctx.getStatementContext()).thenReturn(statementContext);
 
-        // A no-op executor: we pin the reset wiring, not the planner. execute() is a mock no-op.
+        // A no-op executor: we pin the fresh-context wiring, not the planner. execute() is a mock no-op.
         StmtExecutor executor = Mockito.mock(StmtExecutor.class);
         Mockito.when(executor.getContext()).thenReturn(ctx);
 
         new ExecuteCommand("s", prepareCommand, statementContext).run(ctx, executor);
 
-        ConnectorStatementScope secondScope = statementContext.getOrCreateConnectorStatementScope();
+        // run() must swap in a fresh StatementContext for this execution, releasing the previous one...
+        StatementContext nextContext = preparedStmtCtx.getStatementContext();
+        Assertions.assertNotSame(statementContext, nextContext,
+                "ExecuteCommand allocates a fresh StatementContext per EXECUTE so the old one is released");
+        // ...finalizing the outgoing scope's closeable connector values (COM_STMT_EXECUTE has no per-statement
+        // StatementContext.close() finally, so dropping the context must close the scope, or closeable metadata
+        // and active connector transactions would be abandoned and never finalized by GC).
+        Assertions.assertEquals(1, closes.get(),
+                "dropping the outgoing context finalizes its closeable connector values");
+        // ...and whose connector scope is brand-new, so a prior execution's memoized connector table cannot leak.
+        ConnectorStatementScope secondScope = nextContext.getOrCreateConnectorStatementScope();
         Assertions.assertNotSame(firstScope, secondScope,
-                "ExecuteCommand drops the reused context's connector scope so the next execution starts fresh");
+                "the fresh context starts with a fresh connector scope");
         Assertions.assertNotSame(memoizedTable, secondScope.computeIfAbsent("table:1", Object::new),
                 "a prior execution's memoized connector table must not leak into the next EXECUTE");
     }

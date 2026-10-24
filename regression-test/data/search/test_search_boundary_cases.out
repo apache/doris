@@ -12,10 +12,10 @@
 3
 
 -- !boundary_3_not_null_field --
-11
+17
 
 -- !boundary_3_external_not_null --
-11
+17
 
 -- !boundary_4_empty_string_search --
 
@@ -46,10 +46,10 @@
 17
 
 -- !boundary_9_multiple_not --
-9
+18
 
 -- !boundary_9_external_multiple_not --
-9
+18
 
 -- !boundary_10_performance --
 3

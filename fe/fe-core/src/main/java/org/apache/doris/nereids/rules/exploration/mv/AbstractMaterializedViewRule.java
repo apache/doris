@@ -70,7 +70,7 @@ import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeUtils;
 import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.model.Statistics;
 
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableList;
@@ -641,7 +641,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 if (!(foldedExpressionWithLiteral instanceof DateLiteral)) {
                     return ImmutableList.of();
                 }
-                if (((DateLiteral) foldedExpressionWithLiteral).getDouble() == queryUsedLiteral.getDouble()) {
+                if (foldedExpressionWithLiteral.equals(queryUsedLiteral)) {
                     // after date_trunc simplify if equals to original expression, expr could be rewritten by mv
                     replacedExpression = ExpressionUtils.replace(expressionShuttledToRewrite,
                             targetToTargetReplacementMappingQueryBased,
@@ -853,11 +853,21 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         }
         PredicateCompensation finalPredicateCompensation =
                 Predicates.compensatePredicates(queryStructInfo, viewStructInfo,
-                        viewToQuerySlotMapping, comparisonResult, cascadesContext);
+                        viewToQuerySlotMapping, comparisonResult, cascadesContext,
+                        aggregateOutputIsRecomputed(queryStructInfo, viewStructInfo));
         if (finalPredicateCompensation == null) {
             return SplitPredicate.INVALID_INSTANCE;
         }
         return finalPredicateCompensation.toSplitPredicate();
+    }
+
+    /**
+     * Whether the rewrite answers the query by aggregating the view rows again, instead of reading the
+     * aggregate values that the view stored. A predicate the view enforced over its own aggregate output
+     * says nothing about such a recomputed value, so compensation can not treat it as redundant.
+     */
+    protected boolean aggregateOutputIsRecomputed(StructInfo queryStructInfo, StructInfo viewStructInfo) {
+        return false;
     }
 
     /**

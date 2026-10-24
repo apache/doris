@@ -57,6 +57,8 @@ suite("test_hive_basic_type", "p0,external") {
                 order_qt_5 """select * from ${catalog_name}.${ex_db_name}.orc_all_types_partition order by bigint_col desc limit 3;"""
                 order_qt_6 """select * from ${catalog_name}.${ex_db_name}.csv_partition_table order by k1 limit 1;"""
                 order_qt_9 """select * from ${catalog_name}.${ex_db_name}.csv_all_types limit 1;"""
+                // Hive LazySimpleSerDe stores BINARY as Base64; compare decoded bytes, not that text.
+                order_qt_text_binary_hex """select hex(t_binary) from ${catalog_name}.${ex_db_name}.text_all_types limit 1"""
                 order_qt_10 """select * from ${catalog_name}.${ex_db_name}.text_all_types limit 1;"""
 
                 // parquet bloom
@@ -160,4 +162,3 @@ suite("test_hive_basic_type", "p0,external") {
         }
     }
 }
-

@@ -164,6 +164,23 @@ suite("test_streaming_mysql_job_col_filter", "p0,external,mysql,external_docker,
 
         qt_select_incremental """ SELECT * FROM ${table1} ORDER BY name ASC """
 
+        connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {
+            sql """ALTER TABLE ${mysqlDb}.${table1} MODIFY COLUMN secret TEXT"""
+            sql """INSERT INTO ${mysqlDb}.${table1} VALUES ('D1', 4, 'excluded_modify')"""
+        }
+        Awaitility.await().atMost(180, SECONDS).pollInterval(1, SECONDS).until({
+            (sql "SELECT COUNT(*) FROM ${table1} WHERE name='D1'")[0][0].toLong() == 1
+        })
+        connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {
+            sql """ALTER TABLE ${mysqlDb}.${table1} DROP COLUMN secret"""
+            sql """INSERT INTO ${mysqlDb}.${table1} VALUES ('E1', 5)"""
+        }
+        Awaitility.await().atMost(180, SECONDS).pollInterval(1, SECONDS).until({
+            (sql "SELECT COUNT(*) FROM ${table1} WHERE name='E1'")[0][0].toLong() == 1
+        })
+        qt_excluded_ddl "SELECT name, age FROM ${table1} ORDER BY name"
+        qt_excluded_ddl_status """SELECT Status FROM jobs("type"="insert") WHERE Name='${jobName}'"""
+
         // Doris table still has no secret column after DML events on excluded column
         def colNamesAfterDml = (sql """desc ${currentDb}.${table1}""").collect { it[0] }
         assert !colNamesAfterDml.contains("secret") : "secret column must not appear in Doris after DML on excluded column"

@@ -17,8 +17,8 @@
 
 package org.apache.doris.persist;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.File;
 import java.io.FileWriter;
@@ -99,14 +99,14 @@ public class StorageTest {
     @Test
     public void testConstruct() {
         Storage storage1 = new Storage(1, "token", "test");
-        Assert.assertEquals(1, storage1.getClusterID());
-        Assert.assertEquals("test", storage1.getMetaDir());
+        Assertions.assertEquals(1, storage1.getClusterID());
+        Assertions.assertEquals("test", storage1.getMetaDir());
 
         Storage storage2 = new Storage(1, "token", 2, 3, "test");
-        Assert.assertEquals(1, storage2.getClusterID());
-        Assert.assertEquals(2, storage2.getLatestImageSeq());
-        Assert.assertEquals(3, storage2.getEditsSeq());
-        Assert.assertEquals("test", storage2.getMetaDir());
+        Assertions.assertEquals(1, storage2.getClusterID());
+        Assertions.assertEquals(2, storage2.getLatestImageSeq());
+        Assertions.assertEquals(3, storage2.getEditsSeq());
+        Assertions.assertEquals("test", storage2.getMetaDir());
     }
 
     @Test
@@ -114,30 +114,30 @@ public class StorageTest {
         mkdir();
         addFiles(5, 10);
         Storage storage = new Storage("storageTestDir");
-        Assert.assertEquals(966271669, storage.getClusterID());
-        Assert.assertEquals(5, storage.getLatestImageSeq());
-        Assert.assertEquals(4, storage.getLatestValidatedImageSeq());
-        Assert.assertEquals(10, Storage.getMetaSeq(new File("storageTestDir/edits.10")));
-        Assert.assertEquals(
+        Assertions.assertEquals(966271669, storage.getClusterID());
+        Assertions.assertEquals(5, storage.getLatestImageSeq());
+        Assertions.assertEquals(4, storage.getLatestValidatedImageSeq());
+        Assertions.assertEquals(10, Storage.getMetaSeq(new File("storageTestDir/edits.10")));
+        Assertions.assertEquals(
                 Storage.getCurrentEditsFile(new File("storageTestDir")), new File("storageTestDir/edits"));
 
-        Assert.assertEquals(storage.getCurrentImageFile(), new File("storageTestDir/image.5"));
-        Assert.assertEquals(storage.getImageFile(0), new File("storageTestDir/image.0"));
-        Assert.assertEquals(
+        Assertions.assertEquals(storage.getCurrentImageFile(), new File("storageTestDir/image.5"));
+        Assertions.assertEquals(storage.getImageFile(0), new File("storageTestDir/image.0"));
+        Assertions.assertEquals(
                 Storage.getImageFile(new File("storageTestDir"), 0), new File("storageTestDir/image.0"));
 
-        Assert.assertEquals(storage.getCurrentEditsFile(), new File("storageTestDir/edits"));
-        Assert.assertEquals(storage.getEditsFile(5), new File("storageTestDir/edits.5"));
-        Assert.assertEquals(
+        Assertions.assertEquals(storage.getCurrentEditsFile(), new File("storageTestDir/edits"));
+        Assertions.assertEquals(storage.getEditsFile(5), new File("storageTestDir/edits.5"));
+        Assertions.assertEquals(
                 Storage.getEditsFile(new File("storageTestDir"), 3), new File("storageTestDir/edits.3"));
 
-        Assert.assertEquals(storage.getVersionFile(), new File("storageTestDir/VERSION"));
+        Assertions.assertEquals(storage.getVersionFile(), new File("storageTestDir/VERSION"));
 
-        Assert.assertEquals("storageTestDir", storage.getMetaDir());
+        Assertions.assertEquals("storageTestDir", storage.getMetaDir());
 
         storage.clear();
         File file = new File(storage.getMetaDir());
-        Assert.assertEquals(0, file.list().length);
+        Assertions.assertEquals(0, file.list().length);
 
         deleteDir();
     }

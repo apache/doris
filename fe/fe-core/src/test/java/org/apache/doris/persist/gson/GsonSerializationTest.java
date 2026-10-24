@@ -30,9 +30,9 @@ import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Table;
 import com.google.gson.annotations.SerializedName;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.DataInput;
 import java.io.DataInputStream;
@@ -232,7 +232,7 @@ public class GsonSerializationTest {
         }
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         File file = new File(fileName);
         file.delete();
@@ -257,31 +257,31 @@ public class GsonSerializationTest {
         DataInputStream in = new DataInputStream(new FileInputStream(file));
 
         OrigClassA readClassA = OrigClassA.read(in);
-        Assert.assertEquals(1, readClassA.flag);
-        Assert.assertEquals(1, readClassA.classA1.flag);
-        Assert.assertNull(readClassA.ignoreClassA2);
+        Assertions.assertEquals(1, readClassA.flag);
+        Assertions.assertEquals(1, readClassA.classA1.flag);
+        Assertions.assertNull(readClassA.ignoreClassA2);
 
-        Assert.assertEquals(Lists.newArrayList("string1", "string2"), readClassA.classA1.list1);
-        Assert.assertTrue(readClassA.classA1.map1.containsKey(1L));
-        Assert.assertTrue(readClassA.classA1.map1.containsKey(2L));
-        Assert.assertEquals("value1", readClassA.classA1.map1.get(1L));
-        Assert.assertEquals("value2", readClassA.classA1.map1.get(2L));
+        Assertions.assertEquals(Lists.newArrayList("string1", "string2"), readClassA.classA1.list1);
+        Assertions.assertTrue(readClassA.classA1.map1.containsKey(1L));
+        Assertions.assertTrue(readClassA.classA1.map1.containsKey(2L));
+        Assertions.assertEquals("value1", readClassA.classA1.map1.get(1L));
+        Assertions.assertEquals("value2", readClassA.classA1.map1.get(2L));
 
-        Assert.assertTrue(readClassA.classA1.map2.containsKey(1));
-        Assert.assertTrue(readClassA.classA1.map2.containsKey(2));
-        Assert.assertEquals(1, readClassA.classA1.map2.get(1).flag);
-        Assert.assertEquals(2, readClassA.classA1.map2.get(2).flag);
-        Assert.assertEquals(0, readClassA.classA1.map2.get(1).ignoreField);
-        Assert.assertEquals(0, readClassA.classA1.map2.get(2).ignoreField);
-        Assert.assertEquals(Sets.newHashSet("set1", "set2"), readClassA.classA1.set1);
+        Assertions.assertTrue(readClassA.classA1.map2.containsKey(1));
+        Assertions.assertTrue(readClassA.classA1.map2.containsKey(2));
+        Assertions.assertEquals(1, readClassA.classA1.map2.get(1).flag);
+        Assertions.assertEquals(2, readClassA.classA1.map2.get(2).flag);
+        Assertions.assertEquals(0, readClassA.classA1.map2.get(1).ignoreField);
+        Assertions.assertEquals(0, readClassA.classA1.map2.get(2).ignoreField);
+        Assertions.assertEquals(Sets.newHashSet("set1", "set2"), readClassA.classA1.set1);
 
         Table<Long, String, Long> hashBasedTable = readClassA.classA1.map2.get(1).hashBasedTable;
-        Assert.assertEquals("HashBasedTable", hashBasedTable.getClass().getSimpleName());
+        Assertions.assertEquals("HashBasedTable", hashBasedTable.getClass().getSimpleName());
         Multimap<Long, String> hashMultimap = readClassA.classA1.map2.get(1).hashMultimap;
-        Assert.assertEquals("HashMultimap", hashMultimap.getClass().getSimpleName());
+        Assertions.assertEquals("HashMultimap", hashMultimap.getClass().getSimpleName());
         Multimap<Long, String> arrayListMultimap = readClassA.classA1.map2.get(1).arrayListMultimap;
-        Assert.assertEquals("ArrayListMultimap", arrayListMultimap.getClass().getSimpleName());
-        Assert.assertEquals(Lists.newArrayList("value1", "value2"), arrayListMultimap.get(1L));
+        Assertions.assertEquals("ArrayListMultimap", arrayListMultimap.getClass().getSimpleName());
+        Assertions.assertEquals(Lists.newArrayList("value1", "value2"), arrayListMultimap.get(1L));
 
         in.close();
     }
@@ -305,9 +305,9 @@ public class GsonSerializationTest {
         DataInputStream in = new DataInputStream(new FileInputStream(file));
 
         OriginClassADifferentMembers readClassA = OriginClassADifferentMembers.read(in);
-        Assert.assertEquals(1, readClassA.flag);
-        Assert.assertNull(readClassA.classA3);
-        Assert.assertNull(readClassA.ignoreClassA2);
+        Assertions.assertEquals(1, readClassA.flag);
+        Assertions.assertNull(readClassA.classA3);
+        Assertions.assertNull(readClassA.ignoreClassA2);
         in.close();
     }
 
@@ -330,23 +330,23 @@ public class GsonSerializationTest {
         DataInputStream in = new DataInputStream(new FileInputStream(file));
 
         OriginClassADifferentMemberName readClassA = OriginClassADifferentMemberName.read(in);
-        Assert.assertEquals(1, readClassA.flagChangeName);
-        Assert.assertEquals(1, readClassA.classA1ChangeName.flag);
-        Assert.assertNull(readClassA.ignoreClassA2ChangeName);
+        Assertions.assertEquals(1, readClassA.flagChangeName);
+        Assertions.assertEquals(1, readClassA.classA1ChangeName.flag);
+        Assertions.assertNull(readClassA.ignoreClassA2ChangeName);
 
-        Assert.assertEquals(Lists.newArrayList("string1", "string2"), readClassA.classA1ChangeName.list1);
-        Assert.assertTrue(readClassA.classA1ChangeName.map1.containsKey(1L));
-        Assert.assertTrue(readClassA.classA1ChangeName.map1.containsKey(2L));
-        Assert.assertEquals("value1", readClassA.classA1ChangeName.map1.get(1L));
-        Assert.assertEquals("value2", readClassA.classA1ChangeName.map1.get(2L));
+        Assertions.assertEquals(Lists.newArrayList("string1", "string2"), readClassA.classA1ChangeName.list1);
+        Assertions.assertTrue(readClassA.classA1ChangeName.map1.containsKey(1L));
+        Assertions.assertTrue(readClassA.classA1ChangeName.map1.containsKey(2L));
+        Assertions.assertEquals("value1", readClassA.classA1ChangeName.map1.get(1L));
+        Assertions.assertEquals("value2", readClassA.classA1ChangeName.map1.get(2L));
 
-        Assert.assertTrue(readClassA.classA1ChangeName.map2.containsKey(1));
-        Assert.assertTrue(readClassA.classA1ChangeName.map2.containsKey(2));
-        Assert.assertEquals(1, readClassA.classA1ChangeName.map2.get(1).flag);
-        Assert.assertEquals(2, readClassA.classA1ChangeName.map2.get(2).flag);
-        Assert.assertEquals(0, readClassA.classA1ChangeName.map2.get(1).ignoreField);
-        Assert.assertEquals(0, readClassA.classA1ChangeName.map2.get(2).ignoreField);
-        Assert.assertEquals(Sets.newHashSet("set1", "set2"), readClassA.classA1ChangeName.set1);
+        Assertions.assertTrue(readClassA.classA1ChangeName.map2.containsKey(1));
+        Assertions.assertTrue(readClassA.classA1ChangeName.map2.containsKey(2));
+        Assertions.assertEquals(1, readClassA.classA1ChangeName.map2.get(1).flag);
+        Assertions.assertEquals(2, readClassA.classA1ChangeName.map2.get(2).flag);
+        Assertions.assertEquals(0, readClassA.classA1ChangeName.map2.get(1).ignoreField);
+        Assertions.assertEquals(0, readClassA.classA1ChangeName.map2.get(2).ignoreField);
+        Assertions.assertEquals(Sets.newHashSet("set1", "set2"), readClassA.classA1ChangeName.set1);
         in.close();
     }
 
@@ -428,7 +428,7 @@ public class GsonSerializationTest {
         DataInputStream in = new DataInputStream(new FileInputStream(file));
 
         MultiMapClassA readClassA = MultiMapClassA.read(in);
-        Assert.assertEquals(Sets.newHashSet(new Key(MyEnum.TYPE_A, "key1"), new Key(MyEnum.TYPE_B, "key2")),
+        Assertions.assertEquals(Sets.newHashSet(new Key(MyEnum.TYPE_A, "key1"), new Key(MyEnum.TYPE_B, "key2")),
                 readClassA.map.keySet());
     }
 
@@ -493,13 +493,13 @@ public class GsonSerializationTest {
         DataInputStream in = new DataInputStream(new FileInputStream(file));
 
         ConcurrentMapClassA readClassA = ConcurrentMapClassA.read(in);
-        Assert.assertTrue(readClassA.map1 instanceof ConcurrentHashMap);
-        Assert.assertTrue(readClassA.map2 instanceof ConcurrentHashMap);
-        Assert.assertTrue(readClassA.map3 instanceof ConcurrentHashMap);
-        Assert.assertTrue(readClassA.map3.get("b") instanceof ConcurrentHashMap);
-        Assert.assertTrue(readClassA.map4 instanceof ConcurrentHashMap);
-        Assert.assertFalse(readClassA.map4.get("b") instanceof ConcurrentHashMap);
-        Assert.assertFalse(readClassA.map5 instanceof ConcurrentHashMap);
-        Assert.assertFalse(readClassA.map6 instanceof ConcurrentHashMap);
+        Assertions.assertTrue(readClassA.map1 instanceof ConcurrentHashMap);
+        Assertions.assertTrue(readClassA.map2 instanceof ConcurrentHashMap);
+        Assertions.assertTrue(readClassA.map3 instanceof ConcurrentHashMap);
+        Assertions.assertTrue(readClassA.map3.get("b") instanceof ConcurrentHashMap);
+        Assertions.assertTrue(readClassA.map4 instanceof ConcurrentHashMap);
+        Assertions.assertFalse(readClassA.map4.get("b") instanceof ConcurrentHashMap);
+        Assertions.assertFalse(readClassA.map5 instanceof ConcurrentHashMap);
+        Assertions.assertFalse(readClassA.map6 instanceof ConcurrentHashMap);
     }
 }

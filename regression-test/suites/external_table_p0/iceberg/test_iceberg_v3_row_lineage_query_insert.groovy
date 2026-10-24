@@ -121,11 +121,16 @@ suite("test_iceberg_v3_row_lineage_query_insert", "p0,external,iceberg,external_
                 "DESC with show_hidden_columns=true should expose _row_id for ${tableName}, got ${hiddenColumns}")
         assertTrue(hiddenColumns.contains("_last_updated_sequence_number"),
                 "DESC with show_hidden_columns=true should expose _last_updated_sequence_number for ${tableName}, got ${hiddenColumns}")
+        assertTrue(hiddenColumns.contains("_file"),
+                "DESC with show_hidden_columns=true should expose _file for ${tableName}, got ${hiddenColumns}")
+        assertTrue(hiddenColumns.contains("_pos"),
+                "DESC with show_hidden_columns=true should expose _pos for ${tableName}, got ${hiddenColumns}")
 
         def selectHidden = sql("""select * from ${tableName} order by id""")
         log.info("Checking hidden SELECT * layout for ${tableName}: rowCount=${selectHidden.size()}, firstRow=${selectHidden ? selectHidden[0] : 'EMPTY'}")
         assertTrue(selectHidden.size() > 0, "SELECT * with hidden columns should return rows for ${tableName}")
-        assertEquals(visibleColumnCount + 2 + 1, selectHidden[0].size()) // _row_id + _last_updated_sequence_number + __DORIS_ICEBERG_ROWID_COL__
+        // _file + _pos + _row_id + _last_updated_sequence_number + __DORIS_ICEBERG_ROWID_COL__
+        assertEquals(visibleColumnCount + 2 + 2 + 1, selectHidden[0].size())
 
         sql("""set show_hidden_columns = false""")
     }
@@ -270,6 +275,24 @@ suite("test_iceberg_v3_row_lineage_query_insert", "p0,external,iceberg,external_
                 )
             """
             exception "Cannot create Iceberg v3 table with reserved row lineage column: _row_id"
+        }
+    }
+
+    // A column that takes a row lineage name would clash with the hidden column and break every read of the table.
+    def assertAlterTableWithRowLineageColumnsFails = { tableName ->
+        test {
+            sql """alter table ${tableName} add column _row_id bigint"""
+            exception "Cannot add Iceberg v3 reserved row lineage column: _row_id"
+        }
+
+        test {
+            sql """alter table ${tableName} add column (extra int, _LAST_UPDATED_SEQUENCE_NUMBER bigint)"""
+            exception "Cannot add Iceberg v3 reserved row lineage column: _LAST_UPDATED_SEQUENCE_NUMBER"
+        }
+
+        test {
+            sql """alter table ${tableName} rename column age _last_updated_sequence_number"""
+            exception "Cannot rename to Iceberg v3 reserved row lineage column: _last_updated_sequence_number"
         }
     }
 
@@ -428,6 +451,9 @@ suite("test_iceberg_v3_row_lineage_query_insert", "p0,external,iceberg,external_
                     """
                     exception "Cannot specify invisible column '_last_updated_sequence_number' in INSERT statement"
                 }
+
+                // The rejected ALTERs leave the table readable for the writes and reads below.
+                assertAlterTableWithRowLineageColumnsFails(unpartitionedTable)
 
                 sql """insert into ${unpartitionedTable}(id, name, age) values (4, 'Doris', 40)"""
                 def unpartitionedCount = sql """select count(*) from ${unpartitionedTable}"""

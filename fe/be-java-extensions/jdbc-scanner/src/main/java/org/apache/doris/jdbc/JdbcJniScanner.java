@@ -17,13 +17,16 @@
 
 package org.apache.doris.jdbc;
 
-import org.apache.doris.cloud.security.SecurityChecker;
-import org.apache.doris.common.jni.JniScanner;
-import org.apache.doris.common.jni.vec.ColumnType;
-import org.apache.doris.common.jni.vec.ColumnValueConverter;
+import org.apache.doris.jni.spi.JniScanner;
+import org.apache.doris.jni.spi.vec.ColumnType;
+import org.apache.doris.jni.spi.vec.ColumnValueConverter;
+import org.apache.doris.jni.toolkit.jdbc.JdbcDriverUtils;
+import org.apache.doris.jni.toolkit.jdbc.JdbcExceptionUtils;
+import org.apache.doris.jni.toolkit.jdbc.JdbcIOException;
 
 import com.zaxxer.hikari.HikariDataSource;
-import org.apache.log4j.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.lang.reflect.Array;
@@ -52,6 +55,7 @@ import java.util.Map;
  *   <li>jdbc_password - database password</li>
  *   <li>jdbc_driver_class - JDBC driver class name</li>
  *   <li>jdbc_driver_url - path to driver JAR</li>
+ *   <li>jdbc_driver_checksum - MD5 of that JAR; verified once per jar, skipped when empty</li>
  *   <li>query_sql - the SELECT SQL to execute</li>
  *   <li>catalog_id - catalog ID for connection pool keying</li>
  *   <li>table_type - database type (MYSQL, ORACLE, POSTGRESQL, etc.)</li>
@@ -65,13 +69,14 @@ import java.util.Map;
  * </ul>
  */
 public class JdbcJniScanner extends JniScanner {
-    private static final Logger LOG = Logger.getLogger(JdbcJniScanner.class);
+    private static final Logger LOG = LoggerFactory.getLogger(JdbcJniScanner.class);
 
     private final String jdbcUrl;
     private final String jdbcUser;
     private final String jdbcPassword;
     private final String jdbcDriverClass;
     private final String jdbcDriverUrl;
+    private final String jdbcDriverChecksum;
     private final String querySql;
     private final long catalogId;
     private final int connectionPoolMinSize;
@@ -111,6 +116,7 @@ public class JdbcJniScanner extends JniScanner {
         this.jdbcPassword = params.getOrDefault("jdbc_password", "");
         this.jdbcDriverClass = params.getOrDefault("jdbc_driver_class", "");
         this.jdbcDriverUrl = params.getOrDefault("jdbc_driver_url", "");
+        this.jdbcDriverChecksum = params.getOrDefault("jdbc_driver_checksum", "");
         this.querySql = params.getOrDefault("query_sql", "");
         this.catalogId = Long.parseLong(params.getOrDefault("catalog_id", "0"));
         this.connectionPoolMinSize = Integer.parseInt(
@@ -126,7 +132,7 @@ public class JdbcJniScanner extends JniScanner {
 
         // Select database-specific type handler
         String tableType = params.getOrDefault("table_type", "");
-        this.typeHandler = JdbcTypeHandlerFactory.create(tableType);
+        this.typeHandler = JdbcTypeHandlerFactory.create(tableType, jdbcPassword, jdbcUrl);
 
         String requiredFields = params.getOrDefault("required_fields", "");
         String columnsTypes = params.getOrDefault("columns_types", "");
@@ -156,7 +162,7 @@ public class JdbcJniScanner extends JniScanner {
     }
 
     @Override
-    public void open() throws IOException {
+    protected void openInternal() throws IOException {
         ClassLoader oldClassLoader = Thread.currentThread().getContextClassLoader();
         try {
             // HikariCP's setDriverClassName() uses the thread context classloader
@@ -207,8 +213,7 @@ public class JdbcJniScanner extends JniScanner {
                 outputConverters[i] = typeHandler.getOutputConverter(types[i], replaceStr);
             }
         } catch (Exception e) {
-            LOG.warn("JdbcJniScanner " + jdbcUrl + " open failed: " + e.getMessage(), e);
-            throw new IOException("JdbcJniScanner open failed: " + e.getMessage(), e);
+            throw new JdbcIOException("JdbcJniScanner open failed", e, jdbcPassword, jdbcUrl);
         } finally {
             Thread.currentThread().setContextClassLoader(oldClassLoader);
         }
@@ -290,20 +295,21 @@ public class JdbcJniScanner extends JniScanner {
             readRows += curRows;
             return curRows;
         } catch (Exception e) {
-            LOG.warn("JdbcJniScanner getNext failed: " + e.getMessage(), e);
-            throw new IOException("JdbcJniScanner getNext failed: " + e.getMessage(), e);
+            throw new JdbcIOException("JdbcJniScanner getNext failed", e, jdbcPassword, jdbcUrl);
         }
     }
 
     @Override
-    public void close() throws IOException {
+    protected void closeInternal() throws IOException {
         try {
             // Use type handler for database-specific connection abort
             if (conn != null && resultSet != null) {
                 typeHandler.abortReadConnection(conn, resultSet);
             }
         } catch (Exception e) {
-            LOG.warn("JdbcJniScanner abort connection error: " + e.getMessage(), e);
+            String diagnostic = JdbcExceptionUtils.format("JdbcJniScanner abort connection error",
+                    e, jdbcPassword, jdbcUrl);
+            LOG.warn("{}", diagnostic);
         }
         try {
             if (resultSet != null && !resultSet.isClosed()) {
@@ -316,7 +322,9 @@ public class JdbcJniScanner extends JniScanner {
                 conn.close();
             }
         } catch (Exception e) {
-            LOG.warn("JdbcJniScanner close error: " + e.getMessage(), e);
+            String diagnostic = JdbcExceptionUtils.format("JdbcJniScanner close error",
+                    e, jdbcPassword, jdbcUrl);
+            LOG.warn("{}", diagnostic);
         } finally {
             resultSet = null;
             stmt = null;
@@ -330,17 +338,25 @@ public class JdbcJniScanner extends JniScanner {
     }
 
     @Override
-    public Map<String, String> getStatistics() {
+    protected Map<String, String> collectStatistics() {
         Map<String, String> stats = new HashMap<>();
         stats.put("counter:ReadRows", String.valueOf(readRows));
         stats.put("timer:ReadTime", String.valueOf(readTime));
         return stats;
     }
 
-    private void initializeClassLoaderAndDataSource() throws Exception {
-        java.net.URL[] urls = {new java.net.URL(jdbcDriverUrl)};
-        ClassLoader parent = getClass().getClassLoader();
-        this.classLoader = java.net.URLClassLoader.newInstance(urls, parent);
+    private void initializeClassLoaderAndDataSource() {
+        // Before the driver classes are loaded, because that is when they read these. Both
+        // properties this sets are there to keep a driver's own cleanup thread from pinning the
+        // classloader that loaded it - which matters more now than it did, not less: every plugin
+        // has a classloader of its own, and a driver thread holding one keeps a whole plugin alive.
+        typeHandler.setSystemProperties();
+        // The checksum the catalog was defined with, checked once per driver jar - when its
+        // classloader is created, not on every scan. A driver jar replaced in place at the same
+        // URL is otherwise served from the cache until BE restarts, and a jar that is not the one
+        // the catalog names is a silent wrong answer rather than an error.
+        this.classLoader = JdbcDriverUtils.driverClassLoader(jdbcDriverUrl, getClass().getClassLoader(),
+                JdbcDriverUtils.checksumVerifier(jdbcDriverChecksum));
         // Must set thread context classloader BEFORE creating HikariDataSource,
         // because HikariCP's setDriverClassName() loads the driver class from
         // the thread context classloader.
@@ -354,7 +370,13 @@ public class JdbcJniScanner extends JniScanner {
                 if (hikariDataSource == null) {
                     HikariDataSource ds = new HikariDataSource();
                     ds.setDriverClassName(jdbcDriverClass);
-                    ds.setJdbcUrl(SecurityChecker.getInstance().getSafeJdbcUrl(jdbcUrl));
+                    // The url is used exactly as FE sent it, and nothing here re-checks it. FE's
+                    // configurable url check (SecurityChecker.getSafeJdbcUrl) is applied to FE's
+                    // OWN datasource in JdbcClient, not to the url on its way down, so this is not
+                    // "already checked" - it is unchecked on both sides of the wire. Running it
+                    // here is not possible either: it is switched on by a field of fe.conf, and
+                    // nothing ever loads fe.conf into BE's JVM.
+                    ds.setJdbcUrl(jdbcUrl);
                     ds.setUsername(jdbcUser);
                     ds.setPassword(jdbcPassword);
                     ds.setMinimumIdle(connectionPoolMinSize);
@@ -369,7 +391,8 @@ public class JdbcJniScanner extends JniScanner {
                     }
                     hikariDataSource = ds;
                     JdbcDataSource.getDataSource().putSource(cacheKey, hikariDataSource);
-                    LOG.info("JdbcJniScanner: Created connection pool for " + jdbcUrl);
+                    String safeJdbcUrl = JdbcExceptionUtils.redact(jdbcUrl, jdbcPassword, jdbcUrl);
+                    LOG.info("JdbcJniScanner: Created connection pool for " + safeJdbcUrl);
                 }
             }
         }
@@ -377,7 +400,8 @@ public class JdbcJniScanner extends JniScanner {
 
     private String createCacheKey() {
         return JdbcDataSource.createCacheKey(catalogId, jdbcUrl, jdbcUser, jdbcPassword,
-                jdbcDriverUrl, jdbcDriverClass, connectionPoolMinSize, connectionPoolMaxSize,
-                connectionPoolMaxLifeTime, connectionPoolMaxWaitTime, connectionPoolKeepAlive);
+                jdbcDriverUrl, jdbcDriverClass, jdbcDriverChecksum, connectionPoolMinSize,
+                connectionPoolMaxSize, connectionPoolMaxLifeTime, connectionPoolMaxWaitTime,
+                connectionPoolKeepAlive);
     }
 }

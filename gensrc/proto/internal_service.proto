@@ -101,7 +101,8 @@ message PResetGlobalRfResult {
 message PTabletWithPartition {
     required int64 partition_id = 1;
     required int64 tablet_id = 2;
-    optional int64 binlog_tablet_id = 3;
+    // ATTN(changelog-rename): formerly "binlog_tablet_id"
+    optional int64 changelog_tablet_id = 3;
 }
 
 message PRandomBucketPartitionParam {
@@ -831,6 +832,9 @@ message PRequestBlockDesc {
     repeated uint32 row_id = 5;
     optional PTupleDescriptor desc = 6;
     repeated uint32 column_idxs = 7;
+    // Numeric value of ROW_VERSION. Keep this as uint32 so a receiver can detect and reject a
+    // future version that is unknown to its current binary instead of treating it as version 0.
+    optional uint32 row_location_version = 8 [default = 0];
 }
 
 message PTopNLazyMaterializationFileCacheStats {
@@ -1103,6 +1107,8 @@ message PAlterVaultSyncResponse {
 
 message PSyncTabletMetaRequest {
     repeated int64 tablet_ids = 1;
+    // ATTN(changelog-rename): formerly "discover_row_binlog_ttl"
+    optional bool discover_changelog_ttl = 2 [default = false];
 }
 
 message PSyncTabletMetaResponse {

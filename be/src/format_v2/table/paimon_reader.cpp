@@ -24,10 +24,17 @@
 #include <string>
 #include <utility>
 
+#include "common/consts.h"
+#include "core/assert_cast.h"
+#include "core/column/column_const.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_variant_v2.h"
 #include "exprs/vexpr_context.h"
@@ -35,8 +42,10 @@
 #include "format/table/paimon_reader.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/jni/paimon_jni_reader.h"
+#include "format_v2/table/paimon_rust_table_reader.h"
 #include "format_v2/table/schema_history_util.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "util/string_util.h"
 
 namespace doris::format::paimon {
 namespace {
@@ -45,32 +54,43 @@ DataTypePtr nullable_like_original(const DataTypePtr& original, DataTypePtr nest
     return original != nullptr && original->is_nullable() ? make_nullable(nested) : nested;
 }
 
-DataTypePtr apply_paimon_timestamp_semantics(format::ColumnDefinition* column) {
+// Unannotated INT96 cannot distinguish Paimon TIMESTAMP from TIMESTAMP_LTZ. Apply the
+// table schema's instant marker to each timestamp leaf, then rebuild its containers so the
+// parent type agrees with the children. Preserve precision and the original nullability.
+Status apply_paimon_timestamp_semantics(format::ColumnDefinition* column) {
     DORIS_CHECK(column != nullptr);
     DORIS_CHECK(column->type != nullptr);
     const auto primitive = remove_nullable(column->type)->get_primitive_type();
+    // Validate before changing children: silently skipping a malformed parent leaves stale types.
+    if ((primitive == TYPE_ARRAY && column->children.size() != 1) ||
+        (primitive == TYPE_MAP && column->children.size() != 2)) {
+        return Status::InvalidArgument("Invalid Paimon {} column '{}': {} children",
+                                       column->type->get_name(), column->name,
+                                       column->children.size());
+    }
     if (column->timestamp_is_adjusted_to_utc.has_value() &&
         (primitive == TYPE_DATETIMEV2 || primitive == TYPE_TIMESTAMPTZ)) {
         const auto target =
                 *column->timestamp_is_adjusted_to_utc ? TYPE_TIMESTAMPTZ : TYPE_DATETIMEV2;
         column->type = DataTypeFactory::instance().create_data_type(
                 target, column->type->is_nullable(), 0, column->type->get_scale());
-        return column->type;
+        return Status::OK();
     }
 
     std::vector<DataTypePtr> child_types;
     child_types.reserve(column->children.size());
     for (auto& child : column->children) {
-        child_types.push_back(apply_paimon_timestamp_semantics(&child));
+        RETURN_IF_ERROR(apply_paimon_timestamp_semantics(&child));
+        child_types.push_back(child.type);
     }
-    if (primitive == TYPE_ARRAY && child_types.size() == 1) {
+    if (primitive == TYPE_ARRAY) {
         column->type = nullable_like_original(column->type,
                                               std::make_shared<DataTypeArray>(child_types.front()));
-    } else if (primitive == TYPE_MAP && child_types.size() == 2) {
+    } else if (primitive == TYPE_MAP) {
         column->type = nullable_like_original(
                 column->type, std::make_shared<DataTypeMap>(make_nullable(child_types[0]),
                                                             make_nullable(child_types[1])));
-    } else if (primitive == TYPE_STRUCT && child_types.size() == column->children.size()) {
+    } else if (primitive == TYPE_STRUCT) {
         Strings child_names;
         child_names.reserve(column->children.size());
         for (const auto& child : column->children) {
@@ -79,7 +99,7 @@ DataTypePtr apply_paimon_timestamp_semantics(format::ColumnDefinition* column) {
         column->type = nullable_like_original(
                 column->type, std::make_shared<DataTypeStruct>(child_types, child_names));
     }
-    return column->type;
+    return Status::OK();
 }
 
 ColumnDefinition* find_file_column(const ColumnDefinition& table_column,
@@ -229,9 +249,13 @@ Status PaimonReader::prepare_split(const format::SplitReadOptions& options) {
         SCOPED_TIMER(_profile.total_timer);
         SCOPED_TIMER(_profile.prepare_split_timer);
         _split_schema_id = -1;
+        _original_file_path.clear();
         const auto& paimon_params = options.current_range.table_format_params.paimon_params;
         if (paimon_params.__isset.schema_id) {
             _split_schema_id = paimon_params.schema_id;
+        }
+        if (paimon_params.__isset.original_file_path) {
+            _original_file_path = paimon_params.original_file_path;
         }
     }
     RETURN_IF_ERROR(format::TableReader::prepare_split(options));
@@ -265,7 +289,7 @@ Status PaimonReader::annotate_file_schema(std::vector<format::ColumnDefinition>*
     }
     if (_format == format::FileFormat::PARQUET) {
         for (auto& column : *file_schema) {
-            apply_paimon_timestamp_semantics(&column);
+            RETURN_IF_ERROR(apply_paimon_timestamp_semantics(&column));
         }
         const bool projects_variant =
                 std::ranges::any_of(_projected_columns, contains_variant_type);
@@ -280,8 +304,106 @@ Status PaimonReader::annotate_file_schema(std::vector<format::ColumnDefinition>*
 Status PaimonReader::customize_file_scan_request(format::FileScanRequest* file_request) {
     DORIS_CHECK(file_request != nullptr);
     RETURN_IF_ERROR(format::TableReader::customize_file_scan_request(file_request));
+    if (_need_metadata_columns()) {
+        if (_original_file_path.empty()) {
+            return Status::InvalidArgument(
+                    "Paimon metadata columns require a FileScannerV2 native Parquet/ORC split with "
+                    "the original RawFile path");
+        }
+        RETURN_IF_ERROR(_append_row_position_output_column(file_request));
+    }
     file_request->variant_schema_overrides = _variant_schema_overrides;
     return Status::OK();
+}
+
+Status PaimonReader::materialize_virtual_columns(Block* table_block) {
+    DORIS_CHECK(table_block != nullptr);
+    for (size_t column_idx = 0; column_idx < _data_reader.column_mapper->mappings().size();
+         ++column_idx) {
+        const auto& mapping = _data_reader.column_mapper->mappings()[column_idx];
+        switch (mapping.virtual_column_type) {
+        case format::TableVirtualColumnType::PAIMON_FILE_PATH:
+            RETURN_IF_ERROR(_materialize_file_path(table_block, column_idx));
+            break;
+        case format::TableVirtualColumnType::PAIMON_ROW_POSITION:
+            RETURN_IF_ERROR(_materialize_row_position(table_block, column_idx));
+            break;
+        default:
+            break;
+        }
+    }
+    return Status::OK();
+}
+
+const std::string& PaimonReader::_data_file_path() const {
+    DORIS_CHECK(!_original_file_path.empty());
+    return _original_file_path;
+}
+
+Status PaimonReader::_append_row_position_output_column(format::FileScanRequest* request) {
+    const auto row_position_column_id = format::LocalColumnId(format::ROW_POSITION_COLUMN_ID);
+    _append_file_scan_column(request, row_position_column_id, &request->non_predicate_columns);
+    _row_position_block_position = request->local_positions.at(row_position_column_id).value();
+    return Status::OK();
+}
+
+Status PaimonReader::_materialize_file_path(Block* table_block, size_t column_idx) {
+    DORIS_CHECK(_row_position_block_position < _data_reader.block_template.columns());
+    const auto& row_position_column = assert_cast<const ColumnInt64&>(
+            *_data_reader.block_template.get_by_position(_row_position_block_position).column);
+    const auto rows = table_block->rows();
+    DORIS_CHECK(row_position_column.size() == rows);
+    auto column = table_block->get_by_position(column_idx).type->create_column();
+    auto* nullable_column = check_and_get_column<ColumnNullable>(*column);
+    auto* string_column = nullable_column != nullptr
+                                  ? check_and_get_column<ColumnString>(
+                                            nullable_column->get_nested_column_ptr().get())
+                                  : check_and_get_column<ColumnString>(column.get());
+    DORIS_CHECK(string_column != nullptr);
+    const auto& file_path = _data_file_path();
+    string_column->insert_data(file_path.data(), file_path.size());
+    if (nullable_column != nullptr) {
+        nullable_column->get_null_map_data().resize_fill(1, 0);
+    }
+    table_block->replace_by_position(column_idx, ColumnConst::create(std::move(column), rows));
+    return Status::OK();
+}
+
+Status PaimonReader::_materialize_row_position(Block* table_block, size_t column_idx) {
+    DORIS_CHECK(_row_position_block_position < _data_reader.block_template.columns());
+    const auto& row_position_column = assert_cast<const ColumnInt64&>(
+            *_data_reader.block_template.get_by_position(_row_position_block_position).column);
+    const auto rows = table_block->rows();
+    DORIS_CHECK(row_position_column.size() == rows);
+    auto column = table_block->get_by_position(column_idx).type->create_column();
+    auto* nullable_column = check_and_get_column<ColumnNullable>(*column);
+    auto* int_column = nullable_column != nullptr
+                               ? check_and_get_column<ColumnInt64>(
+                                         nullable_column->get_nested_column_ptr().get())
+                               : check_and_get_column<ColumnInt64>(column.get());
+    DORIS_CHECK(int_column != nullptr);
+    int_column->get_data().assign(row_position_column.get_data().begin(),
+                                  row_position_column.get_data().begin() + rows);
+    if (nullable_column != nullptr) {
+        nullable_column->get_null_map_data().resize_fill(rows, 0);
+    }
+    table_block->replace_by_position(column_idx, std::move(column));
+    return Status::OK();
+}
+
+bool PaimonReader::_need_metadata_columns() const {
+    if (_data_reader.column_mapper != nullptr) {
+        return std::ranges::any_of(_data_reader.column_mapper->mappings(), [](const auto& mapping) {
+            return mapping.virtual_column_type ==
+                           format::TableVirtualColumnType::PAIMON_FILE_PATH ||
+                   mapping.virtual_column_type ==
+                           format::TableVirtualColumnType::PAIMON_ROW_POSITION;
+        });
+    }
+    return std::ranges::any_of(_projected_columns, [](const auto& column) {
+        return iequal(column.name, BeConsts::PAIMON_FILE_PATH_COL) ||
+               iequal(column.name, BeConsts::PAIMON_ROW_POSITION_COL);
+    });
 }
 
 Status PaimonReader::_parse_deletion_vector_file(const TTableFormatFileDesc& t_desc,
@@ -316,15 +438,18 @@ Status PaimonHybridReader::prepare_split(const format::SplitReadOptions& options
     // timer around the first native or JNI child and double-count that initialization.
     RETURN_IF_ERROR(_ensure_current_split_reader(options));
     DORIS_CHECK(_current_split_reader != nullptr);
-    if (!_is_jni_split(options.current_range)) {
-        auto native_options = options;
-        // Legacy FE plans wrap native files in FORMAT_JNI; normalize the child contract so the
-        // physical reader does not overwrite its recovered Parquet/ORC format with that wrapper.
-        RETURN_IF_ERROR(
-                _to_file_format(options.current_range, &native_options.current_split_format));
-        return _current_split_reader->prepare_split(native_options);
+    // Rust splits (like JNI splits) stay on the serialized DataSplit path. They must not go
+    // through the native format normalization below: FE sets paimon_params.file_format on
+    // serialized splits too, so FORMAT_JNI would be rewritten to PARQUET and dispatched to the
+    // native child.
+    if (_is_jni_split(options.current_range) || _is_rust_split(options.current_range)) {
+        return _current_split_reader->prepare_split(options);
     }
-    return _current_split_reader->prepare_split(options);
+    auto native_options = options;
+    // Legacy FE plans wrap native files in FORMAT_JNI; normalize the child contract so the
+    // physical reader does not overwrite its recovered Parquet/ORC format with that wrapper.
+    RETURN_IF_ERROR(_to_file_format(options.current_range, &native_options.current_split_format));
+    return _current_split_reader->prepare_split(native_options);
 }
 
 Status PaimonHybridReader::refresh_conjuncts(VExprContextSPtrs conjuncts) {
@@ -370,6 +495,12 @@ Status PaimonHybridReader::close() {
             close_status = std::move(status);
         }
     }
+    if (_rust_reader != nullptr) {
+        auto status = _rust_reader->close();
+        if (!status.ok() && close_status.ok()) {
+            close_status = std::move(status);
+        }
+    }
     _current_split_reader = nullptr;
     return close_status;
 }
@@ -382,17 +513,36 @@ void PaimonHybridReader::set_batch_size(size_t batch_size) {
     if (_jni_reader != nullptr) {
         _jni_reader->set_batch_size(_batch_size);
     }
+    if (_rust_reader != nullptr) {
+        _rust_reader->set_batch_size(_batch_size);
+    }
 }
 
 int64_t PaimonHybridReader::condition_cache_hit_count() const {
-    // Both children survive split switches, so the wrapper must publish their cumulative totals;
+    // Child readers survive split switches, so the wrapper must publish their cumulative totals;
     // returning only the active child would make FileScannerV2's monotonic delta go backwards.
     return (_native_reader == nullptr ? 0 : _native_reader->condition_cache_hit_count()) +
-           (_jni_reader == nullptr ? 0 : _jni_reader->condition_cache_hit_count());
+           (_jni_reader == nullptr ? 0 : _jni_reader->condition_cache_hit_count()) +
+           (_rust_reader == nullptr ? 0 : _rust_reader->condition_cache_hit_count());
 }
 
 Status PaimonHybridReader::_ensure_current_split_reader(const format::SplitReadOptions& options) {
-    if (_is_jni_split(options.current_range)) {
+    if (_is_rust_split(options.current_range)) {
+        DCHECK(options.current_split_format == format::FileFormat::JNI);
+        if (_rust_reader == nullptr) {
+#ifdef BE_TEST
+            if (_test_rust_reader_factory) {
+                _rust_reader = _test_rust_reader_factory();
+            } else {
+                _rust_reader = std::make_unique<format::paimon::PaimonRustTableReader>();
+            }
+#else
+            _rust_reader = std::make_unique<format::paimon::PaimonRustTableReader>();
+#endif
+            RETURN_IF_ERROR(_init_child_reader(_rust_reader.get(), format::FileFormat::JNI));
+        }
+        _current_split_reader = _rust_reader.get();
+    } else if (_is_jni_split(options.current_range)) {
         DCHECK(options.current_split_format == format::FileFormat::JNI);
         if (_jni_reader == nullptr) {
 #ifdef BE_TEST
@@ -446,6 +596,7 @@ Status PaimonHybridReader::_init_child_reader(format::TableReader* reader,
             .io_ctx = _io_ctx,
             .runtime_state = _runtime_state,
             .scanner_profile = _scanner_profile,
+            .parquet_profile_cache = _parquet_profile_cache,
             .push_down_agg_type = _push_down_agg_type,
             .push_down_count_columns = _push_down_count_columns,
             .condition_cache_digest = _condition_cache_digest,
@@ -477,6 +628,15 @@ bool PaimonHybridReader::_is_jni_split(const TFileRangeDesc& range) {
     const auto& params = range.table_format_params.paimon_params;
     return params.__isset.paimon_split &&
            (!params.__isset.reader_type || params.reader_type == TPaimonReaderType::PAIMON_JNI);
+}
+
+bool PaimonHybridReader::_is_rust_split(const TFileRangeDesc& range) {
+    if (!range.__isset.table_format_params || !range.table_format_params.__isset.paimon_params) {
+        return false;
+    }
+    const auto& params = range.table_format_params.paimon_params;
+    return params.__isset.paimon_split && params.__isset.reader_type &&
+           params.reader_type == TPaimonReaderType::PAIMON_RUST;
 }
 
 Status PaimonHybridReader::_to_file_format(const TFileRangeDesc& range,

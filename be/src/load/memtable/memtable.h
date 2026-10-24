@@ -57,7 +57,7 @@ struct RowInBlock {
     size_t* _agg_state_offset = nullptr;
     bool _has_init_agg;
 
-    RowInBlock(size_t row) : _row_pos(row), _has_init_agg(false) {}
+    RowInBlock(size_t row = 0) : _row_pos(row), _has_init_agg(false) {}
     RowInBlock(size_t row, int64_t allocated_lsn)
             : _row_pos(row), _allocated_lsn(allocated_lsn), _has_init_agg(false) {}
 
@@ -119,9 +119,7 @@ public:
     };
 
 public:
-    Tie(size_t begin, size_t end) : _begin(begin), _end(end) {
-        _bits = std::vector<uint8_t>(_end - _begin, 1);
-    }
+    Tie(size_t begin, size_t end) : _begin(begin), _end(end), _bits(end - begin, 1) {}
     uint8_t operator[](size_t i) const { return _bits[i - _begin]; }
     uint8_t& operator[](size_t i) { return _bits[i - _begin]; }
     Iter iter() { return Iter(*this); }
@@ -129,7 +127,7 @@ public:
 private:
     const size_t _begin;
     const size_t _end;
-    std::vector<uint8_t> _bits;
+    DorisVector<uint8_t> _bits;
 };
 
 class RowInBlockComparator {

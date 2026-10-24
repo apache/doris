@@ -18,13 +18,17 @@
 package org.apache.doris.datasource.scan;
 
 import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TableSample;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.StructField;
+import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.Config;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.connector.spi.Connector;
@@ -38,14 +42,15 @@ import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
+import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TPushAggOp;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 
@@ -110,10 +115,10 @@ public class PluginDrivenScanNodeCompatibilityTest {
         Backend backend = new Backend(7L, "127.0.0.1", 9050);
         backend.setSmoothUpgradeSrc(true);
 
-        UserException exception = Assert.assertThrows(UserException.class,
+        UserException exception = Assertions.assertThrows(UserException.class,
                 () -> PluginDrivenScanNode.checkVariantBackendCompatibility(
-                        true, Collections.singletonList(backend)));
-        Assert.assertTrue(exception.getMessage().contains("backend 7"));
+                        true, Collections.singletonList(backend), VARIANT_EXEC_VERSION));
+        Assertions.assertTrue(exception.getMessage().contains("backend 7"));
     }
 
     @Test
@@ -122,45 +127,53 @@ public class PluginDrivenScanNodeCompatibilityTest {
         backend.setSmoothUpgradeSrc(true);
 
         PluginDrivenScanNode.checkVariantBackendCompatibility(
-                false, Collections.singletonList(backend));
+                false, Collections.singletonList(backend), VARIANT_EXEC_VERSION);
     }
 
     @Test
     public void computeVariantRejectsOldQueryWideExecutionVersion() {
-        int original = Config.be_exec_version;
-        try {
-            Config.be_exec_version = VARIANT_EXEC_VERSION - 1;
-            Backend backend = new Backend(8L, "127.0.0.1", 9050);
+        Backend backend = new Backend(8L, "127.0.0.1", 9050);
 
-            UserException exception = Assert.assertThrows(UserException.class,
-                    () -> PluginDrivenScanNode.checkVariantBackendCompatibility(
-                            true, Collections.singletonList(backend)));
-            Assert.assertTrue(exception.getMessage().contains("execution version"));
-        } finally {
-            Config.be_exec_version = original;
-        }
+        UserException exception = Assertions.assertThrows(UserException.class,
+                () -> PluginDrivenScanNode.checkVariantBackendCompatibility(
+                        true, Collections.singletonList(backend), VARIANT_EXEC_VERSION - 1));
+        Assertions.assertTrue(exception.getMessage().contains("execution version"));
     }
 
     @Test
     public void translatedScanTuplePreservesNestedComputeVariantCarrier() {
-        boolean originalEnableVariantV2 = Config.enable_variant_v2;
-        try {
-            Config.enable_variant_v2 = false;
-            Column column = new Column("payload",
-                    ArrayType.create(new ConnectorComputeVariantType(), true));
-            SlotReference slot = SlotReference.fromColumn(
-                    StatementScopeIdGenerator.newExprId(), org.mockito.Mockito.mock(TableIf.class), column,
-                    Collections.emptyList());
-            PlanTranslatorContext context = new PlanTranslatorContext();
-            TupleDescriptor tuple = context.generateTupleDesc();
-            context.createSlotDesc(tuple, slot);
+        Column column = new Column("payload",
+                ArrayType.create(new ConnectorComputeVariantType(), true));
+        SlotReference slot = SlotReference.fromColumn(
+                StatementScopeIdGenerator.newExprId(), org.mockito.Mockito.mock(TableIf.class), column,
+                Collections.emptyList());
+        PlanTranslatorContext context = new PlanTranslatorContext();
+        TupleDescriptor tuple = context.generateTupleDesc();
+        context.createSlotDesc(tuple, slot);
 
-            Assert.assertTrue(PluginDrivenScanNode.projectsComputeVariant(tuple));
-            Assert.assertTrue(tuple.getSlots().get(0).getType().toThrift()
-                    .types.get(1).scalar_type.variant_is_v2);
-        } finally {
-            Config.enable_variant_v2 = originalEnableVariantV2;
-        }
+        Assertions.assertTrue(PluginDrivenScanNode.projectsComputeVariant(tuple));
+        Assertions.assertTrue(tuple.getSlots().get(0).getType().toThrift()
+                .types.get(1).scalar_type.variant_is_v2);
+    }
+
+    @Test
+    public void projectsComputeVariantFollowsTheEffectiveSlotType() {
+        // Nested-column pruning narrows the slot type but keeps the original Column, so a scan that pruned
+        // the Variant child away decodes no Variant and must not be fenced off old backends.
+        // MUTATION: deciding from the slot's Column instead of its effective type -> red.
+        StructType full = new StructType(
+                new StructField("label", Type.STRING),
+                new StructField("payload", new ConnectorComputeVariantType()));
+        StructType pruned = new StructType(new StructField("label", Type.STRING));
+        TupleDescriptor tuple = new TupleDescriptor(new TupleId(0));
+        SlotDescriptor slot = new SlotDescriptor(new SlotId(1), tuple.getId());
+        slot.setColumn(new Column("info", full));
+        tuple.addSlot(slot);
+
+        slot.setType(pruned);
+        Assertions.assertFalse(PluginDrivenScanNode.projectsComputeVariant(tuple));
+        slot.setType(full);
+        Assertions.assertTrue(PluginDrivenScanNode.projectsComputeVariant(tuple));
     }
 
     @Test
@@ -184,22 +197,16 @@ public class PluginDrivenScanNodeCompatibilityTest {
         };
         List<Backend> backends = Collections.singletonList(
                 new Backend(9L, "127.0.0.1", 9050));
-        int original = Config.be_exec_version;
-        try {
-            Config.be_exec_version = VARIANT_EXEC_VERSION - 1;
-            PluginDrivenScanNode.checkVariantBackendCompatibility(
-                    PluginDrivenScanNode.plannedScanDecodesVariant(
-                            true, true, Collections.singletonList(countRange)),
-                    backends);
+        PluginDrivenScanNode.checkVariantBackendCompatibility(
+                PluginDrivenScanNode.plannedScanDecodesVariant(
+                        true, true, Collections.singletonList(countRange)),
+                backends, VARIANT_EXEC_VERSION - 1);
 
-            Assert.assertThrows(UserException.class,
-                    () -> PluginDrivenScanNode.checkVariantBackendCompatibility(
-                            PluginDrivenScanNode.plannedScanDecodesVariant(
-                                    true, true, Arrays.asList(countRange, dataRange)),
-                            backends));
-        } finally {
-            Config.be_exec_version = original;
-        }
+        Assertions.assertThrows(UserException.class,
+                () -> PluginDrivenScanNode.checkVariantBackendCompatibility(
+                        PluginDrivenScanNode.plannedScanDecodesVariant(
+                                true, true, Arrays.asList(countRange, dataRange)),
+                        backends, VARIANT_EXEC_VERSION - 1));
     }
 
     @Test
@@ -211,7 +218,7 @@ public class PluginDrivenScanNodeCompatibilityTest {
 
         node.checkVariantBackendCompatibilityForCurrentScan(Collections.singletonList(oldBackend()));
 
-        Assert.assertTrue((Boolean) Deencapsulation.getField(node, "variantCompatibilityDeferred"));
+        Assertions.assertTrue((Boolean) Deencapsulation.getField(node, "variantCompatibilityDeferred"));
     }
 
     @Test
@@ -231,7 +238,7 @@ public class PluginDrivenScanNodeCompatibilityTest {
 
         node.checkVariantBackendCompatibilityForCurrentScan(Collections.singletonList(oldBackend()));
 
-        Assert.assertFalse(node.isBatchMode());
+        Assertions.assertFalse(node.isBatchMode());
     }
 
     private static ConnectorScanPlanProvider metadataCountProvider() {
@@ -248,6 +255,8 @@ public class PluginDrivenScanNodeCompatibilityTest {
         Deencapsulation.setField(node, "connector", connector);
         Deencapsulation.setField(node, "connectorSession", Mockito.mock(ConnectorSession.class));
         Deencapsulation.setField(node, "currentHandle", new ConnectorTableHandle() { });
+        Deencapsulation.setField(node, "scanContext",
+                ScanContext.builder().beExecVersion(VARIANT_EXEC_VERSION).build());
         Deencapsulation.setField(node, "conjuncts", new ArrayList<>());
         Deencapsulation.setField(node, "pushDownAggNoGroupingOp", TPushAggOp.COUNT);
         Deencapsulation.setField(node, "pushDownCountSlotIds", Collections.emptyList());

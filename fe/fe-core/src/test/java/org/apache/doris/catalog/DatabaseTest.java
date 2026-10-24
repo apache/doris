@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
@@ -28,10 +29,10 @@ import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -39,8 +40,10 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 public class DatabaseTest {
@@ -53,7 +56,138 @@ public class DatabaseTest {
 
     private MockedStatic<Env> mockedEnvStatic;
 
-    @Before
+    @Test
+    public void enablingChangelogValidatesTheMergedRetention() throws Exception {
+        for (String ttl : new String[] {"-1", "0"}) {
+            db.updateDbProperties(Map.of("changelog.enable", "false", "changelog.ttl_seconds", ttl));
+            DdlException exception = Assertions.assertThrows(DdlException.class,
+                    () -> db.updateDbProperties(Map.of("changelog.enable", "true")));
+            Assertions.assertTrue(exception.getMessage().contains("changelog.ttl_seconds must be greater than 0"),
+                    exception.getMessage());
+            Assertions.assertFalse(db.getChangelogConfig().isEnable());
+        }
+        db.updateDbProperties(Map.of("changelog.enable", "true", "changelog.ttl_seconds", "60"));
+        Assertions.assertTrue(db.getChangelogConfig().isEnable());
+        Assertions.assertFalse(db.getBinlogConfig().getEnable());
+        Assertions.assertEquals(60, db.getChangelogConfigForCreateTable(Map.of()).getTtlSeconds());
+    }
+
+    @Test
+    public void changelogTtlDefaultsAndInheritance() throws Exception {
+        Map<String, String> tableProperties = new HashMap<>();
+        tableProperties.put("changelog.enable", "true");
+        ChangelogConfig withoutTtl = db.getChangelogConfigForCreateTable(tableProperties);
+        Assertions.assertEquals(86400L, withoutTtl.getTtlSeconds());
+        Assertions.assertTrue(withoutTtl.isTtlEnabled());
+
+        tableProperties.put("changelog.ttl_seconds", "0");
+        Assertions.assertThrows(AnalysisException.class, () -> db.getChangelogConfigForCreateTable(tableProperties));
+        tableProperties.put("changelog.ttl_seconds", "11");
+        ChangelogConfig explicitTtl = db.getChangelogConfigForCreateTable(tableProperties);
+        Assertions.assertEquals(11L, explicitTtl.getTtlSeconds());
+        Assertions.assertTrue(explicitTtl.isTtlEnabled());
+
+        db.replayUpdateDbProperties(Map.of(
+                "changelog.enable", "true",
+                "changelog.ttl_seconds", "7"));
+        tableProperties.remove("changelog.ttl_seconds");
+        ChangelogConfig inheritedTtl = db.getChangelogConfigForCreateTable(tableProperties);
+        Assertions.assertEquals(7L, inheritedTtl.getTtlSeconds());
+        Assertions.assertTrue(inheritedTtl.isTtlEnabled());
+
+        db.replayUpdateDbProperties(Map.of("changelog.ttl_seconds", "-1"));
+        Assertions.assertThrows(AnalysisException.class, () -> db.getChangelogConfigForCreateTable(tableProperties));
+        tableProperties.put("changelog.ttl_seconds", "9");
+        Assertions.assertEquals(9L, db.getChangelogConfigForCreateTable(tableProperties).getTtlSeconds());
+
+        // The CCR retention is not the default of a changelog.
+        db.replayUpdateDbProperties(Map.of("changelog.ttl_seconds", "7", "binlog.ttl_seconds", "5"));
+        tableProperties.remove("changelog.ttl_seconds");
+        Assertions.assertEquals(7L, db.getChangelogConfigForCreateTable(tableProperties).getTtlSeconds());
+    }
+
+    @Test
+    public void tableWithoutChangelogSetsNoChangelogProperty() throws Exception {
+        Assertions.assertFalse(db.getChangelogConfigForCreateTable(Map.of("changelog.enable", "false")).isEnable());
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> db.getChangelogConfigForCreateTable(Map.of("changelog.ttl_seconds", "10")));
+        Assertions.assertTrue(exception.getMessage().contains(
+                "Property changelog.ttl_seconds requires \"changelog.enable\" = \"true\""), exception.getMessage());
+        // A database default without changelog stays a default.
+        db.replayUpdateDbProperties(Map.of("changelog.ttl_seconds", "10", "changelog.need_historical_value", "true"));
+        Assertions.assertFalse(db.getChangelogConfigForCreateTable(Map.of()).isEnable());
+        ChangelogConfig inherited = db.getChangelogConfigForCreateTable(Map.of("changelog.enable", "true"));
+        Assertions.assertEquals(new ChangelogConfig(true, 10, true), inherited);
+    }
+
+    @Test
+    public void databaseCanNotEnableBothBinlogAndChangelog() throws Exception {
+        db.updateDbProperties(Map.of("changelog.enable", "true"));
+        DdlException exception = Assertions.assertThrows(DdlException.class,
+                () -> db.updateDbProperties(Map.of("binlog.enable", "true")));
+        Assertions.assertTrue(exception.getMessage().contains("Database dbTest can not enable both binlog and "
+                + "changelog"), exception.getMessage());
+        Assertions.assertFalse(db.getBinlogConfig().isEnableForCCR());
+        db.updateDbProperties(Map.of("changelog.enable", "false", "binlog.enable", "true"));
+        Assertions.assertTrue(db.getBinlogConfig().isEnableForCCR());
+        Assertions.assertThrows(DdlException.class, () -> db.updateDbProperties(Map.of("changelog.enable", "true")));
+        Assertions.assertFalse(db.getChangelogConfig().isEnable());
+    }
+
+    @Test
+    public void imageLoadAndReplayDropTheReplacedBinlogKeys() throws Exception {
+        // A CCR database written before changelog.* replaced the format keys.
+        db.getDbProperties().getProperties().putAll(legacyDbProperties("true", "STATEMENT_AND_SNAPSHOT"));
+        db.gsonPostProcess();
+        assertLegacyKeysDropped(db.getDbProperties().getProperties());
+        Assertions.assertEquals("true", db.getDbProperties().get("binlog.enable"));
+        Assertions.assertTrue(db.getBinlogConfig().isEnableForCCR());
+        Assertions.assertFalse(db.getChangelogConfig().isEnable());
+
+        Database replayed = new Database(dbId + 1, "replayed");
+        replayed.replayUpdateDbProperties(legacyDbProperties("false", "STATEMENT_AND_SNAPSHOT"));
+        assertLegacyKeysDropped(replayed.getDbProperties().getProperties());
+        Assertions.assertFalse(replayed.getBinlogConfig().isEnableForCCR());
+    }
+
+    @Test
+    public void changelogDefaultDatabaseDoesNotTurnIntoCcrDatabase() throws Exception {
+        // "binlog.enable" = "true" with "binlog.format" = "ROW" made changelog the default of new tables.
+        db.getDbProperties().getProperties().putAll(legacyDbProperties("true", "row"));
+        db.gsonPostProcess();
+        assertLegacyKeysDropped(db.getDbProperties().getProperties());
+        Assertions.assertEquals("false", db.getDbProperties().get("binlog.enable"));
+        Assertions.assertFalse(db.getBinlogConfig().isEnableForCCR());
+        Assertions.assertFalse(db.getChangelogConfig().isEnable());
+        Assertions.assertEquals("3600", db.getDbProperties().get("binlog.ttl_seconds"));
+
+        Database replayed = new Database(dbId + 1, "replayed");
+        replayed.replayUpdateDbProperties(Map.of("binlog.enable", "true", "binlog.format", "ROW"));
+        assertLegacyKeysDropped(replayed.getDbProperties().getProperties());
+        Assertions.assertEquals("false", replayed.getDbProperties().get("binlog.enable"));
+        Assertions.assertFalse(replayed.getBinlogConfig().isEnableForCCR());
+        // The database can then turn on CCR binlog or changelog like any other.
+        replayed.updateDbProperties(Map.of("changelog.enable", "true"));
+        Assertions.assertTrue(replayed.getChangelogConfig().isEnable());
+    }
+
+    private static Map<String, String> legacyDbProperties(String enable, String format) {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("binlog.enable", enable);
+        properties.put("binlog.ttl_seconds", "3600");
+        properties.put("binlog.format", format);
+        properties.put("binlog.need_historical_value", "false");
+        properties.put("__binlog_config_version", "0");
+        return properties;
+    }
+
+    private static void assertLegacyKeysDropped(Map<String, String> properties) {
+        Assertions.assertFalse(properties.containsKey("binlog.format"), properties.toString());
+        Assertions.assertFalse(properties.containsKey("binlog.need_historical_value"), properties.toString());
+        Assertions.assertFalse(properties.containsKey("__binlog_config_version"), properties.toString());
+    }
+
+    @BeforeEach
     public void setup() {
         FeConstants.runningUnitTest = true;
         db = new Database(dbId, "dbTest");
@@ -65,7 +199,7 @@ public class DatabaseTest {
         mockedEnvStatic.when(Env::getCurrentEnvJournalVersion).thenReturn(FeConstants.meta_version);
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         mockedEnvStatic.close();
     }
@@ -74,25 +208,25 @@ public class DatabaseTest {
     public void lockTest() {
         db.readLock();
         try {
-            Assert.assertFalse(db.tryWriteLock(0, TimeUnit.SECONDS));
+            Assertions.assertFalse(db.tryWriteLock(0, TimeUnit.SECONDS));
         } finally {
             db.readUnlock();
         }
 
         db.writeLock();
         try {
-            Assert.assertTrue(db.tryWriteLock(1000, TimeUnit.SECONDS));
+            Assertions.assertTrue(db.tryWriteLock(1000, TimeUnit.SECONDS));
             db.writeUnlock();
         } finally {
             db.writeUnlock();
         }
 
         db.markDropped();
-        Assert.assertFalse(db.writeLockIfExist());
-        Assert.assertFalse(db.isWriteLockHeldByCurrentThread());
+        Assertions.assertFalse(db.writeLockIfExist());
+        Assertions.assertFalse(db.isWriteLockHeldByCurrentThread());
         db.unmarkDropped();
-        Assert.assertTrue(db.writeLockIfExist());
-        Assert.assertTrue(db.isWriteLockHeldByCurrentThread());
+        Assertions.assertTrue(db.writeLockIfExist());
+        Assertions.assertTrue(db.isWriteLockHeldByCurrentThread());
         db.writeUnlock();
     }
 
@@ -116,9 +250,9 @@ public class DatabaseTest {
         db.registerTable(table2);
         List<Long> tableIdList = Lists.newArrayList(2001L, 2000L);
         List<Table> tableList = db.getTablesOnIdOrderOrThrowException(tableIdList);
-        Assert.assertEquals(2, tableList.size());
-        Assert.assertEquals(2000L, tableList.get(0).getId());
-        Assert.assertEquals(2001L, tableList.get(1).getId());
+        Assertions.assertEquals(2, tableList.size());
+        Assertions.assertEquals(2000L, tableList.get(0).getId());
+        Assertions.assertEquals(2001L, tableList.get(1).getId());
         ExceptionChecker.expectThrowsWithMsg(MetaNotFoundException.class, "table not found, tableId=3000",
                 () -> db.getTablesOnIdOrderOrThrowException(Lists.newArrayList(3000L)));
     }
@@ -131,8 +265,8 @@ public class DatabaseTest {
         db.registerTable(table);
         Table resultTable1 = db.getTableOrMetaException(2000L, Table.TableType.OLAP);
         Table resultTable2 = db.getTableOrMetaException("baseTable", Table.TableType.OLAP);
-        Assert.assertEquals(table, resultTable1);
-        Assert.assertEquals(table, resultTable2);
+        Assertions.assertEquals(table, resultTable1);
+        Assertions.assertEquals(table, resultTable2);
         ExceptionChecker.expectThrowsWithMsg(MetaNotFoundException.class, "table not found, tableId=3000",
                 () -> db.getTableOrMetaException(3000L, Table.TableType.OLAP));
         ExceptionChecker.expectThrowsWithMsg(MetaNotFoundException.class, "table not found, tableName=baseTable1",
@@ -147,8 +281,8 @@ public class DatabaseTest {
 
     @Test
     public void createAndDropPartitionTest() {
-        Assert.assertEquals("dbTest", db.getFullName());
-        Assert.assertEquals(dbId, db.getId());
+        Assertions.assertEquals("dbTest", db.getFullName());
+        Assertions.assertEquals(dbId, db.getId());
 
         MaterializedIndex baseIndex = new MaterializedIndex(10001, IndexState.NORMAL);
         Partition partition = new Partition(20000L, "baseTable", baseIndex, new RandomDistributionInfo(10));
@@ -158,29 +292,29 @@ public class DatabaseTest {
         table.addPartition(partition);
 
         // create
-        Assert.assertTrue(db.registerTable(table));
+        Assertions.assertTrue(db.registerTable(table));
         // duplicate
-        Assert.assertFalse(db.registerTable(table));
+        Assertions.assertFalse(db.registerTable(table));
 
-        Assert.assertEquals(table, db.getTableNullable(table.getId()));
-        Assert.assertEquals(table, db.getTableNullable(table.getName()));
+        Assertions.assertEquals(table, db.getTableNullable(table.getId()));
+        Assertions.assertEquals(table, db.getTableNullable(table.getName()));
 
-        Assert.assertEquals(1, db.getTables().size());
-        Assert.assertEquals(table, db.getTables().get(0));
+        Assertions.assertEquals(1, db.getTables().size());
+        Assertions.assertEquals(table, db.getTables().get(0));
 
-        Assert.assertEquals(1, db.getTableNamesWithLock().size());
+        Assertions.assertEquals(1, db.getTableNamesWithLock().size());
         for (String tableFamilyGroupName : db.getTableNamesWithLock()) {
-            Assert.assertEquals(table.getName(), tableFamilyGroupName);
+            Assertions.assertEquals(table.getName(), tableFamilyGroupName);
         }
 
         // drop
         // drop not exist tableFamily
         db.unregisterTable("invalid");
-        Assert.assertEquals(1, db.getTables().size());
+        Assertions.assertEquals(1, db.getTables().size());
 
         db.registerTable(table);
         db.unregisterTable(table.getName());
-        Assert.assertEquals(0, db.getTables().size());
+        Assertions.assertEquals(0, db.getTables().size());
     }
 
     @Test
@@ -234,10 +368,10 @@ public class DatabaseTest {
         DataInputStream dis = new DataInputStream(Files.newInputStream(path));
 
         Database rDb1 = Database.read(dis);
-        Assert.assertEquals(rDb1, db1);
+        Assertions.assertEquals(rDb1, db1);
 
         Database rDb2 = Database.read(dis);
-        Assert.assertEquals(rDb2, db2);
+        Assertions.assertEquals(rDb2, db2);
 
         // 3. delete files
         dis.close();

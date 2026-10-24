@@ -18,18 +18,29 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Status;
+import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.PlannerHook;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.insert.BaseExternalTableInsertExecutor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TStatusCode;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mockito;
+
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Pins the begin→finalize guarded window of {@link RowLevelDmlCommand}: {@code beginTransaction} registers
@@ -90,7 +101,7 @@ public class RowLevelDmlCommandTest {
     }
 
     @Test
-    public void successPathWiresCoordinatorWithoutRollback() {
+    public void successPathPreparesCoordinatorWithoutRollback() {
         Coordinator coordinator = Mockito.mock(Coordinator.class);
         Mockito.when(executor.getCoordinator()).thenReturn(coordinator);
         Mockito.when(executor.getTxnId()).thenReturn(42L);
@@ -98,7 +109,45 @@ public class RowLevelDmlCommandTest {
         invoke();
 
         Mockito.verify(coordinator).setTxnId(42L);
-        Mockito.verify(stmtExecutor).setCoord(coordinator);
         Mockito.verify(executor, Mockito.never()).onFail(Mockito.any());
+    }
+
+    @Test
+    public void deleteCapturesThePreRewriteAnalyzedPlanLocally() {
+        // NereidsPlanner leaves analyzedPlan null for a plain DELETE. Capture the plan for the metadata-delete
+        // attempt only; publishing it through setAnalyzedPlan would also change row-level fallback semantics.
+        ConnectContext ctx = Mockito.mock(ConnectContext.class);
+        StatementContext statementContext = Mockito.mock(StatementContext.class);
+        Mockito.when(ctx.getStatementContext()).thenReturn(statementContext);
+        AtomicReference<Plan> captured = new AtomicReference<>();
+
+        RowLevelDmlCommand.captureAnalyzedPlan(ctx, captured);
+
+        ArgumentCaptor<PlannerHook> captor = ArgumentCaptor.forClass(PlannerHook.class);
+        Mockito.verify(statementContext).addPlannerHook(captor.capture());
+        NereidsPlanner planner = Mockito.mock(NereidsPlanner.class);
+        CascadesContext cascadesContext = Mockito.mock(CascadesContext.class);
+        Plan analyzed = Mockito.mock(Plan.class);
+        Mockito.when(planner.getCascadesContext()).thenReturn(cascadesContext);
+        Mockito.when(cascadesContext.getRewritePlan()).thenReturn(analyzed);
+
+        captor.getValue().afterAnalyze(planner);
+
+        Assertions.assertSame(analyzed, captured.get());
+        Mockito.verify(planner, Mockito.never()).setAnalyzedPlan(Mockito.any());
+    }
+
+    @Test
+    public void retainedCancellationIsReplayedBeforeTheMetadataDelete() {
+        // The row-level path replays the retained cancellation when the coordinator is published. The metadata
+        // branch has no coordinator, so it must replay it explicitly before any remote mutation.
+        StmtExecutor stmtExecutor = Mockito.mock(StmtExecutor.class);
+        Mockito.when(stmtExecutor.getPendingCancelReason())
+                .thenReturn(new Status(TStatusCode.CANCELLED, "query was killed"));
+
+        UserException thrown = Assertions.assertThrows(UserException.class,
+                () -> RowLevelDmlCommand.throwIfCancelled(stmtExecutor));
+
+        Assertions.assertTrue(thrown.getMessage().contains("query was killed"), thrown.getMessage());
     }
 }

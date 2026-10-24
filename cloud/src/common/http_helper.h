@@ -215,6 +215,12 @@ const std::unordered_map<std::string_view, HttpHandlerInfo>& get_http_handlers()
 [[maybe_unused]] HttpResponse process_adjust_rate_limiter(RecyclerServiceImpl*,
                                                           brpc::Controller* cntl);
 
+[[maybe_unused]] HttpResponse process_analyze_snapshot_retained(RecyclerServiceImpl*,
+                                                                brpc::Controller* cntl);
+
+[[maybe_unused]] HttpResponse process_get_snapshot_retained_analysis(RecyclerServiceImpl*,
+                                                                     brpc::Controller* cntl);
+
 // Both http handlers
 [[maybe_unused]] HttpResponse process_show_config(MetaServiceImpl*, brpc::Controller* cntl);
 

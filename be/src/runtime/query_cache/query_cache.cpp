@@ -190,8 +190,8 @@ std::shared_ptr<QueryCacheInstanceDecision> QueryCacheRuntime::get_or_make_decis
 void QueryCacheRuntime::_make_decision(const std::vector<TScanRangeParams>& scan_ranges,
                                        QueryCacheInstanceDecision* decision) {
     decision->mode = QueryCacheInstanceDecision::Mode::MISS;
-    if (_binlog_scan) {
-        // A row-binlog scan reads a different data stream under the same plan
+    if (_changelog_scan) {
+        // A changelog scan reads a different data stream under the same plan
         // digest: it must neither serve cached blocks nor write its output
         // back (that would poison the cache for normal queries).
         decision->key_valid = false;

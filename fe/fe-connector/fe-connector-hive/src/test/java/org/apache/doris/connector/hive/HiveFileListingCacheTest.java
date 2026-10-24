@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.hive;
 
+import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.DorisConnectorException;
@@ -38,6 +39,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Tests {@link HiveFileListingCache}: the connector-owned directory-listing cache (D2's second layer, separate
@@ -73,6 +75,26 @@ public class HiveFileListingCacheTest {
         return m;
     }
 
+    @Test
+    public void disabledBoundedListingDoesNotPrepareCachePayload() {
+        for (String[] disabled : new String[][] {{"enable", "false"}, {"ttl-second", "0"}}) {
+            Map<String, String> properties = props("meta.cache.hive.file.max-weight", "1MB",
+                    "meta.cache.hive.file." + disabled[0], disabled[1]);
+            List<HiveFileStatus> files = Collections.singletonList(new HiveFileStatus("file", 10L, 1L));
+            AtomicInteger loads = new AtomicInteger();
+            try (CatalogMetaCache owner = CatalogMetaCache.unmanaged()) {
+                HiveFileListingCache cache = new HiveFileListingCache(owner, HiveCatalogProperties.of(properties),
+                        (location, fileSystem) -> {
+                            loads.incrementAndGet();
+                            return files;
+                        });
+                Assertions.assertSame(files, cache.listDataFiles("db", "t", "loc", FS));
+                Assertions.assertSame(files, cache.listDataFiles("db", "t", "loc", FS));
+                Assertions.assertEquals(2, loads.get());
+            }
+        }
+    }
+
     // ==================== caching: hit / miss keyed by (db, table, location) ====================
 
     @Test
@@ -89,6 +111,22 @@ public class HiveFileListingCacheTest {
         // WHY: a different directory is a different key — must re-list.
         cache.listDataFiles("db", "t", "loc2", FS);
         Assertions.assertEquals(2, lister.totalCalls);
+    }
+
+    @Test
+    public void weightBoundedListingIsEstimatedAndCached() {
+        CountingLister lister = new CountingLister();
+        Map<String, String> properties = props("meta.cache.hive.file.max-weight", "1MB");
+        try (CatalogMetaCache owner = CatalogMetaCache.unmanaged()) {
+            HiveFileListingCache cache = new HiveFileListingCache(
+                    owner, HiveCatalogProperties.of(properties), lister);
+
+            List<HiveFileStatus> first = cache.listDataFiles("db", "t", "loc", FS);
+            List<HiveFileStatus> second = cache.listDataFiles("db", "t", "loc", FS);
+
+            Assertions.assertSame(first, second);
+            Assertions.assertEquals(1, lister.totalCalls);
+        }
     }
 
     @Test
@@ -123,6 +161,29 @@ public class HiveFileListingCacheTest {
         // ...while t2's entry (a different table) must survive — invalidateTable is scoped by (db, table).
         cache.listDataFiles("db", "t2", "locB", FS);
         Assertions.assertEquals(1, (int) lister.callsPerLocation.get("locB"));
+    }
+
+    @Test
+    public void refreshTableWithSharedPartitionLocationIsScopedPerTable() {
+        CountingLister lister = new CountingLister();
+        HiveFileListingCache cache = new HiveFileListingCache(HiveTestProperties.minimal(), lister);
+        String location = "/warehouse/shared/p=p1";
+        List<String> values = Collections.singletonList("p1");
+
+        // Two tables whose partitions point at the same directory with the same values (branch-4.x #68577).
+        // WHY: b must list the shared directory itself instead of serving a's listing, and refreshing b must
+        // not touch a. MUTATION: dropping (db, table) from the key -> b reuses a's list -> red.
+        List<HiveFileStatus> filesA = cache.listDataFiles("db", "a", location, values, FS);
+        List<HiveFileStatus> filesB = cache.listDataFiles("db", "b", location, values, FS);
+        Assertions.assertEquals(2, lister.totalCalls);
+        Assertions.assertSame(filesA, cache.listDataFiles("db", "a", location, values, FS));
+        Assertions.assertSame(filesB, cache.listDataFiles("db", "b", location, values, FS));
+
+        cache.invalidateTable("db", "b");
+
+        Assertions.assertNotSame(filesB, cache.listDataFiles("db", "b", location, values, FS));
+        Assertions.assertSame(filesA, cache.listDataFiles("db", "a", location, values, FS));
+        Assertions.assertEquals(3, lister.totalCalls);
     }
 
     @Test

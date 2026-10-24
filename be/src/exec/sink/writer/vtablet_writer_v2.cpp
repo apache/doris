@@ -30,6 +30,7 @@
 #include <ranges>
 #include <string>
 #include <unordered_map>
+#include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
@@ -1072,15 +1073,15 @@ void VTabletWriterV2::_calc_tablets_to_commit() {
 
 Status VTabletWriterV2::_create_commit_info(std::vector<TTabletCommitInfo>& tablet_commit_infos,
                                             std::shared_ptr<LoadStreamMap> load_stream_map) {
-    // Track per-tablet non-gap success count and failure reasons
-    std::unordered_map<int64_t, int> success_tablets_replica;
-    std::unordered_set<int64_t> failed_tablets;
+    // Commit results may be reported to different sources. Only reject a tablet when
+    // known failures make quorum impossible; FE checks the aggregated commit info.
+    std::unordered_map<int64_t, std::unordered_set<int64_t>> failed_tablets;
     std::unordered_map<int64_t, Status> failed_reason;
     load_stream_map->for_each([&](int64_t dst_id, LoadStreamStubs& streams) {
         size_t num_success_tablets = 0;
         size_t num_failed_tablets = 0;
         for (auto [tablet_id, reason] : streams.failed_tablets()) {
-            failed_tablets.insert(tablet_id);
+            failed_tablets[tablet_id].insert(dst_id);
             failed_reason[tablet_id] = reason;
             num_failed_tablets++;
         }
@@ -1089,25 +1090,28 @@ Status VTabletWriterV2::_create_commit_info(std::vector<TTabletCommitInfo>& tabl
             commit_info.tabletId = tablet_id;
             commit_info.backendId = dst_id;
             tablet_commit_infos.emplace_back(std::move(commit_info));
-            // Only count non-gap backends toward success
-            auto gap_it = _tablet_version_gap_backends.find(tablet_id);
-            if (gap_it == _tablet_version_gap_backends.end() ||
-                gap_it->second.find(dst_id) == gap_it->second.end()) {
-                success_tablets_replica[tablet_id]++;
-            }
             num_success_tablets++;
         }
         LOG(INFO) << "streams to dst_id: " << dst_id << ", success tablets: " << num_success_tablets
                   << ", failed tablets: " << num_failed_tablets;
     });
 
-    for (auto tablet_id : failed_tablets) {
-        int succ_count = success_tablets_replica[tablet_id];
-        int required = _load_required_replicas_num(tablet_id);
-        if (succ_count < required) {
+    for (auto& [tablet_id, failed_backends] : failed_tablets) {
+        // Version-gap replicas cannot contribute to quorum, even if this write succeeds.
+        // Count a backend only once when it also reported a write failure.
+        if (auto gap_it = _tablet_version_gap_backends.find(tablet_id);
+            gap_it != _tablet_version_gap_backends.end()) {
+            failed_backends.insert(gap_it->second.begin(), gap_it->second.end());
+        }
+        auto [total_replicas_num, load_required_replicas_num] = _tablet_replica_info[tablet_id];
+        int max_failed_replicas = total_replicas_num == 0
+                                          ? (_num_replicas - 1) / 2
+                                          : total_replicas_num - load_required_replicas_num;
+        if (std::cmp_greater(failed_backends.size(), max_failed_replicas)) {
             LOG(INFO) << "tablet " << tablet_id
-                      << " failed on majority backends (success=" << succ_count
-                      << ", required=" << required << "): " << failed_reason[tablet_id];
+                      << " failed on majority backends (failed=" << failed_backends.size()
+                      << ", max_failed=" << max_failed_replicas
+                      << "): " << failed_reason[tablet_id];
             return Status::InternalError("tablet {} failed on majority backends: {}", tablet_id,
                                          failed_reason[tablet_id]);
         }
