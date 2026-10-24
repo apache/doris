@@ -2136,6 +2136,9 @@ int InstanceChecker::do_tablet_stats_key_check() {
 }
 
 int InstanceChecker::check_stats_tablet_key_exists(std::string_view key, std::string_view value) {
+    if (value.empty()) {
+        return 0;
+    }
     std::string_view k1 = key;
     k1.remove_prefix(1);
     std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
