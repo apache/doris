@@ -24,6 +24,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.filesystem.FileSystemUtil;
 import org.apache.doris.filesystem.Location;
 import org.apache.doris.fs.FileSystemFactory;
@@ -44,6 +45,7 @@ import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QeProcessorImpl.QueryInfo;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.tablefunction.LocalTableValuedFunction;
 import org.apache.doris.task.LoadEtlTask;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
@@ -173,6 +175,7 @@ public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Ex
 
     private void deleteExistingFilesInFE(String tvfName, Map<String, String> props)
             throws Exception {
+        LocalTableValuedFunction.checkSinkEnabled(tvfName, props);
         // Copy props for building the storage adapter (exclude write-specific params)
         Map<String, String> fsCopyProps = new HashMap<>(props);
         fsCopyProps.remove("file_path");
@@ -185,6 +188,10 @@ public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Ex
         fsCopyProps.remove("compress_type");
 
         StorageAdapter storageAdapter = StorageAdapter.of(fsCopyProps);
+        if (storageAdapter.getType() == StorageTypeId.HDFS) {
+            LocalTableValuedFunction.checkHadoopFileSystemEnabled(
+                    props.get("file_path"), storageAdapter.getBackendConfigProperties());
+        }
         // Concrete filesystems only accept their native schemes; normalize legacy compatibility
         // schemes (e.g. cos:// with s3.* properties) before crossing the plugin boundary.
         String filePath = storageAdapter.validateAndNormalizeUri(props.get("file_path"));

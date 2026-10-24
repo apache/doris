@@ -140,18 +140,119 @@ public class LocalTableValuedFunction extends ExternalFileTableValuedFunction {
         }
     }
 
-    /** Apply LOCAL admission to sinks that select the built-in local JNI writer as well. */
+    /** Apply LOCAL admission to the effective sink before planning or filesystem side effects. */
     public static void checkSinkEnabled(String tvfName, Map<String, String> properties) {
-        String writerClass = properties.getOrDefault("writer_class", "");
-        // JNI consumes a C string, and ScannerLoader accepts slash-separated class names.
-        int nul = writerClass.indexOf('\0');
-        if (nul >= 0) {
-            writerClass = writerClass.substring(0, nul);
-        }
-        if ("local".equalsIgnoreCase(tvfName)
-                || "org.apache.doris.writer.LocalFileJniWriter".equals(writerClass.replace('/', '.'))) {
+        if ("local".equalsIgnoreCase(tvfName) || isLocalWriter(properties.getOrDefault("writer_class", ""))) {
             checkEnabled();
         }
+        if ("hdfs".equalsIgnoreCase(tvfName)) {
+            if (!properties.containsKey("writer_class")) {
+                checkHdfsSinkEnabled(properties);
+            }
+            if (Boolean.parseBoolean(properties.getOrDefault("delete_existing_files", "false"))) {
+                checkHadoopFileSystemEnabled(properties.getOrDefault("file_path", ""), properties);
+            }
+        }
+    }
+
+    private static boolean isLocalWriter(String writer) {
+        // BE splits the complete identifier first, then passes each half through JNI C strings.
+        int separator = writer.indexOf(':');
+        return separator > 0 && "java-writer".equals(nativeStringPrefix(writer.substring(0, separator)))
+                && "local-file".equals(nativeStringPrefix(writer.substring(separator + 1)));
+    }
+
+    /** Check the NameNode and provider used by the native FILE_HDFS writer. */
+    public static void checkHdfsSinkEnabled(Map<String, String> properties) {
+        String nameNode = nativeStringPrefix(properties.getOrDefault("fs.defaultFS", "")).trim();
+        if ("default".equals(nameNode)) {
+            // libhdfs delegates this selector to the BE's defaults, which may select local storage.
+            checkEnabled();
+        }
+        // libhdfs prefixes bare NameNodes with hdfs:// rather than using the output path's scheme.
+        checkHadoopSchemeEnabled(nameNode.contains("://") ? uriScheme(nameNode) : "hdfs", properties);
+    }
+
+    /** Check Hadoop's path/default-filesystem selection before FE-side cleanup. */
+    public static void checkHadoopFileSystemEnabled(String path, Map<String, String> properties) {
+        String scheme = uriScheme(path);
+        if (!scheme.isEmpty()) {
+            checkHadoopSchemeEnabled(scheme, properties);
+            return;
+        }
+        String defaultFs = hadoopSelectorProperty("fs.defaultFS", properties);
+        String legacyDefaultFs = hadoopSelectorProperty("fs.default.name", properties);
+        // Configuration.set synchronizes aliases; either value can win when the map is applied.
+        // Do not assume that the canonical key overrides a local legacy selector.
+        if (defaultFs != null) {
+            checkHadoopDefaultEnabled(defaultFs, properties);
+        }
+        if (legacyDefaultFs != null) {
+            checkHadoopDefaultEnabled(legacyDefaultFs, properties);
+        }
+        if (defaultFs == null && legacyDefaultFs == null) {
+            checkHadoopSchemeEnabled("file", properties);
+        }
+    }
+
+    private static void checkHadoopDefaultEnabled(String value, Map<String, String> properties) {
+        value = hadoopSelectorValue(value).trim();
+        // Hadoop retains the old "local" default-FS spelling.
+        String scheme = "local".equals(value) ? "file" : uriScheme(value);
+        checkHadoopSchemeEnabled(scheme.isEmpty() ? "hdfs" : scheme, properties);
+    }
+
+    private static void checkHadoopSchemeEnabled(String scheme, Map<String, String> properties) {
+        if ("file".equalsIgnoreCase(scheme)) {
+            checkEnabled();
+        }
+        String implementationKey = "fs." + scheme + ".impl";
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            // The native Hadoop configuration boundary consumes C strings for keys and values.
+            if (implementationKey.equals(nativeStringPrefix(entry.getKey()).trim())) {
+                String implementation = hadoopSelectorValue(nativeStringPrefix(entry.getValue())).trim();
+                if ("org.apache.hadoop.fs.LocalFileSystem".equals(implementation)
+                        || "org.apache.hadoop.fs.RawLocalFileSystem".equals(implementation)) {
+                    checkEnabled();
+                }
+            }
+        }
+    }
+
+    private static String hadoopSelectorProperty(String key, Map<String, String> properties) {
+        String value = null;
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            // Configuration.set trims keys; native configuration strings also stop at NUL.
+            if (key.equals(nativeStringPrefix(entry.getKey()).trim())) {
+                String candidate = nativeStringPrefix(entry.getValue());
+                if (value != null && !value.equals(candidate)) {
+                    // FE and BE map iteration can choose different conflicting spellings.
+                    checkEnabled();
+                }
+                value = candidate;
+            }
+        }
+        return value;
+    }
+
+    private static String hadoopSelectorValue(String value) {
+        if (value.contains("${")) {
+            // Hadoop aliases and BE runtime properties can change the referenced value.
+            // An indirect filesystem selector needs opt-in; the FE cannot prove it is remote.
+            checkEnabled();
+        }
+        return value;
+    }
+
+    private static String uriScheme(String path) {
+        int colon = path.indexOf(':');
+        int slash = path.indexOf('/');
+        return colon > 0 && (slash < 0 || colon < slash) ? path.substring(0, colon) : "";
+    }
+
+    private static String nativeStringPrefix(String value) {
+        int nul = value.indexOf('\0');
+        return nul < 0 ? value : value.substring(0, nul);
     }
 
     /** Check read and write admission before properties or backend access. */
