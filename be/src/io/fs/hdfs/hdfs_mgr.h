@@ -39,7 +39,8 @@ public:
 
     // Get or create a hdfsFS instance based on the given parameters
     Status get_or_create_fs(const THdfsParams& hdfs_params, const std::string& fs_name,
-                            std::shared_ptr<HdfsHandler>* fs_handler);
+                            std::shared_ptr<HdfsHandler>* fs_handler,
+                            const std::string& native_path = "");
 
     virtual ~HdfsMgr();
 
@@ -57,6 +58,9 @@ protected:
         _cleanup_interval_seconds = interval_seconds;
     }
     uint64_t _hdfs_hash_code(const THdfsParams& hdfs_params, const std::string& fs_name);
+
+    virtual Status _check_tvf_path_impl(const HdfsHandler& handler, const std::string& fs_name,
+                                        const std::string& native_path);
 
     virtual Status _create_hdfs_fs_impl(const THdfsParams& hdfs_params, const std::string& fs_name,
                                         std::shared_ptr<HdfsHandler>* fs_handler);
@@ -79,7 +83,7 @@ private:
 
 private:
     std::mutex _mutex;
-    std::unordered_map<uint64_t, std::shared_ptr<HdfsHandler>> _fs_handlers;
+    std::unordered_multimap<uint64_t, std::shared_ptr<HdfsHandler>> _fs_handlers;
 
     std::atomic<bool> _should_stop_cleanup_thread;
     std::unique_ptr<std::thread> _cleanup_thread;

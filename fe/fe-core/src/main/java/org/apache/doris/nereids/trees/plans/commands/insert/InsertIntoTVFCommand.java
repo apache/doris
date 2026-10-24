@@ -24,6 +24,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
+import org.apache.doris.datasource.property.storage.HdfsCompatibleProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.remote.RemoteFileSystem;
@@ -39,12 +40,14 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFTableSink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
-import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QeProcessorImpl.QueryInfo;
+import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.tablefunction.HadoopTvfAdmission;
+import org.apache.doris.tablefunction.LocalTableValuedFunction;
 import org.apache.doris.task.LoadEtlTask;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
@@ -175,6 +178,7 @@ public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Ex
 
     private void deleteExistingFilesInFE(String tvfName, Map<String, String> props)
             throws Exception {
+        LocalTableValuedFunction.checkSinkEnabled(tvfName, props);
         String filePath = props.get("file_path");
         // Extract parent directory from prefix path: s3://bucket/path/to/prefix_ -> s3://bucket/path/to/
         String parentDir = BrokerUtil.extractParentDirectory(filePath);
@@ -182,6 +186,7 @@ public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Ex
 
         // Copy props for building StorageProperties (exclude write-specific params)
         Map<String, String> fsCopyProps = new HashMap<>(props);
+        HadoopTvfAdmission.removeRuntimePolicy(fsCopyProps);
         fsCopyProps.remove("file_path");
         fsCopyProps.remove("format");
         fsCopyProps.remove("delete_existing_files");
@@ -192,6 +197,14 @@ public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Ex
         fsCopyProps.remove("compress_type");
 
         StorageProperties storageProps = StorageProperties.createPrimary(fsCopyProps);
+        if (storageProps instanceof HdfsCompatibleProperties) {
+            HadoopTvfAdmission.check(HadoopTvfAdmission.Access.JAVA_DELETE,
+                    parentDir, storageProps.getBackendConfigProperties());
+        }
+        if (storageProps instanceof HdfsCompatibleProperties) {
+            storageProps = StorageProperties.createPrimary(HadoopTvfAdmission.protectJava(
+                    HadoopTvfAdmission.Access.JAVA_DELETE, parentDir, fsCopyProps));
+        }
         RemoteFileSystem fs = FileSystemFactory.get(storageProps);
         org.apache.doris.backup.Status deleteStatus = fs.deleteDirectory(parentDir);
         if (!deleteStatus.ok()) {

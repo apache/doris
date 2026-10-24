@@ -21,12 +21,17 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.lance.metadata.LanceMetadataLoader;
 import org.apache.doris.datasource.lance.metadata.LanceTableMetadata;
+import org.apache.doris.datasource.lance.metadata.LanceTvfStoragePolicy;
+import org.apache.doris.datasource.property.storage.HdfsCompatibleProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileType;
+
+import org.apache.hadoop.fs.FileSystem.TvfGuard;
 
 import java.util.Collections;
 import java.util.List;
@@ -63,6 +68,23 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         } catch (UserException e) {
             throw new RuntimeException(e);
         }
+        // Validate the final URI, including when BrokerProperties passes it through unchanged.
+        // A local dataset must not bypass the LOCAL switch, privileges or BE secure directory.
+        if (isLanceFormat() && !LanceTvfStoragePolicy.isRemoteUri(filePath)) {
+            throw new AnalysisException("S3 Lance requires remote storage with a valid URI");
+        }
+        if (storageProperties.getType() == StorageProperties.Type.LOCAL) {
+            throw new AnalysisException("S3 TVF does not support local storage. Use local() with LOCAL TVF "
+                    + "privileges and secure-path restrictions.");
+        }
+        boolean hadoopStorage = storageProperties instanceof HdfsCompatibleProperties
+                || (!isLanceFormat() && LocationPath.getTFileTypeForBE(filePath) == TFileType.FILE_HDFS);
+        if (hadoopStorage) {
+            HadoopTvfAdmission.check(HadoopTvfAdmission.Access.HADOOP_READ,
+                    filePath, backendConnectProperties, needsSchemaDiscovery());
+            processedParams.put(TvfGuard.POLICY_KEY, HadoopTvfAdmission.protectJava(
+                    HadoopTvfAdmission.Access.HADOOP_READ, filePath, processedParams).get(TvfGuard.POLICY_KEY));
+        }
         if (FeConstants.runningUnitTest) {
             // Just check
             // Fixme wait to be done  #50320
@@ -70,9 +92,7 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
             if (files != null) {
                 this.fileStatuses.addAll(files);
             }
-            return;
-        }
-        if (isLanceFormat()) {
+        } else if (isLanceFormat()) {
             try {
                 LanceTableMetadata metadata = LanceMetadataLoader.loadLatestForTvf(
                         filePath, Collections.singletonList(storageProperties));
@@ -86,8 +106,16 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         } else {
             parseFile(files);
         }
+        if (!isLanceFormat()) {
+            for (TBrokerFileStatus file : fileStatuses) {
+                TFileType rangeType = LocationPath.getTFileTypeForBE(file.getPath());
+                if (hadoopStorage || rangeType == TFileType.FILE_HDFS || rangeType == TFileType.FILE_LOCAL) {
+                    HadoopTvfAdmission.check(HadoopTvfAdmission.Access.HADOOP_READ,
+                            file.getPath(), backendConnectProperties, needsSchemaDiscovery());
+                }
+            }
+        }
     }
-
 
     // =========== implement abstract methods of ExternalFileTableValuedFunction =================
     @Override

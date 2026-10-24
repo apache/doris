@@ -22,12 +22,19 @@
 #include <arrow/record_batch.h>
 #include <arrow/type.h>
 #include <lance/lance.h>
+#include <pwd.h>
+#include <rapidjson/document.h>
+#include <unistd.h>
 
 #include <algorithm>
 #include <bit>
+#include <cerrno>
+#include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <limits>
 #include <memory>
+#include <unordered_set>
 
 #include "common/config.h"
 #include "common/logging.h"
@@ -35,10 +42,197 @@
 #include "format_v2/lance/lance_reader_helper.h"
 #include "format_v2/lance/lance_runtime_filter_helper.h"
 #include "format_v2/lance/lance_session_manager.h"
+#include "io/fs/local_file_system.h"
 #include "runtime/file_scan_profile.h"
 #include "runtime/runtime_state.h"
 
+#ifndef LANCE_STORAGE_BASES_JSON_VERSION
+#error "Rebuild lance-c with TVF storage-base metadata support before building Doris"
+#endif
+
 namespace doris::format::lance {
+
+namespace {
+std::string expand_home_path(const std::string& path) {
+    if (path != "~" && !path.starts_with("~/")) {
+        return path;
+    }
+    // Match the SDK's std::env::home_dir: HOME first, then the current user's passwd entry.
+    std::string home;
+    if (const char* value = std::getenv("HOME"); value != nullptr && value[0] != '\0') {
+        home = value;
+    } else {
+        std::vector<char> buffer(1024);
+        struct passwd entry {};
+        struct passwd* result = nullptr;
+        int error;
+        while ((error = getpwuid_r(getuid(), &entry, buffer.data(), buffer.size(), &result)) ==
+               ERANGE) {
+            buffer.resize(buffer.size() * 2);
+        }
+        if (error == 0 && result != nullptr && entry.pw_dir != nullptr) {
+            home = entry.pw_dir;
+        }
+    }
+    if (home.empty()) {
+        return path;
+    }
+    return path == "~" ? home : (io::Path(home) / path.substr(2)).string();
+}
+
+Status validate_local_dataset_files(const std::string& dataset_uri) {
+    // Lance opens manifests and fragments itself, so a confined dataset directory is not
+    // enough: its descendants can redirect those opens through symlinks.
+    std::error_code error;
+    const auto secure_root = std::filesystem::canonical(config::user_files_secure_path, error);
+    if (error) {
+        return Status::InvalidArgument("local Lance dataset path is not allowed");
+    }
+    std::vector<std::filesystem::path> pending {dataset_uri};
+    std::unordered_set<std::string> visited;
+    while (!pending.empty()) {
+        auto directory = std::move(pending.back());
+        pending.pop_back();
+        // Canonical directory identity bounds cycles and repeated in-root aliases without
+        // imposing a file-count or nesting limit on otherwise valid datasets.
+        if (!visited.insert(directory.string()).second) {
+            continue;
+        }
+        std::filesystem::directory_iterator entries(directory, error);
+        if (error) {
+            return Status::InvalidArgument("local Lance dataset path is not allowed");
+        }
+        const std::filesystem::directory_iterator end;
+        while (entries != end) {
+            auto target = entries->path();
+            auto status = entries->symlink_status(error);
+            if (error) {
+                return Status::InvalidArgument("local Lance dataset path is not allowed");
+            }
+            if (std::filesystem::is_symlink(status)) {
+                target = std::filesystem::canonical(target, error);
+                if (error || !io::LocalFileSystem::contain_path(secure_root, target)) {
+                    return Status::InvalidArgument("local Lance dataset path is not allowed");
+                }
+                status = std::filesystem::status(target, error);
+                if (error) {
+                    return Status::InvalidArgument("local Lance dataset path is not allowed");
+                }
+            }
+            if (std::filesystem::is_directory(status)) {
+                pending.push_back(std::move(target));
+            }
+            entries.increment(error);
+            if (error) {
+                return Status::InvalidArgument("local Lance dataset path is not allowed");
+            }
+        }
+    }
+    return Status::OK();
+}
+
+bool is_local_lance_tvf(const TFileRangeDesc& range, const TFileScanRangeParams& scan_params) {
+    const bool local = range.__isset.file_type
+                               ? range.file_type == TFileType::FILE_LOCAL
+                               : scan_params.__isset.file_type &&
+                                         scan_params.file_type == TFileType::FILE_LOCAL;
+    const auto& params = range.table_format_params.lance_params;
+    return local && (params.version == 0 || (params.__isset.is_tvf && params.is_tvf));
+}
+
+Status resolve_dataset_uri(const TFileRangeDesc& range, const TFileScanRangeParams& scan_params,
+                           std::string* uri) {
+    const auto& requested_uri = range.table_format_params.lance_params.dataset_uri;
+    // Explicit TVF identity applies regardless of snapshot selection. Older LOCAL TVFs
+    // used version zero; configured fixed-version catalogs do not send the TVF marker.
+    if (is_local_lance_tvf(range, scan_params)) {
+        // LOCAL Lance bypasses glob because it opens a dataset directory. Apply the same
+        // canonical secure-root check before either schema discovery or a cached dataset open.
+        std::string local_input = requested_uri;
+        const auto colon = requested_uri.find(':');
+        const auto slash = requested_uri.find('/');
+        const bool bare_path =
+                colon == std::string::npos || (slash != std::string::npos && slash < colon);
+        if (bare_path && !requested_uri.empty() && requested_uri.find('\0') == std::string::npos &&
+            !config::user_files_secure_path.empty()) {
+            // Lance's PathAbs fallback resolves bare dot segments before following symlinks.
+            // Anchor relative TVF paths to the canonical secure root, not the process cwd.
+            std::string secure_root;
+            RETURN_IF_ERROR(io::global_local_filesystem()->canonicalize(
+                    config::user_files_secure_path, &secure_root));
+            local_input = (io::Path(secure_root) / expand_home_path(requested_uri))
+                                  .lexically_normal()
+                                  .string();
+        }
+        RETURN_IF_ERROR(io::global_local_filesystem()->canonicalize_local_file(
+                config::user_files_secure_path, local_input, uri));
+        return validate_local_dataset_files(*uri);
+    }
+    *uri = requested_uri;
+    return Status::OK();
+}
+} // namespace
+
+LanceTableReader::TvfStoragePolicy LanceTableReader::_tvf_storage_policy(
+        const TFileRangeDesc& range, const TFileScanRangeParams& scan_params) {
+    // Positive versions are also used by S3 TVFs, so only the marker can distinguish
+    // those requests from configured catalogs. Legacy LOCAL TVFs keep their old restriction.
+    if (is_local_lance_tvf(range, scan_params)) {
+        return TvfStoragePolicy::LOCAL;
+    }
+    const auto& params = range.table_format_params.lance_params;
+    if (!params.__isset.is_tvf || !params.is_tvf) {
+        return TvfStoragePolicy::NONE;
+    }
+    return TvfStoragePolicy::REMOTE;
+}
+
+Status LanceTableReader::_validate_dataset_storage(LanceDataset* dataset, TvfStoragePolicy policy) {
+    if (policy == TvfStoragePolicy::NONE) {
+        return Status::OK();
+    }
+    // The SDK inspects the opened snapshot without constructing delegated providers. Its
+    // local paths already have the SDK's decoding/normalization; never URI-decode them again.
+    std::unique_ptr<const char, decltype(&lance_free_string)> json(
+            lance_dataset_storage_bases_json(dataset), &lance_free_string);
+    if (!json) {
+        return Status::InvalidArgument("Lance TVF storage bases could not be validated");
+    }
+    rapidjson::Document metadata;
+    metadata.Parse(json.get());
+    if (metadata.HasParseError() || !metadata.IsObject() || !metadata.HasMember("format_version") ||
+        !metadata["format_version"].IsInt() || metadata["format_version"].GetInt() != 1 ||
+        !metadata.HasMember("bases") || !metadata["bases"].IsArray() || metadata["bases"].Empty()) {
+        return Status::InvalidArgument("Invalid Lance TVF storage-base metadata");
+    }
+    for (const auto& base : metadata["bases"].GetArray()) {
+        if (!base.IsObject() || !base.HasMember("is_local") || !base["is_local"].IsBool() ||
+            !base.HasMember("primary") || !base["primary"].IsBool()) {
+            return Status::InvalidArgument("Invalid Lance TVF storage-base metadata");
+        }
+        const bool is_local = base["is_local"].GetBool();
+        if (policy == TvfStoragePolicy::REMOTE) {
+            if (is_local) {
+                return Status::InvalidArgument("Remote Lance TVF requires remote storage bases");
+            }
+            continue;
+        }
+        if (!is_local || !base.HasMember("local_path") || !base["local_path"].IsString()) {
+            return Status::InvalidArgument("LOCAL Lance TVF requires local storage bases");
+        }
+        std::string canonical;
+        const std::string path(base["local_path"].GetString(),
+                               base["local_path"].GetStringLength());
+        RETURN_IF_ERROR(io::global_local_filesystem()->canonicalize_local_file(
+                config::user_files_secure_path, path, &canonical));
+        // The primary tree was inspected before opening its manifest. Registered bases can
+        // live elsewhere in the secure root, so inspect their descendants before SDK reads.
+        if (!base["primary"].GetBool()) {
+            RETURN_IF_ERROR(validate_local_dataset_files(canonical));
+        }
+    }
+    return Status::OK();
+}
 
 LanceTableReader::~LanceTableReader() {
     static_cast<void>(close());
@@ -52,6 +246,8 @@ Status LanceTableReader::fetch_schema(const TFileRangeDesc& range,
         return Status::InvalidArgument("Lance schema output must not be null");
     }
     const auto& params = range.table_format_params.lance_params;
+    std::string dataset_uri;
+    RETURN_IF_ERROR(resolve_dataset_uri(range, scan_params, &dataset_uri));
     std::vector<std::string> storage_options;
     RETURN_IF_ERROR(build_lance_storage_options(&scan_params, &storage_options));
     std::vector<const char*> storage_option_ptrs;
@@ -61,14 +257,15 @@ Status LanceTableReader::fetch_schema(const TFileRangeDesc& range,
     }
     storage_option_ptrs.emplace_back(nullptr);
 
-    std::unique_ptr<LanceDataset, LanceDatasetDeleter> dataset(
-            lance_dataset_open(params.dataset_uri.c_str(),
-                               storage_options.empty() ? nullptr : storage_option_ptrs.data(),
-                               static_cast<uint64_t>(params.version)));
+    std::unique_ptr<LanceDataset, LanceDatasetDeleter> dataset(lance_dataset_open(
+            dataset_uri.c_str(), storage_options.empty() ? nullptr : storage_option_ptrs.data(),
+            static_cast<uint64_t>(params.version)));
     if (dataset == nullptr) {
         return lance_error("open Lance dataset for schema");
     }
 
+    RETURN_IF_ERROR(
+            _validate_dataset_storage(dataset.get(), _tvf_storage_policy(range, scan_params)));
     std::shared_ptr<arrow::Schema> schema;
     RETURN_IF_ERROR(import_lance_dataset_schema(dataset.get(), &schema));
     return convert_arrow_schema_to_doris(schema, column_names, column_types);
@@ -628,6 +825,10 @@ Status LanceTableReader::_ensure_dataset_open(const TFileRangeDesc& range,
     } else if (!_opened_dataset_key.has_value() || *_opened_dataset_key != key) {
         return Status::InvalidArgument(
                 "Lance reader cannot mix dataset snapshots or storage options");
+    } else {
+        // Revalidate reused handles before scanners, indexes or row-id reads. Fresh handles
+        // are checked inside _open_dataset before they become reader state.
+        RETURN_IF_ERROR(_validate_dataset_storage(_dataset, key.storage_policy));
     }
     if (_search_kind == SearchKind::FULL_TEXT && prepare_fts_context &&
         _fts_query_context == nullptr) {
@@ -657,6 +858,8 @@ Status LanceTableReader::_open_dataset(const DatasetKey& key) {
         }
         dataset.reset(raw_dataset);
     }
+
+    RETURN_IF_ERROR(_validate_dataset_storage(dataset.get(), key.storage_policy));
 
     // EXPLAIN plans a moving selector separately, so only the profile shows what this execution
     // read. The version is the one opened, which version 0 (the latest) resolves.
@@ -1329,7 +1532,8 @@ Status LanceTableReader::_fill_block_from_lance_batch(LanceBatch* batch, Block* 
 
 Status LanceTableReader::_dataset_key(const TFileRangeDesc& range, DatasetKey* key) const {
     const auto& params = range.table_format_params.lance_params;
-    key->uri = params.dataset_uri;
+    RETURN_IF_ERROR(resolve_dataset_uri(range, *_scan_params, &key->uri));
+    key->storage_policy = _tvf_storage_policy(range, *_scan_params);
     key->version = params.version;
     return build_lance_storage_options(_scan_params, &key->storage_options);
 }

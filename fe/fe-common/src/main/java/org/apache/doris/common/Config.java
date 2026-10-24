@@ -3101,6 +3101,10 @@ public class Config extends ConfigBase {
     })
     public static boolean enable_java_udf = true;
 
+    @ConfField(description = "Whether to enable LOCAL TVF and FILE TVF with local storage. Disabled by default. "
+            + "Set this in fe.conf and restart every FE to enable it. Existing access checks still apply.")
+    public static boolean enable_local_tvf = false;
+
     @ConfField(mutable = true, masterOnly = true, description = {
         "开启后，可以在导入时，利用创建的全局 java_udf 函数处理数据，默认为 false。",
         "When enabled, data can be processed using the globally created java_udf function during import."

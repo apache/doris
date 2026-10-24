@@ -65,13 +65,19 @@ public:
     Status close() override;
 
 private:
+    enum class TvfStoragePolicy { NONE, LOCAL, REMOTE };
+
     struct DatasetKey {
         std::string uri;
         int64_t version = 0;
         std::vector<std::string> storage_options;
+        TvfStoragePolicy storage_policy = TvfStoragePolicy::NONE;
         bool operator==(const DatasetKey&) const = default;
     };
 
+    static TvfStoragePolicy _tvf_storage_policy(const TFileRangeDesc& range,
+                                                const TFileScanRangeParams& scan_params);
+    static Status _validate_dataset_storage(LanceDataset* dataset, TvfStoragePolicy policy);
     Status _resolve_search_kind();
     Status _validate_external_search_request() const;
     Status _ensure_dataset_open(const TFileRangeDesc& range, bool prepare_fts_context = true);

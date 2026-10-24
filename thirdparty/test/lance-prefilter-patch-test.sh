@@ -75,7 +75,17 @@ check_sources() {
         || fail "missing upstream C++ prewarm API"
     grep -q 'fn test_prewarm_index_vector_segments_reuse_shared_session' "${source}/tests/c_api_test.rs" \
         || fail "missing upstream shared-session prewarm regression"
-    [[ -f "${source}/patched_mark_foyer" ]] || fail "missing Foyer patch marker"
+    grep -q '^#define LANCE_STORAGE_BASES_JSON_VERSION 1$' "${source}/include/lance/lance.h" \
+        || fail "missing storage-base metadata ABI version"
+    grep -q 'lance_dataset_storage_bases_json' "${source}/include/lance/lance.h" \
+        || fail "missing storage-base C API"
+    grep -q 'std::string storage_bases_json() const' "${source}/include/lance/lance.hpp" \
+        || fail "missing storage-base C++ API"
+    grep -q 'pub unsafe extern "C" fn lance_dataset_storage_bases_json' "${source}/src/dataset.rs" \
+        || fail "missing storage-base implementation"
+    grep -q 'fn test_storage_bases_json_primary_snapshot_with_multiple_fragments' "${source}/tests/c_api_test.rs" \
+        || fail "missing storage-base snapshot regression"
+    [[ -f "${source}/patched_mark_foyer" ]] || fail "missing Foyer/storage-base patch marker"
 }
 
 prepare "${tmpdir}/fresh"
