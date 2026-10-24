@@ -22,6 +22,7 @@ import org.apache.doris.catalog.DiskInfo.DiskState;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
+import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
@@ -32,6 +33,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.SimpleScheduler;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
 import org.apache.doris.thrift.TBackend;
 import org.apache.doris.thrift.TDisk;
@@ -881,11 +883,33 @@ public class Backend implements Writable {
                 + ", backendStatus: " + backendStatus;
     }
 
+    /** Refresh FE-local connections before publishing a restarted backend. */
+    public void invalidateLocalConnections() {
+        // Checkpoint replay builds a separate metadata image, but these RPC pools are
+        // process-wide. Historical restarts must not close the serving FE's clients.
+        if (Env.isCheckpointThread()) {
+            return;
+        }
+        Env.getCurrentEnv().getDnsCache().invalidate(host);
+        BackendServiceProxy.invalidateForAll(new TNetworkAddress(host, brpcPort));
+        ClientPool.backendPool.clearPool(new TNetworkAddress(host, bePort));
+    }
+
     /**
      * handle Backend's heartbeat response.
      * return true if any port changed, or alive state is changed.
      */
     public boolean handleHbResponse(BackendHbResponse hbResponse, boolean isReplay) {
+        // Every FE owns its caches, so heartbeat replay must perform the same cleanup.
+        // Invalidate before publishing alive / the new epoch to query schedulers.
+        if (hbResponse.getStatus() == HbStatus.OK && lastStartTime > 0
+                && (!isAlive.get() || (hbResponse.getBeStartTime() > 0
+                        && lastStartTime != hbResponse.getBeStartTime()))) {
+            // An alive-to-alive epoch change also needs a scheduling barrier. Reopen
+            // admission below only after the old connections and epoch are replaced.
+            isAlive.set(false);
+            invalidateLocalConnections();
+        }
         boolean isChanged = false;
         if (hbResponse.getStatus() == HbStatus.OK) {
             // An absent capability also clears support after a downgrade or legacy heartbeat replay.

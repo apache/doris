@@ -350,6 +350,12 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
         _engine.notify_listeners();
     }
 
+    // Only an accepted, authenticated master heartbeat may change rolling-restart mode.
+    if (master_info.epoch == _fe_epoch) {
+        // A delayed heartbeat from the same address must not reset a newer master's flag.
+        _cluster_info->set_in_graceful_shutdown(master_info.__isset.in_graceful_shutdown &&
+                                                master_info.in_graceful_shutdown);
+    }
     return Status::OK();
 }
 

@@ -25,6 +25,7 @@
 
 #include "common/config.h"
 #include "service/backend_options.h"
+#include "util/defer_op.h"
 #include "util/network_util.h"
 
 namespace doris {
@@ -46,12 +47,27 @@ DNSCache::~DNSCache() {
     }
 }
 
+void DNSCache::invalidate(const std::string& hostname) {
+    std::unique_lock<std::shared_mutex> lock(mutex);
+    // ECONNRESET/EPIPE do not prove the cached IP is obsolete. Keep the fallback
+    // and DNS failure history; only fresh DNS or normal authoritative eviction replaces it.
+    // An old stub can fail while a cold retry is resolving after eviction. Keep
+    // that newer request too, so the older failure cannot reinstall a tombstone.
+    if (cache.count(hostname) != 0 || _refresh_locks.count(hostname) != 0) {
+        _refresh_pending.insert(hostname);
+    }
+    _negative_cache.erase(hostname);
+}
+
 Status DNSCache::get(const std::string& hostname, std::string* ip) {
     bool has_negative_entry = false;
     {
         std::shared_lock<std::shared_mutex> lock(mutex);
         auto it = cache.find(hostname);
-        if (it != cache.end()) {
+        // A socket failure requires a new lookup, but its old address remains a
+        // fallback when the resolver temporarily returns EAI_AGAIN.
+        if (it != cache.end() && _refresh_pending.count(hostname) == 0 &&
+            _refresh_inflight.count(hostname) == 0) {
             *ip = it->second;
             return Status::OK();
         }
@@ -102,12 +118,14 @@ Status DNSCache::get(const std::string& hostname, std::string* ip) {
         }
     }
 
-    // First access (or negative TTL expired): resolve and populate the cache.
+    // First access, forced refresh or negative TTL expiry: resolve and populate the cache.
     // Consume the IP returned by _update() directly to avoid a second cache
     // lookup — operator[] under a shared_lock would mutate the map and could
     // reinsert an empty entry if a concurrent refresh cycle evicted the hostname
     // between _update() and here.
-    return _update(hostname, nullptr, ip);
+    // An expired negative entry above has already reserved a DNS retry. Other
+    // callers can reuse a lookup completed while they waited for the hostname lock.
+    return _update(hostname, nullptr, ip, !has_negative_entry);
 }
 
 // Resolve hostname to IP address, similar to Java's DNSCache.resolveHostname.
@@ -210,6 +228,7 @@ std::string DNSCache::_resolve_hostname(const std::string& hostname, bool* is_fr
 
 void DNSCache::_evict_locked(const std::string& hostname) {
     cache.erase(hostname);
+    _refresh_pending.erase(hostname);
     failure_count.erase(hostname);
     int32_t ttl = config::dns_cache_negative_ttl_seconds;
     if (ttl > 0) {
@@ -223,6 +242,11 @@ void DNSCache::_remember_unresolvable(const std::string& hostname) {
         return;
     }
     std::unique_lock<std::shared_mutex> lock(mutex);
+    // A socket fault during this cold lookup erased its retry tombstone and
+    // requested another lookup. Do not hide that request behind a new negative TTL.
+    if (_refresh_pending.count(hostname) != 0) {
+        return;
+    }
     // try_emplace, not operator[]: get()'s single-flight path may have just re-armed this
     // tombstone to now(); overwriting it would be harmless there but would also let two
     // callers racing on the same host each reset the deadline, loosening the rate limit.
@@ -236,6 +260,11 @@ void DNSCache::_erase(const std::string& hostname) {
 
 bool DNSCache::_erase_if_still_failing(const std::string& hostname, uint32_t threshold) {
     std::unique_lock<std::shared_mutex> lock(mutex);
+    // A fault received after the lookup started requests another resolution. Do not
+    // let the older NXDOMAIN replace that request (or its active lookup) with a tombstone.
+    if (_refresh_pending.count(hostname) != 0 || _refresh_inflight.count(hostname) != 0) {
+        return false;
+    }
     auto fc_it = failure_count.find(hostname);
     if (fc_it == failure_count.end() || fc_it->second.count < threshold ||
         !fc_it->second.last_authoritative) {
@@ -249,8 +278,59 @@ bool DNSCache::_erase_if_still_failing(const std::string& hostname, uint32_t thr
     return true;
 }
 
-Status DNSCache::_update(const std::string& hostname, FailureState* out_state,
-                         std::string* out_ip) {
+Status DNSCache::_update(const std::string& hostname, FailureState* out_state, std::string* out_ip,
+                         bool reuse_cached) {
+    std::shared_ptr<std::mutex> refresh_mutex;
+    {
+        std::unique_lock<std::shared_mutex> lock(mutex);
+        auto [it, inserted] = _refresh_locks.try_emplace(hostname);
+        if (inserted) {
+            it->second = std::make_shared<std::mutex>();
+        }
+        refresh_mutex = it->second;
+    }
+    Defer remove_refresh_lock {[&] {
+        std::unique_lock<std::shared_mutex> lock(mutex);
+        // Only this call and the map retain the mutex: no running lookup or waiter needs it.
+        if (refresh_mutex.use_count() == 2) {
+            _refresh_locks.erase(hostname);
+        }
+    }};
+    // A background lookup that captured IP A must finish before a forced lookup
+    // publishes B; otherwise its stale fallback (or old DNS answer) can overwrite B.
+    std::lock_guard<std::mutex> refresh_lock(*refresh_mutex);
+    // Clear before releasing the hostname lock, after publishing the lookup result.
+    // A new invalidation remains in _refresh_pending for the following lookup.
+    Defer finish_refresh {[&] {
+        std::unique_lock<std::shared_mutex> lock(mutex);
+        _refresh_inflight.erase(hostname);
+    }};
+    {
+        std::unique_lock<std::shared_mutex> lock(mutex);
+        if (reuse_cached) {
+            // Cold misses can queue before the first lookup fills either cache.
+            // Do not make every waiter pay another resolver timeout in sequence.
+            auto it = cache.find(hostname);
+            if (it != cache.end() && _refresh_pending.count(hostname) == 0) {
+                *out_ip = it->second;
+                return Status::OK();
+            }
+            auto neg_it = _negative_cache.find(hostname);
+            int32_t ttl = config::dns_cache_negative_ttl_seconds;
+            if (neg_it != _negative_cache.end() && ttl > 0 &&
+                std::chrono::steady_clock::now() < neg_it->second + std::chrono::seconds(ttl)) {
+                out_ip->clear();
+                return Status::InternalError<false>(
+                        "Hostname {} is in negative DNS cache, skipping resolve", hostname);
+            }
+        }
+        // Claim before DNS I/O, under the hostname lock. An invalidation received
+        // during this lookup remains pending for the next get(). Background refresh
+        // and the expired-negative retry always resolve instead of reusing the cache.
+        if (_refresh_pending.erase(hostname) != 0) {
+            _refresh_inflight.insert(hostname);
+        }
+    }
     bool is_fresh = false;
     std::string real_ip = _resolve_hostname(hostname, &is_fresh);
     if (real_ip.empty()) {
