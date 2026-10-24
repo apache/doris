@@ -197,7 +197,7 @@ public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Ex
         StorageProperties storageProps = StorageProperties.createPrimary(fsCopyProps);
         if (storageProps instanceof HdfsCompatibleProperties) {
             LocalTableValuedFunction.checkHadoopFileSystemEnabled(
-                    filePath, storageProps.getBackendConfigProperties());
+                    parentDir, storageProps.getBackendConfigProperties());
         }
         RemoteFileSystem fs = FileSystemFactory.get(storageProps);
         org.apache.doris.backup.Status deleteStatus = fs.deleteDirectory(parentDir);

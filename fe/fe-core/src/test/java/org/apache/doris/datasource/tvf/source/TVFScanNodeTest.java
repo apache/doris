@@ -193,6 +193,32 @@ public class TVFScanNodeTest {
     }
 
     @Test
+    public void testRemoteLanceSpacePathsPreserveScanRangeIdentity() throws Exception {
+        for (String uri : Arrays.asList("s3://bucket/sample data.lance", "s3://bucket/sample%20data.lance")) {
+            SessionVariable sv = new SessionVariable();
+            TupleDescriptor desc = new TupleDescriptor(new TupleId(0));
+            FunctionGenTable table = Mockito.mock(FunctionGenTable.class);
+            ExternalFileTableValuedFunction tvf = Mockito.mock(ExternalFileTableValuedFunction.class);
+            Mockito.when(table.getTvf()).thenReturn(tvf);
+            Mockito.when(tvf.isLanceFormat()).thenReturn(true);
+            Mockito.when(tvf.getTFileType()).thenReturn(TFileType.FILE_S3);
+            Mockito.when(tvf.getFilePath()).thenReturn(uri);
+            Mockito.when(tvf.getLanceDatasetVersion()).thenReturn(42L);
+            Mockito.when(tvf.getLanceFragments()).thenReturn(
+                    Collections.singletonList(new LanceFragmentInfo(7, 1000, 1000)));
+            desc.setTable(table);
+            TVFScanNode node = new TVFScanNode(new PlanNodeId(0), desc, false, sv, ScanContext.EMPTY);
+            LanceSplit split = (LanceSplit) node.getSplits(1).get(0);
+            Assert.assertEquals(uri, split.getDatasetUri());
+            TFileRangeDesc range = new TFileRangeDesc();
+            node.setScanParams(range, split);
+            Assert.assertEquals(TFileType.FILE_S3, range.getFileType());
+            Assert.assertEquals(uri, range.getTableFormatParams().getLanceParams().getDatasetUri());
+            Assert.assertEquals(42L, range.getTableFormatParams().getLanceParams().getVersion());
+        }
+    }
+
+    @Test
     public void testLocalLanceUsesOneLatestWholeDatasetSplit() throws Exception {
         SessionVariable sv = new SessionVariable();
         TupleDescriptor desc = new TupleDescriptor(new TupleId(0));

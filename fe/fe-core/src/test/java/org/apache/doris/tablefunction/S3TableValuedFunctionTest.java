@@ -97,7 +97,7 @@ public class S3TableValuedFunctionTest {
                     "s3://bucket:bad/../../dataset.lance", "s3://bucket:65536/../../dataset.lance",
                     "s3://:9000/dataset.lance", "s3://user@/dataset.lance",
                     "s3://[::1%25eth0]/dataset.lance", "https://bucket:bad/../../dataset.lance",
-                    "", "s3:/bucket/dataset.lance", "s3://", "s3://bucket/bad path")) {
+                    "", "s3:/bucket/dataset.lance", "s3://")) {
                 AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
                         () -> new S3TableValuedFunction(ImmutableMap.of(
                                 "format", "lance", "uri", uri, "fs.broker.support", "true")), uri);
@@ -162,6 +162,31 @@ public class S3TableValuedFunctionTest {
                 "format", "lance", "uri", "https://bucket.oss-cn-hangzhou.aliyuncs.com/dataset.lance",
                 "oss.endpoint", "oss-cn-hangzhou.aliyuncs.com", "oss.access_key", "ak", "oss.secret_key", "sk"),
                 "s3://bucket/dataset.lance");
+    }
+
+    @Test
+    public void testLanceSpacePathsReachMetadataThroughS3AndFile() throws Exception {
+        FeConstants.runningUnitTest = false;
+        for (String uri : Arrays.asList("s3://bucket/sample data.lance", "s3://bucket/sample%20data.lance")) {
+            Map<String, String> properties = new HashMap<>(PROPERTIES);
+            properties.put("format", "lance");
+            properties.remove("file_path");
+            properties.put("uri", uri);
+            assertLanceMetadataLoad(properties, uri);
+            try (MockedStatic<LanceMetadataLoader> loader = Mockito.mockStatic(LanceMetadataLoader.class)) {
+                IllegalStateException reachedLoader = new IllegalStateException("file remote metadata reached");
+                loader.when(() -> LanceMetadataLoader.loadLatestForTvf(Mockito.eq(uri), Mockito.anyList()))
+                        .thenThrow(reachedLoader);
+                RuntimeException exception = Assertions.assertThrows(RuntimeException.class,
+                        () -> new FileTableValuedFunction(properties));
+                Throwable cause = exception;
+                while (cause.getCause() != null) {
+                    cause = cause.getCause();
+                }
+                Assertions.assertSame(reachedLoader, cause);
+                loader.verify(() -> LanceMetadataLoader.loadLatestForTvf(Mockito.eq(uri), Mockito.anyList()));
+            }
+        }
     }
 
     private void assertLanceMetadataLoad(Map<String, String> properties, String uri) throws Exception {

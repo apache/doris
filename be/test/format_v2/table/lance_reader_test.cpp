@@ -4635,14 +4635,146 @@ TEST(LanceTableReaderLocalPathTest, HomeAliasesPreserveDatasetIdentityAndContain
     std::vector<std::string> names;
     std::vector<DataTypePtr> types;
     EXPECT_FALSE(reader.fetch_schema(range, scan_params, &names, &types).ok());
-    config::user_files_secure_path = home_path.string();
-    ASSERT_TRUE(reader._dataset_key(range, &key).ok());
-    EXPECT_EQ(home_path.string(), key.uri);
     // A real home dataset must still be rejected when expansion leaves the configured root.
     config::user_files_secure_path = (root / "~").string();
     range.table_format_params.lance_params.__set_dataset_uri("~/" + name + "/data.lance");
     EXPECT_FALSE(reader._dataset_key(range, &key).ok());
     EXPECT_FALSE(reader.fetch_schema(range, scan_params, &names, &types).ok());
+}
+
+TEST(LanceTableReaderLocalPathTest, RejectsOutwardDatasetChildrenBeforeSchemaAndScan) {
+    const auto original_secure_path = config::user_files_secure_path;
+    DEFER(config::user_files_secure_path = original_secure_path);
+    const auto base = std::filesystem::temp_directory_path() /
+                      ("lance_child_containment_" +
+                       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    ASSERT_TRUE(std::filesystem::create_directory(base));
+    DEFER({
+        std::error_code error;
+        std::filesystem::remove_all(base, error);
+    });
+    const auto secure = base / "allowed";
+    const auto outside = base / "private.lance";
+    const auto fixture =
+            std::filesystem::canonical("./be/test/format_v2/table/lance/data/all_types.lance");
+    std::filesystem::create_directory(secure);
+    std::filesystem::copy(fixture, outside, std::filesystem::copy_options::recursive);
+    config::user_files_secure_path = secure.string();
+    for (const auto& mode :
+         {"directories", "data_directory", "manifest_file", "fragment_file", "deep", "dangling"}) {
+        SCOPED_TRACE(mode);
+        const auto dataset = secure / (std::string(mode) + ".lance");
+        std::filesystem::copy(fixture, dataset, std::filesystem::copy_options::recursive);
+        if (std::string(mode) == "directories" || std::string(mode) == "data_directory") {
+            std::filesystem::remove_all(dataset / "data");
+            std::filesystem::create_directory_symlink(outside / "data", dataset / "data");
+            if (std::string(mode) == "directories") {
+                std::filesystem::remove_all(dataset / "_versions");
+                std::filesystem::create_directory_symlink(outside / "_versions",
+                                                          dataset / "_versions");
+            }
+        } else if (std::string(mode) == "manifest_file" || std::string(mode) == "fragment_file") {
+            const auto directory = std::string(mode) == "manifest_file" ? "_versions" : "data";
+            std::vector<std::filesystem::path> files;
+            for (const auto& entry : std::filesystem::directory_iterator(dataset / directory)) {
+                const auto extension =
+                        std::string(mode) == "manifest_file" ? ".manifest" : ".lance";
+                if (entry.is_regular_file() && entry.path().extension() == extension) {
+                    files.push_back(entry.path());
+                }
+            }
+            ASSERT_FALSE(files.empty());
+            // This fixture uses v2 reversed manifest names; the first is the latest snapshot.
+            std::sort(files.begin(), files.end());
+            const auto file = files.front();
+            std::filesystem::remove(file);
+            std::filesystem::create_symlink(outside / directory / file.filename(), file);
+        } else if (std::string(mode) == "deep") {
+            std::filesystem::create_directories(dataset / "data/nested");
+            std::filesystem::create_directory_symlink(outside / "data",
+                                                      dataset / "data/nested/external");
+        } else {
+            std::filesystem::remove_all(dataset / "_versions");
+            std::filesystem::create_directory_symlink(base / "missing", dataset / "_versions");
+        }
+        TQueryGlobals globals;
+        RuntimeState state(globals);
+        RuntimeProfile profile("lance_child_containment");
+        TFileScanRangeParams scan_params;
+        LanceTableReader reader;
+        const Columns columns {projected_column("row_id", TYPE_BIGINT, false)};
+        ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
+        auto range = make_latest_lance_range(dataset);
+        range.__set_file_type(TFileType::FILE_LOCAL);
+        std::vector<std::string> names;
+        std::vector<DataTypePtr> types;
+        const auto schema = reader.fetch_schema(range, scan_params, &names, &types);
+        EXPECT_FALSE(schema.ok());
+        EXPECT_EQ(std::string::npos, schema.to_string().find(outside.string()));
+        LanceTableReader::DatasetKey key;
+        const auto scan = reader._dataset_key(range, &key);
+        EXPECT_FALSE(scan.ok());
+        EXPECT_EQ(schema.to_string(), scan.to_string());
+        EXPECT_FALSE(prepare_range(&reader, range).ok());
+        ASSERT_TRUE(reader.close().ok());
+    }
+}
+
+TEST(LanceTableReaderLocalPathTest, ReadsInRootDatasetChildrenAndTerminatesAliasCycles) {
+    const auto original_secure_path = config::user_files_secure_path;
+    DEFER(config::user_files_secure_path = original_secure_path);
+    const auto secure =
+            std::filesystem::temp_directory_path() /
+            ("lance_internal_children_" +
+             std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    ASSERT_TRUE(std::filesystem::create_directory(secure));
+    DEFER({
+        std::error_code error;
+        std::filesystem::remove_all(secure, error);
+    });
+    const auto fixture =
+            std::filesystem::canonical("./be/test/format_v2/table/lance/data/all_types.lance");
+    const auto real = secure / "real.lance";
+    const auto alias = secure / "alias.lance";
+    std::filesystem::copy(fixture, real, std::filesystem::copy_options::recursive);
+    std::filesystem::create_directory(alias);
+    std::filesystem::create_directory_symlink(real / "_versions", alias / "_versions");
+    std::filesystem::create_directory(alias / "data");
+    for (const auto& entry : std::filesystem::directory_iterator(real / "data")) {
+        std::filesystem::create_symlink(entry.path(), alias / "data" / entry.path().filename());
+    }
+    // A visited canonical directory is checked once even when an in-root alias points back to it.
+    std::filesystem::create_directory_symlink(alias, alias / "cycle");
+    config::user_files_secure_path = secure.string();
+    TQueryGlobals globals;
+    RuntimeState state(globals);
+    RuntimeProfile profile("lance_internal_children");
+    TFileScanRangeParams scan_params;
+    LanceTableReader reader;
+    const Columns columns {projected_column("row_id", TYPE_BIGINT, false)};
+    ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
+    auto range = make_latest_lance_range(alias);
+    range.__set_file_type(TFileType::FILE_LOCAL);
+    std::vector<std::string> names;
+    std::vector<DataTypePtr> types;
+    ASSERT_TRUE(reader.fetch_schema(range, scan_params, &names, &types).ok());
+    EXPECT_NE(names.end(), std::find(names.begin(), names.end(), "row_id"));
+    ASSERT_TRUE(prepare_range(&reader, range).ok());
+    Block block;
+    add_output_columns(&block, columns);
+    std::vector<int64_t> row_ids;
+    bool eos = false;
+    while (!eos) {
+        ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+        if (!eos) {
+            const auto& values =
+                    assert_cast<const ColumnInt64&>(*block.get_by_position(0).column).get_data();
+            row_ids.insert(row_ids.end(), values.begin(), values.end());
+        }
+    }
+    std::sort(row_ids.begin(), row_ids.end());
+    EXPECT_EQ((std::vector<int64_t> {1, 2, 3, 4}), row_ids);
+    ASSERT_TRUE(reader.close().ok());
 }
 
 TEST(LanceTableReaderLocalPathTest, FixedVersionLocalCatalogKeepsItsUri) {
