@@ -27,6 +27,8 @@ import org.apache.doris.analysis.SearchDslParser.QsPlan;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
+
 /**
  * Unit tests for SearchDslParser
  */
@@ -2252,6 +2254,22 @@ public class SearchDslParserTest {
 
         Assertions.assertTrue(hasTerm, "Should contain TERM node for 'Dollar'");
         Assertions.assertTrue(hasMatchAll, "Should contain MATCH_ALL_DOCS node for '*'");
+    }
+
+    @Test
+    public void testFieldScopedWildcardRetainsExistenceLeaf() {
+        for (String mode : Arrays.asList("standard", "lucene")) {
+            String options = "{\"mode\":\"" + mode + "\",\"default_field\":\"body\"}";
+            for (String dsl : Arrays.asList("title:*", "title:(*)")) {
+                QsNode root = SearchDslParser.parseDsl(dsl, options).getRoot();
+                Assertions.assertEquals(QsClauseType.WILDCARD, root.getType());
+                Assertions.assertEquals("title", root.getField());
+                Assertions.assertEquals("*", root.getValue());
+                Assertions.assertTrue(root.isExplicitField());
+            }
+            Assertions.assertEquals(QsClauseType.MATCH_ALL_DOCS,
+                    SearchDslParser.parseDsl("*", options).getRoot().getType());
+        }
     }
 
     // ===== Field-Grouped Query Tests =====

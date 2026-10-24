@@ -796,6 +796,12 @@ MATCH_ALL_DOCS, // Matches all documents (used for pure NOT query rewriting)
                 if (ctx.searchValue() == null) {
                     throw new RuntimeException("Invalid bare query: missing search value");
                 }
+                // An unscoped '*' matches every document, even with a default field.
+                // Inside an explicit field group, '*' is a field-existence leaf.
+                if ("*".equals(ctx.searchValue().getText())
+                        && (previousFieldName == null || previousFieldName.isEmpty())) {
+                    return new QsNode(QsClauseType.MATCH_ALL_DOCS, (List<QsNode>) null);
+                }
                 QsNode result = visit(ctx.searchValue());
                 if (result == null) {
                     throw new RuntimeException("Invalid search value");
@@ -940,9 +946,9 @@ MATCH_ALL_DOCS, // Matches all documents (used for pure NOT query rewriting)
         }
 
         private QsNode createPrefixNode(String fieldName, String value) {
-            // Standalone * → MATCH_ALL_DOCS (matches ES behavior: field:* becomes ExistsQuery)
+            // Field-scoped '*' is an existence predicate, not a fieldless match-all.
             if ("*".equals(value)) {
-                return new QsNode(QsClauseType.MATCH_ALL_DOCS, (List<QsNode>) null);
+                return new QsNode(QsClauseType.WILDCARD, fieldName, value);
             }
             return new QsNode(QsClauseType.PREFIX, fieldName, unescapeTermValue(value));
         }
@@ -2400,6 +2406,12 @@ MATCH_ALL_DOCS, // Matches all documents (used for pure NOT query rewriting)
                 if (ctx.searchValue() == null) {
                     throw new RuntimeException("Invalid bare query: missing search value");
                 }
+                // An unscoped '*' matches every document, even with a default field.
+                // Inside an explicit field group, '*' is a field-existence leaf.
+                if ("*".equals(ctx.searchValue().getText())
+                        && (previousFieldName == null || previousFieldName.isEmpty())) {
+                    return new QsNode(QsClauseType.MATCH_ALL_DOCS, (List<QsNode>) null);
+                }
                 QsNode result = visit(ctx.searchValue());
                 if (result == null) {
                     throw new RuntimeException("Invalid search value");
@@ -2505,9 +2517,9 @@ MATCH_ALL_DOCS, // Matches all documents (used for pure NOT query rewriting)
             }
             if (ctx.PREFIX() != null) {
                 String prefixText = ctx.PREFIX().getText();
-                // Standalone * → MATCH_ALL_DOCS (matches ES behavior: field:* becomes ExistsQuery)
+                // Field-scoped '*' retains its field for existence evaluation in BE.
                 if ("*".equals(prefixText)) {
-                    return new QsNode(QsClauseType.MATCH_ALL_DOCS, (List<QsNode>) null);
+                    return new QsNode(QsClauseType.WILDCARD, fieldName, prefixText);
                 }
                 return new QsNode(QsClauseType.PREFIX, fieldName, unescapeTermValue(prefixText));
             }
