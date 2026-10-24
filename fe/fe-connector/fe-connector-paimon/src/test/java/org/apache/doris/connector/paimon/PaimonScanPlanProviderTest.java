@@ -50,9 +50,14 @@ import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.BinaryString;
 import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.data.InternalRow;
+import org.apache.paimon.deletionvectors.BitmapDeletionVector;
+import org.apache.paimon.deletionvectors.append.BaseAppendDeleteFileMaintainer;
 import org.apache.paimon.fs.FileStatus;
 import org.apache.paimon.fs.local.LocalFileIO;
+import org.apache.paimon.index.IndexFileMeta;
+import org.apache.paimon.io.CompactIncrement;
 import org.apache.paimon.io.DataFileMeta;
+import org.apache.paimon.io.DataIncrement;
 import org.apache.paimon.io.DataInputViewStreamWrapper;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.reader.RecordReader;
@@ -69,6 +74,7 @@ import org.apache.paimon.table.sink.BatchTableCommit;
 import org.apache.paimon.table.sink.BatchTableWrite;
 import org.apache.paimon.table.sink.BatchWriteBuilder;
 import org.apache.paimon.table.sink.CommitMessage;
+import org.apache.paimon.table.sink.CommitMessageImpl;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.DeletionFile;
 import org.apache.paimon.table.source.RawFile;
@@ -989,6 +995,33 @@ public class PaimonScanPlanProviderTest {
     }
 
     @Test
+    public void binaryPartitionFilesWrittenWithDynamicNamesStayReadable(@TempDir Path warehouse) throws Exception {
+        // Dynamic options keep the schema ID, so a file written with a dynamic partition.legacy-name = false refers
+        // to a schema with legacy names while it sits under the bytes of its value, where a lookup by bytes finds it.
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "dynamic_names");
+            Table legacy = binaryPartitionTable(catalog, "dynamic_names", Collections.emptyMap());
+            writeBinaryPartitions(legacy.copy(Collections.singletonMap("partition.legacy-name", "false")),
+                    new byte[] {0x41, 0x42});
+            Table current = catalog.getTable(id);
+            DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> planBinaryPartitionScan(current, false));
+            Assertions.assertTrue(error.getMessage().startsWith("Cannot read Paimon table db.dynamic_names: the"
+                    + " table uses legacy partition names"), error.getMessage());
+
+            catalog.alterTable(id, Collections.singletonList(
+                    SchemaChange.setOption("partition.legacy-name", "false")), false);
+            List<ConnectorScanRange> ranges = planBinaryPartitionScan(catalog.getTable(id), false);
+            Assertions.assertEquals(1, ranges.size());
+            String path = ranges.get(0).getPath().orElseThrow(AssertionError::new);
+            Assertions.assertTrue(path.contains("/key=AB/"), path);
+            Assertions.assertTrue(LocalFileIO.create().exists(new org.apache.paimon.fs.Path(path)), path);
+        }
+    }
+
+    @Test
     public void legacyNamedBinaryPartitionFilesAtExternalPathsStayReadable(@TempDir Path warehouse) throws Exception {
         // A file at an external path is read from the path its metadata records, whatever its partition is named.
         try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
@@ -1004,6 +1037,51 @@ public class PaimonScanPlanProviderTest {
             String path = ranges.get(0).getPath().orElseThrow(AssertionError::new);
             Assertions.assertTrue(path.contains(warehouse.resolve("external").toString()), path);
             Assertions.assertTrue(LocalFileIO.create().exists(new org.apache.paimon.fs.Path(path)), path);
+        }
+    }
+
+    @Test
+    public void externalBinaryPartitionFileWithLocalDeletionVectorFailsScanPlanning(@TempDir Path warehouse)
+            throws Exception {
+        // With index-file-in-data-file-dir, a deletion vector written while no external data path is configured
+        // records only its name and is looked up under the directory of its partition, which a legacy name never
+        // finds, while its data file keeps its external path. The BE skips the whole data file when it cannot open
+        // the deletion vector, rows that were not deleted included.
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.resolve("warehouse").toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "local_dv");
+            deletionVectorBinaryPartitionTable(catalog, "local_dv", warehouse);
+            catalog.alterTable(id, Arrays.asList(SchemaChange.removeOption("data-file.external-paths"),
+                    SchemaChange.removeOption("data-file.external-paths.strategy")), false);
+            Table table = catalog.getTable(id);
+            DataFileMeta file = ((DataSplit) table.newReadBuilder().newScan().plan().splits().get(0))
+                    .dataFiles().get(0);
+            Assertions.assertTrue(file.externalPath().isPresent());
+            String deletionVector = deleteFirstRow(table);
+            DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> planBinaryPartitionScan(table, false));
+            Assertions.assertTrue(error.getMessage().startsWith("Cannot read Paimon table db.local_dv: deletion vector"
+                    + " file " + deletionVector + " of data file " + file.fileName() + " of partition key = 0x4142"
+                    + " does not exist"), error.getMessage());
+        }
+    }
+
+    @Test
+    public void externalBinaryPartitionDeletionVectorAtExternalPathStaysReadable(@TempDir Path warehouse)
+            throws Exception {
+        // A deletion vector written while an external data path is configured records its absolute path.
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.resolve("warehouse").toUri()))) {
+            catalog.createDatabase("db", false);
+            Table table = deletionVectorBinaryPartitionTable(catalog, "external_dv", warehouse);
+            deleteFirstRow(table);
+            List<ConnectorScanRange> ranges = planBinaryPartitionScan(table, false);
+            Assertions.assertEquals(1, ranges.size());
+            String deletionVector = ranges.get(0).getProperties().get("paimon.deletion_file.path");
+            Assertions.assertTrue(deletionVector.contains(warehouse.resolve("external").toString()), deletionVector);
+            Assertions.assertTrue(LocalFileIO.create().exists(new org.apache.paimon.fs.Path(deletionVector)),
+                    deletionVector);
         }
     }
 
@@ -1040,6 +1118,36 @@ public class PaimonScanPlanProviderTest {
         return provider.planScan(sessionWithProps(Collections.emptyMap(), new TestStatementScope()),
                 ConnectorScanRequest.builder(handle, Arrays.asList(new PaimonColumnHandle("id", 0),
                         new PaimonColumnHandle("key", 1))).countPushdown(countPushdown).build());
+    }
+
+    private static Table deletionVectorBinaryPartitionTable(Catalog catalog, String name, Path warehouse)
+            throws Exception {
+        Map<String, String> options = new HashMap<>();
+        options.put("deletion-vectors.enabled", "true");
+        options.put("index-file-in-data-file-dir", "true");
+        options.put("data-file.external-paths", warehouse.resolve("external").toUri().toString());
+        options.put("data-file.external-paths.strategy", "round-robin");
+        return binaryPartitionTable(catalog, name, options, new byte[] {0x41, 0x42}, new byte[] {0x41, 0x42});
+    }
+
+    /** Deletes the first row of the first data file the way a Spark DELETE persists its deletion vectors. */
+    private static String deleteFirstRow(Table table) throws Exception {
+        DataSplit split = (DataSplit) table.newReadBuilder().newScan().plan().splits().get(0);
+        // PaimonSparkWriter.persistDeletionVectors writes the index files under the table's current options.
+        BaseAppendDeleteFileMaintainer maintainer = BaseAppendDeleteFileMaintainer.forUnawareAppend(
+                ((FileStoreTable) table).store().newIndexFileHandler(), table.latestSnapshot().get(),
+                split.partition());
+        BitmapDeletionVector deletionVector = new BitmapDeletionVector();
+        deletionVector.delete(0);
+        maintainer.notifyNewDeletionVector(split.dataFiles().get(0).fileName(), deletionVector);
+        List<IndexFileMeta> indexFiles = new ArrayList<>();
+        maintainer.persist().forEach(entry -> indexFiles.add(entry.indexFile()));
+        try (BatchTableCommit commit = table.newBatchWriteBuilder().newCommit()) {
+            commit.commit(Collections.singletonList(new CommitMessageImpl(maintainer.getPartition(),
+                    maintainer.getBucket(), null, DataIncrement.indexIncrement(indexFiles),
+                    CompactIncrement.emptyIncrement())));
+        }
+        return indexFiles.get(0).fileName();
     }
 
     @Test
