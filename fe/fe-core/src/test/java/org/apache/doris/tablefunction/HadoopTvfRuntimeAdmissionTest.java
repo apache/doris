@@ -388,6 +388,121 @@ class HadoopTvfRuntimeAdmissionTest {
     }
 
     @Test
+    void unguardedSameTableViewFsAliasUsesLazyRemoteDispatch() throws Exception {
+        Map<String, String> properties = hdfs("viewfs://cluster");
+        properties.put("fs.viewfs.mounttable.cluster.link./a", "viewfs://cluster/b");
+        properties.put("fs.viewfs.mounttable.cluster.link./b", "hdfs://nn/base");
+        Configuration runtime = defaults(properties);
+        try (RemoteClients clients = new RemoteClients()) {
+            try (FileSystem outer = FileSystem.newInstance(URI.create("viewfs://cluster"), runtime)) {
+                outer.getFileStatus(new Path("/a/file.csv"));
+                Assertions.assertTrue(clients.events.contains("stat:0:/base/file.csv"));
+            } finally {
+                FileSystem.closeAll();
+            }
+            clients.verifyClosedOnce();
+        }
+    }
+
+    @Test
+    void guardedFiniteViewFsAliasesPreserveReadsWritesAndCleanup() throws Exception {
+        String uri = "viewfs://cluster/a/file.csv";
+        Map<String, String> properties = readProperties(uri);
+        properties.put("fs.defaultFS", "viewfs://cluster");
+        properties.put("fs.viewfs.mounttable.cluster.link./a", "viewfs://cluster/b");
+        properties.put("fs.viewfs.mounttable.cluster.link./b", "hdfs://nn/base");
+        for (boolean enabled : new boolean[] {false, true}) {
+            Config.enable_local_tvf = enabled;
+            Assertions.assertDoesNotThrow(() -> new HdfsTableValuedFunction(properties));
+            Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.checkReadDiscovery(
+                    "viewfs://cluster/a/*.csv", properties));
+        }
+        Config.enable_local_tvf = false;
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(
+                HadoopTvfAdmission.Access.NATIVE_WRITE, "/a/prefix_", properties));
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(
+                HadoopTvfAdmission.Access.JAVA_DELETE, uri, properties));
+        try (RemoteClients clients = new RemoteClients()) {
+            try {
+                Configuration read = TvfGuard.prepareJavaRead(defaults(properties),
+                        new Path(uri), TvfGuard.NATIVE_POLICY);
+                try (FileSystem outer = FileSystem.newInstance(URI.create("viewfs://cluster"), read)) {
+                    outer.getFileStatus(new Path(uri));
+                    Assertions.assertTrue(clients.events.stream().anyMatch(
+                            event -> event.startsWith("stat:") && event.endsWith(":/base/file.csv")));
+                }
+                Configuration write = defaults(properties);
+                overlay(write, HadoopTvfAdmission.protectNativeWrite("/a/prefix_", properties));
+                nativeRequest(write, "viewfs://cluster", "/a/prefix_");
+                TvfGuard.clearNativeContext();
+                try (FileSystem outer = FileSystem.newInstance(URI.create("viewfs://cluster"), write)) {
+                    TvfGuard.Context context = TvfGuard.takeNativeContext();
+                    Assertions.assertNotNull(context);
+                    Assertions.assertDoesNotThrow(() -> context.checkNative("viewfs://cluster", "/a/next_"));
+                }
+                try (FileSystem outer = FileSystem.newInstance(URI.create("viewfs://cluster"),
+                        javaRequest(properties, HadoopTvfAdmission.Access.JAVA_DELETE, uri))) {
+                    Assertions.assertTrue(outer.delete(new Path(uri), true));
+                    Assertions.assertTrue(clients.events.stream().anyMatch(
+                            event -> event.startsWith("delete:") && event.endsWith(":/base/file.csv")));
+                }
+            } finally {
+                FileSystem.closeAll();
+            }
+            clients.verifyClosedOnce();
+        }
+    }
+
+    @Test
+    void guardedViewFsAliasesStillRejectLocalTargetsAndCycles() throws Exception {
+        String uri = "viewfs://cluster/a/file.csv";
+        for (String target : new String[] {"file:///unused-local", "viewfs://cluster/a",
+                "viewfs://cluster/b/grow"}) {
+            Map<String, String> properties = readProperties(uri);
+            properties.put("fs.defaultFS", "viewfs://cluster");
+            properties.put("fs.viewfs.mounttable.cluster.link./a", "viewfs://cluster/b");
+            properties.put("fs.viewfs.mounttable.cluster.link./b", target);
+            for (boolean enabled : new boolean[] {false, true}) {
+                Config.enable_local_tvf = enabled;
+                Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                        () -> new HdfsTableValuedFunction(properties), target);
+            }
+            Config.enable_local_tvf = false;
+            Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                    () -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.NATIVE_WRITE,
+                            "/a/prefix_", properties), target);
+            Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                    () -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.JAVA_DELETE, uri, properties), target);
+            Configuration runtime = defaults(properties);
+            Assertions.assertThrows(IOException.class, () -> TvfGuard.prepareJavaRead(
+                    runtime, new Path(uri), TvfGuard.NATIVE_POLICY), target);
+            runtime.set(TvfGuard.POLICY_KEY, TvfGuard.NATIVE_WRITE_POLICY);
+            nativeRequest(runtime, "viewfs://cluster", "/a/prefix_");
+            try (RemoteClients clients = new RemoteClients()) {
+                Assertions.assertThrows(IOException.class,
+                        () -> FileSystem.newInstance(URI.create("viewfs://cluster"), runtime), target);
+                Assertions.assertTrue(clients.clients.isEmpty());
+            }
+        }
+    }
+
+    @Test
+    void finiteSameTableAliasChainsRetainTheDelegationDepthBound() {
+        Map<String, String> properties = hdfs("viewfs://cluster");
+        for (int i = 0; i < 31; i++) {
+            properties.put("fs.viewfs.mounttable.cluster.link./a" + i, "viewfs://cluster/a" + (i + 1));
+        }
+        properties.put("fs.viewfs.mounttable.cluster.link./a31", "hdfs://nn/base");
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(
+                HadoopTvfAdmission.Access.JAVA_DELETE, "viewfs://cluster/a0/file.csv", properties));
+        properties.put("fs.viewfs.mounttable.cluster.link./a31", "viewfs://cluster/a32");
+        properties.put("fs.viewfs.mounttable.cluster.link./a32", "hdfs://nn/base");
+        Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                () -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.JAVA_DELETE,
+                        "viewfs://cluster/a0/file.csv", properties));
+    }
+
+    @Test
     void guardedJuiceFsRequiresProvenRemoteBackingStore() throws Exception {
         for (boolean enabled : new boolean[] {false, true}) {
             Config.enable_local_tvf = enabled;

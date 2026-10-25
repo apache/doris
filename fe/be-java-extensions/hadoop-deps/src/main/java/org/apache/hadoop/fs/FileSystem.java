@@ -4152,10 +4152,10 @@ public abstract class FileSystem extends Configured
         return defaults;
       }
 
-      public void checkRoute(URI filesystem, String path, Set<String> activeTables) throws URISyntaxException {
+      public void checkRoute(URI filesystem, String path, Set<String> activeRoutes) throws URISyntaxException {
         if (filesystem.getScheme() == null) {
           for (URI defaultFs : defaults()) {
-            checkViewFsEnabled(defaultFs, path, activeTables);
+            checkViewFsEnabled(defaultFs, path, activeRoutes);
           }
           return;
         }
@@ -4163,7 +4163,7 @@ public abstract class FileSystem extends Configured
           boolean completed = false;
           for (URI defaultFs : defaults()) {
             if (filesystem.getScheme().equals(defaultFs.getScheme()) && defaultFs.getAuthority() != null) {
-              checkViewFsEnabled(defaultFs, path, activeTables);
+              checkViewFsEnabled(defaultFs, path, activeRoutes);
               completed = true;
             }
           }
@@ -4171,13 +4171,13 @@ public abstract class FileSystem extends Configured
             return;
           }
         }
-        checkViewFsEnabled(filesystem, path, activeTables);
+        checkViewFsEnabled(filesystem, path, activeRoutes);
       }
 
-      public void checkGlobRoute(URI filesystem, String pattern, Set<String> activeTables)
+      public void checkGlobRoute(URI filesystem, String pattern, Set<String> activeRoutes)
           throws IOException, URISyntaxException {
         for (Rule rule : globRules(filesystem, pattern)) {
-          withDescendants(rule.descendants).checkRoute(filesystem, rule.path, activeTables);
+          withDescendants(rule.descendants).checkRoute(filesystem, rule.path, activeRoutes);
         }
       }
 
@@ -4220,7 +4220,7 @@ public abstract class FileSystem extends Configured
         return multiple ? value.split(",", -1) : new String[] {value};
       }
 
-      private void checkGlobTargets(String key, String prefix, Set<String> activeTables) throws URISyntaxException {
+      private void checkGlobTargets(String key, String prefix, Set<String> activeRoutes) throws URISyntaxException {
         for (String target : targets(key, prefix)) {
           if (target.isEmpty()) {
             reject();
@@ -4229,11 +4229,11 @@ public abstract class FileSystem extends Configured
           // Listing can touch any descendant of a selected mount. Reuse the same route
           // interpreter for nested tables instead of assuming their root is representative.
           String path = uri.getPath() == null ? "/" : uri.getPath();
-          checkRoute(uri, path, activeTables);
+          checkRoute(uri, path, activeRoutes);
         }
       }
 
-      private void checkViewFsEnabled(URI filesystem, String path, Set<String> activeTables) {
+      private void checkViewFsEnabled(URI filesystem, String path, Set<String> activeRoutes) {
         String scheme = filesystem.getScheme();
         Provider provider = provider(scheme);
         if (provider == Provider.LOCAL || provider == Provider.UNKNOWN || provider == Provider.DYNAMIC) {
@@ -4260,8 +4260,10 @@ public abstract class FileSystem extends Configured
           table = property("fs.viewfs.mounttable.default.name.key");
           table = table == null ? "default" : selector(table);
         }
-        // Nested ViewFS cycles or arbitrarily deep delegation cannot establish remote storage.
-        if (activeTables.size() >= 32 || !activeTables.add(table)) {
+        // A finite alias may revisit a table at a different path. Prefix the table length
+        // to keep route identities unambiguous, and bound depth even when paths keep growing.
+        String route = table.length() + ":" + table + path;
+        if (activeRoutes.size() >= 32 || !activeRoutes.add(route)) {
           reject();
         }
         try {
@@ -4317,7 +4319,7 @@ public abstract class FileSystem extends Configured
                 String entry = key.substring(prefix.length());
                 int sourceStart = entry.indexOf('/');
                 if (sourceStart >= 0 && entry.substring(sourceStart).startsWith(subtree)) {
-                  checkGlobTargets(key, prefix, activeTables);
+                  checkGlobTargets(key, prefix, activeRoutes);
                 }
               }
             }
@@ -4362,13 +4364,13 @@ public abstract class FileSystem extends Configured
                   (base.endsWith("/") ? base : base + "/")
                       + (remaining.startsWith("/") ? remaining.substring(1) : remaining), null)
                   .normalize().getPath();
-              checkRoute(uri, nextPath, activeTables);
+              checkRoute(uri, nextPath, activeRoutes);
             }
           }
         } catch (URISyntaxException e) {
           reject();
         } finally {
-          activeTables.remove(table);
+          activeRoutes.remove(route);
         }
       }
 
