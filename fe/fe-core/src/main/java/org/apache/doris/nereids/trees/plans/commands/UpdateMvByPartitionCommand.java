@@ -181,18 +181,39 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
             MTMVRelatedTableIf relatedTable = (MTMVRelatedTableIf) table;
             Optional<MvccSnapshot> snapshot = statementContext.getSnapshot(table);
             List<Column> partitionColumns = relatedTable.getPartitionColumns(snapshot);
-            Map<String, PartitionItem> itemsByName = relatedTable.getAndCopyPartitionItems(snapshot);
+            // Each name is resolved where it lives rather than through a copy of the table's whole partition
+            // map: commands are built once per refresh batch and the default batch is one partition, so a
+            // full copy per batch would visit every partition of the table once per partition refreshed. An
+            // olap table answers the name from its own map, which is concurrent and guarded by the table's
+            // read lock inside the lookup; an external table answers it from the map of the snapshot pinned
+            // for this refresh, which is read-only and needs no copy either.
             Set<PartitionItem> items = Sets.newHashSet();
-            for (String partitionName : readable) {
-                PartitionItem item = itemsByName.get(partitionName);
-                if (item == null) {
-                    // The batch records this partition, so the rows it holds are the batch's to write; a
-                    // read that cannot find it would write less than the snapshot claims. Refused rather
-                    // than skipped, like the olap lookup this replaces.
-                    throw new AnalysisException("base partition " + partitionName + " of table "
-                            + table.getName() + " is not in the snapshot this refresh reads");
+            if (relatedTable instanceof OlapTable) {
+                OlapTable olapTable = (OlapTable) relatedTable;
+                for (String partitionName : readable) {
+                    try {
+                        items.add(olapTable.getPartitionItemOrAnalysisException(partitionName));
+                    } catch (AnalysisException e) {
+                        // The batch records this partition, so the rows it holds are the batch's to write; a
+                        // read that cannot find it would write less than the snapshot claims. Refused rather
+                        // than skipped, like the olap lookup this replaces.
+                        throw new AnalysisException("base partition " + partitionName + " of table "
+                                + table.getName() + " is not in the snapshot this refresh reads", e);
+                    }
                 }
-                items.add(item);
+            } else {
+                Map<String, PartitionItem> itemsByName = ((ExternalTable) relatedTable)
+                        .getNameToPartitionItems(snapshot);
+                for (String partitionName : readable) {
+                    PartitionItem item = itemsByName.get(partitionName);
+                    if (item == null) {
+                        // Refused for the same reason as above: the snapshot this refresh is recorded with
+                        // names a partition it cannot read.
+                        throw new AnalysisException("base partition " + partitionName + " of table "
+                                + table.getName() + " is not in the snapshot this refresh reads");
+                    }
+                    items.add(item);
+                }
             }
             if (items.stream().anyMatch(PartitionItem::isDefaultPartition)) {
                 // One of the partitions this MV partition is recorded with is a list partitioned table's
@@ -278,13 +299,23 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
 
     private static Set<Expression> constructPredicates(Set<PartitionItem> partitions, Slot colSlot,
             Optional<Type> columnType) {
+        return constructPredicates(partitions, colSlot, columnType, 0);
+    }
+
+    /**
+     * The same, for the callers whose partition items carry the partition columns in the base table's order
+     * rather than the MV's: the key value of the column the predicate is written against is at
+     * {@code keyPos}, not at the first position.
+     */
+    private static Set<Expression> constructPredicates(Set<PartitionItem> partitions, Slot colSlot,
+            Optional<Type> columnType, int keyPos) {
         Set<Expression> predicates = new HashSet<>();
         if (partitions.isEmpty()) {
             return Sets.newHashSet(BooleanLiteral.TRUE);
         }
         if (partitions.iterator().next() instanceof ListPartitionItem) {
             for (PartitionItem item : partitions) {
-                predicates.add(convertListPartitionToIn(item, colSlot, columnType));
+                predicates.add(convertListPartitionToIn(item, colSlot, columnType, keyPos));
             }
         } else {
             for (PartitionItem item : partitions) {
@@ -345,9 +376,18 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
 
     /** The type of the partition column of this table the MV partition is named by. */
     private static Type partitionColumnType(List<Column> partitionColumns, String colName) {
+        return partitionColumn(partitionColumns, colName).getType();
+    }
+
+    /** The position of that column among the table's partition columns, which is where its key value is. */
+    private static int partitionColumnPosition(List<Column> partitionColumns, String colName) {
+        return partitionColumns.indexOf(partitionColumn(partitionColumns, colName));
+    }
+
+    private static Column partitionColumn(List<Column> partitionColumns, String colName) {
         for (Column partitionColumn : partitionColumns) {
             if (partitionColumn.getName().equalsIgnoreCase(colName)) {
-                return partitionColumn.getType();
+                return partitionColumn;
             }
         }
         throw new IllegalStateException("no partition column " + colName);
@@ -394,9 +434,10 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                 columnType.orElseGet(() -> Type.fromPrimitiveType(key.getTypes().get(keyPos))));
     }
 
-    private static Expression convertListPartitionToIn(PartitionItem item, Slot col, Optional<Type> columnType) {
+    private static Expression convertListPartitionToIn(PartitionItem item, Slot col, Optional<Type> columnType,
+            int keyPos) {
         List<Expression> inValues = ((ListPartitionItem) item).getItems().stream()
-                .map(key -> convertPartitionKeyToLiteral(key, 0, columnType))
+                .map(key -> convertPartitionKeyToLiteral(key, keyPos, columnType))
                 .collect(ImmutableList.toImmutableList());
         List<Expression> predicates = new ArrayList<>();
         if (inValues.stream().anyMatch(NullLiteral.class::isInstance)) {
@@ -513,10 +554,10 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
          * one of them is not read at all. Such a key has no column to be written against, so the read cannot
          * be pinned to it; see the caller.
          */
-        private static Map<String, Slot> partitionColumnSlots(OlapTable baseTable,
+        private static Map<String, Slot> partitionColumnSlots(List<Column> partitionColumns,
                 LogicalCatalogRelation catalogRelation) {
             Map<String, Slot> res = new HashMap<>();
-            for (Column partitionColumn : baseTable.getPartitionColumns()) {
+            for (Column partitionColumn : partitionColumns) {
                 Slot slot = slotByName(catalogRelation, partitionColumn.getName());
                 if (slot == null) {
                     return null;
@@ -556,9 +597,21 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                         predicates.setHandleSuccess(false);
                         return catalogRelation;
                     }
+                    MTMVRelatedTableIf targetTable = (MTMVRelatedTableIf) table;
+                    // The base table's own partition columns, in its own order: the whole key of a partition
+                    // is written from them, and the column the MV partition is named by need not be the
+                    // first of them.
+                    List<Column> basePartitionColumns = targetTable.getPartitionColumns(
+                            targetTable instanceof OlapTable ? Optional.empty()
+                                    : MvccUtil.getSnapshotFromContext(targetTable));
+                    // One partition map per relation, not one per partition name: an external table builds
+                    // the map from its pinned snapshot, and asking again for each name would build it again.
+                    Map<String, PartitionItem> externalItemsByName = targetTable instanceof ExternalTable
+                            ? ((ExternalTable) targetTable).getNameToPartitionItems(
+                                    MvccUtil.getSnapshotFromContext(targetTable))
+                            : null;
                     // if partition has no data, doesn't add filter
                     Set<PartitionItem> partitionHasDataItems = new HashSet<>();
-                    MTMVRelatedTableIf targetTable = (MTMVRelatedTableIf) table;
                     for (String partitionName : filterTableEntry.getValue()) {
                         if (targetTable instanceof OlapTable) {
                             Partition partition = targetTable.getPartition(partitionName);
@@ -574,8 +627,7 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                             }
                         }
                         if (targetTable instanceof ExternalTable) {
-                            PartitionItem partitionItem = ((ExternalTable) targetTable).getNameToPartitionItems(
-                                    MvccUtil.getSnapshotFromContext(targetTable)).get(partitionName);
+                            PartitionItem partitionItem = externalItemsByName.get(partitionName);
                             // Add filter only when partition has data when external table
                             if (partitionItem != null) {
                                 partitionHasDataItems.add(partitionItem);
@@ -587,23 +639,26 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                     }
                     if (!partitionHasDataItems.isEmpty()) {
                         // The partitions are pinned the way a refresh pins them: the whole key of each, at
-                        // the partition column's own type. A predicate on the MV's partition column alone
+                        // the partition columns' own types. A predicate on the MV's partition column alone
                         // reads the partitions that differ in the other keys too, and those rows are ones
                         // this branch must not add -- the MV branch of the union already supplies them, or
                         // the compensation would count them twice -- while a key written with a scale has to
-                        // be compared at that scale or its rows are read as none.
+                        // be compared at that scale or its rows are read as none. An external table's
+                        // partition items are read from the snapshot below the same way as an olap table's:
+                        // its keys name its own partitions just as fully.
                         // A list partitioned table's default partition is not pinned the way the others
                         // are: its own key is the sentinel the rows no other partition claims were placed
                         // by, so pinning it to that key reads none of them. It is read the way it was
-                        // before the whole key was pinned -- on the MV's partition column alone -- which
-                        // can be seen to be too wide rather than one that drops its rows.
+                        // before the whole key was pinned -- on the MV's partition column alone, at that
+                        // column's type -- which can be seen to be too wide rather than one that drops its
+                        // rows.
                         boolean hasDefaultPartition = partitionHasDataItems.stream()
                                 .anyMatch(PartitionItem::isDefaultPartition);
                         Set<Expression> preds;
-                        if (targetTable instanceof OlapTable && !hasDefaultPartition) {
+                        if (!hasDefaultPartition) {
                             // This plan is already bound and nothing binds it again, so the whole-key
                             // predicates are written against the slots this relation reads.
-                            Map<String, Slot> keySlots = partitionColumnSlots((OlapTable) targetTable,
+                            Map<String, Slot> keySlots = partitionColumnSlots(basePartitionColumns,
                                     catalogRelation);
                             if (keySlots == null) {
                                 // A partition column the relation does not read has no slot to write the key
@@ -615,10 +670,13 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                                 return catalogRelation;
                             }
                             preds = constructPredicatesOfBasePartitions(partitionHasDataItems,
-                                    ((OlapTable) targetTable).getPartitionColumns(),
-                                    relatedTableColumnInfo.getColName(), keySlots::get);
+                                    basePartitionColumns, relatedTableColumnInfo.getColName(), keySlots::get);
                         } else {
-                            preds = constructPredicates(partitionHasDataItems, partitionSlot);
+                            preds = constructPredicates(partitionHasDataItems, partitionSlot,
+                                    Optional.of(partitionColumnType(basePartitionColumns,
+                                            relatedTableColumnInfo.getColName())),
+                                    partitionColumnPosition(basePartitionColumns,
+                                            relatedTableColumnInfo.getColName()));
                         }
                         return new LogicalFilter<>(
                                 ExpressionUtils.extractConjunctionToSet(ExpressionUtils.or(preds)),

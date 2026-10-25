@@ -170,6 +170,20 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
                 + ")\n"
                 + "distributed by hash(d) buckets 1\n"
                 + "properties('replication_num' = '1');");
+        // The default partition is what makes the compensation fall back to reading the relation on the MV's
+        // partition column alone, and that read is where a key's scale used to be taken from the key's
+        // primitive type rather than from the column.
+        createTable("create table test.compensate_ms_base (\n"
+                + "  k1 datetime(3),\n"
+                + "  region int,\n"
+                + "  value int\n"
+                + ") duplicate key(k1, region)\n"
+                + "partition by list(k1, region) (\n"
+                + "  partition p_frac values in ((\"2024-01-01 00:00:00.123\",1)),\n"
+                + "  partition p_default\n"
+                + ")\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1');");
     }
 
     @Test
@@ -532,6 +546,40 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
                 Assertions.assertInstanceOf(SlotReference.class, slot,
                         "the filter is added to a bound plan, so the column is read through its own slot: " + slot);
             }
+        } finally {
+            FeConstants.runningUnitTest = originRunningUnitTest;
+        }
+    }
+
+    @Test
+    void testACompensationOnTheMvColumnKeepsTheKeyScale() throws Exception {
+        // A table holding a default partition is compensated on the MV's partition column alone, so the key
+        // value written for its other partitions is read from the item rather than from a slot per column.
+        // Written from the key's primitive type, DATETIMEV2 has scale 0 regardless of the column's, and the
+        // partition's key -- 2024-01-01 00:00:00.123 -- would be pinned at 2024-01-01 00:00:00, a value no
+        // row of it equals: the partition's rows are read as none and go missing from the rebuilt MV
+        // partition while the snapshot records it as refreshed.
+        OlapTable base = getOlapTable("compensate_ms_base");
+        Plan plan = PlanChecker.from(connectContext)
+                .analyze("select k1 from test.compensate_ms_base").getPlan();
+        boolean originRunningUnitTest = FeConstants.runningUnitTest;
+        FeConstants.runningUnitTest = true;
+        try {
+            UpdateMvByPartitionCommand.PredicateAddContext context =
+                    new UpdateMvByPartitionCommand.PredicateAddContext(null,
+                            ImmutableMap.of(new BaseColInfo("k1", new BaseTableInfo(base)),
+                                    Sets.newHashSet("p_frac", "p_default")));
+            Plan filtered = plan.accept(new UpdateMvByPartitionCommand.PredicateAdder(), context);
+            Assertions.assertTrue(context.isHandleSuccess());
+
+            String sql = findFilter(filtered).getPredicate().toSql();
+            // The relation is read on k1 alone: region is not a slot of this plan, so a whole-key read of the
+            // partition could not be written at all and the fallback path is the one exercised here.
+            Assertions.assertFalse(sql.contains("region"), sql);
+            Assertions.assertTrue(sql.contains("2024-01-01 00:00:00.123"), sql);
+            // The same instant written without its milliseconds, which is how the key reads when its column
+            // type is not passed down.
+            Assertions.assertFalse(sql.contains("2024-01-01 00:00:00.000"), sql);
         } finally {
             FeConstants.runningUnitTest = originRunningUnitTest;
         }
