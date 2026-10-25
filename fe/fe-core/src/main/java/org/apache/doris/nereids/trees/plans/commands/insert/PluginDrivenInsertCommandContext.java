@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 
 import com.google.common.base.Preconditions;
@@ -139,6 +140,11 @@ public class PluginDrivenInsertCommandContext extends BaseExternalTableInsertCom
     }
 
     private static Literal writtenValue(Literal value, DataType columnType) {
+        if (value instanceof VarBinaryLiteral && columnType instanceof VarBinaryType) {
+            // A binary literal is VARBINARY of the maximum length, which Literal casts to no other length. BindSink
+            // leaves that cast of the rows to BE, which keeps the bytes: a VARBINARY length is metadata only.
+            return new VarBinaryLiteral((VarBinaryType) columnType, (byte[]) value.getValue());
+        }
         if (!value.getDataType().isStringLikeType() || !columnType.isStringLikeType()) {
             Expression cast = value.checkedCastTo(columnType);
             Preconditions.checkState(cast instanceof Literal, "cast of literal %s is not a literal", value);
