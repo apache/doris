@@ -335,6 +335,22 @@ public class IvmUtil {
     }
 
     /**
+     * The MV's stream for the base table, or empty when there is none or it is not usable. Unlike
+     * {@link #getIvmStream}, this does not fail: a caller that cannot create the stream -- a plan-only
+     * preview -- asks what it would read through before deciding how to answer.
+     */
+    public static Optional<OlapTableStream> findIvmStream(MTMV mtmv, OlapTable expectedBaseTable) {
+        Database database = (Database) mtmv.getDatabase();
+        TableIf table = database.getTableNullable(
+                streamName(mtmv.getId(), expectedBaseTable.getFullQualifiers()));
+        if (!(table instanceof OlapTableStream)) {
+            return Optional.empty();
+        }
+        OlapTableStream stream = (OlapTableStream) table;
+        return isIvmStreamUsable(stream, expectedBaseTable) ? Optional.of(stream) : Optional.empty();
+    }
+
+    /**
      * Finds the IVM row_id slot in the given output list, or returns null if not found.
      * Throws IvmException if multiple row_id slots are present.
      */

@@ -46,7 +46,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 
@@ -63,14 +62,19 @@ public class IvmFullRefreshMTMV extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalOlapScan()
                 .whenNot(LogicalOlapTableStreamScan.class::isInstance)
-                .when(scan -> ConnectContext.get().getStatementContext().getIvmRewriteContext()
-                        .filter(context -> context.getMode() == IvmRewriteContext.Mode.FULL)
-                        .filter(IvmRewriteContext::hasFullRefreshStreamScans)
-                        .isPresent())
+                // The rewrite context is read from the statement context this plan is planned under, not
+                // from the thread-local one: an EXPLAIN REFRESH preview plans the command's own statement
+                // context (see RefreshMTMVCommand#getExplainConnectContext), while the thread-local context
+                // may be a temporary one the preview's own analysis swapped in and out.
                 .thenApply(ctx -> {
+                    Optional<IvmRewriteContext> rewriteContext = ctx.statementContext.getIvmRewriteContext()
+                            .filter(context -> context.getMode() == IvmRewriteContext.Mode.FULL)
+                            .filter(IvmRewriteContext::hasFullRefreshStreamScans);
+                    if (!rewriteContext.isPresent()) {
+                        return ctx.root;
+                    }
                     ctx.statementContext.addPlannerHook(CloudTableStreamReadStateHook.INSTANCE);
-                    return rewriteScan(ctx.root,
-                            ctx.statementContext.getIvmRewriteContext().get());
+                    return rewriteScan(ctx.root, rewriteContext.get());
                 })
                 .toRule(RuleType.IVM_FULL_REFRESH_MTMV);
     }
@@ -111,8 +115,19 @@ public class IvmFullRefreshMTMV extends OneRewriteRuleFactory {
                 .orElseGet(() -> new ArrayList<>(scan.getSelectedPartitionIds()));
         selectedPartitionIds.sort(Long::compareTo);
 
-        OlapTableStream stream = IvmUtil.getIvmStream(rewriteContext.getMtmv(), baseTable);
-        OlapTableStreamWrapper streamWrapper = new OlapTableStreamWrapper(stream, baseTable, selectedPartitionIds);
+        Optional<OlapTableStream> stream = IvmUtil.findIvmStream(rewriteContext.getMtmv(), baseTable);
+        if (!stream.isPresent() && rewriteContext.isExplain()) {
+            // A refresh reconciles the MV's streams before it reads anything (MTMVTask#reconcileIvmStreams),
+            // so the refresh this previews would read through a usable stream here. A preview cannot create
+            // one -- it must stay read-only -- and failing instead would deny the plan for a refresh that
+            // would run: show the read the refresh makes, the same partitions from the base table itself.
+            // Execution keeps failing closed on a stream it did not reconcile.
+            return selectedPartitionIds.equals(scan.getSelectedPartitionIds())
+                    ? scan : scan.withSelectedPartitionIds(selectedPartitionIds);
+        }
+        OlapTableStreamWrapper streamWrapper = new OlapTableStreamWrapper(
+                stream.orElseGet(() -> IvmUtil.getIvmStream(rewriteContext.getMtmv(), baseTable)),
+                baseTable, selectedPartitionIds);
         LogicalOlapTableStreamScan streamScan = new LogicalOlapTableStreamScan(
                 StatementScopeIdGenerator.newRelationId(), streamWrapper, scan.getQualifier(),
                 selectedPartitionIds, scan.getSelectedTabletIds(), scan.getHints(),
