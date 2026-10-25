@@ -563,6 +563,63 @@ public class PaimonBackendBoundTableTest {
     }
 
     @Test
+    public void systemSourcePinsEachFallbackBranchToItsOwnCatalogSnapshot(@TempDir Path warehouse)
+            throws Exception {
+        // JNI rebuilds a system table that plans on the BE from doris.serialized-system-source rather
+        // than from serialized_table, so that payload must carry each branch's own catalog pointer too.
+        FileStoreTable onDisk = commit(newRealTable(warehouse, "fallback_system_source"), 2);
+        VersionManagedCatalog mainCatalog = new VersionManagedCatalog(warehouse, true);
+        VersionManagedCatalog fallbackCatalog = new VersionManagedCatalog(warehouse, true);
+        mainCatalog.pointAt(onDisk, 2L);
+        fallbackCatalog.pointAt(onDisk, 1L);
+        Map<String, String> mainOptions = new HashMap<>();
+        mainOptions.put("scan.fallback-branch", "fb");
+        Map<String, String> fallbackOptions = new HashMap<>();
+        fallbackOptions.put("branch", "fb");
+        FileStoreTable pair = new FallbackReadFileStoreTable(
+                withCatalogEnvironment(onDisk.copyWithoutTimeTravel(mainOptions),
+                        catalogEnvironment(mainCatalog)),
+                withCatalogEnvironment(onDisk.copyWithoutTimeTravel(fallbackOptions),
+                        catalogEnvironment(fallbackCatalog)),
+                true);
+        PaimonTableHandle handle = sysHandle("partitions", pair);
+        handle.setPaimonTable(SystemTableLoader.load("partitions", pair));
+        handle.setSystemTableSource(pair);
+
+        FileStoreTable transported = transportedSystemSource(handle);
+
+        Assertions.assertTrue(transported instanceof FallbackReadFileStoreTable);
+        FallbackReadFileStoreTable transportedPair = (FallbackReadFileStoreTable) transported;
+        Assertions.assertEquals("2", transportedPair.wrapped().options().get("scan.snapshot-id"));
+        Assertions.assertEquals("1", transportedPair.other().options().get("scan.snapshot-id"),
+                "the fallback branch must use its own catalog pointer, not its newest snapshot file");
+        Assertions.assertNull(transportedPair.wrapped().catalogEnvironment().catalogLoader());
+        Assertions.assertNull(transportedPair.other().catalogEnvironment().catalogLoader());
+    }
+
+    @Test
+    public void relationSnapshotOutranksTheCatalogPinOnTheSystemSource(@TempDir Path warehouse)
+            throws Exception {
+        // The catalog pin is taken first and the relation's @options are applied over it, so an explicit
+        // snapshot still selects what the BE rebuilds the system table on.
+        VersionManagedCatalog catalog = new VersionManagedCatalog(warehouse, true);
+        FileStoreTable onDisk = commit(newRealTable(warehouse, "options_system_source"), 2);
+        catalog.pointAt(onDisk, 2L);
+        FileStoreTable versionManaged = withCatalogEnvironment(onDisk, catalogEnvironment(catalog));
+        Map<String, String> relationOptions = PaimonScanParams.markAsOptions(
+                Collections.singletonMap("scan.snapshot-id", "1"));
+        PaimonTableHandle handle = sysHandle("partitions", versionManaged).withScanOptions(relationOptions);
+        handle.setPaimonTable(PaimonScanParams.applyOptions(
+                SystemTableLoader.load("partitions", versionManaged), relationOptions));
+        handle.setSystemTableSource(versionManaged);
+
+        FileStoreTable transported = transportedSystemSource(handle);
+
+        Assertions.assertEquals("1", transported.options().get("scan.snapshot-id"));
+        Assertions.assertTrue(catalog.loadSnapshotCalls > 0, "the catalog pin is still resolved on the FE");
+    }
+
+    @Test
     public void keepsThePinOffSystemTablesWhoseRowTypeFollowsTheBaseTable(@TempDir Path warehouse)
             throws Exception {
         // PaimonJniScanner#initTable calls table.copy(table.options()) unconditionally, and every
@@ -1023,6 +1080,14 @@ public class PaimonBackendBoundTableTest {
     }
 
     /** Decodes {@code paimon.serialized_table} the way {@code PaimonJniScanner#initTable} does. */
+    /** The catalog-less source that JNI rebuilds a backend-planned system table from. */
+    private static FileStoreTable transportedSystemSource(PaimonTableHandle handle) throws Exception {
+        Map<String, String> props = provider().getScanNodeProperties(null, handle,
+                Collections.emptyList(), Optional.empty());
+        Map<?, ?> options = JsonSerdeUtil.fromJson(props.get("paimon.options_json"), Map.class);
+        return deserializeTable((String) options.get("doris.serialized-system-source"));
+    }
+
     private static FileStoreTable deserializeTable(String encoded) throws Exception {
         byte[] raw = encoded.getBytes(StandardCharsets.UTF_8);
         byte[] bytes;

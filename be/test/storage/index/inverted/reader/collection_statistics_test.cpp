@@ -468,7 +468,8 @@ protected:
         RETURN_IF_ERROR(segment_v2::IndexColumnWriter::create(&column, &column_writer, &file_writer,
                                                               index_metas[0]));
         std::vector<Slice> values {Slice("alpha beta")};
-        RETURN_IF_ERROR(column_writer->add_values(column.name(), values.data(), values.size()));
+        RETURN_IF_ERROR(column_writer->add_values(reinterpret_cast<const uint8_t*>(values.data()),
+                                                  values.size()));
         RETURN_IF_ERROR(column_writer->finish());
         RETURN_IF_ERROR(file_writer.begin_close());
         return file_writer.finish_close();

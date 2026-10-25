@@ -214,9 +214,11 @@ class HadoopTvfRuntimeAdmissionTest {
         properties.remove("csv_schema");
         HdfsTableValuedFunction tvf = new HdfsTableValuedFunction(properties);
         tvf.getFileStatuses().add(new TBrokerFileStatus("hdfs://runtime/returned.csv", false, 100, true));
-        Method method = ExternalFileTableValuedFunction.class.getDeclaredMethod("getFetchTableStructureRequest");
+        Method method = ExternalFileTableValuedFunction.class.getDeclaredMethod(
+                "getFetchTableStructureRequest", java.util.Iterator.class);
         method.setAccessible(true);
-        PFetchTableSchemaRequest request = (PFetchTableSchemaRequest) method.invoke(tvf);
+        PFetchTableSchemaRequest request = (PFetchTableSchemaRequest) method.invoke(
+                tvf, tvf.getFileStatuses().iterator());
         TFileScanRange range = new TFileScanRange();
         new TDeserializer().deserialize(range, request.getFileScanRange().toByteArray());
         String policy = range.getParams().getProperties().get(TvfGuard.POLICY_KEY);

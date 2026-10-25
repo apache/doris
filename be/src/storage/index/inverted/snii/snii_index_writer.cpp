@@ -285,8 +285,7 @@ Status SniiIndexColumnWriter::_add_value_tokens(const Slice& value, uint32_t doc
     return Status::OK();
 }
 
-Status SniiIndexColumnWriter::add_values(const std::string /*name*/, const void* values,
-                                         size_t count) {
+Status SniiIndexColumnWriter::add_values(const uint8_t* values, size_t count) {
     if (!_failure_status.ok()) {
         return _failure_status;
     }
@@ -323,9 +322,9 @@ Status SniiIndexColumnWriter::add_values(const std::string /*name*/, const void*
     return Status::OK();
 }
 
-Status SniiIndexColumnWriter::add_array_values(size_t field_size, const void* value_ptr,
+Status SniiIndexColumnWriter::add_array_values(size_t field_size, const uint8_t* value_ptr,
                                                const uint8_t* nested_null_map,
-                                               const uint8_t* offsets_ptr, size_t count) {
+                                               const uint64_t* offsets_ptr, size_t count) {
     // Arrays are not sampled: settle the rate on whatever has been seen rather than hold array
     // rows back as well, which would complicate the docid bookkeeping for a shape the gram
     // family is not built for.
@@ -336,7 +335,7 @@ Status SniiIndexColumnWriter::add_array_values(size_t field_size, const void* va
     if (count == 0) {
         return Status::OK();
     }
-    const auto* offsets = reinterpret_cast<const uint64_t*>(offsets_ptr);
+    const auto* offsets = offsets_ptr;
     size_t start_off = 0;
     for (size_t i = 0; i < count; ++i) {
         auto array_elem_size = offsets[i + 1] - offsets[i];
@@ -346,8 +345,7 @@ Status SniiIndexColumnWriter::add_array_values(size_t field_size, const void* va
             if (nested_null_map != nullptr && nested_null_map[j] == 1) {
                 continue;
             }
-            const auto* value = reinterpret_cast<const Slice*>(
-                    reinterpret_cast<const uint8_t*>(value_ptr) + j * field_size);
+            const auto* value = reinterpret_cast<const Slice*>(value_ptr + j * field_size);
             uint32_t max_position = position_base;
             uint32_t token_count = 0;
             RETURN_IF_ERROR(
@@ -545,7 +543,7 @@ Status SniiIndexColumnWriter::add_nulls(uint32_t count) {
     if (!_failure_status.ok()) {
         return _failure_status;
     }
-    // GEOMETRIC BULK reserve -- never an exact one: append_nullable calls
+    // GEOMETRIC BULK reserve -- never an exact one: ScalarColumnWriter::append calls
     // add_nulls once per NULL RUN (thousands to millions of calls on a large
     // interleaved-null segment), and an exact reserve(size()+count) caps
     // capacity at "just enough" -- the NEXT call then reallocates and memcpys

@@ -64,6 +64,7 @@ import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.function.UnaryOperator;
 
 /**
  * JNI entry point for Paimon write operations.
@@ -185,8 +186,8 @@ public class PaimonJniWriter extends JniWriter {
                     CoreOptions coreOptions = CoreOptions.fromMap(table.options());
                     this.writeSchema = PaimonWriteSchema.create(table.rowType(), columnNames, changelogWrite,
                             PaimonWriteSchema.charPadding(table.options()), coreOptions.rowkindField().orElse(null),
-                            table.primaryKeys(), table.partitionKeys(),
-                            PaimonWriteSchema.writesOrcFiles(table.options()), overwrite);
+                            table.primaryKeys(), table.partitionKeys(), PaimonWriteSchema.orcFiles(table.options()),
+                            overwrite);
                     this.arrowAdapter = new PaimonArrowBatchAdapter(
                             writeSchema.inputType(), ZoneId.of(timeZone), allocator);
                     validateWriteColumnsForMergeEngine(
@@ -471,8 +472,10 @@ public class PaimonJniWriter extends JniWriter {
             long writerMemoryLimitBytes) throws Exception {
         globalIndexAssigner = new GlobalIndexAssigner(table, writerMemoryLimitBytes);
         globalIndexAssigner.open(1, 0, this::writeAssignedRow);
+        // The index has to hold the stored keys as the rows written carry them, which ORC does not give back.
+        UnaryOperator<InternalRow> bootstrapKeyPadder = writeSchema.bootstrapKeyPadder(table.schema());
         new IndexBootstrap(table).bootstrap(
-                1, 0, this::bootstrapGlobalIndexKey);
+                1, 0, row -> bootstrapGlobalIndexKey(bootstrapKeyPadder.apply(row)));
         globalIndexAssigner.finishBootstrap();
     }
 

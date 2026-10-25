@@ -23,6 +23,7 @@ import java.lang.reflect.Modifier;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
@@ -48,7 +49,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * The diagnostic API samples collections and object arrays. The admission API instead traverses every element
  * up to a fixed visit budget: this catches skewed tail values while bounding CPU and temporary identity-set
  * memory. Strongly encapsulated reference fields, depth truncation, and visit-budget exhaustion fail the
- * estimate so admission can reject the value without turning an incomplete graph into a false low weight.
+ * estimate so admission can reject the value without turning an incomplete graph into a false low weight. A value
+ * that is large only because of a few long lists, such as a wide table's columns, is estimated with those lists
+ * walked element by element instead, so the budget bounds one element rather than the whole value.
  *
  * <p>This is intentionally a construction-time safety net, not a Caffeine hit-path weigher. Cache values should
  * combine it with a type-specific estimate once, store the larger result, and expose that stored number to
@@ -141,14 +144,36 @@ public final class ReflectiveObjectSizeEstimator {
         return new Walker(Integer.MAX_VALUE, visitBudget).estimate(root, maxDepth);
     }
 
+    /**
+     * Completely estimates {@code root} like {@link #estimateComplete(Object)}, except that each of
+     * {@code perElementCollections} that the walk reaches is estimated element by element, every element with its
+     * own visit budget. A value that is large only because of such lists, such as a wide table's columns or a long
+     * partition list, stays admissible, while the budget still bounds each element and the rest of the graph, and
+     * the temporary identity set holds one element's graph at a time. Objects that elements share are counted
+     * once per element, which can only over-estimate; an element in several of the collections is counted once.
+     */
+    public static long estimateCompletePerElement(Object root, Collection<?>... perElementCollections) {
+        Set<Object> collections = Collections.newSetFromMap(new IdentityHashMap<>());
+        Collections.addAll(collections, perElementCollections);
+        return new Walker(Integer.MAX_VALUE, DEFAULT_COMPLETE_VISIT_BUDGET, collections)
+                .estimate(root, DEFAULT_MAX_DEPTH);
+    }
+
     private static final class Walker {
         private final int sampleSize;
         private final int visitBudget;
         private final Map<Object, Boolean> visited = new IdentityHashMap<>();
+        private final Set<Object> perElementCollections;
+        private final Set<Object> estimatedElements = Collections.newSetFromMap(new IdentityHashMap<>());
 
         private Walker(int sampleSize, int visitBudget) {
+            this(sampleSize, visitBudget, Collections.emptySet());
+        }
+
+        private Walker(int sampleSize, int visitBudget, Set<Object> perElementCollections) {
             this.sampleSize = sampleSize;
             this.visitBudget = visitBudget;
+            this.perElementCollections = perElementCollections;
         }
 
         private long estimate(Object value, int depth) {
@@ -158,6 +183,9 @@ public final class ReflectiveObjectSizeEstimator {
             if (visited.size() > visitBudget) {
                 throw new IllegalStateException(
                         "Complete estimate exceeded visit budget " + visitBudget);
+            }
+            if (perElementCollections.contains(value)) {
+                return estimateEachElement((Collection<?>) value, depth);
             }
 
             Class<?> type = value.getClass();
@@ -228,6 +256,25 @@ public final class ReflectiveObjectSizeEstimator {
                 sampledBytes = add(sampledBytes, estimate(Array.get(value, index), depth - 1));
             }
             return add(bytes, scale(sampledBytes, samples, length));
+        }
+
+        private long estimateEachElement(Collection<?> values, int depth) {
+            int size = values.size();
+            long bytes = add(
+                    JvmSizeUtils.instanceSize(values.getClass()),
+                    collectionStorageBytes(values, size));
+            if (size == 0) {
+                return bytes;
+            }
+            if (depth == 0) {
+                throw incomplete(values.getClass());
+            }
+            for (Object element : values) {
+                if (estimatedElements.add(element)) {
+                    bytes = add(bytes, new Walker(Integer.MAX_VALUE, visitBudget).estimate(element, depth - 1));
+                }
+            }
+            return bytes;
         }
 
         private long estimateByteBuffer(ByteBuffer value, int depth) {
