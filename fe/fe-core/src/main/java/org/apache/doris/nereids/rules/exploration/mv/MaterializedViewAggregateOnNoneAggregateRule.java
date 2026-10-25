@@ -21,6 +21,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.BaseColInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -102,7 +103,7 @@ public class MaterializedViewAggregateOnNoneAggregateRule extends AbstractMateri
             Plan rewrittenPlan,
             CascadesContext cascadesContext,
             AsyncMaterializationContext materializationContext,
-            Set<String> uncoveredNarrowedBasePartitions,
+            Map<MTMVRelatedTableIf, Set<String>> uncoveredNarrowedBasePartitions,
             Set<BaseColInfo> columnsSharingRetainedBucket)
             throws AnalysisException {
         Pair<Map<BaseTableInfo, Set<String>>, Map<BaseColInfo, Set<String>>> invalidPartitions

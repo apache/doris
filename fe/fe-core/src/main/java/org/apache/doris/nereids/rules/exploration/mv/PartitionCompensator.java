@@ -119,18 +119,18 @@ public class PartitionCompensator {
             AsyncMaterializationContext materializationContext, CascadesContext cascadesContext)
             throws AnalysisException {
         return calcInvalidPartitions(queryUsedBaseTablePartitionMap, pctInputsInQuery, rewrittenPlan,
-                materializationContext, cascadesContext, Sets.newHashSet());
+                materializationContext, cascadesContext, Maps.newHashMap());
     }
 
     /**
-     * The same, recording in {@code uncoveredNarrowedBasePartitions} the uncovered base partitions the
-     * compensation reads beside the MV partitions it keeps. Those MV partitions answer groups the
+     * The same, recording in {@code uncoveredNarrowedBasePartitions}, by table, the uncovered base partitions
+     * the compensation reads beside the MV partitions it keeps. Those MV partitions answer groups the
      * partitions also contribute to, so unioning the two answers does not give whole groups.
      */
     public static Pair<Map<BaseTableInfo, Set<String>>, Map<BaseColInfo, Set<String>>> calcInvalidPartitions(
             Map<List<String>, Set<String>> queryUsedBaseTablePartitionMap, int pctInputsInQuery, Plan rewrittenPlan,
             AsyncMaterializationContext materializationContext, CascadesContext cascadesContext,
-            Set<String> uncoveredNarrowedBasePartitions)
+            Map<MTMVRelatedTableIf, Set<String>> uncoveredNarrowedBasePartitions)
             throws AnalysisException {
         return calcInvalidPartitions(queryUsedBaseTablePartitionMap, pctInputsInQuery, rewrittenPlan,
                 materializationContext, cascadesContext, uncoveredNarrowedBasePartitions, Sets.newHashSet());
@@ -145,7 +145,8 @@ public class PartitionCompensator {
     public static Pair<Map<BaseTableInfo, Set<String>>, Map<BaseColInfo, Set<String>>> calcInvalidPartitions(
             Map<List<String>, Set<String>> queryUsedBaseTablePartitionMap, int pctInputsInQuery, Plan rewrittenPlan,
             AsyncMaterializationContext materializationContext, CascadesContext cascadesContext,
-            Set<String> uncoveredNarrowedBasePartitions, Set<BaseColInfo> columnsSharingRetainedBucket)
+            Map<MTMVRelatedTableIf, Set<String>> uncoveredNarrowedBasePartitions,
+            Set<BaseColInfo> columnsSharingRetainedBucket)
             throws AnalysisException {
         // check partition is valid or not
         MTMV mtmv = materializationContext.getMtmv();
@@ -298,9 +299,12 @@ public class PartitionCompensator {
                 if (pctInfo == null) {
                     continue;
                 }
-                uncoveredNarrowedBasePartitions.addAll(overlappingUncoveredListPartitions(
+                Set<String> overlapping = overlappingUncoveredListPartitions(
                         entry.getKey(), pctInfo, entry.getValue(), retainedMvPartitions,
-                        mtmvRelatedTableIfMapMap));
+                        mtmvRelatedTableIfMapMap);
+                if (!overlapping.isEmpty()) {
+                    uncoveredNarrowedBasePartitions.put(entry.getKey(), overlapping);
+                }
             }
             addColumnsWhoseCompensationSharesRetainedBucket(mtmv, pctInfoMap,
                     baseTablePartitionNeedUnionNameMap, uncoveredByTable, retainedMvPartitions,

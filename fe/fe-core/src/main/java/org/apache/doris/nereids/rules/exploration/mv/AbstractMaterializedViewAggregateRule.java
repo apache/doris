@@ -21,10 +21,12 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.BaseColInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
+import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.rules.analysis.NormalizeRepeat;
@@ -572,6 +574,57 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
             }
         }
         return true;
+    }
+
+    /**
+     * A group whose key names the whole partition key of the table by itself belongs to one of its base
+     * partitions, and the two branches read disjoint base partitions: the MV partitions that stay read the
+     * ones their snapshots record, the compensation the uncovered ones. Grouping by the whole key therefore
+     * keeps the branches' groups apart even where the keys meet in the MV's partition columns.
+     */
+    @Override
+    protected boolean groupingSeparatesCompensatedBranches(Plan queryPlan,
+            Map<MTMVRelatedTableIf, Set<String>> uncoveredNarrowedByTable) {
+        Optional<LogicalAggregate<Plan>> logicalAggregateOptional =
+                queryPlan.collectFirst(planTreeNode -> planTreeNode instanceof LogicalAggregate);
+        if (!logicalAggregateOptional.isPresent()) {
+            return false;
+        }
+        LogicalAggregate<Plan> queryAggregate = logicalAggregateOptional.get();
+        Map<BaseColInfo, Set<BaseColInfo>> equalColumns = columnsTheQueryHoldsEqual(queryPlan);
+        Optional<LogicalRepeat<?>> logicalRepeatOptional = queryAggregate.getSourceRepeat();
+        for (MTMVRelatedTableIf table : uncoveredNarrowedByTable.keySet()) {
+            BaseTableInfo tableInfo = new BaseTableInfo(table);
+            Set<BaseColInfo> partitionColumns = ((OlapTable) table).getPartitionColumns().stream()
+                    .map(column -> new BaseColInfo(column.getName(), tableInfo))
+                    .collect(Collectors.toSet());
+            if (logicalRepeatOptional.isPresent()) {
+                for (List<Expression> groupingSet : logicalRepeatOptional.get().getGroupingSets()) {
+                    if (!groupingCoversColumns(groupingSet, queryPlan, partitionColumns, equalColumns)) {
+                        return false;
+                    }
+                }
+            } else if (!groupingCoversColumns(queryAggregate.getGroupByExpressions(), queryPlan,
+                    partitionColumns, equalColumns)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** Whether these grouping expressions name every one of these columns by itself, or through an equality. */
+    private static boolean groupingCoversColumns(List<Expression> groupingExpressions, Plan queryPlan,
+            Set<BaseColInfo> columns, Map<BaseColInfo, Set<BaseColInfo>> equalColumns) {
+        if (groupingExpressions.isEmpty()) {
+            return false;
+        }
+        List<? extends Expression> groupingShuttledExpressions =
+                ExpressionUtils.shuttleExpressionWithLineage(groupingExpressions, queryPlan);
+        Set<BaseColInfo> groupedByItself = Sets.newHashSet();
+        for (Expression expression : groupingShuttledExpressions) {
+            columnGroupedByItself(expression).ifPresent(groupedByItself::add);
+        }
+        return equalColumnsClosure(groupedByItself, equalColumns).containsAll(columns);
     }
 
     /**

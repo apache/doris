@@ -358,7 +358,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     }
                     return rewriteResults;
                 }
-                Set<String> uncoveredNarrowedBasePartitions = Sets.newHashSet();
+                Map<MTMVRelatedTableIf, Set<String>> uncoveredNarrowedBasePartitions = new HashMap<>();
                 Set<BaseColInfo> columnsSharingRetainedBucket = Sets.newHashSet();
                 try {
                     invalidPartitions = calcInvalidPartitions(queryUsedPartitions,
@@ -387,10 +387,13 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 // key one of them already holds: a merged LIST component's MV partition is recorded with
                 // several keys of the MV's partition column. The aggregate compensation unions the MV's answer
                 // with the base table's, so such a group comes out twice instead of once. Answered from the
-                // base table instead of splitting the group. Groupings that cannot keep the two branches apart
-                // for other reasons are declined by canUnionRewrite below.
+                // base table instead of splitting the group, unless the grouping itself keeps the two
+                // branches apart -- it can, when it groups by the whole key that tells the partitions'
+                // rows apart. Groupings that cannot keep the two branches apart for other reasons are
+                // declined by canUnionRewrite below.
                 if (queryPlan.anyMatch(LogicalAggregate.class::isInstance)
-                        && needBaseTableUnion && !uncoveredNarrowedBasePartitions.isEmpty()) {
+                        && needBaseTableUnion && !uncoveredNarrowedBasePartitions.isEmpty()
+                        && !groupingSeparatesCompensatedBranches(queryPlan, uncoveredNarrowedBasePartitions)) {
                     materializationContext.recordFailReason(queryStructInfo,
                             "compensating an uncovered partition beside an MV partition can split an aggregate group",
                             () -> String.format("uncovered partitions = %s, queryPlan is %s",
@@ -512,6 +515,16 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
     }
 
     /**
+     * Whether the query's grouping keeps the groups of the compensation's uncovered partitions apart from
+     * those of the MV partitions that stay, though their keys meet in the MV's partitions. The rule here
+     * sees a plan of no particular shape and declines; the aggregate rule asks the grouping itself.
+     */
+    protected boolean groupingSeparatesCompensatedBranches(Plan queryPlan,
+            Map<MTMVRelatedTableIf, Set<String>> uncoveredNarrowedByTable) {
+        return false;
+    }
+
+    /**
      * Not all query after rewritten successfully can compensate union all
      * Such as:
      * mv def sql is as following, partition column is a
@@ -551,7 +564,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             Plan rewrittenPlan,
             CascadesContext cascadesContext,
             AsyncMaterializationContext materializationContext,
-            Set<String> uncoveredNarrowedBasePartitions,
+            Map<MTMVRelatedTableIf, Set<String>> uncoveredNarrowedBasePartitions,
             Set<BaseColInfo> columnsSharingRetainedBucket)
             throws AnalysisException {
         return PartitionCompensator.calcInvalidPartitions(queryUsedBaseTablePartitionMap, pctInputsInQuery,

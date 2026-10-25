@@ -692,6 +692,42 @@ suite("test_mtmv_base_partition_read_scope") {
     order_qt_partial_stale """SELECT d, SUM(v) FROM partial_stale_base
         WHERE d IN ('2020-01-01', '2038-01-01') GROUP BY d"""
 
+    // Grouping by the whole key tells the branches apart even though their keys meet in d: the view's
+    // (2020-01-01, 1) group and the compensation's (2020-01-01, 2) group are different groups, each one
+    // belonging to a single base partition. The retained rows stay with the pre-aggregated view instead of
+    // being read and re-aggregated from the base table.
+    sql """drop materialized view if exists group_split_full_key_mv"""
+    sql """drop table if exists group_split_full_key_base"""
+    sql """
+        CREATE TABLE group_split_full_key_base (d DATE NOT NULL, k INT NOT NULL, v INT NOT NULL)
+        DUPLICATE KEY(d, k) PARTITION BY LIST(d, k) (
+            PARTITION p_kept VALUES IN (("2020-01-01", 1), ("2038-01-01", 1)),
+            PARTITION p_bridge VALUES IN (("2038-01-01", 2)),
+            PARTITION p_old VALUES IN (("2020-01-01", 2)))
+        DISTRIBUTED BY HASH(d) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+    """
+    sql """INSERT INTO group_split_full_key_base VALUES
+        ("2020-01-01", 1, 2), ("2020-01-01", 2, 1), ("2038-01-01", 1, 5), ("2038-01-01", 2, 7)"""
+    sql """INSERT INTO group_split_full_key_base
+        SELECT CAST("2038-01-01" AS DATE), 1, 0 FROM numbers("number" = "10000")"""
+    sql """
+        CREATE MATERIALIZED VIEW group_split_full_key_mv
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL PARTITION BY (d)
+        DISTRIBUTED BY HASH(d) BUCKETS 1 PROPERTIES ("replication_num" = "1",
+            "partition_sync_limit" = "2", "partition_sync_time_unit" = "YEAR")
+        AS SELECT d, k, SUM(v) AS s FROM group_split_full_key_base GROUP BY d, k
+    """
+    waitingMTMVTaskFinishedByMvName("group_split_full_key_mv")
+    sql """ANALYZE TABLE group_split_full_key_base WITH SYNC"""
+    sql """set enable_materialized_view_rewrite = true"""
+    explain {
+        sql("select d, k, sum(v) from group_split_full_key_base "
+                + "where d = '2020-01-01' group by d, k")
+        check { result -> result.contains("UNION") && result.contains("group_split_full_key_mv") }
+    }
+    order_qt_group_split_full_key """SELECT d, k, SUM(v) FROM group_split_full_key_base
+        WHERE d = '2020-01-01' GROUP BY d, k"""
+
     // A view partitioned on the column two tables are joined by tracks one partition dimension through both
     // of them: the refresh follows the join's equality, so it records A.d and B.d both as columns its
     // partition key derives from. Grouping the query by either side reaches that dimension all the same while
