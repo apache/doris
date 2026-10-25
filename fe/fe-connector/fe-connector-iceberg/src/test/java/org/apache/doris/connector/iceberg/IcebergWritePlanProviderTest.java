@@ -101,6 +101,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Pins {@link IcebergWritePlanProvider#planWrite} for INSERT/OVERWRITE against legacy
@@ -559,7 +560,9 @@ public class IcebergWritePlanProviderTest {
     }
 
     @Test
-    public void branchWritePinsBranchHeadSchema() {
+    public void branchWriteUsesTableCurrentSchema() {
+        // A branch only selects the parent snapshot. Iceberg stamps a branch commit with the table-current
+        // schema and Spark binds branch writes to it, so a branch created before a rename writes the new name.
         InMemoryCatalog catalog = freshCatalog();
         Table table = unpartitionedUnsortedTable(catalog);
         table.newAppend().commit();
@@ -569,14 +572,14 @@ public class IcebergWritePlanProviderTest {
         IcebergWriteSchemaContext writeContext = IcebergWriteSchemaContext.create(
                 table, "db1.t2", Optional.of("old_schema"), false, false);
 
-        Assertions.assertNotEquals(table.schema().schemaId(), writeContext.getSchema().schemaId());
-        Assertions.assertNotNull(writeContext.getSchema().findField("name"));
-        Assertions.assertNull(writeContext.getSchema().findField("renamed_name"));
+        Assertions.assertEquals(table.schema().schemaId(), writeContext.getSchema().schemaId());
+        Assertions.assertNotNull(writeContext.getSchema().findField("renamed_name"));
+        Assertions.assertNull(writeContext.getSchema().findField("name"));
         Assertions.assertDoesNotThrow(() -> writeContext.validateCurrentSchema(table, false));
     }
 
     @Test
-    public void planWriteValidatesBoundColumnsAgainstPinnedBranchSchema() {
+    public void planWriteBindsBranchColumnsToTableCurrentSchema() {
         InMemoryCatalog catalog = freshCatalog();
         Table table = unpartitionedUnsortedTable(catalog);
         table.newAppend().commit();
@@ -589,11 +592,13 @@ public class IcebergWritePlanProviderTest {
         List<ConnectorColumn> branchColumns = provider.getWriteColumns(
                 session, tableHandle, Optional.of("old_schema")).orElseThrow(AssertionError::new);
 
+        Assertions.assertEquals(Arrays.asList("id", "renamed_name"),
+                branchColumns.stream().map(ConnectorColumn::getName).collect(Collectors.toList()));
         ConnectorSinkPlan plan = Assertions.assertDoesNotThrow(() -> provider.planWrite(session,
                 new WriteHandle(tableHandle).branch("old_schema").boundTargetColumns(branchColumns)));
 
-        Assertions.assertTrue(plan.getDataSink().getIcebergTableSink().getSchemaJson().contains("name"));
-        Assertions.assertFalse(plan.getDataSink().getIcebergTableSink().getSchemaJson().contains("renamed_name"));
+        Assertions.assertEquals(SchemaParser.toJson(table.schema()),
+                plan.getDataSink().getIcebergTableSink().getSchemaJson());
     }
 
     @Test
@@ -673,7 +678,27 @@ public class IcebergWritePlanProviderTest {
     }
 
     @Test
-    public void branchWriteRejectsCurrentRequiredFieldAbsentWithoutDefault() {
+    public void branchWriteRejectsTagOrMissingRef() {
+        InMemoryCatalog catalog = freshCatalog();
+        Table table = unpartitionedUnsortedTable(catalog);
+        table.newAppend().commit();
+        table.manageSnapshots().createTag("old_tag", table.currentSnapshot().snapshotId()).commit();
+
+        DorisConnectorException tagException = Assertions.assertThrows(DorisConnectorException.class,
+                () -> IcebergWriteSchemaContext.create(table, "db1.t2", Optional.of("old_tag"), false, false));
+        Assertions.assertTrue(tagException.getMessage().contains(
+                "old_tag is a tag, not a branch. Tags cannot be targets for producing snapshots"),
+                tagException.getMessage());
+        DorisConnectorException missingException = Assertions.assertThrows(DorisConnectorException.class,
+                () -> IcebergWriteSchemaContext.create(table, "db1.t2", Optional.of("no_such_ref"), false, false));
+        Assertions.assertTrue(missingException.getMessage().contains("no_such_ref is not founded in db1.t2"),
+                missingException.getMessage());
+    }
+
+    @Test
+    public void branchWriteBindsCurrentRequiredFieldWithoutDefault() {
+        // A required column added on main after the branch is part of the branch write. It has no default, so
+        // omitting it fails at analysis exactly as it does for a write to main.
         InMemoryCatalog catalog = freshCatalog();
         Table table = unpartitionedUnsortedTable(catalog);
         table.newAppend().commit();
@@ -681,47 +706,78 @@ public class IcebergWritePlanProviderTest {
         table.updateSchema().allowIncompatibleChanges()
                 .addRequiredColumn("required_value", Types.IntegerType.get()).commit();
 
-        DorisConnectorException exception = Assertions.assertThrows(DorisConnectorException.class,
-                () -> IcebergWriteSchemaContext.create(
-                        table, "db1.t2", Optional.of("old_schema"), false, false));
+        IcebergWriteSchemaContext writeContext = IcebergWriteSchemaContext.create(
+                table, "db1.t2", Optional.of("old_schema"), false, false);
 
-        Assertions.assertTrue(exception.getMessage().contains("required field required_value"));
-        Assertions.assertTrue(exception.getMessage().contains(
-                "is absent from the pinned branch schema and has no initial default"));
+        ConnectorColumn requiredValue = writeColumn(writeContext, "required_value");
+        Assertions.assertFalse(requiredValue.isNullable());
+        Assertions.assertNull(requiredValue.getDefaultValueSql());
+        Assertions.assertDoesNotThrow(() -> writeContext.validateCurrentSchema(table, false));
     }
 
     @Test
-    public void branchWriteRevalidatesFieldMadeRequiredAfterPlanning() {
+    public void branchWriteUsesTableCurrentWriteDefaults() {
+        InMemoryCatalog catalog = freshCatalog();
+        Table table = formatVersionThreeTable(catalog);
+        table.updateSchema().addColumn("default_int", Types.IntegerType.get(), Literal.of(35)).commit();
+        table.newAppend().commit();
+        table.manageSnapshots().createBranch("old_defaults", table.currentSnapshot().snapshotId()).commit();
+        table.updateSchema().updateColumnDefault("default_int", Literal.of(36))
+                .addRequiredColumn("required_value", Types.IntegerType.get(), Literal.of(7)).commit();
+
+        IcebergWriteSchemaContext writeContext = IcebergWriteSchemaContext.create(
+                table, "db1.tv3", Optional.of("old_defaults"), false, false);
+
+        Assertions.assertEquals("36", writeColumn(writeContext, "default_int").getDefaultValueSql());
+        Assertions.assertEquals("7", writeColumn(writeContext, "required_value").getDefaultValueSql());
+        Assertions.assertDoesNotThrow(() -> writeContext.validateCurrentSchema(table, false));
+    }
+
+    @Test
+    public void branchWriteBindsPartitionSpecToTableCurrentSchema() {
+        // The current spec partitions by a column the branch head schema never had.
+        InMemoryCatalog catalog = freshCatalog();
+        Table table = unpartitionedUnsortedTable(catalog);
+        table.newAppend().commit();
+        table.manageSnapshots().createBranch("old_schema", table.currentSnapshot().snapshotId()).commit();
+        table.updateSchema().addColumn("region", Types.StringType.get()).commit();
+        table.updateSpec().addField("region").commit();
+
+        IcebergWriteSchemaContext writeContext = Assertions.assertDoesNotThrow(() -> IcebergWriteSchemaContext.create(
+                table, "db1.t2", Optional.of("old_schema"), false, false));
+
+        Assertions.assertEquals(table.spec().specId(), writeContext.getPartitionSpec().specId());
+        Assertions.assertEquals(table.schema().findField("region").fieldId(),
+                writeContext.getPartitionSpec().fields().get(0).sourceId());
+    }
+
+    @Test
+    public void branchWriteRejectsTableSchemaChangeBeforeCommit() {
+        // The branch head schema stays the same, but the files were written with the pinned current schema, so
+        // any later change to the table-current schema must fail the commit, as it does for a write to main.
         InMemoryCatalog catalog = freshCatalog();
         Table table = unpartitionedUnsortedTable(catalog);
         table.newAppend().commit();
         table.manageSnapshots().createBranch("old_schema", table.currentSnapshot().snapshotId()).commit();
         IcebergWriteSchemaContext writeContext = IcebergWriteSchemaContext.create(
                 table, "db1.t2", Optional.of("old_schema"), false, false);
-        table.updateSchema().allowIncompatibleChanges().requireColumn("name").commit();
+        int pinnedSchemaId = table.schema().schemaId();
+        table.updateSchema().addColumn("late_value", Types.IntegerType.get()).commit();
 
         DorisConnectorException exception = Assertions.assertThrows(DorisConnectorException.class,
                 () -> writeContext.validateCurrentSchema(table, false));
 
-        Assertions.assertTrue(exception.getMessage().contains("required field name"));
+        Assertions.assertTrue(exception.getMessage().contains("pinned schema " + pinnedSchemaId + "/format"),
+                exception.getMessage());
         Assertions.assertTrue(exception.getMessage().contains(
-                "is optional in the pinned branch schema and can contain explicit nulls"));
+                "current schema " + table.schema().schemaId() + "/format"), exception.getMessage());
     }
 
-    @Test
-    public void branchWriteAllowsCurrentRequiredFieldWithInitialDefault() {
-        InMemoryCatalog catalog = freshCatalog();
-        Table table = formatVersionThreeTable(catalog);
-        table.newAppend().commit();
-        table.manageSnapshots().createBranch("old_schema", table.currentSnapshot().snapshotId()).commit();
-        table.updateSchema().addRequiredColumn(
-                "required_value", Types.IntegerType.get(), Literal.of(7)).commit();
-
-        IcebergWriteSchemaContext writeContext = IcebergWriteSchemaContext.create(
-                table, "db1.tv3", Optional.of("old_schema"), false, false);
-
-        Assertions.assertNull(writeContext.getSchema().findField("required_value"));
-        Assertions.assertDoesNotThrow(() -> writeContext.validateCurrentSchema(table, false));
+    private static ConnectorColumn writeColumn(IcebergWriteSchemaContext writeContext, String name) {
+        return writeContext.getColumns().stream()
+                .filter(column -> column.getName().equals(name))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("missing write column " + name));
     }
 
     @Test
