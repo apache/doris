@@ -1294,9 +1294,11 @@ public class MTMVTask extends AbstractTask {
             Set<String> execPartitionNames = Sets.newHashSet(partitions
                     .subList(start, Math.min(end, partitions.size())));
             // What this batch reads and what it records are the same set, both decided here from the one
-            // mapping the snapshots below are generated from; see MTMVPartitionUtil#mappedBasePartitions.
-            Map<BaseTableInfo, Set<String>> readableBasePartitions = mtmv.isIvm()
-                    ? null : MTMVPartitionUtil.mappedBasePartitions(tableWithPartKey, context, execPartitionNames);
+            // mapping the snapshots below are generated from, and paired per MV partition so that each one
+            // is read from its own record: see MTMVPartitionUtil#mappedBasePartitionsByMvPartition.
+            Map<String, Map<BaseTableInfo, Set<String>>> readableBasePartitionsByMvPartition = mtmv.isIvm()
+                    ? null : MTMVPartitionUtil.mappedBasePartitionsByMvPartition(tableWithPartKey, context,
+                            execPartitionNames);
             // IVM COMPLETE rebuilds partitions through this same loop, and an incremental rebuild of a
             // dirty partition resets it to the base rows the mapping names. Both overwrite what the MV
             // partition holds, so both need the partition to be one the mapping describes: the alignment
@@ -1325,8 +1327,8 @@ public class MTMVTask extends AbstractTask {
                             execPartitionNames);
             try {
                 IvmPlanSignature batchPlanSignature = refreshPartitionsWithRetry(
-                        execPartitionNames, tableWithPartKey, readableBasePartitions, rewriteContext,
-                        refreshMode);
+                        execPartitionNames, tableWithPartKey, readableBasePartitionsByMvPartition,
+                        rewriteContext, refreshMode);
                 if (capturePlanSignature) {
                     batchPlanSignature = Objects.requireNonNull(batchPlanSignature,
                             "IVM COMPLETE refresh did not produce a plan signature");
@@ -1547,11 +1549,12 @@ public class MTMVTask extends AbstractTask {
     }
 
     private IvmPlanSignature refreshPartitionsWithRetry(Set<String> execPartitionNames,
-            Map<TableIf, String> tableWithPartKey, Map<BaseTableInfo, Set<String>> readableBasePartitions,
+            Map<TableIf, String> tableWithPartKey,
+            Map<String, Map<BaseTableInfo, Set<String>>> readableBasePartitionsByMvPartition,
             Optional<IvmRewriteContext> rewriteContext, RefreshMode refreshMode)
             throws Exception {
         return executeWithRetry(() -> refreshPartitions(execPartitionNames, tableWithPartKey,
-                        readableBasePartitions, rewriteContext, refreshMode),
+                        readableBasePartitionsByMvPartition, rewriteContext, refreshMode),
                 "partition refresh, execPartitionNames=" + execPartitionNames);
     }
 
@@ -1607,7 +1610,8 @@ public class MTMVTask extends AbstractTask {
     }
 
     private IvmPlanSignature refreshPartitions(Set<String> refreshPartitionNames,
-            Map<TableIf, String> tableWithPartKey, Map<BaseTableInfo, Set<String>> readableBasePartitions,
+            Map<TableIf, String> tableWithPartKey,
+            Map<String, Map<BaseTableInfo, Set<String>>> readableBasePartitionsByMvPartition,
             Optional<IvmRewriteContext> rewriteContext, RefreshMode refreshMode)
             throws Exception {
         // Create the MTMV context before parsing the MV definition SQL so SET_VAR hints
@@ -1632,7 +1636,7 @@ public class MTMVTask extends AbstractTask {
         UpdateMvByPartitionCommand command = UpdateMvByPartitionCommand
                 .from(mtmv, mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE
                         ? refreshPartitionNames : Sets.newHashSet(), tableWithPartKey, statementContext,
-                        readableBasePartitions);
+                        readableBasePartitionsByMvPartition);
         setupComputeGroup(mtmvCtx);
         AtomicReference<IvmPlanSignature> signatureRef = new AtomicReference<>();
         try {

@@ -225,15 +225,17 @@ public class RefreshMTMVCommand extends Command implements Forward, Explainable 
                             StreamReadMode.RESET)));
                 }
                 // Explained through the base partitions the refresh reads for these MV partitions, from the
-                // same mapping the refresh records them with. The MV partitions' own key ranges are wider
-                // than that read: with a partition_sync_limit window, a base partition it leaves out can lie
-                // inside a retained MV partition, and an explain written from the ranges alone would show the
-                // expired partition as read -- a read the refresh does not make. An IVM MV passes no
+                // same mapping the refresh records them with and paired per MV partition. The MV partitions'
+                // own key ranges are wider than that read: with a partition_sync_limit window, a base
+                // partition it leaves out can lie inside a retained MV partition, and an explain written
+                // from the ranges alone would show the expired partition as read -- a read the refresh does
+                // not make. The pairing is what keeps one MV partition's recorded base partitions from being
+                // read through another's range, which the refresh does not do either. An IVM MV passes no
                 // predicate scope: its rewrite scopes the read through the reset partition ids instead.
                 return UpdateMvByPartitionCommand.from(mtmv, completeRefreshPartitions, tableWithPartKey,
                         statementContext, mtmv.isIvm() ? null
-                                : MTMVPartitionUtil.mappedBasePartitions(tableWithPartKey, refreshContext,
-                                        completeRefreshPartitions));
+                                : MTMVPartitionUtil.mappedBasePartitionsByMvPartition(tableWithPartKey,
+                                        refreshContext, completeRefreshPartitions));
             default:
                 throw new org.apache.doris.nereids.exceptions.AnalysisException(
                         "EXPLAIN REFRESH currently supports COMPLETE and INCREMENTAL only");

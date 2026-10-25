@@ -69,6 +69,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
@@ -109,20 +110,22 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
      * @param partitionNames update partitions in mv and tables
      * @param tableWithPartKey the partitions key for different table
      * @param statementContext statementContext
-     * @param readableBasePartitions the base partitions each base table may be read from, by base table,
-     *                               named with the partition names of the base table. A base table named
-     *                               with an empty set is not read at all; a base table absent from the map,
-     *                               or a null map, keeps the MV partition's own key range. The partitions
-     *                               are looked up on the table at the snapshot pinned in the statement
-     *                               context, which is the one the mapping was built from
+     * @param readableBasePartitionsByMvPartition the base partitions each MV partition may be read from,
+     *                               by MV partition and then by base table, named with the partition names
+     *                               of the base table. A table named with an empty set is not read for that
+     *                               MV partition; a table absent from an MV partition's map, or a null map,
+     *                               keeps that MV partition's own key range. The partitions are looked up
+     *                               on the table at the snapshot pinned in the statement context, which is
+     *                               the one the mapping was built from
      * @return command
      */
     public static UpdateMvByPartitionCommand from(MTMV mv, Set<String> partitionNames,
             Map<TableIf, String> tableWithPartKey, StatementContext statementContext,
-            Map<BaseTableInfo, Set<String>> readableBasePartitions) throws UserException {
+            Map<String, Map<BaseTableInfo, Set<String>>> readableBasePartitionsByMvPartition)
+            throws UserException {
         NereidsParser parser = new NereidsParser();
         Map<TableIf, Set<Expression>> predicates = constructTableWithPredicates(mv, partitionNames,
-                tableWithPartKey, statementContext, readableBasePartitions);
+                tableWithPartKey, statementContext, readableBasePartitionsByMvPartition);
         List<String> parts = constructPartsForMv(partitionNames);
         Plan plan = parser.parseSingle(mv.getQuerySql());
         if (plan instanceof Sink) {
@@ -146,130 +149,193 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
     /**
      * The predicate every base table of the MV definition is read through.
      *
-     * <p>A table the caller scopes is read from exactly the base partitions it named. Those are the ones
-     * the refresh is about to record as this MV partition's, and the read is what has to match the record:
-     * reading the MV partition's own key range instead also reads base partitions no snapshot describes,
-     * and a later silent change to one of them -- dropped, with the base partition set back to what it
-     * was -- leaves the rows it put in this MV partition behind while the partition is still judged
-     * synchronized, so the transparent rewrite serves them and no refresh plans it again.
+     * <p>A table an MV partition scopes is read, for that partition, from exactly the base partitions the
+     * scope names. Those are the ones the refresh is about to record as this MV partition's, and the read is
+     * what has to match the record: reading the MV partition's own key range instead also reads base
+     * partitions no snapshot describes, and a later silent change to one of them -- dropped, with the base
+     * partition set back to what it was -- leaves the rows it put in this MV partition behind while the
+     * partition is still judged synchronized, so the transparent rewrite serves them and no refresh plans it
+     * again.
      *
-     * <p>Every other table keeps the MV partition's own key range, which is what the tables the caller
-     * does not scope were always read through, and a scoped range table keeps it as well: a partition of
-     * a base range table can hold a row past the MV partition it is rolled up into, see below. Scoped
-     * tables are the MV's partition tables, olap or external, and their partitions are resolved from the
-     * snapshot pinned in the statement context -- the same one the mapping was built from, so the read is
-     * pinned to the partitions the batch records even when the connector moves between the two.
+     * <p>Every other table keeps the MV partition's own key range, which is what the tables the caller does
+     * not scope were always read through, and a scoped range table keeps it as well: a partition of a base
+     * range table can hold a row past the MV partition it is rolled up into, see below. Scoped tables are
+     * the MV's partition tables, olap or external, and their partitions are resolved from the snapshot
+     * pinned in the statement context -- the same one the mapping was built from, so the read is pinned to
+     * the partitions the batch records even when the connector moves between the two.
+     *
+     * <p>Each MV partition's scope is paired with that partition alone rather than unioned for the batch.
+     * Unioned, one partition's recorded base partitions are read through another partition's key range -- a
+     * row a base partition holds past its own MV partition can fall in the next one -- and a batch that does
+     * not write that next partition then reads a row it has no target for. Paired, each term below is one MV
+     * partition: its own recorded base partitions, and its own key range where the two have to meet.
      */
     private static Map<TableIf, Set<Expression>> constructTableWithPredicates(MTMV mv,
             Set<String> partitionNames, Map<TableIf, String> tableWithPartKey,
             StatementContext statementContext,
-            Map<BaseTableInfo, Set<String>> readableBasePartitions) throws AnalysisException {
-        Set<PartitionItem> mvItems = Sets.newHashSet();
+            Map<String, Map<BaseTableInfo, Set<String>>> readableBasePartitionsByMvPartition)
+            throws AnalysisException {
+        Map<String, PartitionItem> mvItemByName = Maps.newHashMap();
         for (String partitionName : partitionNames) {
-            mvItems.add(mv.getPartitionItemOrAnalysisException(partitionName));
+            mvItemByName.put(partitionName, mv.getPartitionItemOrAnalysisException(partitionName));
         }
+        Set<PartitionItem> mvItems = Sets.newHashSet(mvItemByName.values());
         ImmutableMap.Builder<TableIf, Set<Expression>> builder = new ImmutableMap.Builder<>();
         for (Map.Entry<TableIf, String> entry : tableWithPartKey.entrySet()) {
             TableIf table = entry.getKey();
             String colName = entry.getValue();
-            Set<String> readable = readableBasePartitions == null ? null
-                    : readableBasePartitions.get(new BaseTableInfo(table));
-            if (readable == null) {
+            BaseTableInfo tableInfo = new BaseTableInfo(table);
+            Map<String, Set<String>> readableByMvPartition = Maps.newHashMap();
+            Set<String> readableNames = Sets.newHashSet();
+            for (String partitionName : partitionNames) {
+                Map<BaseTableInfo, Set<String>> byTable = readableBasePartitionsByMvPartition == null ? null
+                        : readableBasePartitionsByMvPartition.get(partitionName);
+                Set<String> readable = byTable == null ? null : byTable.get(tableInfo);
+                if (readable == null) {
+                    continue;
+                }
+                readableByMvPartition.put(partitionName, readable);
+                readableNames.addAll(readable);
+            }
+            if (readableByMvPartition.isEmpty()) {
                 builder.put(table, constructPredicates(mvItems, colName));
                 continue;
             }
             MTMVRelatedTableIf relatedTable = (MTMVRelatedTableIf) table;
             Optional<MvccSnapshot> snapshot = statementContext.getSnapshot(table);
             List<Column> partitionColumns = relatedTable.getPartitionColumns(snapshot);
-            // Each name is resolved where it lives rather than through a copy of the table's whole partition
-            // map: commands are built once per refresh batch and the default batch is one partition, so a
-            // full copy per batch would visit every partition of the table once per partition refreshed. An
-            // olap table answers the name from its own concurrent map; an external table answers it from the
-            // map of the snapshot pinned for this refresh, which is read-only and needs no copy either.
-            Set<PartitionItem> items = Sets.newHashSet();
-            if (relatedTable instanceof OlapTable) {
-                OlapTable olapTable = (OlapTable) relatedTable;
-                for (String partitionName : readable) {
-                    try {
-                        items.add(olapTable.getPartitionItemOrAnalysisException(partitionName));
-                    } catch (AnalysisException e) {
-                        // The batch records this partition, so the rows it holds are the batch's to write; a
-                        // read that cannot find it would write less than the snapshot claims. Refused rather
-                        // than skipped, like the olap lookup this replaces.
-                        throw new AnalysisException("base partition " + partitionName + " of table "
-                                + table.getName() + " is not in the snapshot this refresh reads", e);
-                    }
+            // Each name is resolved once for the batch, not once per MV partition that records it, and where
+            // it lives rather than through a copy of the table's whole partition map: commands are built once
+            // per refresh batch and the default batch is one partition, so a full copy per batch would visit
+            // every partition of the table once per partition refreshed. An olap table answers the name from
+            // its own concurrent map; an external table answers it from the map of the snapshot pinned for
+            // this refresh, which is read-only and needs no copy either.
+            Map<String, PartitionItem> itemByName = lookupBasePartitionItems(table, relatedTable, snapshot,
+                    readableNames);
+            List<Expression> terms = Lists.newArrayList();
+            for (String partitionName : partitionNames) {
+                PartitionItem mvItem = mvItemByName.get(partitionName);
+                Set<String> readable = readableByMvPartition.get(partitionName);
+                if (readable == null) {
+                    // This MV partition is not scoped, so it keeps its own key range, the read every table
+                    // the caller does not scope has.
+                    terms.add(constructPredicate(mvItem, colName, Optional.empty()));
+                    continue;
                 }
-            } else {
-                Map<String, PartitionItem> itemsByName = ((ExternalTable) relatedTable)
-                        .getNameToPartitionItems(snapshot);
-                for (String partitionName : readable) {
-                    PartitionItem item = itemsByName.get(partitionName);
-                    if (item == null) {
-                        // Refused for the same reason as above: the snapshot this refresh is recorded with
-                        // names a partition it cannot read.
-                        throw new AnalysisException("base partition " + partitionName + " of table "
-                                + table.getName() + " is not in the snapshot this refresh reads");
-                    }
-                    items.add(item);
+                if (readable.isEmpty()) {
+                    // No partition of this table feeds this MV partition, which is "no row" rather than
+                    // "every row": constructPredicates answers the other way for an empty set, and that
+                    // answer would put every row of the table into it.
+                    continue;
                 }
+                Set<PartitionItem> items = Sets.newHashSet();
+                for (String readableName : readable) {
+                    items.add(itemByName.get(readableName));
+                }
+                if (items.stream().anyMatch(PartitionItem::isDefaultPartition)) {
+                    // One of the partitions this MV partition is recorded with is a list partitioned table's
+                    // default partition, which takes the rows no other partition of it claims. Those rows are
+                    // the ones the MV partition's own key range names, wherever the base table put them, and
+                    // a partition of the MV takes them by that key rather than by the partition they were
+                    // placed in. So an MV partition whose mapped partitions include one is read the way an
+                    // unscoped one is: its key range, at the partition column's own type. Which of the rows
+                    // that range reaches sit in an explicit partition and which in the default one is not
+                    // something a predicate on the partition columns can say -- ADD PARTITION claims a key
+                    // without moving the rows a default partition already holds under it -- so this MV
+                    // partition is not scoped at all, and the mapping is kept whole for it for the same
+                    // reason: see MTMVRelatedPartitionDescSyncLimitGenerator, which leaves such a table out
+                    // of the window. The mapping names the default partition in every MV partition that
+                    // reads the table, so this is reached for each of them and not only for the one the
+                    // sentinel key maps to.
+                    terms.add(constructPredicate(mvItem, colName,
+                            Optional.of(partitionColumnType(partitionColumns, colName))));
+                    continue;
+                }
+                if (items.iterator().next() instanceof ListPartitionItem) {
+                    // A key of a list partition is a value the MV partition's own key set was written from,
+                    // so the whole key pinned here is inside the range this batch writes and nothing is
+                    // added to it.
+                    terms.add(ExpressionUtils.or(
+                            constructPredicatesOfBasePartitions(items, partitionColumns, colName)));
+                    continue;
+                }
+                // A partition of a base range table can end past the MV partition it is rolled up into, and
+                // the roll-up keeps such a partition: MTMVPartitionExprDateTrunc takes the last second off the
+                // base's upper bound before truncating it, so a DATETIME(3) partition ending at
+                // 2025-01-01 00:00:00.123 is rolled up into the year 2024. This batch writes the year 2024
+                // partition, and a row of that base partition just past its upper bound --
+                // 2025-01-01 00:00:00.100 -- is then read by a batch that has no partition to put it in: the
+                // sink counts it as filtered and `enable_insert_strict`, on by default, fails the refresh for
+                // it. So the recorded partitions' bounds are read together with this MV partition's own
+                // range -- the term every other table is read through -- and what is read is the rows of the
+                // recorded partitions that this MV partition holds.
+                // The conjunction is per MV partition rather than one for the batch: unioned, the year 2024
+                // term would also read a row of a base partition recorded for 2024 that falls in the year
+                // 2025, a row the year 2025 partition has no base partition for. One term per partition also
+                // keeps the predicate linear in the batch: the MV range is written once for each MV
+                // partition, not once per base partition.
+                // Both sides are written at the base partition column's type. The MV partition's own key
+                // carries only its primitive type, and Type.fromPrimitiveType(DATETIMEV2) is scale 0: an MV
+                // partition whose bounds come from the base partitions -- one partitioned by the base's own
+                // column -- would have its upper bound written as .000, and the rows of the last fraction of
+                // it would be left out of the read. They are rows this batch does write, so they go missing
+                // from the rebuilt partition while the snapshot records it, and nothing reports them.
+                terms.add(ExpressionUtils.and(
+                        ExpressionUtils.or(
+                                constructPredicatesOfBasePartitions(items, partitionColumns, colName)),
+                        constructPredicate(mvItem, colName,
+                                Optional.of(partitionColumnType(partitionColumns, colName)))));
             }
-            if (items.stream().anyMatch(PartitionItem::isDefaultPartition)) {
-                // One of the partitions this MV partition is recorded with is a list partitioned table's
-                // default partition, which takes the rows no other partition of it claims. Those rows are
-                // the ones the MV partition's own key range names, wherever the base table put them, and a
-                // partition of the MV takes them by that key rather than by the partition they were placed
-                // in. So a table whose mapped partitions include one is read the way an unscoped one is:
-                // the MV partition's key range, at the partition column's own type. Which of the rows that
-                // range reaches sit in an explicit partition and which in the default one is not something a
-                // predicate on the partition columns can say -- ADD PARTITION claims a key without moving the
-                // rows a default partition already holds under it -- so this table is not scoped at all, and
-                // the mapping is kept whole for it for the same reason: see
-                // MTMVRelatedPartitionDescSyncLimitGenerator, which leaves such a table out of the window.
-                // The mapping names the default partition in every MV partition that reads the table, so this
-                // is reached for each of them and not only for the one the sentinel key maps to.
-                builder.put(table, constructPredicates(mvItems, colName,
-                        Optional.of(partitionColumnType(partitionColumns, colName))));
-                continue;
-            }
-            if (items.isEmpty()) {
+            if (terms.isEmpty()) {
                 // No partition of this table feeds the MV partitions being refreshed, which is "no row"
-                // rather than "every row": constructPredicates answers the other way for an empty set,
-                // and that answer would put every row of the table into each of them.
+                // rather than "every row"; see above.
                 builder.put(table, Sets.newHashSet(BooleanLiteral.FALSE));
-                continue;
+            } else {
+                builder.put(table, Sets.newHashSet(ExpressionUtils.or(terms)));
             }
-            if (items.iterator().next() instanceof ListPartitionItem) {
-                // A key of a list partition is a value the MV partition's own key set was written from, so
-                // the whole key pinned here is inside the range this batch writes and nothing is added to it.
-                builder.put(table, constructPredicatesOfBasePartitions(items, partitionColumns, colName));
-                continue;
-            }
-            // A partition of a base range table can end past the MV partition it is rolled up into, and the
-            // roll-up keeps such a partition: MTMVPartitionExprDateTrunc takes the last second off the base's
-            // upper bound before truncating it, so a DATETIME(3) partition ending at 2025-01-01 00:00:00.123
-            // is rolled up into the year 2024. This batch writes the year 2024 partition alone, and a row of
-            // that partition just past its upper bound -- 2025-01-01 00:00:00.100 -- is then read by a batch
-            // that has no partition to put it in: the sink counts it as filtered and `enable_insert_strict`,
-            // on by default, fails the refresh for it. So the mapped partitions' bounds are read together
-            // with the MV partitions' own ranges -- the term every other table is read through -- and what is
-            // read is the rows of the recorded partitions that these MV partitions hold.
-            // The two sides are one disjunction each rather than one conjunction per base partition, so that
-            // the MV side is written once: this predicate is injected before the plan is bound, and an
-            // analyzer rebinds each disjunct, so a batch of N partitions would otherwise rewrite the same
-            // MV range N times, giving a predicate of size O(N^2) to build for the same read.
-            // Both sides are written at the base partition column's type. The MV partition's own key carries
-            // only its primitive type, and Type.fromPrimitiveType(DATETIMEV2) is scale 0: an MV partition
-            // whose bounds come from the base partitions -- one partitioned by the base's own column -- would
-            // have its upper bound written as .000, and the rows of the last fraction of it would be left
-            // out of the read. They are rows this batch does write, so they go missing from the rebuilt
-            // partition while the snapshot records it, and nothing reports them.
-            builder.put(table, Sets.newHashSet(ExpressionUtils.and(
-                    ExpressionUtils.or(constructPredicatesOfBasePartitions(items, partitionColumns, colName)),
-                    ExpressionUtils.or(constructPredicates(mvItems, colName,
-                            Optional.of(partitionColumnType(partitionColumns, colName)))))));
         }
         return builder.build();
+    }
+
+    /**
+     * The items of the named partitions, resolved where they live.
+     *
+     * <p>A name the snapshot does not hold is refused rather than skipped: the batch records this partition,
+     * so the rows it holds are the batch's to write, and a read that cannot find it would write less than the
+     * snapshot claims.
+     */
+    private static Map<String, PartitionItem> lookupBasePartitionItems(TableIf table,
+            MTMVRelatedTableIf relatedTable, Optional<MvccSnapshot> snapshot, Set<String> partitionNames)
+            throws AnalysisException {
+        Map<String, PartitionItem> itemByName = Maps.newHashMap();
+        if (relatedTable instanceof OlapTable) {
+            OlapTable olapTable = (OlapTable) relatedTable;
+            for (String partitionName : partitionNames) {
+                try {
+                    itemByName.put(partitionName, olapTable.getPartitionItemOrAnalysisException(partitionName));
+                } catch (AnalysisException e) {
+                    throw new AnalysisException("base partition " + partitionName + " of table "
+                            + table.getName() + " is not in the snapshot this refresh reads", e);
+                }
+            }
+        } else {
+            Map<String, PartitionItem> itemsByName = ((ExternalTable) relatedTable)
+                    .getNameToPartitionItems(snapshot);
+            for (String partitionName : partitionNames) {
+                PartitionItem item = itemsByName.get(partitionName);
+                if (item == null) {
+                    throw new AnalysisException("base partition " + partitionName + " of table "
+                            + table.getName() + " is not in the snapshot this refresh reads");
+                }
+                itemByName.put(partitionName, item);
+            }
+        }
+        return itemByName;
+    }
+
+    /** The predicate one partition item is read through, which is the single term it answers with. */
+    private static Expression constructPredicate(PartitionItem item, String colName, Optional<Type> columnType) {
+        return constructPredicates(Sets.newHashSet(item), colName, columnType).iterator().next();
     }
 
     /**

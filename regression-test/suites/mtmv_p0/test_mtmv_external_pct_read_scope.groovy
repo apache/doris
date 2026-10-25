@@ -17,7 +17,8 @@
 
 suite("test_mtmv_external_pct_read_scope", "p0,external,mtmv,external_docker,external_docker_doris") {
     // A refresh reads each table the MV is partitioned on -- olap or external -- from exactly the base
-    // partitions its snapshot records for the MV partition (MTMVPartitionUtil#mappedBasePartitions). The sync
+    // partitions its snapshot records for the MV partition, see
+    // MTMVPartitionUtil#mappedBasePartitionsByMvPartition. The sync
     // window can drop an external table's partition from that mapping while an olap partition it meets is
     // kept whole, so the MV partition's own keys still name a value only the external table was windowed out
     // of. Reading such a table through the MV partition's key range instead reads the windowed-out

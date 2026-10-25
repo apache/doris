@@ -44,6 +44,7 @@ import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
+import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -159,6 +160,24 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
                 + "distributed by random buckets 1\n"
                 + "properties('replication_num' = '1')\n"
                 + "as select k1, sum(value) as total from test.pct_ms_direct_base group by k1;");
+        // Two MV partitions that a COMPLETE explain refreshes as one batch, each recorded with one base
+        // partition, and the January one ending past its own MV partition: the last 123 milliseconds of
+        // February it holds belong to no MV partition at all.
+        createTable("create table test.pair_base (\n"
+                + "  k1 datetime(3),\n"
+                + "  value int\n"
+                + ") duplicate key(k1)\n"
+                + "partition by range(k1) (\n"
+                + "  partition p_jan values [('2024-01-01 00:00:00.123'), ('2024-02-01 00:00:00.123')),\n"
+                + "  partition p_feb values [('2024-02-05 00:00:00.000'), ('2024-03-01 00:00:00.000'))\n"
+                + ")\ndistributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1');");
+        createMvByNereids("create materialized view test.pair_mv\n"
+                + "build immediate refresh complete on manual\n"
+                + "partition by (date_trunc(k1,'month'))\n"
+                + "distributed by random buckets 1\n"
+                + "properties('replication_num' = '1')\n"
+                + "as select k1, sum(value) as total from test.pair_base group by k1;");
         createTable("create table test.compensate_base (\n"
                 + "  d date,\n"
                 + "  region varchar(10),\n"
@@ -519,6 +538,65 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
     }
 
     @Test
+    void testEachMvPartitionIsReadFromItsOwnRecordedBasePartitions() throws Exception {
+        // The January base partition ends at 2024-02-01 00:00:00.123, which still rolls up into January --
+        // the truncation takes the last second off the bound first -- so a row it holds at
+        // 2024-02-01 00:00:00.100 falls inside the February MV partition's range while coming from a
+        // partition recorded for January alone. Unioned for the batch, the read takes it through February's
+        // range, and a batch that writes January alone reads a row it has no destination for. Paired, each
+        // MV partition's read is its own recorded partition within its own range, and the row is read by
+        // neither term.
+        MTMV mtmv = getMtmv("pair_mv");
+        OlapTable base = getOlapTable("pair_base");
+        String janPartition = null;
+        String febPartition = null;
+        for (String partitionName : mtmv.getPartitionNames()) {
+            String lower = ((RangePartitionItem) mtmv.getPartitionItemOrAnalysisException(partitionName))
+                    .getItems().lowerEndpoint().toSql();
+            if (lower.contains("2024-01-01")) {
+                janPartition = partitionName;
+            } else if (lower.contains("2024-02-01")) {
+                febPartition = partitionName;
+            }
+        }
+        Assertions.assertNotNull(janPartition);
+        Assertions.assertNotNull(febPartition);
+        StatementContext statementContext = createStatementCtx("refresh materialized view test.pair_mv");
+        UpdateMvByPartitionCommand.from(mtmv, Sets.newHashSet(janPartition, febPartition),
+                ImmutableMap.of(base, "k1"), statementContext, ImmutableMap.of(
+                        janPartition, ImmutableMap.of(new BaseTableInfo(base), Sets.newHashSet("p_jan")),
+                        febPartition, ImmutableMap.of(new BaseTableInfo(base), Sets.newHashSet("p_feb"))));
+        Map<TableIf, Set<Expression>> predicates = statementContext.getMvRefreshPredicates().get();
+        Assertions.assertEquals(1, predicates.size());
+        Set<Expression> scoped = predicates.values().iterator().next();
+        Assertions.assertEquals(1, scoped.size());
+        Expression predicate = scoped.iterator().next();
+        Assertions.assertInstanceOf(Or.class, predicate, predicate.toSql());
+        // One conjunction per MV partition, not one for the batch.
+        Assertions.assertEquals(2, predicate.children().size(), predicate.toSql());
+        String janTerm = null;
+        String febTerm = null;
+        for (Expression term : predicate.children()) {
+            String termSql = term.toSql();
+            if (termSql.contains("2024-02-01 00:00:00.123")) {
+                janTerm = termSql;
+            } else if (termSql.contains("2024-02-05")) {
+                febTerm = termSql;
+            }
+        }
+        Assertions.assertNotNull(janTerm);
+        Assertions.assertNotNull(febTerm);
+        // January's read is its own partition's bounds together with January's own range: the 123
+        // milliseconds of February that partition holds are outside the range and stay unread.
+        Assertions.assertTrue(janTerm.contains("2024-01-01 00:00:00.123"), janTerm);
+        Assertions.assertTrue(janTerm.contains("k1 < '2024-02-01 00:00:00.000'"), janTerm);
+        Assertions.assertFalse(janTerm.contains("2024-02-05"), janTerm);
+        // February's read never reaches the January partition that holds the row past its bound.
+        Assertions.assertTrue(febTerm.contains("2024-03-01"), febTerm);
+        Assertions.assertFalse(febTerm.contains("2024-02-01 00:00:00.123"), febTerm);
+    }
+
+    @Test
     void testACompensationFilterIsWrittenWithTheRelationSlots() throws Exception {
         // The compensation adds its filter to a plan that is already bound and that nothing binds again, so a
         // whole-key predicate has to be written against the slots the relation itself reads. Built from unbound
@@ -615,7 +693,8 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
         String mvPartitionName = mtmv.getPartitionNames().iterator().next();
         StatementContext statementContext = createStatementCtx("refresh materialized view test.pct_mv");
         UpdateMvByPartitionCommand.from(mtmv, Sets.newHashSet(mvPartitionName), ImmutableMap.of(base, "k1"),
-                statementContext, ImmutableMap.of(new BaseTableInfo(base), readableBasePartitions));
+                statementContext, ImmutableMap.of(mvPartitionName,
+                        ImmutableMap.of(new BaseTableInfo(base), readableBasePartitions)));
         return statementContext.getMvRefreshPredicates().get();
     }
 
@@ -626,7 +705,8 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
         String mvPartitionName = mtmv.getPartitionNames().iterator().next();
         StatementContext statementContext = createStatementCtx("refresh materialized view test.pct_ms_direct_mv");
         UpdateMvByPartitionCommand.from(mtmv, Sets.newHashSet(mvPartitionName), ImmutableMap.of(base, "k1"),
-                statementContext, ImmutableMap.of(new BaseTableInfo(base), readableBasePartitions));
+                statementContext, ImmutableMap.of(mvPartitionName,
+                        ImmutableMap.of(new BaseTableInfo(base), readableBasePartitions)));
         return statementContext.getMvRefreshPredicates().get();
     }
 
@@ -637,7 +717,8 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
         String mvPartitionName = mtmv.getPartitionNames().iterator().next();
         StatementContext statementContext = createStatementCtx("refresh materialized view test.pct_ms_mv");
         UpdateMvByPartitionCommand.from(mtmv, Sets.newHashSet(mvPartitionName), ImmutableMap.of(base, "k1"),
-                statementContext, ImmutableMap.of(new BaseTableInfo(base), readableBasePartitions));
+                statementContext, ImmutableMap.of(mvPartitionName,
+                        ImmutableMap.of(new BaseTableInfo(base), readableBasePartitions)));
         return statementContext.getMvRefreshPredicates().get();
     }
 

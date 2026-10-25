@@ -877,6 +877,16 @@ suite("test_mtmv_base_partition_read_scope") {
     waitingMTMVTaskFinishedByMvName("range_spill_mv")
     // The refresh rolls p_prev up to January and clips its February fraction: the row is in no MV partition.
     order_qt_range_spill_mv_tail "SELECT COUNT(*) FROM range_spill_mv WHERE ts = '2024-02-01 00:00:00.100'"
+    // A COMPLETE preview covers every MV partition in one plan, and each of them is read from its own
+    // recorded base partition: January's read stops where January's partition does, at 2024-02-01
+    // 00:00:00.000, so the 123 milliseconds of February that p_prev holds are admitted by no term. Read as
+    // one union for the batch instead, the base side would keep p_prev's own bound -- .123 -- and the row
+    // would be admitted through February's range although no base partition recorded for February holds it.
+    explain {
+        sql "REFRESH MATERIALIZED VIEW range_spill_mv COMPLETE"
+        contains "(ts < '2024-02-01 00:00:00.000')"
+        notContains "2024-02-01 00:00:00.123"
+    }
     // Written after the refresh, so p_prev is the stale partition the compensation re-reads.
     sql """INSERT INTO range_spill_base VALUES ("2024-01-20 00:00:00.000", 5)"""
     sql """ANALYZE TABLE range_spill_base WITH SYNC"""
@@ -888,4 +898,18 @@ suite("test_mtmv_base_partition_read_scope") {
     }
     order_qt_range_spill """SELECT date_trunc(ts, 'month') AS m, SUM(amount) FROM range_spill_base
         WHERE ts >= '2024-02-01' AND ts < '2024-03-01' GROUP BY date_trunc(ts, 'month')"""
+    // The same two partitions as one execution batch: a batch that writes February has a partition to put the
+    // row in, so before the scopes were paired the row was not filtered but materialized there -- in a
+    // partition whose record names p_kept alone, which holds nothing at that instant and would never be
+    // compared against a later change of the row.
+    sql """drop materialized view if exists range_spill_batch_mv"""
+    sql """
+        CREATE MATERIALIZED VIEW range_spill_batch_mv
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL PARTITION BY (date_trunc(ts, 'month'))
+        DISTRIBUTED BY HASH(ts) BUCKETS 1 PROPERTIES ("replication_num" = "1",
+            "refresh_partition_num" = "2")
+        AS SELECT ts, SUM(amount) AS total FROM range_spill_base GROUP BY ts
+    """
+    waitingMTMVTaskFinishedByMvName("range_spill_batch_mv")
+    order_qt_range_spill_batch_mv_tail "SELECT COUNT(*) FROM range_spill_batch_mv WHERE ts = '2024-02-01 00:00:00.100'"
 }

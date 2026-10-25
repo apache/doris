@@ -110,3 +110,6 @@ p_20200101_20380101	false
 -- !range_spill --
 2024-02-01T00:00	1001
 
+-- !range_spill_batch_mv_tail --
+0
+

@@ -430,15 +430,25 @@ public class MTMVPartitionUtil {
     }
 
     /**
-     * The base partitions each table is read from for these MV partitions, by base table: the ones the MV
-     * partitions are recorded with, which is the same set the refresh reads and the same one a rebuild of
-     * them has to read again. A table named with an empty set is not read at all, and a table absent from
-     * the map keeps the MV partitions' own key ranges.
+     * The base partitions each MV partition is read from, by MV partition and then by base table: the ones
+     * that MV partition is recorded with, which is the same set the refresh reads and the same one a rebuild
+     * of it has to read again. A table named with an empty set is not read for that MV partition, and a
+     * table absent from an MV partition's map keeps that MV partition's own key range.
      *
-     * <p>Every table the MV is partitioned on is named, olap or external: a table the mapping does not name
-     * for these MV partitions feeds them nothing -- the sync window dropped its partitions, say -- and its
-     * MV key range reads rows the snapshot records no partition for. The empty set says that outright,
-     * which is what separates it from a table that is not one of the MV partition column's sources at all.
+     * <p>Kept per MV partition rather than unioned for the batch: a batch writes the rows of each MV
+     * partition, and those are the rows of that partition's own recorded base partitions. A base partition
+     * of a range table can end past the MV partition it is rolled up into, see
+     * UpdateMvByPartitionCommand#constructTableWithPredicates, so a row of it can lie inside another MV
+     * partition's key range. Unioned, the batch reads that row through the other partition's range although
+     * the partition it comes from is not the one recorded there, and a batch that does not write that
+     * partition reads a row it has no target for. Paired, each MV partition is read from exactly its own
+     * record, which is what the snapshot written next to the read claims.
+     *
+     * <p>Every table the MV is partitioned on is named for each MV partition, olap or external: a table the
+     * mapping does not name for an MV partition feeds it nothing -- the sync window dropped its partitions,
+     * say -- and its MV key range reads rows the snapshot records no partition for. The empty set says that
+     * outright, which is what separates it from a table that is not one of the MV partition column's
+     * sources at all.
      *
      * <p>An MV partition no base partition describes keeps the MV key ranges for the whole batch instead:
      * nothing is recorded for it, so there is no scope its read could match, and the rows it holds are
@@ -448,8 +458,8 @@ public class MTMVPartitionUtil {
      * by the tables the MV's partition info holds and this reads them by the name it is given, so what
      * identifies a table here is the table it names, not which of the two objects it was read from.
      */
-    public static Map<BaseTableInfo, Set<String>> mappedBasePartitions(Map<TableIf, String> tableWithPartKey,
-            MTMVRefreshContext context, Set<String> mvPartitionNames) {
+    public static Map<String, Map<BaseTableInfo, Set<String>>> mappedBasePartitionsByMvPartition(
+            Map<TableIf, String> tableWithPartKey, MTMVRefreshContext context, Set<String> mvPartitionNames) {
         for (String mvPartitionName : mvPartitionNames) {
             if (context.getUndescribedMvPartitions().contains(mvPartitionName)) {
                 // An MV partition no base partition describes has nothing to scope the read to: the mapping
@@ -464,18 +474,20 @@ public class MTMVPartitionUtil {
                 return Maps.newHashMap();
             }
         }
-        Map<BaseTableInfo, Set<String>> res = Maps.newHashMap();
-        for (TableIf table : tableWithPartKey.keySet()) {
-            res.put(new BaseTableInfo(table), Sets.newHashSet());
-        }
+        Map<String, Map<BaseTableInfo, Set<String>>> res = Maps.newHashMap();
         for (String mvPartitionName : mvPartitionNames) {
+            Map<BaseTableInfo, Set<String>> byTable = Maps.newHashMap();
+            for (TableIf table : tableWithPartKey.keySet()) {
+                byTable.put(new BaseTableInfo(table), Sets.newHashSet());
+            }
             for (Entry<MTMVRelatedTableIf, Set<String>> entry
                     : context.getByPartitionName(mvPartitionName).entrySet()) {
-                Set<String> readable = res.get(new BaseTableInfo(entry.getKey()));
+                Set<String> readable = byTable.get(new BaseTableInfo(entry.getKey()));
                 if (readable != null) {
                     readable.addAll(entry.getValue());
                 }
             }
+            res.put(mvPartitionName, byTable);
         }
         return res;
     }
