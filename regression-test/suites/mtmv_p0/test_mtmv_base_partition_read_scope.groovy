@@ -809,6 +809,11 @@ suite("test_mtmv_base_partition_read_scope") {
         DISTRIBUTED BY HASH(d) BUCKETS 1 PROPERTIES ("replication_num" = "1")
     """
     sql """INSERT INTO pct_month_base VALUES ("${lastMonth}", 1), ("${thisMonth}", 10)"""
+    // The kept month is filled before the refresh, so that once the other month is written to after it the
+    // view's branch is the cheaper side and the union is chosen rather than dropped by the cost model on a
+    // table whose every month is one row.
+    sql """INSERT INTO pct_month_base
+        SELECT CAST("${lastMonth}" AS DATE), 0 FROM numbers("number" = "10000")"""
     sql """
         CREATE MATERIALIZED VIEW pct_month_mv
         BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL PARTITION BY (date_trunc(d, 'month'))
