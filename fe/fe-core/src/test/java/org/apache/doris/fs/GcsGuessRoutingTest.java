@@ -22,10 +22,18 @@ import org.apache.doris.datasource.storage.CloudObjectStoreAdapter;
 import org.apache.doris.datasource.storage.ObjectStorageCredentialAdapter;
 import org.apache.doris.datasource.storage.S3ThriftAdapter;
 import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.gcs.GcsFileSystemProperties;
+import org.apache.doris.filesystem.gcs.GcsFileSystemProvider;
+import org.apache.doris.filesystem.minio.MinioFileSystemProperties;
+import org.apache.doris.filesystem.minio.MinioFileSystemProvider;
+import org.apache.doris.filesystem.s3.S3FileSystemProperties;
+import org.apache.doris.filesystem.s3.S3FileSystemProvider;
 import org.apache.doris.thrift.TS3StorageParam;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.HashMap;
 import java.util.List;
@@ -33,6 +41,9 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 public class GcsGuessRoutingTest {
+    private static final FileSystem GCS_FILESYSTEM = Mockito.mock(FileSystem.class);
+    private static final FileSystem S3_FILESYSTEM = Mockito.mock(FileSystem.class);
+    private static final FileSystem MINIO_FILESYSTEM = Mockito.mock(FileSystem.class);
     private static final String[] ENDPOINTS = {
             "https://storage.googleapis.com", "https://storage.googleapis.com:443",
             "https://storage.googleapis.com/", "storage.googleapis.com:443/",
@@ -144,16 +155,106 @@ public class GcsGuessRoutingTest {
     @Test
     public void testNativeCredentialsCannotBeIgnoredByS3Selection() {
         for (Map<String, String> selection : List.of(Map.of("provider", "S3"),
-                Map.of("fs.s3.support", "true"))) {
-            Map<String, String> props = new HashMap<>(selection);
-            props.put("gs.credential_provider_type", "DEFAULT");
-            props.put("s3.region", "us-east-1");
-            Assertions.assertThrows(IllegalArgumentException.class, () -> StorageAdapter.of(props));
-            Assertions.assertThrows(IllegalArgumentException.class, () -> StorageAdapter.ofAll(props));
+                Map.of("fs.s3.support", "true"), Map.of("fs.minio.support", "true"))) {
+            for (String key : new String[] {"gs.credential_provider_type", "gs.impersonation_service_account",
+                    "GS.CREDENTIAL_PROVIDER_TYPE", "GS.IMPERSONATION_SERVICE_ACCOUNT"}) {
+                Map<String, String> props = properties("https://storage.googleapis.com");
+                props.putAll(selection);
+                // Even an explicit empty native key must not disappear into AWS/HMAC binding.
+                props.put(key, "");
+                assertNativeCredentialRejected(() -> StorageAdapter.of(props));
+                assertNativeCredentialRejected(() -> StorageAdapter.ofAll(props));
+                for (boolean gcsFirst : new boolean[] {false, true}) {
+                    FileSystemPluginManager manager = objectStorageManager(gcsFirst);
+                    assertNativeCredentialRejected(() -> manager.createFileSystem(props));
+                }
+                assertNativeCredentialRejected(() -> StorageAdapter.ofProvider("S3", props));
+                assertNativeCredentialRejected(() -> StorageAdapter.ofProvider("MINIO", props));
+            }
         }
-        Assertions.assertThrows(IllegalArgumentException.class,
-                () -> StorageAdapter.ofProvider("S3", Map.of("s3.region", "us-east-1",
-                        "gs.credential_provider_type", "DEFAULT")));
+    }
+
+    @Test
+    public void testDirectCreationSelectsGcsRegardlessOfRegistrationOrder() throws Exception {
+        for (boolean gcsFirst : new boolean[] {false, true}) {
+            FileSystemPluginManager manager = objectStorageManager(gcsFirst);
+            for (String endpoint : ENDPOINTS) {
+                Map<String, String> props = properties(endpoint);
+                Assertions.assertSame(GCS_FILESYSTEM, manager.createFileSystem(props));
+                props.put("s3.access_key", "ak");
+                props.put("s3.secret_key", "sk");
+                Assertions.assertSame(GCS_FILESYSTEM, manager.createFileSystem(props));
+                props.put("provider", "S3");
+                Assertions.assertSame(S3_FILESYSTEM, manager.createFileSystem(props));
+            }
+            for (Map.Entry<String, String> hint : Map.of("provider", "GCP",
+                    "gs.credential_provider_type", "DEFAULT",
+                    "gs.impersonation_service_account", "",
+                    "warehouse", "gs://bucket/warehouse").entrySet()) {
+                Map<String, String> props = new HashMap<>(Map.of("s3.region", "us-east1",
+                        "_STORAGE_TYPE_", "S3", "minio.endpoint", "http://localhost:9000"));
+                props.put(hint.getKey(), hint.getValue());
+                Assertions.assertSame(GCS_FILESYSTEM, manager.createFileSystem(props));
+                Assertions.assertEquals("GCS", manager.bindPrimary(props).providerName());
+                Assertions.assertEquals(1, manager.bindAll(props).size());
+            }
+        }
+    }
+
+    @Test
+    public void testS3RejectsNativeCredentialsWithoutGcsPlugin() {
+        FileSystemPluginManager manager = new FileSystemPluginManager();
+        objectStorageManager(false).getProviders().stream()
+                .filter(provider -> "S3".equals(provider.name())).forEach(manager::registerProvider);
+        Map<String, String> props = properties("https://storage.googleapis.com");
+        props.put("fs.s3.support", "true");
+        props.put("gs.credential_provider_type", "DEFAULT");
+        assertNativeCredentialRejected(() -> manager.bindPrimary(props));
+        assertNativeCredentialRejected(() -> manager.bindAll(props));
+        assertNativeCredentialRejected(() -> manager.createFileSystem(props));
+    }
+
+    @Test
+    public void testExplicitBindingsKeepExistingMultiProviderSemantics() {
+        FileSystemPluginManager manager = objectStorageManager(false);
+        Map<String, String> props = properties("https://storage.googleapis.com");
+        props.put("fs.gcs.support", "true");
+        props.put("fs.s3.support", "true");
+        props.put("s3.access_key", "ak");
+        props.put("s3.secret_key", "sk");
+        Assertions.assertEquals("S3", manager.bindPrimary(props).providerName());
+        Assertions.assertEquals(List.of("S3", "GCS"), manager.bindAll(props).stream()
+                .map(binding -> binding.providerName()).collect(Collectors.toList()));
+    }
+
+    private static void assertNativeCredentialRejected(org.junit.jupiter.api.function.Executable action) {
+        IllegalArgumentException failure = Assertions.assertThrows(IllegalArgumentException.class, action);
+        Assertions.assertTrue(failure.getMessage().contains("Native GCP authentication"), failure.getMessage());
+    }
+
+    private static FileSystemPluginManager objectStorageManager(boolean gcsFirst) {
+        GcsFileSystemProvider gcs = Mockito.spy(new GcsFileSystemProvider());
+        S3FileSystemProvider s3 = Mockito.spy(new S3FileSystemProvider());
+        MinioFileSystemProvider minio = Mockito.spy(new MinioFileSystemProvider());
+        // Keep real selection and binding; only replace client construction to avoid I/O.
+        try {
+            Mockito.doReturn(GCS_FILESYSTEM).when(gcs).create(Mockito.any(GcsFileSystemProperties.class));
+            Mockito.doReturn(S3_FILESYSTEM).when(s3).create(Mockito.any(S3FileSystemProperties.class));
+            Mockito.doReturn(MINIO_FILESYSTEM).when(minio).create(Mockito.any(MinioFileSystemProperties.class));
+        } catch (java.io.IOException e) {
+            throw new AssertionError(e);
+        }
+        FileSystemPluginManager manager = new FileSystemPluginManager();
+        if (gcsFirst) {
+            manager.registerProvider(minio);
+            manager.registerProvider(s3);
+            manager.registerProvider(gcs);
+        } else {
+            manager.registerProvider(gcs);
+            manager.registerProvider(s3);
+            manager.registerProvider(minio);
+        }
+        return manager;
     }
 
     @Test

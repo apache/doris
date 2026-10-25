@@ -226,9 +226,6 @@ public final class StorageAdapter {
      */
     public static StorageAdapter ofProvider(String providerName, Map<String, String> origProps) {
         Map<String, String> props = origProps == null ? new HashMap<>() : origProps;
-        Map<String, String> selection = new HashMap<>(props);
-        selection.put("provider", providerName);
-        manager().validateProperties(selection);
         for (FileSystemProvider<?> provider : manager().getProviders()) {
             if (provider.name().equalsIgnoreCase(providerName)) {
                 return new StorageAdapter(provider.bind(withHadoopConfigDir(props)), props);

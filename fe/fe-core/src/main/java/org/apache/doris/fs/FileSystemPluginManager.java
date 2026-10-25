@@ -45,7 +45,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.ServiceLoader;
 import java.util.Set;
-import java.util.TreeSet;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
@@ -55,8 +54,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * 1. ServiceLoader scan (classpath-based built-ins / test overrides)
  * 2. DirectoryPluginRuntimeManager scan (production plugin directories)
  *
- * <p>The first supporting provider is used unless a matching provider supersedes its declared
- * heuristic fallbacks. Classpath providers have higher priority than directory-loaded providers.
+ * <p>The first provider that returns {@code supports(props) == true} is used.
+ * Classpath providers have higher priority than directory-loaded providers.
  */
 public class FileSystemPluginManager {
 
@@ -201,16 +200,8 @@ public class FileSystemPluginManager {
      * @throws IOException if no provider supports the properties, or creation fails
      */
     public FileSystem createFileSystem(Map<String, String> properties) throws IOException {
-        validateProperties(properties);
-        Set<String> fallbacks = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-        for (FileSystemProvider<?> provider : providers) {
-            if (!provider.fallbackProviders().isEmpty() && provider.supports(properties)) {
-                fallbacks.addAll(provider.fallbackProviders());
-            }
-        }
         for (FileSystemProvider provider : providers) {
-            if ((!fallbacks.contains(provider.name()) || provider.supportsExplicit(properties))
-                    && provider.supports(properties)) {
+            if (provider.supports(properties)) {
                 return provider.create(properties);
             }
         }
@@ -237,61 +228,32 @@ public class FileSystemPluginManager {
 
     private static final String DEPRECATED_OSS_HDFS_SUPPORT = "oss.hdfs.enabled";
 
-    /** Validate plugin-owned keys even if routing would otherwise ignore them. */
-    public void validateProperties(Map<String, String> properties) {
-        for (FileSystemProvider<?> provider : providers) {
-            provider.validateProperties(properties);
-        }
-    }
-
-    private Set<String> fallbackProviders(Map<String, String> properties, Map<String, String> probeView,
-            boolean useGuess) {
-        Set<String> fallbacks = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-        for (FileSystemProvider<?> provider : providers) {
-            if (!provider.fallbackProviders().isEmpty()
-                    && (provider.supportsExplicit(properties) || (useGuess && provider.supportsGuess(probeView)))) {
-                fallbacks.addAll(provider.fallbackProviders());
-            }
-        }
-        return fallbacks;
-    }
-
-    private static boolean matches(FileSystemProvider<?> provider, Map<String, String> properties,
-            Map<String, String> probeView, boolean useGuess, Set<String> fallbacks) {
-        return provider.supportsExplicit(properties)
-                || (useGuess && !fallbacks.contains(provider.name()) && provider.supportsGuess(probeView));
-    }
-
     /**
      * Binds the first matching provider for raw user properties, mirroring
      * {@code StorageProperties.createPrimary}: fixed priority, explicit {@code fs.<x>.support}
-     * flags first-class, heuristic guesses disabled by an explicit flag,
-     * matched plugins superseding their declared heuristic fallbacks,
+     * flags first-class, heuristic guesses globally disabled once any explicit flag is present,
      * and no default fallback — throws when nothing matches.
      */
     public FileSystemProperties bindPrimary(Map<String, String> properties) {
-        validateProperties(properties);
         boolean useGuess = !hasAnyExplicitFsSupport(properties);
         Map<String, String> probeView = withProbeContext(properties);
-        Set<String> fallbacks = fallbackProviders(properties, probeView, useGuess);
         for (StorageRegistry.Provider meta : StorageRegistry.Provider.values()) {
             FileSystemProvider provider = providerByName(meta.name());
             if (provider == null) {
                 continue;
             }
-            if (matches(provider, properties, probeView, useGuess, fallbacks)) {
+            if (provider.supportsExplicit(properties) || (useGuess && provider.supportsGuess(probeView))) {
                 return provider.bind(properties);
             }
         }
         // Providers not in the StorageRegistry.Provider table (out-of-tree plugins) are consulted
         // after every known provider, in registration order — adding a plugin needs no fe-core
-        // priority-list change. A matched plugin can supersede its declared fallback providers.
+        // priority-list change and can never preempt the built-in set.
         for (FileSystemProvider provider : providers) {
             if (StorageRegistry.Provider.byName(provider.name()).isPresent()) {
                 continue;
             }
-            FileSystemProperties bound = tryBindUnlisted(provider, properties,
-                    useGuess && !fallbacks.contains(provider.name()), probeView);
+            FileSystemProperties bound = tryBindUnlisted(provider, properties, useGuess, probeView);
             if (bound != null) {
                 return bound;
             }
@@ -308,10 +270,8 @@ public class FileSystemPluginManager {
      * default HDFS binding is inserted at index 0 (fe-core's default-HDFS fallback).
      */
     public List<FileSystemProperties> bindAll(Map<String, String> properties) {
-        validateProperties(properties);
         boolean useGuess = !hasAnyExplicitFsSupport(properties);
         Map<String, String> probeView = withProbeContext(properties);
-        Set<String> fallbacks = fallbackProviders(properties, probeView, useGuess);
         List<FileSystemProperties> result = new ArrayList<>();
         boolean ossHdfsMatched = false;
         boolean hdfsFamilyMatched = false;
@@ -331,7 +291,7 @@ public class FileSystemPluginManager {
             if (meta == StorageRegistry.Provider.HDFS && hdfsFamilyMatched) {
                 continue;
             }
-            if (matches(provider, properties, probeView, useGuess, fallbacks)) {
+            if (provider.supportsExplicit(properties) || (useGuess && provider.supportsGuess(probeView))) {
                 result.add(provider.bind(properties));
                 if (meta == StorageRegistry.Provider.OSS_HDFS) {
                     ossHdfsMatched = true;
@@ -350,8 +310,7 @@ public class FileSystemPluginManager {
             if (StorageRegistry.Provider.byName(provider.name()).isPresent()) {
                 continue;
             }
-            FileSystemProperties bound = tryBindUnlisted(provider, properties,
-                    useGuess && !fallbacks.contains(provider.name()), probeView);
+            FileSystemProperties bound = tryBindUnlisted(provider, properties, useGuess, probeView);
             if (bound != null) {
                 result.add(bound);
             }
@@ -420,7 +379,7 @@ public class FileSystemPluginManager {
 
     private FileSystemProvider providerByName(String name) {
         for (FileSystemProvider p : providers) {
-            if (p.name().equalsIgnoreCase(name)) {
+            if (name.equalsIgnoreCase(p.name())) {
                 return p;
             }
         }

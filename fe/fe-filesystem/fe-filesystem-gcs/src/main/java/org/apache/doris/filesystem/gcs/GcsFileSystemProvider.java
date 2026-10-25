@@ -110,20 +110,6 @@ public class GcsFileSystemProvider implements FileSystemProvider<GcsFileSystemPr
     }
 
     @Override
-    public void validateProperties(Map<String, String> properties) {
-        GcsAuthResolver.resolve(properties);
-        if (GcsAuthResolver.hasNativeCredentialProperties(properties)
-                && S3CompatSignals.hasExplicitS3Request(properties)) {
-            throw new IllegalArgumentException("Native GCP authentication cannot be used with S3 properties.");
-        }
-    }
-
-    @Override
-    public Set<String> fallbackProviders() {
-        return Set.of("S3", "MINIO");
-    }
-
-    @Override
     public Optional<Map<String, String>> credentialToProperties(NativeObjectStorageCredential credential) {
         if (!(credential instanceof GcpCredentialSpec)) {
             return Optional.empty();

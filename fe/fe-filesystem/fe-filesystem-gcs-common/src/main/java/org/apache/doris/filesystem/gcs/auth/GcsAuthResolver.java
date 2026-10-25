@@ -40,6 +40,10 @@ public final class GcsAuthResolver {
 
     public static Optional<GcsAuth> resolve(Map<String, String> properties) {
         boolean hasNativeProperties = hasNativeCredentialProperties(properties);
+        if (hasNativeProperties
+                && "true".equalsIgnoreCase(getPropertyIgnoreCase(properties, "fs.s3.support"))) {
+            throw new IllegalArgumentException("Native GCP authentication cannot be used with fs.s3.support=true");
+        }
         boolean hasGcsSelector = guessIsGcs(properties)
                 || "true".equalsIgnoreCase(getPropertyIgnoreCase(properties, "fs.gcs.support"));
         boolean hasAccessKey = hasNonBlankProperty(properties, ACCESS_KEYS);

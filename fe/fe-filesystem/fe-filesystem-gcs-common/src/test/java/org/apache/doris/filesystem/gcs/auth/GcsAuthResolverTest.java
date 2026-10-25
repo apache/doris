@@ -25,6 +25,19 @@ import java.util.Map;
 
 public class GcsAuthResolverTest {
     @Test
+    public void testExplicitS3FlagRejectsNativeKeysBeforeResolvingCredentials() {
+        for (String key : new String[] {GcpCredential.CREDENTIAL_PROVIDER_TYPE,
+                GcpCredential.IMPERSONATION_SERVICE_ACCOUNT}) {
+            Map<String, String> props = new HashMap<>();
+            props.put("fs.s3.support", "true");
+            props.put(key, "");
+            IllegalArgumentException failure = Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> GcsAuthResolver.resolve(props));
+            Assertions.assertTrue(failure.getMessage().contains("fs.s3.support"));
+        }
+    }
+
+    @Test
     public void testDefaultAndExplicitModes() {
         Map<String, String> props = new HashMap<>();
         Assertions.assertFalse(GcsAuthResolver.resolve(props).isPresent());

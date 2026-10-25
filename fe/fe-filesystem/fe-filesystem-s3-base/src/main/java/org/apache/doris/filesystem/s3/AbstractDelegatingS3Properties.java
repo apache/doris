@@ -95,6 +95,11 @@ public abstract class AbstractDelegatingS3Properties
      * without the dot (e.g. {@code gs}); {@code displayName} the human-readable storage name.
      */
     protected final void validateHmacDialect(String aliasPrefix, String displayName) {
+        // GCS resolves native credentials before reaching the shared connection/HMAC checks.
+        // MinIO and Ozone have no native GCP authentication path.
+        if (!"gs".equals(aliasPrefix)) {
+            S3CompatSignals.rejectNativeGcpCredentials(rawProperties);
+        }
         new ParamRules()
                 .requireTogether(new String[] {getAccessKey(), getSecretKey()},
                         aliasPrefix + ".access_key and " + aliasPrefix

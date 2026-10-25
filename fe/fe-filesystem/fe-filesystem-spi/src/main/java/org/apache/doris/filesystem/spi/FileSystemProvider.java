@@ -63,23 +63,6 @@ public interface FileSystemProvider<P extends FileSystemProperties> extends Plug
     }
 
     /**
-     * Validate provider-owned properties before routing, including combinations that would otherwise
-     * select another provider and silently ignore these properties. Must be deterministic and do no I/O.
-     * Called for every loaded provider, even when it does not match the map.
-     */
-    default void validateProperties(Map<String, String> properties) {
-    }
-
-    /**
-     * Names of general-purpose providers whose heuristic matches this provider supersedes when it
-     * also matches. Explicit selections are never suppressed. Names are case-insensitive; the
-     * relationship must be acyclic. Empty by default to preserve existing multi-provider bindings.
-     */
-    default Set<String> fallbackProviders() {
-        return Collections.emptySet();
-    }
-
-    /**
      * Restore provider-owned property names from a typed identity. Empty means this plugin does not
      * handle the credential type. Neither user property names nor wire formats are interpreted by core.
      */

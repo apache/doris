@@ -170,7 +170,7 @@ types, and missing or ambiguous property owners fail explicitly.
 
 Adding a native wire variant requires a data description, a mapping in `fe-storage-protocol`, and
 matching BE/Cloud support. Filesystem plugins cannot independently extend the receiver's wire schema.
-The filesystem plugin API is 5.0 and connector plugin API is 15.0 because shared authentication types
+The filesystem plugin API is 6.0 and connector plugin API is 15.0 because shared authentication types
 changed. Plugins must be rebuilt against the matching host APIs.
 
 Native OAuth accepts only the Google Storage service-base HTTPS endpoints recognized by
@@ -181,23 +181,22 @@ uploads remain unsupported with native OAuth.
 
 ### Overlapping provider matches
 
-The binding registry preserves the existing provider order and `fs.<x>.support` flag semantics.
-It does not treat a `provider` property as a global override; each plugin owns its interpretation
-of that property. A provider can declare `fallbackProviders()` to suppress general-purpose
-heuristic matches when it also matches. This applies to both primary and multi-provider binding;
-explicit filesystem flags are never suppressed. Providers without this declaration retain their
-existing multi-match behavior. The default HDFS binding and HDFS URI validation are preserved.
+The binding registry preserves its existing provider order, explicit `fs.<x>.support` flags,
+multiple explicit bindings, and default HDFS binding. Routing uses the existing `supports()`,
+`supportsExplicit()` and `supportsGuess()` methods; there is no global validation or fallback hook.
 
-`validateProperties()` runs on every loaded provider before selection, so invalid provider-owned
-credentials cannot silently disappear when another plugin is chosen. It must be deterministic and
-perform no I/O. Forced provider binding validates with the effective provider name too.
+GCS recognizes its provider names, native credential keys, `gs://` locations and Google endpoints.
+S3 and MinIO exclude these GCS guesses in their own matching predicates. Explicit `provider=S3`
+or `fs.s3.support=true` retains S3 authentication, including at Google endpoints. This does not
+change the established HDFS, OSS, COS, OBS or Azure selection order.
 
-GCS owns its endpoint/credential recognition and declares S3 and MinIO as heuristic fallbacks.
-Within this family, `provider=S3` retains S3 authentication and disables GCS/MinIO guessing;
-`provider=GCS` and `provider=GCP` are both recognized by GCS. These choices do not override the
-existing HDFS, OSS, COS, OBS, or Azure routing order.
-S3 and its shared protocol library do not depend on GCS authentication classes. Filesystem plugin
-API 5.0 includes these two default hooks; all plugins must be rebuilt for that host API.
+The S3-compatible plugins share pure GCS property recognition through `fe-filesystem-gcs-common`,
+which has no production dependencies and loads no Google credentials or SDKs. Credential validation
+runs when the selected provider binds its properties, including forced provider binding. S3, MinIO
+and Ozone reject native GCP keys instead of silently using their AWS/HMAC credential paths.
+
+Filesystem API 6.0 retains the native identity/property hooks described above, but removes the two
+routing hooks from the earlier feature draft. Plugins must be rebuilt against the matching host API.
 
 ### S3 Delegation Pattern
 

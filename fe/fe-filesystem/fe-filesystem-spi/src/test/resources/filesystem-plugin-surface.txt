@@ -42,7 +42,6 @@ org.apache.doris.filesystem.spi.FileSystemProvider#create(org.apache.doris.files
 org.apache.doris.filesystem.spi.FileSystemProvider#createUntyped(org.apache.doris.filesystem.properties.FileSystemProperties):org.apache.doris.filesystem.FileSystem
 org.apache.doris.filesystem.spi.FileSystemProvider#credentialToProperties(org.apache.doris.filesystem.auth.NativeObjectStorageCredential):java.util.Optional
 org.apache.doris.filesystem.spi.FileSystemProvider#description():java.lang.String
-org.apache.doris.filesystem.spi.FileSystemProvider#fallbackProviders():java.util.Set
 org.apache.doris.filesystem.spi.FileSystemProvider#modifiableCredentialPropertyKeys():java.util.Set
 org.apache.doris.filesystem.spi.FileSystemProvider#name():java.lang.String
 org.apache.doris.filesystem.spi.FileSystemProvider#normalizeProperties(java.util.Map,java.util.Map):java.util.Map
@@ -51,7 +50,6 @@ org.apache.doris.filesystem.spi.FileSystemProvider#sensitivePropertyKeys():java.
 org.apache.doris.filesystem.spi.FileSystemProvider#supports(java.util.Map):boolean
 org.apache.doris.filesystem.spi.FileSystemProvider#supportsExplicit(java.util.Map):boolean
 org.apache.doris.filesystem.spi.FileSystemProvider#supportsGuess(java.util.Map):boolean
-org.apache.doris.filesystem.spi.FileSystemProvider#validateProperties(java.util.Map):void
 org.apache.doris.filesystem.spi.ObjFileSystem#capability(java.lang.Class):java.util.Optional
 org.apache.doris.filesystem.spi.ObjFileSystem#close():void
 org.apache.doris.filesystem.spi.ObjFileSystem#completeMultipartUpload(java.lang.String,java.lang.String,java.util.Map):void
