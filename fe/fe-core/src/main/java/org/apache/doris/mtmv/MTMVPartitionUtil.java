@@ -440,12 +440,30 @@ public class MTMVPartitionUtil {
      * MV key range reads rows the snapshot records no partition for. The empty set says that outright,
      * which is what separates it from a table that is not one of the MV partition column's sources at all.
      *
+     * <p>An MV partition no base partition describes keeps the MV key ranges for the whole batch instead:
+     * nothing is recorded for it, so there is no scope its read could match, and the rows it holds are
+     * read through its own key range rather than not at all.
+     *
      * <p>The tables are named by {@link BaseTableInfo} rather than by the table object: the mapping is keyed
      * by the tables the MV's partition info holds and this reads them by the name it is given, so what
      * identifies a table here is the table it names, not which of the two objects it was read from.
      */
     public static Map<BaseTableInfo, Set<String>> mappedBasePartitions(Map<TableIf, String> tableWithPartKey,
             MTMVRefreshContext context, Set<String> mvPartitionNames) {
+        for (String mvPartitionName : mvPartitionNames) {
+            if (context.getUndescribedMvPartitions().contains(mvPartitionName)) {
+                // An MV partition no base partition describes has nothing to scope the read to: the mapping
+                // names no base partition for it, so a scoped read would read no rows over the rows it
+                // holds. The olap cause of it -- an alignment that has not caught up yet -- is refused by a
+                // refresh rather than read (MTMVTask#requireDescribedPartitions), because there it can still
+                // catch up; what a read reaches this way is an external partition table's partition the
+                // mapping cannot describe at all -- a row whose partition key is null, say -- which no
+                // alignment will ever catch up with either. It keeps the read it had before partitions were
+                // scoped: every table is left unscoped for the batch, and the MV partitions' own key ranges
+                // select the rows they hold.
+                return Maps.newHashMap();
+            }
+        }
         Map<BaseTableInfo, Set<String>> res = Maps.newHashMap();
         for (TableIf table : tableWithPartKey.keySet()) {
             res.put(new BaseTableInfo(table), Sets.newHashSet());
