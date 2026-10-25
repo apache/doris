@@ -80,23 +80,19 @@ FileBlocksHolder insert_block(BlockFileCache& cache, const UInt128Wrapper& hash,
 
 class EvictScanConfigGuard {
 public:
-    EvictScanConfigGuard(int64_t max_scan, bool rotate)
+    explicit EvictScanConfigGuard(int64_t max_scan)
             : _max_scan(config::file_cache_evict_max_scan_entries),
-              _rotate(config::enable_file_cache_evict_rotate_in_use),
               _in_advance(config::enable_evict_file_cache_in_advance) {
         config::file_cache_evict_max_scan_entries = max_scan;
-        config::enable_file_cache_evict_rotate_in_use = rotate;
         config::enable_evict_file_cache_in_advance = false;
     }
     ~EvictScanConfigGuard() {
         config::file_cache_evict_max_scan_entries = _max_scan;
-        config::enable_file_cache_evict_rotate_in_use = _rotate;
         config::enable_evict_file_cache_in_advance = _in_advance;
     }
 
 private:
     int64_t _max_scan;
-    bool _rotate;
     bool _in_advance;
 };
 
@@ -177,7 +173,7 @@ int64_t steady_now_seconds() {
 } // namespace
 
 TEST_F(BlockFileCacheTest, evict_scan_rotates_in_use_entries) {
-    EvictScanConfigGuard guard(/*max_scan=*/0, /*rotate=*/true);
+    EvictScanConfigGuard guard(/*max_scan=*/0);
     auto base = (caches_dir / "evict_scan_rotate" / "").string();
     fs::remove_all(base);
     fs::create_directories(base);
@@ -208,28 +204,8 @@ TEST_F(BlockFileCacheTest, evict_scan_rotates_in_use_entries) {
     EXPECT_FALSE(cached_offsets(cache, key).contains(6 * kBlockSize));
 }
 
-TEST_F(BlockFileCacheTest, evict_scan_without_rotation_rescans_in_use_entries) {
-    EvictScanConfigGuard guard(/*max_scan=*/0, /*rotate=*/false);
-    auto base = (caches_dir / "evict_scan_no_rotate" / "").string();
-    fs::remove_all(base);
-    fs::create_directories(base);
-    Defer cleanup {[&] { fs::remove_all(base); }};
-    BlockFileCache cache(base, normal_only_settings());
-    ASSERT_TRUE(cache.initialize());
-    wait_until_cache_ready(cache);
-
-    auto key = BlockFileCache::hash("evict_scan_no_rotate_key");
-    auto held = fill_with_held_head(cache, key, /*held=*/5);
-    auto other1 = insert_block(cache, BlockFileCache::hash("evict_scan_no_rotate_other1"), 0);
-
-    auto before = counters(cache);
-    auto other2 = insert_block(cache, BlockFileCache::hash("evict_scan_no_rotate_other2"), 0);
-    EXPECT_EQ(counters(cache).scanned - before.scanned, 6);
-    EXPECT_EQ(counters(cache).rotated - before.rotated, 0);
-}
-
 TEST_F(BlockFileCacheTest, evict_scan_stops_at_bound_and_skips_cache) {
-    EvictScanConfigGuard guard(/*max_scan=*/3, /*rotate=*/true);
+    EvictScanConfigGuard guard(/*max_scan=*/3);
     auto base = (caches_dir / "evict_scan_bound" / "").string();
     fs::remove_all(base);
     fs::create_directories(base);
@@ -264,7 +240,7 @@ TEST_F(BlockFileCacheTest, evict_scan_stops_at_bound_and_skips_cache) {
 }
 
 TEST_F(BlockFileCacheTest, evict_scan_by_time_rotates_in_use_entries) {
-    EvictScanConfigGuard guard(/*max_scan=*/0, /*rotate=*/true);
+    EvictScanConfigGuard guard(/*max_scan=*/0);
     auto base = (caches_dir / "evict_scan_by_time" / "").string();
     fs::remove_all(base);
     fs::create_directories(base);
@@ -308,7 +284,7 @@ TEST_F(BlockFileCacheTest, evict_scan_by_time_rotates_in_use_entries) {
 }
 
 TEST_F(BlockFileCacheTest, evict_scan_by_time_stops_at_bound) {
-    EvictScanConfigGuard guard(/*max_scan=*/2, /*rotate=*/true);
+    EvictScanConfigGuard guard(/*max_scan=*/2);
     auto base = (caches_dir / "evict_scan_by_time_bound" / "").string();
     fs::remove_all(base);
     fs::create_directories(base);

@@ -37,11 +37,9 @@ namespace doris {
 // it, so the queue keeps its shape: `held` pinned blocks plus kEvictFileCacheReleased released
 // ones.
 //
-// Arg 0: number of held blocks. Arg 1: mode.
-//   0 before:      no scan bound, no rotation (the code path before the fix)
-//   1 cap only:    file_cache_evict_max_scan_entries = 4096, no rotation
-//   2 rotate only: no scan bound, rotation on
-//   3 after:       scan bound 4096 and rotation on (the defaults)
+// In-use entries a scan skips are always moved to the end of their queue.
+// Arg 0: number of held blocks. Arg 1: file_cache_evict_max_scan_entries (0 = unbounded,
+// 4096 = the default).
 // Counters per reservation: scanned (LRU entries examined under the lock), truncated (scans
 // that hit the bound) and skip_cache (reservations that failed, so the block was not cached).
 
@@ -50,13 +48,11 @@ constexpr size_t kEvictFileCacheReleased = 1024;
 
 class EvictFileCacheBench {
 public:
-    EvictFileCacheBench(size_t held, int64_t max_scan, bool rotate)
+    EvictFileCacheBench(size_t held, int64_t max_scan)
             : _max_scan(config::file_cache_evict_max_scan_entries),
-              _rotate(config::enable_file_cache_evict_rotate_in_use),
               _in_advance(config::enable_evict_file_cache_in_advance),
               _async_touch(config::enable_file_cache_async_touch_on_get_or_set) {
         config::file_cache_evict_max_scan_entries = max_scan;
-        config::enable_file_cache_evict_rotate_in_use = rotate;
         config::enable_evict_file_cache_in_advance = false;
         config::enable_file_cache_async_touch_on_get_or_set = false;
 
@@ -93,7 +89,6 @@ public:
         _held.clear();
         _cache.reset();
         config::file_cache_evict_max_scan_entries = _max_scan;
-        config::enable_file_cache_evict_rotate_in_use = _rotate;
         config::enable_evict_file_cache_in_advance = _in_advance;
         config::enable_file_cache_async_touch_on_get_or_set = _async_touch;
     }
@@ -126,7 +121,6 @@ private:
     }
 
     int64_t _max_scan;
-    bool _rotate;
     bool _in_advance;
     bool _async_touch;
     std::string _payload = std::string(kEvictFileCacheBlock, 'x');
@@ -137,10 +131,8 @@ private:
 
 static void BM_FileCacheReserveWithHeldHead(benchmark::State& state) {
     const auto held = static_cast<size_t>(state.range(0));
-    const auto mode = state.range(1);
-    const int64_t max_scan = (mode == 1 || mode == 3) ? 4096 : 0;
-    const bool rotate = mode >= 2;
-    EvictFileCacheBench bench(held, max_scan, rotate);
+    const int64_t max_scan = state.range(1);
+    EvictFileCacheBench bench(held, max_scan);
 
     const uint64_t scanned_before = bench.scanned();
     const uint64_t truncated_before = bench.truncated();
@@ -154,14 +146,10 @@ static void BM_FileCacheReserveWithHeldHead(benchmark::State& state) {
     state.counters["truncated"] =
             benchmark::Counter(static_cast<double>(bench.truncated() - truncated_before), per_op);
     state.counters["skip_cache"] = benchmark::Counter(static_cast<double>(skipped), per_op);
-    state.SetLabel(mode == 0   ? "before"
-                   : mode == 1 ? "cap_only"
-                   : mode == 2 ? "rotate_only"
-                               : "after");
 }
 
 BENCHMARK(BM_FileCacheReserveWithHeldHead)
-        ->ArgsProduct({{1024, 8192, 65536}, {0, 1, 2, 3}})
+        ->ArgsProduct({{1024, 8192, 65536}, {0, 4096}})
         ->Unit(benchmark::kMicrosecond);
 
 } // namespace doris

@@ -1451,7 +1451,6 @@ void BlockFileCache::find_evict_candidates(LRUQueue& queue, size_t size, size_t 
     // again by each later reservation, all under the cache lock. Bounding the scan and rotating
     // in-use entries keeps the lock hold short when much of the cache is in use.
     const int64_t max_scan = config::file_cache_evict_max_scan_entries;
-    const bool rotate_in_use = config::enable_file_cache_evict_rotate_in_use;
     std::vector<FileBlockCell*> in_use;
     size_t scanned = 0;
     for (const auto& [entry_key, entry_offset, entry_size] : queue) {
@@ -1479,7 +1478,7 @@ void BlockFileCache::find_evict_candidates(LRUQueue& queue, size_t size, size_t 
             to_evict.push_back(cell);
             removed_size += cell_size;
             cur_removed_size += cell_size;
-        } else if (rotate_in_use) {
+        } else {
             in_use.push_back(cell);
         }
     }
@@ -1748,7 +1747,6 @@ bool BlockFileCache::try_reserve_from_other_queue_by_time_interval(
     size_t cur_cache_size = _cur_cache_size;
     std::vector<FileBlockCell*> to_evict;
     const int64_t max_scan = config::file_cache_evict_max_scan_entries;
-    const bool rotate_in_use = config::enable_file_cache_evict_rotate_in_use;
     for (FileCacheType cache_type : other_cache_types) {
         auto& queue = get_queue(cache_type);
         size_t remove_size_per_type = 0;
@@ -1781,7 +1779,7 @@ bool BlockFileCache::try_reserve_from_other_queue_by_time_interval(
                 to_evict.push_back(cell);
                 removed_size += cell_size;
                 remove_size_per_type += cell_size;
-            } else if (rotate_in_use) {
+            } else {
                 in_use.push_back(cell);
             }
         }

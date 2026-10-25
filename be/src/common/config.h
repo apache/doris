@@ -1321,13 +1321,9 @@ DECLARE_mInt64(file_cache_evict_in_advance_recycle_keys_num_threshold);
 // reservation scans at most the other queues and its own queue, so it examines at most a few
 // times this many entries. <= 0 means unbounded. The query-limit reservation path
 // (enable_file_cache_query_limit) and the startup async-load path are not bounded by it.
-// A bounded scan only gets past in-use entries because enable_file_cache_evict_rotate_in_use
-// moves them out of the way; with rotation off, a run of in-use entries at least this long at
-// the head of a queue fails every reservation until some of them are released.
+// Entries a scan skips because they are in use are always moved to the end of their queue, so
+// a bounded scan gets past them on later reservations.
 DECLARE_mInt64(file_cache_evict_max_scan_entries);
-// Move LRU entries an eviction scan skips because they are in use to the end of their queue and
-// mark them accessed, so later scans do not examine them again before they become evictable.
-DECLARE_mBool(enable_file_cache_evict_rotate_in_use);
 DECLARE_mBool(enable_read_cache_file_directly);
 DECLARE_Bool(file_cache_enable_evict_from_other_queue_by_size);
 DECLARE_mBool(enbale_dump_error_file);
