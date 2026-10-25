@@ -94,10 +94,17 @@ public:
 
     std::string read_columns_to_string() const;
 
-    // Always sets the two facts below; the flags add the sequence mapping and the changelog
-    // before-image mapping.
+    // Sets tablet facts and resolves special-column UIDs, without deriving value relationships.
     Status init_from_tablet_schema(const TabletSchema& tablet_schema,
-                                   bool merge_by_sequence_mapping, bool map_changelog_columns);
+                                   bool merge_by_sequence_mapping);
+
+    // All positions address the fixed caller-visible Block prefix. -1 means a system column
+    // is absent. Pairs are explicit relationships, independent of column names and ordering.
+    Status init_changelog_column_mappings(const ChangelogValueColumnPairs& pairs,
+                                          int32_t tso_ordinal, int32_t lsn_ordinal,
+                                          int32_t op_ordinal);
+    Status init_changelog_column_mappings(const TabletSchema& tablet_schema,
+                                          const ChangelogValueColumnPairs& pairs);
 
     // Whether the tablet schema defines a sequence mapping -- not whether this read merges by
     // one. A MoW query does not merge, yet a value predicate still must not be pushed down.
@@ -168,9 +175,7 @@ public:
 
 private:
     void _init_read_types();
-    void _init_before_column_ordinals();
     Status _init_sequence_map(const TabletSchema& tablet_schema);
-    void _init_changelog_column_mappings(const TabletSchema& tablet_schema);
 
     void _init_descriptors() {
         DORIS_CHECK_LE(_num_block_columns, _read_columns.size());
@@ -210,21 +215,13 @@ private:
             if (col.name() == VERSION_COL) {
                 _version_ordinal = i;
             }
-            if (col.name() == CHANGELOG_TSO_COL) {
-                _tso_ordinal = i;
-            }
-            if (col.name() == CHANGELOG_LSN_COL) {
-                _lsn_ordinal = i;
-            }
-            if (col.name() == CHANGELOG_OP_COL) {
-                _op_ordinal = i;
-            }
             if (col.name() == COMMIT_TSO_COL) {
                 _commit_tso_ordinal = i;
             }
         }
-        if (_op_ordinal >= 0) {
-            _init_before_column_ordinals();
+        _before_column_ordinals.resize(_num_block_columns);
+        for (ColumnId ordinal = 0; ordinal < _num_block_columns; ++ordinal) {
+            _before_column_ordinals[ordinal] = ordinal;
         }
     }
 

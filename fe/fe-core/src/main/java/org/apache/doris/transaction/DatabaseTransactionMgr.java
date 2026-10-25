@@ -1940,9 +1940,16 @@ public class DatabaseTransactionMgr {
                 finalStatusTransactionStateDequeLong.add(transactionState);
             }
             if (transactionState.getSubTxnIds() != null) {
-                LOG.info("clean sub transactions for txn_id={}, sub_txn_ids={}", transactionState.getTransactionId(),
-                        transactionState.getSubTxnIds());
-                cleanSubTransactions(transactionState.getTransactionId());
+                if (transactionState.getTransactionStatus() == TransactionStatus.VISIBLE
+                        && transactionState.hasChangelogWriteMappings()) {
+                    // Lagging replicas report the actual child id after visibility, including after FE replay.
+                    // Keep these aliases until the retained parent transaction is removed.
+                    for (Long subTxnId : transactionState.getSubTxnIds()) {
+                        addSubTransaction(transactionState.getTransactionId(), subTxnId);
+                    }
+                } else {
+                    cleanSubTransactions(transactionState.getTransactionId());
+                }
             }
         }
         if (isReplay) {

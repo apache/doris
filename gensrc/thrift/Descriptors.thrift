@@ -348,6 +348,32 @@ struct TOlapTableIndex {
   7: optional list<i32> column_unique_ids
 }
 
+// Stable write-time identities; positions are resolved against the transaction schemas in BE.
+struct TChangelogWriteColumnMapping {
+    1: optional i32 source_column_unique_id
+    2: optional i32 current_column_unique_id
+    3: optional i32 before_column_unique_id
+}
+
+struct TChangelogWriteColumnMappings {
+    1: optional list<TChangelogWriteColumnMapping> entries
+    2: optional bool need_historical_value
+}
+
+struct TChangelogIndexWriteSnapshot {
+    1: optional i64 source_index_id
+    2: optional TChangelogWriteColumnMappings mappings
+}
+
+struct TChangelogReadColumnPair {
+    1: optional Types.TSlotId current_slot_id
+    2: optional Types.TSlotId before_slot_id
+}
+
+struct TChangelogReadColumnMappings {
+    1: optional list<TChangelogReadColumnPair> pairs
+}
+
 struct TOlapTableIndexSchema {
     1: required i64 id
     2: required list<string> columns
@@ -357,6 +383,7 @@ struct TOlapTableIndexSchema {
     6: optional Exprs.TExpr where_clause
     // ATTN(changelog-rename): formerly "row_binlog_id"
     7: optional i64 changelog_index_id
+    10: optional TChangelogWriteColumnMappings changelog_column_mappings
 }
 
 struct TOlapTableSchemaParam {

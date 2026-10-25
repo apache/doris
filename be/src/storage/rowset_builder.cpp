@@ -447,6 +447,9 @@ Status BaseRowsetBuilder::_build_current_tablet_schema(
         }
     }
 
+    DCHECK(index_schema != nullptr);
+    _changelog_column_mappings = index_schema->changelog_column_mappings;
+
     auto cache_key = TabletSchemaCache::build_load_schema_cache_key(
             index_id, table_schema_param, ori_tablet_schema, index_schema);
     auto cached_schema = TabletSchemaCache::instance()->lookup_schema(cache_key);
@@ -582,6 +585,13 @@ Status GroupRowsetBuilder::init() {
         auto& changelog_ctx = const_cast<RowsetWriterContext&>(
                 _changelog_rowset_builder->rowset_writer()->context());
         auto& cfg = changelog_ctx.write_changelog_opt().write_changelog_config();
+        const auto& mapping = _txn_rs_builder->changelog_column_mappings();
+        if (mapping == nullptr) {
+            return Status::InvalidArgument("source index misses changelog column mappings");
+        }
+        RETURN_IF_ERROR(changelog::resolve_layout(
+                data_ctx.tablet_schema, changelog_ctx.tablet_schema, *mapping, &cfg.layout));
+        cfg.write_before = cfg.layout->need_historical_value;
         cfg.source.tablet_schema = data_ctx.tablet_schema;
         cfg.source.partial_update_info = data_ctx.partial_update_info;
         cfg.source.mow_context = data_ctx.mow_context;
@@ -613,6 +623,7 @@ Status GroupRowsetBuilder::commit_txn() {
     // Attach changelog rowset (and its independent changelog tablet) to txn rowset, so that
     // commit/rollback and clean-up are all handled by txn rowset builder.
     ChangelogTxnInfo attach_changelog;
+    attach_changelog.column_mappings = _txn_rs_builder->changelog_column_mappings();
     attach_changelog.rowset = _changelog_rowset_builder->rowset();
     attach_changelog.tablet =
             std::static_pointer_cast<Tablet>(_changelog_rowset_builder->tablet_sptr());

@@ -40,10 +40,35 @@
 namespace doris {
 
 class AutoIncIDBuffer;
+class PChangelogWriteColumnMappings;
+class TChangelogWriteColumnMappings;
 struct PartialUpdateInfo;
 struct MowContext;
 
 namespace changelog {
+
+// A layout belongs to exactly these two pinned schemas. Writers share it for
+// their operation; no CID is stored in rowset metadata or reused after recovery.
+struct ResolvedChangelogLayout {
+    TabletSchemaSPtr source_schema;
+    TabletSchemaSPtr target_schema;
+    std::vector<uint32_t> current_source_cids;
+    std::vector<uint32_t> current_target_cids;
+    std::vector<bool> current_nullable_widening;
+    std::vector<uint32_t> before_source_cids;
+    std::vector<uint32_t> before_target_cids;
+    uint32_t tso_cid;
+    uint32_t lsn_cid;
+    uint32_t op_cid;
+    bool need_historical_value;
+};
+
+Status validate_mapping(const PChangelogWriteColumnMappings& mapping);
+Status mapping_from_thrift(const TChangelogWriteColumnMappings& input,
+                           PChangelogWriteColumnMappings* output);
+Status resolve_layout(const TabletSchemaSPtr& source, const TabletSchemaSPtr& target,
+                      const PChangelogWriteColumnMappings& mapping,
+                      std::shared_ptr<const ResolvedChangelogLayout>* result);
 
 // ATTN(changelog-rename): formerly "__BEFORE__<col>__"
 inline std::string build_before_column_name(std::string_view name) {
@@ -144,6 +169,7 @@ private:
 struct SegmentWriteChangelogOptions {
 public:
     bool write_before = false;
+    std::shared_ptr<const changelog::ResolvedChangelogLayout> layout;
 
     // source context, used for retrieving historical row and building changelog block
     struct SourceWriteDataOptions {

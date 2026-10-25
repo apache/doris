@@ -89,6 +89,9 @@ public:
     bool is_data_builder() const { return _req.write_req_type == WriteRequestType::DATA; }
 
     // Attach the changelog rowset and its independent changelog tablet to the same txn.
+    const std::shared_ptr<const PChangelogWriteColumnMappings>& changelog_column_mappings() const {
+        return _changelog_column_mappings;
+    }
     Status attach_changelog_to_txn(const ChangelogTxnInfo& attach_changelog);
 
     // Attach an extra pending rowset id so that PendingLocalRowsets can be
@@ -116,6 +119,7 @@ protected:
     RowsetSharedPtr _rowset;
     // The changelog rowset and its independent changelog tablet attached to the same txn.
     ChangelogTxnInfo _attach_changelog;
+    std::shared_ptr<const PChangelogWriteColumnMappings> _changelog_column_mappings;
     std::shared_ptr<RowsetWriter> _rowset_writer;
     PendingRowsetGuard _pending_rs_guard;
     // Extra rowset ids that share the same PendingRowsetGuard.

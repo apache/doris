@@ -495,9 +495,15 @@ Status DataDir::load() {
             LOG(WARNING) << "parse pending publish info failed, tablet_id: " << tablet_id
                          << " publish_version: " << publish_version;
         }
-        engine.add_async_publish_task(pending_publish_info_pb.partition_id(), tablet_id,
-                                      publish_version, pending_publish_info_pb.transaction_id(),
-                                      true, pending_publish_info_pb.commit_tso());
+        CHECK(engine.add_async_publish_task(
+                            pending_publish_info_pb.partition_id(), tablet_id, publish_version,
+                            pending_publish_info_pb.transaction_id(), true,
+                            pending_publish_info_pb.commit_tso(),
+                            pending_publish_info_pb.has_changelog_column_mappings()
+                                    ? std::make_shared<const PChangelogWriteColumnMappings>(
+                                              pending_publish_info_pb.changelog_column_mappings())
+                                    : nullptr)
+                      .ok());
         return true;
     };
     MonotonicStopWatch pending_publish_timer;

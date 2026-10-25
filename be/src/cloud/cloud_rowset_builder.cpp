@@ -150,6 +150,13 @@ Status CloudGroupRowsetBuilder::init() {
         auto& changelog_ctx =
                 const_cast<RowsetWriterContext&>(_changelog_builder->rowset_writer()->context());
         auto& cfg = changelog_ctx.write_changelog_opt().write_changelog_config();
+        const auto& mapping = _data_builder->changelog_column_mappings();
+        if (mapping == nullptr) {
+            return Status::InvalidArgument("source index misses changelog column mappings");
+        }
+        RETURN_IF_ERROR(changelog::resolve_layout(
+                data_ctx.tablet_schema, changelog_ctx.tablet_schema, *mapping, &cfg.layout));
+        cfg.write_before = cfg.layout->need_historical_value;
         cfg.source.tablet_schema = data_ctx.tablet_schema;
         cfg.source.partial_update_info = data_ctx.partial_update_info;
         cfg.source.mow_context = data_ctx.mow_context;
@@ -194,6 +201,7 @@ Status CloudGroupRowsetBuilder::commit_rowset(const std::string& job_id, int64_t
 
 Status CloudGroupRowsetBuilder::set_txn_related_info() {
     ChangelogTxnInfo attach_changelog;
+    attach_changelog.column_mappings = _data_builder->changelog_column_mappings();
     attach_changelog.rowset = _changelog_builder->rowset();
     attach_changelog.tablet = _changelog_builder->tablet_sptr();
     if (_data_builder->tablet()->enable_unique_key_merge_on_write()) {

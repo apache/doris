@@ -37,25 +37,10 @@
 #include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type/primitive_type.h"
 #include "runtime/descriptors.h"
-#include "storage/changelog.h"
 
 namespace doris {
 
 namespace {
-
-bool changelog_value_columns_have_same_type(const TabletColumn& lhs, const TabletColumn& rhs) {
-    if (lhs.type() != rhs.type() || lhs.is_nullable() != rhs.is_nullable() ||
-        lhs.length() != rhs.length() || lhs.precision() != rhs.precision() ||
-        lhs.frac() != rhs.frac() || lhs.get_subtype_count() != rhs.get_subtype_count()) {
-        return false;
-    }
-    for (uint32_t i = 0; i < lhs.get_subtype_count(); ++i) {
-        if (!changelog_value_columns_have_same_type(lhs.get_sub_column(i), rhs.get_sub_column(i))) {
-            return false;
-        }
-    }
-    return true;
-}
 
 // Sets the type of `column` from `data_type`, sub columns included. Sub columns get the names FE
 // gives them, and the length is computed the same way as for a column FE sends.
@@ -190,96 +175,76 @@ void ReadSchema::append_compaction_rowid_column() {
     column->set_name(BeConsts::COMPACTION_ROWID_COL);
     _read_columns.emplace_back(column);
     _read_types.emplace_back(column->get_vec_type());
+    _rowid_ordinal = cast_set<int32_t>(_num_block_columns);
+    _uid_to_ordinal.emplace(column->unique_id(), _rowid_ordinal);
+    _before_column_ordinals.push_back(cast_set<ColumnId>(_num_block_columns));
     ++_num_block_columns;
-    _init_descriptors();
 }
 
-void ReadSchema::_init_before_column_ordinals() {
-    std::unordered_map<std::string_view, ColumnId> name_to_ordinal;
-    name_to_ordinal.reserve(_num_block_columns);
-    for (ColumnId ordinal = 0; ordinal < _num_block_columns; ++ordinal) {
-        name_to_ordinal.emplace(_read_columns[ordinal]->name(), ordinal);
+Status ReadSchema::init_changelog_column_mappings(const ChangelogValueColumnPairs& pairs,
+                                                  int32_t tso_ordinal, int32_t lsn_ordinal,
+                                                  int32_t op_ordinal) {
+    std::vector<bool> used(_num_block_columns, false);
+    for (int32_t ordinal : {tso_ordinal, lsn_ordinal, op_ordinal}) {
+        // -1 is the only absent-column sentinel; private delete columns cannot be in a Block.
+        if (ordinal < -1 || (ordinal >= 0 && static_cast<size_t>(ordinal) >= _num_block_columns)) {
+            return Status::InvalidArgument("Invalid changelog system ordinal {}", ordinal);
+        }
+        if (ordinal == -1) {
+            continue;
+        }
+        if (used[ordinal] || _read_columns[ordinal]->is_key() ||
+            remove_nullable(_read_types[ordinal])->get_primitive_type() != TYPE_BIGINT) {
+            return Status::InvalidArgument("Invalid changelog system column at ordinal {}",
+                                           ordinal);
+        }
+        used[ordinal] = true;
     }
-
+    for (const auto& [current, before] : pairs) {
+        // Reusing either endpoint, including a system/key column, corrupts BEFORE materialization.
+        if (current >= _num_block_columns || before >= _num_block_columns || current == before ||
+            used[current] || used[before] || _read_columns[current]->is_key() ||
+            _read_columns[before]->is_key() ||
+            !_read_types[current]->equals(*_read_types[before]) ||
+            _read_types[current]->get_name() != _read_types[before]->get_name()) {
+            return Status::InvalidArgument("Invalid changelog value pair ({}, {})", current,
+                                           before);
+        }
+        used[current] = true;
+        used[before] = true;
+    }
+    _tso_ordinal = tso_ordinal;
+    _lsn_ordinal = lsn_ordinal;
+    _op_ordinal = op_ordinal;
     _before_column_ordinals.resize(_num_block_columns);
-    for (ColumnId ordinal = 0; ordinal < _num_block_columns; ++ordinal) {
-        auto read_ordinal = static_cast<int32_t>(ordinal);
-        if (read_ordinal == _tso_ordinal || read_ordinal == _lsn_ordinal ||
-            read_ordinal == _op_ordinal) {
-            _before_column_ordinals[ordinal] = ordinal;
-            continue;
-        }
-        auto before_name = changelog::build_before_column_name(_read_columns[ordinal]->name());
-        auto before = name_to_ordinal.find(before_name);
-        _before_column_ordinals[ordinal] =
-                before == name_to_ordinal.end() ? ordinal : before->second;
-    }
-}
-
-void ReadSchema::_init_changelog_column_mappings(const TabletSchema& tablet_schema) {
-    DORIS_CHECK_GE(_op_ordinal, 0);
-    DORIS_CHECK_EQ(_before_column_ordinals.size(), _num_block_columns);
-
-    _changelog_value_column_pairs.clear();
-    _changelog_value_pairs_complete = false;
-
-    std::vector<ColumnId> value_column_ids;
-    value_column_ids.reserve(tablet_schema.num_columns() - tablet_schema.num_key_columns());
-    for (ColumnId cid = 0; cid < tablet_schema.num_columns(); ++cid) {
-        if (static_cast<int32_t>(cid) == tablet_schema.changelog_tso_col_idx() ||
-            static_cast<int32_t>(cid) == tablet_schema.changelog_lsn_col_idx() ||
-            static_cast<int32_t>(cid) == tablet_schema.changelog_op_col_idx() ||
-            tablet_schema.column(cid).is_key()) {
-            continue;
-        }
-        value_column_ids.push_back(cid);
-    }
-
-    if (value_column_ids.empty() || value_column_ids.size() % 2 != 0) {
-        return;
-    }
-
-    const size_t value_column_count = value_column_ids.size() / 2;
-    for (size_t i = 0; i < value_column_count; ++i) {
-        const auto& after = tablet_schema.column(value_column_ids[i]);
-        const auto& before = tablet_schema.column(value_column_ids[i + value_column_count]);
-        if (before.name() != changelog::build_before_column_name(after.name()) ||
-            !changelog_value_columns_have_same_type(after, before)) {
-            return;
-        }
-    }
-
-    // A valid physical changelog layout starts from an identity mapping. Only AFTER value
-    // columns map to their BEFORE companions; keys, metadata and BEFORE columns map to themselves.
     for (ColumnId ordinal = 0; ordinal < _num_block_columns; ++ordinal) {
         _before_column_ordinals[ordinal] = ordinal;
     }
-
-    bool complete = true;
-    _changelog_value_column_pairs.reserve(value_column_count);
-    for (size_t i = 0; i < value_column_count; ++i) {
-        const auto after_cid = value_column_ids[i];
-        const auto before_cid = value_column_ids[i + value_column_count];
-        const int32_t after_ordinal = ordinal_by_uid(tablet_schema.column(after_cid).unique_id());
-        const int32_t before_ordinal = ordinal_by_uid(tablet_schema.column(before_cid).unique_id());
-        if (after_ordinal < 0 || before_ordinal < 0 ||
-            static_cast<size_t>(after_ordinal) >= _num_block_columns ||
-            static_cast<size_t>(before_ordinal) >= _num_block_columns) {
-            complete = false;
-            continue;
-        }
-
-        const auto after = cast_set<ColumnId>(after_ordinal);
-        const auto before = cast_set<ColumnId>(before_ordinal);
-        _before_column_ordinals[after] = before;
-        if (!_read_types[after]->equals(*_read_types[before])) {
-            complete = false;
-            continue;
-        }
-        _changelog_value_column_pairs.emplace_back(after, before);
+    _changelog_value_column_pairs = pairs;
+    for (const auto& [current, before] : pairs) {
+        _before_column_ordinals[current] = before;
     }
-    _changelog_value_pairs_complete =
-            complete && _changelog_value_column_pairs.size() == value_column_count;
+    _changelog_value_pairs_complete = true;
+    for (ColumnId ordinal = 0; ordinal < _num_block_columns; ++ordinal) {
+        if (!_read_columns[ordinal]->is_key() && !used[ordinal]) {
+            _changelog_value_pairs_complete = false;
+        }
+    }
+    return Status::OK();
+}
+
+Status ReadSchema::init_changelog_column_mappings(const TabletSchema& tablet_schema,
+                                                  const ChangelogValueColumnPairs& pairs) {
+    const auto resolve = [&](int32_t cid) -> int32_t {
+        if (cid < 0) {
+            return -1;
+        }
+        const int32_t ordinal = ordinal_by_uid(tablet_schema.column(cid).unique_id());
+        return ordinal >= 0 && static_cast<size_t>(ordinal) < _num_block_columns ? ordinal : -1;
+    };
+    return init_changelog_column_mappings(pairs, resolve(tablet_schema.changelog_tso_col_idx()),
+                                          resolve(tablet_schema.changelog_lsn_col_idx()),
+                                          resolve(tablet_schema.changelog_op_col_idx()));
 }
 
 Block ReadSchema::create_read_block() const {
@@ -320,9 +285,7 @@ std::string ReadSchema::read_columns_to_string() const {
 }
 
 Status ReadSchema::init_from_tablet_schema(const TabletSchema& tablet_schema,
-                                           bool merge_by_sequence_mapping,
-                                           bool map_changelog_columns) {
-    DORIS_CHECK(!(merge_by_sequence_mapping && map_changelog_columns));
+                                           bool merge_by_sequence_mapping) {
     _tablet_has_sequence_map = tablet_schema.has_seq_map();
     _tablet_has_extracted_variant_columns =
             std::ranges::any_of(tablet_schema.columns(),
@@ -330,10 +293,7 @@ Status ReadSchema::init_from_tablet_schema(const TabletSchema& tablet_schema,
     if (merge_by_sequence_mapping) {
         RETURN_IF_ERROR(_init_sequence_map(tablet_schema));
     }
-    if (map_changelog_columns) {
-        _init_changelog_column_mappings(tablet_schema);
-    }
-    return Status::OK();
+    return init_changelog_column_mappings(tablet_schema, _changelog_value_column_pairs);
 }
 
 Status ReadSchema::_init_sequence_map(const TabletSchema& tablet_schema) {

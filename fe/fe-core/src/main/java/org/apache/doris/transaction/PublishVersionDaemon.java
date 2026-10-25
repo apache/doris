@@ -438,6 +438,7 @@ public class PublishVersionDaemon extends MasterDaemon {
                     transactionState.getDbId(),
                     partitionVersionInfos,
                     createPublishVersionTaskTime);
+            task.setChangelogWriteMappings(transactionState.getChangelogWriteMappings(transactionId));
             task.setBaseTabletsIds(beIdToBaseTabletIds.getOrDefault(backendId, Collections.emptySet()));
             // Keep rejected tasks in the transaction so a removed backend is not treated as a success.
             AgentTaskQueue.addTask(task);
