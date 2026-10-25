@@ -161,6 +161,8 @@ const char* file_format_name(FileFormat format) {
         return "ES_HTTP";
     case FileFormat::WAL:
         return "WAL";
+    case FileFormat::LANCE:
+        return "LANCE";
     }
     return "UNKNOWN";
 }

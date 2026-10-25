@@ -902,6 +902,8 @@ else()
         "-framework Foundation"
         "-framework SystemConfiguration"
         "-framework Security"
+        # liblance_c.a pulls in the Rust `sysinfo` crate, whose macOS backend calls IOKit.
+        "-framework IOKit"
     )
     if (USE_JEMALLOC OR (NOT CMAKE_BUILD_TYPE STREQUAL "DEBUG" AND NOT CMAKE_BUILD_TYPE STREQUAL "RELEASE"))
         set(DORIS_LINK_LIBS

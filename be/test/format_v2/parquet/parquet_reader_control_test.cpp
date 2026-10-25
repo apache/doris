@@ -520,10 +520,10 @@ TEST(ParquetVirtualColumnReaderTest, GlobalRowIdReadSkipSelectAndInvalidArgs) {
     const auto first = decode_rowid(strings, 0);
     EXPECT_EQ(first.version, context.version);
     EXPECT_EQ(first.backend_id, context.backend_id);
-    EXPECT_EQ(first.file_id, context.file_id);
-    EXPECT_EQ(first.row_id, 10);
-    EXPECT_EQ(decode_rowid(strings, 1).row_id, 11);
-    EXPECT_EQ(decode_rowid(strings, 2).row_id, 14);
+    EXPECT_EQ(first.file_local.file_id, context.file_id);
+    EXPECT_EQ(first.file_local.row_id, 10);
+    EXPECT_EQ(decode_rowid(strings, 1).file_local.row_id, 11);
+    EXPECT_EQ(decode_rowid(strings, 2).file_local.row_id, 14);
 
     GlobalRowIdColumnReader select_reader(context, 20);
     SelectionVector selection(2);
@@ -533,8 +533,8 @@ TEST(ParquetVirtualColumnReaderTest, GlobalRowIdReadSkipSelectAndInvalidArgs) {
     ASSERT_TRUE(select_reader.select(selection, 2, 5, selected_column).ok());
     const auto& selected_strings = assert_cast<const ColumnString&>(*selected_column);
     ASSERT_EQ(selected_strings.size(), 2);
-    EXPECT_EQ(decode_rowid(selected_strings, 0).row_id, 21);
-    EXPECT_EQ(decode_rowid(selected_strings, 1).row_id, 23);
+    EXPECT_EQ(decode_rowid(selected_strings, 0).file_local.row_id, 21);
+    EXPECT_EQ(decode_rowid(selected_strings, 1).file_local.row_id, 23);
 
     MutableColumnPtr null_column;
     EXPECT_FALSE(reader.read(1, null_column, &rows_read).ok());

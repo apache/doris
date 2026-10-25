@@ -197,9 +197,12 @@ bool FileScanLocalState::should_use_file_scanner_v2(const TQueryOptions& query_o
     // fluss scan carries that same format -- log ranges and wrapped lake splits alike -- and is
     // dispatched inside FlussHybridReader, which only FileScannerV2 builds. Loads are left alone for
     // the same reason as adbc: there is no fluss load path.
-    if (!is_load && scan_params.__isset.table_format_params &&
-        (scan_params.table_format_params.table_format_type == "adbc" ||
-         scan_params.table_format_params.table_format_type == "fluss")) {
+    // Lance has no v1 reader either. Its scans carry FORMAT_LANCE at scan level, whether they come
+    // from a Lance catalog or from a file TVF, and there is no Lance load path.
+    if (!is_load && (scan_params.format_type == TFileFormatType::FORMAT_LANCE ||
+                     (scan_params.__isset.table_format_params &&
+                      (scan_params.table_format_params.table_format_type == "adbc" ||
+                       scan_params.table_format_params.table_format_type == "fluss")))) {
         return true;
     }
     // Hybrid scans advertise native Parquet at scan level because ranges can arrive after the
@@ -220,8 +223,7 @@ bool FileScanLocalState::should_use_file_scanner_v2(const TQueryOptions& query_o
     // Iceberg's default write format does not describe retained files, and remote splits arrive
     // after scanner construction. Keep versioned Iceberg scans on V2 without eagerly listing
     // every file.
-    return scanner_v2_requested && !is_load &&
-           scan_params.format_type != TFileFormatType::FORMAT_LANCE;
+    return scanner_v2_requested && !is_load;
 }
 
 Status FileScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
