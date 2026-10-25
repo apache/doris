@@ -28,8 +28,8 @@
 
 #include "common/status.h"
 #include "core/data_type_serde/data_type_serde.h"
+#include "format_v2/column_data.h"
 #include "format_v2/lance/lance_reader_helper.h"
-#include "format_v2/table_reader.h"
 
 namespace arrow {
 class Array;
