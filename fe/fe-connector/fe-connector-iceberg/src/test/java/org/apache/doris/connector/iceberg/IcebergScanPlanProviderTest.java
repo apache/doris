@@ -2323,6 +2323,113 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
+    public void equalityCarrierRejectsDateKeyPromotedToTimestampThenTimestampNs() throws Exception {
+        assertUnrelatedDateKeyPromotionsFailPlanning("date_ts_then_ns_eq_key", Types.TimestampType.withoutZone(),
+                Types.TimestampNanoType.withoutZone());
+    }
+
+    @Test
+    public void equalityCarrierRejectsDateKeyPromotedToTimestampNsThenTimestamp() throws Exception {
+        assertUnrelatedDateKeyPromotionsFailPlanning("date_ns_then_ts_eq_key", Types.TimestampNanoType.withoutZone(),
+                Types.TimestampType.withoutZone());
+    }
+
+    /**
+     * Promotes a v3 DATE key to {@code first} without a snapshot, sets the DATE schema current again (publishing the
+     * identical schema reuses its ID), promotes the key to {@code second} and drops it while an equality delete on
+     * it is pending. TIMESTAMP and TIMESTAMP_NS do not promote to each other and the metadata does not record which
+     * one the delete was written in, so planning must fail in either order: a TIMESTAMP carrier would round the
+     * tombstone 2024-01-02T00:00:00.000000001 to midnight and delete the DATE row.
+     */
+    private static void assertUnrelatedDateKeyPromotionsFailPlanning(String name, Type first, Type second) {
+        Schema dateSchema = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "k", Types.DateType.get()));
+        Table table = createTable(name, dateSchema, PartitionSpec.unpartitioned(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "3"));
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/" + name + "/f1.parquet", 1024, null, null))
+                .commit();
+        int dateSchemaId = table.schema().schemaId();
+        publishSchema(table, new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "k", first)), 2);
+        publishSchema(table, dateSchema, 2);
+        Assertions.assertEquals(dateSchemaId, table.schema().schemaId());
+        publishSchema(table, new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "k", second)), 2);
+        RowDelta pendingDelete = table.newRowDelta().addDeletes(equalityDeleteFile(
+                "s3://b/db/" + name + "/eq.parquet", FileFormat.PARQUET, 2));
+        table.updateSchema().deleteColumn("k").commit();
+        pendingDelete.commit();
+        Assertions.assertEquals(Types.DateType.get(), table.schemas()
+                .get(table.snapshot(table.currentSnapshot().parentId()).schemaId()).findType(2));
+
+        IllegalStateException error = Assertions.assertThrows(IllegalStateException.class, () ->
+                IcebergScanPlanProvider.schemaForPotentialEqualityDeletes(table, table.newScan(), table.schema()));
+        Assertions.assertEquals("Iceberg equality-delete field 2 (k) was promoted to both " + first + " and "
+                + second + " in schema history", error.getMessage());
+        IcebergScanPlanProvider provider = providerOver(table);
+        Assertions.assertThrows(IllegalStateException.class, () -> provider.getScanNodeProperties(null,
+                new IcebergTableHandle("db1", name), Collections.singletonList(new IcebergColumnHandle("id", 1)),
+                Optional.empty()));
+    }
+
+    @Test
+    public void equalityCarrierKeepsLineagePromotionBesideAnAbandonedOne() throws Exception {
+        // The schemas of the rollback history above, but the delete commits while TIMESTAMP_NS is current, so the
+        // lineage records TIMESTAMP_NS. The abandoned TIMESTAMP schema is not a promotion of that definition and
+        // must not fail planning.
+        Schema dateSchema = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "k", Types.DateType.get()));
+        Table table = createTable("date_ns_lineage_beside_ts_eq_key", dateSchema, PartitionSpec.unpartitioned(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "3"));
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/date_ns_lineage_beside_ts_eq_key/f1.parquet", 1024, null, null)).commit();
+        publishSchema(table, new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "k", Types.TimestampType.withoutZone())), 2);
+        publishSchema(table, dateSchema, 2);
+        publishSchema(table, new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "k", Types.TimestampNanoType.withoutZone())), 2);
+        table.newRowDelta().addDeletes(equalityDeleteFile(
+                "s3://b/db/date_ns_lineage_beside_ts_eq_key/eq.parquet", FileFormat.PARQUET, 2)).commit();
+        table.updateSchema().deleteColumn("k").commit();
+        Assertions.assertEquals(Types.TimestampNanoType.withoutZone(),
+                table.schemas().get(table.currentSnapshot().schemaId()).findType(2));
+
+        List<NestedField> carrier = IcebergScanPlanProvider.schemaForPotentialEqualityDeletes(
+                table, table.newScan(), table.schema());
+        Assertions.assertEquals(2, carrier.size(), "the dropped equality key must stay resolvable: " + carrier);
+        Assertions.assertEquals(Types.TimestampNanoType.withoutZone(), carrier.get(1).type());
+    }
+
+    @Test
+    public void equalityCarrierRejectsUnknownKeyPromotedToUnrelatedTypes() throws Exception {
+        // v3 lets UNKNOWN become any type. k is promoted to INT, set back to UNKNOWN and promoted to STRING without
+        // snapshots, so INT and STRING are both promotions of the lineage's UNKNOWN. An INT carrier would turn a
+        // non-numeric STRING tombstone into NULL, which matches every row written while k was UNKNOWN.
+        Schema unknownSchema = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "k", Types.UnknownType.get()));
+        Table table = createTable("unknown_int_then_string_eq_key", unknownSchema, PartitionSpec.unpartitioned(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "3"));
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/unknown_int_then_string_eq_key/f1.parquet", 1024, null, null)).commit();
+        publishSchema(table, new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "k", Types.IntegerType.get())), 2);
+        publishSchema(table, unknownSchema, 2);
+        publishSchema(table, new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "k", Types.StringType.get())), 2);
+        RowDelta pendingDelete = table.newRowDelta().addDeletes(equalityDeleteFile(
+                "s3://b/db/unknown_int_then_string_eq_key/eq.parquet", FileFormat.PARQUET, 2));
+        table.updateSchema().deleteColumn("k").commit();
+        pendingDelete.commit();
+        Assertions.assertEquals(Types.UnknownType.get(), table.schemas()
+                .get(table.snapshot(table.currentSnapshot().parentId()).schemaId()).findType(2));
+
+        IllegalStateException error = Assertions.assertThrows(IllegalStateException.class, () ->
+                IcebergScanPlanProvider.schemaForPotentialEqualityDeletes(table, table.newScan(), table.schema()));
+        Assertions.assertEquals("Iceberg equality-delete field 2 (k) was promoted to both int and string"
+                + " in schema history", error.getMessage());
+    }
+
+    @Test
     public void equalityCarrierKeepsSchemaOnlyOptionalityOfDroppedKey() throws Exception {
         // k becomes optional without a snapshot, and both a pending delete and an append without k commit after k
         // is dropped, so every snapshot on the lineage records either no k or the required one. A required carrier

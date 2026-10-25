@@ -2347,16 +2347,17 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * A writer commits with the schema that is current at commit, so a key dropped before its delete commits loses
      * the schema-only changes made before the drop from every snapshot. Field IDs are never reused and a field
      * only relaxes compatibly, by promotion or from required to optional, so each field of the selected definition
-     * takes the widest promotion of its type and the optionality it has in any retained schema; neither depends on
-     * the order of the schemas. A field required in every retained schema stays required; a rebuilt field keeps its
-     * initial default in the promoted type ({@link #promotedDefault}) and drops its write default, which no reader
-     * uses and whose stale value may not fit the promoted type.
+     * takes the widest promotion of its type ({@link #widestPromotion}) and the optionality it has in any retained
+     * schema; neither depends on the order of the schemas. A field required in every retained schema stays
+     * required; a rebuilt field keeps its initial default in the promoted type ({@link #promotedDefault}) and drops
+     * its write default, which no reader uses and whose stale value may not fit the promoted type.
      */
     private static List<NestedField> withRetainedRelaxations(List<NestedField> fields, List<Schema> schemas) {
         List<NestedField> relaxed = new ArrayList<>(fields.size());
         for (NestedField field : fields) {
             Type type = field.type();
             boolean optional = field.isOptional();
+            List<Type.PrimitiveType> promotions = new ArrayList<>();
             for (Schema schema : schemas) {
                 NestedField retained = schema.findField(field.fieldId());
                 if (retained == null) {
@@ -2365,8 +2366,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 optional |= retained.isOptional();
                 if (type.isPrimitiveType() && retained.type().isPrimitiveType()
                         && isWideningPromotion(type.asPrimitiveType(), retained.type().asPrimitiveType())) {
-                    type = retained.type();
+                    promotions.add(retained.type().asPrimitiveType());
                 }
+            }
+            if (type.isPrimitiveType()) {
+                type = widestPromotion(field, promotions);
             }
             if (type.isStructType()) {
                 type = Types.StructType.of(withRetainedRelaxations(type.asStructType().fields(), schemas));
@@ -2378,6 +2382,30 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                             .build());
         }
         return relaxed;
+    }
+
+    /**
+     * The promotion of {@code field} that every other one in {@code promotions} promotes to. Evolution moves a
+     * field only along promotions, so its retained promotions form a chain unless the current schema was set back
+     * to an earlier one and the field was then promoted differently: DATE to both TIMESTAMP and TIMESTAMP_NS, or
+     * UNKNOWN to two unrelated types. Neither type then holds the other's values exactly, and the metadata does not
+     * record which one a delete file was written in, so planning fails instead of comparing in either.
+     */
+    private static Type.PrimitiveType widestPromotion(NestedField field, List<Type.PrimitiveType> promotions) {
+        Type.PrimitiveType widest = field.type().asPrimitiveType();
+        for (Type.PrimitiveType promotion : promotions) {
+            if (isWideningPromotion(widest, promotion)) {
+                widest = promotion;
+            }
+        }
+        for (Type.PrimitiveType promotion : promotions) {
+            if (!isWideningPromotion(promotion, widest)) {
+                throw new IllegalStateException("Iceberg equality-delete field " + field.fieldId() + " ("
+                        + field.name() + ") was promoted to both " + widest + " and " + promotion
+                        + " in schema history");
+            }
+        }
+        return widest;
     }
 
     /**
