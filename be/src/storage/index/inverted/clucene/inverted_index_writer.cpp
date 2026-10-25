@@ -372,8 +372,9 @@ void InvertedIndexColumnWriter<field_type>::new_field_char_value(const char* s, 
 }
 
 template <FieldType field_type>
-Status InvertedIndexColumnWriter<field_type>::add_values(const std::string fn, const void* values,
-                                                         size_t count) {
+// Preserve the existing scalar write logic while changing its input type.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+Status InvertedIndexColumnWriter<field_type>::add_values(const uint8_t* values, size_t count) {
     if constexpr (field_is_slice_type(field_type)) {
         DBUG_EXECUTE_IF("InvertedIndexColumnWriter::add_values_field_is_nullptr",
                         { _field = nullptr; })
@@ -404,15 +405,15 @@ Status InvertedIndexColumnWriter<field_type>::add_values(const std::string fn, c
 
 template <FieldType field_type>
 Status InvertedIndexColumnWriter<field_type>::add_array_values(size_t field_size,
-                                                               const void* value_ptr,
+                                                               const uint8_t* value_ptr,
                                                                const uint8_t* nested_null_map,
-                                                               const uint8_t* offsets_ptr,
+                                                               const uint64_t* offsets_ptr,
                                                                size_t count) {
     if (count == 0) {
         // no values to add inverted index
         return Status::OK();
     }
-    const auto* offsets = reinterpret_cast<const uint64_t*>(offsets_ptr);
+    const auto* offsets = offsets_ptr;
     if constexpr (field_is_slice_type(field_type)) {
         DBUG_EXECUTE_IF("InvertedIndexColumnWriter::add_array_values_index_writer_is_nullptr",
                         { _index_writer = nullptr; })
@@ -423,7 +424,7 @@ Status InvertedIndexColumnWriter<field_type>::add_array_values(size_t field_size
         size_t start_off = 0;
         std::vector<ReaderPtr> keep_readers;
         for (size_t i = 0; i < count; ++i) {
-            // nullmap & value ptr-array may not from offsets[i] because olap_convertor make offsets accumulate from _base_offset which may not is 0, but nullmap & value in this segment is from 0, we only need
+            // nullmap & value ptr-array may not from offsets[i] because rebase_offsets makes offsets start from the segment's item ordinal which may not be 0, but nullmap & value in this segment is from 0, we only need
             // every single array row element size to go through the nullmap & value ptr-array, and also can go through the every row in array to keep with _rid++
             auto array_elem_size = offsets[i + 1] - offsets[i];
             // TODO(Amory).later we use object pool to avoid field creation
@@ -433,7 +434,7 @@ Status InvertedIndexColumnWriter<field_type>::add_array_values(size_t field_size
                 if (nested_null_map && nested_null_map[j] == 1) {
                     continue;
                 }
-                auto* v = (Slice*)((const uint8_t*)value_ptr + j * field_size);
+                const auto* v = reinterpret_cast<const Slice*>(value_ptr + j * field_size);
                 if ((!_should_analyzer && v->get_size() > _ignore_above) ||
                     (_should_analyzer && v->empty())) {
                     // is here a null value?

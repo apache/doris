@@ -492,7 +492,8 @@ protected:
                 RETURN_IF_ERROR(column_writer->add_nulls(1));
             } else {
                 const Slice value(rows[row]);
-                RETURN_IF_ERROR(column_writer->add_values(column.name(), &value, 1));
+                RETURN_IF_ERROR(
+                        column_writer->add_values(reinterpret_cast<const uint8_t*>(&value), 1));
             }
         }
         RETURN_IF_ERROR(column_writer->finish());

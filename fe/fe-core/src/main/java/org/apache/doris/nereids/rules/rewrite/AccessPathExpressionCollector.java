@@ -231,7 +231,7 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         // e.g. ["str_col", "OFFSET"] or ["c_struct", "f3", "OFFSET"].
         //
         // CHAR is excluded: CHAR(N) is stored padded to N bytes per row (see BE
-        // OlapColumnDataConvertorChar::clone_and_padding), so the per-row length
+        // StorageLayout<CHAR>::pad_column), so the per-row length
         // information available without reading the chars buffer is the padded
         // length (always N), not the logical post-trim length expected by
         // length(). There is no way to recover the logical length from offsets
