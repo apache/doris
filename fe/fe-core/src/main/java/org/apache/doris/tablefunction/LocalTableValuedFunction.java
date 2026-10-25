@@ -21,6 +21,7 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -137,13 +138,22 @@ public class LocalTableValuedFunction extends ExternalFileTableValuedFunction {
         }
     }
 
-    @Override
-    public void checkAuth(ConnectContext ctx) {
+    /** Check LOCAL admission before property parsing, discovery or sink binding. */
+    public static void checkAccess(ConnectContext ctx) {
+        if (!Config.enable_local_tvf) {
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                    "LOCAL TVF is disabled. Set enable_local_tvf=true in fe.conf and restart every FE to enable it.");
+        }
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, PrivPredicate.ADMIN)
                 && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, PrivPredicate.OPERATOR)) {
             String message = ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR.formatErrorMsg("ADMIN/OPERATOR");
             throw new org.apache.doris.nereids.exceptions.AnalysisException(message);
         }
+    }
+
+    @Override
+    public void checkAuth(ConnectContext ctx) {
+        checkAccess(ctx);
         super.checkAuth(ctx);
     }
 
