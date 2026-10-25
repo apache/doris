@@ -741,6 +741,73 @@ class HadoopTvfRuntimeAdmissionTest {
         }
     }
 
+    @Test
+    void escapedMetacharactersKeepLiteralIdentityBeforeAndAfterRealWildcards() throws Exception {
+        Map<String, String> properties = hdfs("viewfs://literal");
+        properties.put("fs.viewfs.mounttable.literal.link./data", "hdfs://nn/base");
+        properties.put("fs.viewfs.mounttable.literal.link./data/private", "file:///unused-local");
+        properties.put("fs.viewfs.mounttable.literal.linkFallback", "hdfs://nn/fallback");
+        String[][] paths = {
+                {"/data/\\*/file.csv", "/data/*/file.csv"},
+                {"/data/\\*/p?obe.csv", "/data/*/probe.csv"},
+                {"/data/\\?/p?obe.csv", "/data/?/probe.csv"},
+                {"/data/\\[x\\]/p?obe.csv", "/data/[x]/probe.csv"},
+                {"/data/\\{x\\}/p?obe.csv", "/data/{x}/probe.csv"},
+                {"/data/literal\\\\name/p?obe.csv", "/data/literal\\name/probe.csv"}
+        };
+        for (boolean enabled : new boolean[] {false, true}) {
+            Config.enable_local_tvf = enabled;
+            try (RemoteClients clients = new RemoteClients()) {
+                int baseline = filesystemCacheSize();
+                for (String[] entry : paths) {
+                    String uri = "viewfs://literal" + entry[0];
+                    Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.checkReadDiscovery(uri, properties), uri);
+                    Configuration request = javaRequest(properties, HadoopTvfAdmission.Access.HADOOP_READ, uri);
+                    try (FileSystem filesystem = FileSystem.get(URI.create("viewfs://literal"), request)) {
+                        org.apache.hadoop.fs.FileStatus[] matches = filesystem.globStatus(new Path(uri));
+                        Assertions.assertEquals(1, matches.length, uri + clients.events);
+                        Assertions.assertEquals(entry[1], matches[0].getPath().toUri().getPath(), uri);
+                        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(
+                                HadoopTvfAdmission.Access.HADOOP_READ,
+                                matches[0].getPath().toString(), properties, false));
+                    }
+                    clients.verifyClosedOnce();
+                    Assertions.assertEquals(baseline, filesystemCacheSize());
+                }
+            }
+            String actualWildcard = "viewfs://literal/data/*/file.csv";
+            Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                    () -> HadoopTvfAdmission.checkReadDiscovery(actualWildcard, properties));
+            Assertions.assertThrows(IOException.class, () -> TvfGuard.check(URI.create("viewfs://literal"),
+                    javaRequest(properties, HadoopTvfAdmission.Access.HADOOP_READ, actualWildcard)));
+            properties.put("fs.viewfs.mounttable.literal.link./data/*", "file:///unused-local");
+            String selectedLocal = "viewfs://literal/data/\\*/file.csv";
+            Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                    () -> HadoopTvfAdmission.checkReadDiscovery(selectedLocal, properties));
+            Assertions.assertThrows(IOException.class, () -> TvfGuard.check(URI.create("viewfs://literal"),
+                    javaRequest(properties, HadoopTvfAdmission.Access.HADOOP_READ, selectedLocal)));
+            properties.remove("fs.viewfs.mounttable.literal.link./data/*");
+        }
+    }
+
+    @Test
+    void escapedParentNormalizationRetainsEarlierWildcardProbes() throws Exception {
+        Map<String, String> properties = hdfs("viewfs://parents");
+        properties.put("fs.viewfs.mounttable.parents.link./data", "hdfs://nn/base");
+        properties.put("fs.viewfs.mounttable.parents.link./other", "hdfs://nn/other");
+        properties.put("fs.viewfs.mounttable.parents.link./other/private", "file:///unused-local");
+        properties.put("fs.viewfs.mounttable.parents.linkFallback", "hdfs://nn/fallback");
+        String uri = "viewfs://parents/data/*/\\.\\./\\.\\./other/\\*/p?obe.csv";
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.checkReadDiscovery(uri, properties));
+        Assertions.assertDoesNotThrow(() -> TvfGuard.check(URI.create("viewfs://parents"),
+                javaRequest(properties, HadoopTvfAdmission.Access.HADOOP_READ, uri)));
+        properties.put("fs.viewfs.mounttable.parents.link./data/private", "file:///unused-local");
+        Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                () -> HadoopTvfAdmission.checkReadDiscovery(uri, properties));
+        Assertions.assertThrows(IOException.class, () -> TvfGuard.check(URI.create("viewfs://parents"),
+                javaRequest(properties, HadoopTvfAdmission.Access.HADOOP_READ, uri)));
+    }
+
     private Configuration javaRequest(Map<String, String> properties, HadoopTvfAdmission.Access access,
             String path) throws Exception {
         Configuration configuration = defaults(Collections.emptyMap());
