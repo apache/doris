@@ -58,6 +58,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -451,7 +452,12 @@ class HadoopTvfRuntimeAdmissionTest {
             try {
                 for (int index = 0; index < 3; index++) {
                     String path = "/data/prefix" + index + "_";
-                    Map<String, String> properties = hdfs("viewfs://prefixes");
+                    Map<String, String> properties = new LinkedHashMap<>();
+                    // SQL preserves spelling and order; the first case-insensitive key survives normalization.
+                    properties.put("FILE_PATH", path);
+                    properties.put("FiLe_PaTh\0suffix", path);
+                    properties.put("FiLe_PaTh \0suffix", path);
+                    properties.putAll(hdfs("viewfs://prefixes"));
                     properties.put("fs.broker.support", "true");
                     properties.put("broker.name", "runtime-prefix-test");
                     properties.put("fs.viewfs.mounttable.prefixes.link./data", "hdfs://nn/base");
@@ -484,8 +490,10 @@ class HadoopTvfRuntimeAdmissionTest {
                         () -> Assertions.assertEquals(profiles.get(0), profiles.get(1)),
                         () -> Assertions.assertNotEquals(profiles.get(0), profiles.get(2)),
                         () -> Assertions.assertEquals(java.util.Arrays.asList(1, 1, 2), childCounts),
-                        () -> Assertions.assertTrue(sentProperties.stream()
-                                .noneMatch(properties -> properties.containsKey("file_path"))));
+                        () -> Assertions.assertTrue(sentProperties.stream().allMatch(properties ->
+                                !properties.containsKey("file_path") && !properties.containsKey("FILE_PATH")
+                                        && !properties.containsKey("FiLe_PaTh\0suffix")
+                                        && !properties.containsKey("FiLe_PaTh \0suffix"))));
             } finally {
                 for (FileSystem outer : outers) {
                     outer.close();

@@ -137,8 +137,11 @@ public class TVFTableSink extends DataSink {
                     properties.get("file_path"), backendConnectProps);
             backendConnectProps = HadoopTvfAdmission.protectNativeWrite(
                     properties.get("file_path"), backendConnectProps);
-            // The path has its own Thrift field and must not partition runtime client caches.
-            backendConnectProps.remove("file_path");
+            // Keep output-path aliases, including native NUL projection, out of client configuration.
+            backendConnectProps.keySet().removeIf(key -> {
+                int nul = key.indexOf('\0');
+                return "file_path".equalsIgnoreCase((nul < 0 ? key : key.substring(0, nul)).trim());
+            });
         }
 
         String filePath = properties.get("file_path");
