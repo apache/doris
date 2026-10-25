@@ -3691,30 +3691,50 @@ public abstract class FileSystem extends Configured
       }
     }
 
-    /** Routes touched by Globber, without constructing a filesystem or listing data. */
+    /** Literal probes and subtree prefixes touched by Globber, without filesystem IO. */
     public static List<Rule> globRules(URI filesystem, String pattern) throws IOException {
       List<Rule> rules = new ArrayList<>();
       for (String expanded : GlobExpander.expand(pattern)) {
         Path flattened = new Path(expanded.isEmpty() ? Path.CUR_DIR : expanded);
         String path = flattened.toUri().getPath();
-        Path candidate = new Path(flattened.isAbsolute() ? "/" : Path.CUR_DIR);
+        Path root = new Path(flattened.isAbsolute() ? "/" : Path.CUR_DIR);
+        Path candidate = root;
+        List<String> components = new ArrayList<>();
+        List<Boolean> patterned = new ArrayList<>();
         for (String component : path.split("/")) {
           if (component.isEmpty()) {
             continue;
           }
           GlobFilter filter = new GlobFilter(component);
           if (filter.hasPattern()) {
-            // Globber lists this parent before it knows the matching child names. Keep
-            // prior wildcard components as a conservative subtree route, including when
-            // a later escaped '..' moves the final candidate outside that subtree.
-            rules.add(new Rule(filesystem.toString(), new Path(candidate, "*").toUri().getPath(), true));
+            // Keep every real listing parent, even if later escaped '..' removes it.
+            rules.add(new Rule(filesystem.toString(),
+                globLiteralPrefix(root, components, patterned).toUri().getPath(), true));
           }
           component = component.replaceAll("\\\\(.)", "$1");
           candidate = new Path(candidate, component);
+          if ("..".equals(component) && !components.isEmpty()
+              && !"..".equals(components.get(components.size() - 1))) {
+            components.remove(components.size() - 1);
+            patterned.remove(patterned.size() - 1);
+          } else if (!".".equals(component)) {
+            components.add(component);
+            patterned.add(filter.hasPattern());
+          }
         }
-        rules.add(new Rule(filesystem.toString(), candidate.toUri().getPath(), true));
+        boolean subtree = patterned.contains(Boolean.TRUE);
+        Path probe = subtree ? globLiteralPrefix(root, components, patterned) : candidate;
+        rules.add(new Rule(filesystem.toString(), probe.toUri().getPath(), subtree));
       }
       return rules;
+    }
+
+    private static Path globLiteralPrefix(Path root, List<String> components, List<Boolean> patterned) {
+      Path prefix = root;
+      for (int i = 0; i < components.size() && !patterned.get(i); i++) {
+        prefix = new Path(prefix, components.get(i));
+      }
+      return prefix;
     }
 
     /** Java requests own their mount clients; native connections keep their existing cache. */
@@ -4040,6 +4060,16 @@ public abstract class FileSystem extends Configured
         this.conf = conf;
       }
 
+      private EffectiveRoute(EffectiveRoute original, boolean descendants) {
+        super(original, descendants);
+        conf = original.conf;
+      }
+
+      @Override
+      protected Route withDescendants(boolean value) {
+        return new EffectiveRoute(this, value);
+      }
+
       @Override
       protected String property(String key) {
         return conf.get(key);
@@ -4090,6 +4120,14 @@ public abstract class FileSystem extends Configured
       private final boolean descendants;
       private final Map<String, String> properties;
 
+      protected Route(Route original, boolean descendants) {
+        this(original.properties, descendants);
+      }
+
+      protected Route withDescendants(boolean value) {
+        return new Route(this, value);
+      }
+
       public Route(Map<String, String> properties, boolean descendants) {
         // Both callers supply a statement-local snapshot that is never mutated afterward.
         this.properties = properties;
@@ -4138,7 +4176,7 @@ public abstract class FileSystem extends Configured
       public void checkGlobRoute(URI filesystem, String pattern, Set<String> activeTables)
           throws IOException, URISyntaxException {
         for (Rule rule : globRules(filesystem, pattern)) {
-          checkRoute(filesystem, rule.path, activeTables);
+          withDescendants(rule.descendants).checkRoute(filesystem, rule.path, activeTables);
         }
       }
 
@@ -4190,7 +4228,7 @@ public abstract class FileSystem extends Configured
           // Listing can touch any descendant of a selected mount. Reuse the same route
           // interpreter for nested tables instead of assuming their root is representative.
           String path = uri.getPath() == null ? "/" : uri.getPath();
-          checkRoute(uri, (path.endsWith("/") ? path : path + "/") + "*", activeTables);
+          checkRoute(uri, path, activeTables);
         }
       }
 
@@ -4271,26 +4309,7 @@ public abstract class FileSystem extends Configured
               selectedKeys.add(key);
             }
           }
-          if (descendants && hasGlob(path)) {
-            String literal = path.substring(0, firstGlob(path));
-            int slash = literal.lastIndexOf('/');
-            literal = slash < 0 ? "/" : literal.substring(0, slash + 1);
-            for (String key : properties.keySet()) {
-              if (!key.startsWith(prefix)) {
-                continue;
-              }
-              String entry = key.substring(prefix.length());
-              int sourceStart = entry.indexOf('/');
-              if (sourceStart >= 0 && (entry.startsWith("link.") || entry.startsWith("linkMerge.")
-                  || entry.startsWith("linkNfly."))) {
-                String mount = entry.substring(sourceStart);
-                if (mount.startsWith(literal) || literal.startsWith(mount + "/")) {
-                  checkGlobTargets(key, prefix, activeTables);
-                }
-              }
-            }
-          }
-          if (descendants && !hasGlob(path)) {
+          if (descendants) {
             String subtree = path.endsWith("/") ? path : path + "/";
             for (String key : properties.keySet()) {
               if (key.startsWith(prefix)) {
@@ -4361,21 +4380,6 @@ public abstract class FileSystem extends Configured
           reject();
         }
         return value;
-      }
-
-      private static int firstGlob(String path) {
-        int first = path.length();
-        for (char marker : new char[] {'*', '?', '[', '{'}) {
-          int index = path.indexOf(marker);
-          if (index >= 0) {
-            first = Math.min(first, index);
-          }
-        }
-        return first;
-      }
-
-      private static boolean hasGlob(String path) {
-        return firstGlob(path) < path.length();
       }
 
       protected void reject() {

@@ -17,6 +17,8 @@
 
 package org.apache.doris.avro;
 
+import org.apache.doris.thrift.TFileType;
+
 import org.apache.avro.Schema;
 import org.apache.avro.SchemaBuilder;
 import org.apache.avro.file.DataFileWriter;
@@ -43,6 +45,7 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -53,6 +56,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
@@ -92,13 +96,12 @@ public class AvroViewFsLifecycleTest {
         try (RemoteClients clients = new RemoteClients(Files.readAllBytes(file.toPath()))) {
             int baseline = cacheSize();
             clients.invalidDataHeader = true;
-            HDFSFileReader reader = guardedReader(0);
-            try {
-                Assert.assertThrows(IOException.class, () -> reader.open(context(file.length(), 0), false));
-                Assert.assertNull(reader.dataReader);
-            } finally {
-                reader.close();
-            }
+            AvroJNIScanner scanner = scanner(clients, false, file.length());
+            Assert.assertThrows(IOException.class, scanner::open);
+            Field readerField = AvroJNIScanner.class.getDeclaredField("avroReader");
+            readerField.setAccessible(true);
+            Assert.assertNull(((AvroReader) readerField.get(scanner)).dataReader);
+            Assert.assertEquals(2, clients.streams.size());
             Assert.assertEquals(1, clients.clients.size());
             clients.assertClosed();
             Assert.assertEquals(baseline, cacheSize());
@@ -119,6 +122,62 @@ public class AvroViewFsLifecycleTest {
             clients.assertClosed();
             Assert.assertEquals(baseline, cacheSize());
         }
+    }
+
+    @Test
+    public void failedProductionSchemaOpenClosesResourcesWithoutCallerClose() throws Exception {
+        File file = records();
+        for (boolean missing : new boolean[] {false, true}) {
+            try (RemoteClients clients = new RemoteClients(Files.readAllBytes(file.toPath()))) {
+                int baseline = cacheSize();
+                clients.missingInput = missing;
+                clients.truncatedSchema = !missing;
+                AvroJNIScanner scanner = scanner(clients, true, file.length());
+                Assert.assertThrows(IOException.class, scanner::open);
+                Assert.assertEquals(1, clients.clients.size());
+                Assert.assertEquals(missing ? 0 : 1, clients.streams.size());
+                // JNI skips Java close after a failed open; no manual scanner.close here.
+                clients.assertClosed();
+                Assert.assertEquals(baseline, cacheSize());
+            }
+        }
+    }
+
+    @Test
+    public void productionOpenPreservesFailureAndSuppressesCleanupErrors() throws Exception {
+        File file = records();
+        try (RemoteClients clients = new RemoteClients(Files.readAllBytes(file.toPath()))) {
+            int baseline = cacheSize();
+            clients.truncatedSchema = true;
+            clients.failStreamClose = true;
+            clients.failClientClose = true;
+            AvroJNIScanner scanner = scanner(clients, true, file.length());
+            IOException failure = Assert.assertThrows(IOException.class, scanner::open);
+            Assert.assertFalse(failure.getMessage() != null && failure.getMessage().startsWith("injected"));
+            Assert.assertEquals(2, failure.getSuppressed().length);
+            clients.assertClosed();
+            Assert.assertEquals(baseline, cacheSize());
+        }
+    }
+
+    private AvroJNIScanner scanner(RemoteClients clients, boolean schemaOnly, long length) throws Exception {
+        Map<String, String> params = new HashMap<>();
+        params.put(AvroProperties.IS_GET_TABLE_SCHEMA, Boolean.toString(schemaOnly));
+        params.put(AvroProperties.FILE_TYPE, Integer.toString(TFileType.FILE_HDFS.getValue()));
+        params.put(AvroProperties.URI, "viewfs://cluster/data/records.avro");
+        params.put(TvfGuard.POLICY_KEY, TvfGuard.NATIVE_POLICY);
+        params.put(AvroProperties.COLUMNS_TYPES, "int");
+        params.put(AvroProperties.REQUIRED_FIELDS, "id");
+        params.put(AvroProperties.HIVE_SERDE, "org.apache.hadoop.hive.serde2.avro.AvroSerDe");
+        params.put(AvroProperties.SPLIT_START_OFFSET, "0");
+        params.put(AvroProperties.SPLIT_SIZE, Long.toString(length));
+        params.put(AvroProperties.SPLIT_FILE_SIZE, Long.toString(length));
+        AvroJNIScanner scanner = new AvroJNIScanner(8, params);
+        // Give the production scanner its isolated deployment resources, without mocking open/close.
+        Field loaderField = AvroJNIScanner.class.getDeclaredField("classLoader");
+        loaderField.setAccessible(true);
+        loaderField.set(scanner, clients.loader);
+        return scanner;
     }
 
     private HDFSFileReader guardedReader(int index) {
@@ -189,6 +248,10 @@ public class AvroViewFsLifecycleTest {
         private final Method baseClose;
         private final byte[] bytes;
         private boolean invalidDataHeader;
+        private boolean missingInput;
+        private boolean truncatedSchema;
+        private boolean failStreamClose;
+        private boolean failClientClose;
 
         private RemoteClients(byte[] bytes) throws Exception {
             this.bytes = bytes;
@@ -230,11 +293,17 @@ public class AvroViewFsLifecycleTest {
             Mockito.when(client.getFileStatus(Mockito.any(Path.class))).thenAnswer(call ->
                     new FileStatus(bytes.length, false, 1, 1, 0, call.getArgument(0)));
             Mockito.when(client.open(Mockito.any(Path.class), Mockito.anyInt())).thenAnswer(call -> {
-                byte[] content = invalidDataHeader && streams.size() % 2 == 1
-                        ? new byte[] {0, 0, 0, 0} : bytes;
+                if (missingInput) {
+                    throw new FileNotFoundException("recording Avro input is missing");
+                }
+                byte[] content = truncatedSchema ? new byte[] {'O', 'b', 'j', 1}
+                        : invalidDataHeader && streams.size() % 2 == 1 ? new byte[] {0, 0, 0, 0} : bytes;
                 SeekableByteArrayInput input = new SeekableByteArrayInput(content);
                 FSDataInputStream stream = Mockito.mock(FSDataInputStream.class);
                 streams.add(stream);
+                if (failStreamClose) {
+                    Mockito.doThrow(new IOException("injected stream close failure")).when(stream).close();
+                }
                 Mockito.when(stream.read(Mockito.any(byte[].class), Mockito.anyInt(), Mockito.anyInt()))
                         .thenAnswer(read -> input.read(read.getArgument(0), read.getArgument(1), read.getArgument(2)));
                 Mockito.when(stream.read()).thenAnswer(read -> {
@@ -250,6 +319,9 @@ public class AvroViewFsLifecycleTest {
             });
             Mockito.doAnswer(call -> {
                 baseClose.invoke(client);
+                if (failClientClose) {
+                    throw new IOException("injected client close failure");
+                }
                 return null;
             }).when(client).close();
             return client;
