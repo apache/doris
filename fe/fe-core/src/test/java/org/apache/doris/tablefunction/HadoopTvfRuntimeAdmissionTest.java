@@ -344,6 +344,142 @@ class HadoopTvfRuntimeAdmissionTest {
         configuration.set(TvfGuard.PATH_KEY, path);
     }
 
+    @Test
+    void escapedListingComponentsAreCheckedBeforeDiscovery() throws Exception {
+        Map<String, String> properties = readProperties("viewfs://cluster/da\\ta/*.csv");
+        properties.put("fs.defaultFS", "viewfs://cluster");
+        properties.put("fs.viewfs.mounttable.cluster.link./data", "file:///tmp");
+        properties.put("fs.viewfs.mounttable.cluster.linkFallback", "hdfs://remote/base");
+        Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                () -> new HdfsTableValuedFunction(properties));
+        properties.put("fs.viewfs.mounttable.cluster.link./data", "hdfs://remote/data");
+        Assertions.assertDoesNotThrow(() -> new HdfsTableValuedFunction(properties));
+        Configuration actual = defaults(Collections.singletonMap(
+                "fs.viewfs.mounttable.cluster.link./data", "file:///tmp"));
+        properties.remove("fs.viewfs.mounttable.cluster.link./data");
+        overlay(actual, HadoopTvfAdmission.protectJava(
+                HadoopTvfAdmission.Access.HADOOP_READ, properties.get("uri"), properties));
+        Assertions.assertThrows(IOException.class,
+                () -> TvfGuard.check(URI.create("viewfs://cluster"), actual));
+    }
+
+    @Test
+    void globTraversalChecksIntermediateParentsAndEscapedDotSegments() {
+        Map<String, String> properties = hdfs("viewfs://cluster");
+        properties.put("fs.viewfs.mounttable.cluster.link./data", "file:///tmp");
+        properties.put("fs.viewfs.mounttable.cluster.linkFallback", "hdfs://remote/base");
+        for (String path : new String[] {"viewfs://cluster/da\\ta/*/\\.\\./other/*.csv",
+                "viewfs://cluster/{da\\ta/x,remote/y}/*.csv"}) {
+            Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                    () -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.HADOOP_READ, path, properties, false));
+        }
+        properties.put("fs.viewfs.mounttable.cluster.link./data", "hdfs://remote/data");
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.HADOOP_READ,
+                "viewfs://cluster/da\\ta/\\*/file.csv", properties, false));
+        properties.put("fs.viewfs.mounttable.cluster.link./local", "file:///tmp");
+        properties.put("fs.viewfs.mounttable.cluster.link./literal\\name", "hdfs://remote/base");
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.JAVA_DELETE,
+                "viewfs://cluster/literal\\name/file.csv", properties));
+    }
+
+    @Test
+    void explicitJuiceFsUsesTheSameKnownRemoteProviderAsRuntime() throws Exception {
+        for (boolean enabled : new boolean[] {false, true}) {
+            Config.enable_local_tvf = enabled;
+            Map<String, String> properties = readProperties("jfs://cluster/data.csv");
+            properties.put("fs.defaultFS", "jfs://cluster");
+            properties.put("fs.jfs.impl", "io.juicefs.JuiceFileSystem");
+            properties.put("juicefs.cluster.meta", "redis://meta:6379/1");
+            Assertions.assertDoesNotThrow(() -> new HdfsTableValuedFunction(properties));
+            properties.put("fs.jfs.impl", LocalFileSystem.class.getName());
+            Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                    () -> new HdfsTableValuedFunction(properties));
+        }
+    }
+
+    @Test
+    void secureWasbDefaultAndDelegatedRoutesKeepRemoteAdmission() throws Exception {
+        Configuration direct = defaults(Collections.emptyMap());
+        Assertions.assertEquals("org.apache.hadoop.fs.azure.NativeAzureFileSystem$Secure",
+                FileSystem.getFileSystemClass("wasbs", direct).getName());
+        direct.set(TvfGuard.POLICY_KEY, TvfGuard.NATIVE_POLICY);
+        nativeRequest(direct, "wasbs://container@account.blob.core.windows.net", "/exports/file");
+        Assertions.assertDoesNotThrow(() -> TvfGuard.check(URI.create("wasbs://container@account.blob.core.windows.net"), direct));
+        Configuration delegated = new Configuration(direct);
+        nativeRequest(delegated, "viewfs://cluster", "/exports/file");
+        delegated.set("fs.viewfs.mounttable.cluster.link./exports",
+                "wasbs://container@account.blob.core.windows.net/base");
+        Assertions.assertDoesNotThrow(() -> TvfGuard.check(URI.create("viewfs://cluster"), delegated));
+        delegated.set("fs.wasbs.impl", LocalFileSystem.class.getName());
+        Assertions.assertThrows(IOException.class, () -> TvfGuard.check(URI.create("viewfs://cluster"), delegated));
+    }
+
+    @Test
+    void guardedSnapshotDisablesOnlyViewFsInnerCache() throws Exception {
+        Configuration source = defaults(Collections.emptyMap());
+        source.setBoolean("fs.viewfs.enable.inner.cache", true);
+        Configuration frozen = TvfGuard.prepareJavaRead(source, new Path("hdfs://runtime/data.csv"), TvfGuard.NATIVE_POLICY);
+        Assertions.assertFalse(frozen.getBoolean("fs.viewfs.enable.inner.cache", true));
+        Assertions.assertTrue(source.getBoolean("fs.viewfs.enable.inner.cache", false));
+        Assertions.assertSame(source, TvfGuard.prepareJavaRead(source, new Path("file:///unused"), null));
+    }
+
+    @Test
+    void noGlobBackslashMatchesTheBranchListingConsumer() {
+        Map<String, String> properties = hdfs("viewfs://cluster");
+        properties.put("fs.viewfs.mounttable.cluster.link./data", "file:///tmp");
+        properties.put("fs.viewfs.mounttable.cluster.linkFallback", "hdfs://remote/base");
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(
+                HadoopTvfAdmission.Access.HADOOP_READ, "viewfs://cluster/da\\ta/file.csv", properties, false));
+    }
+
+    @Test
+    void nestedViewFsCaseDistinctTargetsKeepTheirActualIdentityAfterWarmup() throws Exception {
+        Configuration source = defaults(Collections.emptyMap());
+        source.set(TvfGuard.POLICY_KEY, TvfGuard.NATIVE_POLICY);
+        nativeRequest(source, "viewfs://outer", "/warm/file.csv");
+        source.setBoolean("fs.viewfs.enable.inner.cache", true);
+        source.set("fs.viewfs.mounttable.outer.link./warm", "viewfs://A/remote");
+        source.set("fs.viewfs.mounttable.outer.link./evil", "viewfs://a/secret");
+        source.set("fs.viewfs.mounttable.A.link./remote", "hdfs://nn/base");
+        source.set("fs.viewfs.mounttable.A.link./secret", "file:///unused-local");
+        source.set("fs.viewfs.mounttable.a.linkFallback", "hdfs://nn/lower");
+        java.util.List<String> accesses = new java.util.ArrayList<>();
+        LocalFileSystem local = Mockito.mock(LocalFileSystem.class);
+        Mockito.when(local.getUri()).thenReturn(URI.create("file:///"));
+        Mockito.when(local.getWorkingDirectory()).thenReturn(new Path("/"));
+        try (MockedStatic<ReflectionUtils> factory = Mockito.mockStatic(
+                ReflectionUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            factory.when(() -> ReflectionUtils.newInstance(Mockito.eq(DistributedFileSystem.class),
+                    Mockito.any(Configuration.class))).thenAnswer(invocation -> {
+                        DistributedFileSystem remote = Mockito.mock(DistributedFileSystem.class);
+                        Mockito.when(remote.getConf()).thenReturn(invocation.getArgument(1));
+                        Mockito.when(remote.getUri()).thenReturn(URI.create("hdfs://nn"));
+                        Mockito.when(remote.getWorkingDirectory()).thenReturn(new Path("/"));
+                        Mockito.when(remote.getFileStatus(Mockito.any(Path.class))).thenAnswer(call -> {
+                            Path path = call.getArgument(0);
+                            accesses.add(path.toUri().getPath());
+                            return new org.apache.hadoop.fs.FileStatus(1, false, 1, 1, 0, path);
+                        });
+                        return remote;
+                    });
+            factory.when(() -> ReflectionUtils.newInstance(Mockito.eq(LocalFileSystem.class),
+                    Mockito.any(Configuration.class))).thenReturn(local);
+            FileSystem outer = FileSystem.newInstance(URI.create("viewfs://outer"), source);
+            TvfGuard.Context context = TvfGuard.takeNativeContext();
+            Assertions.assertNotNull(context);
+            Assertions.assertFalse(outer.getConf().getBoolean("fs.viewfs.enable.inner.cache", true));
+            outer.getFileStatus(new Path("/warm/file.csv"));
+            context.checkNative("viewfs://outer", "/evil/file.csv");
+            outer.getFileStatus(new Path("/evil/file.csv"));
+            outer.getFileStatus(new Path("/evil/next.csv"));
+            Assertions.assertTrue(accesses.contains("/base/file.csv"), accesses.toString());
+            Assertions.assertTrue(accesses.contains("/lower/secret/file.csv"), accesses.toString());
+            Assertions.assertTrue(accesses.contains("/lower/secret/next.csv"), accesses.toString());
+            Mockito.verify(local, Mockito.never()).getFileStatus(Mockito.any(Path.class));
+        }
+    }
+
     private Configuration defaults(Map<String, String> entries) throws Exception {
         StringBuilder xml = new StringBuilder("<configuration>");
         entries.forEach((key, value) -> xml.append("<property><name>").append(key)
