@@ -2236,6 +2236,26 @@ std::shared_ptr<arrow::FixedSizeBinaryArray> make_bfloat16_array(
     return array;
 }
 
+// Creates an Arrow Decimal256 array; std::nullopt appends NULL. Each value is written with exactly
+// `scale` fraction digits, so Decimal256::FromString() returns the unscaled integer that the
+// array stores: "-0.01" becomes -1 in a decimal256(18, 2) array.
+std::shared_ptr<arrow::Array> make_decimal256_array(
+        int32_t precision, int32_t scale, const std::vector<std::optional<std::string>>& values) {
+    arrow::Decimal256Builder builder(arrow::decimal256(precision, scale));
+    for (const auto& value : values) {
+        if (!value.has_value()) {
+            EXPECT_TRUE(builder.AppendNull().ok());
+            continue;
+        }
+        const auto decimal = arrow::Decimal256::FromString(*value);
+        EXPECT_TRUE(decimal.ok()) << *value << ": " << decimal.status().ToString();
+        EXPECT_TRUE(decimal.ok() && builder.Append(*decimal).ok()) << *value;
+    }
+    std::shared_ptr<arrow::Array> array;
+    EXPECT_TRUE(builder.Finish(&array).ok());
+    return array;
+}
+
 std::pair<size_t, size_t> array_range(const ColumnArray& array, size_t row) {
     const auto& offsets = array.get_offsets();
     return {row == 0 ? 0 : static_cast<size_t>(offsets[row - 1]),
@@ -2994,6 +3014,292 @@ TEST(LanceTableReaderTypeTest, KeepsOrdinaryNestedArrayUnchangedDuringNormalizat
     const auto status = normalize_lance_arrow_array_for_test(field, array, &normalized);
     ASSERT_TRUE(status.ok()) << status.to_string();
     EXPECT_EQ(array.get(), normalized.get());
+}
+
+// Verifies a Decimal256 field whose precision fits Decimal128 is narrowed with unchanged values,
+// because Doris types it DECIMAL32/64/128I and those SerDes read only Decimal128Array.
+TEST(LanceTableReaderTypeTest, NarrowsDecimal256WithDecimal128PrecisionDuringNormalization) {
+    const auto input = make_decimal256_array(
+            18, 2, {"9999999999999999.99", "-9999999999999999.99", std::nullopt});
+    std::shared_ptr<arrow::Array> normalized;
+    const auto status = normalize_lance_arrow_array_for_test(
+            arrow::field("amount", arrow::decimal256(18, 2)), input, &normalized);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_TRUE(normalized->type()->Equals(arrow::decimal128(18, 2)))
+            << normalized->type()->ToString();
+    const auto decimals = std::dynamic_pointer_cast<arrow::Decimal128Array>(normalized);
+    ASSERT_NE(nullptr, decimals);
+    ASSERT_EQ(3, decimals->length());
+    EXPECT_EQ("9999999999999999.99", decimals->FormatValue(0));
+    EXPECT_EQ("-9999999999999999.99", decimals->FormatValue(1));
+    EXPECT_TRUE(decimals->IsNull(2));
+}
+
+// Verifies a Decimal256 field above Decimal128 precision keeps its array for DECIMAL256.
+TEST(LanceTableReaderTypeTest, KeepsWideDecimal256UnchangedDuringNormalization) {
+    const auto input = make_decimal256_array(
+            39, 4, {"99999999999999999999999999999999999.9999", std::nullopt});
+    std::shared_ptr<arrow::Array> normalized;
+    const auto status = normalize_lance_arrow_array_for_test(
+            arrow::field("wide_amount", arrow::decimal256(39, 4)), input, &normalized);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_EQ(input.get(), normalized.get());
+}
+
+// Verifies narrowed Decimal256 values reach DECIMAL32, DECIMAL64, and DECIMAL128I unchanged.
+TEST(LanceTableReaderTypeTest, ConvertsDecimal256WithDecimal128PrecisionToDorisDecimals) {
+    struct DecimalCase {
+        const char* name;
+        PrimitiveType doris_type;
+        int precision;
+        int scale;
+        std::array<const char*, 2> values;
+    };
+    const std::array<DecimalCase, 3> cases {{
+            {"decimal_9_2", TYPE_DECIMAL32, 9, 2, {"9999999.99", "-9999999.99"}},
+            {"decimal_18_2", TYPE_DECIMAL64, 18, 2, {"9999999999999999.99", "-0.01"}},
+            {"decimal_38_10",
+             TYPE_DECIMAL128I,
+             38,
+             10,
+             {"9999999999999999999999999999.9999999999",
+              "-9999999999999999999999999999.9999999999"}},
+    }};
+    arrow::FieldVector fields;
+    std::vector<std::shared_ptr<arrow::Array>> arrays;
+    Columns columns;
+    for (const auto& decimal_case : cases) {
+        fields.emplace_back(arrow::field(
+                decimal_case.name, arrow::decimal256(decimal_case.precision, decimal_case.scale)));
+        arrays.emplace_back(make_decimal256_array(
+                decimal_case.precision, decimal_case.scale,
+                {decimal_case.values[0], decimal_case.values[1], std::nullopt}));
+        columns.emplace_back(projected_column(
+                decimal_case.name, nullable_type(decimal_case.doris_type, decimal_case.precision,
+                                                 decimal_case.scale)));
+    }
+    const auto record_batch = arrow::RecordBatch::Make(arrow::schema(fields), 3, arrays);
+    TQueryGlobals query_globals;
+    RuntimeState state(TQueryOptions(), query_globals);
+    Block block;
+    add_output_columns(&block, columns);
+    size_t rows = 0;
+    const auto status = convert_record_batch_for_test(&state, columns, record_batch, &block, &rows);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_EQ(3, rows);
+    for (size_t column = 0; column < cases.size(); ++column) {
+        SCOPED_TRACE(cases[column].name);
+        const auto& decimals =
+                assert_cast<const ColumnNullable&>(*block.get_by_position(column).column);
+        EXPECT_EQ((ColumnUInt8::Container {0, 0, 1}), decimals.get_null_map_data());
+        EXPECT_EQ(std::string(cases[column].values[0]),
+                  columns[column].type->to_string(decimals, 0));
+        EXPECT_EQ(std::string(cases[column].values[1]),
+                  columns[column].type->to_string(decimals, 1));
+    }
+}
+
+// Verifies Decimal256 leaves are narrowed inside sliced List, Map, and Struct arrays. The parent
+// type is rebuilt around the narrowed child before compaction keeps only the visible values.
+TEST(LanceTableReaderTypeTest, NarrowsDecimal256LeavesInSlicedNestedArrays) {
+    const auto decimal_type = arrow::decimal256(18, 2);
+    const auto values = make_decimal256_array(18, 2, {"1.00", "2.50", "-3.75", "4.00"});
+    arrow::Int32Builder offsets_builder;
+    ASSERT_TRUE(offsets_builder.AppendValues({0, 1, 3, 4}).ok());
+    std::shared_ptr<arrow::Int32Array> offsets;
+    ASSERT_TRUE(offsets_builder.Finish(&offsets).ok());
+    arrow::StringBuilder keys_builder;
+    ASSERT_TRUE(keys_builder.AppendValues({"k0", "k1", "k2", "k3"}).ok());
+    std::shared_ptr<arrow::StringArray> keys;
+    ASSERT_TRUE(keys_builder.Finish(&keys).ok());
+    arrow::Int32Builder ids_builder;
+    ASSERT_TRUE(ids_builder.AppendValues({10, 11, 12, 13}).ok());
+    std::shared_ptr<arrow::Int32Array> ids;
+    ASSERT_TRUE(ids_builder.Finish(&ids).ok());
+
+    // Offsets {0, 1, 3, 4}: list and map row 1 cover the child values 2.50 and -3.75. Struct row 2
+    // holds -3.75 and id 12.
+    const auto list_type = arrow::list(arrow::field("item", decimal_type));
+    auto list_result = arrow::ListArray::FromArrays(list_type, *offsets, *values);
+    ASSERT_TRUE(list_result.ok()) << list_result.status().ToString();
+    const auto map_type = arrow::map(arrow::utf8(), decimal_type);
+    auto map_result = arrow::MapArray::FromArrays(map_type, offsets, keys, values);
+    ASSERT_TRUE(map_result.ok()) << map_result.status().ToString();
+    auto struct_result = arrow::StructArray::Make(
+            {values, ids},
+            {arrow::field("amount", decimal_type), arrow::field("id", arrow::int32())});
+    ASSERT_TRUE(struct_result.ok()) << struct_result.status().ToString();
+    const auto list_input = std::move(list_result).ValueUnsafe()->Slice(1, 1);
+    const auto map_input = std::move(map_result).ValueUnsafe()->Slice(1, 1);
+    const auto struct_input = std::move(struct_result).ValueUnsafe()->Slice(2, 1);
+
+    std::shared_ptr<arrow::Array> normalized;
+    const auto status = normalize_lance_arrow_array_for_test(arrow::field("values", list_type),
+                                                             list_input, &normalized);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    const auto normalized_list = std::dynamic_pointer_cast<arrow::ListArray>(normalized);
+    ASSERT_NE(nullptr, normalized_list);
+    EXPECT_EQ(0, normalized_list->offset());
+    EXPECT_TRUE(normalized_list->value_type()->Equals(arrow::decimal128(18, 2)))
+            << normalized_list->value_type()->ToString();
+    EXPECT_EQ(2, normalized_list->values()->length());
+
+    const auto schema = arrow::schema({
+            arrow::field("list_value", list_type),
+            arrow::field("map_value", map_type),
+            arrow::field("struct_value", struct_input->type()),
+    });
+    const auto record_batch =
+            arrow::RecordBatch::Make(schema, 1, {list_input, map_input, struct_input});
+    const auto decimal_doris_type = nullable_type(TYPE_DECIMAL64, 18, 2);
+    const Columns columns {
+            projected_column("list_value",
+                             make_nullable(std::make_shared<DataTypeArray>(decimal_doris_type))),
+            projected_column("map_value", make_nullable(std::make_shared<DataTypeMap>(
+                                                  nullable_type(TYPE_STRING), decimal_doris_type))),
+            projected_column("struct_value",
+                             make_nullable(std::make_shared<DataTypeStruct>(
+                                     DataTypes {decimal_doris_type, nullable_type(TYPE_INT)},
+                                     Strings {"amount", "id"}))),
+    };
+    TQueryGlobals query_globals;
+    RuntimeState state(TQueryOptions(), query_globals);
+    Block block;
+    add_output_columns(&block, columns);
+    size_t rows = 0;
+    const auto convert_status =
+            convert_record_batch_for_test(&state, columns, record_batch, &block, &rows);
+    ASSERT_TRUE(convert_status.ok()) << convert_status.to_string();
+    ASSERT_EQ(1, rows);
+
+    const auto& list_column = assert_cast<const ColumnArray&>(
+            assert_cast<const ColumnNullable&>(*block.get_by_position(0).column)
+                    .get_nested_column());
+    EXPECT_EQ((ColumnArray::Offsets64 {2}), list_column.get_offsets());
+    EXPECT_EQ("2.50", decimal_doris_type->to_string(list_column.get_data(), 0));
+    EXPECT_EQ("-3.75", decimal_doris_type->to_string(list_column.get_data(), 1));
+
+    const auto& map_column = assert_cast<const ColumnMap&>(
+            assert_cast<const ColumnNullable&>(*block.get_by_position(1).column)
+                    .get_nested_column());
+    EXPECT_EQ((ColumnArray::Offsets64 {2}), map_column.get_offsets());
+    EXPECT_EQ("k1", nullable_type(TYPE_STRING)->to_string(map_column.get_keys(), 0));
+    EXPECT_EQ("k2", nullable_type(TYPE_STRING)->to_string(map_column.get_keys(), 1));
+    EXPECT_EQ("2.50", decimal_doris_type->to_string(map_column.get_values(), 0));
+    EXPECT_EQ("-3.75", decimal_doris_type->to_string(map_column.get_values(), 1));
+
+    const auto& struct_column = assert_cast<const ColumnStruct&>(
+            assert_cast<const ColumnNullable&>(*block.get_by_position(2).column)
+                    .get_nested_column());
+    EXPECT_EQ("-3.75", decimal_doris_type->to_string(struct_column.get_column(0), 0));
+    EXPECT_EQ("12", nullable_type(TYPE_INT)->to_string(struct_column.get_column(1), 0));
+}
+
+// Verifies a value outside the declared precision fails with the field name instead of being
+// truncated: unscaled 10^18 does not fit decimal(18, 2), nor 10^38 decimal(38, 0).
+TEST(LanceTableReaderTypeTest, RejectsDecimal256ValuesOutsideDeclaredPrecision) {
+    const std::array<std::tuple<const char*, int32_t, int32_t, const char*>, 2> cases {{
+            {"amount", 18, 2, "10000000000000000.00"},
+            {"wide_amount", 38, 0, "100000000000000000000000000000000000000"},
+    }};
+    for (const auto& [name, precision, scale, value] : cases) {
+        SCOPED_TRACE(name);
+        std::shared_ptr<arrow::Array> normalized;
+        const auto status = normalize_lance_arrow_array_for_test(
+                arrow::field(name, arrow::decimal256(precision, scale)),
+                make_decimal256_array(precision, scale, {value}), &normalized);
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(std::string::npos, status.to_string().find(std::string("field '") + name + "'"))
+                << status.to_string();
+        EXPECT_NE(std::string::npos, status.to_string().find("does not fit in precision"))
+                << status.to_string();
+    }
+}
+
+// Verifies Lance keeps the 256-bit carrier of decimal256(18, 2) on disk, and the reader returns
+// it as the DECIMAL64 column that the precision selects.
+TEST(LanceTableReaderTypeTest, ReadsDecimal256WithDecimal128PrecisionFromLanceDataset) {
+    const auto unique_suffix = std::chrono::steady_clock::now().time_since_epoch().count();
+    const auto dataset_uri =
+            std::filesystem::temp_directory_path() /
+            ("doris_lance_narrow_decimal256_" + std::to_string(unique_suffix) + ".lance");
+    Defer cleanup {[&] {
+        std::error_code error;
+        std::filesystem::remove_all(dataset_uri, error);
+    }};
+
+    arrow::Int64Builder row_id_builder;
+    ASSERT_TRUE(row_id_builder.AppendValues({1, 2, 3}).ok());
+    std::shared_ptr<arrow::Array> row_ids;
+    ASSERT_TRUE(row_id_builder.Finish(&row_ids).ok());
+    const auto amounts =
+            make_decimal256_array(18, 2, {"9999999999999999.99", "-0.01", std::nullopt});
+    const auto schema = arrow::schema({arrow::field("row_id", arrow::int64()),
+                                       arrow::field("amount", arrow::decimal256(18, 2))});
+    ASSERT_TRUE(write_lance_record_batch(dataset_uri,
+                                         arrow::RecordBatch::Make(schema, 3, {row_ids, amounts}))
+                        .ok());
+
+    std::unique_ptr<LanceDataset, decltype(&lance_dataset_close)> dataset(
+            lance_dataset_open(dataset_uri.c_str(), nullptr, 0), lance_dataset_close);
+    ASSERT_NE(nullptr, dataset);
+    std::shared_ptr<arrow::Schema> stored_schema;
+    ASSERT_TRUE(import_lance_dataset_schema(dataset.get(), &stored_schema).ok());
+    const auto stored_amount = stored_schema->GetFieldByName("amount");
+    ASSERT_NE(nullptr, stored_amount);
+    EXPECT_EQ(arrow::Type::DECIMAL256, stored_amount->type()->id());
+
+    TFileScanRangeParams scan_params;
+    std::vector<std::string> column_names;
+    std::vector<DataTypePtr> column_types;
+    LanceTableReader schema_reader;
+    ASSERT_TRUE(schema_reader
+                        .fetch_schema(make_latest_lance_range(dataset_uri), scan_params,
+                                      &column_names, &column_types)
+                        .ok());
+    ASSERT_EQ((std::vector<std::string> {"row_id", "amount"}), column_names);
+    ASSERT_EQ(2, column_types.size());
+    EXPECT_EQ(TYPE_DECIMAL64, remove_nullable(column_types[1])->get_primitive_type());
+
+    const Columns columns {
+            projected_column("row_id", TYPE_BIGINT, false),
+            projected_column("amount", column_types[1]),
+    };
+    TQueryGlobals query_globals;
+    RuntimeState state(TQueryOptions(), query_globals);
+    RuntimeProfile profile("lance_narrow_decimal256");
+    LanceTableReader reader;
+    ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
+    ASSERT_TRUE(prepare_range(&reader, make_latest_lance_range(dataset_uri)).ok());
+
+    Block block;
+    add_output_columns(&block, columns);
+    const std::map<int64_t, std::optional<std::string>> expected {
+            {1, "9999999999999999.99"}, {2, "-0.01"}, {3, std::nullopt}};
+    std::set<int64_t> seen_row_ids;
+    bool eos = false;
+    while (!eos) {
+        ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+        if (eos) {
+            continue;
+        }
+        const auto& block_row_ids =
+                assert_cast<const ColumnInt64&>(*block.get_by_position(0).column);
+        const auto& block_amounts =
+                assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
+        for (size_t row = 0; row < block.rows(); ++row) {
+            const auto row_id = block_row_ids.get_data()[row];
+            ASSERT_TRUE(expected.contains(row_id)) << row_id;
+            EXPECT_TRUE(seen_row_ids.emplace(row_id).second) << row_id;
+            const auto& expected_amount = expected.at(row_id);
+            EXPECT_EQ(!expected_amount.has_value(), block_amounts.is_null_at(row)) << row_id;
+            if (expected_amount.has_value()) {
+                EXPECT_EQ(*expected_amount, columns[1].type->to_string(block_amounts, row));
+            }
+        }
+    }
+    EXPECT_EQ(3U, seen_row_ids.size());
+    EXPECT_TRUE(reader.close().ok());
 }
 
 // Verifies the additional types through the full scan path.
