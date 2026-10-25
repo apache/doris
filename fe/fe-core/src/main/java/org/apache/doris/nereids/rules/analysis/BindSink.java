@@ -116,6 +116,7 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.AutoCloseSessionVariable;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.tablefunction.LocalTableValuedFunction;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 
 import com.google.common.base.Preconditions;
@@ -657,6 +658,10 @@ public class BindSink implements AnalysisRuleFactory {
         if (!tvfName.equals("local") && !tvfName.equals("s3") && !tvfName.equals("hdfs")) {
             throw new AnalysisException(
                     "INSERT INTO TVF only supports local/s3/hdfs, but got: " + tvfName);
+        }
+
+        if (tvfName.equals(LocalTableValuedFunction.NAME)) {
+            LocalTableValuedFunction.checkAccess(ctx.connectContext);
         }
 
         // Validate required properties
