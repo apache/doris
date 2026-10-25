@@ -64,6 +64,10 @@
 #include "util/time.h"
 namespace doris::io {
 
+bvar::Adder<uint64_t> g_file_cache_evict_scanned_entries("file_cache_evict_scanned_entries");
+bvar::Adder<uint64_t> g_file_cache_evict_rotated_in_use("file_cache_evict_rotated_in_use");
+bvar::Adder<uint64_t> g_file_cache_evict_scan_truncated("file_cache_evict_scan_truncated");
+
 namespace {
 
 constexpr std::array<FileCacheType, 4> LRU_LOG_REPLAY_TYPES = {
@@ -1441,10 +1445,22 @@ void BlockFileCache::find_evict_candidates(LRUQueue& queue, size_t size, size_t 
                                            std::vector<FileBlockCell*>& to_evict,
                                            std::lock_guard<std::mutex>& cache_lock,
                                            size_t& cur_removed_size, bool evict_in_advance) {
+    // Every scan starts at the head of the queue, so in-use entries left there would be examined
+    // again by each later reservation, all under the cache lock. Bounding the scan and rotating
+    // in-use entries keeps the lock hold short when much of the cache is in use.
+    const int64_t max_scan = config::file_cache_evict_max_scan_entries;
+    const bool rotate_in_use = config::enable_file_cache_evict_rotate_in_use;
+    std::vector<FileBlockCell*> in_use;
+    size_t scanned = 0;
     for (const auto& [entry_key, entry_offset, entry_size] : queue) {
         if (!is_overflow(removed_size, size, cur_cache_size, evict_in_advance)) {
             break;
         }
+        if (max_scan > 0 && scanned >= static_cast<size_t>(max_scan)) {
+            g_file_cache_evict_scan_truncated << 1;
+            break;
+        }
+        ++scanned;
         auto* cell = get_cell(entry_key, entry_offset, cache_lock);
 
         DCHECK(cell) << "Cache became inconsistent. key: " << entry_key.to_string()
@@ -1461,8 +1477,29 @@ void BlockFileCache::find_evict_candidates(LRUQueue& queue, size_t size, size_t 
             to_evict.push_back(cell);
             removed_size += cell_size;
             cur_removed_size += cell_size;
+        } else if (rotate_in_use) {
+            in_use.push_back(cell);
         }
     }
+    g_file_cache_evict_scanned_entries << scanned;
+    rotate_in_use_to_end(queue, in_use, cache_lock);
+}
+
+void BlockFileCache::rotate_in_use_to_end(LRUQueue& queue,
+                                          const std::vector<FileBlockCell*>& in_use,
+                                          std::lock_guard<std::mutex>& cache_lock) {
+    // Called after the scan: moving an entry while iterating would bring it back to the scan.
+    // The access time is left alone, so a rotated entry is not treated as recently used.
+    for (auto* cell : in_use) {
+        // A cell taken out of the queue is never reached by a queue scan.
+        DCHECK(cell->queue_iterator);
+        const auto& file_block = cell->file_block;
+        queue.move_to_end(*cell->queue_iterator, cache_lock);
+        _lru_recorder->record_queue_event(file_block->cache_type(), CacheLRULogType::MOVETOBACK,
+                                          file_block->_key.hash, file_block->_key.offset,
+                                          cell->size());
+    }
+    g_file_cache_evict_rotated_in_use << in_use.size();
 }
 
 // 1. if async load file cache not finish
@@ -1703,13 +1740,22 @@ bool BlockFileCache::try_reserve_from_other_queue_by_time_interval(
     size_t removed_size = 0;
     size_t cur_cache_size = _cur_cache_size;
     std::vector<FileBlockCell*> to_evict;
+    const int64_t max_scan = config::file_cache_evict_max_scan_entries;
+    const bool rotate_in_use = config::enable_file_cache_evict_rotate_in_use;
     for (FileCacheType cache_type : other_cache_types) {
         auto& queue = get_queue(cache_type);
         size_t remove_size_per_type = 0;
+        std::vector<FileBlockCell*> in_use;
+        size_t scanned = 0;
         for (const auto& [entry_key, entry_offset, entry_size] : queue) {
             if (!is_overflow(removed_size, size, cur_cache_size, evict_in_advance)) {
                 break;
             }
+            if (max_scan > 0 && scanned >= static_cast<size_t>(max_scan)) {
+                g_file_cache_evict_scan_truncated << 1;
+                break;
+            }
+            ++scanned;
             auto* cell = get_cell(entry_key, entry_offset, cache_lock);
             DCHECK(cell) << "Cache became inconsistent. UInt128Wrapper: " << entry_key.to_string()
                          << ", offset: " << entry_offset;
@@ -1728,8 +1774,12 @@ bool BlockFileCache::try_reserve_from_other_queue_by_time_interval(
                 to_evict.push_back(cell);
                 removed_size += cell_size;
                 remove_size_per_type += cell_size;
+            } else if (rotate_in_use) {
+                in_use.push_back(cell);
             }
         }
+        g_file_cache_evict_scanned_entries << scanned;
+        rotate_in_use_to_end(queue, in_use, cache_lock);
         *(_evict_by_time_metrics_matrix[cache_type][cur_type]) << remove_size_per_type;
     }
     bool is_sync_removal = !evict_in_advance;

@@ -531,6 +531,10 @@ private:
                                std::lock_guard<std::mutex>& cache_lock, size_t& cur_removed_size,
                                bool evict_in_advance);
 
+    // Moves cells an eviction scan skipped because they were in use to the end of their queue.
+    void rotate_in_use_to_end(LRUQueue& queue, const std::vector<FileBlockCell*>& in_use,
+                              std::lock_guard<std::mutex>& cache_lock);
+
     Status check_ofstream_status(std::ofstream& out, std::string& filename);
     Status dump_one_lru_entry(std::ofstream& out, std::string& filename, const UInt128Wrapper& hash,
                               size_t offset, size_t size);
