@@ -53,7 +53,7 @@ Status HdfsTvfPolicy::on_pthread(const std::function<Status()>& operation) {
 
 bool HdfsTvfPolicy::requested(const THdfsParams& params) {
     return std::ranges::any_of(params.hdfs_conf, [](const auto& conf) {
-        return conf.key == POLICY_KEY && conf.value == "native";
+        return conf.key == POLICY_KEY && (conf.value == "native" || conf.value == "native-write");
     });
 }
 

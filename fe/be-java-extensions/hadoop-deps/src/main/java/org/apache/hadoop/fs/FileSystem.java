@@ -94,6 +94,7 @@ import org.apache.hadoop.fs.permission.AclStatus;
 import org.apache.hadoop.fs.permission.FsAction;
 import org.apache.hadoop.fs.permission.FsCreateModes;
 import org.apache.hadoop.fs.permission.FsPermission;
+import org.apache.hadoop.fs.viewfs.FsGetter;
 import org.apache.hadoop.io.IOUtils;
 import org.apache.hadoop.io.MultipleIOException;
 import org.apache.hadoop.net.NetUtils;
@@ -583,7 +584,9 @@ public abstract class FileSystem extends Configured
       }
     }
     String disableCacheName = String.format("fs.%s.impl.disable.cache", scheme);
-    if (conf.getBoolean(disableCacheName, false)) {
+    if (conf.getBoolean(disableCacheName, false)
+        || (TvfGuard.isJavaRequest(conf)
+            && getFileSystemClass(scheme, conf) == org.apache.hadoop.fs.viewfs.ViewFileSystem.class)) {
       LOGGER.debug("Bypassing cache to create filesystem {}", uri);
       return createFileSystem(uri, conf);
     }
@@ -2738,6 +2741,10 @@ public abstract class FileSystem extends Configured
    */
   @Override
   public void close() throws IOException {
+    closeBase();
+  }
+
+  private void closeBase() throws IOException {
     debugLogFileSystemClose("close", "Key: " + key + "; URI: " + getUri()
         + "; Object Identity Hash: "
         + Integer.toHexString(System.identityHashCode(this)));
@@ -3661,6 +3668,7 @@ public abstract class FileSystem extends Configured
   public static final class TvfGuard {
     public static final String POLICY_KEY = "fs.doris.tvf.remote.paths";
     public static final String NATIVE_POLICY = "native";
+    public static final String NATIVE_WRITE_POLICY = "native-write";
     public static final String JAVA_READ_POLICY = "java-read";
     public static final String ROOT_KEY = "fs.doris.tvf.root";
     public static final String PATH_KEY = "fs.doris.tvf.path";
@@ -3707,9 +3715,6 @@ public abstract class FileSystem extends Configured
     public static List<Rule> globRules(URI filesystem, String pattern) throws IOException {
       List<Rule> rules = new ArrayList<>();
       rules.add(new Rule(filesystem.toString(), pattern, true));
-      if (pattern.indexOf('\\') < 0) {
-        return rules;
-      }
       for (String expanded : GlobExpander.expand(pattern)) {
         Path flattened = new Path(expanded.isEmpty() ? Path.CUR_DIR : expanded);
         String path = flattened.toUri().getPath();
@@ -3731,6 +3736,93 @@ public abstract class FileSystem extends Configured
         rules.add(new Rule(filesystem.toString(), candidate.toUri().getPath(), true));
       }
       return rules;
+    }
+
+    /** Java requests own their mount clients; native connections keep their existing cache. */
+    private static final class RequestViewFileSystem extends org.apache.hadoop.fs.viewfs.ViewFileSystem {
+      private final Map<List<String>, FileSystem> children = new HashMap<>();
+      private final Set<FileSystem> owned = Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+      private boolean closed;
+
+      private RequestViewFileSystem() throws IOException {
+      }
+
+      private final FsGetter getter = new FsGetter() {
+        @Override
+        public FileSystem get(URI uri, Configuration conf) throws IOException {
+          synchronized (RequestViewFileSystem.this) {
+            List<String> key = Arrays.asList(uri.getScheme(), uri.getRawAuthority());
+            FileSystem child = children.get(key);
+            if (child == null) {
+              child = getNewInstance(uri, conf);
+              children.put(key, child);
+            }
+            return child;
+          }
+        }
+
+        @Override
+        public FileSystem getNewInstance(URI uri, Configuration conf) throws IOException {
+          synchronized (RequestViewFileSystem.this) {
+            if (closed) {
+              throw new IOException("TVF ViewFS request is closed");
+            }
+            FileSystem child = FileSystem.newInstance(uri, conf);
+            owned.add(child);
+            return child;
+          }
+        }
+      };
+
+      @Override
+      protected FsGetter fsGetter() {
+        return getter;
+      }
+
+      @Override
+      public synchronized void close() throws IOException {
+        if (closed) {
+          return;
+        }
+        List<IOException> failures = new ArrayList<>();
+        try {
+          // delete-on-exit may resolve a previously unused mount, so do this before sealing.
+          ((FileSystem) this).closeBase();
+        } catch (IOException e) {
+          failures.add(e);
+        } finally {
+          closed = true;
+          // Enumerating ViewFS target.getChildFileSystems() misses Nfly's actual peers.
+          // The stable getter owns those peers directly, including partial initialization.
+          for (FileSystem child : owned) {
+            try {
+              child.close();
+            } catch (IOException e) {
+              failures.add(e);
+            } catch (RuntimeException e) {
+              failures.add(new IOException("Cannot close a TVF mount client", e));
+            }
+          }
+          owned.clear();
+          children.clear();
+        }
+        if (!failures.isEmpty()) {
+          throw MultipleIOException.createIOException(failures);
+        }
+      }
+    }
+
+    private static boolean isNative(String policy) {
+      return NATIVE_POLICY.equals(policy) || NATIVE_WRITE_POLICY.equals(policy);
+    }
+
+    private static boolean isJavaRequest(Configuration conf) {
+      String policy = conf.getRaw(POLICY_KEY);
+      return policy != null && !policy.isEmpty() && !isNative(policy);
+    }
+
+    private static boolean isRequestViewFs(Class<? extends FileSystem> implementation, Configuration conf) {
+      return isJavaRequest(conf) && implementation == org.apache.hadoop.fs.viewfs.ViewFileSystem.class;
     }
 
     private static IOException rejected() {
@@ -3757,7 +3849,7 @@ public abstract class FileSystem extends Configured
       }
       Configuration frozen = freeze(conf);
       Context context = ((FrozenConfiguration) frozen).context;
-      if (NATIVE_POLICY.equals(policy)) {
+      if (isNative(policy)) {
         context.checkNative(frozen.getRaw(ROOT_KEY), frozen.getRaw(PATH_KEY));
       } else if (JAVA_READ_POLICY.equals(policy)) {
         context.checkJava(new Path(frozen.getRaw(PATH_KEY)));
@@ -3916,8 +4008,13 @@ public abstract class FileSystem extends Configured
         }
         try {
           URI uri = nativeUri(root);
-          String actual = new Path(path).toUri().getPath();
-          route(false).checkRoute(uri, actual, new HashSet<>());
+          Path actualPath = new Path(path);
+          if (NATIVE_WRITE_POLICY.equals(conf.getRaw(POLICY_KEY))) {
+            // ViewFS.create resolves the parent, without following the final component.
+            Path parent = actualPath.getParent();
+            actualPath = parent == null ? new Path("/") : parent;
+          }
+          route(false).checkRoute(uri, actualPath.toUri().getPath(), new HashSet<>());
         } catch (RuntimeException | URISyntaxException e) {
           throw rejected();
         }
@@ -4319,7 +4416,9 @@ public abstract class FileSystem extends Configured
       conf = TvfGuard.prepare(conf);
       Class<? extends FileSystem> clazz =
           getFileSystemClass(uri.getScheme(), conf);
-      FileSystem fs = ReflectionUtils.newInstance(clazz, conf);
+      FileSystem fs = TvfGuard.isRequestViewFs(clazz, conf)
+          ? ReflectionUtils.newInstance(TvfGuard.RequestViewFileSystem.class, conf)
+          : ReflectionUtils.newInstance(clazz, conf);
       try {
         fs.initialize(uri, conf);
       } catch (IOException | RuntimeException e) {
@@ -4334,7 +4433,7 @@ public abstract class FileSystem extends Configured
         IOUtils.cleanupWithLogger(LOGGER, fs);
         throw e;
       }
-      if (TvfGuard.NATIVE_POLICY.equals(conf.getRaw(TvfGuard.POLICY_KEY))) {
+      if (TvfGuard.isNative(conf.getRaw(TvfGuard.POLICY_KEY))) {
         TvfGuard.LAST_NATIVE_CONTEXT.set(((TvfGuard.FrozenConfiguration) conf).context);
       }
       return fs;

@@ -33,9 +33,9 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.FileSystem.TvfGuard;
 import org.apache.hadoop.fs.LocalFileSystem;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.hdfs.DistributedFileSystem;
 import org.apache.hadoop.fs.viewfs.ViewFileSystem;
 import org.apache.hadoop.fs.viewfs.ViewFileSystemOverloadScheme;
+import org.apache.hadoop.hdfs.DistributedFileSystem;
 import org.apache.hadoop.util.ReflectionUtils;
 import org.apache.thrift.TDeserializer;
 import org.junit.jupiter.api.AfterEach;
@@ -47,17 +47,20 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.net.URI;
 import java.net.URL;
 import java.net.URLClassLoader;
-import java.nio.file.Files;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.List;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 class HadoopTvfRuntimeAdmissionTest {
     @TempDir
@@ -477,6 +480,321 @@ class HadoopTvfRuntimeAdmissionTest {
             Assertions.assertTrue(accesses.contains("/lower/secret/file.csv"), accesses.toString());
             Assertions.assertTrue(accesses.contains("/lower/secret/next.csv"), accesses.toString());
             Mockito.verify(local, Mockito.never()).getFileStatus(Mockito.any(Path.class));
+        }
+    }
+
+    @Test
+    void slashBracesCheckFlattenedRoutesBeforeStaticOrRuntimeDiscovery() throws Exception {
+        Map<String, String> properties = hdfs("viewfs://braces");
+        properties.put("fs.viewfs.mounttable.braces.link./remote", "hdfs://nn/base");
+        properties.put("fs.viewfs.mounttable.braces.linkFallback", "hdfs://nn/fallback");
+        for (String pattern : new String[] {"/remote/{../local}/*.csv",
+                "/remote/{ok,../local}/*.csv", "/remote/{{../local}}/*.csv"}) {
+            String uri = "viewfs://braces" + pattern;
+            Map<String, String> statement = readProperties(uri);
+            statement.putAll(properties);
+            statement.put("fs.viewfs.mounttable.braces.link./local", "file:///unused-local");
+            Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                    () -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.HADOOP_READ, uri, statement, false), uri);
+            if ("/remote/{../local}/*.csv".equals(pattern)) {
+                // The reported singleton URI reaches admission through the actual TVF constructor.
+                // Other brace alternatives may be rejected earlier by the existing URI parameter parser.
+                Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                        () -> new HdfsTableValuedFunction(statement), uri);
+            }
+            Configuration runtime = defaults(Collections.singletonMap(
+                    "fs.viewfs.mounttable.braces.link./local", "file:///unused-local"));
+            overlay(runtime, HadoopTvfAdmission.protectJava(HadoopTvfAdmission.Access.HADOOP_READ, uri, properties));
+            Assertions.assertThrows(IOException.class, () -> TvfGuard.check(URI.create("viewfs://braces"), runtime), uri);
+        }
+        properties.put("fs.viewfs.mounttable.braces.link./local", "file:///unused-local");
+        String remote = "viewfs://braces/remote/{../other}/*.csv";
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(
+                HadoopTvfAdmission.Access.HADOOP_READ, remote, properties, false));
+        Assertions.assertDoesNotThrow(() -> TvfGuard.check(URI.create("viewfs://braces"),
+                javaRequest(properties, HadoopTvfAdmission.Access.HADOOP_READ, remote)));
+    }
+
+    @Test
+    void exactCleanupKeepsLiteralBracesButRejectsSelectedAndNestedLocalTargets() throws Exception {
+        Map<String, String> properties = hdfs("viewfs://cleanup");
+        properties.put("fs.viewfs.mounttable.cleanup.link./data", "hdfs://nn/base");
+        properties.put("fs.viewfs.mounttable.cleanup.link./data/local", "file:///unused-local");
+        properties.put("fs.viewfs.mounttable.cleanup.link./nested", "viewfs://inner/base");
+        properties.put("fs.viewfs.mounttable.inner.link./base", "file:///unused-local");
+        String literal = "viewfs://cleanup/data/literal{tag}";
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(
+                HadoopTvfAdmission.Access.JAVA_DELETE, literal, properties));
+        Configuration runtime = javaRequest(properties, HadoopTvfAdmission.Access.JAVA_DELETE, literal);
+        try (RemoteClients clients = new RemoteClients();
+                FileSystem outer = FileSystem.get(URI.create("viewfs://cleanup"), runtime)) {
+            Assertions.assertTrue(outer.delete(new Path(literal), true));
+            Assertions.assertTrue(clients.events.contains("delete:0:/base/literal{tag}"));
+            Assertions.assertThrows(IOException.class, () -> outer.delete(new Path("/data"), true));
+            Assertions.assertThrows(IOException.class, () -> outer.delete(new Path("/"), true));
+        }
+        for (String selected : new String[] {"/data/local/file", "/nested/file"}) {
+            String uri = "viewfs://cleanup" + selected;
+            Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                    () -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.JAVA_DELETE, uri, properties));
+            // The same selected local route can exist only in effective core-site.xml.
+            Configuration effective = defaults(properties);
+            overlay(effective, HadoopTvfAdmission.protectJava(
+                    HadoopTvfAdmission.Access.JAVA_DELETE, uri, hdfs("viewfs://cleanup")));
+            Assertions.assertThrows(IOException.class, () -> TvfGuard.check(URI.create("viewfs://cleanup"), effective));
+        }
+    }
+
+    @Test
+    void nativeWriteChecksCreateParentOnInitializationAndRetainedContextReuse() throws Exception {
+        Map<String, String> write = HadoopTvfAdmission.protectNativeWrite("/safe/prefix_", hdfs("viewfs://create"));
+        Assertions.assertEquals(TvfGuard.NATIVE_WRITE_POLICY, write.get(TvfGuard.POLICY_KEY));
+        Assertions.assertNotEquals(HadoopTvfAdmission.protectNativeRead(hdfs("viewfs://create")), write);
+        for (int i = 0; i < 16; i++) {
+            Assertions.assertEquals(write, HadoopTvfAdmission.protectNativeWrite(
+                    "/safe/file" + i + "\0ignored-suffix", hdfs("viewfs://create")));
+        }
+        Map<String, String> mounts = new HashMap<>();
+        mounts.put("fs.viewfs.mounttable.create.link./safe", "hdfs://nn/base");
+        mounts.put("fs.viewfs.mounttable.create.link./parent", "file:///unused-local");
+        mounts.put("fs.viewfs.mounttable.create.link./parent/final", "hdfs://nn/final");
+        mounts.put("fs.viewfs.mounttable.create.link./remote", "hdfs://nn/base");
+        mounts.put("fs.viewfs.mounttable.create.link./remote/final", "file:///unused-local");
+        mounts.put("fs.viewfs.mounttable.create.link./nested", "viewfs://inner/parent");
+        mounts.put("fs.viewfs.mounttable.inner.link./parent", "file:///unused-local");
+        mounts.put("fs.viewfs.mounttable.inner.link./parent/final", "hdfs://nn/final");
+        Configuration runtime = defaults(mounts);
+        overlay(runtime, write);
+        nativeRequest(runtime, "viewfs://create", "/parent/final");
+        Assertions.assertThrows(IOException.class, () -> FileSystem.newInstance(URI.create("viewfs://create"), runtime));
+        nativeRequest(runtime, "viewfs://create", "/safe/file");
+        try (MockedStatic<ReflectionUtils> factory = Mockito.mockStatic(
+                ReflectionUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            factory.when(() -> ReflectionUtils.newInstance(Mockito.eq(ViewFileSystem.class),
+                    Mockito.any(Configuration.class))).thenAnswer(call -> Mockito.mock(ViewFileSystem.class));
+            TvfGuard.clearNativeContext();
+            FileSystem.newInstance(URI.create("viewfs://create"), runtime);
+            TvfGuard.Context writer = TvfGuard.takeNativeContext();
+            Assertions.assertNotNull(writer);
+            Assertions.assertDoesNotThrow(() -> writer.checkNative("viewfs://create", "/safe/next"));
+            Assertions.assertDoesNotThrow(() -> writer.checkNative("viewfs://create", "/remote/final"));
+            for (String path : new String[] {"/parent/final", "/nested/final"}) {
+                Assertions.assertThrows(IOException.class, () -> writer.checkNative("viewfs://create", path));
+            }
+            Configuration read = new Configuration(runtime);
+            read.set(TvfGuard.POLICY_KEY, TvfGuard.NATIVE_POLICY);
+            FileSystem.newInstance(URI.create("viewfs://create"), read);
+            TvfGuard.Context reader = TvfGuard.takeNativeContext();
+            Assertions.assertNotNull(reader);
+            Assertions.assertNotEquals(writer.profile(), reader.profile());
+            Assertions.assertThrows(IOException.class, () -> reader.checkNative("viewfs://create", "/remote/final"));
+        }
+    }
+
+    @Test
+    void differentJavaPathsCloseOwnedClientsAndReturnGlobalCacheToBaseline() throws Exception {
+        Map<String, String> properties = hdfs("viewfs://owned");
+        properties.put("fs.viewfs.mounttable.owned.link./data", "hdfs://nn/base");
+        properties.put("fs.viewfs.mounttable.owned.link./alias", "hdfs://nn/alternate");
+        int baseline = filesystemCacheSize();
+        try (RemoteClients clients = new RemoteClients()) {
+            for (int i = 0; i < 6; i++) {
+                String path = "viewfs://owned/data/file" + i;
+                try (FileSystem outer = FileSystem.get(URI.create("viewfs://owned"),
+                        javaRequest(properties, HadoopTvfAdmission.Access.HADOOP_READ, path))) {
+                    outer.getFileStatus(new Path(path));
+                    outer.getFileStatus(new Path("/alias/file" + i));
+                    Assertions.assertEquals(i + 1, clients.clients.size());
+                }
+                Assertions.assertEquals(baseline, filesystemCacheSize(), path);
+            }
+            clients.verifyClosedOnce();
+        }
+    }
+
+    @Test
+    void equalJavaPoliciesOwnIndependentClientsAndDeleteBeforeClosingThem() throws Exception {
+        Map<String, String> properties = hdfs("viewfs://independent");
+        properties.put("fs.viewfs.mounttable.independent.link./data", "hdfs://nn/base");
+        Configuration source = javaRequest(properties, HadoopTvfAdmission.Access.HADOOP_READ,
+                "viewfs://independent/data/file.csv");
+        int baseline = filesystemCacheSize();
+        try (RemoteClients clients = new RemoteClients()) {
+            try (FileSystem first = FileSystem.get(URI.create("viewfs://independent"), source);
+                    FileSystem second = FileSystem.get(URI.create("viewfs://independent"), source)) {
+                Assertions.assertNotSame(first, second);
+                first.getFileStatus(new Path("/data/file.csv"));
+                second.getFileStatus(new Path("/data/file.csv"));
+                Assertions.assertEquals(2, clients.clients.size());
+                Assertions.assertTrue(first.deleteOnExit(new Path("/data/file.csv")));
+                first.close();
+                Assertions.assertTrue(clients.events.contains("delete:0:/base/file.csv"));
+                Assertions.assertTrue(clients.events.indexOf("delete:0:/base/file.csv")
+                        < clients.events.indexOf("close:0"), clients.events.toString());
+                Mockito.verify(clients.clients.get(1), Mockito.never()).close();
+                Assertions.assertDoesNotThrow(() -> second.getFileStatus(new Path("/data/file.csv")));
+                first.close();
+                Mockito.verify(clients.clients.get(0), Mockito.times(1)).close();
+            }
+            clients.verifyClosedOnce();
+            Assertions.assertEquals(baseline, filesystemCacheSize());
+        }
+    }
+
+    @Test
+    void nestedJavaViewFsKeepsCaseDistinctAuthoritiesAndClosesEachActualClient() throws Exception {
+        Map<String, String> properties = hdfs("viewfs://outer-owned");
+        properties.put("fs.viewfs.mounttable.outer-owned.link./warm", "viewfs://A/remote");
+        properties.put("fs.viewfs.mounttable.outer-owned.link./other", "viewfs://a/secret");
+        properties.put("fs.viewfs.mounttable.A.link./remote", "hdfs://upper/base");
+        properties.put("fs.viewfs.mounttable.A.link./secret", "file:///unused-local");
+        properties.put("fs.viewfs.mounttable.a.linkFallback", "hdfs://lower/lower");
+        int baseline = filesystemCacheSize();
+        try (RemoteClients clients = new RemoteClients()) {
+            try (FileSystem outer = FileSystem.get(URI.create("viewfs://outer-owned"), javaRequest(
+                    properties, HadoopTvfAdmission.Access.HADOOP_READ, "viewfs://outer-owned/warm/file.csv"))) {
+                outer.getFileStatus(new Path("/warm/file.csv"));
+                outer.getFileStatus(new Path("/other/file.csv"));
+                outer.getFileStatus(new Path("/other/next.csv"));
+                Assertions.assertTrue(clients.events.contains("stat:0:/base/file.csv"));
+                Assertions.assertTrue(clients.events.contains("stat:1:/lower/secret/file.csv"));
+                Assertions.assertTrue(clients.events.contains("stat:1:/lower/secret/next.csv"));
+                Assertions.assertEquals(URI.create("hdfs://upper"), clients.clients.get(0).getUri());
+                Assertions.assertEquals(URI.create("hdfs://lower"), clients.clients.get(1).getUri());
+            }
+            Assertions.assertEquals(2, clients.clients.size());
+            clients.verifyClosedOnce();
+            Assertions.assertEquals(baseline, filesystemCacheSize());
+        }
+    }
+
+    @Test
+    void nflyOwnsSameAuthorityPeersAndClosesOthersAfterOneCloseFails() throws Exception {
+        Map<String, String> properties = hdfs("viewfs://peers");
+        properties.put("fs.viewfs.mounttable.peers.linkNfly.minReplication=2./data",
+                "hdfs://nn/first,hdfs://nn/second");
+        int baseline = filesystemCacheSize();
+        try (RemoteClients clients = new RemoteClients()) {
+            FileSystem outer = FileSystem.get(URI.create("viewfs://peers"), javaRequest(
+                    properties, HadoopTvfAdmission.Access.HADOOP_READ, "viewfs://peers/data/file.csv"));
+            Assertions.assertEquals(2, clients.clients.size());
+            Assertions.assertNotSame(clients.clients.get(0), clients.clients.get(1));
+            clients.failNextClose = true;
+            Assertions.assertThrows(IOException.class, outer::close);
+            Assertions.assertDoesNotThrow(outer::close);
+            clients.verifyClosedOnce();
+            Assertions.assertEquals(baseline, filesystemCacheSize());
+        }
+    }
+
+    @Test
+    void failedNflyInitializationClosesSuccessfulAndFailingPeers() throws Exception {
+        Map<String, String> properties = hdfs("viewfs://partial");
+        properties.put("fs.viewfs.mounttable.partial.linkNfly.minReplication=2./data",
+                "hdfs://good/first,hdfs://fail/second");
+        int baseline = filesystemCacheSize();
+        try (RemoteClients clients = new RemoteClients()) {
+            clients.failInitializeAuthority = "fail";
+            Assertions.assertThrows(IOException.class, () -> FileSystem.get(URI.create("viewfs://partial"),
+                    javaRequest(properties, HadoopTvfAdmission.Access.HADOOP_READ, "viewfs://partial/data/file.csv")));
+            Assertions.assertEquals(2, clients.clients.size());
+            clients.verifyClosedOnce();
+            Assertions.assertEquals(baseline, filesystemCacheSize());
+        }
+    }
+
+    private Configuration javaRequest(Map<String, String> properties, HadoopTvfAdmission.Access access,
+            String path) throws Exception {
+        Configuration configuration = defaults(Collections.emptyMap());
+        overlay(configuration, HadoopTvfAdmission.protectJava(access, path, properties));
+        // Exercise the default-cached remote-provider case that used to retain every path policy.
+        configuration.setBoolean("fs.hdfs.impl.disable.cache", false);
+        return configuration;
+    }
+
+    private static int filesystemCacheSize() throws Exception {
+        Field cacheField = FileSystem.class.getDeclaredField("CACHE");
+        cacheField.setAccessible(true);
+        Object cache = cacheField.get(null);
+        Field mapField = cache.getClass().getDeclaredField("map");
+        mapField.setAccessible(true);
+        synchronized (cache) {
+            return ((Map<?, ?>) mapField.get(cache)).size();
+        }
+    }
+
+    /** Real ViewFS dispatch/cache, with all storage operations replaced by recognized remote clients. */
+    private static final class RemoteClients implements AutoCloseable {
+        private final List<DistributedFileSystem> clients = new ArrayList<>();
+        private final List<String> events = new ArrayList<>();
+        private final MockedStatic<ReflectionUtils> factory;
+        private final Method baseClose;
+        private String failInitializeAuthority;
+        private boolean failNextClose;
+
+        private RemoteClients() throws Exception {
+            // The mock must retain FileSystem.close's real cache removal without invoking DFS RPC cleanup.
+            baseClose = FileSystem.class.getDeclaredMethod("closeBase");
+            baseClose.setAccessible(true);
+            factory = Mockito.mockStatic(ReflectionUtils.class, Mockito.CALLS_REAL_METHODS);
+            factory.when(() -> ReflectionUtils.newInstance(Mockito.eq(DistributedFileSystem.class),
+                    Mockito.any(Configuration.class))).thenAnswer(call -> remote(call.getArgument(1)));
+            factory.when(() -> ReflectionUtils.newInstance(Mockito.eq(LocalFileSystem.class),
+                    Mockito.any(Configuration.class))).thenThrow(new AssertionError("Unexpected local storage access"));
+        }
+
+        private DistributedFileSystem remote(Configuration configuration) throws IOException {
+            int index = clients.size();
+            DistributedFileSystem remote = Mockito.mock(DistributedFileSystem.class);
+            clients.add(remote);
+            AtomicReference<URI> uri = new AtomicReference<>();
+            AtomicBoolean closed = new AtomicBoolean();
+            Mockito.when(remote.getConf()).thenReturn(configuration);
+            Mockito.when(remote.getUri()).thenAnswer(call -> uri.get());
+            Mockito.when(remote.getWorkingDirectory()).thenReturn(new Path("/"));
+            Mockito.when(remote.getHomeDirectory()).thenReturn(new Path("/"));
+            Mockito.doAnswer(call -> {
+                URI target = call.getArgument(0);
+                uri.set(URI.create(target.getScheme() + "://" + target.getRawAuthority()));
+                if (target.getAuthority().equals(failInitializeAuthority)) {
+                    throw new IOException("Injected remote initialization failure");
+                }
+                return null;
+            }).when(remote).initialize(Mockito.any(URI.class), Mockito.any(Configuration.class));
+            Mockito.when(remote.getFileStatus(Mockito.any(Path.class))).thenAnswer(call -> {
+                if (closed.get()) {
+                    throw new IOException("Remote client is closed");
+                }
+                Path path = call.getArgument(0);
+                events.add("stat:" + index + ":" + path.toUri().getPath());
+                return new org.apache.hadoop.fs.FileStatus(1, false, 1, 1, 0, path);
+            });
+            Mockito.when(remote.delete(Mockito.any(Path.class), Mockito.anyBoolean())).thenAnswer(call -> {
+                events.add("delete:" + index + ":" + ((Path) call.getArgument(0)).toUri().getPath());
+                return true;
+            });
+            Mockito.doAnswer(call -> {
+                events.add("close:" + index);
+                closed.set(true);
+                baseClose.invoke(remote);
+                if (failNextClose) {
+                    failNextClose = false;
+                    throw new IOException("Injected remote close failure");
+                }
+                return null;
+            }).when(remote).close();
+            return remote;
+        }
+
+        private void verifyClosedOnce() throws IOException {
+            for (DistributedFileSystem client : clients) {
+                Mockito.verify(client, Mockito.times(1)).close();
+            }
+        }
+
+        @Override
+        public void close() {
+            factory.close();
         }
     }
 
