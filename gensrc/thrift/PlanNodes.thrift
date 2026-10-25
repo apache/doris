@@ -617,6 +617,15 @@ struct TLanceScanParams {
     // with a static option set, so credentials that expire mid-scan are not re-vended. Renewal
     // needs a refresh channel of its own, which this field is not.
     3: optional map<string, string> lance_storage_options
+    // Vector search only. True when the selected index does not store full vectors and this plan
+    // merges its candidates with scores produced elsewhere: the exact distances of
+    // uncovered-fragment splits, or a second physical index segment, which may carry its own
+    // trained codebook. An index-segment split then rescores its candidates against the stored
+    // vectors before truncating them, so every split of the plan reports one scale; without it
+    // the Doris TopN above the scan compares values from different scales. Set at ScanNode level
+    // because it describes the plan rather than one split. A split that selects no candidates
+    // through an index already scores exactly and ignores this. Unset preserves Lance's default.
+    4: optional bool refine_vector_distances
 }
 
 struct TTableFormatFileDesc {

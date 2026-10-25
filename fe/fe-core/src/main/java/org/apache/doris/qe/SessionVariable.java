@@ -584,6 +584,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_LANCE_LAZY_MATERIALIZATION = "enable_lance_lazy_materialization";
 
+    public static final String ENABLE_LANCE_VECTOR_DISTANCE_REFINEMENT =
+            "enable_lance_vector_distance_refinement";
+
     public static final String FILE_SPLIT_SIZE_ON_FE = "file_split_size_on_fe";
 
     public static final String FILE_SPLIT_SIZE_ON_BE = "file_split_size_on_be";
@@ -2616,6 +2619,20 @@ public class SessionVariable implements Serializable, Writable {
                             + "independently of topn_lazy_materialization_threshold. "
                             + "Enabled by default for eligible columns in vector_search and full_text_search."})
     public boolean enableLanceLazyMaterialization = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_LANCE_VECTOR_DISTANCE_REFINEMENT, needForward = true,
+            description = {
+                    "当量化向量索引只覆盖部分数据、或同一个索引有多个物理 segment 时，是否把索引候选"
+                            + "按原始向量重算距离，默认开启。关闭后这类查询会把近似距离和精确距离排进"
+                            + "同一个 TopN，_distance 数值与返回顺序可能是错的；开启的代价是每个索引"
+                            + "split 回读 top_k 条向量。索引全覆盖且只有一个 segment 的查询不受影响。",
+                    "Rescore vector index candidates against the stored vectors when a quantized "
+                            + "index covers part of the dataset or one index has several physical "
+                            + "segments. Enabled by default. Disabling it merges approximate and "
+                            + "exact distances in one TopN, so _distance values and the returned "
+                            + "order can be wrong; enabling it reads back top_k vectors per index "
+                            + "split. A fully covered single-segment search is unaffected."})
+    public boolean enableLanceVectorDistanceRefinement = true;
 
     @VariableMgr.VarAttr(name = FILE_SPLIT_SIZE_ON_FE, needForward = true, description = {
             "支持 BE 细粒度切分时，FE 粗粒度文件分片的目标大小，单位为字节，默认为 512MB",
