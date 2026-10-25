@@ -184,9 +184,8 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
             // Each name is resolved where it lives rather than through a copy of the table's whole partition
             // map: commands are built once per refresh batch and the default batch is one partition, so a
             // full copy per batch would visit every partition of the table once per partition refreshed. An
-            // olap table answers the name from its own map, which is concurrent and guarded by the table's
-            // read lock inside the lookup; an external table answers it from the map of the snapshot pinned
-            // for this refresh, which is read-only and needs no copy either.
+            // olap table answers the name from its own concurrent map; an external table answers it from the
+            // map of the snapshot pinned for this refresh, which is read-only and needs no copy either.
             Set<PartitionItem> items = Sets.newHashSet();
             if (relatedTable instanceof OlapTable) {
                 OlapTable olapTable = (OlapTable) relatedTable;
