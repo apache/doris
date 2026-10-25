@@ -1636,7 +1636,7 @@ public class MTMVTask extends AbstractTask {
         UpdateMvByPartitionCommand command = UpdateMvByPartitionCommand
                 .from(mtmv, mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE
                         ? refreshPartitionNames : Sets.newHashSet(), tableWithPartKey, statementContext,
-                        readableBasePartitionsByMvPartition);
+                        readableBasePartitionsByMvPartition, null);
         setupComputeGroup(mtmvCtx);
         AtomicReference<IvmPlanSignature> signatureRef = new AtomicReference<>();
         try {

@@ -28,8 +28,8 @@ import org.apache.doris.datasource.mvcc.MvccTableInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
+import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mtmv.MTMVRefreshContext;
-import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mtmv.ivm.IvmIncrRefreshManager;
 import org.apache.doris.nereids.StatementContext;
@@ -243,21 +243,24 @@ public class RefreshMTMVCommandTest {
         MvccSnapshot secondSnapshot = Mockito.mock(MvccSnapshot.class);
         Mockito.when(firstInput.loadSnapshot(Mockito.any(), Mockito.any())).thenReturn(firstSnapshot);
         Mockito.when(secondInput.loadSnapshot(Mockito.any(), Mockito.any())).thenReturn(secondSnapshot);
-        BaseTableInfo firstInfo = Mockito.mock(BaseTableInfo.class);
-        BaseTableInfo secondInfo = Mockito.mock(BaseTableInfo.class);
-        Mockito.when(mtmv.getRelation()).thenReturn(new MTMVRelation(
-                Sets.newHashSet(firstInfo, secondInfo), Sets.newHashSet(firstInfo, secondInfo),
-                Sets.newHashSet(firstInfo, secondInfo), Sets.newHashSet(), Sets.newHashSet()));
+        Mockito.when(mtmv.getQuerySql()).thenReturn("SELECT 1 AS k1");
 
         StatementContext stmtCtx = new StatementContext(new ConnectContext(), null);
         UpdateMvByPartitionCommand refreshPlan = Mockito.mock(UpdateMvByPartitionCommand.class);
         Map<MvccTableInfo, MvccSnapshot> contextPins = new HashMap<>();
-        try (MockedStatic<MTMVUtil> util = Mockito.mockStatic(MTMVUtil.class);
+        try (MockedStatic<MTMVPlanUtil> planUtil =
+                        Mockito.mockStatic(MTMVPlanUtil.class, Mockito.CALLS_REAL_METHODS);
+                MockedStatic<MTMVUtil> util = Mockito.mockStatic(MTMVUtil.class);
                 MockedStatic<MTMVRefreshContext> contexts = Mockito.mockStatic(MTMVRefreshContext.class);
                 MockedStatic<UpdateMvByPartitionCommand> from =
                         Mockito.mockStatic(UpdateMvByPartitionCommand.class)) {
-            util.when(() -> MTMVUtil.getTable(firstInfo)).thenReturn(firstInput);
-            util.when(() -> MTMVUtil.getTable(secondInfo)).thenReturn(secondInput);
+            // The inputs are resolved from the definition, not from the stored relation.
+            planUtil.when(() -> MTMVPlanUtil.getBaseTableFromQuery(Mockito.anyString(), Mockito.any()))
+                    .thenReturn(new MTMVPlanUtil.QueryAnalysisResult(
+                            Sets.newHashSet(firstInput, secondInput),
+                            Sets.newHashSet(firstInput, secondInput), false));
+            util.when(() -> MTMVUtil.getTable(new BaseTableInfo(firstInput))).thenReturn(firstInput);
+            util.when(() -> MTMVUtil.getTable(new BaseTableInfo(secondInput))).thenReturn(secondInput);
             contexts.when(() -> MTMVRefreshContext.buildContext(Mockito.eq(mtmv), Mockito.anyMap(),
                             Mockito.anyMap()))
                     .thenAnswer(invocation -> {
@@ -265,12 +268,13 @@ public class RefreshMTMVCommandTest {
                         return Mockito.mock(MTMVRefreshContext.class);
                     });
             from.when(() -> UpdateMvByPartitionCommand.from(Mockito.eq(mtmv), Mockito.anySet(),
-                            Mockito.anyMap(), Mockito.same(stmtCtx), Mockito.any()))
+                            Mockito.anyMap(), Mockito.same(stmtCtx), Mockito.any(), Mockito.any()))
                     .thenReturn(refreshPlan);
 
             Assertions.assertSame(refreshPlan, command.createRefreshCommand(mtmv, stmtCtx));
         }
 
+        Mockito.verify(mtmv, Mockito.never()).getRelation();
         // One engine materialization per input, whatever number of MV partitions the scope is derived for.
         Mockito.verify(firstInput, Mockito.times(1)).loadSnapshot(Optional.empty(), Optional.empty());
         Mockito.verify(secondInput, Mockito.times(1)).loadSnapshot(Optional.empty(), Optional.empty());

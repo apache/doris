@@ -34,6 +34,7 @@ import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.mtmv.BaseColInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
@@ -117,15 +118,22 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
      *                               keeps that MV partition's own key range. The partitions are looked up
      *                               on the table at the snapshot pinned in the statement context, which is
      *                               the one the mapping was built from
+     * @param pendingPartitions partitions an alignment has yet to create that this read is to cover as well,
+     *                               by the name the alignment will create them under, with their items and
+     *                               read scopes. They are read but not targeted in the sink: the refresh
+     *                               creates them before it writes, while a preview runs before anything
+     *                               exists to target. A name that is also in {@code partitionNames} is read
+     *                               through the pending partition, which replaces the one the MV holds today
      * @return command
      */
     public static UpdateMvByPartitionCommand from(MTMV mv, Set<String> partitionNames,
             Map<TableIf, String> tableWithPartKey, StatementContext statementContext,
-            Map<String, Map<BaseTableInfo, Set<String>>> readableBasePartitionsByMvPartition)
+            Map<String, Map<BaseTableInfo, Set<String>>> readableBasePartitionsByMvPartition,
+            Map<String, MTMVPartitionUtil.PendingPartition> pendingPartitions)
             throws UserException {
         NereidsParser parser = new NereidsParser();
         Map<TableIf, Set<Expression>> predicates = constructTableWithPredicates(mv, partitionNames,
-                tableWithPartKey, statementContext, readableBasePartitionsByMvPartition);
+                tableWithPartKey, statementContext, readableBasePartitionsByMvPartition, pendingPartitions);
         List<String> parts = constructPartsForMv(partitionNames);
         Plan plan = parser.parseSingle(mv.getQuerySql());
         if (plan instanceof Sink) {
@@ -173,11 +181,17 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
     private static Map<TableIf, Set<Expression>> constructTableWithPredicates(MTMV mv,
             Set<String> partitionNames, Map<TableIf, String> tableWithPartKey,
             StatementContext statementContext,
-            Map<String, Map<BaseTableInfo, Set<String>>> readableBasePartitionsByMvPartition)
+            Map<String, Map<BaseTableInfo, Set<String>>> readableBasePartitionsByMvPartition,
+            Map<String, MTMVPartitionUtil.PendingPartition> pendingPartitions)
             throws AnalysisException {
         Map<String, PartitionItem> mvItemByName = Maps.newHashMap();
         for (String partitionName : partitionNames) {
             mvItemByName.put(partitionName, mv.getPartitionItemOrAnalysisException(partitionName));
+        }
+        if (pendingPartitions != null) {
+            for (Map.Entry<String, MTMVPartitionUtil.PendingPartition> entry : pendingPartitions.entrySet()) {
+                mvItemByName.put(entry.getKey(), entry.getValue().getItem());
+            }
         }
         Set<PartitionItem> mvItems = Sets.newHashSet(mvItemByName.values());
         ImmutableMap.Builder<TableIf, Set<Expression>> builder = new ImmutableMap.Builder<>();
@@ -187,10 +201,9 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
             BaseTableInfo tableInfo = new BaseTableInfo(table);
             Map<String, Set<String>> readableByMvPartition = Maps.newHashMap();
             Set<String> readableNames = Sets.newHashSet();
-            for (String partitionName : partitionNames) {
-                Map<BaseTableInfo, Set<String>> byTable = readableBasePartitionsByMvPartition == null ? null
-                        : readableBasePartitionsByMvPartition.get(partitionName);
-                Set<String> readable = byTable == null ? null : byTable.get(tableInfo);
+            for (String partitionName : mvItemByName.keySet()) {
+                Set<String> readable = readableBasePartitions(partitionName, tableInfo,
+                        readableBasePartitionsByMvPartition, pendingPartitions);
                 if (readable == null) {
                     continue;
                 }
@@ -213,7 +226,7 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
             Map<String, PartitionItem> itemByName = lookupBasePartitionItems(table, relatedTable, snapshot,
                     readableNames);
             List<Expression> terms = Lists.newArrayList();
-            for (String partitionName : partitionNames) {
+            for (String partitionName : mvItemByName.keySet()) {
                 PartitionItem mvItem = mvItemByName.get(partitionName);
                 Set<String> readable = readableByMvPartition.get(partitionName);
                 if (readable == null) {
@@ -295,6 +308,26 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
             }
         }
         return builder.build();
+    }
+
+    /**
+     * The base partitions this table is read from for one MV partition, or null when the table is not scoped
+     * for it and the MV partition's own key range is what reads it.
+     *
+     * <p>A pending partition is read through its own scope: it is a partition the alignment has yet to
+     * create, so nothing has recorded a scope for it, and the one it will be recorded with is the one the
+     * alignment computed. The name it may share with a partition the MV holds today is read through the
+     * pending one, since the alignment replaces that partition before the refresh writes.
+     */
+    private static Set<String> readableBasePartitions(String partitionName, BaseTableInfo tableInfo,
+            Map<String, Map<BaseTableInfo, Set<String>>> readableBasePartitionsByMvPartition,
+            Map<String, MTMVPartitionUtil.PendingPartition> pendingPartitions) {
+        if (pendingPartitions != null && pendingPartitions.containsKey(partitionName)) {
+            return pendingPartitions.get(partitionName).getReadScope().get(tableInfo);
+        }
+        Map<BaseTableInfo, Set<String>> byTable = readableBasePartitionsByMvPartition == null ? null
+                : readableBasePartitionsByMvPartition.get(partitionName);
+        return byTable == null ? null : byTable.get(tableInfo);
     }
 
     /**

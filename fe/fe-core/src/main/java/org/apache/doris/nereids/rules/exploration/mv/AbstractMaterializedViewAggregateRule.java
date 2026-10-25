@@ -558,17 +558,17 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         List<BaseColInfo> pctInfos = partitionInfo.getPctInfos();
         // The view has one partition column but it can be tracked by several base columns at once: an inner
         // join on A.d = B.d records both, and they are one dimension as long as the query holds them equal.
-        Map<BaseColInfo, Set<BaseColInfo>> equalColumns = columnsTheQueryHoldsEqual(queryPlan);
+        Map<ColumnSlot, Set<ColumnSlot>> equalSlots = slotsTheQueryHoldsEqual(queryPlan);
         Optional<String> partitionTimeUnit = viewPartitionTimeUnit(partitionInfo);
         Optional<LogicalRepeat<?>> logicalRepeatOptional = queryAggregate.getSourceRepeat();
         if (!logicalRepeatOptional.isPresent()) {
-            return groupingCoversPartitionColumns(groupByExpressions, queryPlan, pctInfos, equalColumns,
+            return groupingCoversPartitionColumns(groupByExpressions, queryPlan, pctInfos, equalSlots,
                     partitionTimeUnit, columnsSharingRetainedBucket);
         }
         // The group by list holds every grouping set's expressions beside the grouping id, so it can not tell
         // which set a partition column was read from; each set is asked on its own instead.
         for (List<Expression> groupingSet : logicalRepeatOptional.get().getGroupingSets()) {
-            if (!groupingCoversPartitionColumns(groupingSet, queryPlan, pctInfos, equalColumns,
+            if (!groupingCoversPartitionColumns(groupingSet, queryPlan, pctInfos, equalSlots,
                     partitionTimeUnit, columnsSharingRetainedBucket)) {
                 return false;
             }
@@ -591,7 +591,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
             return false;
         }
         LogicalAggregate<Plan> queryAggregate = logicalAggregateOptional.get();
-        Map<BaseColInfo, Set<BaseColInfo>> equalColumns = columnsTheQueryHoldsEqual(queryPlan);
+        Map<ColumnSlot, Set<ColumnSlot>> equalSlots = slotsTheQueryHoldsEqual(queryPlan);
         Optional<LogicalRepeat<?>> logicalRepeatOptional = queryAggregate.getSourceRepeat();
         for (MTMVRelatedTableIf table : uncoveredNarrowedByTable.keySet()) {
             BaseTableInfo tableInfo = new BaseTableInfo(table);
@@ -600,12 +600,12 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                     .collect(Collectors.toSet());
             if (logicalRepeatOptional.isPresent()) {
                 for (List<Expression> groupingSet : logicalRepeatOptional.get().getGroupingSets()) {
-                    if (!groupingCoversColumns(groupingSet, queryPlan, partitionColumns, equalColumns)) {
+                    if (!groupingCoversColumns(groupingSet, queryPlan, partitionColumns, equalSlots)) {
                         return false;
                     }
                 }
             } else if (!groupingCoversColumns(queryAggregate.getGroupByExpressions(), queryPlan,
-                    partitionColumns, equalColumns)) {
+                    partitionColumns, equalSlots)) {
                 return false;
             }
         }
@@ -614,17 +614,17 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
 
     /** Whether these grouping expressions name every one of these columns by itself, or through an equality. */
     private static boolean groupingCoversColumns(List<Expression> groupingExpressions, Plan queryPlan,
-            Set<BaseColInfo> columns, Map<BaseColInfo, Set<BaseColInfo>> equalColumns) {
+            Set<BaseColInfo> columns, Map<ColumnSlot, Set<ColumnSlot>> equalSlots) {
         if (groupingExpressions.isEmpty()) {
             return false;
         }
         List<? extends Expression> groupingShuttledExpressions =
                 ExpressionUtils.shuttleExpressionWithLineage(groupingExpressions, queryPlan);
-        Set<BaseColInfo> groupedByItself = Sets.newHashSet();
+        Set<ColumnSlot> groupedByItself = Sets.newHashSet();
         for (Expression expression : groupingShuttledExpressions) {
-            columnGroupedByItself(expression).ifPresent(groupedByItself::add);
+            columnSlotOf(expression).ifPresent(groupedByItself::add);
         }
-        return equalColumnsClosure(groupedByItself, equalColumns).containsAll(columns);
+        return baseColumnsOf(equalSlotsClosure(groupedByItself, equalSlots)).containsAll(columns);
     }
 
     /**
@@ -653,32 +653,33 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
      * them is no better.
      */
     private static boolean groupingCoversPartitionColumns(List<Expression> groupingExpressions, Plan queryPlan,
-            List<BaseColInfo> pctInfos, Map<BaseColInfo, Set<BaseColInfo>> equalColumns,
+            List<BaseColInfo> pctInfos, Map<ColumnSlot, Set<ColumnSlot>> equalSlots,
             Optional<String> partitionTimeUnit, Set<BaseColInfo> columnsSharingRetainedBucket) {
         List<? extends Expression> groupingShuttledExpressions =
                 ExpressionUtils.shuttleExpressionWithLineage(groupingExpressions, queryPlan);
         Set<BaseColInfo> partitionColumns = Sets.newHashSet(pctInfos);
-        Set<BaseColInfo> groupedByItself = Sets.newHashSet();
-        Set<BaseColInfo> groupedByTransform = Sets.newHashSet();
+        Set<ColumnSlot> groupedByItself = Sets.newHashSet();
+        Set<ColumnSlot> groupedByTransform = Sets.newHashSet();
         for (Expression expression : groupingShuttledExpressions) {
-            Optional<BaseColInfo> grouped = columnGroupedByItself(expression);
+            Optional<ColumnSlot> grouped = columnSlotOf(expression);
             if (grouped.isPresent()) {
-                if (partitionColumns.contains(grouped.get())) {
+                if (partitionColumns.contains(grouped.get().getBaseCol())) {
                     groupedByItself.add(grouped.get());
                 }
                 continue;
             }
-            Optional<BaseColInfo> transformed = columnUnderPartitionTransform(expression, partitionTimeUnit);
-            if (transformed.isPresent() && partitionColumns.contains(transformed.get())) {
+            Optional<ColumnSlot> transformed = columnUnderPartitionTransform(expression, partitionTimeUnit);
+            if (transformed.isPresent() && partitionColumns.contains(transformed.get().getBaseCol())) {
                 groupedByTransform.add(transformed.get());
             }
         }
-        Set<BaseColInfo> groupedTogether = equalColumnsClosure(groupedByItself, equalColumns);
-        for (BaseColInfo transformed : groupedByTransform) {
-            if (groupedTogether.contains(transformed)) {
+        Set<BaseColInfo> groupedTogether = baseColumnsOf(equalSlotsClosure(groupedByItself, equalSlots));
+        for (ColumnSlot transformed : groupedByTransform) {
+            if (groupedTogether.contains(transformed.getBaseCol())) {
                 continue;
             }
-            Set<BaseColInfo> transformedClass = equalColumnsClosure(Sets.newHashSet(transformed), equalColumns);
+            Set<BaseColInfo> transformedClass =
+                    baseColumnsOf(equalSlotsClosure(Sets.newHashSet(transformed), equalSlots));
             if (!Sets.intersection(transformedClass, columnsSharingRetainedBucket).isEmpty()) {
                 continue;
             }
@@ -688,16 +689,16 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
     }
 
     /** The columns reachable from these through the equalities the query holds, the seeds included. */
-    private static Set<BaseColInfo> equalColumnsClosure(Set<BaseColInfo> seeds,
-            Map<BaseColInfo, Set<BaseColInfo>> equalColumns) {
-        Set<BaseColInfo> groupedTogether = Sets.newHashSet();
-        Deque<BaseColInfo> unvisited = new ArrayDeque<>(seeds);
+    private static Set<ColumnSlot> equalSlotsClosure(Set<ColumnSlot> seeds,
+            Map<ColumnSlot, Set<ColumnSlot>> equalSlots) {
+        Set<ColumnSlot> groupedTogether = Sets.newHashSet();
+        Deque<ColumnSlot> unvisited = new ArrayDeque<>(seeds);
         while (!unvisited.isEmpty()) {
-            BaseColInfo column = unvisited.poll();
+            ColumnSlot column = unvisited.poll();
             if (!groupedTogether.add(column)) {
                 continue;
             }
-            for (BaseColInfo equal : equalColumns.getOrDefault(column, Collections.emptySet())) {
+            for (ColumnSlot equal : equalSlots.getOrDefault(column, Collections.emptySet())) {
                 if (!groupedTogether.contains(equal)) {
                     unvisited.add(equal);
                 }
@@ -706,13 +707,17 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         return groupedTogether;
     }
 
+    private static Set<BaseColInfo> baseColumnsOf(Set<ColumnSlot> slots) {
+        return slots.stream().map(ColumnSlot::getBaseCol).collect(Collectors.toSet());
+    }
+
     /**
      * The base column this expression groups by under the view's own partition transform, if it is that
      * transform itself: the same date_trunc, in the same unit, over a column of a table. A group it forms
      * lies within one of the view's partitions, which are disjoint in the transform's value, while a coarser
      * truncation rolls several of them up into a group both branches answer.
      */
-    private static Optional<BaseColInfo> columnUnderPartitionTransform(Expression expression,
+    private static Optional<ColumnSlot> columnUnderPartitionTransform(Expression expression,
             Optional<String> partitionTimeUnit) {
         if (!partitionTimeUnit.isPresent() || !(expression instanceof DateTrunc)) {
             return Optional.empty();
@@ -730,13 +735,16 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                         .equalsIgnoreCase(partitionTimeUnit.get())) {
             return Optional.empty();
         }
-        return columnGroupedByItself(dateTrunc.getArgument(dateArgumentIndex));
+        return columnSlotOf(dateTrunc.getArgument(dateArgumentIndex));
     }
 
     /**
-     * The base column this expression is by itself: a slot of a column of a table, with nothing over it.
+     * The column slot this expression is by itself: a slot of a column of a table, with nothing over it,
+     * kept with the slot's ExprId rather than only the base column. A query can read one table under several
+     * aliases, and an equality of one alias's column with a grouped column then says nothing about another
+     * alias's column of the same base table; the ExprId is what keeps the two apart.
      */
-    private static Optional<BaseColInfo> columnGroupedByItself(Expression expression) {
+    private static Optional<ColumnSlot> columnSlotOf(Expression expression) {
         if (!(expression instanceof SlotReference) || !((SlotReference) expression).isColumnFromTable()) {
             return Optional.empty();
         }
@@ -746,15 +754,15 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         if (columnName == null || tableInfo == null) {
             return Optional.empty();
         }
-        return Optional.of(new BaseColInfo(columnName, tableInfo));
+        return Optional.of(new ColumnSlot(slotReference.getExprId(), new BaseColInfo(columnName, tableInfo)));
     }
 
     /**
-     * The base columns the query holds equal in every row of it: the equalities between two columns that its
+     * The column slots the query holds equal in every row of it: the equalities between two columns that its
      * inner joins and its filters put on. An outer join's on-predicate is not one of them, since a
      * null-supplied row does not satisfy it, and neither is an equality under a disjunction.
      */
-    private static Map<BaseColInfo, Set<BaseColInfo>> columnsTheQueryHoldsEqual(Plan queryPlan) {
+    private static Map<ColumnSlot, Set<ColumnSlot>> slotsTheQueryHoldsEqual(Plan queryPlan) {
         List<Expression> guaranteed = new ArrayList<>();
         for (Plan plan : queryPlan.<Plan>collectToList(candidate ->
                 candidate instanceof LogicalFilter<?> || isInnerJoin(candidate))) {
@@ -764,9 +772,9 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                 ((LogicalJoin<?, ?>) plan).getOnClauseCondition().ifPresent(guaranteed::add);
             }
         }
-        Map<BaseColInfo, Set<BaseColInfo>> equalColumns = Maps.newHashMap();
+        Map<ColumnSlot, Set<ColumnSlot>> equalSlots = Maps.newHashMap();
         if (guaranteed.isEmpty()) {
-            return equalColumns;
+            return equalSlots;
         }
         for (Expression expression : Predicates.splitPredicates(ExpressionUtils.and(guaranteed))
                 .getEqualPredicateMap().keySet()) {
@@ -774,20 +782,49 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                 continue;
             }
             EqualTo equalTo = (EqualTo) expression;
-            Optional<BaseColInfo> left = columnGroupedByItself(equalTo.getArgument(0));
-            Optional<BaseColInfo> right = columnGroupedByItself(equalTo.getArgument(1));
+            Optional<ColumnSlot> left = columnSlotOf(equalTo.getArgument(0));
+            Optional<ColumnSlot> right = columnSlotOf(equalTo.getArgument(1));
             if (!left.isPresent() || !right.isPresent()) {
                 continue;
             }
-            equalColumns.computeIfAbsent(left.get(), key -> Sets.newHashSet()).add(right.get());
-            equalColumns.computeIfAbsent(right.get(), key -> Sets.newHashSet()).add(left.get());
+            equalSlots.computeIfAbsent(left.get(), key -> Sets.newHashSet()).add(right.get());
+            equalSlots.computeIfAbsent(right.get(), key -> Sets.newHashSet()).add(left.get());
         }
-        return equalColumns;
+        return equalSlots;
     }
 
     private static boolean isInnerJoin(TreeNode<?> candidate) {
         return candidate instanceof LogicalJoin<?, ?>
                 && ((LogicalJoin<?, ?>) candidate).getJoinType() == JoinType.INNER_JOIN;
+    }
+
+    /**
+     * A column slot of the query plan with the base column it comes from, identified by the slot's ExprId:
+     * two aliases of one base table are two slots, and an equality carrying one alias's column says nothing
+     * about the other alias's columns of that table.
+     */
+    private static final class ColumnSlot {
+        private final ExprId exprId;
+        private final BaseColInfo baseCol;
+
+        private ColumnSlot(ExprId exprId, BaseColInfo baseCol) {
+            this.exprId = exprId;
+            this.baseCol = baseCol;
+        }
+
+        private BaseColInfo getBaseCol() {
+            return baseCol;
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            return other instanceof ColumnSlot && exprId.equals(((ColumnSlot) other).exprId);
+        }
+
+        @Override
+        public int hashCode() {
+            return exprId.hashCode();
+        }
     }
 
     /**

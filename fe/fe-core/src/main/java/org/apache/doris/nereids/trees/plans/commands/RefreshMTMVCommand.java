@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Database;
@@ -28,7 +27,6 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.stream.StreamReadMode;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
@@ -60,7 +58,6 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -212,7 +209,6 @@ public class RefreshMTMVCommand extends Command implements Forward, Explainable 
                 return createIvmIncrRefreshManager().buildInsertCommand(mtmv);
             case COMPLETE:
                 statementContext.setExcludedTriggerTables(mtmv.getExcludedTriggerTables());
-                Set<String> completeRefreshPartitions = getCompleteRefreshPartitions(mtmv);
                 Map<TableIf, String> tableWithPartKey = getIncrementalTableMap(mtmv);
                 // Pinned before the context is built, the way a refresh task pins its inputs before its
                 // own: the mapping, the read predicates and the scan binding then all resolve one
@@ -225,20 +221,29 @@ public class RefreshMTMVCommand extends Command implements Forward, Explainable 
                 // set to rebuild taken from the MV -- so the preview takes the same set. A dropped partition
                 // left in it would be read through a scope the refresh never reads, and being undescribed
                 // there it would also cost the retained partitions their scopes; see
-                // MTMVPartitionUtil#mappedBasePartitionsByMvPartition.
-                completeRefreshPartitions = partitionsAfterPendingAlignment(mtmv, pinnedSnapshots,
-                        completeRefreshPartitions);
+                // MTMVPartitionUtil#mappedBasePartitionsByMvPartition. The partitions the alignment creates
+                // are rebuilt in the same round, so the preview covers their read scopes as well, even
+                // though it cannot target them in the sink; see MTMVPartitionUtil#pendingPartitions.
+                CompleteRefreshPreview preview =
+                        completeRefreshPreview(mtmv, pinnedSnapshots, tableWithPartKey);
                 MTMVRefreshContext refreshContext =
                         MTMVRefreshContext.buildContext(mtmv, Maps.newHashMap(), pinnedSnapshots);
+                // The base partitions a retained MV partition is read from, from the mapping the refresh
+                // records it with, and those of the partitions the alignment creates, from the alignment
+                // itself. Paired per partition rather than unioned for the batch; see
+                // UpdateMvByPartitionCommand#constructTableWithPredicates.
+                Map<String, Map<BaseTableInfo, Set<String>>> readScopes =
+                        MTMVPartitionUtil.mappedBasePartitionsByMvPartition(tableWithPartKey, refreshContext,
+                                preview.getSinkPartitionNames());
+                readScopes.putAll(preview.readScopesByPendingName());
                 if (mtmv.isIvm()) {
                     // The explained refresh covers every MV partition in one plan, which is the refresh-all
                     // first batch a refresh would run: its PCT inputs are reset to the base partitions the
                     // mapping names -- a table it names as empty is read as no rows -- and a non-PCT input is
                     // read in RESET mode. Both are derived the way MTMVTask derives them, from the same
-                    // context, so the preview's reads are the reads execution makes; see IvmFullRefreshMTMV.
+                    // scopes, so the preview's reads are the reads execution makes; see IvmFullRefreshMTMV.
                     statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.fullExplain(mtmv,
-                            MTMVPartitionUtil.collectPctResetPartitionIds(mtmv, refreshContext,
-                                    completeRefreshPartitions),
+                            MTMVPartitionUtil.collectPctResetPartitionIds(mtmv, readScopes.values()),
                             StreamReadMode.RESET)));
                 }
                 // Explained through the base partitions the refresh reads for these MV partitions, from the
@@ -249,10 +254,9 @@ public class RefreshMTMVCommand extends Command implements Forward, Explainable 
                 // not make. The pairing is what keeps one MV partition's recorded base partitions from being
                 // read through another's range, which the refresh does not do either. An IVM MV passes no
                 // predicate scope: its rewrite scopes the read through the reset partition ids instead.
-                return UpdateMvByPartitionCommand.from(mtmv, completeRefreshPartitions, tableWithPartKey,
-                        statementContext, mtmv.isIvm() ? null
-                                : MTMVPartitionUtil.mappedBasePartitionsByMvPartition(tableWithPartKey,
-                                        refreshContext, completeRefreshPartitions));
+                return UpdateMvByPartitionCommand.from(mtmv, preview.getSinkPartitionNames(), tableWithPartKey,
+                        statementContext, mtmv.isIvm() ? null : readScopes,
+                        preview.getPendingPartitions());
             default:
                 throw new org.apache.doris.nereids.exceptions.AnalysisException(
                         "EXPLAIN REFRESH currently supports COMPLETE and INCREMENTAL only");
@@ -327,16 +331,21 @@ public class RefreshMTMVCommand extends Command implements Forward, Explainable 
      * One engine snapshot per external input of this MV, also installed on {@code statementContext} so
      * that predicate construction and scan binding reuse the pins the mapping is built from, as
      * {@code MTMVTask#beforeMTMVRefresh} does for a refresh.
+     *
+     * <p>The inputs are resolved from the definition this preview plans rather than read from the relation
+     * the last refresh stored, for the same reason MTMVTask regenerates it on every run: a base table or a
+     * view the definition names may have been dropped, altered or created since. Pinning the stored ones
+     * would take snapshots of tables the refresh does not read, and miss the ones it does -- and fail
+     * outright on a stored input that no longer exists, which is a preview of a refresh that would run.
      */
     @VisibleForTesting
     Map<MvccTableInfo, MvccSnapshot> pinBaseTableSnapshots(MTMV mtmv, StatementContext statementContext)
             throws AnalysisException {
         Map<MvccTableInfo, MvccSnapshot> snapshots = Maps.newHashMap();
-        MTMVRelation relation = mtmv.getRelation();
-        if (relation == null) {
-            // A legacy MV has no relation until its first refresh regenerates one.
-            return snapshots;
-        }
+        MTMVPlanUtil.QueryAnalysisResult queryAnalysis = MTMVPlanUtil.getBaseTableFromQuery(
+                mtmv.getQuerySql(), statementContext.getConnectContext());
+        MTMVRelation relation = MTMVPlanUtil.generateMTMVRelation(queryAnalysis.getAllLevelTables(),
+                queryAnalysis.getOneLevelTables());
         for (BaseTableInfo tableInfo : relation.getBaseTablesOneLevelAndFromView()) {
             TableIf table = MTMVUtil.getTable(tableInfo);
             if (!(table instanceof MvccTable)) {
@@ -350,7 +359,7 @@ public class RefreshMTMVCommand extends Command implements Forward, Explainable 
         return snapshots;
     }
 
-    private Set<String> getCompleteRefreshPartitions(MTMV mtmv) {
+    private static Set<String> getCompleteRefreshPartitions(MTMV mtmv) {
         if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
             return Sets.newHashSet();
         }
@@ -358,41 +367,76 @@ public class RefreshMTMVCommand extends Command implements Forward, Explainable 
     }
 
     /**
-     * The partitions a COMPLETE refresh will rebuild, once the alignment it runs before reading anything has
-     * dropped the partitions the base partitions no longer describe.
+     * The partitions a COMPLETE refresh will rebuild, as a preview of it needs them: the ones the MV holds
+     * today that the alignment keeps, which are the ones the sink can target, and the ones the alignment
+     * creates, which the preview reads but cannot target.
      *
-     * <p>Execution applies that alignment and then takes the set it rebuilds from the MV
+     * <p>Execution applies the alignment and then takes the set it rebuilds from the MV
      * (MTMVTask#executeCompleteAttempt), so a preview that kept a dropped partition would show a read the
      * refresh does not make: that partition's own key range, and -- while the partition is undescribed -- the
      * whole batch unscoped, taking every other partition's scope with it (see
-     * MTMVPartitionUtil#mappedBasePartitionsByMvPartition). The alignment computed here is the one the next
-     * refresh would run, against the snapshots the preview is pinned to, and nothing is applied.
-     *
-     * <p>Only names that exist stay in the preview. A partition the alignment has yet to create has no name
-     * the sink can target and no rows until the refresh creates it, so it stays out; one the alignment drops
-     * and recreates under its own name stays in, because that name is what the refresh rebuilds and leaving
-     * it out would hide a read the refresh makes.
+     * MTMVPartitionUtil#mappedBasePartitionsByMvPartition). A partition the alignment creates is rebuilt in
+     * that same round, and the base partitions it is read from feed no other MV partition, so leaving it out
+     * would hide a read the refresh makes. The alignment computed here is the one the next refresh would run,
+     * against the snapshots the preview is pinned to, and nothing is applied.
      */
-    private static Set<String> partitionsAfterPendingAlignment(MTMV mtmv,
-            Map<MvccTableInfo, MvccSnapshot> pinnedSnapshots, Set<String> partitionNames)
+    private static CompleteRefreshPreview completeRefreshPreview(MTMV mtmv,
+            Map<MvccTableInfo, MvccSnapshot> pinnedSnapshots, Map<TableIf, String> tableWithPartKey)
             throws AnalysisException {
+        Set<String> partitionNames = getCompleteRefreshPartitions(mtmv);
         if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
-            return partitionNames;
+            return new CompleteRefreshPreview(partitionNames, Maps.newHashMap());
         }
-        Pair<List<String>, List<PartitionKeyDesc>> alignment =
-                MTMVPartitionUtil.alignMvPartition(mtmv, pinnedSnapshots);
+        MTMVPartitionUtil.PartitionAlignment alignment =
+                MTMVPartitionUtil.computePartitionAlignment(mtmv, pinnedSnapshots);
         Set<String> retained = Sets.newHashSet(partitionNames);
-        retained.removeAll(alignment.first);
-        for (PartitionKeyDesc partitionKeyDesc : alignment.second) {
-            String recreatedName = MTMVPartitionUtil.generatePartitionName(partitionKeyDesc);
-            if (partitionNames.contains(recreatedName)) {
-                retained.add(recreatedName);
+        retained.removeAll(alignment.getPartitionsToDrop());
+        Map<String, MTMVPartitionUtil.PendingPartition> pending =
+                MTMVPartitionUtil.pendingPartitions(mtmv, alignment, tableWithPartKey);
+        for (String pendingName : pending.keySet()) {
+            // A partition the alignment drops and recreates under its own name is one the sink can target,
+            // and leaving it out would hide a read the refresh makes.
+            if (partitionNames.contains(pendingName)) {
+                retained.add(pendingName);
             }
         }
         // An alignment that replaces every partition leaves no name the preview can target, and one that
         // targets nothing reads every table whole; the stale names keep the preview about the partitions the
         // MV actually has.
-        return retained.isEmpty() ? partitionNames : retained;
+        return new CompleteRefreshPreview(retained.isEmpty() ? partitionNames : retained, pending);
+    }
+
+    /**
+     * The partitions a COMPLETE refresh will rebuild, split by what a preview can do with them: the ones that
+     * exist today, which the sink targets, and the ones the alignment creates, which it reads through their
+     * items and read scopes alone because nothing exists to target yet.
+     */
+    private static class CompleteRefreshPreview {
+        private final Set<String> sinkPartitionNames;
+        private final Map<String, MTMVPartitionUtil.PendingPartition> pendingPartitions;
+
+        CompleteRefreshPreview(Set<String> sinkPartitionNames,
+                Map<String, MTMVPartitionUtil.PendingPartition> pendingPartitions) {
+            this.sinkPartitionNames = sinkPartitionNames;
+            this.pendingPartitions = pendingPartitions;
+        }
+
+        Set<String> getSinkPartitionNames() {
+            return sinkPartitionNames;
+        }
+
+        Map<String, MTMVPartitionUtil.PendingPartition> getPendingPartitions() {
+            return pendingPartitions;
+        }
+
+        /** The read scopes of the pending partitions, by the name the alignment will create them under. */
+        Map<String, Map<BaseTableInfo, Set<String>>> readScopesByPendingName() {
+            Map<String, Map<BaseTableInfo, Set<String>>> res = Maps.newHashMap();
+            for (Map.Entry<String, MTMVPartitionUtil.PendingPartition> entry : pendingPartitions.entrySet()) {
+                res.put(entry.getKey(), entry.getValue().getReadScope());
+            }
+            return res;
+        }
     }
 
     private Map<TableIf, String> getIncrementalTableMap(MTMV mtmv)

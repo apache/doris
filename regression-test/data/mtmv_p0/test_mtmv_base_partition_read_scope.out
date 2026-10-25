@@ -121,3 +121,17 @@ p_20200101_20380101	false
 -- !range_spill_batch_mv_tail --
 0
 
+-- !non_pct_alias --
+2020-01-01	1	3
+2020-01-01	2	3
+
+-- !view_inputs --
+1	3
+2	4
+
+-- !replacement_partitions --
+2020-01-01	1	1
+2020-01-01	2	2
+2020-02-01	2	5
+2020-03-01	1	3
+

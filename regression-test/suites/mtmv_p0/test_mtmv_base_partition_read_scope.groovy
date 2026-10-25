@@ -993,4 +993,129 @@ suite("test_mtmv_base_partition_read_scope") {
     """
     waitingMTMVTaskFinishedByMvName("range_spill_batch_mv")
     order_qt_range_spill_batch_mv_tail "SELECT COUNT(*) FROM range_spill_batch_mv WHERE ts = '2024-02-01 00:00:00.100'"
+
+    // The whole-key exception reads equalities as the base columns behind them, and two aliases of one table
+    // both answer the same base column: a.k = b1.x and b2.x are then A.k = B.x and B.x, so the query looks
+    // like it groups by A.k although it groups by b2.x alone. Here b2.x is 1 and 2 beside a.k = 1, so a.k
+    // varies within a (d, b2.x) group and the view's per-k aggregate cannot be rolled up by b2.x. The
+    // compensation would union the view's kept component with the base branch's old partition and emit two
+    // rows per group, sums 2 and 1 instead of 3. The equality is kept on the slots it names, so the grouping
+    // does not reach A.k and the query is answered from the base table instead.
+    sql """drop materialized view if exists non_pct_alias_mv"""
+    sql """drop table if exists non_pct_alias_base"""
+    sql """drop table if exists non_pct_alias_dim"""
+    sql """
+        CREATE TABLE non_pct_alias_base (d DATE NOT NULL, k INT NOT NULL, v INT NOT NULL, z INT NOT NULL)
+        DUPLICATE KEY(d, k) PARTITION BY LIST(d, k) (
+            PARTITION p_kept VALUES IN (("2020-01-01", 1), ("2038-01-01", 1)),
+            PARTITION p_bridge VALUES IN (("2038-01-01", 2)),
+            PARTITION p_old VALUES IN (("2020-01-01", 2)))
+        DISTRIBUTED BY HASH(d) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+    """
+    sql """CREATE TABLE non_pct_alias_dim (x INT NOT NULL, z INT NOT NULL)
+        DUPLICATE KEY(x) DISTRIBUTED BY HASH(x) BUCKETS 1 PROPERTIES ("replication_num" = "1")"""
+    sql """INSERT INTO non_pct_alias_base VALUES
+        ("2020-01-01", 1, 2, 0), ("2020-01-01", 2, 1, 0),
+        ("2038-01-01", 1, 5, 0), ("2038-01-01", 2, 7, 0)"""
+    // Fill a kept partition before the refresh, so that without the fallback the union would be chosen
+    // rather than dropped by the cost model on an empty table.
+    sql """INSERT INTO non_pct_alias_base
+        SELECT CAST("2038-01-01" AS DATE), 1, 0, 0 FROM numbers("number" = "10000")"""
+    sql """INSERT INTO non_pct_alias_dim VALUES (1, 0), (2, 0)"""
+    sql """
+        CREATE MATERIALIZED VIEW non_pct_alias_mv
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL PARTITION BY (d)
+        DISTRIBUTED BY HASH(d) BUCKETS 1 PROPERTIES ("replication_num" = "1",
+            "partition_sync_limit" = "2", "partition_sync_time_unit" = "YEAR")
+        AS SELECT a.d, a.k, b2.x, SUM(a.v) AS s
+            FROM non_pct_alias_base a
+            JOIN non_pct_alias_dim b1 ON a.k = b1.x
+            JOIN non_pct_alias_dim b2 ON a.z = b2.z
+            GROUP BY a.d, a.k, b2.x
+    """
+    waitingMTMVTaskFinishedByMvName("non_pct_alias_mv")
+    sql """ANALYZE TABLE non_pct_alias_base WITH SYNC"""
+    sql """ANALYZE TABLE non_pct_alias_dim WITH SYNC"""
+    sql """set enable_materialized_view_rewrite = true"""
+    explain {
+        sql("select a.d, b2.x, sum(a.v) from non_pct_alias_base a "
+                + "join non_pct_alias_dim b1 on a.k = b1.x "
+                + "join non_pct_alias_dim b2 on a.z = b2.z "
+                + "where a.d = '2020-01-01' group by a.d, b2.x")
+        notContains "UNION"
+    }
+    order_qt_non_pct_alias """SELECT a.d, b2.x, SUM(a.v) FROM non_pct_alias_base a
+        JOIN non_pct_alias_dim b1 ON a.k = b1.x JOIN non_pct_alias_dim b2 ON a.z = b2.z
+        WHERE a.d = '2020-01-01' GROUP BY a.d, b2.x"""
+
+    // A preview resolves the inputs of the definition it plans, not the relation the last refresh saved, for
+    // the same reason MTMVTask regenerates that relation on every run: the view the definition names may have
+    // been altered and a table it used to read dropped since. The ALTER VIEW invalidates the MV but leaves the
+    // stored relation on the old input until a refresh succeeds, so a preview that pinned the stored relation
+    // would fail resolving the dropped table while the next refresh analyzes the current view and succeeds.
+    sql """drop materialized view if exists view_inputs_mv"""
+    sql """drop view if exists view_inputs_v"""
+    sql """drop table if exists view_inputs_a"""
+    sql """drop table if exists view_inputs_b"""
+    sql """CREATE TABLE view_inputs_a (k INT NOT NULL, v INT NOT NULL)
+        DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES ("replication_num" = "1")"""
+    sql """CREATE TABLE view_inputs_b (k INT NOT NULL, v INT NOT NULL)
+        DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES ("replication_num" = "1")"""
+    sql """INSERT INTO view_inputs_a VALUES (1, 10), (2, 20)"""
+    sql """INSERT INTO view_inputs_b VALUES (1, 3), (2, 4)"""
+    sql """CREATE VIEW view_inputs_v AS SELECT k, v FROM view_inputs_a"""
+    sql """CREATE MATERIALIZED VIEW view_inputs_mv
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+        AS SELECT k, SUM(v) AS s FROM view_inputs_v GROUP BY k"""
+    waitingMTMVTaskFinishedByMvName("view_inputs_mv")
+    sql """ALTER VIEW view_inputs_v AS SELECT k, v FROM view_inputs_b"""
+    sql """DROP TABLE view_inputs_a"""
+    // The preview reads the table the view names today; the next refresh does the same and rebuilds the MV
+    // from it.
+    explain {
+        sql "REFRESH MATERIALIZED VIEW view_inputs_mv COMPLETE"
+        contains "view_inputs_b"
+    }
+    sql """REFRESH MATERIALIZED VIEW view_inputs_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("view_inputs_mv")
+    order_qt_view_inputs "SELECT k, s FROM view_inputs_mv"
+
+    // A base partition added under keys the MV's partition already covers widens that partition's key set,
+    // so the alignment drops the MV partition and creates it again, retaining the other one. The preview has
+    // to read the replacement as well even though the sink cannot target a partition that does not exist
+    // yet: the added partition feeds no partition the MV holds today, so leaving it out would show a read
+    // narrower than the refresh makes, and the committed d=1 and d=2 rows would be rebuilt unseen. The read
+    // is pinned to the base partitions' whole keys, which a list partitioned scan prunes with instead of
+    // filtering, so the partitions it names are what tells the preview's read apart: the replacement's p1
+    // and p12 beside the retained p3, where a preview that leaves the replacement out names p3 alone.
+    sql """drop materialized view if exists replacement_mv"""
+    sql """drop table if exists replacement_base"""
+    sql """
+        CREATE TABLE replacement_base (d DATE NOT NULL, k INT NOT NULL, v INT NOT NULL)
+        DUPLICATE KEY(d, k) PARTITION BY LIST(d, k) (
+            PARTITION p1 VALUES IN (("2020-01-01", 1)),
+            PARTITION p3 VALUES IN (("2020-03-01", 1)))
+        DISTRIBUTED BY HASH(d) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+    """
+    sql """INSERT INTO replacement_base VALUES ("2020-01-01", 1, 1), ("2020-03-01", 1, 3)"""
+    sql """
+        CREATE MATERIALIZED VIEW replacement_mv
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL PARTITION BY (d)
+        DISTRIBUTED BY HASH(d) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+        AS SELECT d, k, SUM(v) AS s FROM replacement_base GROUP BY d, k
+    """
+    waitingMTMVTaskFinishedByMvName("replacement_mv")
+    // The added partition claims the key the MV holds for 2020-01-01 beside one for 2020-02-01, so
+    // 2020-01-01's partition is dropped and created again under the widened key set while 2020-03-01 is
+    // retained.
+    sql """ALTER TABLE replacement_base ADD PARTITION p12 VALUES IN (("2020-01-01", 2), ("2020-02-01", 2))"""
+    sql """INSERT INTO replacement_base VALUES ("2020-01-01", 2, 2), ("2020-02-01", 2, 5)"""
+    explain {
+        sql "REFRESH MATERIALIZED VIEW replacement_mv COMPLETE"
+        contains "partitions=3/3 (p1,p3,p12)"
+    }
+    sql """REFRESH MATERIALIZED VIEW replacement_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("replacement_mv")
+    order_qt_replacement_partitions "SELECT d, k, s FROM replacement_mv"
 }

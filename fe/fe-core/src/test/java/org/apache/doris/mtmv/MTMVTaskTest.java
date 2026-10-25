@@ -1497,7 +1497,7 @@ public class MTMVTaskTest {
                     .thenReturn(mtmvCtx);
             updateMvStatic.when(() -> UpdateMvByPartitionCommand.from(
                     Mockito.eq(mtmv), Mockito.anySet(), Mockito.anyMap(), Mockito.any(StatementContext.class),
-                    Mockito.any()))
+                    Mockito.any(), Mockito.any()))
                     .thenAnswer(new Answer<UpdateMvByPartitionCommand>() {
                         @Override
                         public UpdateMvByPartitionCommand answer(InvocationOnMock invocation) {
@@ -1862,7 +1862,7 @@ public class MTMVTaskTest {
                     Mockito.eq(mtmv), Mockito.anyList())).thenReturn(mtmvCtx);
             updateMvStatic.when(() -> UpdateMvByPartitionCommand.from(
                     Mockito.eq(mtmv), Mockito.anySet(), Mockito.anyMap(), Mockito.any(StatementContext.class),
-                    Mockito.any()))
+                    Mockito.any(), Mockito.any()))
                     .thenReturn(command);
 
             AnalysisException failure = Assertions.assertThrows(AnalysisException.class,
@@ -1964,7 +1964,7 @@ public class MTMVTaskTest {
                     .thenReturn(mtmvCtx);
             updateMvStatic.when(() -> UpdateMvByPartitionCommand.from(
                     Mockito.eq(mtmv), Mockito.anySet(), Mockito.anyMap(), Mockito.any(StatementContext.class),
-                    Mockito.any()))
+                    Mockito.any(), Mockito.any()))
                     .thenReturn(command);
             // Build nested mocks before starting the static stubbing chain.
             List<StmtExecutor> batchExecutors = Lists.newArrayList(

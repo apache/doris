@@ -396,7 +396,7 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
         OriginStatement originStatement = statementContext.getOriginStatement();
         statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.full(mtmv)));
         UpdateMvByPartitionCommand command = UpdateMvByPartitionCommand.from(
-                mtmv, Sets.newHashSet(), ImmutableMap.of(), statementContext, null);
+                mtmv, Sets.newHashSet(), ImmutableMap.of(), statementContext, null, null);
         AtomicReference<StmtExecutor> executorRef = new AtomicReference<>();
         MTMVPlanUtil.executeCommand(
                 mtmv, command, statementContext, "refresh materialized view test.ivm_mv",
@@ -445,7 +445,7 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
         MTMV mtmv = getMtmv("one_row_mv");
         StatementContext statementContext = createStatementCtx("refresh materialized view test.one_row_mv");
         UpdateMvByPartitionCommand command = UpdateMvByPartitionCommand.from(
-                mtmv, Sets.newHashSet(), ImmutableMap.of(), statementContext, null);
+                mtmv, Sets.newHashSet(), ImmutableMap.of(), statementContext, null, null);
 
         TestNereidsPlanner planner = new TestNereidsPlanner(statementContext);
         PhysicalPlan physicalPlan = planner.planWithLock(command.getLogicalQuery(), PhysicalProperties.ANY);
@@ -462,7 +462,7 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
         StatementContext statementContext = createStatementCtx("refresh materialized view test.ivm_mv");
         statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.full(mtmv)));
         return UpdateMvByPartitionCommand.from(mtmv, Sets.newHashSet(), ImmutableMap.of(), statementContext,
-                null);
+                null, null);
     }
 
     @Test
@@ -565,7 +565,8 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
         UpdateMvByPartitionCommand.from(mtmv, Sets.newHashSet(janPartition, febPartition),
                 ImmutableMap.of(base, "k1"), statementContext, ImmutableMap.of(
                         janPartition, ImmutableMap.of(new BaseTableInfo(base), Sets.newHashSet("p_jan")),
-                        febPartition, ImmutableMap.of(new BaseTableInfo(base), Sets.newHashSet("p_feb"))));
+                        febPartition, ImmutableMap.of(new BaseTableInfo(base), Sets.newHashSet("p_feb"))),
+                null);
         Map<TableIf, Set<Expression>> predicates = statementContext.getMvRefreshPredicates().get();
         Assertions.assertEquals(1, predicates.size());
         Set<Expression> scoped = predicates.values().iterator().next();
@@ -694,7 +695,7 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
         StatementContext statementContext = createStatementCtx("refresh materialized view test.pct_mv");
         UpdateMvByPartitionCommand.from(mtmv, Sets.newHashSet(mvPartitionName), ImmutableMap.of(base, "k1"),
                 statementContext, ImmutableMap.of(mvPartitionName,
-                        ImmutableMap.of(new BaseTableInfo(base), readableBasePartitions)));
+                        ImmutableMap.of(new BaseTableInfo(base), readableBasePartitions)), null);
         return statementContext.getMvRefreshPredicates().get();
     }
 
@@ -706,7 +707,7 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
         StatementContext statementContext = createStatementCtx("refresh materialized view test.pct_ms_direct_mv");
         UpdateMvByPartitionCommand.from(mtmv, Sets.newHashSet(mvPartitionName), ImmutableMap.of(base, "k1"),
                 statementContext, ImmutableMap.of(mvPartitionName,
-                        ImmutableMap.of(new BaseTableInfo(base), readableBasePartitions)));
+                        ImmutableMap.of(new BaseTableInfo(base), readableBasePartitions)), null);
         return statementContext.getMvRefreshPredicates().get();
     }
 
@@ -718,7 +719,7 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
         StatementContext statementContext = createStatementCtx("refresh materialized view test.pct_ms_mv");
         UpdateMvByPartitionCommand.from(mtmv, Sets.newHashSet(mvPartitionName), ImmutableMap.of(base, "k1"),
                 statementContext, ImmutableMap.of(mvPartitionName,
-                        ImmutableMap.of(new BaseTableInfo(base), readableBasePartitions)));
+                        ImmutableMap.of(new BaseTableInfo(base), readableBasePartitions)), null);
         return statementContext.getMvRefreshPredicates().get();
     }
 
