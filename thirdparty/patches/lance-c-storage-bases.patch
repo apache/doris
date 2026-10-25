@@ -20,13 +20,24 @@
   "tokio",
 --- a/include/lance/lance.h
 +++ b/include/lance/lance.h
-@@ -291,6 +291,31 @@
+@@ -291,6 +291,42 @@
  );
  
  /* ─── Dataset lifecycle ─── */
 +
 +/** Metadata-only base inspection contract; header/archive must both provide this API. */
 +#define LANCE_STORAGE_BASES_JSON_VERSION 1
++
++/** Pre-open parsing contract for the default registry's local URI providers. */
++#define LANCE_LOCAL_URI_PATH_JSON_VERSION 1
++
++/**
++ * Parse a local-provider URI using the SDK URL parser and default registry.
++ * No store is constructed and no filesystem or manifest is accessed.
++ * Returns {"format_version":1,"scheme":"...","local_path":"/absolute/path"}.
++ * Non-local, invalid and NULL inputs fail. Free the result with lance_free_string().
++ */
++const char* lance_local_uri_path_json(const char* uri);
 +
 +/**
 + * Return the primary and all registered bases of the opened snapshot as JSON.
@@ -54,7 +65,22 @@
   * Open a Lance dataset.
 --- a/include/lance/lance.hpp
 +++ b/include/lance/lance.hpp
-@@ -820,6 +820,15 @@
+@@ -47,6 +47,14 @@
+         if (msg) lance_free_string(msg);
+         throw Error(code, std::move(owned));
+     }
++}
++
++/// Parse local URI metadata without opening a store or reading a manifest.
++inline std::string local_uri_path_json(const std::string& uri) {
++    const char* json = lance_local_uri_path_json(uri.c_str());
++    if (!json) check_error();
++    std::unique_ptr<const char, decltype(&lance_free_string)> owned(json, &lance_free_string);
++    return std::string(owned.get());
+ }
+
+ /// Release and free a library-allocated ArrowArrayStream returned by
+@@ -820,6 +828,15 @@
                  handle_.get(), stream, batch_size) != 0) {
              check_error();
          }
@@ -68,7 +94,7 @@
 +        std::unique_ptr<const char, decltype(&lance_free_string)> owned(json, &lance_free_string);
 +        return std::string(owned.get());
      }
- 
+
      /// Export the schema as an Arrow C Data Interface struct.
 --- a/src/dataset.rs
 +++ b/src/dataset.rs
@@ -82,7 +108,7 @@
  
  /// Opaque handle representing an opened Lance dataset.
  pub struct LanceDataset {
-@@ -219,6 +222,82 @@
+@@ -219,6 +222,117 @@
  // Metadata (in-memory, sync only)
  // ---------------------------------------------------------------------------
  
@@ -92,6 +118,41 @@
 +    dataset: *const LanceDataset,
 +) -> *const c_char {
 +    ffi_try!(unsafe { storage_bases_json_inner(dataset) }, null)
++}
++
++/// Decode a local primary URI before the caller applies its filesystem policy.
++/// Registry path extraction does not construct a store or access a manifest.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn lance_local_uri_path_json(uri: *const c_char) -> *const c_char {
++    ffi_try!(unsafe { local_uri_path_json_inner(uri) }, null)
++}
++
++unsafe fn local_uri_path_json_inner(uri: *const c_char) -> Result<*const c_char> {
++    let uri = unsafe { helpers::parse_c_string(uri)? }
++        .ok_or_else(|| lance_core::Error::invalid_input_source("uri must not be NULL".into()))?;
++    if uri.is_empty() {
++        return Err(lance_core::Error::invalid_input_source(
++            "uri must not be empty".into(),
++        ));
++    }
++    let url = lance_io::object_store::uri_to_url(uri)?;
++    if !matches!(url.scheme(), "file" | "file-object-store" | "file+uring") {
++        return Err(lance_core::Error::invalid_input_source(
++            "URI is not a local provider".into(),
++        ));
++    }
++    let registry = Arc::new(lance_io::object_store::ObjectStoreRegistry::default());
++    let path = lance_io::object_store::ObjectStore::extract_path_from_uri(registry, uri)?;
++    let json = serde_json::json!({
++        "format_version": 1,
++        "scheme": url.scheme(),
++        "local_path": lance_io::local::to_local_path(&path),
++    })
++    .to_string();
++    let owned = std::ffi::CString::new(json).map_err(|_| {
++        lance_core::Error::invalid_input_source("local URI metadata contains NUL".into())
++    })?;
++    Ok(owned.into_raw())
 +}
 +
 +fn storage_base_description(
@@ -165,7 +226,7 @@
  /// Return the version number of this dataset snapshot.
  /// Returns 0 on error — check `lance_last_error_code()`.
  #[unsafe(no_mangle)]
-@@ -588,3 +667,121 @@
+@@ -588,3 +702,161 @@
          assert_eq!(block_on(snap.count_rows(None)).unwrap(), 2);
      }
  }
@@ -287,6 +348,46 @@
 +        assert!(unsafe { lance_dataset_storage_bases_json(std::ptr::null()) }.is_null());
 +    }
 +}
++
++#[cfg(test)]
++mod local_uri_path_tests {
++    use super::*;
++    use std::ffi::{CStr, CString};
++
++    #[test]
++    fn local_uri_metadata_is_sdk_decoded_without_opening_storage() {
++        for (input, expected) in [
++            (
++                "file-object-store:///nonexistent/sdbsec/a%20b",
++                "/nonexistent/sdbsec/a b",
++            ),
++            (
++                "file-object-store://host/nonexistent/a%2520b?q=x#tag",
++                "/nonexistent/a%20b",
++            ),
++            (
++                "FILE-OBJECT-STORE:///nonexistent/a/../plus+name",
++                "/nonexistent/plus+name",
++            ),
++            (
++                "file:///nonexistent/sdbsec/a%20b",
++                "/nonexistent/sdbsec/a b",
++            ),
++        ] {
++            let input = CString::new(input).unwrap();
++            let raw = unsafe { lance_local_uri_path_json(input.as_ptr()) };
++            assert!(!raw.is_null());
++            let value: serde_json::Value =
++                serde_json::from_str(unsafe { CStr::from_ptr(raw) }.to_str().unwrap()).unwrap();
++            assert_eq!(value["format_version"], 1);
++            assert_eq!(value["local_path"], expected);
++            unsafe { crate::error::lance_free_string(raw) };
++        }
++        let remote = CString::new("s3://bucket/data").unwrap();
++        assert!(unsafe { lance_local_uri_path_json(remote.as_ptr()) }.is_null());
++        assert!(unsafe { lance_local_uri_path_json(std::ptr::null()) }.is_null());
++    }
++}
 --- a/tests/c_api_test.rs
 +++ b/tests/c_api_test.rs
 @@ -436,6 +436,70 @@
@@ -360,3 +461,43 @@
  }
  
  #[test]
+@@ -18566,3 +18630,39 @@
+         lance_dataset_close(reopened);
+     }
+ }
++
++#[test]
++fn test_local_uri_path_json_contract() {
++    for (uri, path) in [
++        (
++            "file-object-store:///nonexistent/lance/a%20b",
++            "/nonexistent/lance/a b",
++        ),
++        (
++            "file-object-store://host/nonexistent/lance/a%2520b?q=x#tag",
++            "/nonexistent/lance/a%20b",
++        ),
++        (
++            "file:///nonexistent/lance/plus+name",
++            "/nonexistent/lance/plus+name",
++        ),
++    ] {
++        let uri = c_str(uri);
++        let raw = unsafe { lance_local_uri_path_json(uri.as_ptr()) };
++        assert!(!raw.is_null());
++        assert_eq!(lance_last_error_code(), LanceErrorCode::Ok);
++        let value: serde_json::Value =
++            serde_json::from_str(unsafe { std::ffi::CStr::from_ptr(raw) }.to_str().unwrap())
++                .unwrap();
++        unsafe { lance_free_string(raw) };
++        assert_eq!(value["format_version"], 1);
++        assert_eq!(value["local_path"], path);
++    }
++    for uri in ["", "s3://bucket/path"] {
++        let uri = c_str(uri);
++        assert!(unsafe { lance_local_uri_path_json(uri.as_ptr()) }.is_null());
++        assert_ne!(lance_last_error_code(), LanceErrorCode::Ok);
++    }
++    assert!(unsafe { lance_local_uri_path_json(ptr::null()) }.is_null());
++    assert_eq!(lance_last_error_code(), LanceErrorCode::InvalidArgument);
++}

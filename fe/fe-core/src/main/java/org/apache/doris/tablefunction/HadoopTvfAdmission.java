@@ -19,10 +19,12 @@ package org.apache.doris.tablefunction;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.LocationPath;
+import org.apache.doris.common.util.S3Util;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 
 import org.apache.hadoop.fs.FileSystem.TvfGuard;
 
+import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
@@ -105,6 +107,10 @@ public final class HadoopTvfAdmission {
                 URI javaPath = hadoopPathUri(path.trim());
                 javaConsumer.checkRoute(javaPath, javaPath.getPath(), new HashSet<>());
                 if (access == Access.HADOOP_READ) {
+                    URI listingPath = hadoopPathUri(S3Util.extendGlobs(path.trim()));
+                    javaConsumer.routes.checkGlobRoute(listingPath, listingPath.getPath(), new HashSet<>());
+                }
+                if (access == Access.HADOOP_READ) {
                     // FileQueryScanNode sends this filesystem identifier in range.fs_name. BE
                     // falls back to hdfs_params.fs_name only when that range field is empty.
                     String nameNode = nativeReadNameNode(path, normalized);
@@ -116,7 +122,7 @@ public final class HadoopTvfAdmission {
                     }
                 }
             }
-        } catch (URISyntaxException | IllegalArgumentException e) {
+        } catch (IOException | URISyntaxException | IllegalArgumentException e) {
             new HadoopTvfAdmission(access, normalized, false).reject();
         }
     }
@@ -142,9 +148,15 @@ public final class HadoopTvfAdmission {
         if (access == Access.HADOOP_READ || !Config.enable_local_tvf) {
             try {
                 URI uri = hadoopPathUri(path.trim());
-                guarded.put(TvfGuard.POLICY_KEY, TvfGuard.encode(java.util.Collections.singletonList(
-                        new TvfGuard.Rule(uri.toString(), uri.getPath(), true))));
-            } catch (URISyntaxException | IllegalArgumentException e) {
+                java.util.List<TvfGuard.Rule> rules;
+                if (access == Access.HADOOP_READ) {
+                    URI listingPath = hadoopPathUri(S3Util.extendGlobs(path.trim()));
+                    rules = TvfGuard.globRules(listingPath, listingPath.getPath());
+                } else {
+                    rules = java.util.Collections.singletonList(new TvfGuard.Rule(uri.toString(), uri.getPath(), true));
+                }
+                guarded.put(TvfGuard.POLICY_KEY, TvfGuard.encode(rules));
+            } catch (IOException | URISyntaxException | IllegalArgumentException e) {
                 reject(access);
             }
         }

@@ -450,12 +450,13 @@ fi
 # dependency set so Lance and Paimon also use the same selected Rust toolchain.
 # An interrupted header/archive publication must be repaired before either file is reused.
 if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/${LAST_THIRDPARTY_LIB}" ||
-      ! -f "${DORIS_THIRDPARTY}/installed/lib64/liblance_c.a" ||
-      ! -f "${DORIS_THIRDPARTY}/installed/lib64/libpaimon_c.a" ||
-      ! -f "${DORIS_THIRDPARTY}/installed/include/paimon_rust/paimon.h" ||
-      ! -s "${DORIS_THIRDPARTY}/installed/lib64/libpaimon_c.a" ||
-      ! -s "${DORIS_THIRDPARTY}/installed/include/paimon_rust/paimon.h" ||
-      -e "${DORIS_THIRDPARTY}/installed/lib64/.paimon-installing" ]]; then
+      ( ! -e "${DORIS_THIRDPARTY}/installed/lib64/.lance-paimon-repairing" &&
+        ( ! -f "${DORIS_THIRDPARTY}/installed/lib64/liblance_c.a" ||
+          ! -f "${DORIS_THIRDPARTY}/installed/lib64/libpaimon_c.a" ||
+          ! -f "${DORIS_THIRDPARTY}/installed/include/paimon_rust/paimon.h" ||
+          ! -s "${DORIS_THIRDPARTY}/installed/lib64/libpaimon_c.a" ||
+          ! -s "${DORIS_THIRDPARTY}/installed/include/paimon_rust/paimon.h" ||
+          -e "${DORIS_THIRDPARTY}/installed/lib64/.paimon-installing" ) ) ]]; then
     # Compilation images may contain only installed artifacts; never erase them without a rebuild source.
     if [[ ! -f "${DORIS_THIRDPARTY}/build-thirdparty.sh" ]]; then
         echo "Third-party dependencies require a rebuild, but build-thirdparty.sh is missing." >&2
@@ -482,11 +483,14 @@ lance_c_is_compatible() {
        -s "${install_dir}/lib64/liblance_c.a" ]] || return 1
     grep -Eq '^#[[:space:]]*define[[:space:]]+LANCE_STORAGE_BASES_JSON_VERSION[[:space:]]+1([[:space:]]|$)' \
         "${install_dir}/include/lance/lance.h" || return 1
+    grep -Eq '^#[[:space:]]*define[[:space:]]+LANCE_LOCAL_URI_PATH_JSON_VERSION[[:space:]]+1([[:space:]]|$)' \
+        "${install_dir}/include/lance/lance.h" || return 1
     # GNU nm and Darwin nm spell C exports differently. Read the whole stream:
     # early awk exit would turn a large archive's producer SIGPIPE into failure.
     "${NM:-nm}" -g "${install_dir}/lib64/liblance_c.a" 2>/dev/null | awk '
-        NF >= 2 && $(NF - 1) ~ /^[TW]$/ && $NF ~ /^_?lance_dataset_storage_bases_json$/ { found = 1 }
-        END { exit !found }
+        NF >= 2 && $(NF - 1) ~ /^[TW]$/ && $NF ~ /^_?lance_dataset_storage_bases_json$/ { bases = 1 }
+        NF >= 2 && $(NF - 1) ~ /^[TW]$/ && $NF ~ /^_?lance_local_uri_path_json$/ { local_uri = 1 }
+        END { exit !(bases && local_uri) }
     '
 }
 
@@ -504,9 +508,12 @@ lance_c_source_matches() {
         <(grep -E '^(LANCE_C|PAIMON_RUST)_(DOWNLOAD|NAME|SOURCE)=' "${source_dir}/vars.sh")
 }
 
-if [[ "${BUILD_BE}" -eq 1 ]] && ! lance_c_is_compatible "${DORIS_THIRDPARTY}/installed"; then
+if [[ "${BUILD_BE}" -eq 1 ]] && {
+    [[ -e "${DORIS_THIRDPARTY}/installed/lib64/.lance-paimon-repairing" ]] ||
+    ! lance_c_is_compatible "${DORIS_THIRDPARTY}/installed"
+}; then
     if ! lance_c_source_matches "${DORIS_THIRDPARTY}"; then
-        echo "Lance SDK header/archive pair lacks LANCE_STORAGE_BASES_JSON_VERSION=1 or its exported API, or is incomplete." >&2
+        echo "Lance SDK header/archive pair lacks the TVF storage-base/local-URI APIs, or is incomplete." >&2
         echo "Refresh the compilation image's include/lance and lib64/liblance_c.a together, or set DORIS_THIRDPARTY to matching complete third-party sources." >&2
         exit 1
     fi
@@ -518,12 +525,24 @@ if [[ "${BUILD_BE}" -eq 1 ]] && ! lance_c_is_compatible "${DORIS_THIRDPARTY}/ins
     fi
     paired_cargo="${LANCE_C_CARGO:-${PAIMON_RUST_CARGO:-${CARGO:-cargo}}}"
     echo "Rebuilding lance_c and paimon_rust together for the TVF storage-base metadata ABI ..."
+    # Keep pair state across the gap after Lance publishes but before Paimon's installer.
+    # A retry must repair both archives even when the new Lance ABI already looks complete.
+    pair_marker="${DORIS_THIRDPARTY}/installed/lib64/.lance-paimon-repairing"
+    mkdir -p "${DORIS_THIRDPARTY}/installed/lib64"
+    touch "${pair_marker}"
     LANCE_C_CARGO="${paired_cargo}" PAIMON_RUST_CARGO="${paired_cargo}" \
         bash "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}" lance_c paimon_rust
     if ! lance_c_is_compatible "${DORIS_THIRDPARTY}/installed"; then
         echo "Rebuilt Lance SDK header/archive pair is incompatible or incomplete; refresh the matching pair before building BE." >&2
         exit 1
     fi
+    if [[ -e "${DORIS_THIRDPARTY}/installed/lib64/.paimon-installing" ||
+          ! -s "${DORIS_THIRDPARTY}/installed/include/paimon_rust/paimon.h" ||
+          ! -s "${DORIS_THIRDPARTY}/installed/lib64/libpaimon_c.a" ]]; then
+        echo "Rebuilt Paimon SDK header/archive pair is incomplete; retry the paired repair before building BE." >&2
+        exit 1
+    fi
+    rm -f "${pair_marker}"
 fi
 
 update_submodule() {

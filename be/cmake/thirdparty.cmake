@@ -111,11 +111,13 @@ add_thirdparty(arrow_flight_sql LIB64)
 add_thirdparty(arrow_dataset LIB64)
 add_thirdparty(arrow_acero LIB64)
 add_thirdparty(parquet LIB64)
-# Never consume a header/archive pair left by an interrupted Lance installation.
-if (EXISTS "${THIRDPARTY_DIR}/lib64/.lance-installing")
+# Never consume Rust SDK artifacts left by individual or paired publication failure.
+if (EXISTS "${THIRDPARTY_DIR}/lib64/.lance-installing" OR
+    EXISTS "${THIRDPARTY_DIR}/lib64/.paimon-installing" OR
+    EXISTS "${THIRDPARTY_DIR}/lib64/.lance-paimon-repairing")
     message(FATAL_ERROR
-        "Lance SDK installation is incomplete. Retry thirdparty/build-thirdparty.sh lance_c "
-        "or refresh include/lance and lib64/liblance_c.a as a matching pair.")
+        "Rust SDK installation is incomplete. Retry the paired repair with build.sh --be "
+        "or refresh the matching Lance/Paimon headers and archives.")
 endif ()
 add_thirdparty(lance_c LIB64 NOTADD)
 # liblance_c.a contains compiler_builtins cbrt symbols. Place libm before it

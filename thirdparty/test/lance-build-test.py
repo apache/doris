@@ -29,7 +29,8 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 SYMBOL = "lance_dataset_storage_bases_json"
-HEADER = "#define LANCE_STORAGE_BASES_JSON_VERSION 1\n"
+LOCAL_SYMBOL = "lance_local_uri_path_json"
+HEADER = "#define LANCE_STORAGE_BASES_JSON_VERSION 1\n#define LANCE_LOCAL_URI_PATH_JSON_VERSION 1\n"
 
 
 class LanceBuildTest(unittest.TestCase):
@@ -63,6 +64,8 @@ class LanceBuildTest(unittest.TestCase):
         source = self.write(name + ".c", (f"extern void {symbol}(void);\n"
                                            f"void caller(void) {{ {symbol}(); }}\n") if undefined
                             else f"void {symbol}(void) {{}}\n")
+        with source.open("a") as handle:
+            handle.write(f"void {LOCAL_SYMBOL}(void) {{}}\n")
         obj = source.with_suffix(".o")
         target = source.with_suffix(".a")
         subprocess.run(["cc", "-c", str(source), "-o", str(obj)], check=True,
@@ -74,6 +77,8 @@ class LanceBuildTest(unittest.TestCase):
         self.write("thirdparty/installed/include/lance/lance.h", header)
         archive = self.archive("fixtures/installed", symbol, undefined)
         shutil.copy2(archive, self.prefix / "installed/lib64/liblance_c.a")
+        self.write("thirdparty/installed/include/paimon_rust/paimon.h", "/* complete old Paimon */")
+        shutil.copy2(archive, self.prefix / "installed/lib64/libpaimon_c.a")
 
     def gate(self):
         script = (ROOT / "build.sh").read_text()
@@ -105,6 +110,12 @@ printf '%s|%s|%s\\n' "${LANCE_C_CARGO:-}" "${PAIMON_RUST_CARGO:-}" "${RUSTUP_TOO
             script += '''cp "$NEW_HEADER" "$DORIS_THIRDPARTY/installed/include/lance/lance.h"
 cp "$NEW_ARCHIVE" "$DORIS_THIRDPARTY/installed/lib64/liblance_c.a"
 rm -f "$DORIS_THIRDPARTY/installed/lib64/.lance-installing"
+if [[ "${FAIL_BEFORE_PAIMON_INSTALL:-}" == 1 ]]; then exit 23; fi
+mkdir -p "$DORIS_THIRDPARTY/installed/include/paimon_rust"
+printf '/* matching Paimon */' > "$DORIS_THIRDPARTY/installed/include/paimon_rust/paimon.h"
+cp "$NEW_ARCHIVE" "$DORIS_THIRDPARTY/installed/lib64/libpaimon_c.a"
+if [[ "${INCOMPLETE_PAIMON:-}" == 1 ]]; then : > "$DORIS_THIRDPARTY/installed/lib64/libpaimon_c.a"; fi
+rm -f "$DORIS_THIRDPARTY/installed/lib64/.paimon-installing"
 '''
         self.executable("thirdparty/build-thirdparty.sh", script)
 
@@ -245,10 +256,75 @@ rm -f "$DORIS_THIRDPARTY/installed/lib64/.lance-installing"
                      "for ((i=0; i<20000; i++)); do printf '00000000 T other_symbol_%s\\n' \"$i\"; done\n", True),
         ]
         for name, script, expected in cases:
+            script = f"printf '00000000 T {LOCAL_SYMBOL}\\n'\n" + script
             with self.subTest(name=name):
                 self.env["NM"] = str(self.executable("bin/nm", script))
                 result = self.compatible()
                 self.assertEqual(result.returncode == 0, expected, result.stderr)
+
+    def test_pair_retry_after_lance_publish_rebuilds_both_even_when_lance_is_compatible(self):
+        self.installed("/* old header */\n", "old_lance_api")
+        self.matching_source()
+        self.env["FAIL_BEFORE_PAIMON_INSTALL"] = "1"
+        first = self.run_bash(self.gate())
+        self.assertNotEqual(first.returncode, 0)
+        marker = self.prefix / "installed/lib64/.lance-paimon-repairing"
+        self.assertTrue(marker.exists())
+        self.assertEqual(self.compatible().returncode, 0)
+        self.assertIn("old Paimon", (self.prefix / "installed/include/paimon_rust/paimon.h").read_text())
+        (self.work / "build.log").unlink()
+        self.env.pop("FAIL_BEFORE_PAIMON_INSTALL")
+        retry = self.run_bash(self.gate())
+        self.assertEqual(retry.returncode, 0, retry.stderr)
+        self.assertEqual((self.work / "build.log").read_text().strip(), "-j 2 lance_c paimon_rust")
+        self.assertFalse(marker.exists())
+        self.assertIn("matching Paimon", (self.prefix / "installed/include/paimon_rust/paimon.h").read_text())
+        self.assert_unrelated_preserved()
+
+    def test_pair_marker_survives_incomplete_paimon_output_and_installed_only_retry(self):
+        self.installed("/* old header */\n", "old_lance_api")
+        self.matching_source()
+        self.env["INCOMPLETE_PAIMON"] = "1"
+        result = self.run_bash(self.gate())
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Paimon SDK header/archive pair is incomplete", result.stderr)
+        marker = self.prefix / "installed/lib64/.lance-paimon-repairing"
+        self.assertTrue(marker.exists())
+        (self.prefix / "build-thirdparty.sh").unlink()
+        retry = self.run_bash(self.gate())
+        self.assertNotEqual(retry.returncode, 0)
+        self.assertTrue(marker.exists())
+        self.assert_unrelated_preserved()
+
+    def test_pending_pair_bypasses_full_prefix_rebuild_even_if_paimon_install_was_interrupted(self):
+        self.installed()
+        self.write("thirdparty/installed/lib/hadoop_hdfs/native/libhdfs.a", "sentinel")
+        self.write("thirdparty/installed/lib64/.lance-paimon-repairing", "")
+        self.write("thirdparty/installed/lib64/.paimon-installing", "")
+        (self.prefix / "installed/lib64/libpaimon_c.a").unlink()
+        self.matching_source()
+        script = (ROOT / "build.sh").read_text()
+        full_gate = script[script.index("# build thirdparty libraries if necessary."):
+                           script.index("# Lance TVF storage policy needs")]
+        result = self.run_bash('TARGET_SYSTEM=Linux\n' + full_gate + self.gate())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.work / "build.log").read_text().strip(), "-j 2 lance_c paimon_rust")
+        self.assertFalse((self.prefix / "installed/lib64/.lance-paimon-repairing").exists())
+        self.assert_unrelated_preserved()
+
+    def test_cmake_rejects_individual_and_paired_incomplete_markers(self):
+        source = (ROOT / "be/cmake/thirdparty.cmake").read_text()
+        fragment = source[source.index("# Never consume Rust SDK artifacts"):
+                          source.index("add_thirdparty(lance_c")]
+        script = self.write("guard.cmake", f'set(THIRDPARTY_DIR "{self.prefix / "installed"}")\n' + fragment)
+        for name in (".lance-installing", ".paimon-installing", ".lance-paimon-repairing"):
+            marker = self.write("thirdparty/installed/lib64/" + name, "")
+            result = subprocess.run(["cmake", "-P", str(script)], capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Rust SDK installation is incomplete", result.stderr)
+            marker.unlink()
+        result = subprocess.run(["cmake", "-P", str(script)], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def installer(self):
         script = (ROOT / "thirdparty/build-thirdparty.sh").read_text()
