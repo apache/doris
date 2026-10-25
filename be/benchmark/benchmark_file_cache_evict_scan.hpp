@@ -18,7 +18,6 @@
 #pragma once
 
 #include <benchmark/benchmark.h>
-#include <bvar/bvar.h>
 
 #include <chrono>
 #include <memory>
@@ -29,11 +28,6 @@
 #include "common/config.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/file_cache_common.h"
-
-namespace doris::io {
-extern bvar::Adder<uint64_t> g_file_cache_evict_scanned_entries;
-extern bvar::Adder<uint64_t> g_file_cache_evict_scan_truncated;
-} // namespace doris::io
 
 namespace doris {
 
@@ -111,6 +105,9 @@ public:
         return holder.file_blocks.front()->state() != io::FileBlock::State::SKIP_CACHE;
     }
 
+    uint64_t scanned() const { return _cache->_evict_scanned_entries_metrics->get_value(); }
+    uint64_t truncated() const { return _cache->_evict_scan_truncated_metrics->get_value(); }
+
 private:
     io::FileBlocksHolder insert(const io::UInt128Wrapper& hash) {
         io::CacheContext context;
@@ -145,21 +142,17 @@ static void BM_FileCacheReserveWithHeldHead(benchmark::State& state) {
     const bool rotate = mode >= 2;
     EvictFileCacheBench bench(held, max_scan, rotate);
 
-    const uint64_t scanned_before = io::g_file_cache_evict_scanned_entries.get_value();
-    const uint64_t truncated_before = io::g_file_cache_evict_scan_truncated.get_value();
+    const uint64_t scanned_before = bench.scanned();
+    const uint64_t truncated_before = bench.truncated();
     int64_t skipped = 0;
     for (auto _ : state) {
         skipped += bench.insert_one() ? 0 : 1;
     }
     const auto per_op = benchmark::Counter::kAvgIterations;
-    state.counters["scanned"] = benchmark::Counter(
-            static_cast<double>(io::g_file_cache_evict_scanned_entries.get_value() -
-                                scanned_before),
-            per_op);
-    state.counters["truncated"] = benchmark::Counter(
-            static_cast<double>(io::g_file_cache_evict_scan_truncated.get_value() -
-                                truncated_before),
-            per_op);
+    state.counters["scanned"] =
+            benchmark::Counter(static_cast<double>(bench.scanned() - scanned_before), per_op);
+    state.counters["truncated"] =
+            benchmark::Counter(static_cast<double>(bench.truncated() - truncated_before), per_op);
     state.counters["skip_cache"] = benchmark::Counter(static_cast<double>(skipped), per_op);
     state.SetLabel(mode == 0   ? "before"
                    : mode == 1 ? "cap_only"

@@ -1315,12 +1315,18 @@ DECLARE_mInt32(file_cache_exit_need_evict_cache_in_advance_percent);
 DECLARE_mInt32(file_cache_evict_in_advance_interval_ms);
 DECLARE_mInt64(file_cache_evict_in_advance_batch_bytes);
 DECLARE_mInt64(file_cache_evict_in_advance_recycle_keys_num_threshold);
-// Max LRU entries one eviction scan of one queue examines while holding the cache lock. A scan
-// that hits the bound stops; if the reservation it serves is still short of space, it fails and
-// the block is not cached. <= 0 means unbounded.
+// Max LRU entries one eviction scan of one queue examines while holding the cache lock, for
+// reservations and for evict-in-advance passes alike. A scan that hits the bound stops; if the
+// reservation it serves is still short of space, it fails and the block is not cached. One
+// reservation scans at most the other queues and its own queue, so it examines at most a few
+// times this many entries. <= 0 means unbounded. The query-limit reservation path
+// (enable_file_cache_query_limit) and the startup async-load path are not bounded by it.
+// A bounded scan only gets past in-use entries because enable_file_cache_evict_rotate_in_use
+// moves them out of the way; with rotation off, a run of in-use entries at least this long at
+// the head of a queue fails every reservation until some of them are released.
 DECLARE_mInt64(file_cache_evict_max_scan_entries);
-// Move LRU entries an eviction scan skips because they are in use to the end of their queue, so
-// later scans do not examine them again before they become evictable.
+// Move LRU entries an eviction scan skips because they are in use to the end of their queue and
+// mark them accessed, so later scans do not examine them again before they become evictable.
 DECLARE_mBool(enable_file_cache_evict_rotate_in_use);
 DECLARE_mBool(enable_read_cache_file_directly);
 DECLARE_Bool(file_cache_enable_evict_from_other_queue_by_size);

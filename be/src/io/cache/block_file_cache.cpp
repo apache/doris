@@ -64,10 +64,6 @@
 #include "util/time.h"
 namespace doris::io {
 
-bvar::Adder<uint64_t> g_file_cache_evict_scanned_entries("file_cache_evict_scanned_entries");
-bvar::Adder<uint64_t> g_file_cache_evict_rotated_in_use("file_cache_evict_rotated_in_use");
-bvar::Adder<uint64_t> g_file_cache_evict_scan_truncated("file_cache_evict_scan_truncated");
-
 namespace {
 
 constexpr std::array<FileCacheType, 4> LRU_LOG_REPLAY_TYPES = {
@@ -242,6 +238,12 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
                                                                     "file_cache_gc_evict_bytes");
     _gc_evict_count_metrics = std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
                                                                     "file_cache_gc_evict_count");
+    _evict_scanned_entries_metrics = std::make_shared<bvar::Adder<size_t>>(
+            _cache_base_path.c_str(), "file_cache_evict_scanned_entries");
+    _evict_rotated_in_use_metrics = std::make_shared<bvar::Adder<size_t>>(
+            _cache_base_path.c_str(), "file_cache_evict_rotated_in_use");
+    _evict_scan_truncated_metrics = std::make_shared<bvar::Adder<size_t>>(
+            _cache_base_path.c_str(), "file_cache_evict_scan_truncated");
 
     _evict_by_time_metrics_matrix[FileCacheType::DISPOSABLE][FileCacheType::NORMAL] =
             std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
@@ -1457,7 +1459,7 @@ void BlockFileCache::find_evict_candidates(LRUQueue& queue, size_t size, size_t 
             break;
         }
         if (max_scan > 0 && scanned >= static_cast<size_t>(max_scan)) {
-            g_file_cache_evict_scan_truncated << 1;
+            *_evict_scan_truncated_metrics << 1;
             break;
         }
         ++scanned;
@@ -1481,7 +1483,7 @@ void BlockFileCache::find_evict_candidates(LRUQueue& queue, size_t size, size_t 
             in_use.push_back(cell);
         }
     }
-    g_file_cache_evict_scanned_entries << scanned;
+    *_evict_scanned_entries_metrics << scanned;
     rotate_in_use_to_end(queue, in_use, cache_lock);
 }
 
@@ -1489,7 +1491,11 @@ void BlockFileCache::rotate_in_use_to_end(LRUQueue& queue,
                                           const std::vector<FileBlockCell*>& in_use,
                                           std::lock_guard<std::mutex>& cache_lock) {
     // Called after the scan: moving an entry while iterating would bring it back to the scan.
-    // The access time is left alone, so a rotated entry is not treated as recently used.
+    // A rotated entry is in use right now, so the move counts as an access, as in use_cell().
+    // Updating atime keeps each queue ordered by access time, which the time-interval scan
+    // relies on when it stops at the first hot entry. Without it, [A cold in use, B cold, C hot]
+    // would become [C, A] after evicting B, and once A is released no time-interval scan would
+    // reach it past C.
     for (auto* cell : in_use) {
         // A cell taken out of the queue is never reached by a queue scan.
         DCHECK(cell->queue_iterator);
@@ -1498,8 +1504,9 @@ void BlockFileCache::rotate_in_use_to_end(LRUQueue& queue,
         _lru_recorder->record_queue_event(file_block->cache_type(), CacheLRULogType::MOVETOBACK,
                                           file_block->_key.hash, file_block->_key.offset,
                                           cell->size());
+        cell->update_atime();
     }
-    g_file_cache_evict_rotated_in_use << in_use.size();
+    *_evict_rotated_in_use_metrics << in_use.size();
 }
 
 // 1. if async load file cache not finish
@@ -1752,7 +1759,7 @@ bool BlockFileCache::try_reserve_from_other_queue_by_time_interval(
                 break;
             }
             if (max_scan > 0 && scanned >= static_cast<size_t>(max_scan)) {
-                g_file_cache_evict_scan_truncated << 1;
+                *_evict_scan_truncated_metrics << 1;
                 break;
             }
             ++scanned;
@@ -1778,7 +1785,7 @@ bool BlockFileCache::try_reserve_from_other_queue_by_time_interval(
                 in_use.push_back(cell);
             }
         }
-        g_file_cache_evict_scanned_entries << scanned;
+        *_evict_scanned_entries_metrics << scanned;
         rotate_in_use_to_end(queue, in_use, cache_lock);
         *(_evict_by_time_metrics_matrix[cache_type][cur_type]) << remove_size_per_type;
     }

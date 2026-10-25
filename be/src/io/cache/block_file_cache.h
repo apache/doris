@@ -642,6 +642,9 @@ private:
     std::shared_ptr<bvar::Adder<size_t>> _evict_not_downloaded_num_metrics;
     std::shared_ptr<bvar::Adder<size_t>> _gc_evict_bytes_metrics;
     std::shared_ptr<bvar::Adder<size_t>> _gc_evict_count_metrics;
+    std::shared_ptr<bvar::Adder<size_t>> _evict_scanned_entries_metrics;
+    std::shared_ptr<bvar::Adder<size_t>> _evict_rotated_in_use_metrics;
+    std::shared_ptr<bvar::Adder<size_t>> _evict_scan_truncated_metrics;
     std::shared_ptr<bvar::Adder<size_t>> _evict_by_time_metrics_matrix[4][4];
     std::shared_ptr<bvar::Adder<size_t>> _evict_by_size_metrics_matrix[4][4];
     std::shared_ptr<bvar::Adder<size_t>> _evict_by_self_lru_metrics_matrix[4];
