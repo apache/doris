@@ -1019,6 +1019,65 @@ public final class SPMPlanTreeSupport {
         return result instanceof LogicalPlan ? (LogicalPlan) result : plan;
     }
 
+    /**
+     * The GROUP BY mirror KEY of one expression (see mirrorProjectItem / mirrorGroupByText).
+     *
+     * The rendered text alone is NOT an identity: UnboundFunction#toString drops the DATABASE
+     * qualifier, so `GROUP BY db1.f(k, 1), db2.f(k, 1)` recorded the SAME key twice and the
+     * reverse lookup replaced the db1.f select item with the LAST (db2.f) group key. Both
+     * group keys exist and the copy parameterizes its literals identically, so CREATE still
+     * planned and stored the baseline - but the caller's namespace-qualified tree carries
+     * db1.f, which SPMAstCheckVisitor rejects against the stored db2.f, so the baseline could
+     * not match even its own identical query.
+     *
+     * The trace therefore appends the RESOLVED SCOPE of every function call (its written
+     * database) and of every column reference (its full name parts / slot identity) in
+     * pre-order. It is a pure REFINEMENT of the former text key - two expressions whose text
+     * differed still differ - so no mirror that used to match stops matching.
+     *
+     * @param expr the expression to key
+     * @return the stable mirror key
+     */
+    public static String expressionIdentity(Expression expr) {
+        if (expr == null) {
+            return "null";
+        }
+        StringBuilder identity = new StringBuilder(expr.toString());
+        appendExpressionScope(expr, identity);
+        return identity.toString();
+    }
+
+    /**
+     * The scope trace of {@link #expressionIdentity}: one entry per function / column
+     * reference, in pre-order.
+     *
+     * @param expr     the expression to render
+     * @param identity the identity being built
+     */
+    private static void appendExpressionScope(Expression expr, StringBuilder identity) {
+        if (expr instanceof org.apache.doris.nereids.analyzer.UnboundFunction) {
+            // the WRITTEN qualifier: db1.f(...) and db2.f(...) render identically without it
+            org.apache.doris.nereids.analyzer.UnboundFunction function =
+                    (org.apache.doris.nereids.analyzer.UnboundFunction) expr;
+            identity.append('\u0001').append("fn=")
+                    .append(function.getDbName() == null ? ""
+                            : function.getDbName().toLowerCase(java.util.Locale.ROOT))
+                    .append('|').append(function.isDistinct());
+        } else if (expr instanceof org.apache.doris.nereids.analyzer.UnboundSlot) {
+            identity.append('\u0001').append("col=").append(String.join(".",
+                    ((org.apache.doris.nereids.analyzer.UnboundSlot) expr).getNameParts()));
+        } else if (expr instanceof org.apache.doris.nereids.trees.expressions.SlotReference) {
+            // an analyzed reference has no name parts left: its expression id IS its identity
+            org.apache.doris.nereids.trees.expressions.SlotReference slot =
+                    (org.apache.doris.nereids.trees.expressions.SlotReference) expr;
+            identity.append('\u0001').append("col=").append(slot.getName())
+                    .append('#').append(slot.getExprId().asInt());
+        }
+        for (Expression child : expr.children()) {
+            appendExpressionScope(child, identity);
+        }
+    }
+
     /** Plan visitor that rebuilds every node, transforming its expressions. */
     private static class TreeTransformer extends PlanVisitor<Plan, ExprTransform> {
 
@@ -1034,13 +1093,13 @@ public final class SPMPlanTreeSupport {
          */
         private final java.util.List<GroupByMirror> groupByMirrors = new java.util.ArrayList<>();
 
-        /** One recorded group-by mirror (pre-text + the transformed expression). */
+        /** One recorded group-by mirror: the scope-aware key and the transformed expression. */
         private static final class GroupByMirror {
-            private final String text;
+            private final String key;
             private final Expression expression;
 
-            private GroupByMirror(String text, Expression expression) {
-                this.text = text;
+            private GroupByMirror(String key, Expression expression) {
+                this.key = key;
                 this.expression = expression;
             }
         }
@@ -1217,10 +1276,10 @@ public final class SPMPlanTreeSupport {
             // Alias: both expose the aliased expression as their only child
             Expression value = item instanceof Alias || item instanceof UnboundAlias
                     ? item.child(0) : item;
-            String text = value.toString();
+            String key = expressionIdentity(value);
             Expression mirror = null;
             for (int i = groupByMirrors.size() - 1; i >= mirrorMark; i--) {
-                if (groupByMirrors.get(i).text.equals(text)) {
+                if (groupByMirrors.get(i).key.equals(key)) {
                     mirror = groupByMirrors.get(i).expression;
                     break;
                 }
@@ -1253,7 +1312,7 @@ public final class SPMPlanTreeSupport {
          */
         private Expression mirrorGroupByText(String text, int mirrorMark) {
             for (int i = groupByMirrors.size() - 1; i >= mirrorMark; i--) {
-                if (groupByMirrors.get(i).text.equals(text)
+                if (groupByMirrors.get(i).key.equals(text)
                         && containsPlaceholder(groupByMirrors.get(i).expression)) {
                     return groupByMirrors.get(i).expression;
                 }
@@ -1406,7 +1465,7 @@ public final class SPMPlanTreeSupport {
                     // a select item spelling the same expression must reuse these ids (see
                     // mirrorProjectItem): the analyzer requires the select expression to
                     // literally reappear in the GROUP BY of the parameterized tree
-                    groupByMirrors.add(new GroupByMirror(groupByExpr.toString(), newExpr));
+                    groupByMirrors.add(new GroupByMirror(expressionIdentity(groupByExpr), newExpr));
                 }
             }
             // The SELECT list of an aggregate query lives in the aggregate's OWN output
@@ -8036,12 +8095,13 @@ public final class SPMPlanTreeSupport {
 
     /**
      * As {@link #describeFunctionResolution(ConnectContext, String, String)}, also carrying the
-     * names whose alias body is EXPANDING on the current path (see describeAliasBodyEntries).
+     * RESOLVED SCOPES (`db.name`) whose alias body is expanding on the current path (see
+     * describeAliasBodyEntries).
      *
      * @param ctx                the session providing the current database
      * @param writtenDbRaw       the written database qualifier (may be null)
      * @param nameRaw            the written function name
-     * @param expandingAliasBody the function names being expanded on this path
+     * @param expandingAliasBody the resolved scopes being expanded on this path
      * @return the dependency entry
      */
     private static String describeFunctionResolution(ConnectContext ctx, String writtenDbRaw,
@@ -8052,13 +8112,26 @@ public final class SPMPlanTreeSupport {
         if ("key".equals(name)) {
             return "fn:key|volatile";
         }
-        if (!expandingAliasBody.add(name)) {
-            // a body that (transitively) references itself: the identity is the name, the
-            // expansion cannot be described any further
-            return "fn:" + name + "|cycle";
+        // The RECURSION identity is the RESOLVED SCOPE + name, never the bare name (round-81).
+        // An alias body may call an ORDINARY function that happens to share its name in another
+        // database (`ALIAS db1.f(x) = db2.f(x)`): name-keyed recursion declared that body a
+        // self-cycle, returned `fn:f|cycle` without ever looking at db2.f's definition, and the
+        // fingerprint stayed unchanged when db2.f was recreated with another RETURN TYPE - the
+        // frozen plan keeps the constant the old type folded, exactly the hole the return-type
+        // identity closed for direct calls. A body that really recurses still hits its own
+        // scope (an unqualified `f` resolves in the CURRENT database, which is the scope the
+        // expanded alias was found in).
+        String writtenDb = writtenDbRaw == null || writtenDbRaw.isEmpty() ? null : writtenDbRaw;
+        String scope = writtenDb != null ? writtenDb.toLowerCase(java.util.Locale.ROOT)
+                : (ctx == null || ctx.getDatabase() == null ? ""
+                        : ctx.getDatabase().toLowerCase(java.util.Locale.ROOT));
+        String recursionKey = scope + '.' + name;
+        if (!expandingAliasBody.add(recursionKey)) {
+            // a body that (transitively) references itself: the identity is the resolved scope,
+            // the expansion cannot be described any further
+            return "fn:" + recursionKey + "|cycle";
         }
         try {
-            String writtenDb = writtenDbRaw == null || writtenDbRaw.isEmpty() ? null : writtenDbRaw;
             boolean qualified = writtenDb != null;
             org.apache.doris.catalog.FunctionRegistry registry =
                     org.apache.doris.catalog.Env.getCurrentEnv().getFunctionRegistry();
@@ -8103,7 +8176,7 @@ public final class SPMPlanTreeSupport {
             // identity, so both sides degrade identically instead of mismatching
             return "fn?:" + name;
         } finally {
-            expandingAliasBody.remove(name);
+            expandingAliasBody.remove(recursionKey);
         }
     }
 

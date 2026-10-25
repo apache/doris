@@ -429,6 +429,63 @@ public class BaselineManagerMutationClockTest {
     }
 
     /**
+     * Round-81: EVERY status flip orders its stored instant against a QUIET shared clock, not
+     * only the one that repairs a cache the durable row contradicts. The keyed read only sees
+     * READABLE rows, so a FOREIGN write that committed but is still unpublished is invisible to
+     * it - and with the supported clock skew its stored instant can already be LATER than the
+     * one this statement computes: the successor writes ENABLE at T+1us while the hidden DISABLE
+     * carries T+30s, both then publish, the presence-only confirmation accepts ENABLE while the
+     * cleanup deletes only <= T, and the hidden DISABLE wins the durable pick - the next refresh
+     * reverts the successful ALTER. A window is open for the whole lifetime of every foreign
+     * statement, so the flip must fail retryably while one is open.
+     */
+    @Test
+    public void testOrdinaryFlipIsRefusedWhileAForeignWindowIsOpen() {
+        manager = newManager();
+        BaselineManagerTestAccess.clear(manager);
+        MutationClockSimulator clock = new MutationClockSimulator();
+        StatusStoreSimulator store = new StatusStoreSimulator();
+        try {
+            long id = manager.createBaseline(baseline("d-ordinary", "p-ordinary"));
+            doubles.statusProtocolStore = store;
+            doubles.mutationClockStore = clock;
+            // the cache holds ENABLED (the create published it) and the durable row carries it
+            // too, so DISABLING is an ORDINARY flip: the request contradicts both states and
+            // nothing here is repairing a stale read
+            store.rows.put(BaselineStatus.ENABLED, 1);
+            BaselinePlan durableRow = baseline("d-ordinary", "p-ordinary");
+            durableRow.setId(id);
+            doubles.seedDurableRow(durableRow);
+
+            long foreignWindow = 7_000L;
+            clock.seedOpenWindow(100L, foreignWindow);
+            IllegalStateException failure = Assertions.assertThrows(IllegalStateException.class,
+                    () -> manager.updateStatus(id, BaselineStatus.DISABLED));
+            Assertions.assertTrue(failure.getMessage().contains("still in flight"),
+                    "the refusal must name the in-flight mutation: " + failure.getMessage());
+            Assertions.assertTrue(store.operations.isEmpty(),
+                    "the refused flip must not write anything: " + store.operations);
+            Assertions.assertEquals(BaselineStatus.ENABLED, manager.getBaseline(id).getStatus(),
+                    "the cache keeps the old status");
+            Assertions.assertFalse(BaselineManagerTestAccess.hasPendingMutationFence(manager, id),
+                    "a statement that never ran must not fence the id");
+
+            // the foreign statement published: the very same flip is now ordered against a
+            // complete read and goes through
+            clock.closeWindow(foreignWindow);
+            Assertions.assertTrue(manager.updateStatus(id, BaselineStatus.DISABLED),
+                    "a quiet clock lets the ordinary flip run");
+            Assertions.assertTrue(store.operations.contains("insert:DISABLED"),
+                    "the row statement ran once the window closed: " + store.operations);
+            Assertions.assertEquals(BaselineStatus.DISABLED, manager.getBaseline(id).getStatus());
+        } finally {
+            doubles.mutationClockStore = null;
+            doubles.statusProtocolStore = null;
+            BaselineManagerTestAccess.clear(manager);
+        }
+    }
+
+    /**
      * Round-55 #7: a window whose pre-write budget (the marker INSERT, its prunes and the
      * visibility probes) consumed its whole successor-facing bound must NOT dispatch its row
      * statement. A successor reading the clock right after would see QUIET while that
@@ -526,16 +583,23 @@ public class BaselineManagerMutationClockTest {
             Assertions.assertFalse(BaselineManagerTestAccess.snapshotFence(manager).quiet(),
                     "precondition: A's window poisons the fence");
 
-            // FE B runs a complete mutation in the SAME millisecond under its own salt
+            // FE B opens its own window in the SAME millisecond under its own salt. The
+            // FLIP itself can no longer run while A's window is open (round-81: every flip
+            // orders its instant against a QUIET clock), so the window IDENTITY this test is
+            // about is exercised through the production begin / end seams directly.
             windowClock.set(ms);
             BaselineManagerTestAccess.setMutationTickSalt(0x2222L);
-            Assertions.assertTrue(manager.updateStatus(id, BaselineStatus.DISABLED),
-                    "B's own window is readable and independent of A's");
+            long tickB = BaselineManagerTestAccess.beginRowMutation(manager);
+            Assertions.assertNotEquals(tickA, tickB,
+                    "two FEs' windows opened in the SAME millisecond must carry distinct ticks");
+            BaselineManagerTestAccess.endRowMutation(manager, tickB);
             Assertions.assertTrue(clock.hasOpenWindow(tickA),
                     "B's completion DELETE may only remove its OWN marker: with a clock-only"
                             + " tick both markers share the same value and either completion"
                             + " removes BOTH, leaving the clock quiet while the other FE's"
                             + " write is still in flight");
+            Assertions.assertFalse(BaselineManagerTestAccess.snapshotFence(manager).quiet(),
+                    "A's window still poisons the fence after B's completion");
 
             // and A's readable marker must not make B's window look SHARED: with B's own
             // marker unreadable the mutation has to refuse (a clock-only tick matched A's
@@ -543,7 +607,7 @@ public class BaselineManagerMutationClockTest {
             clock.makeWindowsInvisible(100);
             BaselineManagerTestAccess.setMutationTickSalt(0x3333L);
             RuntimeException failure = Assertions.assertThrows(RuntimeException.class,
-                    () -> manager.updateStatus(id, BaselineStatus.ENABLED));
+                    () -> BaselineManagerTestAccess.beginRowMutation(manager));
             Assertions.assertTrue(failure.getMessage().contains("not READABLE"),
                     "the refusal must name the unshared window: " + failure.getMessage());
             Assertions.assertTrue(clock.hasOpenWindow(tickA),

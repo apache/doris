@@ -492,6 +492,13 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
      * `array(TRUE), array(TRUE)` variant had nothing left to substitute (the frozen replay then
      * returned NULL for a row the caller returns TRUE for).
      *
+     * A TYPE-PRESERVING ARRAY TRANSFORMATION ({@code array_sort} / {@code array_distinct}) wraps
+     * the same way (round-81): both declare {@code retArgType(0)}, so the result is
+     * ARRAY&lt;NULL_TYPE&gt; exactly when their INPUT array is - and the unrecognized wrapper left
+     * the element_at call NullType, which made the Boolean consumer drop it together with its
+     * markers (`k > 0 OR element_at(array_sort(array(NULL)), 1)` then replayed NULL for k = -1
+     * although the {@code array_sort(array(TRUE))} caller returns TRUE).
+     *
      * @param expr the expression to classify
      * @return whether it is an all-NULL array value
      */
@@ -514,6 +521,12 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
                 }
             }
             return true;
+        }
+        if (isTypePreservingArrayCall(expr)) {
+            // only the FIRST child is the array whose element type the result inherits: the
+            // comparator of `array_sort(array, lambda)` contributes no type of its own
+            List<Expression> parts = expr.children();
+            return !parts.isEmpty() && isAllNullArray(parts.get(0));
         }
         if (!isArrayConstructor(expr)) {
             return false;
@@ -544,6 +557,28 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
     private static boolean isArrayConcatCall(Expression expr) {
         return expr instanceof Function
                 && "array_concat".equalsIgnoreCase(((Function) expr).getName());
+    }
+
+    /**
+     * Whether the expression is an {@code array_sort} / {@code array_distinct} call (see
+     * isAllNullArray).
+     *
+     * Both declare {@code retArgType(0)}, i.e. the result's element type is the INPUT array's, so
+     * an all-NULL input makes the result an all-NULL array. Matched by NAME through
+     * {@link Function}, which covers the unbound calls and the bound {@code ArraySort} /
+     * {@code ArrayDistinct} nodes (their function names are {@code array_sort} /
+     * {@code array_distinct}).
+     *
+     * @param expr the expression to classify
+     * @return whether it is a type-preserving array transformation
+     */
+    private static boolean isTypePreservingArrayCall(Expression expr) {
+        if (!(expr instanceof Function)) {
+            return false;
+        }
+        String name = ((Function) expr).getName();
+        return "array_sort".equalsIgnoreCase(name)
+                || "array_distinct".equalsIgnoreCase(name);
     }
 
     /**
@@ -996,7 +1031,11 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         // copies are literally equal, and two independently parameterized copies never are
         // (each occurrence is its own expression root, see visitLiteral).
         if (groupByMirrorLookup != null) {
-            Expression mirror = groupByMirrorLookup.apply(expr.toString());
+            // the KEY is the SCOPE-AWARE identity, not the rendered text (see
+            // SPMPlanTreeSupport#expressionIdentity): db1.f(x) and db2.f(x) render identically
+            // and would otherwise share one mirror entry
+            Expression mirror = groupByMirrorLookup.apply(
+                    SPMPlanTreeSupport.expressionIdentity(expr));
             if (mirror != null) {
                 return mirror;
             }

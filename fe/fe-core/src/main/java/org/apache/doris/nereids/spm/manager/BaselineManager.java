@@ -3339,9 +3339,6 @@ public class BaselineManager {
             BaselineStatus previousStatus = plan.getStatus();
             boolean durableReconcile = persistence.isDurable();
             DurableStatus probe = null;
-            // Whether the durable row CONTRADICTS a cache that already carried the requested
-            // status: the handoff signature (see the DIFFERS branch below).
-            boolean repairingStaleCache = false;
             if (durableReconcile) {
                 // Reconcile against the durable incarnation BEFORE touching anything: a
                 // promoted FE can serve a snapshot that predates the previous master's
@@ -3417,7 +3414,6 @@ public class BaselineManager {
                 // snapshot the previous master's in-flight write had not reached yet, so the very
                 // read that selected this branch may be missing rows of this id (see
                 // readNewestStoredUpdateMicrosAroundQuietClock).
-                repairingStaleCache = previousStatus == status;
                 previousStatus = otherStatus(status);
             } else if (previousStatus == status) {
                 // nothing durable to reconcile (unit tests / disabled persistence) and
@@ -3466,10 +3462,20 @@ public class BaselineManager {
             // would exceed the bound therefore fails retryably BEFORE it is dispatched, so
             // no row it writes can outlive the fences that cover its publication.
             // ONE bounded keyed read feeds both the stored instant this statement writes and the
-            // CAS bound of the conditional INSERT / the old-row delete below.
-            long newestStoredMicros = repairingStaleCache
-                    ? readNewestStoredUpdateMicrosAroundQuietClock(id)
-                    : readNewestStoredUpdateMicros(id);
+            // CAS bound of the conditional INSERT / the old-row delete below. It is bracketed by a
+            // QUIET shared mutation clock on EVERY flip, not only on a repair (round-81): the
+            // keyed read only sees READABLE rows, so a FOREIGN write that committed but is still
+            // unpublished is invisible to it although its stored instant may already be later
+            // than the one this statement is about to write. With the supported clock skew
+            // (max_bdbje_clock_delta_ms) an old leader's ordinary DISABLE easily lands 30s ahead
+            // of the successor's wall clock: the successor reads the visible OLD row, writes
+            // ENABLE at T+1us, its conditional INSERT reads T before the hidden DISABLE
+            // publishes, both then publish, the presence confirmation accepts ENABLE while the
+            // cleanup deletes only <= T, and the hidden DISABLE wins the durable pick - the next
+            // refresh reverts the successful ENABLE. A window is open for the whole lifetime of
+            // every foreign statement (from before dispatch until its row is readable), so
+            // "quiet before AND after" proves nothing was hidden from this read.
+            long newestStoredMicros = readNewestStoredUpdateMicrosAroundQuietClock(id);
             long newUpdateTime = nextStoredUpdateMicros(id, newestStoredMicros,
                     SPMUtils.nowMicros());
             requireNoContradictingStatusFence(id, status, newUpdateTime);
@@ -5807,28 +5813,20 @@ public class BaselineManager {
             // A REAL flip stops here: the durable read that selected this branch proved the
             // stored status is the OPPOSITE of the requested one, so a write that is still in
             // FLIGHT elsewhere cannot make this statement a silent no-op - and blocking on the
-            // shared clock would make two FEs' independent mutations refuse each other, which
-            // round-56 #1 explicitly fixed (two windows opened in the SAME millisecond must both
-            // work). Its own window plus the fence recorded from dispatch cover the write, and
-            // the planned instant is the newest VISIBLE instant + 1 us, so any row that is
-            // already DURABLE stays older than this one.
+            // shared clock HERE would refuse a flip that has already been ordered against a
+            // QUIET read (see readNewestStoredUpdateMicrosAroundQuietClock), which is the only
+            // part of the fence a flip needs: its instant is newer than every DURABLE row of the
+            // id, so the row it writes is the durable winner whatever a foreign write publishes.
             //
-            // "already DURABLE" is exactly what the instant read can miss (round-80 #3): a
-            // committed row that no read shows yet - the old leader's no-op DISABLE left behind
-            // by a handoff - is invisible to the keyed read, so the newest VISIBLE instant it
-            // returns can be OLDER than that hidden row and the flip it orders would lose the
-            // durable pick to a write nothing here ever saw (the successor's successful ENABLE
-            // reverted to DISABLED by the next refresh). A flip that REPAIRS a cache the durable
-            // row contradicts is exactly the state a handoff leaves behind, so ITS read is
-            // bracketed by a QUIET shared clock instead (see
-            // readNewestStoredUpdateMicrosAroundQuietClock): a window is open for the whole
-            // lifetime of every foreign write - from before its statement is dispatched until its
-            // row is readable - so "quiet before AND after" proves no such write was hidden from
-            // the read, i.e. the instant really is the newest durable one. An ORDINARY flip (the
-            // request contradicts the cache, so the stale read is not what selected this branch)
-            // keeps ordering itself above the visible newest row: refusing it on any open window
-            // would make two FEs' independent mutations refuse each other, which round-56 #1
-            // explicitly fixed (two windows opened in the SAME millisecond must both work).
+            // "already DURABLE" is exactly what the bare keyed read could miss (round-80 #3): a
+            // committed row that no read shows yet - the old leader's write left behind by a
+            // handoff - is invisible to it, so the instant it returned could be OLDER than that
+            // hidden row and the flip it ordered would lose the durable pick to a write nothing
+            // here ever saw (the successor's successful ENABLE reverted to DISABLED by the next
+            // refresh). Round-81 closed the remaining hole: the hidden row of an ORDINARY foreign
+            // flip carries a stored instant this FE's wall clock may lag behind, so the quiet
+            // bracket above now guards EVERY flip - an open window fails retryably before this
+            // method is even reached with an instant computed from an incomplete read.
             return;
         }
         if (!sharedMutationClockAvailable()) {
@@ -9625,7 +9623,7 @@ public class BaselineManager {
 
     /**
      * {@link #readNewestStoredUpdateMicros(long)} bracketed by a QUIET shared mutation clock, for
-     * the REAL flip that REPAIRS a cache the durable row contradicts (see updateStatus).
+     * EVERY status flip (see updateStatus).
      *
      * The keyed read only sees rows that are READABLE. A foreign write that COMMITTED but is still
      * unpublished - the old leader's no-op DISABLE after a handoff - is invisible to it, so the
@@ -9638,9 +9636,19 @@ public class BaselineManager {
      * Requiring quiet BEFORE and AFTER the read is what makes the result complete: a window that
      * is open at either probe means some statement may still publish, so the read may be missing
      * its row and the caller must retry. Two probes are needed because a window can open (or the
-     * read can straddle one) between them. Only the REPAIR path uses this - an ordinary flip keeps
-     * the plain read and orders itself above the visible newest row, because refusing it on any
-     * open window would make two FEs' independent mutations refuse each other (round-56 #1).
+     * read can straddle one) between them.
+     *
+     * EVERY flip uses this (round-81), not only the one that repairs a cache the durable row
+     * contradicts. The ordinary branch used to keep the plain read and order itself above the
+     * visible newest row, on the theory that a request contradicting the CACHE cannot be a silent
+     * no-op - true, but irrelevant to ORDERING: the hidden row of a foreign ordinary flip can
+     * already carry a LATER stored instant than the one this statement computes from the rows it
+     * can see (the supported max_bdbje_clock_delta_ms lets an old leader's write run ahead of the
+     * successor's wall clock), so the row written here loses the durable pick once both publish
+     * and the next refresh reverts the successful ALTER. Refusing on an open window makes two FEs'
+     * independent mutations refuse each other while the other is in flight; that retryable
+     * failure is the price of ordering against writes this FE cannot see, and it is the same rule
+     * the MATCHES branch and the keyed read of a repair already apply.
      *
      * @param id the baseline id
      * @return the newest stored instant in epoch microseconds
