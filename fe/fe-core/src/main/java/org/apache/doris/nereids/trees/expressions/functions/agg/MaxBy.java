@@ -66,10 +66,9 @@ public class MaxBy extends NullableAggregateFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        for (Expression argument : getArguments()) {
-            if (argument.getDataType().isSpatialType()) {
-                throw new AnalysisException("max_by does not support spatial arguments");
-            }
+        if (getArgument(0).getDataType().isSpatialType()
+                || getArgument(1).getDataType().toCatalogDataType().typeContainsSpatialType()) {
+            throw new AnalysisException("max_by does not support spatial arguments");
         }
         if (getArgumentType(1).isOnlyMetricType() && !getArgumentType(1).isArrayType()) {
             throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);

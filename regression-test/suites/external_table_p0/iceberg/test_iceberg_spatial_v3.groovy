@@ -466,7 +466,9 @@ public class CreateIcebergSpatialV3Table {
             }
         }
         for (String function : ["min_by", "max_by"]) {
-            for (String arguments : ["${column}, id", "id, ${column}"]) {
+            for (String arguments : ["${column}, id", "id, ${column}",
+                    "id, array(${column})", "id, array(array(${column}))",
+                    "id, map(id, ${column})", "id, named_struct('shape', ${column})"]) {
                 test {
                     sql """select ${function}(${arguments}) from geometry_values"""
                     exception "${function} does not support spatial arguments"
@@ -939,6 +941,25 @@ public class CreateIcebergSpatialV3Table {
     sql """merge into nested_spatial_values t using (select 1 id) s on s.id = 1
         when matched then delete"""
     qt_nested_spatial_delete_only_merge """select count(*) from nested_spatial_values"""
+    // Spatial ordering keys are unsupported regardless of WKB byte order or state wrapping.
+    for (String constructor : ["ST_GeometryFromWKBTyped", "ST_GeogFromWKB"]) {
+        for (String first : ["0101000000000000000000f03f0000000000000040",
+                "00000000013ff00000000000004000000000000000"]) {
+            for (String function : ["min_by", "max_by"]) {
+                for (String suffix : ["", "_state"]) {
+                    test {
+                        sql """select ${function}${suffix}(id, array(shape)) from (
+                            select number id, if(number = 0, ${constructor}('${first}'),
+                                ${constructor}('010100000000000000000008400000000000001040')) shape
+                            from numbers('number' = '2')) values_with_byte_order"""
+                        exception "${function} does not support spatial arguments"
+                    }
+                }
+            }
+        }
+    }
+    qt_ordinary_array_minmax_by """select min_by(number, array(number)), max_by(number, array(number))
+        from numbers('number' = '3')"""
     // Actual external nested columns, not constructor-only values, exercise reader and writer recursion.
     sql """drop table if exists spatial_nested_ddl"""
     sql """create table spatial_nested_ddl (id int, payload struct<label:string>)
@@ -968,6 +989,35 @@ public class CreateIcebergSpatialV3Table {
         array_map(x -> hex(ST_AsBinary(struct_element(x, 'shape'))), g_deep['shapes']),
         array_map(x -> hex(ST_AsBinary(struct_element(x, 'shape'))), gg_deep['shapes'])
         from spatial_nested_source"""
+    for (String function : ["min_by", "max_by"]) {
+        for (String key : ["g_array", "gg_array"]) {
+            for (String suffix : ["", "_state"]) {
+                test {
+                    sql """select ${function}${suffix}(id, ${key}) from spatial_nested_source"""
+                    exception "${function} does not support spatial arguments"
+                }
+            }
+        }
+        "qt_spatial_${function}_nested_values"("""select
+            hex(ST_AsBinary(element_at(${function}(g_array, id), 1))),
+            hex(ST_AsBinary(element_at(${function}(g_map, id), 'shape'))),
+            hex(ST_AsBinary(struct_element(${function}(g_struct, id), 'shape'))),
+            hex(ST_AsBinary(element_at(${function}(gg_array, id), 1))),
+            hex(ST_AsBinary(element_at(${function}(gg_map, id), 'shape'))),
+            hex(ST_AsBinary(struct_element(${function}(gg_struct, id), 'shape')))
+            from spatial_nested_source where id in (1, 2)""")
+        "qt_spatial_${function}_nested_state_values"("""select
+            hex(ST_AsBinary(element_at(${function}_merge(a), 1))),
+            hex(ST_AsBinary(element_at(${function}_merge(b), 'shape'))),
+            hex(ST_AsBinary(struct_element(${function}_merge(c), 'shape'))),
+            hex(ST_AsBinary(element_at(${function}_merge(d), 1))),
+            hex(ST_AsBinary(element_at(${function}_merge(e), 'shape'))),
+            hex(ST_AsBinary(struct_element(${function}_merge(f), 'shape')))
+            from (select ${function}_state(g_array, id) a, ${function}_state(g_map, id) b,
+                ${function}_state(g_struct, id) c, ${function}_state(gg_array, id) d,
+                ${function}_state(gg_map, id) e, ${function}_state(gg_struct, id) f
+                from spatial_nested_source where id in (1, 2)) partial_values""")
+    }
     sql """drop table if exists spatial_nested_copy"""
     sql """create table spatial_nested_copy (
         id int, g_array array<geometry>, g_map map<string, geometry>,

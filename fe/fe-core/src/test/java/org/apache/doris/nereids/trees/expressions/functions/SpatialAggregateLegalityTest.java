@@ -503,12 +503,56 @@ public class SpatialAggregateLegalityTest {
                 }
                 // These arguments already use the owning generic-column implementation.
                 Expression shapes = new SlotReference("shapes", ArrayType.of(type), nullable);
-                for (BoundFunction function : List.of(new MinBy(shapes, integer), new MinBy(integer, shapes),
-                        new MaxBy(shapes, integer), new MaxBy(integer, shapes))) {
+                for (BoundFunction function : List.of(new MinBy(shapes, integer), new MaxBy(shapes, integer))) {
                     Assertions.assertDoesNotThrow(function::checkLegalityBeforeTypeCoercion);
                     Assertions.assertDoesNotThrow(function::checkLegalityAfterRewrite);
                 }
             }
+        }
+    }
+
+    @Test
+    public void minMaxByRejectNestedSpatialOrderingKeysAcrossEntryPoints() {
+        Expression integer = new SlotReference("id", IntegerType.INSTANCE);
+        for (DataType spatial : List.of(new GeometryType("EPSG:3857"),
+                new GeographyType("OGC:CRS84", "spherical"))) {
+            for (DataType type : List.of(ArrayType.of(spatial), ArrayType.of(ArrayType.of(spatial)),
+                    MapType.of(IntegerType.INSTANCE, spatial),
+                    new StructType(List.of(new StructField("shape", spatial, true, ""))))) {
+                for (Expression shapes : List.of(new SlotReference("shapes", type, false),
+                        new SlotReference("shapes", type, true), new NullLiteral(type))) {
+                    for (AggregateFunction function : List.of(new MinBy(integer, shapes), new MaxBy(integer, shapes))) {
+                        for (BoundFunction entry : List.of(function, StateCombinator.create(function),
+                                new CombineCombinator(function.getArguments(), function))) {
+                            AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                                    entry::checkLegalityBeforeTypeCoercion);
+                            Assertions.assertEquals(function.getName() + " does not support spatial arguments",
+                                    error.getMessage());
+                            Assertions.assertThrows(AnalysisException.class, entry::checkLegalityAfterRewrite);
+                        }
+                    }
+                    for (AggregateFunction function : List.of(new MinBy(shapes, integer), new MaxBy(shapes, integer))) {
+                        for (BoundFunction entry : List.of(function, StateCombinator.create(function),
+                                new CombineCombinator(function.getArguments(), function))) {
+                            Assertions.assertDoesNotThrow(entry::checkLegalityBeforeTypeCoercion);
+                            Assertions.assertDoesNotThrow(entry::checkLegalityAfterRewrite);
+                        }
+                    }
+                }
+                for (String function : List.of("min_by", "max_by")) {
+                    String state = "AGG_STATE<" + function + "(INT, " + type.toSql() + ")>";
+                    Exception error = Assertions.assertThrows(Exception.class,
+                            () -> PlanChecker.from(MemoTestUtils.createConnectContext())
+                                    .analyze("select CAST(NULL AS " + state + ")").rewrite());
+                    Assertions.assertTrue(error.getMessage().contains(function + " does not support spatial arguments"),
+                            error.getMessage());
+                }
+            }
+        }
+        Expression keys = new SlotReference("keys", ArrayType.of(IntegerType.INSTANCE));
+        for (BoundFunction function : List.of(new MinBy(integer, keys), new MaxBy(integer, keys))) {
+            Assertions.assertDoesNotThrow(function::checkLegalityBeforeTypeCoercion);
+            Assertions.assertDoesNotThrow(function::checkLegalityAfterRewrite);
         }
     }
 
