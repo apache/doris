@@ -22,12 +22,14 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import org.apache.avro.Schema;
 import org.apache.avro.Schema.Parser;
+import org.apache.avro.file.DataFileReader;
 import org.apache.avro.file.DataFileStream;
 import org.apache.avro.generic.GenericDatumReader;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.mapred.AvroJob;
 import org.apache.avro.mapred.AvroRecordReader;
 import org.apache.avro.mapred.AvroWrapper;
+import org.apache.avro.mapred.FsInput;
 import org.apache.avro.mapred.Pair;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.FileSystem.TvfGuard;
@@ -70,7 +72,13 @@ public abstract class AvroReader {
 
     public abstract Object getNext();
 
-    public abstract void close() throws IOException;
+    public void close() throws IOException {
+        try (FileSystem ownedFileSystem = fileSystem;
+                AvroRecordReader<Pair<Integer, Long>> ownedDataReader = dataReader;
+                DataFileStream<GenericRecord> ownedSchemaReader = schemaReader) {
+            // Close both readers before their filesystem, including failed or partial opens.
+        }
+    }
 
     protected void openSchemaReader() throws IOException {
         TvfGuard.checkJavaRead(fileSystem, path, tvfPolicy);
@@ -82,15 +90,30 @@ public abstract class AvroReader {
     }
 
     protected void openDataReader(AvroFileContext avroFileContext) throws IOException {
-        JobConf job = tvfPolicy == null || tvfPolicy.isEmpty()
-                ? new JobConf() : new JobConf(fileSystem.getConf());
-        if (tvfPolicy != null && !tvfPolicy.isEmpty()) {
-            TvfGuard.checkJavaRead(path.getFileSystem(job), path, tvfPolicy);
-        }
+        boolean guarded = tvfPolicy != null && !tvfPolicy.isEmpty();
+        JobConf job = guarded ? new JobConf(fileSystem.getConf()) : new JobConf();
         projectionSchema(job, avroFileContext);
         FileSplit fileSplit =
                 new FileSplit(path, avroFileContext.getSplitStartOffset(), avroFileContext.getSplitSize(), job);
-        dataReader = new AvroRecordReader<>(job, fileSplit);
+        if (guarded) {
+            TvfGuard.checkJavaRead(fileSystem, path, tvfPolicy);
+            FsInput input = new FsInput(path, fileSystem);
+            try {
+                dataReader = new AvroRecordReader<Pair<Integer, Long>>(
+                        DataFileReader.openReader(input,
+                                AvroJob.createInputDataModel(job).createDatumReader(AvroJob.getInputSchema(job))),
+                        fileSplit) {};
+            } catch (IOException | RuntimeException | Error failure) {
+                try {
+                    input.close();
+                } catch (IOException closeFailure) {
+                    failure.addSuppressed(closeFailure);
+                }
+                throw failure;
+            }
+        } else {
+            dataReader = new AvroRecordReader<>(job, fileSplit);
+        }
         if (LOG.isDebugEnabled()) {
             LOG.debug("success open avro data reader.");
         }

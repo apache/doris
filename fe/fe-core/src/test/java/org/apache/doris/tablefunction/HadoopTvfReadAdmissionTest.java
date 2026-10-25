@@ -226,7 +226,8 @@ class HadoopTvfReadAdmissionTest {
         properties.put("fs.hdfs.support", "true");
         Assertions.assertEquals("id", new S3TableValuedFunction(properties).getTableColumns().get(0).getName());
         properties.remove("csv_schema");
-        Assertions.assertThrows(AnalysisException.class, () -> new HdfsTableValuedFunction(properties));
+        FeConstants.runningUnitTest = false;
+        Assertions.assertThrows(AnalysisException.class, () -> new SchemaListedHdfsTvf(properties));
     }
 
     @Test
@@ -254,6 +255,23 @@ class HadoopTvfReadAdmissionTest {
                 new TBrokerFileStatus("hdfs://remote/public.csv", false, 10, true)));
         Assertions.assertEquals(1, remote.getFileStatuses().size());
         Assertions.assertEquals("id", remote.getTableColumns().get(0).getName());
+    }
+
+    @Test
+    void suppliedHadoopFilesSkipDiscoveryAndKeepTheirLiteralPaths() throws Exception {
+        Map<String, String> properties = properties("local");
+        properties.put("fs.hdfs.support", "true");
+        String remoteLiteral = "viewfs://review/remote/{../local}/file.csv";
+        for (boolean enabled : new boolean[] {false, true}) {
+            Config.enable_local_tvf = enabled;
+            List<TBrokerFileStatus> files = Collections.singletonList(
+                    new TBrokerFileStatus(remoteLiteral, false, 10, true));
+            S3TableValuedFunction tvf = new SuppliedS3Tvf(properties, files);
+            Assertions.assertEquals(remoteLiteral, tvf.getFileStatuses().get(0).getPath());
+            List<TBrokerFileStatus> localFiles = Collections.singletonList(
+                    new TBrokerFileStatus("viewfs://review/local/{../remote}/file.csv", false, 10, true));
+            Assertions.assertThrows(AnalysisException.class, () -> new SuppliedS3Tvf(properties, localFiles));
+        }
     }
 
     private static class SuppliedS3Tvf extends S3TableValuedFunction {

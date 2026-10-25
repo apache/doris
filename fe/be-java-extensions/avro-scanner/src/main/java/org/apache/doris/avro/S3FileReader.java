@@ -28,7 +28,6 @@ import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
 import java.io.IOException;
-import java.util.Objects;
 
 public class S3FileReader extends AvroReader {
 
@@ -86,16 +85,5 @@ public class S3FileReader extends AvroReader {
     @Override
     public Object getNext() {
         return inputPair.datum();
-    }
-
-    @Override
-    public void close() throws IOException {
-        if (Objects.nonNull(schemaReader)) {
-            schemaReader.close();
-        }
-        if (Objects.nonNull(dataReader)) {
-            dataReader.close();
-        }
-        fileSystem.close();
     }
 }
