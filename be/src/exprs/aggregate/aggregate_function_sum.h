@@ -276,8 +276,16 @@ private:
             if (_check_overflow_for_decimal) [[unlikely]] {
                 using NativeType = typename ResultCppType::NativeType;
                 NativeType res;
+                // Match scalar Decimal arithmetic: check both native overflow and result
+                // precision. e.g. Decimal(38,0): 10^38-1 + 1 fits in int128 but exceeds
+                // precision 38.
                 if (common::add_overflow(static_cast<NativeType>(state.sum),
                                          static_cast<NativeType>(value), res)) {
+                    throw_overflow();
+                }
+                const auto max_result_number =
+                        ResultDataType::get_max_digits_number(ResultDataType::max_precision());
+                if (res > max_result_number || res < -max_result_number) {
                     throw_overflow();
                 }
                 state.sum = ResultCppType(res);
@@ -294,6 +302,11 @@ private:
                 NativeType res;
                 if (common::sub_overflow(static_cast<NativeType>(state.sum),
                                          static_cast<NativeType>(value), res)) {
+                    throw_overflow();
+                }
+                const auto max_result_number =
+                        ResultDataType::get_max_digits_number(ResultDataType::max_precision());
+                if (res > max_result_number || res < -max_result_number) {
                     throw_overflow();
                 }
                 state.sum = ResultCppType(res);

@@ -73,6 +73,7 @@ TEST(AggDecimalOverflowTest, sum_overflow_when_check_enabled) {
     ASSERT_NE(agg, nullptr);
     agg->set_check_overflow_for_decimal(true);
 
+    // 10^38-1 + 1 = 10^38 still fits in int128 (~1.7e38) but exceeds Decimal(38,*) precision.
     auto max_v = max_decimal128(38);
     auto column = make_decimal128_column({max_v, Decimal128V3(1)});
     const IColumn* cols[1] = {column.get()};
@@ -113,7 +114,7 @@ TEST(AggDecimalOverflowTest, sum_wraps_when_check_disabled) {
     auto result_col = ColumnDecimal128V3::create(0, 0);
     agg->insert_result_into(place, *result_col);
     ASSERT_EQ(result_col->size(), 1);
-    // Wraparound: max + 1 becomes a negative/out-of-range native value.
+    // Check off: allow out-of-precision / wraparound legacy behavior (result != max).
     EXPECT_NE(result_col->get_element(0), max_v);
     agg->destroy(place);
 }

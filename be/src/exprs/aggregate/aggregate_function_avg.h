@@ -380,8 +380,14 @@ private:
             if (_check_overflow_for_decimal) [[unlikely]] {
                 using NativeType = typename ResultType::NativeType;
                 NativeType res;
+                // Match scalar Decimal arithmetic: native overflow + result precision.
                 if (common::add_overflow(static_cast<NativeType>(state.sum),
                                          static_cast<NativeType>(value), res)) {
+                    throw_overflow();
+                }
+                const auto max_result_number =
+                        ResultDataType::get_max_digits_number(ResultDataType::max_precision());
+                if (res > max_result_number || res < -max_result_number) {
                     throw_overflow();
                 }
                 state.sum = ResultType(res);
@@ -398,6 +404,11 @@ private:
                 NativeType res;
                 if (common::sub_overflow(static_cast<NativeType>(state.sum),
                                          static_cast<NativeType>(value), res)) {
+                    throw_overflow();
+                }
+                const auto max_result_number =
+                        ResultDataType::get_max_digits_number(ResultDataType::max_precision());
+                if (res > max_result_number || res < -max_result_number) {
                     throw_overflow();
                 }
                 state.sum = ResultType(res);
@@ -419,11 +430,19 @@ private:
                                          static_cast<NativeType>(multiplier), scaled)) {
                     throw_overflow();
                 }
+                ResultType result;
                 if constexpr (TResult == TYPE_DECIMAL256) {
-                    return ResultType(scaled) / ResultType(state.count);
+                    result = ResultType(scaled) / ResultType(state.count);
                 } else {
-                    return ResultType(scaled) / static_cast<ResultType>(state.count);
+                    result = ResultType(scaled) / static_cast<ResultType>(state.count);
                 }
+                const auto max_result_number =
+                        ResultDataType::get_max_digits_number(ResultDataType::max_precision());
+                if (static_cast<NativeType>(result) > max_result_number ||
+                    static_cast<NativeType>(result) < -max_result_number) {
+                    throw_overflow();
+                }
+                return result;
             }
             return state.template result<ResultType>(multiplier);
         } else {

@@ -254,8 +254,9 @@ public:
 
     virtual void set_version(const int version_) { version = version_; }
 
-    /// Inject query-side Decimal overflow checking. Default is no-op so storage-created
-    /// aggregate functions (sum_load/sum_reader) keep wraparound behavior.
+    /// Enable Decimal overflow checking for query-side aggregates.
+    /// Only AggFnEvaluator calls this. Storage-created functions (e.g. sum_load/sum_reader)
+    /// never receive it and keep the default wraparound behavior.
     virtual void set_check_overflow_for_decimal(bool) {}
 
     virtual IAggregateFunction* transmit_to_stable() { return nullptr; }
