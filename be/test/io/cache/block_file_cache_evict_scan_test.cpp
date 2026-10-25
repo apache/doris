@@ -297,17 +297,157 @@ TEST_F(BlockFileCacheTest, evict_scan_by_time_stops_at_bound) {
     auto normal_key = BlockFileCache::hash("evict_scan_by_time_bound_normal");
     auto held = fill_disposable_and_normal(cache, disposable_key, normal_key, /*held=*/3);
 
-    // The disposable scan stops after held blocks 0-1, so the reservation falls back to the normal
-    // queue, whose own scan evicts normal block 0. The scanned count restarts for each queue.
+    // The disposable scan uses the reservation's whole budget on held blocks 0-1, so the own-queue
+    // scan of the normal queue examines nothing and the reservation fails.
     auto before = counters(cache);
-    auto other = insert_block(cache, BlockFileCache::hash("evict_scan_by_time_bound_other"), 0);
-    EXPECT_EQ(counters(cache).scanned - before.scanned, 3);
+    auto other1 = insert_block(cache, BlockFileCache::hash("evict_scan_by_time_bound_other1"), 0);
+    EXPECT_EQ(counters(cache).scanned - before.scanned, 2);
     EXPECT_EQ(counters(cache).truncated - before.truncated, 1);
     EXPECT_EQ(counters(cache).rotated - before.rotated, 2);
+    ASSERT_EQ(other1.file_blocks.size(), 1);
+    EXPECT_EQ(other1.file_blocks.front()->state(), FileBlock::State::SKIP_CACHE);
+    EXPECT_EQ(cached_offsets(cache, disposable_key).size(), 5);
+    EXPECT_EQ(cached_offsets(cache, normal_key).size(), 5);
+
+    // Held blocks 0-1 moved behind blocks 2-4, so the next scan gets past held block 2 and evicts
+    // cold block 3 within the budget.
+    before = counters(cache);
+    auto other2 = insert_block(cache, BlockFileCache::hash("evict_scan_by_time_bound_other2"), 0);
+    EXPECT_EQ(counters(cache).scanned - before.scanned, 2);
+    EXPECT_EQ(counters(cache).truncated - before.truncated, 0);
+    EXPECT_EQ(counters(cache).rotated - before.rotated, 1);
+    ASSERT_EQ(other2.file_blocks.size(), 1);
+    EXPECT_EQ(other2.file_blocks.front()->state(), FileBlock::State::DOWNLOADED);
+    EXPECT_FALSE(cached_offsets(cache, disposable_key).contains(3 * kBlockSize));
+}
+
+TEST_F(BlockFileCacheTest, evict_scan_succeeds_at_exact_budget) {
+    EvictScanConfigGuard guard(/*max_scan=*/6);
+    auto base = (caches_dir / "evict_scan_exact_budget" / "").string();
+    fs::remove_all(base);
+    fs::create_directories(base);
+    Defer cleanup {[&] { fs::remove_all(base); }};
+    BlockFileCache cache(base, normal_only_settings());
+    ASSERT_TRUE(cache.initialize());
+    wait_until_cache_ready(cache);
+
+    auto key = BlockFileCache::hash("evict_scan_exact_budget_key");
+    auto held = fill_with_held_head(cache, key, /*held=*/5);
+
+    // The 6th and last entry the budget allows is evictable block 5, which is enough.
+    auto before = counters(cache);
+    auto other = insert_block(cache, BlockFileCache::hash("evict_scan_exact_budget_other"), 0);
+    EXPECT_EQ(counters(cache).scanned - before.scanned, 6);
+    EXPECT_EQ(counters(cache).truncated - before.truncated, 0);
     ASSERT_EQ(other.file_blocks.size(), 1);
     EXPECT_EQ(other.file_blocks.front()->state(), FileBlock::State::DOWNLOADED);
-    EXPECT_EQ(cached_offsets(cache, disposable_key).size(), 5);
-    EXPECT_FALSE(cached_offsets(cache, normal_key).contains(0));
+    EXPECT_FALSE(cached_offsets(cache, key).contains(5 * kBlockSize));
+}
+
+TEST_F(BlockFileCacheTest, evict_scan_evicts_rotated_entries_after_release) {
+    EvictScanConfigGuard guard(/*max_scan=*/0);
+    auto base = (caches_dir / "evict_scan_release" / "").string();
+    fs::remove_all(base);
+    fs::create_directories(base);
+    Defer cleanup {[&] { fs::remove_all(base); }};
+    BlockFileCache cache(base, normal_only_settings());
+    ASSERT_TRUE(cache.initialize());
+    wait_until_cache_ready(cache);
+
+    auto key = BlockFileCache::hash("evict_scan_release_key");
+    auto held = fill_with_held_head(cache, key, /*held=*/5);
+
+    // Rotates held blocks 0-4 behind blocks 6-9 and evicts block 5.
+    auto other0 = insert_block(cache, BlockFileCache::hash("evict_scan_release_other0"), 0);
+    held.clear();
+
+    // Blocks 6-9 go first, one entry each; then the released block 0 is evicted from where
+    // rotation put it, again after examining one entry.
+    std::vector<FileBlocksHolder> others;
+    for (size_t i = 1; i <= 4; ++i) {
+        auto name = "evict_scan_release_other" + std::to_string(i);
+        others.push_back(insert_block(cache, BlockFileCache::hash(name), 0));
+    }
+    EXPECT_EQ(cached_offsets(cache, key), (std::set<size_t> {0, 10, 20, 30, 40}));
+    auto before = counters(cache);
+    auto other5 = insert_block(cache, BlockFileCache::hash("evict_scan_release_other5"), 0);
+    EXPECT_EQ(counters(cache).scanned - before.scanned, 1);
+    EXPECT_EQ(counters(cache).rotated - before.rotated, 0);
+    EXPECT_FALSE(cached_offsets(cache, key).contains(0));
+}
+
+TEST_F(BlockFileCacheTest, evict_scan_budget_is_per_block_of_a_request) {
+    EvictScanConfigGuard guard(/*max_scan=*/3);
+    auto base = (caches_dir / "evict_scan_multi_block" / "").string();
+    fs::remove_all(base);
+    fs::create_directories(base);
+    Defer cleanup {[&] { fs::remove_all(base); }};
+    BlockFileCache cache(base, normal_only_settings());
+    ASSERT_TRUE(cache.initialize());
+    wait_until_cache_ready(cache);
+
+    auto key = BlockFileCache::hash("evict_scan_multi_block_key");
+    auto held = fill_with_held_head(cache, key, /*held=*/5);
+
+    // One get_or_set over three blocks reserves each block with its own budget: the first runs
+    // out on held blocks 0-2 and is not cached, the second gets past held blocks 3-4 and evicts
+    // block 5, the third evicts block 6.
+    auto before = counters(cache);
+    const int64_t reservations_before = cache._evict_scan_entries_per_reserve->count();
+    CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
+    context.cache_type = FileCacheType::NORMAL;
+    auto holder = cache.get_or_set(BlockFileCache::hash("evict_scan_multi_block_other"), 0,
+                                   3 * kBlockSize, context);
+    ASSERT_EQ(holder.file_blocks.size(), 3);
+    auto it = holder.file_blocks.begin();
+    EXPECT_EQ((*it++)->state(), FileBlock::State::SKIP_CACHE);
+    EXPECT_EQ((*it++)->state(), FileBlock::State::EMPTY);
+    EXPECT_EQ((*it++)->state(), FileBlock::State::EMPTY);
+    EXPECT_EQ(counters(cache).scanned - before.scanned, 7);
+    EXPECT_EQ(counters(cache).truncated - before.truncated, 1);
+    EXPECT_EQ(counters(cache).rotated - before.rotated, 5);
+    EXPECT_EQ(cache._evict_scan_entries_per_reserve->count() - reservations_before, 3);
+    auto offsets = cached_offsets(cache, key);
+    EXPECT_FALSE(offsets.contains(5 * kBlockSize));
+    EXPECT_FALSE(offsets.contains(6 * kBlockSize));
+}
+
+TEST_F(BlockFileCacheTest, evict_scan_rotation_replays_into_lru_recorder) {
+    EvictScanConfigGuard guard(/*max_scan=*/0);
+    // The recorder logs queue events only while the LRU dump keeps a tail of records.
+    const int64_t tail_records = config::file_cache_background_lru_dump_tail_record_num;
+    config::file_cache_background_lru_dump_tail_record_num = 1000;
+    Defer restore_tail {
+            [&] { config::file_cache_background_lru_dump_tail_record_num = tail_records; }};
+    auto base = (caches_dir / "evict_scan_recorder" / "").string();
+    fs::remove_all(base);
+    fs::create_directories(base);
+    Defer cleanup {[&] { fs::remove_all(base); }};
+    BlockFileCache cache(base, normal_only_settings());
+    ASSERT_TRUE(cache.initialize());
+    wait_until_cache_ready(cache);
+
+    auto key = BlockFileCache::hash("evict_scan_recorder_key");
+    auto held = fill_with_held_head(cache, key, /*held=*/5);
+    auto other = insert_block(cache, BlockFileCache::hash("evict_scan_recorder_other"), 0);
+
+    // The rotation was logged as MOVETOBACK events, so the shadow queue the LRU dump is written
+    // from ends up in the same order as the real queue: [6, 7, 8, 9, 0, 1, 2, 3, 4, other].
+    while (cache._lru_recorder->replay_queue_event(FileCacheType::NORMAL) > 0) {
+    }
+    std::string real;
+    {
+        std::lock_guard cache_lock(cache._mutex);
+        real = cache._normal_queue.to_string(cache_lock);
+    }
+    std::string shadow;
+    {
+        std::lock_guard log_lock(cache._lru_recorder->_mutex_lru_log);
+        shadow = cache._lru_recorder->get_shadow_queue(FileCacheType::NORMAL).to_string(log_lock);
+    }
+    EXPECT_EQ(shadow, real);
 }
 
 } // namespace doris::io

@@ -1315,14 +1315,13 @@ DECLARE_mInt32(file_cache_exit_need_evict_cache_in_advance_percent);
 DECLARE_mInt32(file_cache_evict_in_advance_interval_ms);
 DECLARE_mInt64(file_cache_evict_in_advance_batch_bytes);
 DECLARE_mInt64(file_cache_evict_in_advance_recycle_keys_num_threshold);
-// Max LRU entries one eviction scan of one queue examines while holding the cache lock, for
-// reservations and for evict-in-advance passes alike. A scan that hits the bound stops; if the
-// reservation it serves is still short of space, it fails and the block is not cached. One
-// reservation scans at most the other queues and its own queue, so it examines at most a few
-// times this many entries. <= 0 means unbounded. The query-limit reservation path
-// (enable_file_cache_query_limit) and the startup async-load path are not bounded by it.
-// Entries a scan skips because they are in use are always moved to the end of their queue, so
-// a bounded scan gets past them on later reservations.
+// Max LRU entries one cache reservation examines while holding the cache lock, across all of its
+// eviction scans (the other queues by time and by size, its own queue, and the query's own queue
+// under enable_file_cache_query_limit); evict-in-advance passes are reservations too. When the
+// budget runs out before enough space is found, the reservation fails and the block is not
+// cached. A get_or_set over several blocks reserves, and gets a budget, per block. <= 0 means
+// unbounded. The startup async-load path is not bounded by it. Entries a scan skips because
+// they are in use are moved to the end of their queue, so later reservations get past them.
 DECLARE_mInt64(file_cache_evict_max_scan_entries);
 DECLARE_mBool(enable_read_cache_file_directly);
 DECLARE_Bool(file_cache_enable_evict_from_other_queue_by_size);
