@@ -165,8 +165,21 @@ public class AvroJNIScanner extends JniScanner {
         if (!isGetTableSchema) {
             initDataReader();
         }
-        this.avroReader.setTvfPolicy(requiredParams.get("fs.doris.tvf.remote.paths"));
-        this.avroReader.open(avroFileContext, isGetTableSchema);
+        String tvfPolicy = requiredParams.get("fs.doris.tvf.remote.paths");
+        this.avroReader.setTvfPolicy(tvfPolicy);
+        try {
+            this.avroReader.open(avroFileContext, isGetTableSchema);
+        } catch (IOException | RuntimeException | Error failure) {
+            // JNI does not call close when Java open fails.
+            if (tvfPolicy != null && !tvfPolicy.isEmpty()) {
+                try {
+                    this.avroReader.close();
+                } catch (IOException | RuntimeException | Error closeFailure) {
+                    failure.addSuppressed(closeFailure);
+                }
+            }
+            throw failure;
+        }
     }
 
     private void initDataReader() {

@@ -125,9 +125,12 @@ class HadoopTvfAdmissionTest {
         Map<String, String> properties = viewFs();
         properties.put("fs.viewfs.mounttable.cluster.link./data", "hdfs://remote/base");
         properties.put("fs.viewfs.mounttable.cluster.link./data/local", "file:///tmp");
-        for (String pattern : new String[] {"/data/*", "/data/?/file.csv", "/data/{a,b}/file.csv", "/data"}) {
-            Assertions.assertThrows(AnalysisException.class, () -> HadoopTvfAdmission.checkReadDiscovery("viewfs://cluster" + pattern, properties));
+        for (String pattern : new String[] {"/data/*", "/data/?/file.csv", "/data/{a,b}/file.csv"}) {
+            Assertions.assertThrows(AnalysisException.class,
+                    () -> HadoopTvfAdmission.checkReadDiscovery("viewfs://cluster" + pattern, properties), pattern);
         }
+        // This branch uses Globber: a literal path only probes its own FileStatus.
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.checkReadDiscovery("viewfs://cluster/data", properties));
         Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.checkReadDiscovery("viewfs://cluster/data/remote/file.csv", properties));
         properties.put("fs.viewfs.mounttable.cluster.link./data/local", "hdfs://remote/other");
         Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.checkReadDiscovery("viewfs://cluster/data/*", properties));

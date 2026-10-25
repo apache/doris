@@ -83,7 +83,18 @@ public abstract class AvroReader {
     protected void openSchemaReader() throws IOException {
         TvfGuard.checkJavaRead(fileSystem, path, tvfPolicy);
         InputStream inputStream = new BufferedInputStream(fileSystem.open(path));
-        schemaReader = new DataFileStream<>(inputStream, new GenericDatumReader<>());
+        try {
+            schemaReader = new DataFileStream<>(inputStream, new GenericDatumReader<>());
+        } catch (IOException | RuntimeException | Error failure) {
+            if (tvfPolicy != null && !tvfPolicy.isEmpty()) {
+                try {
+                    inputStream.close();
+                } catch (IOException | RuntimeException | Error closeFailure) {
+                    failure.addSuppressed(closeFailure);
+                }
+            }
+            throw failure;
+        }
         if (LOG.isDebugEnabled()) {
             LOG.debug("success open avro schema reader.");
         }
@@ -106,7 +117,7 @@ public abstract class AvroReader {
             } catch (IOException | RuntimeException | Error failure) {
                 try {
                     input.close();
-                } catch (IOException closeFailure) {
+                } catch (IOException | RuntimeException | Error closeFailure) {
                     failure.addSuppressed(closeFailure);
                 }
                 throw failure;
