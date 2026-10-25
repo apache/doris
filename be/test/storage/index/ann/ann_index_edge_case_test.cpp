@@ -269,9 +269,9 @@ TEST_F(VectorSearchTest, TestLargeVectorDimensions) {
 
     std::vector<size_t> offsets = {0, dim, 2 * dim};
 
-    Status status =
-            writer->add_array_values(sizeof(float), vectors.data(), nullptr,
-                                     reinterpret_cast<const uint8_t*>(offsets.data()), num_rows);
+    Status status = writer->add_array_values(sizeof(float),
+                                             reinterpret_cast<const uint8_t*>(vectors.data()),
+                                             nullptr, offsets.data(), num_rows);
     EXPECT_TRUE(status.ok());
 }
 
