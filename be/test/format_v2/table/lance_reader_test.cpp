@@ -782,6 +782,46 @@ TEST(LanceTableReaderFullTextSearchTest, SupportsMatchAndPhraseQueries) {
     EXPECT_TRUE(phrase_slop_reader.close().ok());
 }
 
+TEST(LanceTableReaderFullTextSearchTest, SearchFilterHonorsPrefilterFlag) {
+    const std::filesystem::path dataset_uri =
+            "./be/test/format_v2/table/lance/data/fts_indexed.lance";
+    LanceFixtureInfo fixture;
+    ASSERT_TRUE(get_fixture_info(dataset_uri, &fixture).ok());
+    auto range = make_full_text_search_range(dataset_uri, fixture, "body_fts");
+
+    const Columns columns {
+            projected_column("row_id", TYPE_BIGINT, false),
+            projected_column("_score", TYPE_FLOAT, true),
+    };
+    TQueryGlobals query_globals;
+    RuntimeState state(TQueryOptions(), query_globals);
+    // "lance" ranks rows 3, 2, 1, 7. With top_k = 1, the default postfilter keeps only the best
+    // match, row 3, and the filter then removes it; prefilter applies the filter first, so the best
+    // remaining match, row 2, is returned.
+    for (const bool prefilter : {false, true}) {
+        SCOPED_TRACE(prefilter ? "prefilter" : "postfilter");
+        RuntimeProfile profile("lance_fts_prefilter_flag");
+        auto params = make_full_text_search_params("lance", 1, 0, TFtsCoverageMode::STRICT,
+                                                   std::string("row_id <= 2"));
+        if (prefilter) {
+            params.lance_scan_params.external_search_request.__set_prefilter(true);
+        }
+        LanceTableReader reader;
+        ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &params).ok());
+        ASSERT_TRUE(prepare_range(&reader, range).ok());
+        Block block;
+        add_output_columns(&block, columns);
+        const auto rows = read_full_text_search_rows(&reader, &block);
+        if (prefilter) {
+            ASSERT_EQ(1U, rows.size());
+            EXPECT_EQ(2, rows[0].first);
+        } else {
+            EXPECT_TRUE(rows.empty());
+        }
+        EXPECT_TRUE(reader.close().ok());
+    }
+}
+
 TEST(LanceTableReaderVectorSearchTest, RejectsMalformedIndexSegmentUuid) {
     const std::filesystem::path dataset_uri =
             "./be/test/format_v2/table/lance/data/all_types.lance";
@@ -892,6 +932,7 @@ TEST(LanceTableReaderVectorSearchTest, MultiVectorScoresFiltersOffsetsAndIndexed
                     filter.__set_format(TSearchFilterFormat::SQL);
                     filter.__set_payload("row_id >= 2");
                     request.__set_search_filter(filter);
+                    request.__set_prefilter(true);
                     search.__set_offset(1);
                     search.__set_top_k(2);
                 }
@@ -940,18 +981,24 @@ TEST(LanceTableReaderVectorSearchTest, MultiVectorScoresFiltersOffsetsAndIndexed
                     }
                     // Read metrics after close: lance-c publishes its final execution summary
                     // when the stream is released, including for an early top-k stop.
-                    for (const char* name : {"LancePrefilterLoads", "LancePrefilterInputRows",
-                                             "LancePrefilterInputBatches", "LancePrefilterRowIds",
-                                             "LancePrefilterLoadTime", "LancePrefilterInputTime",
-                                             "LancePrefilterBuildTime"}) {
+                    for (const char* name : {"RowIdPrefilterLoads", "RowIdPrefilterInputRows",
+                                             "RowIdPrefilterInputBatches", "RowIdPrefilterIds",
+                                             "RowIdPrefilterLoadTime", "RowIdPrefilterInputTime",
+                                             "RowIdPrefilterBuildTime"}) {
                         auto* counter = profile.get_counter(name);
-                        ASSERT_NE(nullptr, counter) << name;
                         if (filtered) {
+                            ASSERT_NE(nullptr, counter) << name;
                             EXPECT_GT(counter->value(), 0) << name;
-                        } else {
+                        } else if (counter != nullptr) {
                             EXPECT_EQ(counter->value(), 0) << name;
                         }
                     }
+                } else {
+                    // Flat splits still expose the same metric tree so FE aggregation can merge
+                    // later indexed splits even when this task reports no vector-index metrics.
+                    auto* counter = profile.get_counter("LanceIndexPartitionLoadTime");
+                    ASSERT_NE(nullptr, counter);
+                    EXPECT_EQ(0, counter->value());
                 }
             }
         }
@@ -1043,6 +1090,7 @@ TEST(LanceTableReaderVectorSearchTest, MultiVectorSegmentTopKMatchesIndependentG
                         filter.__set_format(TSearchFilterFormat::SQL);
                         filter.__set_payload("row_id % 5 = 0");
                         request.__set_search_filter(filter);
+                        request.__set_prefilter(true);
                     }
                     auto range =
                             make_lance_range(uri, fixture.version, {fixture.fragment_ids[split]});
@@ -1322,7 +1370,7 @@ TEST(LanceTableReaderVectorSearchTest, SearchesWholeSnapshotWithOffsetAndDistanc
     EXPECT_TRUE(reader.close().ok());
 }
 
-TEST(LanceTableReaderVectorSearchTest, AppliesSearchFilterBeforeTopK) {
+TEST(LanceTableReaderVectorSearchTest, AppliesSearchFilterBeforeTopKWhenPrefilterEnabled) {
     const std::filesystem::path dataset_uri =
             "./be/test/format_v2/table/lance/data/all_types.lance";
     LanceFixtureInfo fixture;
@@ -1339,6 +1387,7 @@ TEST(LanceTableReaderVectorSearchTest, AppliesSearchFilterBeforeTopK) {
     state.set_query_options(query_options);
     RuntimeProfile profile("lance_vector_search_prefilter_fixture");
     auto scan_params = make_float32_vector_search_params({0.0F, 0.0F, 0.0F}, 1, 0, "row_id >= 3");
+    scan_params.lance_scan_params.external_search_request.__set_prefilter(true);
 
     LanceTableReader reader;
     ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
@@ -1351,6 +1400,48 @@ TEST(LanceTableReaderVectorSearchTest, AppliesSearchFilterBeforeTopK) {
     EXPECT_EQ(4, rows[0].first);
     EXPECT_FLOAT_EQ(8.25F, rows[0].second);
     EXPECT_TRUE(reader.close().ok());
+}
+
+TEST(LanceTableReaderVectorSearchTest, SearchFilterDefaultsToPostfilter) {
+    const std::filesystem::path dataset_uri =
+            "./be/test/format_v2/table/lance/data/all_types.lance";
+    LanceFixtureInfo fixture;
+    ASSERT_TRUE(get_fixture_info(dataset_uri, &fixture).ok());
+
+    const Columns columns {
+            projected_column("row_id", TYPE_BIGINT, false),
+            projected_column("_distance", TYPE_FLOAT, true),
+    };
+    TQueryOptions query_options;
+    query_options.__set_batch_size(2);
+    TQueryGlobals query_globals;
+    RuntimeState state(TQueryOptions(), query_globals);
+    state.set_query_options(query_options);
+    RuntimeProfile profile("lance_vector_search_postfilter_default_fixture");
+    auto scan_params = make_float32_vector_search_params({0.0F, 0.0F, 0.0F}, 1, 0, "row_id >= 3");
+    const auto& request = scan_params.lance_scan_params.external_search_request;
+    ASSERT_FALSE(request.__isset.prefilter);
+
+    LanceTableReader reader;
+    ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
+    ASSERT_TRUE(prepare_fixture(&reader, dataset_uri, fixture, fixture.fragment_ids).ok());
+
+    Block block;
+    add_output_columns(&block, columns);
+    const auto rows = read_vector_search_rows(&reader, &block);
+    // The nearest row has row_id < 3, so filtering the top-1 candidate leaves nothing. With
+    // prefilter enabled, the same request returns row 4 (see the test above).
+    EXPECT_TRUE(rows.empty());
+    EXPECT_TRUE(reader.close().ok());
+
+    for (const char* name :
+         {"RowIdPrefilterLoads", "RowIdPrefilterInputRows", "RowIdPrefilterInputBatches",
+          "RowIdPrefilterIds", "RowIdPrefilterLoadTime", "RowIdPrefilterInputTime",
+          "RowIdPrefilterBuildTime"}) {
+        auto* counter = profile.get_counter(name);
+        ASSERT_NE(nullptr, counter) << name;
+        EXPECT_EQ(0, counter->value()) << name;
+    }
 }
 
 TEST(LanceTableReaderVectorSearchTest, SearchesMultipleFragmentSplits) {
