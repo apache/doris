@@ -5092,6 +5092,57 @@ TEST(LanceTableReaderLocalPathTest, InRootManifestBasesReadActualRows) {
     }
 }
 
+TEST(LanceTableReaderLocalPathTest, ReusedLocalHandleRevalidatesRegisteredBases) {
+    const auto original_secure_path = config::user_files_secure_path;
+    DEFER(config::user_files_secure_path = original_secure_path);
+    const auto root = std::filesystem::canonical("be/test/format_v2/table/lance/data");
+    const auto clone = root / "tvf_storage_clone.lance";
+    config::user_files_secure_path = root.string();
+    TQueryGlobals globals;
+    RuntimeState state(globals);
+    RuntimeProfile profile("lance_reused_local_admission");
+    TFileScanRangeParams scan_params;
+    LanceTableReader reader;
+    const Columns columns {projected_column("row_id", TYPE_BIGINT, false)};
+    ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
+    auto range = make_latest_lance_range("file://" + clone.string());
+    range.__set_file_type(TFileType::FILE_LOCAL);
+    range.table_format_params.lance_params.__set_is_tvf(true);
+    ASSERT_TRUE(prepare_range(&reader, range).ok());
+    const auto* opened = reader._dataset;
+    ASSERT_NE(nullptr, opened);
+    // The primary dataset and its key stay the same, but its registered sibling base
+    // is no longer inside the operator's secure root. A warm handle must still reject it.
+    config::user_files_secure_path = clone.string();
+    EXPECT_FALSE(reader._ensure_dataset_open(range).ok());
+    EXPECT_EQ(opened, reader._dataset);
+    config::user_files_secure_path = root.string();
+    EXPECT_TRUE(reader._ensure_dataset_open(range).ok());
+    EXPECT_EQ(opened, reader._dataset);
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST(LanceTableReaderLocalPathTest, RemotePolicyRejectsLocalPrimaryBeforePublishingHandle) {
+    const auto dataset =
+            std::filesystem::canonical("be/test/format_v2/table/lance/data/all_types.lance");
+    TQueryGlobals globals;
+    RuntimeState state(globals);
+    RuntimeProfile profile("lance_remote_initial_admission");
+    TFileScanRangeParams scan_params;
+    LanceTableReader reader;
+    const Columns columns {projected_column("row_id", TYPE_BIGINT, false)};
+    ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
+    auto range = make_latest_lance_range("file://" + dataset.string());
+    range.__set_file_type(TFileType::FILE_S3);
+    range.table_format_params.lance_params.__set_is_tvf(true);
+    const auto status = reader._ensure_dataset_open(range);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(std::string::npos, status.to_string().find("requires remote storage bases"));
+    EXPECT_EQ(nullptr, reader._dataset);
+    EXPECT_FALSE(reader._opened_dataset_key.has_value());
+    ASSERT_TRUE(reader.close().ok());
+}
+
 TEST(LanceTableReaderLocalPathTest, TvfPolicyDoesNotInheritCatalogAdmission) {
     const auto original_secure_path = config::user_files_secure_path;
     DEFER(config::user_files_secure_path = original_secure_path);

@@ -887,9 +887,9 @@ Status LanceTableReader::_ensure_dataset_open(const TFileRangeDesc& range,
     } else if (!_opened_dataset_key.has_value() || *_opened_dataset_key != key) {
         return Status::InvalidArgument(
                 "Lance reader cannot mix dataset snapshots or storage options");
-    } else {
-        // Revalidate reused handles before scanners, indexes or row-id reads. Fresh handles
-        // are checked inside _open_dataset before they become reader state.
+    } else if (key.storage_policy == TvfStoragePolicy::LOCAL) {
+        // Local files and links can change between splits. Remote bases belong to the
+        // immutable opened snapshot and were admitted in _open_dataset for this exact key.
         RETURN_IF_ERROR(_validate_dataset_storage(_dataset, key.storage_policy));
     }
     if (_search_kind == SearchKind::FULL_TEXT && prepare_fts_context &&
