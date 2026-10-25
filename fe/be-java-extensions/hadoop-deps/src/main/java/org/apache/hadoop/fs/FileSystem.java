@@ -3694,7 +3694,6 @@ public abstract class FileSystem extends Configured
     /** Routes touched by Globber, without constructing a filesystem or listing data. */
     public static List<Rule> globRules(URI filesystem, String pattern) throws IOException {
       List<Rule> rules = new ArrayList<>();
-      rules.add(new Rule(filesystem.toString(), pattern, true));
       for (String expanded : GlobExpander.expand(pattern)) {
         Path flattened = new Path(expanded.isEmpty() ? Path.CUR_DIR : expanded);
         String path = flattened.toUri().getPath();

@@ -21,8 +21,8 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.lance.metadata.LanceMetadataLoader;
 import org.apache.doris.datasource.lance.metadata.LanceTableMetadata;
 import org.apache.doris.datasource.lance.metadata.LanceTvfStoragePolicy;
@@ -79,9 +79,8 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         }
         boolean hadoopStorage = storageProperties instanceof HdfsCompatibleProperties
                 || (!isLanceFormat() && LocationPath.getTFileTypeForBE(filePath) == TFileType.FILE_HDFS);
-        if (hadoopStorage) {
-            HadoopTvfAdmission.check(HadoopTvfAdmission.Access.HADOOP_READ,
-                    filePath, backendConnectProperties, needsSchemaDiscovery());
+        if (hadoopStorage && files == null) {
+            HadoopTvfAdmission.checkReadDiscovery(filePath, backendConnectProperties);
             processedParams.put(TvfGuard.POLICY_KEY, HadoopTvfAdmission.protectJava(
                     HadoopTvfAdmission.Access.HADOOP_READ, filePath, processedParams).get(TvfGuard.POLICY_KEY));
         }

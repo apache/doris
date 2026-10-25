@@ -27,7 +27,6 @@ import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
 import java.io.IOException;
-import java.util.Objects;
 
 public class HDFSFileReader extends AvroReader {
     private static final Logger LOG = LogManager.getLogger(HDFSFileReader.class);
@@ -63,16 +62,5 @@ public class HDFSFileReader extends AvroReader {
     @Override
     public Object getNext() {
         return inputPair.datum();
-    }
-
-    @Override
-    public void close() throws IOException {
-        if (Objects.nonNull(schemaReader)) {
-            schemaReader.close();
-        }
-        if (Objects.nonNull(dataReader)) {
-            dataReader.close();
-        }
-        fileSystem.close();
     }
 }

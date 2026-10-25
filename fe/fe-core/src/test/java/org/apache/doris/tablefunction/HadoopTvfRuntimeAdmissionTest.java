@@ -57,8 +57,10 @@ import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -374,11 +376,10 @@ class HadoopTvfRuntimeAdmissionTest {
         for (String path : new String[] {"viewfs://cluster/da\\ta/*/\\.\\./other/*.csv",
                 "viewfs://cluster/{da\\ta/x,remote/y}/*.csv"}) {
             Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
-                    () -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.HADOOP_READ, path, properties, false));
+                    () -> HadoopTvfAdmission.checkReadDiscovery(path, properties));
         }
         properties.put("fs.viewfs.mounttable.cluster.link./data", "hdfs://remote/data");
-        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.HADOOP_READ,
-                "viewfs://cluster/da\\ta/\\*/file.csv", properties, false));
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.checkReadDiscovery("viewfs://cluster/da\\ta/\\*/file.csv", properties));
         properties.put("fs.viewfs.mounttable.cluster.link./local", "file:///tmp");
         properties.put("fs.viewfs.mounttable.cluster.link./literal\\name", "hdfs://remote/base");
         Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.JAVA_DELETE,
@@ -432,8 +433,7 @@ class HadoopTvfRuntimeAdmissionTest {
         Map<String, String> properties = hdfs("viewfs://cluster");
         properties.put("fs.viewfs.mounttable.cluster.link./data", "file:///tmp");
         properties.put("fs.viewfs.mounttable.cluster.linkFallback", "hdfs://remote/base");
-        Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class, () -> HadoopTvfAdmission.check(
-                HadoopTvfAdmission.Access.HADOOP_READ, "viewfs://cluster/da\\ta/file.csv", properties, false));
+        Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class, () -> HadoopTvfAdmission.checkReadDiscovery("viewfs://cluster/da\\ta/file.csv", properties));
     }
 
     @Test
@@ -495,7 +495,7 @@ class HadoopTvfRuntimeAdmissionTest {
             statement.putAll(properties);
             statement.put("fs.viewfs.mounttable.braces.link./local", "file:///unused-local");
             Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
-                    () -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.HADOOP_READ, uri, statement, false), uri);
+                    () -> HadoopTvfAdmission.checkReadDiscovery(uri, statement), uri);
             if ("/remote/{../local}/*.csv".equals(pattern)) {
                 // The reported singleton URI reaches admission through the actual TVF constructor.
                 // Other brace alternatives may be rejected earlier by the existing URI parameter parser.
@@ -509,8 +509,7 @@ class HadoopTvfRuntimeAdmissionTest {
         }
         properties.put("fs.viewfs.mounttable.braces.link./local", "file:///unused-local");
         String remote = "viewfs://braces/remote/{../other}/*.csv";
-        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(
-                HadoopTvfAdmission.Access.HADOOP_READ, remote, properties, false));
+        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.checkReadDiscovery(remote, properties));
         Assertions.assertDoesNotThrow(() -> TvfGuard.check(URI.create("viewfs://braces"),
                 javaRequest(properties, HadoopTvfAdmission.Access.HADOOP_READ, remote)));
     }
@@ -703,6 +702,45 @@ class HadoopTvfRuntimeAdmissionTest {
         }
     }
 
+    @Test
+    void discoveryOnlyChecksNormalizedProbesWhileReturnedPathsRemainLiteral() throws Exception {
+        Map<String, String> properties = hdfs("viewfs://normalized");
+        properties.put("fs.viewfs.mounttable.normalized.link./remote", "file:///unused-local");
+        properties.put("fs.viewfs.mounttable.normalized.link./other", "hdfs://nn/base");
+        properties.put("fs.viewfs.mounttable.normalized.linkFallback", "hdfs://nn/fallback");
+        for (boolean enabled : new boolean[] {false, true}) {
+            Config.enable_local_tvf = enabled;
+            try (RemoteClients clients = new RemoteClients()) {
+                int baseline = filesystemCacheSize();
+                for (String pattern : new String[] {"/remote/{../other}/*.csv",
+                        "/remote/{{../other}}/*.csv", "/remote/\\.\\./other/*.csv"}) {
+                    String uri = "viewfs://normalized" + pattern;
+                    Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.checkReadDiscovery(uri, properties));
+                    // A supplied/returned file with this spelling is literal and still selects LOCAL.
+                    Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                            () -> HadoopTvfAdmission.check(HadoopTvfAdmission.Access.HADOOP_READ,
+                                    uri, properties, false));
+                    if ("/remote/{../other}/*.csv".equals(pattern)) {
+                        Map<String, String> statement = readProperties(uri);
+                        statement.putAll(properties);
+                        Assertions.assertDoesNotThrow(() -> new HdfsTableValuedFunction(statement));
+                    }
+                    Configuration request = javaRequest(properties, HadoopTvfAdmission.Access.HADOOP_READ, uri);
+                    try (FileSystem filesystem = FileSystem.get(URI.create("viewfs://normalized"), request)) {
+                        org.apache.hadoop.fs.FileStatus[] matches = filesystem.globStatus(new Path(uri));
+                        Assertions.assertEquals(1, matches.length, uri + clients.events);
+                        Assertions.assertEquals("/other/probe.csv", matches[0].getPath().toUri().getPath(), uri);
+                        Assertions.assertDoesNotThrow(() -> HadoopTvfAdmission.check(
+                                HadoopTvfAdmission.Access.HADOOP_READ,
+                                matches[0].getPath().toString(), properties, false));
+                    }
+                    clients.verifyClosedOnce();
+                    Assertions.assertEquals(baseline, filesystemCacheSize());
+                }
+            }
+        }
+    }
+
     private Configuration javaRequest(Map<String, String> properties, HadoopTvfAdmission.Access access,
             String path) throws Exception {
         Configuration configuration = defaults(Collections.emptyMap());
@@ -749,6 +787,7 @@ class HadoopTvfRuntimeAdmissionTest {
             clients.add(remote);
             AtomicReference<URI> uri = new AtomicReference<>();
             AtomicBoolean closed = new AtomicBoolean();
+            Set<Path> directories = new HashSet<>();
             Mockito.when(remote.getConf()).thenReturn(configuration);
             Mockito.when(remote.getUri()).thenAnswer(call -> uri.get());
             Mockito.when(remote.getWorkingDirectory()).thenReturn(new Path("/"));
@@ -767,7 +806,14 @@ class HadoopTvfRuntimeAdmissionTest {
                 }
                 Path path = call.getArgument(0);
                 events.add("stat:" + index + ":" + path.toUri().getPath());
-                return new org.apache.hadoop.fs.FileStatus(1, false, 1, 1, 0, path);
+                return new org.apache.hadoop.fs.FileStatus(1, directories.contains(path), 1, 1, 0, path);
+            });
+            Mockito.when(remote.listStatus(Mockito.any(Path.class))).thenAnswer(call -> {
+                Path path = call.getArgument(0);
+                events.add("list:" + index + ":" + path.toUri().getPath());
+                directories.add(path);
+                return new org.apache.hadoop.fs.FileStatus[] {new org.apache.hadoop.fs.FileStatus(
+                        1, false, 1, 1, 0, new Path(path, "probe.csv"))};
             });
             Mockito.when(remote.delete(Mockito.any(Path.class), Mockito.anyBoolean())).thenAnswer(call -> {
                 events.add("delete:" + index + ":" + ((Path) call.getArgument(0)).toUri().getPath());
