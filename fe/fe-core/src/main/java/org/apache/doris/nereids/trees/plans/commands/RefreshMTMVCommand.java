@@ -27,11 +27,16 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.stream.StreamReadMode;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccTable;
+import org.apache.doris.datasource.mvcc.MvccTableInfo;
 import org.apache.doris.mtmv.BaseColInfo;
+import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mtmv.MTMVRefreshContext;
+import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mtmv.ivm.IvmDryRunLimit;
 import org.apache.doris.mtmv.ivm.IvmIncrRefreshManager;
@@ -200,7 +205,14 @@ public class RefreshMTMVCommand extends Command implements Forward, Explainable 
                 statementContext.setExcludedTriggerTables(mtmv.getExcludedTriggerTables());
                 Set<String> completeRefreshPartitions = getCompleteRefreshPartitions(mtmv);
                 Map<TableIf, String> tableWithPartKey = getIncrementalTableMap(mtmv);
-                MTMVRefreshContext refreshContext = MTMVRefreshContext.buildContext(mtmv, Maps.newHashMap());
+                // Pinned before the context is built, the way a refresh task pins its inputs before its
+                // own: the mapping, the read predicates and the scan binding then all resolve one
+                // snapshot per input, instead of the mapping re-materializing the latest one per MV
+                // partition and the scan possibly binding to a different one than the mapping read.
+                Map<MvccTableInfo, MvccSnapshot> pinnedSnapshots =
+                        pinBaseTableSnapshots(mtmv, statementContext);
+                MTMVRefreshContext refreshContext =
+                        MTMVRefreshContext.buildContext(mtmv, Maps.newHashMap(), pinnedSnapshots);
                 if (mtmv.isIvm()) {
                     // The explained refresh covers every MV partition in one plan, which is the refresh-all
                     // first batch a refresh would run: its PCT inputs are reset to the base partitions the
@@ -290,6 +302,33 @@ public class RefreshMTMVCommand extends Command implements Forward, Explainable 
         Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(refreshMTMVInfo.getMvName().getDb());
         return (MTMV) db.getTableOrMetaException(refreshMTMVInfo.getMvName().getTbl(),
                 TableType.MATERIALIZED_VIEW);
+    }
+
+    /**
+     * One engine snapshot per external input of this MV, also installed on {@code statementContext} so
+     * that predicate construction and scan binding reuse the pins the mapping is built from, as
+     * {@code MTMVTask#beforeMTMVRefresh} does for a refresh.
+     */
+    @VisibleForTesting
+    Map<MvccTableInfo, MvccSnapshot> pinBaseTableSnapshots(MTMV mtmv, StatementContext statementContext)
+            throws AnalysisException {
+        Map<MvccTableInfo, MvccSnapshot> snapshots = Maps.newHashMap();
+        MTMVRelation relation = mtmv.getRelation();
+        if (relation == null) {
+            // A legacy MV has no relation until its first refresh regenerates one.
+            return snapshots;
+        }
+        for (BaseTableInfo tableInfo : relation.getBaseTablesOneLevelAndFromView()) {
+            TableIf table = MTMVUtil.getTable(tableInfo);
+            if (!(table instanceof MvccTable)) {
+                continue;
+            }
+            MvccTableInfo mvccTableInfo = new MvccTableInfo(table);
+            MvccSnapshot snapshot = ((MvccTable) table).loadSnapshot(Optional.empty(), Optional.empty());
+            snapshots.put(mvccTableInfo, snapshot);
+            statementContext.setSnapshot(mvccTableInfo, snapshot);
+        }
+        return snapshots;
     }
 
     private Set<String> getCompleteRefreshPartitions(MTMV mtmv) {
