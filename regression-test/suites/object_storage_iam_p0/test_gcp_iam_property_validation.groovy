@@ -78,7 +78,7 @@ suite("test_gcp_iam_property_validation") {
                 "format" = "csv"
             ) LIMIT 1
         """
-        exception "requires provider=GCP"
+        exception "Native GCP authentication requires the GCS filesystem provider"
     }
 
     [

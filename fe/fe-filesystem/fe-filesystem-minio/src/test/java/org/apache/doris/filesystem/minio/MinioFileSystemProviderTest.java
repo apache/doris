@@ -110,11 +110,21 @@ class MinioFileSystemProviderTest {
 
     @Test
     void supportsGuess_doesNotAlsoBindExplicitS3() {
-        for (String endpoint : new String[] {"https://storage.us-east1.rep.googleapis.com",
-                "http://minio.local:9000"}) {
+        Map<String, String> props = new HashMap<>();
+        props.put("s3.endpoint", "http://minio.local:9000");
+        Assertions.assertTrue(provider.supportsGuess(props));
+        props.put("provider", "S3");
+        Assertions.assertFalse(provider.supportsGuess(props));
+        Assertions.assertFalse(provider.supports(props));
+    }
+
+    @Test
+    void supportsGuess_yieldsToGcsEndpoints() {
+        for (String endpoint : new String[] {"https://storage.googleapis.com",
+                "https://storage.us-east1.rep.googleapis.com"}) {
             Map<String, String> props = new HashMap<>();
             props.put("s3.endpoint", endpoint);
-            Assertions.assertTrue(provider.supportsGuess(props), endpoint);
+            Assertions.assertFalse(provider.supportsGuess(props), endpoint);
             props.put("provider", "S3");
             Assertions.assertFalse(provider.supportsGuess(props), endpoint);
             Assertions.assertFalse(provider.supports(props), endpoint);
