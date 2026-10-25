@@ -450,9 +450,14 @@ public class MTMVPartitionUtil {
      * outright, which is what separates it from a table that is not one of the MV partition column's
      * sources at all.
      *
-     * <p>An MV partition no base partition describes keeps the MV key ranges for the whole batch instead:
-     * nothing is recorded for it, so there is no scope its read could match, and the rows it holds are
-     * read through its own key range rather than not at all.
+     * <p>An MV partition no base partition describes is left out of the map rather than mapped to nothing:
+     * nothing is recorded for it, so there is no scope its read could match, and an empty set would read no
+     * rows over the rows it holds. Left out, it keeps its own key range -- the read
+     * UpdateMvByPartitionCommand#constructTableWithPredicates gives a partition the map does not name
+     * -- while the partitions that are described keep their records. What ends up undescribed here is an
+     * external partition table's partition the mapping cannot describe at all -- a row whose partition key is
+     * null, say; the olap cause, an alignment that has not caught up yet, is refused by a refresh rather than
+     * read, see MTMVTask#requireDescribedPartitions.
      *
      * <p>The tables are named by {@link BaseTableInfo} rather than by the table object: the mapping is keyed
      * by the tables the MV's partition info holds and this reads them by the name it is given, so what
@@ -460,22 +465,14 @@ public class MTMVPartitionUtil {
      */
     public static Map<String, Map<BaseTableInfo, Set<String>>> mappedBasePartitionsByMvPartition(
             Map<TableIf, String> tableWithPartKey, MTMVRefreshContext context, Set<String> mvPartitionNames) {
-        for (String mvPartitionName : mvPartitionNames) {
-            if (context.getUndescribedMvPartitions().contains(mvPartitionName)) {
-                // An MV partition no base partition describes has nothing to scope the read to: the mapping
-                // names no base partition for it, so a scoped read would read no rows over the rows it
-                // holds. The olap cause of it -- an alignment that has not caught up yet -- is refused by a
-                // refresh rather than read (MTMVTask#requireDescribedPartitions), because there it can still
-                // catch up; what a read reaches this way is an external partition table's partition the
-                // mapping cannot describe at all -- a row whose partition key is null, say -- which no
-                // alignment will ever catch up with either. It keeps the read it had before partitions were
-                // scoped: every table is left unscoped for the batch, and the MV partitions' own key ranges
-                // select the rows they hold.
-                return Maps.newHashMap();
-            }
-        }
         Map<String, Map<BaseTableInfo, Set<String>>> res = Maps.newHashMap();
         for (String mvPartitionName : mvPartitionNames) {
+            if (context.getUndescribedMvPartitions().contains(mvPartitionName)) {
+                // Left out rather than mapped to an empty set, and left out for this partition alone: the
+                // rows it holds are read through its own key range, while another partition of the same
+                // batch having no record says nothing about what this one is read from.
+                continue;
+            }
             Map<BaseTableInfo, Set<String>> byTable = Maps.newHashMap();
             for (TableIf table : tableWithPartKey.keySet()) {
                 byTable.put(new BaseTableInfo(table), Sets.newHashSet());

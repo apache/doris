@@ -105,6 +105,51 @@ suite("test_mtmv_base_partition_read_scope") {
         sql """set enable_materialized_view_rewrite = false"""
     }
 
+    // A window set after the MV was built without one leaves partitions behind that the next refresh's
+    // alignment drops before it reads anything. The preview has to drop them too: a stale partition kept
+    // in it is read through its own key range -- a read the refresh does not make -- and, being one the
+    // mapping does not describe, it used to cost the retained partitions their scopes as well, so the
+    // preview read every base partition in the table.
+    sql """drop materialized view if exists explain_realign_mv"""
+    sql """drop table if exists explain_realign_base"""
+    sql """
+        create table explain_realign_base (
+            k1 date not null,
+            value int not null
+        ) duplicate key(k1)
+        partition by range(k1) (
+            partition p_expired values [("2020-01-01"), ("2020-01-02")),
+            partition p_kept values [("${today}"), ("${today.plusDays(1)}")),
+            partition p_today values [("${today.plusDays(1)}"), ("${today.plusDays(2)}"))
+        )
+        distributed by hash(k1) buckets 1
+        properties("replication_num" = "1")
+    """
+    sql """insert into explain_realign_base values
+        ("2020-01-01", 100), ("${today}", 1), ("${today.plusDays(1)}", 2)"""
+    sql """
+        create materialized view explain_realign_mv
+        build immediate refresh complete on manual
+        partition by (date_trunc(k1,'day'))
+        distributed by random buckets 1
+        properties("replication_num" = "1")
+        as select k1, sum(value) as total from explain_realign_base group by k1
+    """
+    waitingMTMVTaskFinishedByMvName("explain_realign_mv")
+    sql """alter materialized view explain_realign_mv set
+        ("partition_sync_limit" = "2", "partition_sync_time_unit" = "DAY")"""
+    // The 2020 partition is outside the window now, so the refresh ahead drops its MV partition; the two
+    // days the window kept are the ones it rebuilds.
+    explain {
+        sql """REFRESH MATERIALIZED VIEW explain_realign_mv COMPLETE"""
+        contains "partitions=2/3 (p_kept,p_today)"
+        notContains "p_expired"
+    }
+    sql """refresh materialized view explain_realign_mv complete"""
+    waitingMTMVTaskFinishedByMvName("explain_realign_mv")
+    order_qt_explain_realign """select datediff(k1, cast('${today}' as date)) as day_offset, sum(total)
+        from explain_realign_mv group by datediff(k1, cast('${today}' as date))"""
+
     // A partition of a list partitioned table holds one key per partition column, and a read pinned to one
     // of those columns reaches the partitions that differ in the others. The expired partition below shares
     // its `d` with a kept one, so a read pinned to `d` alone reads it while the snapshot names only the kept

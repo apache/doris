@@ -11,6 +11,10 @@
 -- !scope_window_cut_group --
 0	499501
 
+-- !explain_realign --
+0	1
+1	2
+
 -- !list_scope --
 2020-01-01	EU	2
 2038-01-01	EU	3
