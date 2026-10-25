@@ -359,12 +359,13 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     return rewriteResults;
                 }
                 Set<String> uncoveredNarrowedBasePartitions = Sets.newHashSet();
+                Set<BaseColInfo> columnsSharingRetainedBucket = Sets.newHashSet();
                 try {
                     invalidPartitions = calcInvalidPartitions(queryUsedPartitions,
                             PartitionCompensator.pctInputsInQuery(queryStructInfo.getRelations(), mtmv),
                             rewrittenPlan,
                             cascadesContext, (AsyncMaterializationContext) materializationContext,
-                            uncoveredNarrowedBasePartitions);
+                            uncoveredNarrowedBasePartitions, columnsSharingRetainedBucket);
                 } catch (AnalysisException e) {
                     materializationContext.recordFailReason(queryStructInfo,
                             "Calc invalid partitions fail",
@@ -397,7 +398,8 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     continue;
                 }
                 if (needBaseTableUnion && !canUnionRewrite(queryPlan,
-                        (AsyncMaterializationContext) materializationContext, cascadesContext)) {
+                        (AsyncMaterializationContext) materializationContext, cascadesContext,
+                        columnsSharingRetainedBucket)) {
                     materializationContext.recordFailReason(queryStructInfo,
                             "need compensate union all, but can not, because the query structInfo",
                             () -> String.format("mv partition info is %s, and the query plan is %s",
@@ -520,7 +522,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
      * compensate union all.
      */
     protected boolean canUnionRewrite(Plan queryPlan, AsyncMaterializationContext context,
-            CascadesContext cascadesContext) {
+            CascadesContext cascadesContext, Set<BaseColInfo> columnsSharingRetainedBucket) {
         return true;
     }
 
@@ -549,10 +551,12 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             Plan rewrittenPlan,
             CascadesContext cascadesContext,
             AsyncMaterializationContext materializationContext,
-            Set<String> uncoveredNarrowedBasePartitions)
+            Set<String> uncoveredNarrowedBasePartitions,
+            Set<BaseColInfo> columnsSharingRetainedBucket)
             throws AnalysisException {
         return PartitionCompensator.calcInvalidPartitions(queryUsedBaseTablePartitionMap, pctInputsInQuery,
-                rewrittenPlan, materializationContext, cascadesContext, uncoveredNarrowedBasePartitions);
+                rewrittenPlan, materializationContext, cascadesContext, uncoveredNarrowedBasePartitions,
+                columnsSharingRetainedBucket);
     }
 
     /**

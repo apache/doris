@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ListPartitionInfo;
 import org.apache.doris.catalog.ListPartitionItem;
@@ -31,9 +32,14 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.mtmv.BaseColInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVPartitionExprFactory;
+import org.apache.doris.mtmv.MTMVPartitionExprService;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
+import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVRefreshSnapshot;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.CascadesContext;
@@ -125,6 +131,21 @@ public class PartitionCompensator {
             Map<List<String>, Set<String>> queryUsedBaseTablePartitionMap, int pctInputsInQuery, Plan rewrittenPlan,
             AsyncMaterializationContext materializationContext, CascadesContext cascadesContext,
             Set<String> uncoveredNarrowedBasePartitions)
+            throws AnalysisException {
+        return calcInvalidPartitions(queryUsedBaseTablePartitionMap, pctInputsInQuery, rewrittenPlan,
+                materializationContext, cascadesContext, uncoveredNarrowedBasePartitions, Sets.newHashSet());
+    }
+
+    /**
+     * The same, additionally recording in {@code columnsSharingRetainedBucket} the base columns whose
+     * compensation reads a partition that falls in the same transform bucket as an MV partition that stays.
+     * Grouping by the view's transform splits the branches apart only while each retained partition holds its
+     * whole bucket; see {@link #addColumnsWhoseCompensationSharesRetainedBucket}.
+     */
+    public static Pair<Map<BaseTableInfo, Set<String>>, Map<BaseColInfo, Set<String>>> calcInvalidPartitions(
+            Map<List<String>, Set<String>> queryUsedBaseTablePartitionMap, int pctInputsInQuery, Plan rewrittenPlan,
+            AsyncMaterializationContext materializationContext, CascadesContext cascadesContext,
+            Set<String> uncoveredNarrowedBasePartitions, Set<BaseColInfo> columnsSharingRetainedBucket)
             throws AnalysisException {
         // check partition is valid or not
         MTMV mtmv = materializationContext.getMtmv();
@@ -281,6 +302,9 @@ public class PartitionCompensator {
                         entry.getKey(), pctInfo, entry.getValue(), retainedMvPartitions,
                         mtmvRelatedTableIfMapMap));
             }
+            addColumnsWhoseCompensationSharesRetainedBucket(mtmv, pctInfoMap,
+                    baseTablePartitionNeedUnionNameMap, uncoveredByTable, retainedMvPartitions,
+                    columnsSharingRetainedBucket);
         }
         if (!uncoveredByTable.isEmpty()) {
             for (MTMVRelatedTableIf pctTable : mtmv.getMvPartitionInfo().getPctTables()) {
@@ -387,6 +411,137 @@ public class PartitionCompensator {
                 out.add(key.getKeys().get(keyPosition));
             }
         }
+    }
+
+    /**
+     * The base columns whose compensation reads a partition that falls in the same transform bucket as an MV
+     * partition that stays.
+     *
+     * <p>The aggregate rule lets a grouping by the view's own transform keep the two branches apart because
+     * the view's partitions are disjoint in that transform's value. That holds only while each retained
+     * partition holds the whole bucket: {@code partition_sync_limit} drops base partitions before the roll-up,
+     * so a retained year partition can hold the days the window kept while an expired day of the same year is
+     * compensated -- grouping by {@code date_trunc(d, 'year')} then answers that year from both branches.
+     * Likewise a retained partition can hold a recorded base partition that runs past its own upper bound: the
+     * roll-up of a {@code DATETIME(3)} partition ending a fraction of a second after a bucket boundary takes
+     * off one second and lands in the bucket before it, while the rows past the boundary are grouped into the
+     * next one. Such a column is recorded here, so the aggregate rule declines the transform coverage and
+     * the query is answered from the base table instead.
+     */
+    private static void addColumnsWhoseCompensationSharesRetainedBucket(MTMV mtmv,
+            Map<BaseTableInfo, BaseColInfo> pctInfoMap,
+            Map<BaseColInfo, Set<String>> baseTablePartitionNeedUnionNameMap,
+            Map<MTMVRelatedTableIf, Set<String>> uncoveredByTable,
+            Set<String> retainedMvPartitions,
+            Set<BaseColInfo> columnsSharingRetainedBucket) throws AnalysisException {
+        MTMVPartitionInfo mvPartitionInfo = mtmv.getMvPartitionInfo();
+        if (mvPartitionInfo.getPartitionType() != MTMVPartitionType.EXPR || retainedMvPartitions.isEmpty()) {
+            return;
+        }
+        MTMVPartitionExprService exprService;
+        try {
+            exprService = MTMVPartitionExprFactory.getExprService(mvPartitionInfo.getExpr());
+        } catch (AnalysisException e) {
+            // The view was created from an expression this factory reads, so it cannot happen.
+            throw new IllegalStateException("Cannot read the partition expression of " + mtmv.getName(), e);
+        }
+        Map<String, PartitionItem> mvItems = mtmv.getAndCopyPartitionItems();
+        Map<PartitionKeyDesc, String> retainedDescs = Maps.newHashMap();
+        for (String mvPartitionName : retainedMvPartitions) {
+            PartitionItem mvItem = mvItems.get(mvPartitionName);
+            if (mvItem != null) {
+                retainedDescs.put(mvItem.toPartitionKeyDesc(), mvPartitionName);
+            }
+        }
+        MTMVRefreshSnapshot refreshSnapshot = mtmv.getRefreshSnapshot();
+        for (MTMVRelatedTableIf pctTable : mvPartitionInfo.getPctTables()) {
+            BaseColInfo pctInfo = pctInfoMap.get(new BaseTableInfo(pctTable));
+            if (pctInfo == null) {
+                continue;
+            }
+            Set<String> compensated = Sets.newHashSet(
+                    baseTablePartitionNeedUnionNameMap.getOrDefault(pctInfo, Sets.newHashSet()));
+            compensated.addAll(uncoveredByTable.getOrDefault(pctTable, Sets.newHashSet()));
+            if (compensated.isEmpty()) {
+                continue;
+            }
+            Optional<MvccSnapshot> snapshot = MvccUtil.getSnapshotFromContext(pctTable);
+            // The partitions are read once and shared by both checks below: each takes the table map, and
+            // the map is every partition of the table, not just the ones either check looks up.
+            Map<String, PartitionItem> baseItems = pctTable.getAndCopyPartitionItems(snapshot);
+            boolean sharesRetainedBucket;
+            try {
+                sharesRetainedBucket = compensatedSharesRetainedBucket(pctTable, baseItems, snapshot,
+                        exprService, mvPartitionInfo, compensated, retainedDescs)
+                        || (refreshSnapshot != null && retainedPartitionRunsPastItsUpperBound(
+                                pctTable, pctInfo.getColName(), snapshot, baseItems, refreshSnapshot,
+                                retainedMvPartitions, mvItems));
+            } catch (AnalysisException e) {
+                // Which bucket one of them falls in cannot be told, so the transform is not trusted to keep
+                // the branches apart.
+                sharesRetainedBucket = true;
+            }
+            if (sharesRetainedBucket) {
+                columnsSharingRetainedBucket.add(pctInfo);
+            }
+        }
+    }
+
+    private static boolean compensatedSharesRetainedBucket(MTMVRelatedTableIf pctTable,
+            Map<String, PartitionItem> items, Optional<MvccSnapshot> snapshot,
+            MTMVPartitionExprService exprService, MTMVPartitionInfo mvPartitionInfo, Set<String> compensated,
+            Map<PartitionKeyDesc, String> retainedDescs) throws AnalysisException {
+        int colPos = mvPartitionInfo.getPctColPos(pctTable);
+        for (String partitionName : compensated) {
+            PartitionItem item = items.get(partitionName);
+            if (item == null) {
+                continue;
+            }
+            PartitionKeyDesc rollUpDesc = exprService.generateRollUpPartitionKeyDesc(
+                    item.toPartitionKeyDesc(colPos), mvPartitionInfo, pctTable, snapshot);
+            if (retainedDescs.containsKey(rollUpDesc)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean retainedPartitionRunsPastItsUpperBound(MTMVRelatedTableIf pctTable, String colName,
+            Optional<MvccSnapshot> snapshot, Map<String, PartitionItem> baseItems,
+            MTMVRefreshSnapshot refreshSnapshot, Set<String> retainedMvPartitions,
+            Map<String, PartitionItem> mvItems) throws AnalysisException {
+        Column partitionColumn = null;
+        for (Column column : pctTable.getPartitionColumns(snapshot)) {
+            if (column.getName().equalsIgnoreCase(colName)) {
+                partitionColumn = column;
+                break;
+            }
+        }
+        if (partitionColumn == null) {
+            return false;
+        }
+        List<Column> baseColumns = ImmutableList.of(partitionColumn);
+        BaseTableInfo pctTableInfo = new BaseTableInfo(pctTable);
+        for (String mvPartitionName : retainedMvPartitions) {
+            PartitionItem mvItem = mvItems.get(mvPartitionName);
+            if (mvItem == null) {
+                continue;
+            }
+            PartitionKey mvUpper = PartitionKey.createPartitionKey(
+                    mvItem.toPartitionKeyDesc().getUpperValues(), baseColumns);
+            for (String basePartitionName : refreshSnapshot.getPctSnapshots(mvPartitionName, pctTableInfo)) {
+                PartitionItem baseItem = baseItems.get(basePartitionName);
+                if (baseItem == null) {
+                    continue;
+                }
+                PartitionKey baseUpper = PartitionKey.createPartitionKey(
+                        baseItem.toPartitionKeyDesc().getUpperValues(), baseColumns);
+                if (baseUpper.compareTo(mvUpper) > 0) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private static Pair<Pair<BaseTableInfo, Set<String>>, Pair<BaseColInfo, Set<String>>> getNeedCompensatePartitions(

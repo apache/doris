@@ -55,7 +55,11 @@ suite("test_mtmv_base_partition_read_scope") {
             distributed by hash(k1) buckets 1
             properties("replication_num" = "1")
         """
-        sql """insert into base_read_scope values ("${expiredDay}", 1), ("${keptDay}", 2), ("${today}", 3)"""
+        // The kept day carries enough rows that the view pre-aggregates to a single one: the optimizer then
+        // prefers the view plus the expired day over scanning the base table, so the split is the plan that
+        // is answered and not only one CBO leaves unused.
+        sql """insert into base_read_scope select '${keptDay}', number from numbers("number" = "1000")"""
+        sql """insert into base_read_scope values ("${expiredDay}", 1), ("${today}", 3)"""
 
         sql """
             create materialized view mv_read_scope
@@ -81,6 +85,24 @@ suite("test_mtmv_base_partition_read_scope") {
         // separately rather than as a total, so that the case does not turn on where the window's edge falls.
         order_qt_scope_expired_day "select count(*) from mv_read_scope where k1 = '${expiredDay}'"
         order_qt_scope_kept_days "select count(*) from mv_read_scope where k1 >= '${keptDay}'"
+
+        // Grouping by the view's own transform is answered from the view only while each retained partition
+        // holds the whole transform bucket. The window cut this year: the view's year partition holds keptDay
+        // alone, and expiredDay -- compensated from the base table -- falls in the same year. Joining the two
+        // branches would emit one year group each instead of one row carrying both days' total.
+        sql """analyze table base_read_scope with sync"""
+        sql """analyze table mv_read_scope with sync"""
+        sql """set enable_materialized_view_rewrite = true"""
+        explain {
+            sql("select date_trunc(k1, 'year') as y, sum(value) from base_read_scope "
+                    + "where k1 in ('${expiredDay}', '${keptDay}') group by date_trunc(k1, 'year')")
+            notContains "UNION"
+        }
+        order_qt_scope_window_cut_group """select year(date_trunc(k1, 'year'))
+            - year(cast('${expiredDay}' as date)) as year_offset, sum(value)
+            from base_read_scope where k1 in ('${expiredDay}', '${keptDay}')
+            group by date_trunc(k1, 'year')"""
+        sql """set enable_materialized_view_rewrite = false"""
     }
 
     // A partition of a list partitioned table holds one key per partition column, and a read pinned to one

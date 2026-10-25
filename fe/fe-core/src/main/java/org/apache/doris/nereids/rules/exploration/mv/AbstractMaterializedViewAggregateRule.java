@@ -531,11 +531,14 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
      * that view answers one year out of both branches, the view's months of it and the base table's, and the
      * two rows come out beside each other. Nor does a grouping set that leaves it out -- the {@code ()} total
      * of {@code ROLLUP}/{@code CUBE}/{@code GROUPING SETS} puts every partition value in one group, which both
-     * branches answer.
+     * branches answer. And the view's own transform keeps them apart only while each partition it keeps holds
+     * the whole transform bucket: a window cut or a partition boundary a fraction of a second past the bucket's
+     * end leaves part of a bucket in the base branch, which
+     * {@code columnsSharingRetainedBucket} reports.
      */
     @Override
     protected boolean canUnionRewrite(Plan queryPlan, AsyncMaterializationContext context,
-            CascadesContext cascadesContext) {
+            CascadesContext cascadesContext, Set<BaseColInfo> columnsSharingRetainedBucket) {
         // The union is built over the whole query plan, so the outermost aggregate is the one whose groups
         // the two branches answer. The plan holds one, since the rule's pattern requires it.
         Optional<LogicalAggregate<Plan>> logicalAggregateOptional =
@@ -558,13 +561,13 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         Optional<LogicalRepeat<?>> logicalRepeatOptional = queryAggregate.getSourceRepeat();
         if (!logicalRepeatOptional.isPresent()) {
             return groupingCoversPartitionColumns(groupByExpressions, queryPlan, pctInfos, equalColumns,
-                    partitionTimeUnit);
+                    partitionTimeUnit, columnsSharingRetainedBucket);
         }
         // The group by list holds every grouping set's expressions beside the grouping id, so it can not tell
         // which set a partition column was read from; each set is asked on its own instead.
         for (List<Expression> groupingSet : logicalRepeatOptional.get().getGroupingSets()) {
             if (!groupingCoversPartitionColumns(groupingSet, queryPlan, pctInfos, equalColumns,
-                    partitionTimeUnit)) {
+                    partitionTimeUnit, columnsSharingRetainedBucket)) {
                 return false;
             }
         }
@@ -590,24 +593,52 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
      * or equal to one that is -- through another column too, since an equality chain is one equality -- or
      * under the view's own partition transform. A tracked column that is neither grouped nor tied to a grouped
      * one by the query varies freely within a group.
+     *
+     * <p>The transform counts only while the view's partition holds the whole transform bucket: over a column
+     * whose compensation shares a retained bucket it forms a group out of both branches, so it covers nothing.
+     * The columns the query holds equal to such a column share the group's value, so a transform over any of
+     * them is no better.
      */
     private static boolean groupingCoversPartitionColumns(List<Expression> groupingExpressions, Plan queryPlan,
             List<BaseColInfo> pctInfos, Map<BaseColInfo, Set<BaseColInfo>> equalColumns,
-            Optional<String> partitionTimeUnit) {
+            Optional<String> partitionTimeUnit, Set<BaseColInfo> columnsSharingRetainedBucket) {
         List<? extends Expression> groupingShuttledExpressions =
                 ExpressionUtils.shuttleExpressionWithLineage(groupingExpressions, queryPlan);
         Set<BaseColInfo> partitionColumns = Sets.newHashSet(pctInfos);
-        Set<BaseColInfo> groupedTogether = Sets.newHashSet();
-        Deque<BaseColInfo> unvisited = new ArrayDeque<>();
+        Set<BaseColInfo> groupedByItself = Sets.newHashSet();
+        Set<BaseColInfo> groupedByTransform = Sets.newHashSet();
         for (Expression expression : groupingShuttledExpressions) {
             Optional<BaseColInfo> grouped = columnGroupedByItself(expression);
-            if (!grouped.isPresent()) {
-                grouped = columnUnderPartitionTransform(expression, partitionTimeUnit);
+            if (grouped.isPresent()) {
+                if (partitionColumns.contains(grouped.get())) {
+                    groupedByItself.add(grouped.get());
+                }
+                continue;
             }
-            if (grouped.isPresent() && partitionColumns.contains(grouped.get())) {
-                unvisited.add(grouped.get());
+            Optional<BaseColInfo> transformed = columnUnderPartitionTransform(expression, partitionTimeUnit);
+            if (transformed.isPresent() && partitionColumns.contains(transformed.get())) {
+                groupedByTransform.add(transformed.get());
             }
         }
+        Set<BaseColInfo> groupedTogether = equalColumnsClosure(groupedByItself, equalColumns);
+        for (BaseColInfo transformed : groupedByTransform) {
+            if (groupedTogether.contains(transformed)) {
+                continue;
+            }
+            Set<BaseColInfo> transformedClass = equalColumnsClosure(Sets.newHashSet(transformed), equalColumns);
+            if (!Sets.intersection(transformedClass, columnsSharingRetainedBucket).isEmpty()) {
+                continue;
+            }
+            groupedTogether.addAll(transformedClass);
+        }
+        return groupedTogether.containsAll(partitionColumns);
+    }
+
+    /** The columns reachable from these through the equalities the query holds, the seeds included. */
+    private static Set<BaseColInfo> equalColumnsClosure(Set<BaseColInfo> seeds,
+            Map<BaseColInfo, Set<BaseColInfo>> equalColumns) {
+        Set<BaseColInfo> groupedTogether = Sets.newHashSet();
+        Deque<BaseColInfo> unvisited = new ArrayDeque<>(seeds);
         while (!unvisited.isEmpty()) {
             BaseColInfo column = unvisited.poll();
             if (!groupedTogether.add(column)) {
@@ -619,7 +650,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                 }
             }
         }
-        return groupedTogether.containsAll(partitionColumns);
+        return groupedTogether;
     }
 
     /**
