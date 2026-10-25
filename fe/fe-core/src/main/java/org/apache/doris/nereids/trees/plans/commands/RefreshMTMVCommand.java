@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.catalog.stream.StreamReadMode;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.mtmv.BaseColInfo;
@@ -196,22 +197,30 @@ public class RefreshMTMVCommand extends Command implements Forward, Explainable 
                 statementContext.setExcludedTriggerTables(mtmv.getExcludedTriggerTables());
                 return createIvmIncrRefreshManager().buildInsertCommand(mtmv);
             case COMPLETE:
-                if (mtmv.isIvm()) {
-                    statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.fullExplain(mtmv)));
-                }
                 statementContext.setExcludedTriggerTables(mtmv.getExcludedTriggerTables());
                 Set<String> completeRefreshPartitions = getCompleteRefreshPartitions(mtmv);
                 Map<TableIf, String> tableWithPartKey = getIncrementalTableMap(mtmv);
+                MTMVRefreshContext refreshContext = MTMVRefreshContext.buildContext(mtmv, Maps.newHashMap());
+                if (mtmv.isIvm()) {
+                    // The explained refresh covers every MV partition in one plan, which is the refresh-all
+                    // first batch a refresh would run: its PCT inputs are reset to the base partitions the
+                    // mapping names -- a table it names as empty is read as no rows -- and a non-PCT input is
+                    // read in RESET mode. Both are derived the way MTMVTask derives them, from the same
+                    // context, so the preview's reads are the reads execution makes; see IvmFullRefreshMTMV.
+                    statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.fullExplain(mtmv,
+                            MTMVPartitionUtil.collectPctResetPartitionIds(mtmv, refreshContext,
+                                    completeRefreshPartitions),
+                            StreamReadMode.RESET)));
+                }
                 // Explained through the base partitions the refresh reads for these MV partitions, from the
                 // same mapping the refresh records them with. The MV partitions' own key ranges are wider
                 // than that read: with a partition_sync_limit window, a base partition it leaves out can lie
                 // inside a retained MV partition, and an explain written from the ranges alone would show the
-                // expired partition as read -- a read the refresh does not make. An IVM MV is not scoped at
-                // all, as in the refresh.
+                // expired partition as read -- a read the refresh does not make. An IVM MV passes no
+                // predicate scope: its rewrite scopes the read through the reset partition ids instead.
                 return UpdateMvByPartitionCommand.from(mtmv, completeRefreshPartitions, tableWithPartKey,
                         statementContext, mtmv.isIvm() ? null
-                                : MTMVPartitionUtil.mappedBasePartitions(tableWithPartKey,
-                                        MTMVRefreshContext.buildContext(mtmv, Maps.newHashMap()),
+                                : MTMVPartitionUtil.mappedBasePartitions(tableWithPartKey, refreshContext,
                                         completeRefreshPartitions));
             default:
                 throw new org.apache.doris.nereids.exceptions.AnalysisException(

@@ -1305,7 +1305,8 @@ public class MTMVTask extends AbstractTask {
                 requireDescribedPartitions(context, execPartitionNames);
             }
             Map<BaseTableInfo, Set<Long>> batchResetPartitionIds = useIvmFallbackStreams
-                    ? collectPctResetPartitionIds(context, execPartitionNames) : Maps.newHashMap();
+                    ? MTMVPartitionUtil.collectPctResetPartitionIds(mtmv, context, execPartitionNames)
+                    : Maps.newHashMap();
             Optional<IvmRewriteContext> rewriteContext = Optional.empty();
             if (useIvmFallbackStreams) {
                 StreamReadMode nonPctReadMode = i == 0 && refreshAllPartitions
@@ -1543,48 +1544,6 @@ public class MTMVTask extends AbstractTask {
                         + "table change. Refreshing it would write no rows over the rows it holds.");
             }
         }
-    }
-
-    /**
-     * The partitions each PCT input of this batch is read from, by table, with an explicit empty set for a
-     * table the batch's mapping does not name.
-     *
-     * <p>An absent table is one whose retained base partitions share no key with the MV partitions this
-     * batch refreshes -- after a sync window dropped them, say -- so the batch must read no rows of it.
-     * Leaving the entry out instead is what makes the read differ from the record: the rewriter has no
-     * reset for the table and falls back to its ordinary scan, which reads the partitions the window
-     * dropped, while the mapping records none of them. The rows land in the MV partition and the snapshot
-     * says the table was not read, so a later change to them is never compared and a later delta never
-     * looks at them.
-     *
-     * <p>Seeded the same way {@link MTMVPartitionUtil#generateRelatedBasePartitionIds} seeds the delta's
-     * scope, and for the same reason: the empty set says "this table may not be read at all", which is not
-     * the same statement as the table's absence. The pre-seeded set is not looked up for a table the MV
-     * excludes from trigger tracking -- the rewriter returns its scan before consulting the reset.
-     */
-    private Map<BaseTableInfo, Set<Long>> collectPctResetPartitionIds(MTMVRefreshContext context,
-            Set<String> execPartitionNames) throws AnalysisException {
-        Map<BaseTableInfo, Set<Long>> resetPartitionIds = Maps.newHashMap();
-        for (MTMVRelatedTableIf pctTable : mtmv.getMvPartitionInfo().getPctTables()) {
-            if (pctTable instanceof OlapTable) {
-                resetPartitionIds.put(new BaseTableInfo(pctTable), Sets.newHashSet());
-            }
-        }
-        for (String mvPartitionName : execPartitionNames) {
-            for (Entry<MTMVRelatedTableIf, Set<String>> entry
-                    : context.getByPartitionName(mvPartitionName).entrySet()) {
-                if (!(entry.getKey() instanceof OlapTable)) {
-                    continue;
-                }
-                OlapTable pctTable = (OlapTable) entry.getKey();
-                Set<Long> partitionIds = resetPartitionIds.computeIfAbsent(
-                        new BaseTableInfo(pctTable), key -> Sets.newHashSet());
-                for (String pctPartitionName : entry.getValue()) {
-                    partitionIds.add(pctTable.getPartitionOrAnalysisException(pctPartitionName).getId());
-                }
-            }
-        }
-        return resetPartitionIds;
     }
 
     private IvmPlanSignature refreshPartitionsWithRetry(Set<String> execPartitionNames,

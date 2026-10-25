@@ -31,6 +31,10 @@
  * join produces nothing there. The 2045 component, which all three tables name, shows that
  * the MV is still built: it keeps exactly that row before and after the DELETE.
  *
+ * <p>The preview of the refresh, EXPLAIN REFRESH ... COMPLETE, derives the same scope from
+ * the same mapping, and the suite asserts that B's scan there names only b_shared. A preview
+ * that installs the ordinary scan for B instead would read the expired b_old.
+ *
  * <p>Dates are literals and every partition is created by hand, so the kept/expired split
  * does not depend on the run date (the 2 YEAR window ends in the current year, which no
  * literal here falls in).
@@ -131,6 +135,16 @@ suite("test_ivm_absent_pct_input_read_scope") {
            FROM ${tableA} a JOIN ${tableB} b ON a.d = b.d JOIN ${tableC} c ON a.d = c.d
            GROUP BY a.d
     """
+
+    // The preview reads B where the refresh does: from the base partitions its mapping records,
+    // so only b_shared. The ordinary scan the preview used to install for an input the mapping
+    // does not name read B over the MV partition's own key range instead, and that range
+    // reaches the expired b_old.
+    explain {
+        sql """REFRESH MATERIALIZED VIEW ${mvName} COMPLETE"""
+        contains "partitions=1/3 (b_shared)"
+        notContains "b_old"
+    }
 
     // Waiting through the framework helper rather than by reading the newest row: tasks() can
     // briefly miss a task that just finished, and the suite reuses the MV name across runs.

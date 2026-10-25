@@ -481,6 +481,50 @@ public class MTMVPartitionUtil {
     }
 
     /**
+     * The partitions each PCT input is read from for these MV partitions, by table, with an explicit empty
+     * set for a table the mapping does not name.
+     *
+     * <p>An absent table is one whose retained base partitions share no key with these MV partitions --
+     * after a sync window dropped them, say -- so the read must return no rows of it. Leaving the entry out
+     * instead is what makes the read differ from the record: the rewriter has no reset for the table and
+     * falls back to its ordinary scan, which reads the partitions the window dropped, while the mapping
+     * records none of them. The rows land in the MV partition and the snapshot says the table was not read,
+     * so a later change to them is never compared and a later delta never looks at them.
+     *
+     * <p>The refresh uses this both to read a batch and to explain one, so that a preview's reads are the
+     * reads the refresh makes; see RefreshMTMVCommand's COMPLETE branch and MTMVTask's batch executor.
+     *
+     * <p>Seeded the same way {@link #generateRelatedBasePartitionIds} seeds the delta's scope, and for the
+     * same reason: the empty set says "this table may not be read at all", which is not the same statement
+     * as the table's absence. The pre-seeded set is not looked up for a table the MV excludes from trigger
+     * tracking -- the rewriter returns its scan before consulting the reset.
+     */
+    public static Map<BaseTableInfo, Set<Long>> collectPctResetPartitionIds(MTMV mtmv,
+            MTMVRefreshContext context, Set<String> mvPartitionNames) throws AnalysisException {
+        Map<BaseTableInfo, Set<Long>> resetPartitionIds = Maps.newHashMap();
+        for (MTMVRelatedTableIf pctTable : mtmv.getMvPartitionInfo().getPctTables()) {
+            if (pctTable instanceof OlapTable) {
+                resetPartitionIds.put(new BaseTableInfo(pctTable), Sets.newHashSet());
+            }
+        }
+        for (String mvPartitionName : mvPartitionNames) {
+            for (Entry<MTMVRelatedTableIf, Set<String>> entry
+                    : context.getByPartitionName(mvPartitionName).entrySet()) {
+                if (!(entry.getKey() instanceof OlapTable)) {
+                    continue;
+                }
+                OlapTable pctTable = (OlapTable) entry.getKey();
+                Set<Long> partitionIds = resetPartitionIds.computeIfAbsent(
+                        new BaseTableInfo(pctTable), key -> Sets.newHashSet());
+                for (String pctPartitionName : entry.getValue()) {
+                    partitionIds.add(pctTable.getPartitionOrAnalysisException(pctPartitionName).getId());
+                }
+            }
+        }
+        return resetPartitionIds;
+    }
+
+    /**
      * check if table is sync with all baseTables
      *
      * @param mtmv
