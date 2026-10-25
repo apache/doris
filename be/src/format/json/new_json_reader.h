@@ -113,6 +113,7 @@ protected:
     // ---- Unified init_reader(ReaderInitContext*) overrides ----
     Status _open_file_reader(ReaderInitContext* ctx) override;
     Status _do_init_reader(ReaderInitContext* ctx) override;
+    Status on_after_read_block(Block* block, size_t* read_rows) override;
 
     void _collect_profile_before_close() override;
 

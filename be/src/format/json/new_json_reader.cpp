@@ -265,7 +265,10 @@ Status NewJsonReader::_do_get_next_block(Block* block, size_t* read_rows, bool* 
     const auto batch_size = _batch_size;
     const auto max_block_bytes = _state->preferred_block_size_bytes();
 
-    while (block->rows() < batch_size && !_reader_eof && (block->bytes() < max_block_bytes)) {
+    // With only partition slots, no file column grows until on_after_read_block fills
+    // the partition values. Bound that scan by parsed records instead of block rows.
+    while ((_file_slot_descs.empty() ? *read_rows : block->rows()) < batch_size && !_reader_eof &&
+           (block->bytes() < max_block_bytes)) {
         if (UNLIKELY(_read_json_by_line && _skip_first_line)) {
             RETURN_IF_ERROR(_line_reader->skip_split_prefix(_range.start_offset, _line_delimiter,
                                                             &_reader_eof, _io_ctx));
@@ -284,6 +287,15 @@ Status NewJsonReader::_do_get_next_block(Block* block, size_t* read_rows, bool* 
         ++(*read_rows);
     }
 
+    return Status::OK();
+}
+
+Status NewJsonReader::on_after_read_block(Block* block, size_t* read_rows) {
+    // JSON parses real records even for COUNT(*). A partition-only scan has no file
+    // column carrying those rows, so it still needs the partition/default-column fill.
+    if (*read_rows > 0) {
+        RETURN_IF_ERROR(fill_remaining_columns(block, *read_rows));
+    }
     return Status::OK();
 }
 

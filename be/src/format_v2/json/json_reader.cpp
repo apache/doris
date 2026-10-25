@@ -310,9 +310,9 @@ Status JsonReader::get_block(Block* file_block, size_t* rows, bool* eof) {
     const auto max_block_bytes = _runtime_state->preferred_block_size_bytes();
     *rows = 0;
     *eof = false;
+    _rows_in_block = 0;
 
-    while (file_block->rows() < batch_size && !_reader_eof &&
-           file_block->bytes() < max_block_bytes) {
+    while (_rows_in_block < batch_size && !_reader_eof && file_block->bytes() < max_block_bytes) {
         if (_read_json_by_line && _skip_first_line) {
             RETURN_IF_ERROR(_line_reader->skip_split_prefix(
                     _reader_range.start_offset, _line_delimiter, &_reader_eof, _io_ctx.get()));
@@ -320,7 +320,7 @@ Status JsonReader::get_block(Block* file_block, size_t* rows, bool* eof) {
             continue;
         }
 
-        const size_t original_rows = file_block->rows();
+        const size_t original_rows = _rows_in_block;
         size_t size = 0;
         bool is_empty_row = false;
         Status st = Status::OK();
@@ -349,12 +349,12 @@ Status JsonReader::get_block(Block* file_block, size_t* rows, bool* eof) {
         }
         // An ignored or empty JSON object can produce no row. Avoid spinning forever on a document
         // that was consumed but produced no materialized value.
-        if (!is_empty_row && file_block->rows() == original_rows) {
+        if (!is_empty_row && _rows_in_block == original_rows) {
             break;
         }
     }
 
-    *rows = file_block->rows();
+    *rows = _rows_in_block;
     _record_scan_rows(cast_set<int64_t>(*rows));
     {
         SCOPED_TIMER(_filter_time);
@@ -725,7 +725,7 @@ Status JsonReader::_append_flat_array_jsonpath_rows(Block* block, bool* is_empty
     DORIS_CHECK(block != nullptr);
     DORIS_CHECK(is_empty_row != nullptr);
     DORIS_CHECK(eof != nullptr);
-    const size_t original_rows = block->rows();
+    const size_t original_rows = _rows_in_block;
     bool valid = true;
     _array = _json_value.get_array();
     _array_iter = _array.begin();
@@ -753,7 +753,7 @@ Status JsonReader::_append_flat_array_jsonpath_rows(Block* block, bool* is_empty
         RETURN_IF_ERROR(_write_columns_by_jsonpath(&object_value, block, &valid));
         ++_array_iter;
     }
-    *is_empty_row = block->rows() == original_rows;
+    *is_empty_row = _rows_in_block == original_rows;
     return Status::OK();
 }
 
@@ -777,8 +777,7 @@ Status JsonReader::_set_column_values_from_object(simdjson::ondemand::object* ob
     DORIS_CHECK(block != nullptr);
     DORIS_CHECK(valid != nullptr);
     std::vector<bool> seen_columns(block->columns(), false);
-    const size_t cur_row_count = block->rows();
-    bool has_valid_value = false;
+    const size_t cur_row_count = _rows_in_block;
     size_t key_index = 0;
 
     for (auto field : *object_value) {
@@ -806,7 +805,6 @@ Status JsonReader::_set_column_values_from_object(simdjson::ondemand::object* ob
             return Status::OK();
         }
         seen_columns[column_index] = true;
-        has_valid_value = true;
     }
 
     for (size_t i = 0; i < _requested_columns.size(); ++i) {
@@ -821,9 +819,7 @@ Status JsonReader::_set_column_values_from_object(simdjson::ondemand::object* ob
         }
     }
     *valid = true;
-    if (!has_valid_value) {
-        return Status::OK();
-    }
+    ++_rows_in_block;
     return Status::OK();
 }
 
@@ -833,7 +829,7 @@ Status JsonReader::_write_columns_by_jsonpath(simdjson::ondemand::object* object
     DORIS_CHECK(block != nullptr);
     DORIS_CHECK(valid != nullptr);
     bool has_valid_value = false;
-    const size_t cur_row_count = block->rows();
+    const size_t cur_row_count = _rows_in_block;
     _cached_string_values.clear();
 
     for (size_t i = 0; i < _requested_columns.size(); ++i) {
@@ -889,6 +885,7 @@ Status JsonReader::_write_columns_by_jsonpath(simdjson::ondemand::object* object
         return Status::OK();
     }
     *valid = true;
+    ++_rows_in_block;
     return Status::OK();
 }
 
@@ -1086,6 +1083,7 @@ Status JsonReader::_append_null_for_malformed_json(Block* block) {
         assert_cast<ColumnNullable*>(column.get())->insert_default();
         column_with_type.column = std::move(column);
     }
+    ++_rows_in_block;
     return Status::OK();
 }
 
@@ -1111,6 +1109,7 @@ Status JsonReader::_apply_filters(Block* file_block, size_t* rows) {
 
 void JsonReader::_truncate_block_to_rows(Block* block, size_t num_rows) {
     DORIS_CHECK(block != nullptr);
+    _rows_in_block = num_rows;
     for (int i = 0; i < block->columns(); ++i) {
         auto& column_with_type = block->get_by_position(i);
         auto column = IColumn::mutate(std::move(column_with_type.column));
