@@ -465,6 +465,18 @@ Status get_index_segment_uuids(const std::filesystem::path& dataset_uri, const c
     return Status::OK();
 }
 
+// A split over `fragment_ids` searching the segments of `index_name`, as FE plans an indexed split;
+// BE searches a vector index only through the segments FE names.
+TFileRangeDesc make_indexed_lance_range(const std::filesystem::path& dataset_uri,
+                                        const LanceFixtureInfo& fixture,
+                                        std::vector<int64_t> fragment_ids, const char* index_name) {
+    auto range = make_lance_range(dataset_uri, fixture.version, std::move(fragment_ids));
+    std::vector<std::string> segment_uuids;
+    EXPECT_TRUE(get_index_segment_uuids(dataset_uri, index_name, &segment_uuids).ok());
+    range.table_format_params.lance_params.__set_index_segment_uuids(std::move(segment_uuids));
+    return range;
+}
+
 TFileRangeDesc make_full_text_search_range(const std::filesystem::path& dataset_uri,
                                            const LanceFixtureInfo& fixture,
                                            const char* index_name) {
@@ -938,7 +950,16 @@ TEST(LanceTableReaderVectorSearchTest, MultiVectorScoresFiltersOffsetsAndIndexed
                 }
                 LanceTableReader reader;
                 ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &params).ok());
-                ASSERT_TRUE(prepare_fixture(&reader, uri, fixture, fixture.fragment_ids).ok());
+                // BE searches an index only through the segments FE planned; the index covers
+                // fragment 0 and fragment 1 is searched flat in the same split.
+                auto range = make_lance_range(uri, fixture.version, fixture.fragment_ids);
+                if (indexed) {
+                    std::vector<std::string> segments;
+                    ASSERT_TRUE(get_index_segment_uuids(uri, (column + "_idx").c_str(), &segments)
+                                        .ok());
+                    range.table_format_params.lance_params.__set_index_segment_uuids(segments);
+                }
+                ASSERT_TRUE(prepare_range(&reader, range).ok());
                 Block block;
                 add_output_columns(&block, columns);
                 auto rows = read_vector_search_rows(&reader, &block);
@@ -1123,6 +1144,130 @@ TEST(LanceTableReaderVectorSearchTest, MultiVectorSegmentTopKMatchesIndependentG
     }
 }
 
+TEST(LanceTableReaderVectorSearchTest, SplitWithoutIndexSegmentsSearchesFlat) {
+    // FE plans a split without index segments as a flat search. Lance must not search it with
+    // an index of its own choosing, even one covering the split and with use_index=true.
+    const std::filesystem::path uri =
+            "./be/test/format_v2/table/lance/data/multivector_ivf_flat.lance";
+    LanceFixtureInfo fixture;
+    ASSERT_TRUE(get_fixture_info(uri, &fixture).ok());
+    ASSERT_EQ(3, fixture.fragment_ids.size());
+    std::vector<std::string> segments;
+    ASSERT_TRUE(get_index_segment_uuids(uri, "vectors_idx", &segments).ok());
+    ASSERT_EQ(2, segments.size());
+    const auto query = representative_multi_vector(7, 0);
+    const Columns columns {projected_column("row_id", TYPE_BIGINT, false),
+                           projected_column("_distance", TYPE_FLOAT, true)};
+    TQueryGlobals globals;
+    RuntimeState state(TQueryOptions(), globals);
+    std::map<std::string, std::vector<std::pair<int64_t, float>>> results;
+    for (const auto* mode : {"segment", "no_segment_default", "no_segment_use_index"}) {
+        SCOPED_TRACE(mode);
+        RuntimeProfile profile("lance_segmentless_split");
+        auto params = make_float32_vector_search_params({0, 0, 0}, 5, 0);
+        auto& request = params.lance_scan_params.external_search_request;
+        request.vector_search_options.__isset.use_index = false;
+        if (std::string(mode) == "no_segment_use_index") {
+            request.vector_search_options.__set_use_index(true);
+        }
+        request.vector_search_options.__set_nprobes(64);
+        auto& search = request.search_query.vector_search;
+        search.__set_column("vectors");
+        search.__set_metric(TVectorMetric::COSINE);
+        search.query_vector.__set_dimension(128);
+        search.query_vector.__set_num_vectors(1);
+        std::string bytes(query.size() * sizeof(float), '\0');
+        for (size_t j = 0; j < query.size(); ++j) {
+            LittleEndian::Store32(bytes.data() + j * sizeof(float),
+                                  std::bit_cast<uint32_t>(query[j]));
+        }
+        search.query_vector.__set_values(bytes);
+        auto range = make_lance_range(uri, fixture.version, {fixture.fragment_ids[0]});
+        if (std::string(mode) == "segment") {
+            range.table_format_params.lance_params.__set_index_segment_uuids({segments[0]});
+        }
+        LanceTableReader reader;
+        ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &params).ok());
+        ASSERT_TRUE(prepare_range(&reader, range).ok());
+        Block block;
+        add_output_columns(&block, columns);
+        results[mode] = read_vector_search_rows(&reader, &block);
+        ASSERT_EQ(5, results[mode].size());
+        EXPECT_TRUE(reader.close().ok());
+        auto* partitions = profile.get_counter("LanceIndexPartitionsSearched");
+        ASSERT_NE(nullptr, partitions);
+        auto* flat = profile.get_counter("LancePlannedFlatSearchFragmentCount");
+        ASSERT_NE(nullptr, flat);
+        if (std::string(mode) == "segment") {
+            EXPECT_GT(partitions->value(), 0);
+            EXPECT_EQ(0, flat->value());
+        } else {
+            EXPECT_EQ(0, partitions->value());
+            EXPECT_EQ(1, flat->value());
+        }
+    }
+    EXPECT_EQ(results["no_segment_default"], results["no_segment_use_index"]);
+}
+
+TEST(LanceTableReaderVectorSearchTest, RejectsIndexSegmentsWhenUseIndexIsFalse) {
+    // FE plans index segments only when use_index allows them. A split carrying segments under
+    // use_index=false is rejected instead of being searched with or without the index.
+    const std::filesystem::path uri =
+            "./be/test/format_v2/table/lance/data/multivector_ivf_flat.lance";
+    LanceFixtureInfo fixture;
+    ASSERT_TRUE(get_fixture_info(uri, &fixture).ok());
+    std::vector<std::string> segments;
+    ASSERT_TRUE(get_index_segment_uuids(uri, "vectors_idx", &segments).ok());
+    ASSERT_FALSE(segments.empty());
+    const auto query = representative_multi_vector(7, 0);
+    const Columns columns {projected_column("row_id", TYPE_BIGINT, false),
+                           projected_column("_distance", TYPE_FLOAT, true)};
+    TQueryGlobals globals;
+    RuntimeState state(TQueryOptions(), globals);
+    for (const bool with_segment : {true, false}) {
+        SCOPED_TRACE(with_segment ? "with segment" : "without segment");
+        RuntimeProfile profile("lance_segment_with_use_index_false");
+        auto params = make_float32_vector_search_params({0, 0, 0}, 5, 0);
+        auto& request = params.lance_scan_params.external_search_request;
+        ASSERT_TRUE(request.vector_search_options.__isset.use_index);
+        ASSERT_FALSE(request.vector_search_options.use_index);
+        auto& search = request.search_query.vector_search;
+        search.__set_column("vectors");
+        search.__set_metric(TVectorMetric::COSINE);
+        search.query_vector.__set_dimension(128);
+        search.query_vector.__set_num_vectors(1);
+        std::string bytes(query.size() * sizeof(float), '\0');
+        for (size_t j = 0; j < query.size(); ++j) {
+            LittleEndian::Store32(bytes.data() + j * sizeof(float),
+                                  std::bit_cast<uint32_t>(query[j]));
+        }
+        search.query_vector.__set_values(bytes);
+        auto range = make_lance_range(uri, fixture.version, {fixture.fragment_ids[0]});
+        if (with_segment) {
+            range.table_format_params.lance_params.__set_index_segment_uuids({segments[0]});
+        }
+        LanceTableReader reader;
+        ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &params).ok());
+        const auto status = prepare_range(&reader, range);
+        if (with_segment) {
+            EXPECT_FALSE(status.ok());
+            EXPECT_NE(
+                    status.to_string().find("carries 1 index segments although use_index is false"),
+                    std::string::npos)
+                    << status.to_string();
+        } else {
+            ASSERT_TRUE(status.ok()) << status.to_string();
+            Block block;
+            add_output_columns(&block, columns);
+            EXPECT_EQ(5, read_vector_search_rows(&reader, &block).size());
+            auto* flat = profile.get_counter("LancePlannedFlatSearchFragmentCount");
+            ASSERT_NE(nullptr, flat);
+            EXPECT_EQ(1, flat->value());
+        }
+        EXPECT_TRUE(reader.close().ok());
+    }
+}
+
 TEST(LanceTableReaderVectorSearchTest, MultiVectorTopOnePreservesPrecisionAndBatchIndependence) {
     const std::filesystem::path uri = "./be/test/format_v2/table/lance/data/multivector.lance";
     LanceFixtureInfo fixture;
@@ -1158,7 +1303,12 @@ TEST(LanceTableReaderVectorSearchTest, MultiVectorTopOnePreservesPrecisionAndBat
             RuntimeProfile profile("multi_vector_top_one");
             LanceTableReader reader;
             ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &params).ok());
-            ASSERT_TRUE(prepare_fixture(&reader, uri, fixture, fixture.fragment_ids).ok());
+            ASSERT_TRUE(prepare_range(&reader, indexed ? make_indexed_lance_range(
+                                                                 uri, fixture, fixture.fragment_ids,
+                                                                 "batch_vectors_idx")
+                                                       : make_lance_range(uri, fixture.version,
+                                                                          fixture.fragment_ids))
+                                .ok());
             Block block;
             add_output_columns(&block, columns);
             auto rows = read_vector_search_rows(&reader, &block);
@@ -1167,6 +1317,9 @@ TEST(LanceTableReaderVectorSearchTest, MultiVectorTopOnePreservesPrecisionAndBat
             EXPECT_NEAR(indexed ? 2.0F - std::sqrt(2.0F) : 1e-8F, rows[0].second,
                         indexed ? 1e-6F : 1e-13F);
             EXPECT_TRUE(reader.close().ok());
+            auto* partitions = profile.get_counter("LanceIndexPartitionsSearched");
+            ASSERT_NE(nullptr, partitions);
+            EXPECT_EQ(indexed, partitions->value() > 0);
         }
     }
 }
@@ -1201,7 +1354,12 @@ TEST(LanceTableReaderVectorSearchTest, MultiVectorCosineMasksUndefinedRows) {
             RuntimeProfile profile("multi_vector_cosine_zero_norm");
             LanceTableReader reader;
             ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &params).ok());
-            ASSERT_TRUE(prepare_fixture(&reader, uri, fixture, fixture.fragment_ids).ok());
+            ASSERT_TRUE(prepare_range(&reader, indexed ? make_indexed_lance_range(
+                                                                 uri, fixture, fixture.fragment_ids,
+                                                                 "vectors_idx")
+                                                       : make_lance_range(uri, fixture.version,
+                                                                          fixture.fragment_ids))
+                                .ok());
             Block block;
             add_output_columns(&block, columns);
             auto rows = read_vector_search_rows(&reader, &block);
@@ -1212,10 +1370,16 @@ TEST(LanceTableReaderVectorSearchTest, MultiVectorCosineMasksUndefinedRows) {
                                : std::vector<std::pair<int64_t, float>> {{2, 1}, {3, 1}};
             EXPECT_EQ(expected, rows);
             EXPECT_TRUE(reader.close().ok());
+            auto* partitions = profile.get_counter("LanceIndexPartitionsSearched");
+            ASSERT_NE(nullptr, partitions);
+            EXPECT_EQ(indexed, partitions->value() > 0);
         }
     }
 }
 
+// FE plans an omitted metric as L2, and this column's only index is cosine, so FE plans every split
+// flat. BE must then search flat too, with the same L2 metric in every split, although the request
+// allows indexes.
 TEST(LanceTableReaderVectorSearchTest, MultiVectorDefaultMetricIsConsistentAcrossFragments) {
     const std::filesystem::path uri = "./be/test/format_v2/table/lance/data/multivector.lance";
     LanceFixtureInfo fixture;
@@ -1248,6 +1412,9 @@ TEST(LanceTableReaderVectorSearchTest, MultiVectorDefaultMetricIsConsistentAcros
         auto rows = read_vector_search_rows(&reader, &block);
         all_rows.insert(all_rows.end(), rows.begin(), rows.end());
         EXPECT_TRUE(reader.close().ok());
+        auto* partitions = profile.get_counter("LanceIndexPartitionsSearched");
+        ASSERT_NE(nullptr, partitions);
+        EXPECT_EQ(0, partitions->value());
     }
     std::sort(all_rows.begin(), all_rows.end());
     EXPECT_EQ((std::vector<std::pair<int64_t, float>> {{1, 0}, {2, 1}, {3, 4}, {6, 1}}), all_rows);
@@ -1285,7 +1452,8 @@ TEST(LanceTableReaderVectorSearchTest, MultiVectorRejectsActualNullAndNonFiniteE
             bool eos = false;
             auto status = reader.get_block(&block, &eos);
             EXPECT_FALSE(status.ok());
-            EXPECT_NE(status.to_string().find("finite, non-null elements"), std::string::npos);
+            EXPECT_NE(status.to_string().find("finite, non-null elements"), std::string::npos)
+                    << status.to_string();
             EXPECT_TRUE(reader.close().ok());
         }
     }

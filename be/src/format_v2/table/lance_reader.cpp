@@ -865,6 +865,15 @@ Status LanceTableReader::_configure_vector_search(LanceScanner* scanner,
     std::vector<uint8_t> segment_uuids;
     size_t segment_count = 0;
     RETURN_IF_ERROR(parse_index_segment_uuids(lance_params, &segment_uuids, &segment_count));
+    // FE plans index segments only when use_index allows them. A split carrying both contradicts
+    // itself, and the BE would have to override either FE's plan or the request.
+    if (segment_count > 0 && request.__isset.vector_search_options &&
+        request.vector_search_options.__isset.use_index &&
+        !request.vector_search_options.use_index) {
+        return Status::InvalidArgument(
+                "Lance vector search split carries {} index segments although use_index is false",
+                segment_count);
+    }
     if (segment_count > 0 &&
         lance_scanner_set_index_segments(scanner, segment_uuids.data(), segment_count) != 0) {
         return lance_error("set Lance vector scanner index segments");
@@ -992,10 +1001,13 @@ Status LanceTableReader::_configure_vector_search(LanceScanner* scanner,
             lance_scanner_set_ef(scanner, static_cast<uint32_t>(options.ef)) != 0) {
             return lance_error("set Lance vector ef");
         }
-        if (options.__isset.use_index &&
-            lance_scanner_set_use_index(scanner, options.use_index) != 0) {
-            return lance_error("set Lance vector use_index");
-        }
+    }
+    // FE plans a split without index segments as a flat search, and EXPLAIN and the profile count
+    // it as one. Lance would otherwise search it with the first index on the column in manifest
+    // order, which need not be the index FE selected. A split with segments searches exactly
+    // those; one that also carries use_index=false was rejected above.
+    if (lance_scanner_set_use_index(scanner, segment_count > 0) != 0) {
+        return lance_error("set Lance vector use_index");
     }
     if (lance_scanner_set_offset(scanner, vector.offset) != 0) {
         return lance_error("set Lance vector offset");
