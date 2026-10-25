@@ -272,6 +272,50 @@ TEST(LanceRuntimeFilterHelperTest, SkipsPhysicalNumericTypesUnsupportedByPinnedP
     EXPECT_EQ((std::vector<int> {25, 26, 27, 28}), result->skipped_filter_ids);
 }
 
+TEST(LanceRuntimeFilterHelperTest, KeepsFloatingMinFiltersResidualOnly) {
+    const auto schema = arrow::schema(
+            {arrow::field("f32", arrow::float32()), arrow::field("f64", arrow::float64())});
+
+    // Lance's totalOrder sorts a negative NaN below 1, while Doris keeps it for `x >= 1`.
+    const VExprContextSPtrs min_filters {
+            typed_runtime_range<TYPE_FLOAT>("f32", TExprOpcode::GE, 1.0F,
+                                            std::make_shared<DataTypeFloat32>(), 31),
+            typed_runtime_range<TYPE_DOUBLE>("f64", TExprOpcode::GE, 1.0,
+                                             std::make_shared<DataTypeFloat64>(), 32),
+    };
+    const auto skipped = get_or_create_lance_runtime_filter_sql(min_filters, *schema, nullptr);
+    ASSERT_NE(skipped, nullptr);
+    EXPECT_TRUE(skipped->expression.empty());
+    EXPECT_TRUE(skipped->pushable_filter_ids.empty());
+    EXPECT_EQ((std::vector<int> {31, 32}), skipped->skipped_filter_ids);
+
+    // `<=` can only let negative NaNs through to the residual, and IN never matches a NaN row.
+    const VExprContextSPtrs max_and_in_filters {
+            typed_runtime_range<TYPE_FLOAT>("f32", TExprOpcode::LE, 1.0F,
+                                            std::make_shared<DataTypeFloat32>(), 33),
+            typed_runtime_in<TYPE_FLOAT>("f32", 1.5F, std::make_shared<DataTypeFloat32>(), 34),
+    };
+    const auto pushed =
+            get_or_create_lance_runtime_filter_sql(max_and_in_filters, *schema, nullptr);
+    ASSERT_NE(pushed, nullptr);
+    EXPECT_EQ("(`f32` <= 1) AND (`f32` IN (1.5))", pushed->expression);
+    EXPECT_EQ((std::vector<int> {33, 34}), pushed->pushable_filter_ids);
+    EXPECT_TRUE(pushed->skipped_filter_ids.empty());
+
+    // The two halves of a MIN_MAX filter share one id; only its `<=` half reaches Lance.
+    const VExprContextSPtrs min_max_filter {
+            typed_runtime_range<TYPE_DOUBLE>("f64", TExprOpcode::GE, 1.0,
+                                             std::make_shared<DataTypeFloat64>(), 35),
+            typed_runtime_range<TYPE_DOUBLE>("f64", TExprOpcode::LE, 2.0,
+                                             std::make_shared<DataTypeFloat64>(), 35),
+    };
+    const auto min_max = get_or_create_lance_runtime_filter_sql(min_max_filter, *schema, nullptr);
+    ASSERT_NE(min_max, nullptr);
+    EXPECT_EQ("(`f64` <= 2)", min_max->expression);
+    EXPECT_EQ((std::vector<int> {35}), min_max->pushable_filter_ids);
+    EXPECT_TRUE(min_max->skipped_filter_ids.empty());
+}
+
 TEST(LanceRuntimeFilterHelperTest, ReusesSnapshotAcrossParallelReaders) {
     ShardedKVCache cache(2);
     const VExprContextSPtrs first_conjuncts {

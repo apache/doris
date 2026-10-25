@@ -403,6 +403,19 @@ std::optional<std::string> build_range_filter_sql(const VExpr& predicate,
         // SQL.
         return std::nullopt;
     }
+    const auto slot_type = remove_nullable(slot->data_type())->get_primitive_type();
+    if (predicate.op() == TExprOpcode::GE &&
+        (slot_type == TYPE_FLOAT || slot_type == TYPE_DOUBLE)) {
+        // Doris orders every NaN above all other values regardless of its sign
+        // (GreaterThanEqualsFloat in common/compare.h), so `x >= 1` keeps NaN rows. Lance
+        // evaluates the pushed SQL with Arrow/DataFusion kernels that use IEEE 754 totalOrder,
+        // where a negative NaN such as 0xffc00000 sorts below every finite value: `x >= 1` drops
+        // that row before the Doris residual can keep it. A MIN-only filter, for example from a
+        // nested-loop join on `x >= y`, would lose such rows. `<=` only lets negative NaNs
+        // through to the residual, which removes them, and IN sets with NaN members are not
+        // pushed. PaimonRustPredicateConverter keeps floating predicates residual-only too.
+        return std::nullopt;
+    }
     const auto physical_type = find_unique_physical_type(physical_schema, slot->column_name());
     if (physical_type == nullptr) {
         // A missing or ambiguous top-level field cannot be bound safely by column name.
