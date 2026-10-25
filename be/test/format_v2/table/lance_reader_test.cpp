@@ -2893,6 +2893,89 @@ TEST(LanceTableReaderTypeTest, ReadsDurationBoundaryValues) {
     EXPECT_TRUE(reader.close().ok());
 }
 
+// Verifies Date32 days after 9999-12-31 fail instead of reading as a non-null 0000-00-00, also
+// when ARRAY, STRUCT, and MAP leaves reach the DATE SerDe through their element SerDes.
+TEST(LanceTableReaderTypeTest, RejectsDate32OutsideDorisDateRange) {
+    // 1970-01-01 + 2932897 days is 10000-01-01.
+    arrow::Date32Builder date_builder;
+    ASSERT_TRUE(date_builder.Append(2932897).ok());
+    std::shared_ptr<arrow::Array> dates;
+    ASSERT_TRUE(date_builder.Finish(&dates).ok());
+    arrow::Int32Builder offsets_builder;
+    ASSERT_TRUE(offsets_builder.AppendValues({0, 1}).ok());
+    std::shared_ptr<arrow::Int32Array> offsets;
+    ASSERT_TRUE(offsets_builder.Finish(&offsets).ok());
+    arrow::StringBuilder keys_builder;
+    ASSERT_TRUE(keys_builder.Append("k").ok());
+    std::shared_ptr<arrow::StringArray> keys;
+    ASSERT_TRUE(keys_builder.Finish(&keys).ok());
+
+    auto list_result = arrow::ListArray::FromArrays(
+            arrow::list(arrow::field("item", arrow::date32())), *offsets, *dates);
+    ASSERT_TRUE(list_result.ok()) << list_result.status().ToString();
+    auto struct_result = arrow::StructArray::Make({dates}, {arrow::field("d", arrow::date32())});
+    ASSERT_TRUE(struct_result.ok()) << struct_result.status().ToString();
+    auto map_result = arrow::MapArray::FromArrays(arrow::map(arrow::utf8(), arrow::date32()),
+                                                  offsets, keys, dates);
+    ASSERT_TRUE(map_result.ok()) << map_result.status().ToString();
+
+    const auto date_type = nullable_type(TYPE_DATEV2);
+    const std::vector<std::pair<std::shared_ptr<arrow::Array>, DataTypePtr>> cases {
+            {dates, date_type},
+            {std::move(list_result).ValueUnsafe(),
+             make_nullable(std::make_shared<DataTypeArray>(date_type))},
+            {std::move(struct_result).ValueUnsafe(),
+             make_nullable(std::make_shared<DataTypeStruct>(DataTypes {date_type}, Strings {"d"}))},
+            {std::move(map_result).ValueUnsafe(),
+             make_nullable(std::make_shared<DataTypeMap>(nullable_type(TYPE_STRING), date_type))},
+    };
+    for (const auto& [array, doris_type] : cases) {
+        SCOPED_TRACE(array->type()->ToString());
+        const auto schema = arrow::schema({arrow::field("value", array->type())});
+        const auto record_batch = arrow::RecordBatch::Make(schema, 1, {array});
+        const Columns columns {projected_column("value", doris_type)};
+        TQueryGlobals query_globals;
+        RuntimeState state(TQueryOptions(), query_globals);
+        Block block;
+        add_output_columns(&block, columns);
+        size_t rows = 0;
+        const auto status =
+                convert_record_batch_for_test(&state, columns, record_batch, &block, &rows);
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(std::string::npos,
+                  status.to_string().find("Arrow Date32 value is outside the Doris DATE range"))
+                << status.to_string();
+    }
+}
+
+// Verifies the last Doris DATE reads exactly and the payload under a NULL slot is not decoded.
+TEST(LanceTableReaderTypeTest, ReadsLastDorisDateAndIgnoresNullDate32Payload) {
+    arrow::Date32Builder builder;
+    ASSERT_TRUE(builder.AppendValues({2932896, 2932897}).ok());
+    std::shared_ptr<arrow::Array> payload;
+    ASSERT_TRUE(builder.Finish(&payload).ok());
+    // Validity bitmap 0b01: row 0 holds 9999-12-31, row 1 is NULL over 10000-01-01.
+    auto data = payload->data()->Copy();
+    data->buffers[0] = arrow::Buffer::FromVector(std::vector<uint8_t> {0x01});
+    data->SetNullCount(1);
+    const auto schema = arrow::schema({arrow::field("value", arrow::date32())});
+    const auto record_batch = arrow::RecordBatch::Make(schema, 2, {arrow::MakeArray(data)});
+
+    const auto date_type = nullable_type(TYPE_DATEV2);
+    const Columns columns {projected_column("value", date_type)};
+    TQueryGlobals query_globals;
+    RuntimeState state(TQueryOptions(), query_globals);
+    Block block;
+    add_output_columns(&block, columns);
+    size_t rows = 0;
+    const auto status = convert_record_batch_for_test(&state, columns, record_batch, &block, &rows);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_EQ(2, rows);
+    const auto& values = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+    EXPECT_EQ((ColumnUInt8::Container {0, 1}), values.get_null_map_data());
+    EXPECT_EQ("9999-12-31", date_type->to_string(values, 0));
+}
+
 // Verifies ordinary nested columns bypass Arrow reconstruction when no BFloat16 exists.
 TEST(LanceTableReaderTypeTest, KeepsOrdinaryNestedArrayUnchangedDuringNormalization) {
     const auto nested_type = arrow::struct_({
