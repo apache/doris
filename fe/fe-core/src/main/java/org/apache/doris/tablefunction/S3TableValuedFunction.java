@@ -65,9 +65,8 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         boolean hadoopStorage = storageAdapter.getType() == StorageTypeId.HDFS
                 || storageAdapter.getType() == StorageTypeId.OSS_HDFS
                 || LocationPath.getTFileTypeForBE(filePath) == TFileType.FILE_HDFS;
-        if (hadoopStorage) {
-            HadoopTvfAdmission.check(HadoopTvfAdmission.Access.HADOOP_READ,
-                    filePath, backendConnectProperties, needsSchemaDiscovery());
+        if (hadoopStorage && files == null) {
+            HadoopTvfAdmission.checkReadDiscovery(filePath, backendConnectProperties);
             processedParams.put(TvfGuard.POLICY_KEY, HadoopTvfAdmission.protectJava(
                     HadoopTvfAdmission.Access.HADOOP_READ, filePath, processedParams).get(TvfGuard.POLICY_KEY));
         }

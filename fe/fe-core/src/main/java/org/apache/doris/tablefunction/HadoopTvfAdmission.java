@@ -50,6 +50,11 @@ public final class HadoopTvfAdmission {
     private final Map<String, String> properties = new HashMap<>();
 
     private HadoopTvfAdmission(Access access, Map<String, String> normalized, boolean nativeConsumer) {
+        this(access, normalized, nativeConsumer, false);
+    }
+
+    private HadoopTvfAdmission(Access access, Map<String, String> normalized, boolean nativeConsumer,
+            boolean discovery) {
         this.access = access;
         Set<String> nativeRoutingKeys = new HashSet<>();
         for (Map.Entry<String, String> entry : normalized.entrySet()) {
@@ -77,10 +82,10 @@ public final class HadoopTvfAdmission {
                 reject();
             }
         }
-        routes = new TvfGuard.Route(properties, access == Access.HADOOP_READ);
+        routes = new TvfGuard.Route(properties, discovery);
     }
 
-    /** Reject local/unknown Hadoop TVF routes before listing, deletion, schema discovery or data IO. */
+    /** Check literal read, native write and cleanup paths before their filesystem IO. */
     public static void check(Access access, String path, Map<String, String> normalized) {
         check(access, path, normalized, true);
     }
@@ -106,10 +111,6 @@ public final class HadoopTvfAdmission {
                 // Project the Java consumer independently from native convert_path/JNI.
                 URI javaPath = hadoopPathUri(path);
                 javaConsumer.checkRoute(javaPath, javaPath.getPath(), new HashSet<>());
-                if (access == Access.HADOOP_READ && hasListingGlob(path)) {
-                    URI listingPath = hadoopPathUri(GlobPattern.expandNumericRanges(path));
-                    javaConsumer.routes.checkGlobRoute(listingPath, listingPath.getPath(), new HashSet<>());
-                }
                 if (access == Access.HADOOP_READ) {
                     // FileQueryScanNode sends this filesystem identifier in range.fs_name. BE
                     // falls back to hdfs_params.fs_name only when that range field is empty.
@@ -122,8 +123,24 @@ public final class HadoopTvfAdmission {
                     }
                 }
             }
-        } catch (IOException | URISyntaxException | IllegalArgumentException e) {
+        } catch (URISyntaxException | IllegalArgumentException e) {
             new HadoopTvfAdmission(access, normalized, false).reject();
+        }
+    }
+
+    /** Prove the Java listing probes; native readers consume the returned literal paths. */
+    public static void checkReadDiscovery(String path, Map<String, String> normalized) {
+        try {
+            HadoopTvfAdmission javaConsumer = new HadoopTvfAdmission(Access.HADOOP_READ, normalized, false, true);
+            if (hasListingGlob(path)) {
+                URI listingPath = hadoopPathUri(GlobPattern.expandNumericRanges(path));
+                javaConsumer.routes.checkGlobRoute(listingPath, listingPath.getPath(), new HashSet<>());
+            } else {
+                URI listingPath = hadoopPathUri(path);
+                javaConsumer.checkRoute(listingPath, listingPath.getPath(), new HashSet<>());
+            }
+        } catch (IOException | URISyntaxException | IllegalArgumentException e) {
+            reject(Access.HADOOP_READ);
         }
     }
 
