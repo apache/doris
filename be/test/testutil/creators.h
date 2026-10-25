@@ -37,6 +37,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/query_context.h"
 #include "storage/changelog.h"
+#include "storage/rowset/rowset_writer_context.h"
 #include "storage/tablet_info.h"
 #include "util/uid_util.h"
 
@@ -189,9 +190,46 @@ inline TCreateTabletReq create_tablet_request(
     request.__set_storage_format(storage_format);
     request.tablet_schema.columns.reserve(column_defs.size());
     for (const auto& column_def : column_defs) {
-        request.tablet_schema.columns.push_back(create_tablet_column(column_def));
+        auto column = create_tablet_column(column_def);
+        column.__set_col_unique_id(request.tablet_schema.columns.size());
+        request.tablet_schema.columns.push_back(std::move(column));
     }
     return request;
+}
+
+// Test planning boundary: produce explicit UID relationships from fixture names.
+inline PChangelogWriteColumnMappings create_changelog_mapping(const TabletSchema& source,
+                                                              const TabletSchema& target,
+                                                              bool historical) {
+    PChangelogWriteColumnMappings mapping;
+    mapping.set_need_historical_value(historical);
+    for (uint32_t cid = 0; cid < source.num_columns(); ++cid) {
+        const auto& col = source.column(cid);
+        if (!col.visible() && !col.is_key()) {
+            continue;
+        }
+        auto* entry = mapping.add_entries();
+        entry->set_source_column_unique_id(col.unique_id());
+        const int current_cid = target.field_index(col.name());
+        EXPECT_GE(current_cid, 0);
+        entry->set_current_column_unique_id(
+                current_cid < 0 ? -1000 : target.column(current_cid).unique_id());
+        if (historical && !col.is_key()) {
+            const int before_cid =
+                    target.field_index(changelog::build_before_column_name(col.name()));
+            entry->set_before_column_unique_id(
+                    before_cid < 0 ? -1000 : target.column(before_cid).unique_id());
+        }
+    }
+    return mapping;
+}
+
+inline Status resolve_test_changelog_layout(RowsetWriterContext& context) {
+    auto& cfg = context.write_changelog_opt().write_changelog_config();
+    const auto mapping = create_changelog_mapping(*cfg.source.tablet_schema, *context.tablet_schema,
+                                                  cfg.write_before);
+    return changelog::resolve_layout(cfg.source.tablet_schema, context.tablet_schema, mapping,
+                                     &cfg.layout);
 }
 
 inline void enable_changelog(TCreateTabletReq* request) {
@@ -228,6 +266,9 @@ inline TTabletSchema create_changelog_tablet_schema(const TTabletSchema& base_sc
             {CHANGELOG_LSN_COL, TPrimitiveType::BIGINT, false, true, TAggregationType::NONE}));
     changelog_schema.columns.push_back(create_tablet_column(
             {CHANGELOG_OP_COL, TPrimitiveType::BIGINT, false, true, TAggregationType::NONE}));
+    for (size_t cid = 0; cid < changelog_schema.columns.size(); ++cid) {
+        changelog_schema.columns[cid].__set_col_unique_id(cid);
+    }
     return changelog_schema;
 }
 
@@ -269,6 +310,28 @@ inline std::shared_ptr<OlapTableSchemaParam> create_table_schema_param(
     }
     if (changelog_index_id > 0) {
         tschema.indexes[0].__set_changelog_index_id(changelog_index_id);
+        TChangelogWriteColumnMappings mapping;
+        mapping.__set_need_historical_value(false);
+        mapping.__set_entries({});
+        for (const auto& source : columns) {
+            if (!source.visible && !source.is_key) {
+                continue;
+            }
+            TChangelogWriteColumnMapping entry;
+            entry.__set_source_column_unique_id(source.col_unique_id);
+            for (const auto& current : *changelog_columns) {
+                if (current.column_name == source.column_name) {
+                    entry.__set_current_column_unique_id(current.col_unique_id);
+                }
+                if (current.column_name ==
+                    changelog::build_before_column_name(source.column_name)) {
+                    entry.__set_before_column_unique_id(current.col_unique_id);
+                    mapping.__set_need_historical_value(true);
+                }
+            }
+            mapping.entries.push_back(entry);
+        }
+        tschema.indexes[0].__set_changelog_column_mappings(mapping);
         TOlapTableIndexSchema changelog_index_schema;
         changelog_index_schema.id = changelog_index_id;
         changelog_index_schema.schema_hash = changelog_schema_hash;

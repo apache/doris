@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.DataStreamSink;
 import org.apache.doris.planner.ExchangeNode;
+import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.planner.MultiCastDataSink;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.planner.PlanFragment;
@@ -158,6 +159,10 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                     false,
                     isStrictMode,
                     timeout, olapInsertCtx);
+            if (!Config.isCloudMode() && !(olapTableSink instanceof GroupCommitBlockSink)) {
+                Env.getCurrentGlobalTransactionMgr().registerChangelogWriteMappings(dbId, txnId,
+                        olapTableSink.getChangelogWriteMappings());
+            }
 
             // set schema and partition info for tablet id shuffle exchange
             if (fragment.getPlanRoot() instanceof ExchangeNode

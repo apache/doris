@@ -25,6 +25,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.cooldown.CooldownConf;
 import org.apache.doris.master.PartitionInfoCollector.PartitionCollectInfo;
 import org.apache.doris.task.PublishVersionTask;
+import org.apache.doris.task.PublishVersionTask.RepublishInfo;
 import org.apache.doris.thrift.TPartitionVersionInfo;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTablet;
@@ -103,7 +104,7 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
                              Set<Long> tabletFoundInMeta,
                              ListMultimap<TStorageMedium, Long> tabletMigrationMap,
                              Map<Long, Long> partitionVersionSyncMap,
-                             Map<Long, SetMultimap<Long, TPartitionVersionInfo>> transactionsToPublish,
+                             Map<Long, SetMultimap<Long, RepublishInfo>> transactionsToPublish,
                              SetMultimap<Long, Long> transactionsToClear,
                              ListMultimap<Long, Long> tabletRecoveryMap,
                              List<TTabletMetaInfo> tabletToUpdate,
@@ -153,7 +154,7 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
                                           Set<Long> tabletFoundInMeta,
                                           ListMultimap<TStorageMedium, Long> tabletMigrationMap,
                                           Map<Long, Long> partitionVersionSyncMap,
-                                          Map<Long, SetMultimap<Long, TPartitionVersionInfo>> transactionsToPublish,
+                                          Map<Long, SetMultimap<Long, RepublishInfo>> transactionsToPublish,
                                           SetMultimap<Long, Long> transactionsToClear,
                                           ListMultimap<Long, Long> tabletRecoveryMap,
                                           List<TTabletMetaInfo> tabletToUpdate,
@@ -215,7 +216,7 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
                                      ListMultimap<Long, Long> tabletDeleteFromMeta,
                                      Set<Long> tabletFoundInMeta,
                                      ListMultimap<TStorageMedium, Long> tabletMigrationMap,
-                                     Map<Long, SetMultimap<Long, TPartitionVersionInfo>> transactionsToPublish,
+                                     Map<Long, SetMultimap<Long, RepublishInfo>> transactionsToPublish,
                                      SetMultimap<Long, Long> transactionsToClear,
                                      ListMultimap<Long, Long> tabletRecoveryMap,
                                      List<TTabletMetaInfo> tabletToUpdate,
@@ -252,7 +253,7 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
                                         HashMap<Long, TStorageMedium> storageMediumMap,
                                         ListMultimap<Long, Long> tabletSyncMap,
                                         ListMultimap<TStorageMedium, Long> tabletMigrationMap,
-                                        Map<Long, SetMultimap<Long, TPartitionVersionInfo>> transactionsToPublish,
+                                        Map<Long, SetMultimap<Long, RepublishInfo>> transactionsToPublish,
                                         SetMultimap<Long, Long> transactionsToClear,
                                         ListMultimap<Long, Long> tabletRecoveryMap,
                                         List<TTabletMetaInfo> tabletToUpdate,
@@ -465,7 +466,7 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
                                          Set<Long> tabletFoundInMeta,
                                          ListMultimap<TStorageMedium, Long> tabletMigrationMap,
                                          Map<Long, Long> partitionVersionSyncMap,
-                                         Map<Long, SetMultimap<Long, TPartitionVersionInfo>> transactionsToPublish,
+                                         Map<Long, SetMultimap<Long, RepublishInfo>> transactionsToPublish,
                                          SetMultimap<Long, Long> transactionsToClear,
                                          List<TTabletMetaInfo> tabletToUpdate,
                                          ListMultimap<Long, Long> tabletRecoveryMap,
@@ -493,7 +494,7 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
     }
 
     private void handleBackendTransactions(long backendId, List<Long> transactionIds, long tabletId,
-            TabletMeta tabletMeta, Map<Long, SetMultimap<Long, TPartitionVersionInfo>> transactionsToPublish,
+            TabletMeta tabletMeta, Map<Long, SetMultimap<Long, RepublishInfo>> transactionsToPublish,
             SetMultimap<Long, Long> transactionsToClear) {
         GlobalTransactionMgrIface transactionMgr = Env.getCurrentGlobalTransactionMgr();
         long partitionId = tabletMeta.getPartitionId();
@@ -557,18 +558,19 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
     }
 
     private void publishPartition(TransactionState transactionState, long transactionId, TabletMeta tabletMeta,
-            long partitionId, Map<Long, SetMultimap<Long, TPartitionVersionInfo>> transactionsToPublish) {
+            long partitionId, Map<Long, SetMultimap<Long, RepublishInfo>> transactionsToPublish) {
         TPartitionVersionInfo versionInfo = generatePartitionVersionInfoWhenReport(transactionState,
                 transactionId, tabletMeta, partitionId);
         if (versionInfo != null) {
             synchronized (transactionsToPublish) {
-                SetMultimap<Long, TPartitionVersionInfo> map = transactionsToPublish.get(
+                SetMultimap<Long, RepublishInfo> map = transactionsToPublish.get(
                         transactionState.getDbId());
                 if (map == null) {
                     map = LinkedHashMultimap.create();
                     transactionsToPublish.put(transactionState.getDbId(), map);
                 }
-                map.put(transactionId, versionInfo);
+                map.put(transactionId, new RepublishInfo(versionInfo,
+                        transactionState.getChangelogWriteMappings(transactionId)));
             }
         }
     }

@@ -47,6 +47,9 @@ struct OlapScanRange;
 class RuntimeProfile;
 class RuntimeState;
 class TPaloScanRange;
+class TOlapScanNode;
+class ReadSchema;
+class SlotDescriptor;
 class ScanLocalStateBase;
 struct FilterPredicates;
 #ifndef NDEBUG
@@ -118,6 +121,11 @@ private:
 
     [[nodiscard]] Status _init_tso_predicates();
     [[nodiscard]] Status _init_read_schema();
+    static Status _init_changelog_read_mappings(const TOlapScanNode& scan_node,
+                                                const std::vector<SlotDescriptor*>& slots,
+                                                const TabletSchema& tablet_schema,
+                                                TChangelogScanType::type scan_type,
+                                                ReadSchema& read_schema);
     [[nodiscard]] Status _init_variant_columns();
 #ifndef NDEBUG
     Status _check_ann_cache_hit_debug_points(const OlapReaderStatistics& stats);

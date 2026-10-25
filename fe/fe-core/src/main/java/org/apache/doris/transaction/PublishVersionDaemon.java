@@ -437,6 +437,7 @@ public class PublishVersionDaemon extends MasterDaemon {
                     transactionState.getDbId(),
                     partitionVersionInfos,
                     createPublishVersionTaskTime);
+            task.setChangelogWriteMappings(transactionState.getChangelogWriteMappings(transactionId));
             task.setBaseTabletsIds(beIdToBaseTabletIds.getOrDefault(backendId, Collections.emptySet()));
             // add to AgentTaskQueue for handling finish report.
             // not check return value, because the add will success

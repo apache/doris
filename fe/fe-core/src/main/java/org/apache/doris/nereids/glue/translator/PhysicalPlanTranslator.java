@@ -3209,30 +3209,26 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
         }
 
-        if (!wrapper.getOriginTable().getChangelogConfig().getNeedHistoricalValue()) {
-            // Changelog schemas without historical values have no before-image columns, so there
-            // are no before-image storage dependencies to preserve.
-            return;
-        }
+        Map<Integer, SlotDescriptor> slotByUid = scanSlots.stream()
+                .filter(slot -> slot.getColumn() != null)
+                .collect(Collectors.toMap(slot -> slot.getColumn().getUniqueId(), slot -> slot));
         boolean preserveCompleteRow = scanType == TChangelogScanType.MIN_DELTA;
-        for (SlotDescriptor slot : scanSlots) {
-            Column column = slot.getColumn();
-            if (column == null || column.isKey() || isChangelogInternalColumn(column)
-                    || (!preserveCompleteRow && !requiredSlotIds.contains(slot.getId()))) {
+        for (Pair<Column, Column> pair : wrapper.getChangelogReadColumnPairs()) {
+            SlotDescriptor current = slotByUid.get(pair.first.getUniqueId());
+            SlotDescriptor before = slotByUid.get(pair.second.getUniqueId());
+            // A preceding lazy-materialization projection may already have removed an
+            // unrelated DETAIL pair. MIN_DELTA must retain every pair at each pruning pass.
+            if (!preserveCompleteRow && current == null && before == null) {
                 continue;
             }
-            preserveStorageSlot(slot, requiredSlotIds);
-            preserveStorageSlot(slotByName.get(Column.generateBeforeColName(column.getName())),
-                    requiredSlotIds);
+            Preconditions.checkState(current != null && before != null,
+                    "Changelog semantic slots must exist before physical pruning");
+            if (preserveCompleteRow || requiredSlotIds.contains(current.getId())
+                    || requiredSlotIds.contains(before.getId())) {
+                preserveStorageSlot(current, requiredSlotIds);
+                preserveStorageSlot(before, requiredSlotIds);
+            }
         }
-    }
-
-    private boolean isChangelogInternalColumn(Column column) {
-        String columnName = column.getName();
-        return Column.isChangelogBeforeColumn(columnName)
-                || columnName.equals(Column.CHANGELOG_LSN_COL)
-                || columnName.equals(Column.CHANGELOG_OP_COL)
-                || columnName.equals(Column.CHANGELOG_TSO_COL);
     }
 
     /**

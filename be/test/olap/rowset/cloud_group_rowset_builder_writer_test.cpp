@@ -30,6 +30,7 @@
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_mgr.h"
+#include "cloud/cloud_txn_delete_bitmap_cache.h"
 #include "common/cast_set.h"
 #include "common/config.h"
 #include "core/block/block.h"
@@ -294,6 +295,7 @@ protected:
         cfg.source.tablet_schema = _tablet->tablet_schema();
         cfg.source.base_tablet = _tablet;
         cfg.source.source_write_type = DataWriteType::TYPE_DIRECT;
+        RETURN_IF_ERROR(testutil::resolve_test_changelog_layout(changelog_context));
         auto lsn_buffer = AutoIncIDBuffer::create_shared(1, 1, kChangelogLsnAutoIncId);
         lsn_buffer->append_range_for_test(1000, num_rows);
         std::vector<int64_t> allocated_lsns;
@@ -377,6 +379,42 @@ TEST_F(CloudGroupRowsetBuilderWriterTest, writerBuildsChangelogMeta) {
     ASSERT_EQ(2, rowsets.size());
 
     assert_rowset_meta(rowsets[0], rowsets[1]);
+}
+
+TEST_F(CloudGroupRowsetBuilderWriterTest, MappingSurvivesBitmapEviction) {
+    CloudTxnDeleteBitmapCache cache(1024 * 1024);
+    ASSERT_TRUE(cache.init().ok());
+    ChangelogTxnInfo attached;
+    attached.column_mappings = std::make_shared<const PChangelogWriteColumnMappings>(
+            testutil::create_changelog_mapping(*_tablet->tablet_schema(),
+                                               *_changelog_tablet->tablet_schema(), false));
+    const auto snapshot = attached.column_mappings;
+    constexpr int64_t txn_id = 991;
+    const auto tablet_id = _tablet->tablet_id();
+    cache.set_tablet_txn_info(txn_id, tablet_id, std::make_shared<DeleteBitmap>(tablet_id), {},
+                              nullptr, INT64_MAX, nullptr, attached);
+    attached = {};
+    cache.erase(CacheKey(fmt::format("{}/{}", txn_id, tablet_id)));
+    RowsetSharedPtr rowset;
+    DeleteBitmapPtr bitmap;
+    RowsetIdUnorderedSet rowset_ids;
+    int64_t expiration;
+    std::shared_ptr<PartialUpdateInfo> partial_update;
+    std::shared_ptr<PublishStatus> publish_status;
+    TxnPublishInfo publish_info;
+    ChangelogTxnInfo recovered;
+    ASSERT_TRUE(cache.get_tablet_txn_info(txn_id, tablet_id, &rowset, &bitmap, &rowset_ids,
+                                          &expiration, &partial_update, &publish_status,
+                                          &publish_info, &recovered)
+                        .ok());
+    EXPECT_EQ(recovered.column_mappings, snapshot);
+    EXPECT_EQ(*publish_status, PublishStatus::INIT);
+    EXPECT_TRUE(bitmap != nullptr);
+    cache.remove_unused_tablet_txn_info(txn_id, tablet_id);
+    EXPECT_TRUE(cache.get_tablet_txn_info(txn_id, tablet_id, &rowset, &bitmap, &rowset_ids,
+                                          &expiration, &partial_update, &publish_status,
+                                          &publish_info, &recovered)
+                        .is<ErrorCode::NOT_FOUND>());
 }
 
 } // namespace doris

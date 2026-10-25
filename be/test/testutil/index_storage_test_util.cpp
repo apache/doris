@@ -1309,8 +1309,7 @@ Result<IndexReadResult> IndexStorageTestFixture::read_rowsets(
         context.read_schema = read_schema;
         EXPECT_TRUE(read_schema
                             ->init_from_tablet_schema(*_tablet_schema,
-                                                      /*merge_by_sequence_mapping=*/false,
-                                                      /*map_changelog_columns=*/false)
+                                                      /*merge_by_sequence_mapping=*/false)
                             .ok());
         context.predicates = &predicates;
         context.stats = &result.stats;

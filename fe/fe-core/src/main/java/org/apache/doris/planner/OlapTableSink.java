@@ -87,9 +87,11 @@ import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.thrift.TTabletLocation;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TUniqueKeyUpdateMode;
+import org.apache.doris.transaction.ChangelogWriteMapping;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.HashMultimap;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Range;
@@ -130,6 +132,8 @@ public class OlapTableSink extends DataSink {
     private List<Expr> partitionExprs;
     private Map<Long, Expr> syncMvWhereClauses;
 
+    private Map<Long, ChangelogWriteMapping> changelogWriteMappings = ImmutableMap.of();
+    private boolean initialized;
     private TOlapTableSchemaParam tOlapTableSchemaParam;
     private TOlapTablePartitionParam tOlapTablePartitionParam;
     private TOlapTableLocationParam tOlapTableLocationParam;
@@ -152,6 +156,7 @@ public class OlapTableSink extends DataSink {
 
     public void init(TUniqueId loadId, long txnId, long dbId, long loadChannelTimeoutS, int sendBatchParallelism,
             boolean loadToSingleTablet, boolean isStrictMode, long txnExpirationS) throws AnalysisException {
+        initialized = false;
         // Every load reaches here. A table that still enables changelog through "binlog.format" = "ROW"
         // can only be dropped.
         if (dstTable.isLegacyChangelog()) {
@@ -247,6 +252,7 @@ public class OlapTableSink extends DataSink {
         tSink.setPartition(tOlapTablePartitionParam);
         tSink.setLocation(tOlapTableLocationParam);
         tSink.setNodesInfo(createPaloNodesInfo());
+        initialized = true;
 
         if (!olapInsertCtx.isAllowAutoPartition()) {
             setAutoPartition(false);
@@ -302,6 +308,12 @@ public class OlapTableSink extends DataSink {
         tSink.setPartition(tOlapTablePartitionParam);
         tSink.setLocation(tOlapTableLocationParam);
         tSink.setNodesInfo(createPaloNodesInfo());
+        initialized = true;
+    }
+
+    public Map<Long, ChangelogWriteMapping> getChangelogWriteMappings() {
+        Preconditions.checkState(initialized, "OlapTableSink initialization has not completed");
+        return changelogWriteMappings;
     }
 
     public TOlapTableSchemaParam getOlapTableSchemaParam() {
@@ -401,6 +413,7 @@ public class OlapTableSink extends DataSink {
     }
 
     private TOlapTableSchemaParam createSchema(long dbId, OlapTable table) throws AnalysisException {
+        Map<Long, ChangelogWriteMapping> mappings = new HashMap<>();
         TOlapTableSchemaParam schemaParam = new TOlapTableSchemaParam();
         schemaParam.setDbId(dbId);
         schemaParam.setTableId(table.getId());
@@ -442,6 +455,13 @@ public class OlapTableSink extends DataSink {
             TOlapTableIndexSchema indexSchema = new TOlapTableIndexSchema(pair.getKey(), columns,
                     indexMeta.getSchemaHash());
             indexSchema.setChangelogIndexId(indexMeta.getChangelogIndexId());
+            if (indexMeta.getChangelogIndexId() > 0) {
+                MaterializedIndexMeta changelogMeta = table.getIndexMetaByIndexId(indexMeta.getChangelogIndexId());
+                ChangelogWriteMapping mapping = ChangelogWriteMapping.fromColumns(indexMeta.getSchema(true),
+                        changelogMeta.getSchema(true), table.getChangelogConfig().getNeedHistoricalValue());
+                mappings.put(pair.getKey(), mapping);
+                indexSchema.setChangelogColumnMappings(mapping.toThrift());
+            }
             Expr whereClause = indexMeta.getWhereClause();
             if (whereClause != null) {
                 Expr expr = syncMvWhereClauses.getOrDefault(pair.getKey(), null);
@@ -473,6 +493,7 @@ public class OlapTableSink extends DataSink {
 
         setPartialUpdateInfoForParam(schemaParam, table, uniqueKeyUpdateMode);
         schemaParam.setInvertedIndexFileStorageFormat(table.getInvertedIndexFileStorageFormat());
+        changelogWriteMappings = ImmutableMap.copyOf(mappings);
         return schemaParam;
     }
 

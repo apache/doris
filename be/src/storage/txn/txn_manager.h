@@ -49,6 +49,7 @@
 
 namespace doris {
 class OlapMeta;
+class PChangelogWriteColumnMappings;
 struct TabletPublishStatistics;
 struct PartialUpdateInfo;
 
@@ -64,6 +65,7 @@ enum class PublishStatus { INIT = 0, PREPARE = 1, SUCCEED = 2 };
 
 // The changelog rowset and its independent changelog tablet, carried through commit and publish.
 struct ChangelogTxnInfo {
+    std::shared_ptr<const PChangelogWriteColumnMappings> column_mappings;
     RowsetSharedPtr rowset;
     BaseTabletSPtr tablet;
     // Delete bitmap deltas that should be applied to the independent changelog tablet.
@@ -184,11 +186,11 @@ public:
                       std::shared_ptr<PartialUpdateInfo> partial_update_info = nullptr,
                       const ChangelogTxnInfo& attach_changelog = {});
 
-    Status publish_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
-                       TTransactionId transaction_id, const Version& version,
-                       TabletPublishStatistics* stats,
-                       std::shared_ptr<TabletTxnInfo>& extend_tablet_txn_info,
-                       const int64_t commit_tso = -1);
+    Status publish_txn(
+            TPartitionId partition_id, const TabletSharedPtr& tablet, TTransactionId transaction_id,
+            const Version& version, TabletPublishStatistics* stats,
+            std::shared_ptr<TabletTxnInfo>& extend_tablet_txn_info, const int64_t commit_tso = -1,
+            std::shared_ptr<const PChangelogWriteColumnMappings> column_mappings = nullptr);
 
     // delete the txn from manager if it is not committed(not have a valid rowset)
     Status rollback_txn(TPartitionId partition_id, const Tablet& tablet,
@@ -205,11 +207,12 @@ public:
 
     // remove a txn from txn manager
     // not persist rowset meta because
-    Status publish_txn(OlapMeta* meta, TPartitionId partition_id, TTransactionId transaction_id,
-                       TTabletId tablet_id, TabletUid tablet_uid, const Version& version,
-                       TabletPublishStatistics* stats,
-                       std::shared_ptr<TabletTxnInfo>& extend_tablet_txn_info,
-                       const int64_t commit_tso = -1);
+    Status publish_txn(
+            OlapMeta* meta, TPartitionId partition_id, TTransactionId transaction_id,
+            TTabletId tablet_id, TabletUid tablet_uid, const Version& version,
+            TabletPublishStatistics* stats, std::shared_ptr<TabletTxnInfo>& extend_tablet_txn_info,
+            const int64_t commit_tso = -1,
+            std::shared_ptr<const PChangelogWriteColumnMappings> column_mappings = nullptr);
 
     // only abort not committed txn
     void abort_txn(TPartitionId partition_id, TTransactionId transaction_id, TTabletId tablet_id,

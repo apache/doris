@@ -187,6 +187,22 @@ public interface GlobalTransactionMgrIface extends Writable {
 
     public TransactionState getTransactionState(long dbId, long transactionId);
 
+    default void registerChangelogWriteMappings(long dbId, long writeTxnId, Map<Long, ChangelogWriteMapping> mappings)
+            throws UserException {
+        if (mappings.isEmpty()) {
+            return;
+        }
+        TransactionState state = getTransactionState(dbId, writeTxnId);
+        if (state == null) {
+            throw new UserException("Cannot register changelog mappings for missing transaction " + writeTxnId);
+        }
+        try {
+            state.registerChangelogWriteMappings(writeTxnId, mappings);
+        } catch (IllegalStateException e) {
+            throw new UserException(e.getMessage(), e);
+        }
+    }
+
     public Long getTransactionIdByLabel(Long dbId, String label, List<TransactionStatus> statusList)
             throws UserException;
 

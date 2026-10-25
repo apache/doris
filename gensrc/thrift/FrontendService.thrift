@@ -1848,6 +1848,8 @@ struct TCommitRemoteTxnRequest {
     7: optional i64 txn_id
     8: optional list<Types.TTabletCommitInfo> commit_infos
     9: optional i64 insert_visible_timeout_ms
+    // Complete writer snapshot; new callers explicitly send an empty list without changelog.
+    13: optional list<Descriptors.TChangelogIndexWriteSnapshot> changelog_column_mappings
 }
 
 struct TCommitRemoteTxnResult {

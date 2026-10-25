@@ -1706,9 +1706,10 @@ void StorageEngine::_follow_cooldown_meta(TabletSharedPtr t) {
     }
 }
 
-void StorageEngine::add_async_publish_task(int64_t partition_id, int64_t tablet_id,
-                                           int64_t publish_version, int64_t transaction_id,
-                                           bool is_recovery, int64_t commit_tso) {
+Status StorageEngine::add_async_publish_task(
+        int64_t partition_id, int64_t tablet_id, int64_t publish_version, int64_t transaction_id,
+        bool is_recovery, int64_t commit_tso,
+        std::shared_ptr<const PChangelogWriteColumnMappings> column_mappings) {
     if (!is_recovery) {
         bool exists = false;
         {
@@ -1722,27 +1723,34 @@ void StorageEngine::add_async_publish_task(int64_t partition_id, int64_t tablet_
             }
         }
         if (exists) {
-            return;
+            return Status::OK();
         }
         TabletSharedPtr tablet = tablet_manager()->get_tablet(tablet_id);
         if (tablet == nullptr) {
             LOG(INFO) << "tablet may be dropped when add async publish task, tablet_id: "
                       << tablet_id;
-            return;
+            return Status::OK();
         }
         PendingPublishInfoPB pending_publish_info_pb;
         pending_publish_info_pb.set_partition_id(partition_id);
         pending_publish_info_pb.set_transaction_id(transaction_id);
         pending_publish_info_pb.set_commit_tso(commit_tso);
-        static_cast<void>(TabletMetaManager::save_pending_publish_info(
-                tablet->data_dir(), tablet->tablet_id(), publish_version,
-                pending_publish_info_pb.SerializeAsString()));
+        if (column_mappings != nullptr) {
+            *pending_publish_info_pb.mutable_changelog_column_mappings() = *column_mappings;
+        }
+        RETURN_IF_ERROR(SYNC_POINT_HOOK_RETURN_VALUE(
+                TabletMetaManager::save_pending_publish_info(
+                        tablet->data_dir(), tablet->tablet_id(), publish_version,
+                        pending_publish_info_pb.SerializeAsString()),
+                "StorageEngine::add_async_publish_task::save_pending_publish_info"));
     }
     LOG(INFO) << "add pending publish task, tablet_id: " << tablet_id
               << " version: " << publish_version << " txn_id:" << transaction_id
               << " is_recovery: " << is_recovery;
     std::unique_lock<std::shared_mutex> wlock(_async_publish_lock);
-    _async_publish_tasks[tablet_id][publish_version] = {transaction_id, partition_id, commit_tso};
+    _async_publish_tasks[tablet_id][publish_version] = {transaction_id, partition_id, commit_tso,
+                                                        std::move(column_mappings)};
+    return Status::OK();
 }
 
 int64_t StorageEngine::get_pending_publish_min_version(int64_t tablet_id) {
@@ -1803,11 +1811,19 @@ void StorageEngine::_process_async_publish() {
             }
 
             auto async_publish_task = std::make_shared<AsyncTabletPublishTask>(
-                    *this, tablet, partition_id, transaction_id, version, commit_tso);
-            static_cast<void>(_tablet_publish_txn_thread_pool->submit_func(
-                    [=]() { async_publish_task->handle(); }));
+                    *this, tablet, partition_id, transaction_id, version, commit_tso,
+                    std::get<3>(task_iter->second));
+            auto submit_status = _tablet_publish_txn_thread_pool->submit_func(
+                    [=]() { async_publish_task->handle(); });
+            // A stopped/full executor has not taken ownership. Keep the queue
+            // entry and its durable snapshot for the next scheduling attempt.
+            if (!submit_status.ok()) {
+                LOG(WARNING) << "submit async publish failed, tablet_id=" << tablet_id
+                             << ", version=" << version << ", status=" << submit_status;
+                ++tablet_iter;
+                continue;
+            }
             tablet_iter->second.erase(task_iter);
-            need_removed_tasks.emplace_back(tablet, version);
             tablet_iter++;
         }
     }

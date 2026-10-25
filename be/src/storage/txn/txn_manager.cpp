@@ -241,14 +241,14 @@ Status TxnManager::commit_txn(TPartitionId partition_id, const Tablet& tablet,
                       std::move(guard), is_recovery, partial_update_info, attach_changelog);
 }
 
-Status TxnManager::publish_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
-                               TTransactionId transaction_id, const Version& version,
-                               TabletPublishStatistics* stats,
-                               std::shared_ptr<TabletTxnInfo>& extend_tablet_txn_info,
-                               const int64_t commit_tso) {
+Status TxnManager::publish_txn(
+        TPartitionId partition_id, const TabletSharedPtr& tablet, TTransactionId transaction_id,
+        const Version& version, TabletPublishStatistics* stats,
+        std::shared_ptr<TabletTxnInfo>& extend_tablet_txn_info, const int64_t commit_tso,
+        std::shared_ptr<const PChangelogWriteColumnMappings> column_mappings) {
     return publish_txn(tablet->data_dir()->get_meta(), partition_id, transaction_id,
                        tablet->tablet_id(), tablet->tablet_uid(), version, stats,
-                       extend_tablet_txn_info, commit_tso);
+                       extend_tablet_txn_info, commit_tso, std::move(column_mappings));
 }
 
 void TxnManager::abort_txn(TPartitionId partition_id, TTransactionId transaction_id,
@@ -532,12 +532,12 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
 }
 
 // remove a txn from txn manager
-Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
-                               TTransactionId transaction_id, TTabletId tablet_id,
-                               TabletUid tablet_uid, const Version& version,
-                               TabletPublishStatistics* stats,
-                               std::shared_ptr<TabletTxnInfo>& extend_tablet_txn_info,
-                               const int64_t commit_tso) {
+Status TxnManager::publish_txn(
+        OlapMeta* meta, TPartitionId partition_id, TTransactionId transaction_id,
+        TTabletId tablet_id, TabletUid tablet_uid, const Version& version,
+        TabletPublishStatistics* stats, std::shared_ptr<TabletTxnInfo>& extend_tablet_txn_info,
+        const int64_t commit_tso,
+        std::shared_ptr<const PChangelogWriteColumnMappings> column_mappings) {
     auto tablet = _engine.tablet_manager()->get_tablet(tablet_id);
     if (tablet == nullptr) {
         return Status::OK();
@@ -575,6 +575,19 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
                 partition_id, transaction_id, tablet_info.to_string(), commit_tso);
     }
     const auto& attached_changelog = tablet_txn_info->attach_changelog.rowset;
+    std::shared_ptr<const changelog::ResolvedChangelogLayout> changelog_layout;
+    if (attached_changelog != nullptr) {
+        // Recovery has the rowsets but no in-memory writer. The transaction's FE
+        // snapshot must arrive with publish, before either rowset becomes visible.
+        if (column_mappings == nullptr) {
+            return Status::InvalidArgument("publish txn {} tablet {} misses changelog mappings",
+                                           transaction_id, tablet_id);
+        }
+        RETURN_IF_ERROR(changelog::resolve_layout(
+                rowset->tablet_schema()->copy_without_variant_extracted_columns(),
+                attached_changelog->tablet_schema()->copy_without_variant_extracted_columns(),
+                *column_mappings, &changelog_layout));
+    }
     const bool requires_commit_tso = rowset->tablet_schema()->is_tso_enabled() ||
                                      (attached_changelog != nullptr &&
                                       attached_changelog->tablet_schema()->is_tso_enabled());
@@ -648,8 +661,8 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
                     tablet_txn_info->delete_bitmap));
         }
 
-        RETURN_IF_ERROR(
-                Tablet::update_delete_bitmap(tablet, tablet_txn_info.get(), transaction_id));
+        RETURN_IF_ERROR(Tablet::update_delete_bitmap(tablet, tablet_txn_info.get(), transaction_id,
+                                                     0, nullptr, changelog_layout));
         int64_t t3 = MonotonicMicros();
         stats->calc_delete_bitmap_time_us = t3 - t2;
         RETURN_IF_ERROR(TabletMetaManager::save_delete_bitmap(
