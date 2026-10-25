@@ -425,8 +425,11 @@ public class PartitionCompensator {
      * Likewise a retained partition can hold a recorded base partition that runs past its own upper bound: the
      * roll-up of a {@code DATETIME(3)} partition ending a fraction of a second after a bucket boundary takes
      * off one second and lands in the bucket before it, while the rows past the boundary are grouped into the
-     * next one. Such a column is recorded here, so the aggregate rule declines the transform coverage and
-     * the query is answered from the base table instead.
+     * next one. A compensated partition does that by itself, with no retained partition's record to show it:
+     * its roll-up names the bucket before the boundary, and the rows in the fraction reach a bucket a retained
+     * partition can answer -- so its actual upper bound is compared against the one its roll-up names. Such a
+     * column is recorded here, so the aggregate rule declines the transform coverage and the query is
+     * answered from the base table instead.
      */
     private static void addColumnsWhoseCompensationSharesRetainedBucket(MTMV mtmv,
             Map<BaseTableInfo, BaseColInfo> pctInfoMap,
@@ -471,8 +474,8 @@ public class PartitionCompensator {
             Map<String, PartitionItem> baseItems = pctTable.getAndCopyPartitionItems(snapshot);
             boolean sharesRetainedBucket;
             try {
-                sharesRetainedBucket = compensatedSharesRetainedBucket(pctTable, baseItems, snapshot,
-                        exprService, mvPartitionInfo, compensated, retainedDescs)
+                sharesRetainedBucket = compensatedSharesRetainedBucket(pctTable, pctInfo.getColName(),
+                        baseItems, snapshot, exprService, mvPartitionInfo, compensated, retainedDescs)
                         || (refreshSnapshot != null && retainedPartitionRunsPastItsUpperBound(
                                 pctTable, pctInfo.getColName(), snapshot, baseItems, refreshSnapshot,
                                 retainedMvPartitions, mvItems));
@@ -487,36 +490,61 @@ public class PartitionCompensator {
         }
     }
 
-    private static boolean compensatedSharesRetainedBucket(MTMVRelatedTableIf pctTable,
+    private static boolean compensatedSharesRetainedBucket(MTMVRelatedTableIf pctTable, String colName,
             Map<String, PartitionItem> items, Optional<MvccSnapshot> snapshot,
             MTMVPartitionExprService exprService, MTMVPartitionInfo mvPartitionInfo, Set<String> compensated,
             Map<PartitionKeyDesc, String> retainedDescs) throws AnalysisException {
         int colPos = mvPartitionInfo.getPctColPos(pctTable);
+        Column partitionColumn = partitionColumnOf(pctTable, colName, snapshot);
         for (String partitionName : compensated) {
             PartitionItem item = items.get(partitionName);
             if (item == null) {
                 continue;
             }
+            PartitionKeyDesc actualDesc = item.toPartitionKeyDesc(colPos);
             PartitionKeyDesc rollUpDesc = exprService.generateRollUpPartitionKeyDesc(
-                    item.toPartitionKeyDesc(colPos), mvPartitionInfo, pctTable, snapshot);
+                    actualDesc, mvPartitionInfo, pctTable, snapshot);
             if (retainedDescs.containsKey(rollUpDesc)) {
+                return true;
+            }
+            if (partitionColumn != null && overrunsRolledBucket(actualDesc, rollUpDesc, partitionColumn)) {
                 return true;
             }
         }
         return false;
     }
 
+    /**
+     * Whether a partition's range reaches past the bucket its roll-up descriptor names, so that the rows in
+     * between are grouped into a bucket the descriptor does not name.
+     */
+    private static boolean overrunsRolledBucket(PartitionKeyDesc actualDesc, PartitionKeyDesc rollUpDesc,
+            Column partitionColumn) throws AnalysisException {
+        if (actualDesc.getPartitionType() != PartitionKeyDesc.PartitionKeyValueType.FIXED
+                || rollUpDesc.getPartitionType() != PartitionKeyDesc.PartitionKeyValueType.FIXED) {
+            return false;
+        }
+        List<Column> baseColumns = ImmutableList.of(partitionColumn);
+        PartitionKey actualUpper = PartitionKey.createPartitionKey(actualDesc.getUpperValues(), baseColumns);
+        PartitionKey rolledUpper = PartitionKey.createPartitionKey(rollUpDesc.getUpperValues(), baseColumns);
+        return actualUpper.compareTo(rolledUpper) > 0;
+    }
+
+    private static Column partitionColumnOf(MTMVRelatedTableIf pctTable, String colName,
+            Optional<MvccSnapshot> snapshot) throws AnalysisException {
+        for (Column column : pctTable.getPartitionColumns(snapshot)) {
+            if (column.getName().equalsIgnoreCase(colName)) {
+                return column;
+            }
+        }
+        return null;
+    }
+
     private static boolean retainedPartitionRunsPastItsUpperBound(MTMVRelatedTableIf pctTable, String colName,
             Optional<MvccSnapshot> snapshot, Map<String, PartitionItem> baseItems,
             MTMVRefreshSnapshot refreshSnapshot, Set<String> retainedMvPartitions,
             Map<String, PartitionItem> mvItems) throws AnalysisException {
-        Column partitionColumn = null;
-        for (Column column : pctTable.getPartitionColumns(snapshot)) {
-            if (column.getName().equalsIgnoreCase(colName)) {
-                partitionColumn = column;
-                break;
-            }
-        }
+        Column partitionColumn = partitionColumnOf(pctTable, colName, snapshot);
         if (partitionColumn == null) {
             return false;
         }

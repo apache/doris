@@ -840,4 +840,47 @@ suite("test_mtmv_base_partition_read_scope") {
                 + "where d in ('${lastMonth}', '${thisMonth}') group by date_trunc(d, 'year')")
         notContains "UNION"
     }
+
+    // A compensated partition can reach into a month a retained partition answers even when no retained-side
+    // overrun shows it. The roll-up reads the upper bound with the last second off it, so p_prev ending at
+    // 2024-02-01 00:00:00.123 is January's, while its rows in [February 1 00:00:00.000, .123) are February's.
+    // The refresh clips that fraction, so the view never holds it; the next base partition starts after a gap,
+    // at February 5, so the view's February partition is fresh and no recorded upper bound runs past it. The
+    // compensated partition itself reaches past the month its roll-up names, so the query is answered from
+    // the base table rather than by a union whose branches each emit a February row.
+    sql """drop materialized view if exists range_spill_mv"""
+    sql """drop table if exists range_spill_base"""
+    sql """
+        CREATE TABLE range_spill_base (ts DATETIME(3) NOT NULL, amount BIGINT)
+        DUPLICATE KEY(ts) PARTITION BY RANGE(ts) (
+            PARTITION p_prev VALUES [("2024-01-01 00:00:00.123"), ("2024-02-01 00:00:00.123")),
+            PARTITION p_kept VALUES [("2024-02-05 00:00:00.000"), ("2024-03-01 00:00:00.000")))
+        DISTRIBUTED BY HASH(ts) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+    """
+    sql """INSERT INTO range_spill_base VALUES
+        ("2024-01-15 00:00:00.000", 10), ("2024-02-01 00:00:00.100", 1)"""
+    // The kept month carries enough rows that the view pre-aggregates to one, so that the union would be the
+    // cheaper side once p_prev goes stale rather than dropped by the cost model on an empty table.
+    sql """INSERT INTO range_spill_base
+        SELECT CAST("2024-02-15 00:00:00.000" AS DATETIME(3)), 1 FROM numbers("number" = "1000")"""
+    sql """
+        CREATE MATERIALIZED VIEW range_spill_mv
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL PARTITION BY (date_trunc(ts, 'month'))
+        DISTRIBUTED BY HASH(ts) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+        AS SELECT ts, SUM(amount) AS total FROM range_spill_base GROUP BY ts
+    """
+    waitingMTMVTaskFinishedByMvName("range_spill_mv")
+    // The refresh rolls p_prev up to January and clips its February fraction: the row is in no MV partition.
+    order_qt_range_spill_mv_tail "SELECT COUNT(*) FROM range_spill_mv WHERE ts = '2024-02-01 00:00:00.100'"
+    // Written after the refresh, so p_prev is the stale partition the compensation re-reads.
+    sql """INSERT INTO range_spill_base VALUES ("2024-01-20 00:00:00.000", 5)"""
+    sql """ANALYZE TABLE range_spill_base WITH SYNC"""
+    sql """set enable_materialized_view_rewrite = true"""
+    explain {
+        sql("select date_trunc(ts, 'month') as m, sum(amount) from range_spill_base "
+                + "where ts >= '2024-02-01' and ts < '2024-03-01' group by date_trunc(ts, 'month')")
+        notContains "UNION"
+    }
+    order_qt_range_spill """SELECT date_trunc(ts, 'month') AS m, SUM(amount) FROM range_spill_base
+        WHERE ts >= '2024-02-01' AND ts < '2024-03-01' GROUP BY date_trunc(ts, 'month')"""
 }
