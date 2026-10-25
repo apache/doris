@@ -29,6 +29,7 @@ import org.apache.doris.catalog.info.DropBranchInfo;
 import org.apache.doris.catalog.info.DropTagInfo;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.cloud.security.SecurityChecker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -47,6 +48,7 @@ import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorCapability;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorProvider;
+import org.apache.doris.connector.spi.ConnectorSecuritySurface;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorTestResult;
 import org.apache.doris.connector.spi.DorisConnectorException;
@@ -84,6 +86,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.transaction.PluginDrivenTransactionManager;
 
 import com.google.common.base.Preconditions;
+import com.google.common.net.HostAndPort;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -257,6 +260,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         }
         validateStorageProperties(candidateProperty, updatedProperties);
         checkDriverUrlsAgainstOperatorGate(candidate, updatedProperties);
+        checkEndpointsAgainstSsrf(candidate, updatedProperties);
         ExternalFunctionRules.check(candidateProperty.getOrDefault("function_rules", null));
         return true;
     }
@@ -287,7 +291,8 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     /**
      * Applies the operator's driver-jar gate ({@code jdbc_driver_secure_path} /
      * {@code jdbc_driver_url_white_list}) to every driver_url these properties would make the connector
-     * load into the FE JVM.
+     * load into the FE JVM. The checked keys come from the connector's
+     * {@link ConnectorSecuritySurface#jdbcDriverUrlKeys()}, so the engine hard-codes no catalog type.
      *
      * <p>On CREATE the same gate is applied inside the connector's {@code preCreateValidation} (through
      * {@link org.apache.doris.connector.DefaultConnectorValidationContext#validateAndResolveDriverPath}),
@@ -303,36 +308,36 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
      */
     private void checkDriverUrlsAgainstOperatorGate(Map<String, String> candidate,
             Map<String, String> updatedProperties) throws DdlException {
-        DriverUrlKeys keys = driverUrlKeysOf(getType());
-        if (keys == null) {
+        ConnectorSecuritySurface surface = securitySurface(candidate);
+        List<String> urlKeys = surface.jdbcDriverUrlKeys();
+        if (urlKeys.isEmpty()) {
             return;
         }
+        String flavorKey = surface.jdbcDriverUrlFlavorKey();
         // Only an ALTER that touches a driver-url key (or the flavor key that can bring a stored one
         // to life) can repoint the loaded jar; a stored value was gated at its own CREATE/ALTER time.
         // Re-resolving an untouched value here would also re-run getFullDriverUrl's file-existence /
         // cloud-download side effects under CatalogMgr's write lock on every unrelated ALTER, and
         // would let a since-tightened allow-list fail ALTERs that change nothing about the jar.
-        boolean touched = keys.urlKeys.stream().anyMatch(updatedProperties::containsKey)
-                || (keys.flavorKey != null && updatedProperties.containsKey(keys.flavorKey));
+        boolean touched = urlKeys.stream().anyMatch(updatedProperties::containsKey)
+                || (flavorKey != null && updatedProperties.containsKey(flavorKey));
         if (!touched) {
             return;
         }
-        if (keys.flavorKey != null
-                && !"jdbc".equalsIgnoreCase(candidate.getOrDefault(keys.flavorKey, ""))) {
+        if (flavorKey != null
+                && !"jdbc".equalsIgnoreCase(candidate.getOrDefault(flavorKey, ""))) {
             // A driver_url on a REST/HMS/filesystem catalog stays the dead config it always was.
             return;
         }
-        for (String key : keys.urlKeys) {
+        for (String key : urlKeys) {
             String driverUrl = candidate.get(key);
             if (driverUrl == null || driverUrl.trim().isEmpty()) {
                 continue;
             }
             try {
                 // The mandatory rule normally runs inside the connector's property holder; repeated
-                // here so a degraded catalog whose plugin is absent (provider validation silently
-                // no-ops) still cannot be repointed at a traversal / non-bare-name jar, and so the
-                // rule holds even under jdbc_driver_secure_path=* (which getFullDriverUrl accepts
-                // wholesale).
+                // here so the rule holds even under jdbc_driver_secure_path=* (which getFullDriverUrl
+                // accepts wholesale), and because the ALTER path never runs preCreateValidation.
                 JdbcDriverUrlSecurity.check(driverUrl);
                 JdbcResource.getFullDriverUrl(driverUrl);
             } catch (Exception e) {
@@ -344,41 +349,97 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         }
     }
 
-    /** One row of the driver-jar key table: which properties name the jar, live under which flavor key. */
-    private static final class DriverUrlKeys {
-        /** The properties whose value the connector hands to a class loader, documented aliases included. */
-        final List<String> urlKeys;
-        /** The key whose candidate value must be "jdbc" for the urlKeys to be live; null = always live. */
-        final String flavorKey;
+    /**
+     * The connector's declared security-sensitive property surface, looked up by catalog type WITHOUT
+     * initializing a connector (so neither gate forces a catalog to come to life). {@link
+     * ConnectorSecuritySurface#EMPTY} when no provider backs this type — exactly the state in which the
+     * connector can neither load a driver jar nor open a connection, so there is nothing to police.
+     */
+    // Package-private, not private: a unit test overrides it to inject a surface without registering a
+    // connector plugin, exactly as it exercises the gate logic in isolation.
+    ConnectorSecuritySurface securitySurface(Map<String, String> properties) {
+        return ConnectorFactory.findProvider(getType(), properties)
+                .map(ConnectorProvider::securitySurface)
+                .orElse(ConnectorSecuritySurface.EMPTY);
+    }
 
-        DriverUrlKeys(String flavorKey, String... urlKeys) {
-            this.flavorKey = flavorKey;
-            this.urlKeys = Arrays.asList(urlKeys);
+    /**
+     * Applies the operator's SSRF policy (the third-party {@code SecurityChecker} SDK) to every
+     * user-supplied network endpoint these properties would make the FE connect to, rejecting an intranet
+     * target. It mirrors {@link #checkDriverUrlsAgainstOperatorGate}: the connector declares the endpoint
+     * keys through {@link ConnectorSecuritySurface#ssrfEndpointKeys()}, it runs on CREATE
+     * (through {@code checkWhenCreating}) and on the {@code !isReplay} ALTER path (here and in
+     * {@code validatePropertiesBeforeUpdate}) but never on replay, and it is a no-op unless the operator
+     * installed an SSRF checker.
+     *
+     * <p>The judgment itself is delegated to the SDK — see {@link SecurityChecker#checkEndpointForSsrf}.
+     * This is a point-in-time check of the endpoint supplied at CREATE/ALTER; it does not guard a later
+     * runtime connection (DNS rebinding, lazy metadata access) — that is a deliberate scope limit.
+     *
+     * <p>A connector whose property names a host to connect to declares it in its
+     * {@code securitySurface()} and nowhere else.
+     */
+    private void checkEndpointsAgainstSsrf(Map<String, String> candidate, Map<String, String> updatedProperties)
+            throws DdlException {
+        SecurityChecker checker = SecurityChecker.getInstance();
+        if (!checker.isEnabled()) {
+            return;
+        }
+        List<String> endpointKeys = securitySurface(candidate).ssrfEndpointKeys();
+        if (endpointKeys.isEmpty()) {
+            return;
+        }
+        // Only an ALTER that touches an endpoint key can repoint the catalog at a new host; a stored value
+        // was gated at its own CREATE/ALTER time. On CREATE the full property map is passed as both
+        // arguments, so every supplied endpoint counts as touched and is checked.
+        boolean touched = endpointKeys.stream().anyMatch(updatedProperties::containsKey);
+        if (!touched) {
+            return;
+        }
+        for (String key : endpointKeys) {
+            String rawValue = candidate.get(key);
+            if (rawValue == null || rawValue.trim().isEmpty()) {
+                continue;
+            }
+            // A value may list several comma-separated endpoints (e.g. HA hive.metastore.uris).
+            for (String endpoint : rawValue.split(",")) {
+                HostAndPort hostAndPort = parseEndpoint(endpoint.trim());
+                if (hostAndPort == null) {
+                    continue;
+                }
+                checker.checkEndpointForSsrf(hostAndPort.getHost(), hostAndPort.getPort());
+            }
         }
     }
 
     /**
-     * The driver-jar properties of the three jdbc-flavored catalog types, spelled out here because the
-     * fe.conf policy is the engine's to apply while the keys belong to the connectors, and widening the
-     * plugin SPI for three constants is not worth a plugin API major bump. The keys are the user-facing
-     * property names (with their documented aliases), which are wire-stable. This single table drives
-     * BOTH halves of the gate — the trigger set (urlKeys plus flavorKey: the changes that can repoint
-     * the loaded jar) and the values that get checked — so the two can never drift apart. Owners:
-     * JdbcCatalogProperties, IcebergJdbcMetaStoreProperties, PaimonJdbcMetaStoreProperties. A new
-     * consumer of a jdbc-flavored driver_url adds its row here and nowhere else (see the "Remote
-     * Artifacts and Dynamic Code Loading" section of AGENTS.md).
+     * Parse one endpoint — {@code scheme://host:port} (e.g. {@code thrift://host:9083}) or a bare
+     * {@code host:port} — into host and port for the SSRF probe. Returns null when no concrete host:port
+     * can be extracted (nothing to probe); {@link HostAndPort} handles IPv6 literals in brackets natively.
      */
-    private static DriverUrlKeys driverUrlKeysOf(String catalogType) {
-        if ("jdbc".equalsIgnoreCase(catalogType)) {
-            return new DriverUrlKeys(null, "driver_url", "jdbc.driver_url");
+    static HostAndPort parseEndpoint(String value) {
+        if (value == null || value.isEmpty()) {
+            return null;
         }
-        if ("iceberg".equalsIgnoreCase(catalogType)) {
-            return new DriverUrlKeys("iceberg.catalog.type", "iceberg.jdbc.driver_url");
+        // Drop a leading scheme (thrift://, http://, ...) and any trailing path, leaving the authority.
+        String authority = value;
+        int schemeIdx = authority.indexOf("://");
+        if (schemeIdx >= 0) {
+            authority = authority.substring(schemeIdx + 3);
         }
-        if ("paimon".equalsIgnoreCase(catalogType)) {
-            return new DriverUrlKeys("paimon.catalog.type", "paimon.jdbc.driver_url", "jdbc.driver_url");
+        int slashIdx = authority.indexOf('/');
+        if (slashIdx >= 0) {
+            authority = authority.substring(0, slashIdx);
         }
-        return null;
+        try {
+            HostAndPort hostAndPort = HostAndPort.fromString(authority);
+            if (!hostAndPort.hasPort() || hostAndPort.getHost().isEmpty()) {
+                return null;
+            }
+            return hostAndPort;
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
     }
 
     private void checkHiveParquetTimeZone(CatalogProperty property) throws DdlException {
@@ -405,6 +466,11 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         } catch (Exception e) {
             throw new DdlException(e.getMessage(), e);
         }
+
+        // Reject an intranet endpoint before any real connect below, regardless of the test_connection
+        // flag (CREATE path; never reached on replay). On CREATE every property is newly supplied, so the
+        // full map is both the candidate and the touched set.
+        checkEndpointsAgainstSsrf(catalogProperty.getProperties(), catalogProperty.getProperties());
 
         boolean testConnection = Boolean.parseBoolean(
                 catalogProperty.getOrDefault(ExternalCatalog.TEST_CONNECTION,

@@ -20,6 +20,7 @@ package org.apache.doris.connector.hive;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
+import org.apache.doris.connector.spi.ConnectorSecuritySurface;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -79,5 +80,12 @@ public class HiveConnectorProvider implements ConnectorProvider {
                 ? new HashMap<>() : new HashMap<>(currentProperties);
         candidate.putAll(updatedProperties);
         HiveCatalogProperties.of(candidate).checkCreateTimeOnlyRules(updatedProperties);
+    }
+
+    @Override
+    public ConnectorSecuritySurface securitySurface() {
+        // hive.metastore.uris (documented alias: uri) is the user-supplied thrift endpoint the FE connects
+        // to; the engine's SSRF gate rejects an intranet target there at CREATE / ALTER CATALOG.
+        return ConnectorSecuritySurface.ofSsrfEndpoints(HiveCatalogProperties.HIVE_METASTORE_URIS, "uri");
     }
 }

@@ -22,6 +22,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.connector.ConnectorFactory;
 import org.apache.doris.connector.ConnectorPluginManager;
 import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.connector.spi.ConnectorSecuritySurface;
 import org.apache.doris.connector.spi.ConnectorSession;
 
 import org.junit.jupiter.api.AfterEach;
@@ -238,6 +239,25 @@ public class PluginDrivenExternalCatalogDriverUrlGateTest {
         @Override
         public ConnectorSession buildConnectorSession() {
             return Mockito.mock(ConnectorSession.class);
+        }
+
+        @Override
+        ConnectorSecuritySurface securitySurface(Map<String, String> properties) {
+            // Mirror the real providers' declarations so the gate sees the same driver-url keys it would in
+            // production, without registering a connector plugin. The real keys are pinned by each
+            // connector's own provider test.
+            switch (getType()) {
+                case "jdbc":
+                    return ConnectorSecuritySurface.ofJdbcDriverUrls(null, "driver_url", "jdbc.driver_url");
+                case "iceberg":
+                    return ConnectorSecuritySurface.ofJdbcDriverUrls(
+                            "iceberg.catalog.type", "iceberg.jdbc.driver_url");
+                case "paimon":
+                    return ConnectorSecuritySurface.ofJdbcDriverUrls(
+                            "paimon.catalog.type", "paimon.jdbc.driver_url", "jdbc.driver_url");
+                default:
+                    return ConnectorSecuritySurface.EMPTY;
+            }
         }
     }
 }
