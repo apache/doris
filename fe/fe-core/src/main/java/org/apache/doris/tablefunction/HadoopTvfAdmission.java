@@ -153,7 +153,8 @@ public final class HadoopTvfAdmission {
                     URI listingPath = hadoopPathUri(S3Util.extendGlobs(path.trim()));
                     rules = TvfGuard.globRules(listingPath, listingPath.getPath());
                 } else {
-                    rules = java.util.Collections.singletonList(new TvfGuard.Rule(uri.toString(), uri.getPath(), true));
+                    rules = java.util.Collections.singletonList(
+                            new TvfGuard.Rule(uri.toString(), uri.getPath(), access == Access.HADOOP_READ));
                 }
                 guarded.put(TvfGuard.POLICY_KEY, TvfGuard.encode(rules));
             } catch (IOException | URISyntaxException | IllegalArgumentException e) {
@@ -167,7 +168,7 @@ public final class HadoopTvfAdmission {
         Map<String, String> guarded = new HashMap<>(normalized);
         removeRuntimePolicy(guarded);
         if (!Config.enable_local_tvf) {
-            guarded.put(TvfGuard.POLICY_KEY, TvfGuard.NATIVE_POLICY);
+            guarded.put(TvfGuard.POLICY_KEY, TvfGuard.NATIVE_WRITE_POLICY);
         }
         return guarded;
     }

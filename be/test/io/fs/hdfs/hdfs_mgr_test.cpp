@@ -495,4 +495,32 @@ TEST_F(HdfsMgrTest, ExpiredCollisionDoesNotEvictLiveTvfConnection) {
     EXPECT_EQ(live, reused);
 }
 
+TEST_F(HdfsMgrTest, NativeWritePolicyIsGuardedAndCannotReuseReadContext) {
+    auto write_params = guarded_params("native-write");
+    auto read = std::make_shared<HdfsHandler>(nullptr, false, "", "", "viewfs://cluster");
+    read->tvf_params = std::make_shared<const THdfsParams>(guarded_params("native"));
+    seed_collision(write_params, "viewfs://cluster", read);
+    EXPECT_CALL(*_hdfs_mgr, _create_hdfs_fs_impl(_, _, _)).Times(1);
+    std::shared_ptr<HdfsHandler> write;
+    ASSERT_TRUE(
+            _hdfs_mgr->get_or_create_fs(write_params, "viewfs://cluster", &write, "/data/prefix_")
+                    .ok());
+    EXPECT_NE(read, write);
+    ASSERT_TRUE(write->tvf_params);
+    EXPECT_EQ(write_params, *write->tvf_params);
+    std::shared_ptr<HdfsHandler> reused;
+    ASSERT_TRUE(
+            _hdfs_mgr->get_or_create_fs(write_params, "viewfs://cluster", &reused, "/data/next_")
+                    .ok());
+    EXPECT_EQ(write, reused);
+    EXPECT_CALL(*_hdfs_mgr, _check_tvf_path_impl(_, "viewfs://cluster", "/local/leaf"))
+            .WillOnce(Return(Status::InvalidArgument("local create parent")));
+    std::shared_ptr<HdfsHandler> denied;
+    EXPECT_FALSE(
+            _hdfs_mgr->get_or_create_fs(write_params, "viewfs://cluster", &denied, "/local/leaf")
+                    .ok());
+    EXPECT_FALSE(denied);
+    EXPECT_FALSE(_hdfs_mgr->get_or_create_fs(write_params, "viewfs://cluster", &denied).ok());
+}
+
 } // namespace doris::io
