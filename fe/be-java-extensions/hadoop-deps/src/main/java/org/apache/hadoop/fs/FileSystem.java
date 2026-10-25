@@ -4098,8 +4098,10 @@ public abstract class FileSystem extends Configured
         UNKNOWN
       }
 
+      // JuiceFS loads its authoritative backend from mutable namespace metadata; neither
+      // its scheme nor its class proves remote storage for a guarded TVF.
       protected static final Set<String> REMOTE_SCHEMES = new HashSet<>(Arrays.asList(
-          "hdfs", "s3a", "s3n", "oss", "ofs", "jfs", "abfs", "abfss", "wasb", "wasbs", "gs", "cosn"));
+          "hdfs", "s3a", "s3n", "oss", "ofs", "abfs", "abfss", "wasb", "wasbs", "gs", "cosn"));
       protected static final Set<String> REMOTE_IMPLEMENTATIONS = new HashSet<>(Arrays.asList(
           "org.apache.hadoop.hdfs.DistributedFileSystem",
           "org.apache.hadoop.fs.s3a.S3AFileSystem",
@@ -4107,7 +4109,6 @@ public abstract class FileSystem extends Configured
           "org.apache.hadoop.fs.azurebfs.SecureAzureBlobFileSystem",
           "org.apache.hadoop.fs.azure.NativeAzureFileSystem",
           "org.apache.hadoop.fs.azure.NativeAzureFileSystem$Secure",
-          "io.juicefs.JuiceFileSystem",
           "org.apache.hadoop.fs.ozone.OzoneFileSystem",
           "org.apache.hadoop.fs.ozone.RootedOzoneFileSystem",
           "org.apache.hadoop.fs.cosn.CosNFileSystem",

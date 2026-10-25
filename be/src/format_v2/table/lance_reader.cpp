@@ -163,8 +163,8 @@ std::string local_provider_uri(const std::string& scheme, const std::string& pat
 }
 
 Status local_uri_path(const std::string& requested, std::string* scheme, std::string* path) {
-    // Use the pinned SDK's default registry before any manifest/store open. The aliases
-    // are non-special URLs; changing them to file: before parsing changes their meaning.
+    // Use the pinned SDK's default registry before any manifest/store open, including
+    // whole-string filesystem fallback when parsing a malformed file URL fails.
     std::unique_ptr<const char, decltype(&lance_free_string)> json(
             lance_local_uri_path_json(requested.c_str()), &lance_free_string);
     if (!json) {
@@ -180,7 +180,7 @@ Status local_uri_path(const std::string& requested, std::string* scheme, std::st
     }
     scheme->assign(metadata["scheme"].GetString(), metadata["scheme"].GetStringLength());
     path->assign(metadata["local_path"].GetString(), metadata["local_path"].GetStringLength());
-    if (*scheme != "file-object-store" && *scheme != "file+uring") {
+    if (*scheme != "file" && *scheme != "file-object-store" && *scheme != "file+uring") {
         return Status::InvalidArgument("LOCAL Lance TVF requires a local provider");
     }
     return Status::OK();
@@ -214,11 +214,13 @@ Status resolve_dataset_uri(const TFileRangeDesc& range, const TFileScanRangePara
                                   .string();
         }
         std::string scheme;
-        io::Path parsed;
-        if (!bare_path && !io::LocalFileSystem::parse_local_path(requested_uri, parsed).ok()) {
-            // Keep the established file: URL normalization (including encoded slashes
-            // beside symlinks). Only unsupported local aliases need the SDK path parser.
+        if (!bare_path) {
+            // Keep the SDK's actual URL or whole-string fallback identity before containment.
+            // The returned absolute path is already decoded and must remain literal.
             RETURN_IF_ERROR(local_uri_path(requested_uri, &scheme, &local_input));
+            if (scheme == "file") {
+                scheme.clear();
+            }
         }
         RETURN_IF_ERROR(io::global_local_filesystem()->canonicalize_local_file(
                 config::user_files_secure_path, local_input, uri));
