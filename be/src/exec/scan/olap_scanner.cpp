@@ -28,6 +28,7 @@
 #include <atomic>
 #include <ostream>
 #include <set>
+#include <unordered_map>
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet_hotspot.h"
@@ -677,7 +678,81 @@ Status OlapScanner::_init_read_schema() {
     // every storage key, sequence, TSO and changelog column required below.
     _tablet_reader_params.read_schema =
             std::make_shared<ReadSchema>(std::move(read_columns), std::move(expected_types));
+    const auto& scan_node = assert_cast<OlapScanLocalState*>(_local_state)->olap_scan_node();
+    return _init_changelog_read_mappings(
+            scan_node, _output_tuple_desc->slots(), *_tablet_reader_params.tablet_schema,
+            _tablet_reader_params.changelog_scan_type, *_tablet_reader_params.read_schema);
+}
 
+Status OlapScanner::_init_changelog_read_mappings(const TOlapScanNode& scan_node,
+                                                  const std::vector<SlotDescriptor*>& slots,
+                                                  const TabletSchema& tablet_schema,
+                                                  TChangelogScanType::type scan_type,
+                                                  ReadSchema& read_schema) {
+    const bool merge_scan =
+            scan_type == TChangelogScanType::DETAIL || scan_type == TChangelogScanType::MIN_DELTA;
+    // Missing mappings are a malformed merge plan. Explicit empty pairs are valid for
+    // key-only reads and DETAIL on a table that does not record historical values.
+    if (merge_scan && (!scan_node.__isset.changelog_column_mappings ||
+                       !scan_node.changelog_column_mappings.__isset.pairs)) {
+        return Status::InvalidArgument("Changelog merge scan requires explicit read mappings");
+    }
+    DORIS_CHECK_EQ(slots.size(), read_schema.num_block_columns());
+    std::unordered_map<int32_t, ColumnId> slot_ordinals;
+    for (ColumnId ordinal = 0; ordinal < slots.size(); ++ordinal) {
+        if (!slot_ordinals.emplace(slots[ordinal]->id(), ordinal).second) {
+            return Status::InvalidArgument("Duplicate changelog scan slot {}",
+                                           slots[ordinal]->id());
+        }
+    }
+    ReadSchema::ChangelogValueColumnPairs pairs;
+    if (scan_node.__isset.changelog_column_mappings) {
+        for (const auto& pair : scan_node.changelog_column_mappings.pairs) {
+            if (!pair.__isset.current_slot_id || !pair.__isset.before_slot_id) {
+                return Status::InvalidArgument("Changelog read pair requires both slot IDs");
+            }
+            const auto current = slot_ordinals.find(pair.current_slot_id);
+            const auto before = slot_ordinals.find(pair.before_slot_id);
+            if (current == slot_ordinals.end() || before == slot_ordinals.end()) {
+                return Status::InvalidArgument("Unknown changelog read slot pair ({}, {})",
+                                               pair.current_slot_id, pair.before_slot_id);
+            }
+            pairs.emplace_back(current->second, before->second);
+        }
+    }
+    RETURN_IF_ERROR(read_schema.init_changelog_column_mappings(tablet_schema, pairs));
+    if (scan_type != TChangelogScanType::NONE &&
+        (read_schema.tso_ordinal() < 0 || read_schema.op_ordinal() < 0)) {
+        return Status::InvalidArgument("Changelog scan requires TSO and OP columns");
+    }
+    if (scan_type == TChangelogScanType::MIN_DELTA) {
+        std::unordered_set<ColumnId> paired;
+        for (const auto& [current, before] : pairs) {
+            paired.insert(current);
+            paired.insert(before);
+        }
+        for (ColumnId cid = 0; cid < tablet_schema.num_columns(); ++cid) {
+            if (static_cast<int32_t>(cid) == tablet_schema.changelog_tso_col_idx() ||
+                static_cast<int32_t>(cid) == tablet_schema.changelog_lsn_col_idx() ||
+                static_cast<int32_t>(cid) == tablet_schema.changelog_op_col_idx()) {
+                continue;
+            }
+            const auto& column = tablet_schema.column(cid);
+            const int32_t ordinal = read_schema.ordinal_by_uid(column.unique_id());
+            // Even an unprojected value may change: comparing only v1 would incorrectly
+            // suppress an UPDATE that changed v2. Require the entire original value shape.
+            if (ordinal < 0 || static_cast<size_t>(ordinal) >= read_schema.num_block_columns() ||
+                (!column.is_key() && !paired.contains(cast_set<ColumnId>(ordinal))) ||
+                !remove_nullable(read_schema.data_type(ordinal))
+                         ->equals(*remove_nullable(column.get_vec_type())) ||
+                remove_nullable(read_schema.data_type(ordinal))->get_name() !=
+                        remove_nullable(column.get_vec_type())->get_name()) {
+                return Status::InvalidArgument(
+                        "MIN_DELTA requires complete current and before values: column uid {}",
+                        column.unique_id());
+            }
+        }
+    }
     return Status::OK();
 }
 

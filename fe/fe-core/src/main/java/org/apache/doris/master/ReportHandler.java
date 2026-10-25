@@ -70,6 +70,7 @@ import org.apache.doris.task.CreateReplicaTask;
 import org.apache.doris.task.DropReplicaTask;
 import org.apache.doris.task.MasterTask;
 import org.apache.doris.task.PublishVersionTask;
+import org.apache.doris.task.PublishVersionTask.RepublishInfo;
 import org.apache.doris.task.PushCooldownConfTask;
 import org.apache.doris.task.PushIndexPolicyTask;
 import org.apache.doris.task.PushStoragePolicyTask;
@@ -93,6 +94,7 @@ import org.apache.doris.thrift.TTabletInfo;
 import org.apache.doris.thrift.TTabletMetaInfo;
 import org.apache.doris.thrift.TTabletRole;
 import org.apache.doris.thrift.TTaskType;
+import org.apache.doris.transaction.ChangelogWriteMapping;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.LinkedHashMultimap;
@@ -610,7 +612,7 @@ public class ReportHandler extends Daemon {
         Map<Long, Long> partitionVersionSyncMap = Maps.newConcurrentMap();
 
         // dbid -> txn id -> [partition info]
-        Map<Long, SetMultimap<Long, TPartitionVersionInfo>> transactionsToPublish = Maps.newHashMap();
+        Map<Long, SetMultimap<Long, RepublishInfo>> transactionsToPublish = Maps.newHashMap();
         SetMultimap<Long, Long> transactionsToClear = LinkedHashMultimap.create();
 
         // db id -> tablet id
@@ -1316,14 +1318,22 @@ public class ReportHandler extends Daemon {
     }
 
     private static void handleRepublishVersionInfo(
-            Map<Long, SetMultimap<Long, TPartitionVersionInfo>> transactionsToPublish, long backendId) {
+            Map<Long, SetMultimap<Long, RepublishInfo>> transactionsToPublish, long backendId) {
         AgentBatchTask batchTask = new AgentBatchTask();
         long createPublishVersionTaskTime = System.currentTimeMillis();
         for (Long dbId : transactionsToPublish.keySet()) {
-            SetMultimap<Long, TPartitionVersionInfo> map = transactionsToPublish.get(dbId);
+            SetMultimap<Long, RepublishInfo> map = transactionsToPublish.get(dbId);
             for (long txnId : map.keySet()) {
+                List<TPartitionVersionInfo> partitions = new ArrayList<>();
+                Map<Long, ChangelogWriteMapping> mappings = map.get(txnId).iterator().next().getMappings();
+                for (RepublishInfo info : map.get(txnId)) {
+                    Preconditions.checkState(mappings.equals(info.getMappings()),
+                            "Conflicting changelog snapshots for transaction %s", txnId);
+                    partitions.add(info.getPartitionVersionInfo());
+                }
                 PublishVersionTask task = new PublishVersionTask(backendId, txnId, dbId,
-                        Lists.newArrayList(map.get(txnId)), createPublishVersionTaskTime);
+                        partitions, createPublishVersionTaskTime);
+                task.setChangelogWriteMappings(mappings);
                 batchTask.addTask(task);
                 // add to AgentTaskQueue for handling finish report.
                 AgentTaskQueue.addTask(task);

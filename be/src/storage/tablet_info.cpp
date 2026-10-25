@@ -58,6 +58,7 @@
 #include "exprs/function/cast/cast_to_timestamptz.h"
 #include "exprs/vexpr_context.h" // IWYU pragma: keep
 #include "exprs/vliteral.h"
+#include "storage/changelog.h"
 
 namespace doris {
 
@@ -73,6 +74,9 @@ const OlapTableIndexSchema* OlapTableSchemaParam::changelog_index_schema(int64_t
 void OlapTableIndexSchema::to_protobuf(POlapTableIndexSchema* pindex) const {
     pindex->set_id(index_id);
     pindex->set_schema_hash(schema_hash);
+    if (changelog_column_mappings != nullptr) {
+        *pindex->mutable_changelog_column_mappings() = *changelog_column_mappings;
+    }
     if (changelog_index_id > 0) {
         pindex->set_changelog_index_id(changelog_index_id);
     }
@@ -195,8 +199,16 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
         auto* index = _obj_pool.add(new OlapTableIndexSchema());
         index->index_id = p_index.id();
         index->schema_hash = p_index.schema_hash();
-        if (p_index.has_changelog_index_id()) {
+        if (p_index.has_changelog_index_id() && p_index.changelog_index_id() > 0) {
             index->changelog_index_id = p_index.changelog_index_id();
+            if (!p_index.has_changelog_column_mappings()) {
+                return Status::InvalidArgument("source index {} misses changelog mapping",
+                                               index->index_id);
+            }
+            RETURN_IF_ERROR(changelog::validate_mapping(p_index.changelog_column_mappings()));
+            index->changelog_column_mappings =
+                    std::make_shared<const PChangelogWriteColumnMappings>(
+                            p_index.changelog_column_mappings());
         }
         for (const auto& pcolumn_desc : p_index.columns_desc()) {
             if (_unique_key_update_mode != UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS ||
@@ -356,8 +368,16 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
         auto* index = _obj_pool.add(new OlapTableIndexSchema());
         index->index_id = t_index.id;
         index->schema_hash = t_index.schema_hash;
-        if (t_index.__isset.changelog_index_id) {
+        if (t_index.__isset.changelog_index_id && t_index.changelog_index_id > 0) {
             index->changelog_index_id = t_index.changelog_index_id;
+            if (!t_index.__isset.changelog_column_mappings) {
+                return Status::InvalidArgument("source index {} misses changelog mapping",
+                                               index->index_id);
+            }
+            auto mapping = std::make_shared<PChangelogWriteColumnMappings>();
+            RETURN_IF_ERROR(changelog::mapping_from_thrift(t_index.changelog_column_mappings,
+                                                           mapping.get()));
+            index->changelog_column_mappings = std::move(mapping);
         }
         for (const auto& tcolumn_desc : t_index.columns_desc) {
             if (_unique_key_update_mode != UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS ||

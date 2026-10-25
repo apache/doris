@@ -30,6 +30,7 @@
 #include <unordered_map>
 
 #include "common/status.h"
+#include "cpp/sync_point.h"
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
 #include "storage/data_dir.h"
@@ -141,8 +142,44 @@ TEST_F(StorageEngineTest, TestAsyncPublish) {
     TabletSharedPtr tablet = _storage_engine->tablet_manager()->get_tablet(tablet_id);
     EXPECT_EQ(tablet->max_version().second, 10);
 
+    auto mapping = std::make_shared<PChangelogWriteColumnMappings>();
+    mapping->set_need_historical_value(true);
+    auto* entry = mapping->add_entries();
+    entry->set_source_column_unique_id(1);
+    entry->set_current_column_unique_id(2);
+    {
+        SyncPoint::CallbackGuard guard;
+        SyncPoint::get_instance()->set_call_back(
+                "StorageEngine::add_async_publish_task::save_pending_publish_info",
+                [](auto&& args) {
+                    auto* result = try_any_cast_ret<Status>(args);
+                    result->first =
+                            Status::Error<META_PUT_ERROR>("injected pending-publish write failure");
+                    result->second = true;
+                },
+                &guard);
+        SyncPoint::get_instance()->enable_processing();
+        auto failed = _storage_engine->add_async_publish_task(partition_id, tablet_id, 11, 11,
+                                                              false, 110, mapping);
+        EXPECT_TRUE(failed.is<META_PUT_ERROR>()) << failed;
+        EXPECT_TRUE(_storage_engine->_async_publish_tasks.empty());
+        SyncPoint::get_instance()->disable_processing();
+    }
+    bool persisted_after_failure = false;
+    ASSERT_TRUE(
+            TabletMetaManager::traverse_pending_publish(_data_dir->get_meta(),
+                                                        [&](int64_t, int64_t, std::string_view) {
+                                                            persisted_after_failure = true;
+                                                            return true;
+                                                        })
+                    .ok());
+    EXPECT_FALSE(persisted_after_failure);
+
     for (int64_t i = 5; i < 12; ++i) {
-        _storage_engine->add_async_publish_task(partition_id, tablet_id, i, i, false, i * 10);
+        EXPECT_TRUE(_storage_engine
+                            ->add_async_publish_task(partition_id, tablet_id, i, i, false, i * 10,
+                                                     mapping)
+                            .ok());
     }
     EXPECT_EQ(_storage_engine->_async_publish_tasks[tablet_id].size(), 7);
     EXPECT_EQ(_storage_engine->get_pending_publish_min_version(tablet_id), 5);
@@ -158,11 +195,25 @@ TEST_F(StorageEngineTest, TestAsyncPublish) {
                 bool parsed = pb.ParseFromArray(info.data(), static_cast<int>(info.size()));
                 EXPECT_TRUE(parsed);
                 version_to_commit_tso[publish_version] = pb.commit_tso();
+                EXPECT_TRUE(pb.has_changelog_column_mappings());
+                EXPECT_EQ(pb.changelog_column_mappings().SerializeAsString(),
+                          mapping->SerializeAsString());
+                // DataDir uses this same recovery entry point after deserializing PB.
+                EXPECT_TRUE(_storage_engine
+                                    ->add_async_publish_task(
+                                            pb.partition_id(), tablet_id, publish_version,
+                                            pb.transaction_id(), true, pb.commit_tso(),
+                                            std::make_shared<const PChangelogWriteColumnMappings>(
+                                                    pb.changelog_column_mappings()))
+                                    .ok());
                 return true;
             });
     EXPECT_TRUE(st.ok()) << st;
     EXPECT_EQ(version_to_commit_tso[5], 50);
     EXPECT_EQ(version_to_commit_tso[11], 110);
+    EXPECT_EQ(
+            std::get<3>(_storage_engine->_async_publish_tasks[tablet_id][11])->SerializeAsString(),
+            mapping->SerializeAsString());
 
     for (int64_t i = 1; i < 8; ++i) {
         _storage_engine->_process_async_publish();
@@ -172,13 +223,19 @@ TEST_F(StorageEngineTest, TestAsyncPublish) {
     EXPECT_EQ(_storage_engine->_async_publish_tasks.size(), 0);
 
     for (int64_t i = 100; i < config::max_tablet_version_num + 120; ++i) {
-        _storage_engine->add_async_publish_task(partition_id, tablet_id, i, i, false, -1 /*tso*/);
+        EXPECT_TRUE(
+                _storage_engine
+                        ->add_async_publish_task(partition_id, tablet_id, i, i, false, -1 /*tso*/)
+                        .ok());
     }
     EXPECT_EQ(_storage_engine->_async_publish_tasks[tablet_id].size(),
               config::max_tablet_version_num + 20);
 
     for (int64_t i = 90; i < 120; ++i) {
-        _storage_engine->add_async_publish_task(partition_id, tablet_id, i, i, false, -1 /*tso*/);
+        EXPECT_TRUE(
+                _storage_engine
+                        ->add_async_publish_task(partition_id, tablet_id, i, i, false, -1 /*tso*/)
+                        .ok());
     }
     EXPECT_EQ(_storage_engine->_async_publish_tasks[tablet_id].size(),
               config::max_tablet_version_num + 30);
@@ -189,11 +246,21 @@ TEST_F(StorageEngineTest, TestAsyncPublish) {
               config::max_tablet_version_num);
     EXPECT_EQ(_storage_engine->get_pending_publish_min_version(tablet_id), 120);
 
+    _storage_engine->_tablet_publish_txn_thread_pool->shutdown();
+    EXPECT_TRUE(
+            _storage_engine
+                    ->add_async_publish_task(partition_id, tablet_id, 11, 11, false, 110, mapping)
+                    .ok());
+    _storage_engine->_process_async_publish();
+    EXPECT_EQ(_storage_engine->_async_publish_tasks[tablet_id].size(),
+              config::max_tablet_version_num + 1);
+    EXPECT_EQ(std::get<3>(_storage_engine->_async_publish_tasks[tablet_id][11]), mapping);
+
     st = _storage_engine->tablet_manager()->drop_tablet(tablet_id, 0, false);
     EXPECT_EQ(st, Status::OK());
 
     EXPECT_EQ(_storage_engine->_async_publish_tasks[tablet_id].size(),
-              config::max_tablet_version_num);
+              config::max_tablet_version_num + 1);
     _storage_engine->_process_async_publish();
     EXPECT_EQ(_storage_engine->_async_publish_tasks.size(), 0);
 }

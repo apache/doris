@@ -328,6 +328,7 @@ import org.apache.doris.thrift.TUpdatePlanStatsCacheRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusResult;
 import org.apache.doris.transaction.BeginTransactionException;
+import org.apache.doris.transaction.ChangelogWriteMapping;
 import org.apache.doris.transaction.SubTransactionState;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.Transaction;
@@ -2434,6 +2435,20 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         TableIf tableIf = db.getTableOrMetaException(request.getTbl(), TableType.OLAP);
         OlapTable table = (OlapTable) tableIf;
+        try {
+            Map<Long, ChangelogWriteMapping> mappings =
+                    ChangelogWriteMapping.fromThrift(request.getChangelogColumnMappings());
+            if (!Config.isCloudMode()) {
+                TransactionState state = Env.getCurrentGlobalTransactionMgr().getTransactionState(
+                        db.getId(), request.getTxnId());
+                if (state == null) {
+                    throw new UserException("Missing remote transaction " + request.getTxnId());
+                }
+                state.installRemoteChangelogWriteMappings(mappings);
+            }
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            throw new UserException("Invalid remote changelog snapshot: " + e.getMessage(), e);
+        }
         return Env.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
                 db, Lists.newArrayList(table),
                 request.getTxnId(),

@@ -27,6 +27,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.task.PublishVersionTask;
 import org.apache.doris.thrift.TUniqueId;
@@ -34,6 +35,7 @@ import org.apache.doris.thrift.TUniqueId;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -58,7 +60,7 @@ import java.util.TreeMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
-public class TransactionState implements Writable {
+public class TransactionState implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(TransactionState.class);
 
     // compare the TransactionState by txn id, desc
@@ -336,6 +338,76 @@ public class TransactionState implements Writable {
     @SerializedName(value = "sui")
     private List<TableStreamUpdateInfo> streamUpdateInfos;
 
+    // Actual write transaction id (including subtransactions) -> source index -> write-time snapshot.
+    @SerializedName("changelogWriteMappings")
+    private volatile Map<Long, Map<Long, ChangelogWriteMapping>> changelogWriteMappings = ImmutableMap.of();
+    @SerializedName("remoteChangelogMappingsInstalled")
+    private boolean remoteChangelogMappingsInstalled;
+
+    public boolean hasChangelogWriteMappings() {
+        return changelogWriteMappings.values().stream().anyMatch(mappings -> !mappings.isEmpty());
+    }
+
+    public synchronized Map<Long, ChangelogWriteMapping> getChangelogWriteMappings(long writeTxnId) {
+        return changelogWriteMappings.getOrDefault(writeTxnId, ImmutableMap.of());
+    }
+
+    public synchronized void registerChangelogWriteMappings(long writeTxnId,
+            Map<Long, ChangelogWriteMapping> mappings) {
+        checkChangelogRegistrationStatus();
+        Map<Long, ChangelogWriteMapping> existing = getChangelogWriteMappings(writeTxnId);
+        Map<Long, ChangelogWriteMapping> updated = new TreeMap<>(existing);
+        for (Map.Entry<Long, ChangelogWriteMapping> entry : mappings.entrySet()) {
+            ChangelogWriteMapping previous = existing.get(entry.getKey());
+            if (previous != null) {
+                Preconditions.checkState(previous.equals(entry.getValue()),
+                        "Changelog mapping changed for transaction %s, source index %s", writeTxnId, entry.getKey());
+            } else {
+                Preconditions.checkState(transactionStatus == TransactionStatus.PREPARE
+                                && !remoteChangelogMappingsInstalled,
+                        "Changelog snapshots frozen for transaction %s (%s)", writeTxnId, transactionStatus);
+                updated.put(entry.getKey(), entry.getValue());
+            }
+        }
+        if (!updated.equals(existing)) {
+            Map<Long, Map<Long, ChangelogWriteMapping>> all = new TreeMap<>(changelogWriteMappings);
+            all.put(writeTxnId, ImmutableMap.copyOf(updated));
+            changelogWriteMappings = ImmutableMap.copyOf(all);
+        }
+    }
+
+    public synchronized void installRemoteChangelogWriteMappings(Map<Long, ChangelogWriteMapping> mappings) {
+        checkChangelogRegistrationStatus();
+        Map<Long, ChangelogWriteMapping> snapshot = ImmutableMap.copyOf(mappings);
+        if (remoteChangelogMappingsInstalled) {
+            Preconditions.checkState(getChangelogWriteMappings(transactionId).equals(snapshot),
+                    "Remote changelog snapshot changed for transaction %s", transactionId);
+            return;
+        }
+        Preconditions.checkState(transactionStatus == TransactionStatus.PREPARE,
+                "Cannot install remote changelog snapshot for frozen transaction %s (%s)",
+                transactionId, transactionStatus);
+        Preconditions.checkState(changelogWriteMappings.isEmpty(),
+                "Remote transaction %s already has local changelog snapshots", transactionId);
+        changelogWriteMappings = ImmutableMap.of(transactionId, snapshot);
+        remoteChangelogMappingsInstalled = true;
+    }
+
+    private void checkChangelogRegistrationStatus() {
+        Preconditions.checkState(transactionStatus == TransactionStatus.PREPARE
+                        || transactionStatus == TransactionStatus.PRECOMMITTED
+                        || transactionStatus == TransactionStatus.COMMITTED
+                        || transactionStatus == TransactionStatus.VISIBLE,
+                "Cannot register changelog mappings for transaction %s (%s)", transactionId, transactionStatus);
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        Map<Long, Map<Long, ChangelogWriteMapping>> snapshots = new TreeMap<>();
+        changelogWriteMappings.forEach((txnId, mappings) -> snapshots.put(txnId, ImmutableMap.copyOf(mappings)));
+        changelogWriteMappings = ImmutableMap.copyOf(snapshots);
+    }
+
     public TransactionState() {
         this.dbId = -1;
         this.tableIdList = Lists.newArrayList();
@@ -524,7 +596,7 @@ public class TransactionState implements Writable {
         this.lastPublishLogTime = lastPublishLogTime;
     }
 
-    public void setTransactionStatus(TransactionStatus transactionStatus) {
+    public synchronized void setTransactionStatus(TransactionStatus transactionStatus) {
         // status changed
         this.preStatus = this.transactionStatus;
         this.transactionStatus = transactionStatus;

@@ -1705,9 +1705,10 @@ Status BaseTablet::check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap
     return Status::OK();
 }
 
-Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInfo* txn_info,
-                                        int64_t txn_id, int64_t txn_expiration,
-                                        DeleteBitmapPtr tablet_delete_bitmap) {
+Status BaseTablet::update_delete_bitmap(
+        const BaseTabletSPtr& self, TabletTxnInfo* txn_info, int64_t txn_id, int64_t txn_expiration,
+        DeleteBitmapPtr tablet_delete_bitmap,
+        std::shared_ptr<const changelog::ResolvedChangelogLayout> changelog_layout) {
     SCOPED_BVAR_LATENCY(g_tablet_update_delete_bitmap_latency);
     RowsetIdUnorderedSet cur_rowset_ids;
     RowsetIdUnorderedSet rowset_ids_to_add;
@@ -1721,31 +1722,15 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
     bool is_partial_update =
             txn_info->partial_update_info && txn_info->partial_update_info->is_partial_update();
     const auto& changelog_rs = txn_info->attach_changelog.rowset;
-    if (changelog_rs != nullptr && changelog_rs->rowset_meta() != nullptr &&
-        changelog_rs->rowset_meta()->is_changelog()) {
+    if (changelog_rs != nullptr) {
         DCHECK(txn_info->attach_changelog.tablet != nullptr);
-        changelog_rowset = changelog_rs;
-        build_changelog =
-                is_partial_update ||
-                txn_info->attach_changelog.tablet->binlog_config().need_historical_value();
-    }
-    // The rewrite below reads the LSN of conflicting rows from the attached changelog rowset and
-    // derives TSO/LSN/OP for new changelog segments, at positions found by the hidden column
-    // names. Example: a load committed by a build that named those columns differently, then
-    // published after the upgrade (the FE resends the publish after every restart): its rowset
-    // has none of them, and the LSN read would index past the schema. Fail the publish instead.
-    if (build_changelog) {
-        const auto& changelog_schema = *changelog_rowset->tablet_schema();
-        if (changelog_schema.changelog_tso_col_idx() < 0 ||
-            changelog_schema.changelog_lsn_col_idx() < 0 ||
-            changelog_schema.changelog_op_col_idx() < 0) {
-            return Status::InternalError<false>(
-                    "changelog rowset {} misses its hidden columns {}, {} or {}: changelog "
-                    "tablet={}, base tablet={}, txn_id={}",
-                    changelog_rowset->rowset_id().to_string(), CHANGELOG_TSO_COL, CHANGELOG_LSN_COL,
-                    CHANGELOG_OP_COL, txn_info->attach_changelog.tablet->tablet_id(),
-                    self->tablet_id(), txn_id);
+        // Publishing validates before visibility and supplies the same schema-bound
+        // layout to this writer, including key-only historical transactions.
+        if (changelog_layout == nullptr) {
+            return Status::InvalidArgument("changelog bitmap update requires resolved layout");
         }
+        changelog_rowset = changelog_rs;
+        build_changelog = is_partial_update || changelog_layout->need_historical_value;
     }
 
     // rewrite conflict only when partial update or need before
@@ -1890,6 +1875,8 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
         auto& changelog_ctx =
                 const_cast<RowsetWriterContext&>(transient_changelog_writer->context());
         auto& cfg = changelog_ctx.write_changelog_opt().write_changelog_config();
+        cfg.layout = changelog_layout;
+        cfg.write_before = cfg.layout->need_historical_value;
         cfg.source.tablet_schema = data_ctx.tablet_schema;
         cfg.source.partial_update_info = data_ctx.partial_update_info;
         cfg.source.mow_context = data_ctx.mow_context;

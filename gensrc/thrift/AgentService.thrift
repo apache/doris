@@ -523,6 +523,8 @@ struct TPublishVersionRequest {
     3: optional bool strict_mode = false
     // for delta rows statistics to exclude rollup tablets
     4: optional set<Types.TTabletId> base_tablet_ids
+    // Snapshots from this write transaction, keyed by each entry's source index.
+    8: optional list<Descriptors.TChangelogIndexWriteSnapshot> changelog_column_mappings
 }
 
 struct TVisibleVersionReq {

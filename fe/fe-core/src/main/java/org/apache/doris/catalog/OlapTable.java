@@ -3417,9 +3417,9 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         tableProperty.buildReplicaAllocation();
     }
 
-    // for light schema change
+    // Changelog writes also require stable source UIDs when light schema change DDL is disabled.
     public void initSchemaColumnUniqueId() {
-        if (!getEnableLightSchemaChange()) {
+        if (!getEnableLightSchemaChange() && !hasChangelog()) {
             return;
         }
 

@@ -3338,6 +3338,7 @@ protected:
         options.source.mow_context = std::move(source_mow_context);
         options.source.is_transient_rowset_writer = source_is_transient;
         options.source.source_write_type = DataWriteType::TYPE_DIRECT;
+        ASSERT_TRUE(testutil::resolve_test_changelog_layout(context).ok());
         for (int64_t segment_id = 0; segment_id < 2; ++segment_id) {
             auto lsn_ids = std::make_shared<std::vector<int64_t>>();
             for (int64_t row = 0; row < rows_per_segment; ++row) {

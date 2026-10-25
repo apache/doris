@@ -182,6 +182,7 @@ protected:
         changelog_options.source.partial_update_info = partial_update_info;
         changelog_options.source.mow_context = mow_context;
         changelog_options.source.source_write_type = DataWriteType::TYPE_DIRECT;
+        RETURN_IF_ERROR_RESULT(testutil::resolve_test_changelog_layout(changelog_context));
 
         auto lsn_buffer = AutoIncIDBuffer::create_shared(1, 1, kChangelogLsnAutoIncId);
         lsn_buffer->append_range_for_test(1000, num_rows);
@@ -260,6 +261,7 @@ protected:
         cfg.source.base_tablet = _tablet;
         cfg.source.is_transient_rowset_writer = true;
         cfg.source.source_write_type = DataWriteType::TYPE_DIRECT;
+        RETURN_IF_ERROR(testutil::resolve_test_changelog_layout(changelog_context));
         auto lsn_buffer = AutoIncIDBuffer::create_shared(1, 1, kChangelogLsnAutoIncId);
         lsn_buffer->append_range_for_test(1000, num_rows);
         std::vector<int64_t> allocated_lsns;
@@ -407,8 +409,7 @@ TEST_F(GroupRowsetWriterTest, partialUpdateSkipsHiddenNonKeyColumns) {
     reader_context.read_schema = read_schema;
     EXPECT_TRUE(read_schema
                         ->init_from_tablet_schema(*changelog_schema,
-                                                  /*merge_by_sequence_mapping=*/false,
-                                                  /*map_changelog_columns=*/false)
+                                                  /*merge_by_sequence_mapping=*/false)
                         .ok());
 
     RowsetReaderSharedPtr rowset_reader;
@@ -479,8 +480,7 @@ TEST_F(GroupRowsetWriterTest, keyOnlyFixedPartialUpdatePreservesNarrowBlock) {
     reader_context.read_schema = read_schema;
     EXPECT_TRUE(read_schema
                         ->init_from_tablet_schema(*changelog_schema,
-                                                  /*merge_by_sequence_mapping=*/false,
-                                                  /*map_changelog_columns=*/false)
+                                                  /*merge_by_sequence_mapping=*/false)
                         .ok());
 
     RowsetReaderSharedPtr rowset_reader;
