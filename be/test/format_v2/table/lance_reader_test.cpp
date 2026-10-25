@@ -1967,6 +1967,92 @@ TEST(LanceTableReaderFilterTest, SkipsTimestampNanoRuntimeFilterBeforeMaterializ
     EXPECT_TRUE(reader.close().ok());
 }
 
+TEST(LanceTableReaderFilterTest, PreservesNegativeNaNUnderFloatingMinRuntimeFilter) {
+    const auto unique_suffix = std::chrono::steady_clock::now().time_since_epoch().count();
+    const auto dataset_uri =
+            std::filesystem::temp_directory_path() /
+            ("doris_lance_negative_nan_rf_" + std::to_string(unique_suffix) + ".lance");
+    Defer cleanup {[&] {
+        std::error_code error;
+        std::filesystem::remove_all(dataset_uri, error);
+    }};
+
+    // Rows 1..5 hold 0.5, 1, 2, +NaN, and a negative NaN in both columns.
+    const auto negative_nan_f32 = std::bit_cast<float>(uint32_t {0xffc00000});
+    const auto negative_nan_f64 = std::bit_cast<double>(uint64_t {0xfff8000000000000});
+    ASSERT_TRUE(std::isnan(negative_nan_f32) && std::signbit(negative_nan_f32));
+    ASSERT_TRUE(std::isnan(negative_nan_f64) && std::signbit(negative_nan_f64));
+    arrow::Int64Builder row_id_builder;
+    ASSERT_TRUE(row_id_builder.AppendValues({1, 2, 3, 4, 5}).ok());
+    std::shared_ptr<arrow::Array> row_ids;
+    ASSERT_TRUE(row_id_builder.Finish(&row_ids).ok());
+    arrow::FloatBuilder f32_builder;
+    ASSERT_TRUE(f32_builder
+                        .AppendValues({0.5F, 1.0F, 2.0F, std::numeric_limits<float>::quiet_NaN(),
+                                       negative_nan_f32})
+                        .ok());
+    std::shared_ptr<arrow::Array> f32_values;
+    ASSERT_TRUE(f32_builder.Finish(&f32_values).ok());
+    arrow::DoubleBuilder f64_builder;
+    ASSERT_TRUE(f64_builder
+                        .AppendValues({0.5, 1.0, 2.0, std::numeric_limits<double>::quiet_NaN(),
+                                       negative_nan_f64})
+                        .ok());
+    std::shared_ptr<arrow::Array> f64_values;
+    ASSERT_TRUE(f64_builder.Finish(&f64_values).ok());
+    const auto schema = arrow::schema({arrow::field("row_id", arrow::int64()),
+                                       arrow::field("f32", arrow::float32()),
+                                       arrow::field("f64", arrow::float64())});
+    ASSERT_TRUE(write_lance_record_batch(
+                        dataset_uri,
+                        arrow::RecordBatch::Make(schema, 5, {row_ids, f32_values, f64_values}))
+                        .ok());
+
+    const Columns columns {projected_column("row_id", TYPE_BIGINT, false)};
+    for (const bool use_double : {false, true}) {
+        SCOPED_TRACE(use_double ? "f64" : "f32");
+        const auto runtime_filter = use_double ? create_runtime_range_conjunct<TYPE_DOUBLE>(
+                                                         "f64", TExprOpcode::GE, 1.0,
+                                                         std::make_shared<DataTypeFloat64>(), 52)
+                                               : create_runtime_range_conjunct<TYPE_FLOAT>(
+                                                         "f32", TExprOpcode::GE, 1.0F,
+                                                         std::make_shared<DataTypeFloat32>(), 51);
+        TQueryGlobals query_globals;
+        RuntimeState state(TQueryOptions(), query_globals);
+        RuntimeProfile profile("lance_negative_nan_runtime_filter_fixture");
+        TFileScanRangeParams scan_params;
+        LanceTableReader reader;
+        ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params, {runtime_filter})
+                            .ok());
+        ASSERT_TRUE(prepare_range(&reader, make_latest_lance_range(dataset_uri)).ok());
+
+        Block block;
+        add_output_columns(&block, columns);
+        std::vector<int64_t> returned_row_ids;
+        bool eos = false;
+        while (!eos) {
+            ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+            if (!eos) {
+                const auto& values =
+                        assert_cast<const ColumnInt64&>(*block.get_by_position(0).column);
+                returned_row_ids.insert(returned_row_ids.end(), values.get_data().begin(),
+                                        values.get_data().end());
+            }
+        }
+        EXPECT_TRUE(reader.close().ok());
+        const auto* skipped_ids = profile.get_info_string("LanceRuntimeFilterSkippedIds");
+        ASSERT_NE(nullptr, skipped_ids);
+        EXPECT_EQ(use_double ? "52" : "51", *skipped_ids);
+        // Doris keeps rows 2..5 for `x >= 1`, both NaNs included. A pushed `x >= 1` let Lance drop
+        // row 5, which sorts below every finite value in totalOrder. Row 1 may come back too: the
+        // Doris residual removes it.
+        std::ranges::sort(returned_row_ids);
+        for (const int64_t row_id : {2, 3, 4, 5}) {
+            EXPECT_TRUE(std::ranges::binary_search(returned_row_ids, row_id)) << row_id;
+        }
+    }
+}
+
 TEST(LanceTableReaderFilterTest, SkipsPhysicalNumericTypesUnsupportedByPinnedPlanner) {
     const auto unique_suffix = std::chrono::steady_clock::now().time_since_epoch().count();
     const auto dataset_uri =
