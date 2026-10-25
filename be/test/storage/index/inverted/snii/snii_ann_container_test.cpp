@@ -229,7 +229,7 @@ protected:
     // finish_ann_index() below cannot express.
     static Status feed_and_finish(AnnIndexColumnWriter* ann) {
         const std::vector<float> vectors = make_vectors();
-        std::vector<size_t> offsets(kRows + 1);
+        std::vector<uint64_t> offsets(kRows + 1);
         for (uint32_t i = 0; i <= kRows; ++i) {
             offsets[i] = static_cast<size_t>(i) * kDim;
         }
