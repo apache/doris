@@ -49,6 +49,9 @@
 #ifndef LANCE_STORAGE_BASES_JSON_VERSION
 #error "Rebuild lance-c with TVF storage-base metadata support before building Doris"
 #endif
+#ifndef LANCE_LOCAL_URI_PATH_JSON_VERSION
+#error "Rebuild lance-c with pre-open local URI parsing support before building Doris"
+#endif
 
 namespace doris::format::lance {
 
@@ -140,6 +143,49 @@ bool is_local_lance_tvf(const TFileRangeDesc& range, const TFileScanRangeParams&
     return local && (params.version == 0 || (params.__isset.is_tvf && params.is_tvf));
 }
 
+std::string local_provider_uri(const std::string& scheme, const std::string& path) {
+    // This is a URI path, not form encoding: '+' and '%' are literal filename bytes,
+    // while '/' separates canonical path components. Preserve the selected SDK provider.
+    constexpr char hex[] = "0123456789ABCDEF";
+    std::string uri = scheme + "://";
+    for (unsigned char value : path) {
+        if ((value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z') ||
+            (value >= '0' && value <= '9') || value == '-' || value == '.' || value == '_' ||
+            value == '~' || value == '/') {
+            uri.push_back(static_cast<char>(value));
+        } else {
+            uri.push_back('%');
+            uri.push_back(hex[value >> 4]);
+            uri.push_back(hex[value & 15]);
+        }
+    }
+    return uri;
+}
+
+Status local_uri_path(const std::string& requested, std::string* scheme, std::string* path) {
+    // Use the pinned SDK's default registry before any manifest/store open. The aliases
+    // are non-special URLs; changing them to file: before parsing changes their meaning.
+    std::unique_ptr<const char, decltype(&lance_free_string)> json(
+            lance_local_uri_path_json(requested.c_str()), &lance_free_string);
+    if (!json) {
+        return Status::InvalidArgument("local Lance dataset path is not allowed");
+    }
+    rapidjson::Document metadata;
+    metadata.Parse(json.get());
+    if (metadata.HasParseError() || !metadata.IsObject() || !metadata.HasMember("format_version") ||
+        !metadata["format_version"].IsInt() || metadata["format_version"].GetInt() != 1 ||
+        !metadata.HasMember("scheme") || !metadata["scheme"].IsString() ||
+        !metadata.HasMember("local_path") || !metadata["local_path"].IsString()) {
+        return Status::InvalidArgument("Invalid Lance local URI metadata");
+    }
+    scheme->assign(metadata["scheme"].GetString(), metadata["scheme"].GetStringLength());
+    path->assign(metadata["local_path"].GetString(), metadata["local_path"].GetStringLength());
+    if (*scheme != "file-object-store" && *scheme != "file+uring") {
+        return Status::InvalidArgument("LOCAL Lance TVF requires a local provider");
+    }
+    return Status::OK();
+}
+
 Status resolve_dataset_uri(const TFileRangeDesc& range, const TFileScanRangeParams& scan_params,
                            std::string* uri) {
     const auto& requested_uri = range.table_format_params.lance_params.dataset_uri;
@@ -148,6 +194,9 @@ Status resolve_dataset_uri(const TFileRangeDesc& range, const TFileScanRangePara
     if (is_local_lance_tvf(range, scan_params)) {
         // LOCAL Lance bypasses glob because it opens a dataset directory. Apply the same
         // canonical secure-root check before either schema discovery or a cached dataset open.
+        if (requested_uri.empty() || requested_uri.find('\0') != std::string::npos) {
+            return Status::InvalidArgument("local Lance dataset path is not allowed");
+        }
         std::string local_input = requested_uri;
         const auto colon = requested_uri.find(':');
         const auto slash = requested_uri.find('/');
@@ -164,9 +213,20 @@ Status resolve_dataset_uri(const TFileRangeDesc& range, const TFileScanRangePara
                                   .lexically_normal()
                                   .string();
         }
+        std::string scheme;
+        io::Path parsed;
+        if (!bare_path && !io::LocalFileSystem::parse_local_path(requested_uri, parsed).ok()) {
+            // Keep the established file: URL normalization (including encoded slashes
+            // beside symlinks). Only unsupported local aliases need the SDK path parser.
+            RETURN_IF_ERROR(local_uri_path(requested_uri, &scheme, &local_input));
+        }
         RETURN_IF_ERROR(io::global_local_filesystem()->canonicalize_local_file(
                 config::user_files_secure_path, local_input, uri));
-        return validate_local_dataset_files(*uri);
+        RETURN_IF_ERROR(validate_local_dataset_files(*uri));
+        if (!scheme.empty()) {
+            *uri = local_provider_uri(scheme, *uri);
+        }
+        return Status::OK();
     }
     *uri = requested_uri;
     return Status::OK();

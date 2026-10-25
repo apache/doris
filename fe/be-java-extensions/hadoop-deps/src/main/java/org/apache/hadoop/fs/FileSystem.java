@@ -3683,6 +3683,36 @@ public abstract class FileSystem extends Configured
       }
     }
 
+    /** Routes touched by Globber, without constructing a filesystem or listing data. */
+    public static List<Rule> globRules(URI filesystem, String pattern) throws IOException {
+      List<Rule> rules = new ArrayList<>();
+      rules.add(new Rule(filesystem.toString(), pattern, true));
+      if (pattern.indexOf('\\') < 0) {
+        return rules;
+      }
+      for (String expanded : GlobExpander.expand(pattern)) {
+        Path flattened = new Path(expanded.isEmpty() ? Path.CUR_DIR : expanded);
+        String path = flattened.toUri().getPath();
+        Path candidate = new Path(flattened.isAbsolute() ? "/" : Path.CUR_DIR);
+        for (String component : path.split("/")) {
+          if (component.isEmpty()) {
+            continue;
+          }
+          GlobFilter filter = new GlobFilter(component);
+          if (filter.hasPattern()) {
+            // Globber lists this parent before it knows the matching child names. Keep
+            // prior wildcard components as a conservative subtree route, including when
+            // a later escaped '..' moves the final candidate outside that subtree.
+            rules.add(new Rule(filesystem.toString(), new Path(candidate, "*").toUri().getPath(), true));
+          }
+          component = component.replaceAll("\\\\(.)", "$1");
+          candidate = new Path(candidate, component);
+        }
+        rules.add(new Rule(filesystem.toString(), candidate.toUri().getPath(), true));
+      }
+      return rules;
+    }
+
     private static IOException rejected() {
       return new IOException("Hadoop TVF requires a proven remote filesystem route. "
           + "Use local() with LOCAL TVF privileges and secure-path restrictions.");
@@ -3778,6 +3808,10 @@ public abstract class FileSystem extends Configured
             values.put(key, value);
           }
         }
+        // ViewFS's private InnerCache folds authority case (A/a). Guarded children must
+        // instead use FileSystem's exact-authority/profile cache below.
+        set("fs.viewfs.enable.inner.cache", "false");
+        values.put("fs.viewfs.enable.inner.cache", "false");
         try {
           java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
           java.io.DataOutputStream output = new java.io.DataOutputStream(
@@ -3922,11 +3956,6 @@ public abstract class FileSystem extends Configured
         }
         try {
           String implementation = FileSystem.getFileSystemClass(scheme, conf).getName();
-          if (Arrays.asList("io.juicefs.JuiceFileSystem", "org.apache.hadoop.fs.ozone.OzoneFileSystem",
-              "org.apache.hadoop.fs.ozone.RootedOzoneFileSystem", "org.apache.hadoop.fs.cosn.CosNFileSystem",
-              "com.qcloud.chdfs.fs.CHDFSHadoopFileSystemAdapter").contains(implementation)) {
-            return Provider.REMOTE;
-          }
           return implementationProvider(implementation);
         } catch (IOException | RuntimeException e) {
           return Provider.UNKNOWN;
@@ -3951,6 +3980,12 @@ public abstract class FileSystem extends Configured
           "org.apache.hadoop.fs.azurebfs.AzureBlobFileSystem",
           "org.apache.hadoop.fs.azurebfs.SecureAzureBlobFileSystem",
           "org.apache.hadoop.fs.azure.NativeAzureFileSystem",
+          "org.apache.hadoop.fs.azure.NativeAzureFileSystem$Secure",
+          "io.juicefs.JuiceFileSystem",
+          "org.apache.hadoop.fs.ozone.OzoneFileSystem",
+          "org.apache.hadoop.fs.ozone.RootedOzoneFileSystem",
+          "org.apache.hadoop.fs.cosn.CosNFileSystem",
+          "com.qcloud.chdfs.fs.CHDFSHadoopFileSystemAdapter",
           "org.apache.hadoop.fs.aliyun.oss.AliyunOSSFileSystem",
           "com.aliyun.jindodata.oss.JindoOssFileSystem",
           "org.apache.hadoop.fs.obs.OBSFileSystem",
@@ -4002,6 +4037,13 @@ public abstract class FileSystem extends Configured
           }
         }
         checkViewFsEnabled(filesystem, path, activeTables);
+      }
+
+      public void checkGlobRoute(URI filesystem, String pattern, Set<String> activeTables)
+          throws IOException, URISyntaxException {
+        for (Rule rule : globRules(filesystem, pattern)) {
+          checkRoute(filesystem, rule.path, activeTables);
+        }
       }
 
       protected Provider provider(String scheme) {

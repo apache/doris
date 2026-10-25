@@ -4317,6 +4317,93 @@ TEST(LanceTableReaderTypeTest, ReadsTemporalTypesFromAllTypesFixture) {
 } // namespace doris::format::lance
 
 namespace doris::format::lance {
+void assert_local_alias_schema_and_rows(const std::string& requested, const std::string& expected) {
+    TQueryGlobals globals;
+    RuntimeState state(globals);
+    RuntimeProfile profile("lance_local_alias");
+    TFileScanRangeParams scan_params;
+    LanceTableReader reader;
+    const Columns columns = {projected_column("row_id", TYPE_BIGINT, false)};
+    ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
+    auto range = make_latest_lance_range(requested);
+    range.__set_file_type(TFileType::FILE_LOCAL);
+    std::vector<std::string> names;
+    std::vector<DataTypePtr> types;
+    ASSERT_TRUE(reader.fetch_schema(range, scan_params, &names, &types).ok()) << requested;
+    EXPECT_FALSE(names.empty());
+    LanceTableReader::DatasetKey key;
+    ASSERT_TRUE(reader._dataset_key(range, &key).ok());
+    EXPECT_EQ(expected, key.uri);
+    ASSERT_TRUE(prepare_range(&reader, range).ok()) << requested;
+    Block block;
+    add_output_columns(&block, columns);
+    std::vector<int64_t> rows;
+    bool eos = false;
+    while (!eos) {
+        const auto read_status = reader.get_block(&block, &eos);
+        ASSERT_TRUE(read_status.ok()) << requested << ": " << read_status.to_string();
+        if (!eos) {
+            const auto& values =
+                    assert_cast<const ColumnInt64&>(*block.get_by_position(0).column).get_data();
+            rows.insert(rows.end(), values.begin(), values.end());
+            block.clear_column_data();
+        }
+    }
+    std::ranges::sort(rows);
+    EXPECT_EQ((std::vector<int64_t> {1, 2, 3, 4}), rows);
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST(LanceTableReaderLocalPathTest, LocalAliasesPreserveProviderForSchemaAndScan) {
+    const auto original_secure_path = config::user_files_secure_path;
+    const auto owned =
+            std::filesystem::temp_directory_path() /
+            ("lance_local_alias_" +
+             std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    const auto root = owned / "secure";
+    const auto outside = owned / "outside";
+    DEFER({
+        config::user_files_secure_path = original_secure_path;
+        std::error_code error;
+        std::filesystem::remove_all(owned, error);
+    });
+    std::filesystem::create_directories(root / "a b%+.lance");
+    std::filesystem::create_directories(outside);
+    const auto fixture =
+            std::filesystem::canonical("./be/test/format_v2/table/lance/data/all_types.lance");
+    std::filesystem::copy(fixture, root / "a b%+.lance", std::filesystem::copy_options::recursive);
+    std::filesystem::create_directory_symlink(root / "a b%+.lance", root / "in-root");
+    std::filesystem::create_directory_symlink(outside, root / "escape");
+    config::user_files_secure_path = root.string();
+    std::vector<std::string> schemes {"file-object-store"};
+#ifdef __linux__
+    // io_uring setup can be prohibited by the host; explicitly select this extra provider.
+    const auto* enable_uring = std::getenv("DORIS_LANCE_TEST_IO_URING");
+    if (enable_uring != nullptr && std::strcmp(enable_uring, "1") == 0) {
+        schemes.emplace_back("file+uring");
+    }
+#endif
+    for (const auto& scheme : schemes) {
+        const auto expected = scheme + "://" + (root / "a%20b%25%2B.lance").string();
+        for (const auto& requested :
+             {expected + "?ignored=%00#tag", scheme + "://host" + (root / "in-root").string()}) {
+            ASSERT_NO_FATAL_FAILURE(assert_local_alias_schema_and_rows(requested, expected));
+        }
+        TFileScanRangeParams scan_params;
+        LanceTableReader reader;
+        reader._scan_params = &scan_params;
+        for (const auto& denied : {outside, root / "escape"}) {
+            auto range = make_latest_lance_range(scheme + "://" + denied.string());
+            range.__set_file_type(TFileType::FILE_LOCAL);
+            std::vector<std::string> names;
+            std::vector<DataTypePtr> types;
+            LanceTableReader::DatasetKey key;
+            EXPECT_FALSE(reader.fetch_schema(range, scan_params, &names, &types).ok());
+            EXPECT_FALSE(reader._dataset_key(range, &key).ok());
+        }
+    }
+}
+
 TEST(LanceTableReaderLocalPathTest, SchemaAndScanUseTheSameSecurePath) {
     const auto original_secure_path = config::user_files_secure_path;
     DEFER(config::user_files_secure_path = original_secure_path);
