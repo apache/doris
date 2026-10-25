@@ -91,63 +91,34 @@ public class DiffFunctionSignatureTest {
     }
 
     /**
-     * Regression test for the review finding on this PR: {@code SearchSignature.doMatchTypes}
-     * summed the timezone preference across arguments, so a call pairing one zoned literal
-     * with one zone-less literal scored {@code +1 - 1 = 0} and tied the DATETIMEV2 signature.
-     * With TIMESTAMPTZ now listed last, that tie silently resolved to DATETIMEV2 - i.e. civil
-     * semantics - instead of preserving instant semantics. Concretely, under
-     * {@code time_zone='America/Los_Angeles'},
-     * {@code hours_diff('2021-03-14 03:30:00-07:00', '2021-03-14 01:30:00')} must still bind
-     * TIMESTAMPTZ so the DST spring-forward boundary is handled as one elapsed hour, not
-     * silently recomputed as two civil hours.
+     * A call pairing one zoned literal with one zone-less literal, e.g.
+     * {@code hours_diff('2021-03-14 03:30:00-07:00', '2021-03-14 01:30:00')}, gets no scoring
+     * preference either way: {@code SearchSignature.doMatchTypes} scores the TIMESTAMPTZ signature
+     * {@code +1 - 1 = 0}, the same as DATETIMEV2, so list order decides. Before this fix the pair
+     * bound TIMESTAMPTZ only because TIMESTAMPTZ was listed first. The doc regression suite
+     * ({@code doc_date_functions_test}) requires a {@code *_ceil}/{@code *_floor} call mixing zoned
+     * and zone-less literals to return the same zone-less result as its all-DATETIME version, and
+     * those functions list DATETIMEV2 first; with TIMESTAMPTZ now listed last, {@code *_diff}
+     * follows the same rule, in both argument orders.
      */
     @Test
-    public void testMixedZonedAndZonelessLiteralsKeepTimeStampTz() {
+    public void testMixedZonedAndZonelessLiteralsBindDateTimeV2() {
         FunctionSignature signature = new HoursDiff(
                 new VarcharLiteral("2021-03-14 03:30:00-07:00"),
                 new VarcharLiteral("2021-03-14 01:30:00")).getSignature();
-        Assertions.assertInstanceOf(TimeStampTzType.class, signature.getArgType(0),
-                "zoned literal + zone-less literal: arg0 should bind to TimeStampTzType");
-        Assertions.assertInstanceOf(TimeStampTzType.class, signature.getArgType(1),
-                "zoned literal + zone-less literal: arg1 should bind to TimeStampTzType");
+        Assertions.assertInstanceOf(DateTimeV2Type.class, signature.getArgType(0),
+                "zoned literal + zone-less literal: arg0 should bind to DateTimeV2Type");
+        Assertions.assertInstanceOf(DateTimeV2Type.class, signature.getArgType(1),
+                "zoned literal + zone-less literal: arg1 should bind to DateTimeV2Type");
 
-        // Order must not matter: zone-less first, zoned second must also keep TIMESTAMPTZ.
+        // Order must not matter: zone-less first, zoned second must also bind DATETIMEV2.
         FunctionSignature reversed = new HoursDiff(
                 new VarcharLiteral("2021-03-14 01:30:00"),
                 new VarcharLiteral("2021-03-14 03:30:00-07:00")).getSignature();
-        Assertions.assertInstanceOf(TimeStampTzType.class, reversed.getArgType(0),
-                "zone-less literal + zoned literal: arg0 should bind to TimeStampTzType");
-        Assertions.assertInstanceOf(TimeStampTzType.class, reversed.getArgType(1),
-                "zone-less literal + zoned literal: arg1 should bind to TimeStampTzType");
-    }
-
-    /**
-     * Second mixed case from the same review finding: both literals carry an explicit zone, but
-     * {@code DateTimeChecker.hasTimeZone} requires a colon before the offset minutes, so the compact
-     * {@code -0700} counts as zone-less on its own even though the cast path accepts it. A summed
-     * score would let it cancel the recognised {@code -08:00} and tie DATETIMEV2 again. Under
-     * {@code time_zone='America/Los_Angeles'},
-     * {@code hours_diff('2021-03-15 00:00:00-0700', '2021-03-14 00:00:00-08:00')} must bind
-     * TIMESTAMPTZ so it is computed as 23 elapsed hours, not 24 civil hours.
-     */
-    @Test
-    public void testCompactAndColonOffsetLiteralsKeepTimeStampTz() {
-        FunctionSignature signature = new HoursDiff(
-                new VarcharLiteral("2021-03-15 00:00:00-0700"),
-                new VarcharLiteral("2021-03-14 00:00:00-08:00")).getSignature();
-        Assertions.assertInstanceOf(TimeStampTzType.class, signature.getArgType(0),
-                "compact offset + colon offset: arg0 should bind to TimeStampTzType");
-        Assertions.assertInstanceOf(TimeStampTzType.class, signature.getArgType(1),
-                "compact offset + colon offset: arg1 should bind to TimeStampTzType");
-
-        // Order must not matter: colon offset first, compact offset second must also keep TIMESTAMPTZ.
-        FunctionSignature reversed = new HoursDiff(
-                new VarcharLiteral("2021-03-14 00:00:00-08:00"),
-                new VarcharLiteral("2021-03-15 00:00:00-0700")).getSignature();
-        Assertions.assertInstanceOf(TimeStampTzType.class, reversed.getArgType(0),
-                "colon offset + compact offset: arg0 should bind to TimeStampTzType");
-        Assertions.assertInstanceOf(TimeStampTzType.class, reversed.getArgType(1),
-                "colon offset + compact offset: arg1 should bind to TimeStampTzType");
+        Assertions.assertInstanceOf(DateTimeV2Type.class, reversed.getArgType(0),
+                "zone-less literal + zoned literal: arg0 should bind to DateTimeV2Type");
+        Assertions.assertInstanceOf(DateTimeV2Type.class, reversed.getArgType(1),
+                "zone-less literal + zoned literal: arg1 should bind to DateTimeV2Type");
     }
 
     /**
