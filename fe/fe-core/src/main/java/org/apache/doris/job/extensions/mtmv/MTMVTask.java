@@ -1297,7 +1297,11 @@ public class MTMVTask extends AbstractTask {
             // mapping the snapshots below are generated from; see MTMVPartitionUtil#mappedBasePartitions.
             Map<BaseTableInfo, Set<String>> readableBasePartitions = mtmv.isIvm()
                     ? null : MTMVPartitionUtil.mappedBasePartitions(tableWithPartKey, context, execPartitionNames);
-            if (!mtmv.isIvm() && hasOlapPctTable()) {
+            // IVM COMPLETE rebuilds partitions through this same loop, and an incremental rebuild of a
+            // dirty partition resets it to the base rows the mapping names. Both overwrite what the MV
+            // partition holds, so both need the partition to be one the mapping describes: the alignment
+            // lag this refuses is what a base ADD PARTITION widening a LIST component leaves behind.
+            if (hasOlapPctTable()) {
                 requireDescribedPartitions(context, execPartitionNames);
             }
             Map<BaseTableInfo, Set<Long>> batchResetPartitionIds = useIvmFallbackStreams
