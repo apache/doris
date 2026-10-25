@@ -387,17 +387,113 @@ class HadoopTvfRuntimeAdmissionTest {
     }
 
     @Test
-    void explicitJuiceFsUsesTheSameKnownRemoteProviderAsRuntime() throws Exception {
+    void guardedJuiceFsRequiresProvenRemoteBackingStore() throws Exception {
         for (boolean enabled : new boolean[] {false, true}) {
             Config.enable_local_tvf = enabled;
             Map<String, String> properties = readProperties("jfs://cluster/data.csv");
             properties.put("fs.defaultFS", "jfs://cluster");
             properties.put("fs.jfs.impl", "io.juicefs.JuiceFileSystem");
-            properties.put("juicefs.cluster.meta", "redis://meta:6379/1");
-            Assertions.assertDoesNotThrow(() -> new HdfsTableValuedFunction(properties));
-            properties.put("fs.jfs.impl", LocalFileSystem.class.getName());
+            properties.put("juicefs.cluster.meta", "redis://controlled-meta:6379/1");
+            properties.put("juicefs.storage", "s3");
             Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
                     () -> new HdfsTableValuedFunction(properties));
+            properties.remove("fs.jfs.impl");
+            Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                    () -> new HdfsTableValuedFunction(properties));
+
+            Map<String, String> alias = readProperties("hdfs://cluster/data.csv");
+            alias.put("fs.hdfs.impl", "io.juicefs.JuiceFileSystem");
+            Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                    () -> new HdfsTableValuedFunction(alias));
+            Map<String, String> delegated = readProperties("viewfs://cluster/data/file.csv");
+            delegated.put("fs.defaultFS", "viewfs://cluster");
+            delegated.put("fs.viewfs.mounttable.cluster.link./data", "jfs://cluster/base");
+            Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                    () -> new HdfsTableValuedFunction(delegated));
+            Assertions.assertDoesNotThrow(() -> new HdfsTableValuedFunction(
+                    readProperties("hdfs://runtime/data.csv")));
+        }
+        Config.enable_local_tvf = false;
+        Map<String, String> writer = hdfs("jfs://cluster");
+        writer.put("fs.jfs.impl", "io.juicefs.JuiceFileSystem");
+        writer.put("juicefs.cluster.meta", "redis://controlled-meta:6379/1");
+        writer.put("file_path", "/data/prefix_");
+        writer.put("format", "csv");
+        TVFTableSink sink = new TVFTableSink(new PlanNodeId(0), "hdfs", writer, Collections.emptyList());
+        Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                sink::bindDataSink);
+
+        Configuration consumer = defaults(Collections.emptyMap());
+        consumer.set("fs.jfs.impl", "io.juicefs.JuiceFileSystem");
+        consumer.set(TvfGuard.POLICY_KEY, TvfGuard.NATIVE_POLICY);
+        nativeRequest(consumer, "jfs://cluster", "/data/file.csv");
+        try (MockedStatic<ReflectionUtils> factory = Mockito.mockStatic(
+                ReflectionUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            Assertions.assertThrows(IOException.class,
+                    () -> TvfGuard.check(URI.create("jfs://cluster"), consumer));
+            factory.verifyNoInteractions();
+        }
+        consumer.unset(TvfGuard.POLICY_KEY);
+        Assertions.assertDoesNotThrow(() -> TvfGuard.check(URI.create("jfs://cluster"), consumer));
+    }
+
+    @Test
+    void brokerWritePrefixesShareOnlyTheSameRuntimeConfiguration() throws Exception {
+        Configuration defaults = defaults(Collections.emptyMap());
+        List<String> profiles = new ArrayList<>();
+        List<Integer> childCounts = new ArrayList<>();
+        List<Map<String, String>> sentProperties = new ArrayList<>();
+        List<FileSystem> outers = new ArrayList<>();
+        int baseline = filesystemCacheSize();
+        Method toThrift = TVFTableSink.class.getDeclaredMethod("toThrift");
+        toThrift.setAccessible(true);
+        try (RemoteClients clients = new RemoteClients()) {
+            try {
+                for (int index = 0; index < 3; index++) {
+                    String path = "/data/prefix" + index + "_";
+                    Map<String, String> properties = hdfs("viewfs://prefixes");
+                    properties.put("fs.broker.support", "true");
+                    properties.put("broker.name", "runtime-prefix-test");
+                    properties.put("fs.viewfs.mounttable.prefixes.link./data", "hdfs://nn/base");
+                    properties.put("dfs.client.socket-timeout", index < 2 ? "1000" : "2000");
+                    properties.put("file_path", path);
+                    properties.put("format", "csv");
+                    TVFTableSink sink = new TVFTableSink(new PlanNodeId(0), "hdfs", properties,
+                            Collections.emptyList());
+                    sink.bindDataSink();
+                    TDataSink thrift = (TDataSink) toThrift.invoke(sink);
+                    Assertions.assertEquals(path, thrift.getTvfTableSink().getFilePath());
+                    Assertions.assertEquals(path, properties.get("file_path"));
+                    Map<String, String> sent = thrift.getTvfTableSink().getProperties();
+                    sentProperties.add(sent);
+                    Assertions.assertEquals(index < 2 ? "1000" : "2000", sent.get("dfs.client.socket-timeout"));
+                    Configuration consumer = new Configuration(defaults);
+                    overlay(consumer, sent);
+                    nativeRequest(consumer, "viewfs://prefixes", path);
+                    TvfGuard.clearNativeContext();
+                    FileSystem outer = FileSystem.newInstance(URI.create("viewfs://prefixes"), consumer);
+                    outers.add(outer);
+                    TvfGuard.Context context = TvfGuard.takeNativeContext();
+                    Assertions.assertNotNull(context);
+                    profiles.add(context.profile());
+                    outer.getFileStatus(new Path(path));
+                    childCounts.add(clients.clients.size());
+                }
+                // Observe production profile/client identities before fixture cleanup.
+                Assertions.assertAll(
+                        () -> Assertions.assertEquals(profiles.get(0), profiles.get(1)),
+                        () -> Assertions.assertNotEquals(profiles.get(0), profiles.get(2)),
+                        () -> Assertions.assertEquals(java.util.Arrays.asList(1, 1, 2), childCounts),
+                        () -> Assertions.assertTrue(sentProperties.stream()
+                                .noneMatch(properties -> properties.containsKey("file_path"))));
+            } finally {
+                for (FileSystem outer : outers) {
+                    outer.close();
+                }
+                FileSystem.closeAll();
+            }
+            clients.verifyClosedOnce();
+            Assertions.assertEquals(baseline, filesystemCacheSize());
         }
     }
 
