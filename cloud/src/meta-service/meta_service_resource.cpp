@@ -31,6 +31,7 @@
 #include <tuple>
 #include <unordered_set>
 
+#include "common/auth/obj_credential.h"
 #include "common/bvars.h"
 #include "common/config.h"
 #include "common/encryption_util.h"
@@ -782,12 +783,15 @@ static void create_object_info_with_encrypt(const InstanceInfoPB& instance, Obje
     std::string region = obj->has_region() ? obj->region() : "";
 
     if (obj->has_role_arn()) {
-        if (obj->role_arn().empty() || !obj->has_cred_provider_type() || !obj->has_provider() ||
+        if (obj->role_arn().empty() || !obj->has_provider() ||
             obj->provider() != ObjectStoreInfoPB::S3 || bucket.empty() || endpoint.empty() ||
             region.empty()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = "s3 conf info err with role_arn or cred provider, please check it";
             return;
+        }
+        if (!obj->has_cred_provider_type()) {
+            obj->set_cred_provider_type(CredProviderTypePB::INSTANCE_PROFILE);
         }
     } else {
         // ATTN: prefix may be empty
@@ -1071,7 +1075,11 @@ static int alter_s3_storage_vault_by_id(InstanceInfoPB& instance, std::unique_pt
         msg = ss.str();
         return -1;
     }
-    auto* storage_vault_names = instance.mutable_storage_vault_names();
+    // Apply all mutations to a candidate. The caller can safely abandon the
+    // transaction on any validation/serialization error without leaking a
+    // partial rename into the InstanceInfoPB it later persists.
+    InstanceInfoPB candidate_instance = instance;
+    auto* storage_vault_names = candidate_instance.mutable_storage_vault_names();
     auto* name_ptr = storage_vault_names->Mutable(pos);
     DCHECK(name_ptr != nullptr);
     const std::string old_name = *name_ptr;
@@ -1081,8 +1089,8 @@ static int alter_s3_storage_vault_by_id(InstanceInfoPB& instance, std::unique_pt
                           target_vault_id, name, old_name);
         return -1;
     }
-    std::string vault_id = instance.resource_ids().Get(pos);
-    auto vault_key = storage_vault_key({instance.instance_id(), vault_id});
+    std::string vault_id = candidate_instance.resource_ids().Get(pos);
+    auto vault_key = storage_vault_key({candidate_instance.instance_id(), vault_id});
     std::string val;
 
     auto err = txn->get(vault_key, &val);
@@ -1118,7 +1126,7 @@ static int alter_s3_storage_vault_by_id(InstanceInfoPB& instance, std::unique_pt
             return -1;
         }
 
-        if (vault_exist(instance, vault.alter_name())) {
+        if (vault_exist(candidate_instance, vault.alter_name())) {
             code = MetaServiceCode::ALREADY_EXISTED;
             msg = fmt::format("vault_name={} already existed", vault.alter_name());
             return -1;
@@ -1126,14 +1134,15 @@ static int alter_s3_storage_vault_by_id(InstanceInfoPB& instance, std::unique_pt
 
         new_vault.set_name(vault.alter_name());
         *name_ptr = vault.alter_name();
-        if (instance.default_storage_vault_id() == vault_id) {
-            instance.set_default_storage_vault_name(vault.alter_name());
+        if (candidate_instance.default_storage_vault_id() == vault_id) {
+            candidate_instance.set_default_storage_vault_name(vault.alter_name());
         }
     }
 
-    if (obj_info.has_role_arn() && (obj_info.has_ak() || obj_info.has_sk())) {
+    if ((obj_info.has_role_arn() || obj_info.has_cred_provider_type()) &&
+        (obj_info.has_ak() || obj_info.has_sk())) {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "invaild argument, both set ak/sk and role_arn is not allowed";
+        msg = "invalid argument, access keys cannot be combined with role or credentials";
         LOG(WARNING) << msg;
         return -1;
     }
@@ -1168,20 +1177,53 @@ static int alter_s3_storage_vault_by_id(InstanceInfoPB& instance, std::unique_pt
         new_vault.mutable_obj_info()->mutable_encryption_info()->CopyFrom(encryption_info);
     }
 
-    if (obj_info.has_role_arn()) {
-        new_vault.mutable_obj_info()->clear_ak();
-        new_vault.mutable_obj_info()->clear_sk();
-        new_vault.mutable_obj_info()->clear_encryption_info();
+    if (obj_info.has_role_arn() || obj_info.has_cred_provider_type()) {
+        // Only selecting AWS authentication replaces other credentials. Clearing
+        // an unused role must preserve static keys.
+        if (!obj_info.role_arn().empty() || obj_info.has_cred_provider_type()) {
+            new_vault.mutable_obj_info()->clear_ak();
+            new_vault.mutable_obj_info()->clear_sk();
+            new_vault.mutable_obj_info()->clear_encryption_info();
+        }
 
-        new_vault.mutable_obj_info()->set_role_arn(obj_info.role_arn());
-        new_vault.mutable_obj_info()->set_cred_provider_type(get_cred_provider_type(obj_info));
-        if (obj_info.has_external_id()) {
+        if (obj_info.has_role_arn()) {
+            if (obj_info.role_arn().empty()) {
+                new_vault.mutable_obj_info()->clear_role_arn();
+                // An external ID has no meaning without a role. Clearing the role
+                // explicitly clears its dependent value as well.
+                new_vault.mutable_obj_info()->clear_external_id();
+            } else {
+                new_vault.mutable_obj_info()->set_role_arn(obj_info.role_arn());
+                if (!new_vault.obj_info().has_cred_provider_type() &&
+                    !obj_info.has_cred_provider_type()) {
+                    new_vault.mutable_obj_info()->set_cred_provider_type(
+                            CredProviderTypePB::INSTANCE_PROFILE);
+                }
+            }
+        }
+        if (obj_info.has_cred_provider_type()) {
+            new_vault.mutable_obj_info()->set_cred_provider_type(obj_info.cred_provider_type());
+        }
+    }
+
+    // external_id is an independent ALTER field. It may be changed without
+    // requiring FE to resend role_arn and cred_provider_type.
+    if (obj_info.has_external_id()) {
+        if (obj_info.external_id().empty()) {
+            new_vault.mutable_obj_info()->clear_external_id();
+        } else {
             new_vault.mutable_obj_info()->set_external_id(obj_info.external_id());
         }
     }
 
     if (obj_info.has_use_path_style()) {
         new_vault.mutable_obj_info()->set_use_path_style(obj_info.use_path_style());
+    }
+
+    if (auto error = validate_obj_authentication(new_vault.obj_info()); error.has_value()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = *error;
+        return -1;
     }
 
     auto now_time = std::chrono::system_clock::now();
@@ -1198,6 +1240,7 @@ static int alter_s3_storage_vault_by_id(InstanceInfoPB& instance, std::unique_pt
     }
 
     txn->put(vault_key, val);
+    instance.Swap(&candidate_instance);
     LOG(INFO) << "put vault_id=" << vault_id << ", vault_key=" << hex(vault_key)
               << ", origin vault=" << encryt_sk(hide_ak(origin_vault_info))
               << ", new vault=" << encryt_sk(hide_ak(new_vault_info));
@@ -1620,7 +1663,9 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
         break;
     }
     case AlterObjStoreInfoRequest::ALTER_S3_VAULT: {
-        alter_s3_storage_vault(instance, txn, request->vault(), code, msg, response);
+        if (alter_s3_storage_vault(instance, txn, request->vault(), code, msg, response) != 0) {
+            return;
+        }
         break;
     }
     case AlterObjStoreInfoRequest::ALTER_HDFS_VAULT: {
