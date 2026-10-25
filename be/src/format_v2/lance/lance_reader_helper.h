@@ -87,6 +87,9 @@ public:
 private:
     std::string _field_name;
     std::shared_ptr<arrow::DataType> _storage_type;
+    // decimal128(p, s) for a Decimal256 field with p <= 38, which Doris types DECIMAL32/64/128I
+    // by precision; null for every other field.
+    std::shared_ptr<arrow::DataType> _decimal128_type;
     std::vector<LanceArrowArrayNormalizer> _child_normalizers;
     bool _unwrap_registered_extension = false;
     bool _convert_bfloat16 = false;

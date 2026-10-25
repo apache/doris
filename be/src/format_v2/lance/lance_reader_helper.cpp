@@ -20,6 +20,7 @@
 #include <arrow/array.h>
 #include <arrow/builder.h>
 #include <arrow/c/bridge.h>
+#include <arrow/compute/cast.h>
 #include <arrow/extension_type.h>
 #include <arrow/type.h>
 #include <arrow/util/key_value_metadata.h>
@@ -318,6 +319,30 @@ Status convert_bfloat16_array(const std::shared_ptr<arrow::Array>& array,
     return Status::OK();
 }
 
+// Narrow a Decimal256 array whose declared precision fits Decimal128. The safe cast keeps every
+// in-precision value and its scale, and rejects a value that exceeds the declared precision
+// instead of truncating it: unscaled 10^18 stored in a decimal256(18, 2) field fails with
+// "Decimal value does not fit in precision 18".
+Status narrow_decimal256_array(std::string_view field_name,
+                               const std::shared_ptr<arrow::Array>& array,
+                               const std::shared_ptr<arrow::DataType>& decimal128_type,
+                               arrow::MemoryPool* memory_pool,
+                               std::shared_ptr<arrow::Array>* normalized) {
+    DORIS_CHECK(array != nullptr);
+    DORIS_CHECK(memory_pool != nullptr);
+    DORIS_CHECK(normalized != nullptr);
+    arrow::compute::ExecContext exec_context(memory_pool);
+    auto narrowed = arrow::compute::Cast(*array, decimal128_type,
+                                         arrow::compute::CastOptions::Safe(), &exec_context);
+    if (!narrowed.ok()) {
+        return Status::InvalidArgument("narrow Lance Decimal256 field '{}' to {} failed: {}",
+                                       field_name, decimal128_type->ToString(),
+                                       narrowed.status().message());
+    }
+    *normalized = std::move(narrowed).ValueUnsafe();
+    return Status::OK();
+}
+
 // Rebuild a nested Arrow type after one or more child arrays changed physical type.
 Status set_lance_nested_type(std::string_view field_name,
                              const std::shared_ptr<arrow::DataType>& source_type,
@@ -488,8 +513,20 @@ Status LanceArrowArrayNormalizer::create(const std::shared_ptr<arrow::Field>& fi
     result._storage_type = std::move(storage_type);
     result._unwrap_registered_extension = field->type()->id() == arrow::Type::EXTENSION;
     result._convert_bfloat16 = extension_kind == LanceExtensionKind::BFLOAT16;
-    result._requires_special_handling =
-            result._unwrap_registered_extension || result._convert_bfloat16;
+    // Lance keeps the 256-bit carrier of pa.decimal256(18, 2), while the FE and
+    // arrow_field_to_doris_type() type the column DECIMAL64 by precision. The DECIMAL32/64/128I
+    // SerDes read only Decimal128Array, so a Decimal256Array reaching them made their dynamic_cast
+    // return null and the BE crash on the first value, also for nested leaves. Precision 39..76
+    // stays Decimal256 and maps to DECIMAL256.
+    if (result._storage_type->id() == arrow::Type::DECIMAL256) {
+        const auto& decimal = static_cast<const arrow::Decimal256Type&>(*result._storage_type);
+        if (decimal.precision() <= arrow::Decimal128Type::kMaxPrecision) {
+            result._decimal128_type = arrow::decimal128(decimal.precision(), decimal.scale());
+        }
+    }
+    result._requires_special_handling = result._unwrap_registered_extension ||
+                                        result._convert_bfloat16 ||
+                                        result._decimal128_type != nullptr;
     result._child_normalizers.reserve(result._storage_type->num_fields());
     for (const auto& child_field : result._storage_type->fields()) {
         LanceArrowArrayNormalizer child_normalizer;
@@ -531,6 +568,13 @@ Status LanceArrowArrayNormalizer::normalize_for_doris(
     }
     if (_convert_bfloat16) {
         return convert_bfloat16_array(storage_array, memory_pool, normalized);
+    }
+    if (_decimal128_type != nullptr) {
+        // The cast reads only the visible slice and returns an offset-zero array, so no
+        // compaction follows. For a nested leaf, the parent's call swaps in this array in the
+        // child loop below and rebuilds its own type through set_lance_nested_type().
+        return narrow_decimal256_array(_field_name, storage_array, _decimal128_type, memory_pool,
+                                       normalized);
     }
 
     // Normalize extension children before compacting the parent. Arrow cannot create a builder
