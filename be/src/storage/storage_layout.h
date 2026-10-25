@@ -65,6 +65,12 @@ class IColumn;
 // NULL row holds converts without harm, and no caller uses a NULL row's cell. CHAR padding is
 // the one exception: it needs a range without NULL rows, see StorageLayout<CHAR>. to_storage
 // retains a typed result for single-value key and predicate conversions.
+//
+// The fixed-width layouts also read back. to_primitive is the inverse of to_storage for one
+// value, and storage_to_column(values, n, dst) appends the n stored values at `values`, which
+// need not be aligned, to `dst` as PrimitiveValues: the column of the PrimitiveType, or a
+// Nullable over it whose n new rows are marked not NULL, as a page holds no NULL row. The page
+// decoders read through it, and the zone map turns its stored bounds back with to_primitive.
 template <FieldType FT>
 struct StorageLayout;
 
@@ -109,19 +115,22 @@ namespace storage_layout_detail {
 // stored values.
 template <FieldType FT>
 struct BitCast {
-private:
     using StorageValue = typename CppTypeTraits<FT>::CppType;
     using PrimitiveValue =
             typename PrimitiveTypeTraits<storage_field_type_to_primitive_type(FT)>::CppType;
     static_assert(sizeof(StorageValue) == sizeof(PrimitiveValue));
 
-public:
     static StorageValue to_storage(const PrimitiveValue& value) {
         return std::bit_cast<StorageValue>(value);
+    }
+    static PrimitiveValue to_primitive(const StorageValue& value) {
+        return std::bit_cast<PrimitiveValue>(value);
     }
     // Always borrows the column's bytes.
     static const uint8_t* column_to_storage(const IColumn& column, size_t row_pos, size_t n,
                                             StorageBuffers& buffers);
+    // One copy: the stored values are the column's values.
+    static void storage_to_column(const uint8_t* values, size_t n, IColumn& dst);
 };
 
 // Every NaN is stored as the quiet NaN, so equal values have equal stored bytes
@@ -129,23 +138,25 @@ public:
 // treat all NaNs as one value.
 template <FieldType FT>
 struct FloatingPoint {
-private:
     using StorageValue = typename CppTypeTraits<FT>::CppType;
     using PrimitiveValue =
             typename PrimitiveTypeTraits<storage_field_type_to_primitive_type(FT)>::CppType;
     static_assert(std::is_floating_point_v<StorageValue>);
     static_assert(std::is_same_v<StorageValue, PrimitiveValue>);
 
-public:
     static StorageValue canonicalize_nan(StorageValue value) {
         return std::isnan(value) ? std::numeric_limits<StorageValue>::quiet_NaN() : value;
     }
     static StorageValue to_storage(PrimitiveValue value) { return canonicalize_nan(value); }
+    // A stored value is read back as it is: only writing canonicalises.
+    static PrimitiveValue to_primitive(StorageValue value) { return value; }
     // Borrows the column's bytes when [row_pos, row_pos + n) has no NaN, otherwise
     // converts the range into buffers.bytes. NaNs outside the range do not require a
     // copy; the source column is never modified.
     static const uint8_t* column_to_storage(const IColumn& column, size_t row_pos, size_t n,
                                             StorageBuffers& buffers);
+    // One copy: the stored values are the column's values.
+    static void storage_to_column(const uint8_t* values, size_t n, IColumn& dst);
 };
 
 // A string is stored as its own bytes, whatever their length: the cells are Slice
@@ -216,49 +227,58 @@ extern template struct storage_layout_detail::FloatingPoint<FieldType::OLAP_FIEL
 // V1 DATE: three bytes of (year << 9) | (month << 5) | day.
 template <>
 struct StorageLayout<FieldType::OLAP_FIELD_TYPE_DATE> {
-private:
     using StorageValue = typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>::CppType;
     using PrimitiveValue = typename PrimitiveTypeTraits<TYPE_DATE>::CppType;
     static_assert(std::is_same_v<StorageValue, uint24_t>);
 
-public:
     static StorageValue to_storage(const PrimitiveValue& value) {
         return StorageValue(cast_set<uint32_t>(value.to_olap_date()));
     }
+    // The fields are taken as stored: a date was checked when it was written.
+    static PrimitiveValue to_primitive(const StorageValue& value) {
+        PrimitiveValue primitive;
+        primitive.set_olap_date(value);
+        return primitive;
+    }
     static const uint8_t* column_to_storage(const IColumn& column, size_t row_pos, size_t n,
                                             StorageBuffers& buffers);
+    static void storage_to_column(const uint8_t* values, size_t n, IColumn& dst);
 };
 
 // V1 DATETIME: the decimal digits YYYYMMDDhhmmss packed into one integer.
 template <>
 struct StorageLayout<FieldType::OLAP_FIELD_TYPE_DATETIME> {
-private:
     using StorageValue = typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIME>::CppType;
     using PrimitiveValue = typename PrimitiveTypeTraits<TYPE_DATETIME>::CppType;
     static_assert(std::is_same_v<StorageValue, int64_t>);
 
-public:
     static StorageValue to_storage(const PrimitiveValue& value) {
         return static_cast<StorageValue>(value.to_olap_datetime());
     }
+    static PrimitiveValue to_primitive(const StorageValue& value) {
+        return PrimitiveValue::create_from_olap_datetime(static_cast<uint64_t>(value));
+    }
     static const uint8_t* column_to_storage(const IColumn& column, size_t row_pos, size_t n,
                                             StorageBuffers& buffers);
+    static void storage_to_column(const uint8_t* values, size_t n, IColumn& dst);
 };
 
 // V1 DECIMAL: the integer and the nine-digit fraction stored side by side.
 template <>
 struct StorageLayout<FieldType::OLAP_FIELD_TYPE_DECIMAL> {
-private:
     using StorageValue = typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL>::CppType;
     using PrimitiveValue = typename PrimitiveTypeTraits<TYPE_DECIMALV2>::CppType;
     static_assert(std::is_same_v<StorageValue, decimal12_t>);
 
-public:
     static StorageValue to_storage(const PrimitiveValue& value) {
         return {value.int_value(), value.frac_value()};
     }
+    static PrimitiveValue to_primitive(const StorageValue& value) {
+        return PrimitiveValue(value.integer, value.fraction);
+    }
     static const uint8_t* column_to_storage(const IColumn& column, size_t row_pos, size_t n,
                                             StorageBuffers& buffers);
+    static void storage_to_column(const uint8_t* values, size_t n, IColumn& dst);
 };
 
 template <>

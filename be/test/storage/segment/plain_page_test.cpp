@@ -22,10 +22,16 @@
 #include <iostream>
 
 #include "common/logging.h"
+#include "core/assert_cast.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "core/uint24.h"
+#include "core/value/vdatetime_value.h"
 #include "storage/olap_common.h"
 #include "storage/segment/page_builder.h"
 #include "storage/segment/page_decoder.h"
+#include "storage/storage_layout.h"
 #include "storage/types.h"
 
 namespace doris {
@@ -264,6 +270,56 @@ TEST_F(PlainPageTest, TestBoolPlainPageSeekValue) {
             segment_v2::PlainPageBuilder<FieldType::OLAP_FIELD_TYPE_BOOL>,
             segment_v2::PlainPageDecoder<FieldType::OLAP_FIELD_TYPE_BOOL>>(&bools.get()[1], 1, &t,
                                                                            nullptr);
+}
+
+// A V1 DATE page holds uint24 cells, which the decoder unpacks into the dates of a ColumnDate,
+// or of a Nullable over it, by batch and by row id.
+TEST_F(PlainPageTest, TestDateV1PlainPageDecodesIntoDates) {
+    using Layout = StorageLayout<FieldType::OLAP_FIELD_TYPE_DATE>;
+    constexpr size_t kRows = 8;
+    std::vector<VecDateTimeValue> days(kRows);
+    std::vector<uint24_t> cells(kRows);
+    for (size_t i = 0; i < kRows; ++i) {
+        ASSERT_TRUE(days[i].from_date_int64(static_cast<int64_t>(20200101 + i)));
+        cells[i] = Layout::to_storage(days[i]);
+    }
+
+    PageBuilderOptions options;
+    options.data_page_size = 256 * 1024;
+    PageBuilder* builder = nullptr;
+    ASSERT_TRUE(PlainPageBuilder<FieldType::OLAP_FIELD_TYPE_DATE>::create(&builder, options).ok());
+    std::unique_ptr<PageBuilder> page_builder(builder);
+    size_t added = kRows;
+    ASSERT_TRUE(page_builder->add(reinterpret_cast<const uint8_t*>(cells.data()), &added).ok());
+    ASSERT_EQ(added, kRows);
+    OwnedSlice page;
+    ASSERT_TRUE(page_builder->finish(&page).ok());
+
+    PageDecoderOptions decoder_options;
+    PlainPageDecoder<FieldType::OLAP_FIELD_TYPE_DATE> decoder(page.slice(), decoder_options);
+    ASSERT_TRUE(decoder.init().ok());
+
+    MutableColumnPtr dates = ColumnDate::create();
+    size_t n = kRows;
+    ASSERT_TRUE(decoder.next_batch(&n, dates).ok());
+    ASSERT_EQ(n, kRows);
+    const auto& decoded = assert_cast<const ColumnDate&>(*dates).get_data();
+    for (size_t i = 0; i < kRows; ++i) {
+        EXPECT_EQ(decoded[i], days[i]) << "row " << i;
+    }
+
+    const rowid_t rowids[] = {1, 3, 6};
+    MutableColumnPtr picked = ColumnNullable::create(ColumnDate::create(), ColumnUInt8::create());
+    n = 3;
+    ASSERT_TRUE(decoder.read_by_rowids(rowids, 0, &n, picked).ok());
+    ASSERT_EQ(n, 3);
+    const auto& nullable = assert_cast<const ColumnNullable&>(*picked);
+    const auto& picked_dates =
+            assert_cast<const ColumnDate&>(nullable.get_nested_column()).get_data();
+    for (size_t i = 0; i < 3; ++i) {
+        EXPECT_FALSE(nullable.is_null_at(i));
+        EXPECT_EQ(picked_dates[i], days[rowids[i]]) << "row id " << rowids[i];
+    }
 }
 
 } // namespace segment_v2

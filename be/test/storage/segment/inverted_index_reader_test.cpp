@@ -52,6 +52,7 @@
 #include "storage/index/inverted/query/scoring/collection_similarity.h"
 #include "storage/index/inverted/reader/collection_statistics.h"
 #include "storage/key_coder.h"
+#include "storage/storage_layout_test_util.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/tablet/tablet_schema_helper.h"
 #include "util/slice.h"
@@ -3718,8 +3719,9 @@ public:
         EXPECT_NE(bkd_reader, nullptr);
 
         auto run_query = [&](InvertedIndexQueryType qt, T thr) {
-            using raw_t = typename PrimitiveTypeTraits<PT>::StorageFieldType;
-            Field qp = Field::create_field_from_olap_value<PT>(static_cast<raw_t>(thr));
+            using raw_t =
+                    typename StorageLayout<primitive_type_to_storage_field_type(PT)>::StorageValue;
+            Field qp = field_of_cell<PT>(static_cast<raw_t>(thr));
             auto bitmap = std::make_shared<roaring::Roaring>();
             auto status = bkd_reader->query(context, column_name, qp, qt, bitmap);
             EXPECT_TRUE(status.ok()) << column_name << ": " << status;
@@ -4331,8 +4333,7 @@ public:
 
             for (auto& test_case : test_cases) {
                 std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-                Field qp_3262 =
-                        Field::create_field_from_olap_value<TYPE_TIMESTAMPTZ>(test_case.second);
+                Field qp_3262 = field_of_cell<TYPE_TIMESTAMPTZ>(test_case.second);
                 auto status = bkd_reader->query(context, "c_timestamptz", qp_3262, test_case.first,
                                                 bitmap);
                 EXPECT_TRUE(status.ok()) << "Query type: " << static_cast<int>(test_case.first);
@@ -4345,8 +4346,7 @@ public:
 
             for (auto& test_case : test_cases) {
                 size_t count = 0;
-                Field qp_3274 =
-                        Field::create_field_from_olap_value<TYPE_TIMESTAMPTZ>(test_case.second);
+                Field qp_3274 = field_of_cell<TYPE_TIMESTAMPTZ>(test_case.second);
                 auto status = bkd_reader->try_query(context, "c_timestamptz", qp_3274,
                                                     test_case.first, &count);
                 EXPECT_TRUE(status.ok()) << "Try query type: " << static_cast<int>(test_case.first);
@@ -4444,8 +4444,8 @@ public:
             uint32_t query_value = 20240102;
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
             // TYPE_DATE storage is uint24_t — narrow from the test's uint32_t.
-            typename PrimitiveTypeTraits<TYPE_DATE>::StorageFieldType date_storage(query_value);
-            Field qp_3366 = Field::create_field_from_olap_value<TYPE_DATE>(date_storage);
+            const uint24_t date_storage(query_value);
+            Field qp_3366 = field_of_cell<TYPE_DATE>(date_storage);
             auto status = bkd_reader->query(context, "c_date", qp_3366,
                                             InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
@@ -4471,8 +4471,7 @@ public:
 
             int64_t query_value = 20240101130000LL;
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-            Field qp_3391 = Field::create_field_from_olap_value<TYPE_DATETIME>(
-                    static_cast<uint64_t>(query_value));
+            Field qp_3391 = field_of_cell<TYPE_DATETIME>(query_value);
             auto status = bkd_reader->query(context, "c_datetime", qp_3391,
                                             InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
@@ -4651,7 +4650,7 @@ public:
 
             uint64_t query_value = 20240201130000ULL;
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-            Field qp_3561 = Field::create_field_from_olap_value<TYPE_TIMESTAMPTZ>(query_value);
+            Field qp_3561 = field_of_cell<TYPE_TIMESTAMPTZ>(query_value);
             auto status = bkd_reader->query(context, "c_timestamptz", qp_3561,
                                             InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());

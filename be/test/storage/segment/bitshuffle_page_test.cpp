@@ -21,11 +21,17 @@
 
 #include <memory>
 
+#include "core/assert_cast.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "core/uint24.h"
+#include "core/value/vdatetime_value.h"
 #include "storage/segment/bitshuffle_page_pre_decoder.h"
 #include "storage/segment/options.h"
 #include "storage/segment/page_builder.h"
 #include "storage/segment/page_decoder.h"
+#include "storage/storage_layout.h"
 
 using doris::segment_v2::PageBuilderOptions;
 using doris::OlapReaderStatistics;
@@ -361,6 +367,66 @@ TEST_F(BitShufflePageTest, TestBitShuffleDecimal12BlockEncoderSeekValue) {
             segment_v2::BitshufflePageBuilder<FieldType::OLAP_FIELD_TYPE_DECIMAL>,
             segment_v2::BitShufflePageDecoder<FieldType::OLAP_FIELD_TYPE_DECIMAL>>(
             decimals.get(), size, &small_than_smallest, &bigger_than_biggest);
+}
+
+// A V1 DATE page holds uint24 cells, which the decoder unpacks into the dates of a ColumnDate,
+// or of a Nullable over it, by batch and by row id.
+TEST_F(BitShufflePageTest, TestBitShuffleDateV1DecodesIntoDates) {
+    using Layout = StorageLayout<FieldType::OLAP_FIELD_TYPE_DATE>;
+    constexpr size_t kRows = 8;
+    std::vector<VecDateTimeValue> days(kRows);
+    std::vector<uint24_t> cells(kRows);
+    for (size_t i = 0; i < kRows; ++i) {
+        ASSERT_TRUE(days[i].from_date_int64(static_cast<int64_t>(20200101 + i)));
+        cells[i] = Layout::to_storage(days[i]);
+    }
+
+    PageBuilderOptions options;
+    options.data_page_size = 256 * 1024;
+    segment_v2::PageBuilder* builder = nullptr;
+    ASSERT_TRUE(segment_v2::BitshufflePageBuilder<FieldType::OLAP_FIELD_TYPE_DATE>::create(&builder,
+                                                                                           options)
+                        .ok());
+    std::unique_ptr<segment_v2::PageBuilder> page_builder(builder);
+    size_t added = kRows;
+    ASSERT_TRUE(page_builder->add(reinterpret_cast<const uint8_t*>(cells.data()), &added).ok());
+    ASSERT_EQ(added, kRows);
+    OwnedSlice encoded;
+    ASSERT_TRUE(page_builder->finish(&encoded).ok());
+
+    segment_v2::BitShufflePagePreDecoder pre_decoder;
+    Slice page = encoded.slice();
+    std::unique_ptr<DataPage> decoded_page;
+    ASSERT_TRUE(
+            pre_decoder
+                    .decode(&decoded_page, &page, 0, false, segment_v2::PageTypePB::DATA_PAGE, "")
+                    .ok());
+    segment_v2::PageDecoderOptions decoder_options;
+    segment_v2::BitShufflePageDecoder<FieldType::OLAP_FIELD_TYPE_DATE> decoder(page,
+                                                                               decoder_options);
+    ASSERT_TRUE(decoder.init().ok());
+
+    MutableColumnPtr dates = ColumnDate::create();
+    size_t n = kRows;
+    ASSERT_TRUE(decoder.next_batch(&n, dates).ok());
+    ASSERT_EQ(n, kRows);
+    const auto& decoded = assert_cast<const ColumnDate&>(*dates).get_data();
+    for (size_t i = 0; i < kRows; ++i) {
+        EXPECT_EQ(decoded[i], days[i]) << "row " << i;
+    }
+
+    const segment_v2::rowid_t rowids[] = {1, 3, 6};
+    MutableColumnPtr picked = ColumnNullable::create(ColumnDate::create(), ColumnUInt8::create());
+    n = 3;
+    ASSERT_TRUE(decoder.read_by_rowids(rowids, 0, &n, picked).ok());
+    ASSERT_EQ(n, 3);
+    const auto& nullable = assert_cast<const ColumnNullable&>(*picked);
+    const auto& picked_dates =
+            assert_cast<const ColumnDate&>(nullable.get_nested_column()).get_data();
+    for (size_t i = 0; i < 3; ++i) {
+        EXPECT_FALSE(nullable.is_null_at(i));
+        EXPECT_EQ(picked_dates[i], days[rowids[i]]) << "row id " << rowids[i];
+    }
 }
 
 } // namespace doris

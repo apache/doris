@@ -28,6 +28,7 @@
 #include "core/column/column_complex.h"
 #include "core/column/column_decimal.h"
 #include "core/column/column_fixed_length_object.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/value/bitmap_value.h"
@@ -48,6 +49,11 @@ const uint8_t* BitCast<FT>::column_to_storage(const IColumn& column, size_t row_
 }
 
 template <FieldType FT>
+void BitCast<FT>::storage_to_column(const uint8_t* values, size_t n, IColumn& dst) {
+    dst.insert_many_raw_data(reinterpret_cast<const char*>(values), n);
+}
+
+template <FieldType FT>
 void repack_from_column(const IColumn& column, size_t row_pos, size_t n, uint8_t* dst) {
     using StorageValue = typename CppTypeTraits<FT>::CppType;
     using Column =
@@ -56,6 +62,32 @@ void repack_from_column(const IColumn& column, size_t row_pos, size_t n, uint8_t
     for (size_t i = 0; i < n; ++i) {
         const StorageValue value = StorageLayout<FT>::to_storage(data[row_pos + i]);
         memcpy(dst + i * sizeof(StorageValue), &value, sizeof(StorageValue));
+    }
+}
+
+// The column the values a page decodes go to: `dst` itself, or the values of a Nullable
+// `dst`, whose n new rows are marked not NULL first.
+IColumn& values_column(IColumn& dst, size_t n) {
+    if (!dst.is_nullable()) {
+        return dst;
+    }
+    auto& nullable = assert_cast<ColumnNullable&>(dst);
+    nullable.push_false_to_nullmap(n);
+    return nullable.get_nested_column();
+}
+
+// Appends n stored values of a repacked layout, each turned back into its PrimitiveValue.
+template <FieldType FT>
+void repack_to_column(const uint8_t* values, size_t n, IColumn& dst) {
+    using StorageValue = typename CppTypeTraits<FT>::CppType;
+    using Column =
+            typename PrimitiveTypeTraits<storage_field_type_to_primitive_type(FT)>::ColumnType;
+    auto& data = assert_cast<Column&>(values_column(dst, n)).get_data();
+    data.reserve(data.size() + n);
+    for (size_t i = 0; i < n; ++i) {
+        StorageValue value;
+        memcpy(&value, values + i * sizeof(StorageValue), sizeof(StorageValue));
+        data.push_back_without_reserve(StorageLayout<FT>::to_primitive(value));
     }
 }
 
@@ -79,6 +111,11 @@ const uint8_t* FloatingPoint<FT>::column_to_storage(const IColumn& column, size_
         memcpy(bytes.data() + i * sizeof(StorageValue), &value, sizeof(StorageValue));
     }
     return bytes.data();
+}
+
+template <FieldType FT>
+void FloatingPoint<FT>::storage_to_column(const uint8_t* values, size_t n, IColumn& dst) {
+    dst.insert_many_raw_data(reinterpret_cast<const char*>(values), n);
 }
 
 const uint8_t* Bytes::column_to_storage(const IColumn& column, size_t row_pos, size_t n,
@@ -165,6 +202,21 @@ const uint8_t* StorageLayout<FieldType::OLAP_FIELD_TYPE_DECIMAL>::column_to_stor
     storage_layout_detail::repack_from_column<FieldType::OLAP_FIELD_TYPE_DECIMAL>(
             column, row_pos, n, buffers.bytes.data());
     return buffers.bytes.data();
+}
+
+void StorageLayout<FieldType::OLAP_FIELD_TYPE_DATE>::storage_to_column(const uint8_t* values,
+                                                                       size_t n, IColumn& dst) {
+    storage_layout_detail::repack_to_column<FieldType::OLAP_FIELD_TYPE_DATE>(values, n, dst);
+}
+
+void StorageLayout<FieldType::OLAP_FIELD_TYPE_DATETIME>::storage_to_column(const uint8_t* values,
+                                                                           size_t n, IColumn& dst) {
+    storage_layout_detail::repack_to_column<FieldType::OLAP_FIELD_TYPE_DATETIME>(values, n, dst);
+}
+
+void StorageLayout<FieldType::OLAP_FIELD_TYPE_DECIMAL>::storage_to_column(const uint8_t* values,
+                                                                          size_t n, IColumn& dst) {
+    storage_layout_detail::repack_to_column<FieldType::OLAP_FIELD_TYPE_DECIMAL>(values, n, dst);
 }
 
 const uint8_t* StorageLayout<FieldType::OLAP_FIELD_TYPE_CHAR>::column_to_storage(
