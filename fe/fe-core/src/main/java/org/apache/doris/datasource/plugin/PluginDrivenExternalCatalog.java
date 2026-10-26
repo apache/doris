@@ -91,6 +91,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -351,16 +353,17 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
 
     /**
      * The connector's declared security-sensitive property surface, looked up by catalog type WITHOUT
-     * initializing a connector (so neither gate forces a catalog to come to life). {@link
-     * ConnectorSecuritySurface#EMPTY} when no provider backs this type — exactly the state in which the
-     * connector can neither load a driver jar nor open a connection, so there is nothing to police.
+     * initializing a connector (so neither gate forces a catalog to come to life). A missing provider
+     * cannot validate newly submitted properties: accepting them would bypass the gates when its plugin
+     * is restored, since replay and lazy reconstruction deliberately skip statement-time validation.
+     * Only an available provider may declare {@link ConnectorSecuritySurface#EMPTY}.
      */
-    // Package-private, not private: a unit test overrides it to inject a surface without registering a
-    // connector plugin, exactly as it exercises the gate logic in isolation.
-    ConnectorSecuritySurface securitySurface(Map<String, String> properties) {
+    private ConnectorSecuritySurface securitySurface(Map<String, String> properties) throws DdlException {
         return ConnectorFactory.findProvider(getType(), properties)
                 .map(ConnectorProvider::securitySurface)
-                .orElse(ConnectorSecuritySurface.EMPTY);
+                .orElseThrow(() -> new DdlException("No ConnectorProvider found for catalog '" + name
+                        + "', type '" + getType() + "'. Install the connector plugin "
+                        + "before altering catalog properties."));
     }
 
     /**
@@ -421,23 +424,27 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         if (value == null || value.isEmpty()) {
             return null;
         }
-        // Drop a leading scheme (thrift://, http://, ...) and any trailing path, leaving the authority.
-        String authority = value;
-        int schemeIdx = authority.indexOf("://");
-        if (schemeIdx >= 0) {
-            authority = authority.substring(schemeIdx + 3);
-        }
-        int slashIdx = authority.indexOf('/');
-        if (slashIdx >= 0) {
-            authority = authority.substring(0, slashIdx);
-        }
         try {
+            if (value.contains("://")) {
+                // Match the HMS client's URI semantics: query, fragment and userinfo do not name
+                // the socket destination. HostAndPort.fromParts also strips IPv6 brackets.
+                URI uri = new URI(value);
+                if (uri.getHost() == null || uri.getPort() < 0) {
+                    return null;
+                }
+                return HostAndPort.fromParts(uri.getHost(), uri.getPort());
+            }
+            String authority = value;
+            int slashIdx = authority.indexOf('/');
+            if (slashIdx >= 0) {
+                authority = authority.substring(0, slashIdx);
+            }
             HostAndPort hostAndPort = HostAndPort.fromString(authority);
             if (!hostAndPort.hasPort() || hostAndPort.getHost().isEmpty()) {
                 return null;
             }
             return hostAndPort;
-        } catch (IllegalArgumentException e) {
+        } catch (URISyntaxException | IllegalArgumentException e) {
             return null;
         }
     }

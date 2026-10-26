@@ -22,6 +22,8 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.connector.ConnectorFactory;
 import org.apache.doris.connector.ConnectorPluginManager;
 import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorProvider;
 import org.apache.doris.connector.spi.ConnectorSecuritySurface;
 import org.apache.doris.connector.spi.ConnectorSession;
 
@@ -30,6 +32,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mockito;
 
 import java.io.IOException;
@@ -44,7 +48,7 @@ import java.util.Map;
  * connect to, rejecting an intranet target. This mirrors {@link PluginDrivenExternalCatalogDriverUrlGateTest}:
  * the judgment is delegated to the third-party {@code SecurityChecker} SDK (absent in CI, so a recording
  * fake stands in), the checked endpoint keys are the ones the connector declares through
- * {@code ConnectorSecuritySurface} (injected here via the {@code securitySurface} seam), the
+ * {@code ConnectorSecuritySurface} (looked up through the registered provider), the
  * gate runs on CREATE ({@code checkWhenCreating}) and the {@code !isReplay} ALTER path
  * ({@code validatePropertiesBeforeUpdate}) but never on replay, and it is a no-op when no checker is
  * installed.
@@ -57,9 +61,24 @@ public class PluginDrivenExternalCatalogSsrfGateTest {
     public void setUp() {
         checker = new RecordingChecker();
         SecurityChecker.setInstanceForTest(checker);
-        // A fresh empty manager so the connector's own property validation is a no-op and the SSRF gate is
-        // tested in isolation, regardless of what a prior test in a reused fork left behind.
-        ConnectorFactory.initPluginManager(new ConnectorPluginManager());
+        ConnectorPluginManager manager = new ConnectorPluginManager();
+        manager.registerProvider(new ConnectorProvider() {
+            @Override
+            public String getType() {
+                return "hms";
+            }
+
+            @Override
+            public Connector create(Map<String, String> properties, ConnectorContext context) {
+                throw new AssertionError("Security-surface lookup must not initialize a connector");
+            }
+
+            @Override
+            public ConnectorSecuritySurface securitySurface() {
+                return ConnectorSecuritySurface.ofSsrfEndpoints("hive.metastore.uris", "uri");
+            }
+        });
+        ConnectorFactory.initPluginManager(manager);
     }
 
     @AfterEach
@@ -93,6 +112,26 @@ public class PluginDrivenExternalCatalogSsrfGateTest {
         Assertions.assertNull(PluginDrivenExternalCatalog.parseEndpoint("thrift://"));
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"thrift://host1:9083?ignored", "thrift://host1:9083#ignored",
+            "thrift://user@host1:9083", "thrift://user:password@host1:9083/path?ignored#ignored",
+            "thrift://host1:9083/path", "host1:9083/path"})
+    public void parseEndpointUsesUriDestination(String endpoint) {
+        HostAndPort parsed = PluginDrivenExternalCatalog.parseEndpoint(endpoint);
+        Assertions.assertNotNull(parsed);
+        Assertions.assertEquals("host1", parsed.getHost());
+        Assertions.assertEquals(9083, parsed.getPort());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"thrift://[::1]:9083", "thrift://user@[::1]:9083?ignored#ignored", "[::1]:9083"})
+    public void parseEndpointPreservesIpv6Destination(String endpoint) {
+        HostAndPort parsed = PluginDrivenExternalCatalog.parseEndpoint(endpoint);
+        Assertions.assertNotNull(parsed);
+        Assertions.assertEquals("::1", parsed.getHost());
+        Assertions.assertEquals(9083, parsed.getPort());
+    }
+
     // ---- ALTER gate ----
 
     @Test
@@ -117,6 +156,19 @@ public class PluginDrivenExternalCatalogSsrfGateTest {
         Assertions.assertTrue(checker.probed.contains("hms2.public.example.com:9083"), checker.probed.toString());
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"thrift://10.0.0.1:9083?ignored", "thrift://10.0.0.1:9083#ignored",
+            "thrift://user@10.0.0.1:9083", "thrift://user:password@10.0.0.1:9083/path?ignored#ignored"})
+    public void alterRejectsUriDestinationWithSuffixes(String endpoint) {
+        checker.intranetHost = "10.0.0.1";
+        TestCatalog catalog = new TestCatalog(hms("thrift://hms.public.example.com:9083"));
+
+        Assertions.assertThrows(DdlException.class,
+                () -> catalog.validatePropertiesBeforeUpdate(catalog.getProperties(),
+                        Collections.singletonMap("hive.metastore.uris", endpoint)));
+        Assertions.assertEquals(Collections.singletonList("10.0.0.1:9083"), checker.probed);
+    }
+
     @Test
     public void alterChecksEveryEndpointInAnHaUriList() {
         checker.intranetHost = "192.168.0.7";
@@ -126,7 +178,7 @@ public class PluginDrivenExternalCatalogSsrfGateTest {
         Assertions.assertThrows(DdlException.class,
                 () -> catalog.validatePropertiesBeforeUpdate(hms("thrift://hms.public.example.com:9083"),
                         Collections.singletonMap("hive.metastore.uris",
-                                "thrift://ok.public.example.com:9083,thrift://192.168.0.7:9083")));
+                                "thrift://ok.public.example.com:9083,thrift://192.168.0.7:9083?ignored#ignored")));
     }
 
     @Test
@@ -163,6 +215,19 @@ public class PluginDrivenExternalCatalogSsrfGateTest {
         // MUTATION: drop checkEndpointsAgainstSsrf from checkWhenCreating -> CREATE accepts the intranet
         // metastore -> red.
         Assertions.assertThrows(DdlException.class, catalog::checkWhenCreating);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"thrift://127.0.0.1:9083?ignored", "thrift://127.0.0.1:9083#ignored",
+            "thrift://user@127.0.0.1:9083", "thrift://user:password@127.0.0.1:9083/path?ignored#ignored"})
+    public void createRejectsUriDestinationWithConnectionTestDisabled(String endpoint) {
+        checker.intranetHost = "127.0.0.1";
+        Map<String, String> properties = hms(endpoint);
+        properties.put("test_connection", "false");
+        TestCatalog catalog = new TestCatalog(properties);
+
+        Assertions.assertThrows(DdlException.class, catalog::checkWhenCreating);
+        Assertions.assertEquals(Collections.singletonList("127.0.0.1:9083"), checker.probed);
     }
 
     private static Map<String, String> hms(String metastoreUris) {
@@ -228,13 +293,6 @@ public class PluginDrivenExternalCatalogSsrfGateTest {
         @Override
         public ConnectorSession buildConnectorSession() {
             return Mockito.mock(ConnectorSession.class);
-        }
-
-        @Override
-        ConnectorSecuritySurface securitySurface(Map<String, String> properties) {
-            // The type=hms catalog declares its thrift endpoint; the real keys are pinned by
-            // HiveConnectorProviderTest.
-            return ConnectorSecuritySurface.ofSsrfEndpoints("hive.metastore.uris", "uri");
         }
     }
 }
