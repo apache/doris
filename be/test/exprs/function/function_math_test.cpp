@@ -201,6 +201,41 @@ TEST(MathFunctionTest, cbrt_test) {
     static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 }
 
+TEST(MathFunctionTest, gamma_test) {
+    std::string func_name = "gamma"; // gamma(x): x > 0, and a negative non-integer x
+
+    InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
+    // Gamma(n) is (n - 1)! for a positive integer n, but std::tgamma does not return every
+    // factorial exactly: 5 comes back as 24.000000000000004, so the expectation carries the ulp
+    // the implementation actually produces rather than the mathematical integer. Gamma(0.5) is
+    // sqrt(pi) and the half-integer rows are its multiples (sqrt(pi)/2 at 1.5, 3*sqrt(pi)/4 at
+    // 2.5); the values at -0.5, -1.5 and -2.5 come from the reflection formula. 0 (negative
+    // zero included) and the negative integers are poles, so they are domain errors and come
+    // back as NULL, and a NULL input stays NULL.
+    DataSet data_set = {{{1.0}, 1.0},
+                        {{2.0}, 1.0},
+                        {{3.0}, 2.0},
+                        {{4.0}, 6.0},
+                        {{5.0}, 24.000000000000004},
+                        {{10.0}, 362880.00000000047},
+                        {{0.5}, 1.7724538509055161},
+                        {{1.5}, 0.88622692545275805},
+                        {{2.5}, 1.329340388179137},
+                        {{-0.5}, -3.5449077018110318},
+                        {{-1.5}, 2.3632718012073544},
+                        {{-2.5}, -0.94530872048294179},
+                        {{0.0}, Null()},
+                        {{-0.0}, Null()},
+                        {{-1.0}, Null()},
+                        {{-2.0}, Null()},
+                        {{-3.0}, Null()},
+                        {{-10.0}, Null()},
+                        {{Null()}, Null()}};
+
+    static_cast<void>(
+            check_function_all_arg_comb<DataTypeFloat64, true>(func_name, input_types, data_set));
+}
+
 TEST(MathFunctionTest, cot_test) {
     std::string func_name = "cot";
 
