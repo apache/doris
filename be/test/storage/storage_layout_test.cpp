@@ -21,12 +21,27 @@
 
 #include <bit>
 #include <cstdint>
+#include <cstring>
 #include <limits>
+#include <string>
+#include <type_traits>
 
+#include "common/config.h"
+#include "common/exception.h"
+#include "core/column/column_complex.h"
+#include "core/column/column_decimal.h"
+#include "core/column/column_fixed_length_object.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
+#include "core/column/column_vector.h"
+#include "core/pod_array.h"
+#include "core/string_ref.h"
 #include "core/types.h"
 #include "core/value/decimalv2_value.h"
+#include "core/value/jsonb_value.h"
 #include "core/value/vdatetime_value.h"
 #include "storage/types.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
@@ -114,6 +129,325 @@ TEST(StorageLayoutTest, BitCastStoresThePrimitiveBytes) {
 
     EXPECT_EQ(StorageLayout<FieldType::OLAP_FIELD_TYPE_DECIMAL32>::to_storage(Decimal32(-12345)),
               -12345);
+}
+
+TEST(StorageLayoutTest, CharIsPaddedToTheDeclaredLength) {
+    using Layout = StorageLayout<FieldType::OLAP_FIELD_TYPE_CHAR>;
+    std::string out = "key:";
+    Layout::append_padded(StringRef("ab"), 5, &out);
+    EXPECT_EQ(out, std::string("key:ab\0\0\0", 9));
+
+    out.clear();
+    Layout::append_padded(StringRef("hello"), 5, &out);
+    EXPECT_EQ(out, "hello");
+
+    out.clear();
+    Layout::append_padded(StringRef(), 5, &out);
+    EXPECT_EQ(out, std::string(5, '\0'));
+}
+
+TEST(StorageLayoutTest, OtherStringsKeepTheirBytes) {
+    auto column = ColumnString::create();
+    column->insert_data("hello", 5);
+    StorageBuffers buffers;
+    const auto* cells = reinterpret_cast<const Slice*>(
+            StorageLayout<FieldType::OLAP_FIELD_TYPE_VARCHAR>::column_to_storage(*column, 0, 1,
+                                                                                 buffers));
+    EXPECT_EQ(cells, buffers.cells.data());
+    EXPECT_EQ(cells[0].data, column->get_data_at(0).data);
+    EXPECT_EQ(cells[0].size, 5);
+    EXPECT_TRUE(buffers.bytes.empty());
+}
+
+TEST(StorageLayoutTest, FixedBatchViewBorrowsTheRequestedRange) {
+    auto column = ColumnInt32::create();
+    column->insert_value(7);
+    column->insert_value(11);
+    column->insert_value(13);
+    StorageBuffers buffers;
+    const auto* values = StorageLayout<FieldType::OLAP_FIELD_TYPE_INT>::column_to_storage(
+            *column, 1, 2, buffers);
+    EXPECT_EQ(values, reinterpret_cast<const uint8_t*>(column->get_data().data() + 1));
+    EXPECT_TRUE(buffers.bytes.empty());
+    const auto* cells = reinterpret_cast<const int32_t*>(values);
+    EXPECT_EQ(cells[0], 11);
+    EXPECT_EQ(cells[1], 13);
+}
+
+TEST(StorageLayoutTest, StringBatchViewBorrowsPayloadsAndCarriesLengths) {
+    auto column = ColumnString::create();
+    for (const std::string value : {"outside", "", "hello"}) {
+        column->insert_data(value.data(), value.size());
+    }
+    StorageBuffers buffers;
+    const auto* values = StorageLayout<FieldType::OLAP_FIELD_TYPE_STRING>::column_to_storage(
+            *column, 1, 2, buffers);
+    const auto* cells = reinterpret_cast<const Slice*>(values);
+    EXPECT_EQ(cells, buffers.cells.data());
+    ASSERT_EQ(buffers.cells.size(), 2);
+    EXPECT_EQ(cells[0].size, 0);
+    EXPECT_EQ(cells[1].size, 5);
+    EXPECT_EQ(cells[1].data, column->get_data_at(2).data);
+    EXPECT_EQ(cells[1].to_string(), "hello");
+}
+
+// column_to_storage converts rows to contiguous storage values without changing
+// the source column.
+TEST(StorageLayoutTest, ColumnToStoragePreservesSource) {
+    const auto payload_nan = std::bit_cast<float>(0x7FC12345U);
+    auto floats = ColumnFloat32::create();
+    floats->insert_value(1.5F);
+    floats->insert_value(payload_nan);
+    StorageBuffers float_buffers;
+    const auto* float_out = StorageLayout<FieldType::OLAP_FIELD_TYPE_FLOAT>::column_to_storage(
+            *floats, 0, 2, float_buffers);
+    float stored[2];
+    memcpy(stored, float_out, sizeof(stored));
+    EXPECT_EQ(stored[0], 1.5F);
+    EXPECT_EQ(std::bit_cast<uint32_t>(stored[1]), 0x7FC00000U) << "a NaN is stored canonical";
+    EXPECT_EQ(std::bit_cast<uint32_t>(floats->get_data()[1]), 0x7FC12345U)
+            << "the source column is left alone";
+
+    auto dates = ColumnDate::create();
+    VecDateTimeValue day;
+    ASSERT_TRUE(day.from_date_int64(20200101));
+    dates->insert_value(day);
+    dates->insert_value(day);
+    using DateLayout = StorageLayout<FieldType::OLAP_FIELD_TYPE_DATE>;
+    using StoredDate = CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>::CppType;
+    StorageBuffers date_buffers;
+    const auto* date_out = DateLayout::column_to_storage(*dates, 0, 2, date_buffers);
+    for (size_t i = 0; i < 2; ++i) {
+        StoredDate value;
+        memcpy(&value, date_out + i * sizeof(value), sizeof(value));
+        EXPECT_EQ(value, DateLayout::to_storage(day)) << "row " << i;
+    }
+}
+
+namespace {
+
+template <FieldType FT>
+void expect_floating_point_range_views() {
+    using Value = typename CppTypeTraits<FT>::CppType;
+    using UInt = std::conditional_t<sizeof(Value) == sizeof(uint32_t), uint32_t, uint64_t>;
+    using Column =
+            typename PrimitiveTypeTraits<storage_field_type_to_primitive_type(FT)>::ColumnType;
+    const UInt payload_bits =
+            sizeof(Value) == sizeof(float) ? UInt(0x7FC12345U) : UInt(0xFFF8000000000001ULL);
+    const auto payload_nan = std::bit_cast<Value>(payload_bits);
+    auto column = Column::create();
+    for (Value value : {payload_nan, Value(1.5), Value(-0.0),
+                        std::numeric_limits<Value>::infinity(), payload_nan}) {
+        column->insert_value(value);
+    }
+    StorageBuffers buffers;
+    const auto* source = reinterpret_cast<const uint8_t*>(column->get_data().data());
+    EXPECT_EQ(StorageLayout<FT>::column_to_storage(*column, 1, 3, buffers), source + sizeof(Value));
+    EXPECT_EQ(buffers.bytes.allocated_bytes(), 0);
+
+    const auto* converted = StorageLayout<FT>::column_to_storage(*column, 0, 2, buffers);
+    EXPECT_NE(converted, source);
+    Value stored[2];
+    memcpy(stored, converted, sizeof(stored));
+    EXPECT_EQ(std::bit_cast<UInt>(stored[0]),
+              std::bit_cast<UInt>(std::numeric_limits<Value>::quiet_NaN()));
+    EXPECT_EQ(stored[1], Value(1.5));
+    EXPECT_EQ(std::bit_cast<UInt>(column->get_data()[0]), payload_bits);
+    EXPECT_EQ(std::bit_cast<UInt>(column->get_data()[4]), payload_bits);
+
+    // The prefix is copied bit for bit, including -0 and infinity, when
+    // the final row in [1, 5) needs NaN normalization.
+    converted = StorageLayout<FT>::column_to_storage(*column, 1, 4, buffers);
+    Value with_prefix[4];
+    memcpy(with_prefix, converted, sizeof(with_prefix));
+    EXPECT_EQ(memcmp(with_prefix, column->get_data().data() + 1, 3 * sizeof(Value)), 0);
+    EXPECT_EQ(std::bit_cast<UInt>(with_prefix[3]),
+              std::bit_cast<UInt>(std::numeric_limits<Value>::quiet_NaN()));
+
+    // Reusing a buffer from an earlier NaN range must not force later clean rows
+    // through it. The NaNs surrounding [1, 4) are outside the requested range.
+    const std::string previous_buffer(buffers.bytes.begin(), buffers.bytes.end());
+    const auto allocated_bytes = buffers.bytes.allocated_bytes();
+    EXPECT_EQ(StorageLayout<FT>::column_to_storage(*column, 1, 3, buffers), source + sizeof(Value));
+    EXPECT_EQ(buffers.bytes.allocated_bytes(), allocated_bytes);
+    EXPECT_EQ(std::string(buffers.bytes.begin(), buffers.bytes.end()), previous_buffer);
+}
+
+} // namespace
+
+TEST(StorageLayoutTest, FloatingPointBorrowsOnlyTheSelectedRange) {
+    expect_floating_point_range_views<FieldType::OLAP_FIELD_TYPE_FLOAT>();
+    expect_floating_point_range_views<FieldType::OLAP_FIELD_TYPE_DOUBLE>();
+}
+
+TEST(StorageLayoutTest, AdmitsOnlyStringsWithinTheSoftLimit) {
+    auto strings = ColumnString::create();
+    const std::string value = "longer than the limit set below";
+    strings->insert_data(value.data(), value.size());
+    JsonBinaryValue document;
+    ASSERT_TRUE(document.from_json_string(R"({"key": "longer than the limit set below"})").ok());
+    strings->insert_data(document.value(), document.size());
+
+    const auto saved_limit = config::string_type_length_soft_limit_bytes;
+    config::string_type_length_soft_limit_bytes = 8;
+    Defer restore {[&] { config::string_type_length_soft_limit_bytes = saved_limit; }};
+
+    EXPECT_FALSE(
+            admit_storage_rows(FieldType::OLAP_FIELD_TYPE_STRING, *strings, 0, 1, nullptr).ok());
+    // A well-formed document is held to the limit too.
+    EXPECT_FALSE(
+            admit_storage_rows(FieldType::OLAP_FIELD_TYPE_JSONB, *strings, 1, 1, nullptr).ok());
+    // VARCHAR has its own declared length and is not checked here.
+    EXPECT_TRUE(
+            admit_storage_rows(FieldType::OLAP_FIELD_TYPE_VARCHAR, *strings, 0, 1, nullptr).ok());
+    // A NULL row is not looked at.
+    const uint8_t null_map[1] = {1};
+    EXPECT_TRUE(
+            admit_storage_rows(FieldType::OLAP_FIELD_TYPE_STRING, *strings, 0, 1, null_map).ok());
+}
+
+TEST(StorageLayoutTest, AdmitsOnlyWellFormedJsonb) {
+    JsonBinaryValue document;
+    ASSERT_TRUE(document.from_json_string(R"({"key": [1, 2, 3]})").ok());
+    auto jsonb = ColumnString::create();
+    jsonb->insert_data(document.value(), document.size());
+    const std::string not_a_document = "not a jsonb document";
+    jsonb->insert_data(not_a_document.data(), not_a_document.size());
+
+    EXPECT_TRUE(admit_storage_rows(FieldType::OLAP_FIELD_TYPE_JSONB, *jsonb, 0, 1, nullptr).ok());
+    const Status status =
+            admit_storage_rows(FieldType::OLAP_FIELD_TYPE_JSONB, *jsonb, 1, 1, nullptr);
+    EXPECT_NE(status.to_string().find("Invalid JSONB document"), std::string::npos)
+            << status.to_string();
+    // A NULL row is not looked at, and a STRING is not a document.
+    const uint8_t null_map[1] = {1};
+    EXPECT_TRUE(admit_storage_rows(FieldType::OLAP_FIELD_TYPE_JSONB, *jsonb, 1, 1, null_map).ok());
+    EXPECT_TRUE(admit_storage_rows(FieldType::OLAP_FIELD_TYPE_STRING, *jsonb, 1, 1, nullptr).ok());
+}
+
+TEST(StorageLayoutTest, CharIsPaddedIntoReusedBytes) {
+    using Layout = StorageLayout<FieldType::OLAP_FIELD_TYPE_CHAR>;
+    auto strings = ColumnString::create();
+    for (const std::string value : {"outside", "abcd", "xy", "a"}) {
+        strings->insert_data(value.data(), value.size());
+    }
+    StorageBuffers buffers;
+    const auto* cells = reinterpret_cast<const Slice*>(
+            Layout::column_to_storage(*strings, 1, 2, 4, nullptr, buffers));
+    EXPECT_EQ(cells, buffers.cells.data());
+    EXPECT_EQ(cells[0].to_string(), "abcd");
+    EXPECT_EQ(cells[1].to_string(), std::string("xy\0\0", 4));
+    // A reused buffer must not keep the bytes of a longer earlier value.
+    const auto* bytes = buffers.bytes.data();
+    cells = reinterpret_cast<const Slice*>(
+            Layout::column_to_storage(*strings, 3, 1, 4, nullptr, buffers));
+    EXPECT_EQ(buffers.bytes.data(), bytes);
+    EXPECT_EQ(cells[0].to_string(), std::string("a\0\0\0", 4));
+
+    // A NULL row keeps an empty, zeroed slot, and its value is never read: "outside" is
+    // longer than CHAR(4).
+    const uint8_t null_map[] = {1, 0, 1};
+    cells = reinterpret_cast<const Slice*>(
+            Layout::column_to_storage(*strings, 0, 3, 4, null_map, buffers));
+    EXPECT_TRUE(cells[0].empty());
+    EXPECT_EQ(cells[1].to_string(), "abcd");
+    EXPECT_TRUE(cells[2].empty());
+    EXPECT_EQ(std::string(buffers.bytes.begin(), buffers.bytes.end()),
+              std::string("\0\0\0\0abcd\0\0\0\0", 12));
+
+    // The Bytes overload stores a value as it is, which the SNII index is fed.
+    cells = reinterpret_cast<const Slice*>(Layout::column_to_storage(*strings, 3, 1, buffers));
+    EXPECT_EQ(cells[0].data, strings->get_data_at(3).data);
+    EXPECT_EQ(cells[0].size, 1);
+}
+
+TEST(StorageLayoutTest, AggregateStateObjectsAreBorrowed) {
+    using Layout = StorageLayout<FieldType::OLAP_FIELD_TYPE_AGG_STATE>;
+    auto objects = ColumnFixedLengthObject::create(sizeof(int64_t));
+    for (int64_t value : {11, 22, 33, 44}) {
+        objects->insert_data(reinterpret_cast<const char*>(&value), sizeof(value));
+    }
+    StorageBuffers buffers;
+    const auto* cells =
+            reinterpret_cast<const Slice*>(Layout::column_to_storage(*objects, 1, 2, buffers));
+    EXPECT_EQ(cells, buffers.cells.data());
+    EXPECT_EQ(cells[0].data,
+              reinterpret_cast<const char*>(objects->get_data().data()) + sizeof(int64_t));
+    EXPECT_EQ(cells[1].data, cells[0].data + sizeof(int64_t));
+    EXPECT_EQ(cells[1].size, sizeof(int64_t));
+    int64_t stored = 0;
+    memcpy(&stored, cells[1].data, sizeof(stored));
+    EXPECT_EQ(stored, 33);
+    EXPECT_TRUE(buffers.bytes.empty());
+}
+
+TEST(StorageLayoutTest, RuntimeTypeConvertsThroughItsLayout) {
+    StorageBuffers buffers;
+    auto ints = ColumnInt32::create();
+    ints->insert_value(7);
+    ints->insert_value(11);
+    EXPECT_EQ(column_to_storage(FieldType::OLAP_FIELD_TYPE_INT, *ints, 1, 1, buffers),
+              reinterpret_cast<const uint8_t*>(ints->get_data().data() + 1));
+
+    auto dates = ColumnDate::create();
+    VecDateTimeValue day;
+    ASSERT_TRUE(day.from_date_int64(20200101));
+    dates->insert_value(day);
+    using StoredDate = CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>::CppType;
+    StoredDate stored;
+    memcpy(&stored, column_to_storage(FieldType::OLAP_FIELD_TYPE_DATE, *dates, 0, 1, buffers),
+           sizeof(stored));
+    EXPECT_EQ(stored, StorageLayout<FieldType::OLAP_FIELD_TYPE_DATE>::to_storage(day));
+
+    auto strings = ColumnString::create();
+    strings->insert_data("ab", 2);
+    const auto* cells = reinterpret_cast<const Slice*>(
+            column_to_storage(FieldType::OLAP_FIELD_TYPE_VARCHAR, *strings, 0, 1, buffers));
+    EXPECT_EQ(cells[0].data, strings->get_data_at(0).data);
+    // Whether CHAR is padded is the caller's choice, made through StorageLayout<CHAR>.
+    EXPECT_THROW(column_to_storage(FieldType::OLAP_FIELD_TYPE_CHAR, *strings, 0, 1, buffers),
+                 Exception);
+}
+
+TEST(StorageLayoutTest, ObjectBatchSerialisesEveryValue) {
+    auto bitmaps = ColumnBitmap::create();
+    for (size_t i = 0; i < 3; ++i) {
+        BitmapValue bitmap;
+        for (size_t j = 0; j <= i * 3; ++j) {
+            bitmap.add(i * 100 + j);
+        }
+        bitmaps->insert_value(bitmap);
+    }
+    StorageBuffers buffers;
+    const auto* cells = reinterpret_cast<const Slice*>(
+            StorageLayout<FieldType::OLAP_FIELD_TYPE_BITMAP>::column_to_storage(*bitmaps, 0, 3,
+                                                                                buffers));
+    EXPECT_EQ(cells, buffers.cells.data());
+    const auto& values = bitmaps->get_data();
+    // The payloads sit back to back in the batch's bytes.
+    const auto* bytes = reinterpret_cast<const char*>(buffers.bytes.data());
+    EXPECT_EQ(cells[0].data, bytes);
+    size_t total_size = 0;
+    for (size_t row = 0; row < 3; ++row) {
+        EXPECT_EQ(cells[row].data, bytes + total_size) << "row " << row;
+        EXPECT_EQ(cells[row].size, values[row].getSizeInBytes()) << "row " << row;
+        EXPECT_EQ(BitmapValue(cells[row].data).to_string(), values[row].to_string());
+        total_size += cells[row].size;
+    }
+    EXPECT_EQ(buffers.bytes.size(), total_size);
+
+    auto hlls = ColumnHLL::create();
+    hlls->insert_value(HyperLogLog(uint64_t(7)));
+    hlls->insert_value(HyperLogLog());
+    cells = reinterpret_cast<const Slice*>(
+            StorageLayout<FieldType::OLAP_FIELD_TYPE_HLL>::column_to_storage(*hlls, 0, 2, buffers));
+    for (size_t row = 0; row < 2; ++row) {
+        std::string expected(hlls->get_data()[row].max_serialized_size(), '\0');
+        expected.resize(
+                hlls->get_data()[row].serialize(reinterpret_cast<uint8_t*>(expected.data())));
+        EXPECT_EQ(cells[row].to_string(), expected) << "row " << row;
+    }
+    EXPECT_EQ(cells[1].data, cells[0].data + cells[0].size);
 }
 
 } // namespace doris

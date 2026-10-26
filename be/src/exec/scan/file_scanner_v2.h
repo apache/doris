@@ -243,6 +243,8 @@ private:
     RuntimeProfile::Counter* _adaptive_batch_probe_count_counter = nullptr;
     std::unique_ptr<AdaptiveBlockSizePredictor> _block_size_predictor;
     int64_t _reported_predicate_filtered_rows = 0;
+    int64_t _reported_load_filtered_rows = 0;
+    int64_t _reported_load_unselected_rows = 0;
     int64_t _reported_condition_cache_hit_count = 0;
     int64_t _reported_condition_cache_filtered_rows = 0;
     int64_t _last_read_bytes = 0;

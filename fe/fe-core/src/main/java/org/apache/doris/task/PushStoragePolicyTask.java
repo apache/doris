@@ -84,15 +84,18 @@ public class PushStoragePolicyTask extends AgentTask {
         resource.forEach(r -> {
             TStorageResource item = new TStorageResource();
             r.readLock();
-            item.setId(r.getId());
-            item.setName(r.getName());
-            item.setVersion(r.getVersion());
-            if (r.getType() == ResourceType.S3) {
-                item.setS3StorageParam(S3ThriftAdapter.getS3TStorageParam(r.getCopiedProperties()));
-            } else if (r.getType() == ResourceType.HDFS) {
-                item.setHdfsStorageParam(HdfsResource.generateHdfsParam(r.getCopiedProperties()));
+            try {
+                item.setId(r.getId());
+                item.setName(r.getName());
+                item.setVersion(r.getVersion());
+                if (r.getType() == ResourceType.S3) {
+                    item.setS3StorageParam(S3ThriftAdapter.getS3TStorageParam(r.getCopiedProperties()));
+                } else if (r.getType() == ResourceType.HDFS) {
+                    item.setHdfsStorageParam(HdfsResource.generateHdfsParam(r.getCopiedProperties()));
+                }
+            } finally {
+                r.readUnlock();
             }
-            r.readUnlock();
             tStorageResources.add(item);
         });
         ret.setResource(tStorageResources);
