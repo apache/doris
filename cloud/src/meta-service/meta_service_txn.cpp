@@ -3877,6 +3877,9 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
               << " tmp_rowsets_meta.size=" << tmp_rowsets_meta.size();
     code = MetaServiceCode::OK;
     msg.clear();
+    // Drop failed immediate results so FE's CloudGlobalTransactionMgr.updateVersion()
+    // can invalidate caches when lazy returns only VISIBLE txn_info.
+    response->Clear();
     commit_txn_eventually(request, response, code, msg, instance_id, db_id, tmp_rowsets_meta,
                           stats);
 }
