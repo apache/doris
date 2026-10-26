@@ -808,7 +808,9 @@ public class ConnectContext {
             // Paired with startMysqlCommand: a packet racing idle closure must not run.
             isKilled = true;
         }
-        closeChannel();
+        // The socket close listener only unregisters the connection and rolls back its
+        // transaction. Finish the normal session cleanup here, including temporary tables.
+        cleanup();
         return true;
     }
 

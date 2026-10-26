@@ -17,22 +17,45 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Status;
 import org.apache.doris.mysql.MysqlCommand;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 public class GracefulMysqlConnectionTest {
+    private Env env;
+    private MockedStatic<Env> envStatic;
+
+    @BeforeEach
+    public void setUp() {
+        env = Mockito.mock(Env.class);
+        envStatic = Mockito.mockStatic(Env.class);
+        envStatic.when(Env::getCurrentEnv).thenReturn(env);
+    }
+
+    @AfterEach
+    public void tearDown() {
+        envStatic.close();
+    }
+
     @Test
     public void testIdleClosurePreventsDispatchWithoutCancellingExecutor() {
         TestContext context = new TestContext();
         context.setCommand(MysqlCommand.COM_SLEEP);
         Assertions.assertTrue(context.closeIdleMysqlConnection());
         Assertions.assertTrue(context.closed);
+        Assertions.assertEquals(1, context.temporaryTableCleanups);
+        Mockito.verify(env).unregisterSessionInfo(context.getSessionId());
         Assertions.assertTrue(context.isKilled());
         Assertions.assertFalse(context.startMysqlCommand());
         Assertions.assertFalse(context.closeIdleMysqlConnection());
+        Assertions.assertEquals(1, context.temporaryTableCleanups);
     }
 
     @Test
@@ -42,6 +65,7 @@ public class GracefulMysqlConnectionTest {
         Assertions.assertTrue(context.startMysqlCommand());
         Assertions.assertFalse(context.closeIdleMysqlConnection());
         Assertions.assertFalse(context.closed);
+        Assertions.assertEquals(0, context.temporaryTableCleanups);
         Assertions.assertFalse(context.isKilled());
         context.setCommand(MysqlCommand.COM_SLEEP);
         Assertions.assertFalse(context.closeIdleMysqlConnection());
@@ -64,10 +88,17 @@ public class GracefulMysqlConnectionTest {
 
     private static class TestContext extends ConnectContext {
         private boolean closed;
+        private int temporaryTableCleanups;
 
         @Override
         protected void closeChannel() {
             closed = true;
+        }
+
+        @Override
+        protected void deleteTempTable() {
+            Assertions.assertTrue(closed, "close the connection before deleting temporary tables");
+            temporaryTableCleanups++;
         }
 
         @Override

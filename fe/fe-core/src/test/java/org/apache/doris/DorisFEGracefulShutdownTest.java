@@ -138,6 +138,13 @@ public class DorisFEGracefulShutdownTest {
         private volatile ConnectContext closingContext;
 
         @Override
+        public void cleanup() {
+            // Only model the blocking socket close here; GracefulMysqlConnectionTest
+            // exercises the full session cleanup, including temporary tables.
+            closeChannel();
+        }
+
+        @Override
         protected void closeChannel() {
             closingContext = ConnectContext.get();
             closed = true;
