@@ -17,6 +17,7 @@
 
 package org.apache.doris.transaction;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.CatalogTestUtil;
 import org.apache.doris.catalog.ChangelogConfig;
@@ -175,6 +176,25 @@ public class DatabaseTransactionMgrTest {
         if (fakeTransactionIDGenerator != null) {
             fakeTransactionIDGenerator.close();
         }
+    }
+
+    @Test
+    public void testBeginTransactionRecordsOwnerBeforePrecommit() throws Exception {
+        FakeEnv.setEnv(masterEnv);
+        UserIdentity owner = UserIdentity.createAnalyzedUserIdentWithIp("loader", "%");
+        long txnId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                Lists.newArrayList(CatalogTestUtil.testTableId1), "owner_label", null, transactionSource,
+                TransactionState.LoadJobSourceType.BACKEND_STREAMING, -1,
+                Config.stream_load_default_timeout_second, owner);
+        TransactionState state = masterTransMgr.getTransactionState(CatalogTestUtil.testDbId1, txnId);
+        Assertions.assertEquals(owner, state.getOwner());
+        masterTransMgr.preCommitTransaction2PC(masterEnv.getInternalCatalog()
+                        .getDbOrMetaException(CatalogTestUtil.testDbId1),
+                Lists.newArrayList(masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
+                        .getTableOrMetaException(CatalogTestUtil.testTableId1)), txnId,
+                GlobalTransactionMgrTest.generateTabletCommitInfos(CatalogTestUtil.testTabletId1, allBackends),
+                5000, null);
+        Assertions.assertEquals(owner, fakeEditLog.getTransaction(txnId).getOwner());
     }
 
     public Map<String, Long> addTransactionToTransactionMgr() throws UserException {

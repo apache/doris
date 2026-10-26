@@ -17,6 +17,7 @@
 
 package org.apache.doris.transaction;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -165,6 +166,16 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
             TxnCoordinator coordinator, LoadJobSourceType sourceType, long listenerId, long timeoutSecond)
             throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException, DuplicatedRequestException,
             QuotaExceedException, MetaNotFoundException {
+        return beginTransaction(dbId, tableIdList, label, requestId, coordinator, sourceType, listenerId,
+                timeoutSecond, null);
+    }
+
+    @Override
+    public long beginTransaction(long dbId, List<Long> tableIdList, String label, TUniqueId requestId,
+            TxnCoordinator coordinator, LoadJobSourceType sourceType, long listenerId, long timeoutSecond,
+            UserIdentity owner)
+            throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException, DuplicatedRequestException,
+            QuotaExceedException, MetaNotFoundException {
         try {
             if (Config.disable_load_job) {
                 throw new AnalysisException("disable_load_job is set to true, all load jobs are prevented");
@@ -182,7 +193,7 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
 
             DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
             return dbTransactionMgr.beginTransaction(tableIdList, label, requestId,
-                    coordinator, sourceType, listenerId, timeoutSecond);
+                    coordinator, sourceType, listenerId, timeoutSecond, owner);
         } catch (DuplicatedRequestException e) {
             throw e;
         } catch (Exception e) {

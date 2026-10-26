@@ -17,6 +17,7 @@
 
 package org.apache.doris.transaction;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndexMeta;
@@ -203,6 +204,12 @@ public class TransactionState implements Writable {
     @Setter
     @Getter
     private List<Long> tableIdList;
+    // Null for transactions created before owner tracking or by internal load jobs.
+    @Getter
+    @Setter
+    @SerializedName(value = "owner")
+    private UserIdentity owner;
+
     @SerializedName(value = "txnId")
     private long transactionId;
     @SerializedName(value = "label")

@@ -1476,10 +1476,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     private TLoadTxnBeginResult loadTxnBeginImpl(TLoadTxnBeginRequest request, String clientIp) throws UserException {
+        UserIdentity owner = null;
         if (request.isSetAuthCode()) {
             // TODO: deprecated, removed in 3.1, use token instead.
         } else if (Strings.isNullOrEmpty(request.getToken())) {
-            checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
+            owner = checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
                     request.getTbl(), request.getUserIp(), PrivPredicate.LOAD,
                     toForwardedCertificateInfo(request.getCertBasedAuth()));
         } else {
@@ -1523,10 +1524,23 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isSetToken()) {
             txnCoord.isFromInternal = true;
         }
-        long txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
-                db.getId(), Lists.newArrayList(table.getId()), request.getLabel(), request.getRequestId(),
-                txnCoord,
-                TransactionState.LoadJobSourceType.BACKEND_STREAMING, -1, timeoutSecond);
+        long txnId;
+        try {
+            txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
+                    db.getId(), Lists.newArrayList(table.getId()), request.getLabel(), request.getRequestId(),
+                    txnCoord,
+                    TransactionState.LoadJobSourceType.BACKEND_STREAMING, -1, timeoutSecond, owner);
+        } catch (DuplicatedRequestException e) {
+            if (owner != null) {
+                TransactionState existing = Env.getCurrentGlobalTransactionMgr()
+                        .getTransactionState(db.getId(), e.getTxnId());
+                if (existing == null) {
+                    throw new UserException("transaction [" + e.getTxnId() + "] not found");
+                }
+                checkTransactionOwner(owner, existing);
+            }
+            throw e;
+        }
         TLoadTxnBeginResult result = new TLoadTxnBeginResult();
         result.setTxnId(txnId).setDbId(db.getId());
         return result;
@@ -1821,6 +1835,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     private void loadTxn2PCImpl(TLoadTxn2PCRequest request) throws UserException {
+        UserIdentity currentUser = resolveForwardedAuthUserIdentity(request.getUser(), request.getPasswd(),
+                request.getUserIp(), toForwardedCertificateInfo(request.getCertBasedAuth()));
         String dbName = request.getDb();
         if (Strings.isNullOrEmpty(dbName)) {
             throw new UserException("No database selected.");
@@ -1850,6 +1866,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (transactionState == null) {
             throw new UserException("transaction [" + request.getTxnId() + "] not found");
         }
+        checkTransactionOwner(currentUser, transactionState);
         if (LOG.isDebugEnabled()) {
             LOG.debug("txn {} has multi table {}", request.getTxnId(), transactionState.getTableIdList());
         }
@@ -1862,11 +1879,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             tableList = database.getTablesOnIdOrderOrThrowException(tableIdList);
         }
         for (Table table : tableList) {
-            // check auth
-            checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
-                    table.getName(),
-                    request.getUserIp(), PrivPredicate.LOAD,
-                    toForwardedCertificateInfo(request.getCertBasedAuth()));
+            if (!env.getAccessManager().checkTblPriv(currentUser, InternalCatalog.INTERNAL_CATALOG_NAME,
+                    dbName, table.getName(), PrivPredicate.LOAD)) {
+                throw new AuthenticationException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR
+                        .formatErrorMsg(PrivPredicate.LOAD.toString()));
+            }
         }
 
         if (txnOperation.equalsIgnoreCase("commit")) {
@@ -1877,6 +1894,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             Env.getCurrentGlobalTransactionMgr().abortTransaction2PC(database.getId(), request.getTxnId(), tableList);
         } else {
             throw new UserException("transaction operation should be \'commit\' or \'abort\'");
+        }
+    }
+
+    private void checkTransactionOwner(UserIdentity currentUser, TransactionState transactionState)
+            throws AuthenticationException {
+        // Ownerless transactions retain their previous authorization during rolling upgrades.
+        if (transactionState.getOwner() != null && !transactionState.getOwner().equals(currentUser)
+                && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(currentUser, PrivPredicate.ADMIN)) {
+            throw new AuthenticationException("Access denied: user " + currentUser
+                    + " is not the owner of transaction [" + transactionState.getTransactionId() + "]");
         }
     }
 

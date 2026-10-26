@@ -17,6 +17,7 @@
 
 package org.apache.doris.transaction;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.EtlStatus;
@@ -94,6 +95,22 @@ public class TransactionStateTest {
         testSerDe(fileName, transactionState, readTransactionState -> {
             Assertions.assertEquals(transactionState.getCoordinator().ip, readTransactionState.getCoordinator().ip);
         });
+    }
+
+    @Test
+    public void testOwnerSurvivesSerialization() throws IOException {
+        TransactionState state = new TransactionState(1, Lists.newArrayList(2L), 3, "owner_label", null,
+                LoadJobSourceType.BACKEND_STREAMING, new TxnCoordinator(TxnSourceType.BE, 1, "be", 0), -1, 60000);
+        UserIdentity owner = UserIdentity.createAnalyzedUserIdentWithDomain("loader", "example.com");
+        state.setOwner(owner);
+        testSerDe(fileName, state, restored -> Assertions.assertEquals(owner, restored.getOwner()));
+    }
+
+    @Test
+    public void testLegacyTransactionHasNoOwner() throws IOException {
+        TransactionState state = new TransactionState(1, Lists.newArrayList(2L), 3, "legacy_label", null,
+                LoadJobSourceType.BACKEND_STREAMING, new TxnCoordinator(TxnSourceType.BE, 1, "be", 0), -1, 60000);
+        testSerDe(fileName, state, restored -> Assertions.assertNull(restored.getOwner()));
     }
 
     @Test

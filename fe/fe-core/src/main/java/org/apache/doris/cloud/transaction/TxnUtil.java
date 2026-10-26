@@ -17,6 +17,7 @@
 
 package org.apache.doris.cloud.transaction;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.cloud.proto.Cloud.RLTaskTxnCommitAttachmentPB;
 import org.apache.doris.cloud.proto.Cloud.RoutineLoadProgressPB;
 import org.apache.doris.cloud.proto.Cloud.StreamingTaskCommitAttachmentPB;
@@ -27,6 +28,7 @@ import org.apache.doris.cloud.proto.Cloud.TxnCommitAttachmentPB.LoadJobFinalOper
 import org.apache.doris.cloud.proto.Cloud.TxnCommitAttachmentPB.LoadJobFinalOperationPB.JobStatePB;
 import org.apache.doris.cloud.proto.Cloud.TxnCoordinatorPB;
 import org.apache.doris.cloud.proto.Cloud.TxnInfoPB;
+import org.apache.doris.cloud.proto.Cloud.TxnOwnerPB;
 import org.apache.doris.cloud.proto.Cloud.TxnSourceTypePB;
 import org.apache.doris.cloud.proto.Cloud.UniqueIdPB;
 import org.apache.doris.job.extensions.insert.streaming.StreamingTaskTxnCommitAttachment;
@@ -338,6 +340,17 @@ public class TxnUtil {
                 txnCoordinatorPB.getId(), txnCoordinatorPB.getIp(), txnCoordinatorPB.getStartTime());
     }
 
+    public static TxnOwnerPB txnOwnerToPb(UserIdentity owner) {
+        return TxnOwnerPB.newBuilder().setUser(owner.getQualifiedUser()).setHost(owner.getHost())
+                .setIsDomain(owner.isDomain()).build();
+    }
+
+    public static UserIdentity txnOwnerFromPb(TxnOwnerPB owner) {
+        return owner.getIsDomain()
+                ? UserIdentity.createAnalyzedUserIdentWithDomain(owner.getUser(), owner.getHost())
+                : UserIdentity.createAnalyzedUserIdentWithIp(owner.getUser(), owner.getHost());
+    }
+
     public static TransactionState transactionStateFromPb(TxnInfoPB txnInfo) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("txnInfo={}", txnInfo);
@@ -409,6 +422,9 @@ public class TxnUtil {
                 finishTime
         );
         transactionState.setCommitTSO(txnInfo.hasCommitTso() ? txnInfo.getCommitTso() : -1);
+        if (txnInfo.hasOwner()) {
+            transactionState.setOwner(txnOwnerFromPb(txnInfo.getOwner()));
+        }
         if (LOG.isDebugEnabled()) {
             LOG.debug("transactionState={}", transactionState);
         }

@@ -17,6 +17,7 @@
 
 package org.apache.doris.transaction;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Table;
@@ -82,6 +83,12 @@ public interface GlobalTransactionMgrIface extends Writable {
 
     public long beginTransaction(long dbId, List<Long> tableIdList, String label, TUniqueId requestId,
             TxnCoordinator coordinator, LoadJobSourceType sourceType, long listenerId, long timeoutSecond)
+            throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException, DuplicatedRequestException,
+            QuotaExceedException, MetaNotFoundException;
+
+    public long beginTransaction(long dbId, List<Long> tableIdList, String label, TUniqueId requestId,
+            TxnCoordinator coordinator, LoadJobSourceType sourceType, long listenerId, long timeoutSecond,
+            UserIdentity owner)
             throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException, DuplicatedRequestException,
             QuotaExceedException, MetaNotFoundException;
 
