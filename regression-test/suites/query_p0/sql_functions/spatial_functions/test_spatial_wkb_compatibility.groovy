@@ -257,4 +257,19 @@ suite("test_spatial_wkb_compatibility") {
             exception "requires GEOGRAPHY(OGC:CRS84, spherical)"
         }
     }
+    // Same raw-degree great circle after a rotation; nearby distinct curves stay distinct.
+    qt_geography_rotated_raw_arc """select ST_Equals(a, b), ST_Contains(a, b),
+        ST_Contains(b, a), ST_Within(a, b), ST_Within(b, a), ST_Equals(a, c)
+        from (select ST_GeogFromWKB('010200000002000000000000000080464000000000008046c00000000000e060400000000000804640') a,
+            ST_GeogFromWKB('010200000003000000000000000080464000000000008046c0000000000080564000000000000000000000000000e060400000000000804640') b,
+            ST_GeogFromWKB('010200000003000000000000000080464000000000008046c000000000008056401656e79eaf03d23c0000000000e060400000000000804640') c) shapes"""
+    // A retraced closed line has an empty boundary; split internal nodes remain interior.
+    qt_geography_retraced_atomic_edges """select ST_Intersects(a, b), ST_Contains(a, b),
+        ST_Within(b, a), ST_Distance(a, b) = 0, ST_DWithin(a, b, 0),
+        ST_Touches(a, c), ST_Touches(a, d)
+        from (select ST_GeogFromWKB('010200000003000000000000000000244000000000000000000000000000002440000000000000f03f00000000000024400000000000000000') a,
+            ST_GeogFromWKB('0102000000030000000000000000002440000000000000d03f0000000000002440000000000000e03f0000000000002440000000000000e83f') b,
+            ST_GeogFromWKB('0102000000020000000000000000002240000000000000000000000000000026400000000000000000') c,
+            ST_GeogFromWKB('0102000000020000000000000000002240000000000000000000000000000024400000000000000000') d) shapes"""
+
 }

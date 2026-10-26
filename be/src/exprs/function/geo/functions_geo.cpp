@@ -25,7 +25,6 @@
 #include <s2/s2closest_point_query.h>
 #include <s2/s2earth.h>
 #include <s2/s2lax_polygon_shape.h>
-#include <s2/s2lax_polyline_shape.h>
 #include <s2/s2loop.h>
 #include <s2/s2point.h>
 #include <s2/s2point_index.h>
@@ -36,12 +35,15 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <boost/iterator/iterator_facade.hpp>
+#include <boost/multiprecision/cpp_int.hpp>
 #include <cmath>
 #include <cstdint>
 #include <limits>
 #include <map>
 #include <optional>
+#include <set>
 #include <utility>
 
 #include "common/cast_set.h"
@@ -56,6 +58,7 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_struct.h"
 #include "core/column/column_varbinary.h"
+#include "core/custom_allocator.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
@@ -144,9 +147,128 @@ static S2Point canonical_geography_point(const S2Point& point) {
     return point;
 }
 
-// S2 predicates operate on exact rounded vectors. Splitting a meridian at a new latitude
-// can otherwise turn one common edge into two almost-coplanar curves. Node only edges whose
-// shared great circle is proved by original WKB ordinates; never snap nearby parallel curves.
+// Error-free TwoSum preserves tiny differences from a half-turn (e.g. -1e-15 + 180).
+static std::pair<double, double> geography_degree_sum(double a, double b) {
+    const double high = a + b;
+    const double offset = high - a;
+    return {high, (a - (high - offset)) + (b - offset)};
+}
+
+// Test coplanarity of the original degree ordinates, not independently rounded S2 vectors.
+// For example (45,-45), (90,0), (135,45) share an arc although ToPoint's determinant is nonzero.
+static bool geography_common_great_circle(const GeoCoordinate& a, const GeoCoordinate& b,
+                                          const GeoCoordinate& c) {
+    using boost::multiprecision::cpp_int;
+    const std::array<double, 6> ordinates {a.y, a.x, b.y, b.x, c.y, c.x};
+    std::array<uint64_t, 6> significands;
+    std::array<int, 6> exponents;
+    int denominator_bits = 0;
+    for (size_t i = 0; i < ordinates.size(); ++i) {
+        const auto bits = std::bit_cast<uint64_t>(ordinates[i]);
+        const int biased = (bits >> 52) & 0x7ff;
+        uint64_t significand = bits & ((uint64_t {1} << 52) - 1);
+        int exponent = biased ? biased - 1075 : -1074;
+        if (biased) {
+            significand |= uint64_t {1} << 52;
+        }
+        if (significand != 0) {
+            const int zeros = std::countr_zero(significand);
+            significand >>= zeros;
+            exponent += zeros;
+            denominator_bits = std::max(denominator_bits, -exponent);
+        } else {
+            exponent = 0;
+        }
+        significands[i] = significand;
+        exponents[i] = exponent;
+    }
+    std::array<cpp_int, 6> angles;
+    for (size_t i = 0; i < angles.size(); ++i) {
+        angles[i] = cpp_int(significands[i]) << (denominator_bits + exponents[i]);
+        if (std::signbit(ordinates[i])) {
+            angles[i] = -angles[i];
+        }
+    }
+    // Binary-rational degrees have denominator 2^q. Exp(i*angle) is a power of a
+    // root of unity of order 360*2^q. Its minimal polynomial is Phi_90(t), with
+    // t = z^(2^(q+2)), and Phi_90(t) = t^24+t^21-t^15-t^12-t^9+t^3+1.
+    // Expand cos(lat_i)cos(lat_j)sin(lat_k)sin(lon_j-lon_i), cyclically, into
+    // 48 integer-coefficient powers. Equal residues modulo 2^(q+2) share one
+    // polynomial; reduction by Phi_90 proves zero exactly, including tiny nonzero controls.
+    const int shift = denominator_bits + 2;
+    const cpp_int basis = cpp_int(1) << shift;
+    const cpp_int period = 90 * basis;
+    std::map<cpp_int, std::array<int, 90>> polynomials;
+    for (int i = 0; i < 3; ++i) {
+        const int j = (i + 1) % 3;
+        const int k = (i + 2) % 3;
+        for (int mask = 0; mask < 16; ++mask) {
+            std::array<int, 4> signs;
+            for (int bit = 0; bit < 4; ++bit) {
+                signs[bit] = (mask & (1 << bit)) ? 1 : -1;
+            }
+            cpp_int power = signs[0] * angles[2 * i] + signs[1] * angles[2 * j] +
+                            signs[2] * angles[2 * k] +
+                            signs[3] * (angles[2 * j + 1] - angles[2 * i + 1]);
+            power %= period;
+            if (power < 0) {
+                power += period;
+            }
+            const int quotient = (power >> shift).convert_to<int>();
+            const cpp_int residue = power - (cpp_int(quotient) << shift);
+            polynomials[residue][quotient] += signs[2] * signs[3];
+        }
+    }
+    for (auto& [residue, coefficients] : polynomials) {
+        for (int i = 89; i >= 24; --i) {
+            const int coefficient = coefficients[i];
+            coefficients[i] = 0;
+            coefficients[i - 3] -= coefficient;
+            coefficients[i - 9] += coefficient;
+            coefficients[i - 12] += coefficient;
+            coefficients[i - 15] += coefficient;
+            coefficients[i - 21] -= coefficient;
+            coefficients[i - 24] -= coefficient;
+        }
+        if (std::ranges::any_of(coefficients, [](int value) { return value != 0; })) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Keep each atomic segment in its own shape. Pinned S2 ProcessEdge1 uses a chain's
+// global start as a local offset in one endpoint path, so multiple chains per line
+// shape are unsafe. Closed AA shapes restore internal vertices in the OPEN model.
+class GeographyLineShape final : public S2Shape {
+public:
+    GeographyLineShape(const S2Point& a, const S2Point& b) { _edge.emplace_back(a, b); }
+    int num_edges() const override { return 1; }
+    Edge edge(int i) const override {
+        DCHECK_EQ(i, 0);
+        return _edge.front();
+    }
+    int dimension() const override { return 1; }
+    ReferencePoint GetReferencePoint() const override { return ReferencePoint::Contained(false); }
+    int num_chains() const override { return 1; }
+    Chain chain(int i) const override {
+        DCHECK_EQ(i, 0);
+        return {0, 1};
+    }
+    Edge chain_edge(int i, int j) const override {
+        DCHECK_EQ(i, 0);
+        return edge(j);
+    }
+    ChainPosition chain_position(int i) const override {
+        DCHECK_EQ(i, 0);
+        return {0, 0};
+    }
+
+private:
+    // Owning storage is checked/accounted by the current query's allocator.
+    DorisVector<Edge> _edge;
+};
+
 class GeographyEdgeNodes {
 public:
     GeographyEdgeNodes(StringRef left, StringRef right) {
@@ -161,7 +283,9 @@ public:
             }
             const auto point = canonical_geography_point(
                     S2LatLng::FromDegrees(coordinate.y, coordinate.x).ToPoint());
-            _coordinates.emplace(point, coordinate);
+            if (!_coordinates.emplace(point, coordinate).second) {
+                continue;
+            }
             _vertex_index.Add(point, 0);
             if (std::abs(coordinate.y) != 90) {
                 _meridians[meridian(coordinate.x)][coordinate.x < 0].push_back(
@@ -170,71 +294,146 @@ public:
         }
         for (auto& entry : _meridians) {
             for (auto& side : entry.second) {
+                side.push_back({-90, {0, 0, -1}});
+                side.push_back({90, {0, 0, 1}});
                 std::ranges::sort(side, {}, &Vertex::latitude);
-                const auto duplicate = std::ranges::unique(side, {}, &Vertex::point);
-                side.erase(duplicate.begin(), duplicate.end());
             }
         }
     }
 
     void append_edge(const S2Point& raw_start, const S2Point& raw_end,
-                     std::vector<S2Point>* output) const {
+                     DorisVector<S2Point>* output) const {
         const auto start = canonical_geography_point(raw_start);
         const auto end = canonical_geography_point(raw_end);
         output->push_back(start);
-        // Different raw longitudes at one pole denote the same calculation point.
         if (start == end) {
+            return;
+        }
+        if (meridian_edge(start, end, [&](const auto& vertices, double from, double to) {
+                append_range(vertices, from, to, output);
+                if (std::abs(to) == 90) {
+                    const S2Point pole(0, 0, to > 0 ? 1 : -1);
+                    if (end != pole) {
+                        output->push_back(pole);
+                    }
+                }
+            })) {
             return;
         }
         const auto& a = _coordinates.at(start);
         const auto& b = _coordinates.at(end);
-        const bool a_pole = std::abs(a.y) == 90;
-        const bool b_pole = std::abs(b.y) == 90;
-        const auto key = meridian(a_pole ? b.x : a.x);
-        const bool common_meridian = a_pole || b_pole || key == meridian(b.x);
-        // Exact antipodes have no unique edge; rounded S2 vectors can conceal this ambiguity.
-        if (a.y == -b.y && common_meridian && ((a_pole && b_pole) || (a.x < 0) != (b.x < 0))) {
-            throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                            "Geography calculations do not support antipodal edges");
-        }
-        if (common_meridian) {
-            const bool a_side = (a_pole ? b.x : a.x) < 0;
-            const bool b_side = (b_pole ? a.x : b.x) < 0;
-            const auto& group = _meridians.at(key);
-            if (a_side == b_side) {
-                append_range(group[a_side], a.y, b.y, output);
-            } else {
-                // (10,80) -> (-170,80) passes through the north pole. Keep latitude
-                // as-is on each side: computing 180-latitude would erase tiny ordinates.
-                const double latitude = a.y > -b.y ? 90 : -90;
-                append_range(group[a_side], a.y, latitude, output);
-                output->emplace_back(0, 0, latitude > 0 ? 1 : -1);
-                append_range(group[b_side], latitude, b.y, output);
-            }
-            return;
-        }
-        // For other great circles, including the equator, node only exact coplanar
-        // points on the edge. The query radius selects candidates, never equality.
+        const bool wraps = geography_degree_sum(std::max(a.x, b.x), -std::min(a.x, b.x)) >
+                           std::pair {180.0, 0.0};
+        const bool east = (a.x < b.x) != wraps;
         S2ClosestPointQuery<int> query(&_vertex_index);
-        query.mutable_options()->set_conservative_max_distance(
-                S1Angle::Radians(8 * std::numeric_limits<double>::epsilon()));
+        const double conversion_error = 8 * std::numeric_limits<double>::epsilon();
+        // Near antipodes, endpoint rounding rotates the edge plane by O(epsilon/sin(length)).
+        // Widen candidate search only; the exact raw-angle proof still decides membership.
+        // Every point on a minor arc is at most pi/2 from one endpoint, including when
+        // rounded antipodes make the computed normal vanish.
+        const double search_radius =
+                start.DotProd(end) >= 0
+                        ? conversion_error
+                        : std::min(M_PI_2 + conversion_error,
+                                   4 * conversion_error / start.CrossProd(end).Norm());
+        query.mutable_options()->set_conservative_max_distance(S1Angle::Radians(search_radius));
         S2ClosestPointQuery<int>::EdgeTarget target(start, end);
-        std::vector<S2Point> on_edge;
+        DorisVector<S2Point> on_edge;
         for (const auto& candidate : query.FindClosestPoints(&target)) {
             const auto& point = candidate.point();
-            if (point != start && point != end &&
-                s2pred::ExpensiveSign(start, end, point, false) == 0 &&
-                s2pred::CompareEdgeDistance(point, start, end, S1ChordAngle::Zero()) <= 0) {
+            const auto& c = _coordinates.at(point);
+            // Longitude is strictly monotone along every non-meridian minor arc.
+            // Check the original interval (including date-line wrap), not a distance
+            // tolerance that could append a point just beyond an endpoint.
+            const bool within = wraps ? (c.x < std::min(a.x, b.x) || c.x > std::max(a.x, b.x))
+                                      : (c.x > std::min(a.x, b.x) && c.x < std::max(a.x, b.x));
+            if (within && geography_common_great_circle(a, b, c)) {
                 on_edge.push_back(point);
             }
         }
-        // Rounded angles can tie near the middle of a long edge, reversing adjacent nodes.
-        std::ranges::sort(on_edge, [&](const S2Point& a, const S2Point& b) {
-            return s2pred::CompareDistances(start, a, b) < 0;
+        std::ranges::sort(on_edge, [&](const S2Point& x, const S2Point& y) {
+            const double x_lon = _coordinates.at(x).x;
+            const double y_lon = _coordinates.at(y).x;
+            if ((x_lon < a.x) != (y_lon < a.x)) {
+                return east ? x_lon >= a.x : x_lon < a.x;
+            }
+            return east ? x_lon < y_lon : x_lon > y_lon;
         });
-        for (const auto& point : on_edge) {
-            if (output->back() != point) {
-                output->push_back(point);
+        output->insert(output->end(), on_edge.begin(), on_edge.end());
+    }
+
+    void add_line(const GeoLine& shape, MutableS2ShapeIndex* index) const {
+        using Edge = std::pair<S2Point, S2Point>;
+        using EdgeSet = std::set<Edge, std::less<>, CustomStdAllocator<Edge>>;
+        using Interval = std::pair<double, double>;
+        DorisMap<const DorisVector<Vertex>*, DorisVector<Interval>> intervals;
+        EdgeSet raw_edges;
+        const auto* line = shape.polyline();
+        const auto first = canonical_geography_point(line->vertex(0));
+        const auto last = canonical_geography_point(line->vertex(line->num_vertices() - 1));
+        for (int i = 0; i + 1 < line->num_vertices(); ++i) {
+            const auto a = canonical_geography_point(line->vertex(i));
+            const auto b = canonical_geography_point(line->vertex(i + 1));
+            if (a == b) {
+                continue;
+            }
+            if (!meridian_edge(a, b, [&](const auto& vertices, double from, double to) {
+                    intervals[&vertices].emplace_back(std::min(from, to), std::max(from, to));
+                })) {
+                raw_edges.emplace(std::min(a, b), std::max(a, b));
+            }
+        }
+        EdgeSet edges;
+        auto add_edge = [&](const S2Point& a, const S2Point& b) {
+            edges.emplace(std::min(a, b), std::max(a, b));
+        };
+        // Merge latitude coverage before splitting: N repeated or overlapping edges
+        // and M collinear vertices produce O(N+M) scratch, never an N*M vertex walk.
+        for (auto& [vertices, ranges] : intervals) {
+            std::ranges::sort(ranges);
+            auto emit = [&](double from, double to) {
+                auto begin = std::ranges::lower_bound(*vertices, from, {}, &Vertex::latitude);
+                const auto end = std::ranges::upper_bound(*vertices, to, {}, &Vertex::latitude);
+                for (auto next = begin + 1; next != end; ++begin, ++next) {
+                    add_edge(begin->point, next->point);
+                }
+            };
+            double from = ranges.front().first;
+            double to = ranges.front().second;
+            for (const auto& range : ranges) {
+                if (range.first > to) {
+                    emit(from, to);
+                    from = range.first;
+                }
+                to = std::max(to, range.second);
+            }
+            emit(from, to);
+        }
+        DorisVector<S2Point> vertices;
+        for (const auto& [a, b] : raw_edges) {
+            vertices.clear();
+            append_edge(a, b, &vertices);
+            vertices.push_back(b);
+            for (size_t i = 1; i < vertices.size(); ++i) {
+                add_edge(vertices[i - 1], vertices[i]);
+            }
+        }
+        auto add = [&](const S2Point& a, const S2Point& b) {
+            index->Add(std::make_unique<GeographyLineShape>(a, b));
+        };
+        if (edges.empty()) {
+            // A raw pole-alias line may collapse to one canonical calculation position.
+            add(first, first);
+        }
+        std::set<S2Point, std::less<>, CustomStdAllocator<S2Point>> interior_vertices;
+        for (const auto& [a, b] : edges) {
+            add(a, b);
+            interior_vertices.insert(a);
+            interior_vertices.insert(b);
+        }
+        for (const auto& point : interior_vertices) {
+            if (first == last || (point != first && point != last)) {
+                add(point, point);
             }
         }
     }
@@ -245,36 +444,56 @@ private:
         S2Point point;
     };
     static std::pair<double, double> meridian(double longitude) {
-        if (longitude >= 0) {
-            return {longitude, 0};
-        }
-        // Error-free TwoSum: -1e-15+180 and -2e-15+180 both round to 180.
-        // Retain the residual so distinct original meridians never become one.
-        const double high = longitude + 180;
-        const double offset = high - 180;
-        const double low = (180 - (high - offset)) + (longitude - offset);
-        return {high, low};
+        return longitude >= 0 ? std::pair {longitude, 0.0} : geography_degree_sum(longitude, 180);
     }
-    static void append_range(const std::vector<Vertex>& vertices, double from, double to,
-                             std::vector<S2Point>* output) {
-        if (from == to) {
-            return;
+    template <typename Append>
+    bool meridian_edge(const S2Point& start, const S2Point& end, Append&& append) const {
+        const auto& a = _coordinates.at(start);
+        const auto& b = _coordinates.at(end);
+        const bool a_pole = std::abs(a.y) == 90;
+        const bool b_pole = std::abs(b.y) == 90;
+        const auto key = meridian(a_pole ? b.x : a.x);
+        if (!a_pole && !b_pole && key != meridian(b.x)) {
+            return false;
         }
-        auto first = std::ranges::upper_bound(vertices, std::min(from, to), {}, &Vertex::latitude);
-        auto last = std::ranges::lower_bound(vertices, std::max(from, to), {}, &Vertex::latitude);
+        // Exact opposite endpoints (e.g. (0,10),(180,-10)) have no unique minor arc.
+        if (a.y == -b.y && ((a_pole && b_pole) || (a.x < 0) != (b.x < 0))) {
+            throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                            "Geography calculations do not support antipodal edges");
+        }
+        const bool a_side = (a_pole ? b.x : a.x) < 0;
+        const bool b_side = (b_pole ? a.x : b.x) < 0;
+        const auto& group = _meridians.at(key);
+        if (a_side == b_side) {
+            append(group[a_side], a.y, b.y);
+        } else {
+            // (10,80)->(-170,80) goes via the north pole; retain raw latitude on each side.
+            const double latitude = a.y > -b.y ? 90 : -90;
+            append(group[a_side], a.y, latitude);
+            append(group[b_side], latitude, b.y);
+        }
+        return true;
+    }
+    static void append_range(const DorisVector<Vertex>& vertices, double from, double to,
+                             DorisVector<S2Point>* output) {
+        const auto first =
+                std::ranges::upper_bound(vertices, std::min(from, to), {}, &Vertex::latitude);
+        const auto last =
+                std::ranges::lower_bound(vertices, std::max(from, to), {}, &Vertex::latitude);
         if (from < to) {
             for (auto it = first; it != last; ++it) {
                 output->push_back(it->point);
             }
         } else {
-            while (last != first) {
-                output->push_back((--last)->point);
+            auto current = last;
+            while (current != first) {
+                output->push_back((--current)->point);
             }
         }
     }
-    std::map<S2Point, GeoCoordinate> _coordinates;
+    DorisMap<S2Point, GeoCoordinate> _coordinates;
     S2PointIndex<int> _vertex_index;
-    std::map<std::pair<double, double>, std::array<std::vector<Vertex>, 2>> _meridians;
+    DorisMap<std::pair<double, double>, std::array<DorisVector<Vertex>, 2>> _meridians;
 };
 
 static void geography_shape_index(const GeoShape& shape, const GeographyEdgeNodes& nodes,
@@ -284,35 +503,51 @@ static void geography_shape_index(const GeoShape& shape, const GeographyEdgeNode
         index->Add(std::make_unique<S2PointVectorShape>(std::vector<S2Point> {
                 canonical_geography_point(*assert_cast<const GeoPoint&>(shape).point())}));
         break;
-    case GeoShapeType::GEO_SHAPE_LINE_STRING: {
-        const auto* line = assert_cast<const GeoLine&>(shape).polyline();
-        std::vector<S2Point> vertices;
-        for (int i = 0; i + 1 < line->num_vertices(); ++i) {
-            nodes.append_edge(line->vertex(i), line->vertex(i + 1), &vertices);
-        }
-        vertices.push_back(canonical_geography_point(line->vertex(line->num_vertices() - 1)));
-        index->Add(std::make_unique<S2LaxPolylineShape>(vertices));
+    case GeoShapeType::GEO_SHAPE_LINE_STRING:
+        nodes.add_line(assert_cast<const GeoLine&>(shape), index);
         break;
-    }
     case GeoShapeType::GEO_SHAPE_POLYGON: {
         const auto* polygon = assert_cast<const GeoPolygon&>(shape).polygon();
         std::vector<S2LaxPolygonShape::Loop> loops;
         for (int i = 0; i < polygon->num_loops(); ++i) {
             auto& vertices = loops.emplace_back();
             const auto* loop = polygon->loop(i);
+            DorisVector<S2Point> edge;
             for (int j = 0; j < loop->num_vertices(); ++j) {
+                edge.clear();
                 nodes.append_edge(loop->oriented_vertex(j),
-                                  loop->oriented_vertex((j + 1) % loop->num_vertices()), &vertices);
+                                  loop->oriented_vertex((j + 1) % loop->num_vertices()), &edge);
+                vertices.insert(vertices.end(), edge.begin(), edge.end());
             }
         }
         index->Add(std::make_unique<S2LaxPolygonShape>(loops));
         break;
     }
     default:
-        // decode_calculation_shape admits only nonempty Point/LineString/Polygon WKB.
         throw Exception(ErrorCode::INTERNAL_ERROR, "Unexpected Geography calculation shape");
     }
 }
+
+#ifdef BE_TEST
+size_t geography_calculation_edges_for_test(const std::string& left, const std::string& right) {
+    GeoParseStatus status;
+    const auto a = GeoShape::from_wkb_bytes(left.data(), left.size(), status);
+    const auto b = GeoShape::from_wkb_bytes(right.data(), right.size(), status);
+    const GeographyEdgeNodes nodes {StringRef(left), StringRef(right)};
+    MutableS2ShapeIndex a_index;
+    MutableS2ShapeIndex b_index;
+    geography_shape_index(*a, nodes, &a_index);
+    geography_shape_index(*b, nodes, &b_index);
+    size_t edges = 0;
+    for (const auto* shape : a_index) {
+        edges += shape->num_edges();
+    }
+    for (const auto* shape : b_index) {
+        edges += shape->num_edges();
+    }
+    return edges;
+}
+#endif
 
 static S1ChordAngle geography_conversion_error() {
     // S2LatLng::ToPoint and degrees-to-radians rounding can separate positions on

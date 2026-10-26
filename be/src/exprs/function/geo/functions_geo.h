@@ -53,6 +53,10 @@ struct StContainsState {
     std::vector<std::shared_ptr<GeoShape>> shapes;
 };
 
+#ifdef BE_TEST
+size_t geography_calculation_edges_for_test(const std::string& left, const std::string& right);
+#endif
+
 Status validate_spatial_wkb_inputs(const Block& block, const ColumnNumbers& arguments);
 
 // Decode physical binary storage using the spatial identity supplied by the table schema.

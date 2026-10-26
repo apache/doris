@@ -39,6 +39,7 @@
 #include "core/data_type/data_type_varbinary.h"
 #include "core/types.h"
 #include "exprs/function/function_test_util.h"
+#include "exprs/function/geo/functions_geo.h"
 #include "exprs/function/geo/geo_common.h"
 #include "exprs/function/geo/geo_types.h"
 #include "exprs/function/geo/wkb_parse.h"
@@ -46,6 +47,8 @@
 #include "format/arrow/arrow_block_convertor.h"
 #include "format/arrow/arrow_row_batch.h"
 #include "gtest/gtest_pred_impl.h"
+#include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/thread_context.h"
 #include "testutil/any_type.h"
 
 namespace doris {
@@ -743,6 +746,87 @@ TEST(VGeoFunctionsTest, GeographyEqualsUsesPointSetsAndOverlapsRequiresPositiveD
             expect_geography_relation("st_equals", left, right, value.equal);
             expect_geography_relation("st_overlaps", left, right, value.overlap);
         }
+    }
+}
+
+TEST(VGeoFunctionsTest, GeographyRotatedSubdivisionsPreserveExactRawArcs) {
+    const std::vector<std::pair<std::string, std::string>> equivalents {
+            {"LINESTRING (45 -45,135 45)", "LINESTRING (45 -45,90 0,135 45)"},
+            {"POLYGON ((45 -45,135 45,135 -45,45 -45))",
+             "POLYGON ((45 -45,90 0,135 45,135 -45,45 -45))"},
+            {"LINESTRING (-44.99999999999997 -45,134.99999999999997 45)",
+             "LINESTRING (-44.99999999999997 -45,45 0,134.99999999999997 45)"},
+            {"LINESTRING (25 -17,95 17)", "LINESTRING (95 17,60 0,25 -17)"},
+            {"LINESTRING (170 -32,-110 32)", "LINESTRING (170 -32,-150 0,-110 32)"},
+            {"LINESTRING (45.25 -17.5,135.75 17.5)",
+             "LINESTRING (45.25 -17.5,90.5 0,135.75 17.5)"}};
+    for (const auto& [a, b] : equivalents) {
+        for (bool reverse : {false, true}) {
+            const auto& left = reverse ? b : a;
+            const auto& right = reverse ? a : b;
+            for (const auto* function : {"st_equals", "st_contains", "st_within"}) {
+                expect_geography_relation(function, left, right, true);
+            }
+            expect_geography_relation("st_overlaps", left, right, false);
+        }
+    }
+    const std::string arc = "LINESTRING (45 -45,135 45)";
+    for (const auto* latitude : {"0.000001", "0.000000000000001", "1e-300"}) {
+        const std::string different = std::string("LINESTRING (45 -45,90 ") + latitude + ",135 45)";
+        for (const auto* function : {"st_equals", "st_contains", "st_within"}) {
+            expect_geography_relation(function, arc, different, false);
+            expect_geography_relation(function, different, arc, false);
+        }
+    }
+    // An exactly collinear point just outside an endpoint must not be appended to the arc.
+    expect_geography_relation("st_contains", "LINESTRING (0 0,1 0)",
+                              "LINESTRING (-1e-300 0,0 0,1 0)", false);
+    expect_geography_relation("st_contains", "LINESTRING (-1e-300 0,0 0,1 0)",
+                              "LINESTRING (0 0,1 0)", true);
+}
+
+TEST(VGeoFunctionsTest, GeographyAtomicEdgesRetainOriginalLineBoundaries) {
+    const std::string open = "LINESTRING (0 0,1 0,0 0,2 0)";
+    const std::string closed = "LINESTRING (0 0,1 0,0 0)";
+    for (bool reverse : {false, true}) {
+        const auto touches = [&](const std::string& a, const std::string& b, bool expected) {
+            expect_geography_relation("st_touches", reverse ? b : a, reverse ? a : b, expected);
+        };
+        touches(open, "LINESTRING (1 -1,1 1)", false);
+        touches(open, "LINESTRING (0 -1,0 1)", true);
+        touches(closed, "LINESTRING (0 -1,0 1)", false);
+        touches(closed, "LINESTRING (-1 0,0 0)", true);
+    }
+    expect_geography_relation("st_equals", closed, "LINESTRING (0 0,1 0)", true);
+    expect_geography_relation("st_contains", closed, "LINESTRING (0 0,1 0)", true);
+    expect_geography_relation("st_contains", open, "LINESTRING (0.5 0,1.5 0)", true);
+}
+
+TEST(VGeoFunctionsTest, GeographyRetracedMeridiansHaveLinearCalculationStorage) {
+    for (const int count : {128, 512, 2048}) {
+        std::ostringstream retraced;
+        std::ostringstream dense;
+        retraced << "LINESTRING (10 0";
+        dense << std::setprecision(17) << "LINESTRING (";
+        for (int i = 1; i <= count; ++i) {
+            retraced << ",10 " << (i % 2);
+            dense << (i == 1 ? "" : ",") << "10 " << double(i) / (count + 1);
+        }
+        retraced << ")";
+        dense << ")";
+        const auto a = spatial_test_wkb(geography_test_hex(retraced.str()));
+        const auto b = spatial_test_wkb(geography_test_hex(dense.str()));
+        auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                        "GeographyNodingScratch");
+        auto switch_tracker = SwitchThreadMemTrackerLimiter(tracker);
+        thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+        const auto baseline = tracker->consumption();
+        // The storage budget grows with input size; the old N*M expansion violates it.
+        EXPECT_LE(geography_calculation_edges_for_test(a, b), 8 * count);
+        thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+        EXPECT_LT(tracker->peak_consumption() - baseline, 24 * 1024 * 1024);
+        expect_geography_relation("st_intersects", retraced.str(), dense.str(), true);
+        expect_geography_relation("st_contains", retraced.str(), dense.str(), true);
     }
 }
 
