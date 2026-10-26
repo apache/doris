@@ -16,7 +16,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
-"""Capture gh HTTP failures without changing stdout, exit status, or retry policy."""
+"""Capture gh HTTP failures and retry transient failures of read-only REST GETs."""
 
 import json
 import os
@@ -26,6 +26,7 @@ import sys
 import time
 import uuid
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -164,24 +165,92 @@ def record_failure(command, error, stdout="", stderr="", *, diagnostic=None):
     return ordinary, record
 
 
+def is_read_only_get(command):
+    """Recognize only the body-free gh api forms used by the review pipeline.
+
+    Unknown options remain single-attempt. In particular, fields/input imply
+    POST in gh, and GraphQL uses POST even without an explicit method. Never
+    infer safety from the last HTTP response: a write can redirect to GET.
+    """
+    if len(command) < 3 or Path(command[0]).name != "gh" or command[1] != "api":
+        return False
+    endpoint = None
+    args = iter(command[2:])
+    for arg in args:
+        if arg in ("--paginate", "--slurp", "-XGET", "--method=GET"):
+            continue
+        if arg in ("-X", "--method"):
+            if next(args, None) != "GET":
+                return False
+        elif arg in ("-H", "--header"):
+            if next(args, None) is None:
+                return False
+        elif arg.startswith("-") or endpoint is not None:
+            return False
+        else:
+            endpoint = arg
+    return endpoint is not None and urlsplit(endpoint).path.rstrip("/").split("/")[-1] != "graphql"
+
+
+def retry_delay(response, attempt):
+    """Do not shorten a server-requested wait, or guess if it is malformed."""
+    delay = 2 ** attempt
+    value = response["headers"].get("retry-after")
+    if value is None:
+        return delay
+    try:
+        if value.isdigit():
+            return max(delay, int(value))
+        when = parsedate_to_datetime(value)
+        return max(delay, (when - datetime.now(timezone.utc)).total_seconds())
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
 def run_gh(command, **kwargs):
-    """subprocess.run contract for captured text gh calls, with failure evidence."""
+    """Buffer each attempt; a caller timeout bounds the entire GET operation."""
     env = dict(kwargs.pop("env", os.environ))
     env.update(GH_DEBUG="api", NO_COLOR="1")
-    try:
-        result = subprocess.run(command, env=env, **kwargs)
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
-        ordinary, record = record_failure(command, error, error.stdout, error.stderr)
-        error.stderr = ordinary + "\n" + record["summary"]
-        # Preserve the original return code/timeout and stdout for callers.
-        raise
-    except OSError as error:
-        record_failure(command, error)
-        raise
-    response, ordinary = split_trace(result.stderr)
-    result.stderr = ordinary
-    result.github_response = response
-    return result
+    retry_get = (is_read_only_get(command) and kwargs.get("check") is True
+                 and kwargs.get("capture_output") is True and kwargs.get("text") is True
+                 and kwargs.get("input") is None and kwargs.get("stdin") is None)
+    if retry_get:
+        # Fit within the runner's two-minute input-resolution step. Existing
+        # shorter submission/watchdog budgets include all attempts and sleeps.
+        budget = min(90, kwargs.get("timeout") if kwargs.get("timeout") is not None else 90)
+        deadline = time.monotonic() + budget
+    for attempt in range(1, 4):
+        options = dict(kwargs)
+        if retry_get:
+            options["timeout"] = min(30, max(0, deadline - time.monotonic()))
+        try:
+            result = subprocess.run(command, env=env, **options)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+            ordinary, record = record_failure(command, error, error.stdout, error.stderr)
+            error.stderr = ordinary + "\n" + record["summary"]
+            if retry_get:
+                # gh --paginate may emit incomplete JSON before a later page
+                # fails. Retain it only in diagnostics, never in caller output.
+                error.stdout = ""
+                response = record["http"]
+                if (isinstance(error, subprocess.CalledProcessError)
+                        and error.returncode > 0 and response["method"] == "GET"
+                        and response["status"] in (502, 503, 504) and attempt < 3):
+                    delay = retry_delay(response, attempt)
+                    if delay is not None and delay < deadline - time.monotonic():
+                        print(f"Retrying GitHub GET after HTTP {response['status']} in {delay:g}s "
+                              f"(attempt {attempt + 1}/3)", file=sys.stderr, flush=True)
+                        time.sleep(delay)
+                        if time.monotonic() < deadline:
+                            continue
+            raise
+        except OSError as error:
+            record_failure(command, error)
+            raise
+        response, ordinary = split_trace(result.stderr)
+        result.stderr = ordinary
+        result.github_response = response
+        return result
 
 
 def decode_json(result, command):
@@ -201,6 +270,9 @@ def main():
         sys.stdout.write(error.stdout or "")
         print(error.stderr, file=sys.stderr)
         return error.returncode if error.returncode >= 0 else 128 - error.returncode
+    except subprocess.TimeoutExpired as error:
+        print(error.stderr, file=sys.stderr)
+        return 124
     except OSError as error:
         print(f"Could not execute gh ({type(error).__name__})", file=sys.stderr)
         return 1
