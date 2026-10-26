@@ -21,7 +21,6 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -64,6 +63,8 @@ public class LocalTableValuedFunction extends ExternalFileTableValuedFunction {
     private boolean sharedStorage = false;
 
     public LocalTableValuedFunction(Map<String, String> properties) throws AnalysisException {
+        checkAccess();
+
         // Check privileges before listing files or discovering their schema.
         checkAuth(ConnectContext.get());
 
@@ -138,23 +139,19 @@ public class LocalTableValuedFunction extends ExternalFileTableValuedFunction {
         }
     }
 
-    /** Check LOCAL admission before property parsing, discovery or sink binding. */
-    public static void checkAccess(ConnectContext ctx) {
-        if (!Config.enable_local_tvf) {
-            throw new org.apache.doris.nereids.exceptions.AnalysisException(
-                    "LOCAL TVF is disabled. Set enable_local_tvf=true in fe.conf and restart every FE to enable it.");
-        }
+    @Override
+    public void checkAuth(ConnectContext ctx) {
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, PrivPredicate.ADMIN)
                 && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, PrivPredicate.OPERATOR)) {
             String message = ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR.formatErrorMsg("ADMIN/OPERATOR");
             throw new org.apache.doris.nereids.exceptions.AnalysisException(message);
         }
+        super.checkAuth(ctx);
     }
 
-    @Override
-    public void checkAuth(ConnectContext ctx) {
-        checkAccess(ctx);
-        super.checkAuth(ctx);
+    /** Reject LOCAL before property parsing, file discovery or sink binding. */
+    public static void checkAccess() {
+        throw new org.apache.doris.nereids.exceptions.AnalysisException("LOCAL TVF is disabled.");
     }
 
     @Override

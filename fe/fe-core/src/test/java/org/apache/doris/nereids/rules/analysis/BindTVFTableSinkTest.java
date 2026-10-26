@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
-import org.apache.doris.common.Config;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -28,34 +27,19 @@ import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.ConnectContext;
 
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
 class BindTVFTableSinkTest {
-    private boolean originalEnableLocalTvf;
-
-    @BeforeEach
-    void setUp() {
-        originalEnableLocalTvf = Config.enable_local_tvf;
-        Config.enable_local_tvf = true;
-    }
-
-    @AfterEach
-    void tearDown() {
-        Config.enable_local_tvf = originalEnableLocalTvf;
-    }
 
     @Test
     void duplicateOutputNamesKeepDistinctPositions() {
         ConnectContext context = MemoTestUtils.createConnectContext();
         InsertIntoTVFCommand command = (InsertIntoTVFCommand) new NereidsParser().parseSingle(
-                "INSERT INTO local("
+                "INSERT INTO s3("
                         + "'file_path'='/tmp/tvf_duplicate_columns_',"
-                        + "'backend_id'='1',"
                         + "'format'='csv') "
                         + "SELECT 1 AS x, 2 AS x");
 

@@ -17,23 +17,8 @@
 
 suite("test_array_with_single_row_max_than_uint16", "query") {
     // define a sql table
-    List<List<Object>> backends =  sql """ select * from backends(); """
-    assertTrue(backends.size() > 0)
-    def be_id = backends[0][0]
-    def dataFilePath = context.config.dataPath + "/query_p0"
     def testTable = "arr_dd"
     sql "DROP TABLE IF EXISTS ${testTable}"
-    def outFilePath= dataFilePath
-    if (backends.size() > 1) {
-        // cluster mode need to make sure all be has this data
-        outFilePath="/"
-        def transFile01 = "${dataFilePath}/arr_max.orc"
-        for (List<Object> backend : backends) {
-            def be_host = backend[1]
-            scpFiles("root", be_host, transFile01, outFilePath, false)
-        }
-    }
-
     sql """
             CREATE TABLE IF NOT EXISTS ${testTable} (
               `k1` INT(11) NULL,
@@ -51,11 +36,13 @@ suite("test_array_with_single_row_max_than_uint16", "query") {
             )
             """
     // prepare data
-    qt_sql """
-            insert into ${testTable} select * from local(
-                "file_path" = "${outFilePath}/arr_max.orc",
-                "backend_id" = "${be_id}",
-                "format" = "orc");"""
+    streamLoad {
+        table "${testTable}"
+        set 'format', 'orc'
+        file "${context.config.dataPath}/query_p0/arr_max.orc"
+    }
+    sql "sync"
+    qt_sql "SELECT COUNT(*) FROM ${testTable}"
 
     qt_select """ select * from ${testTable} order by k1"""
 }

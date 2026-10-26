@@ -2815,10 +2815,6 @@ public class Config extends ConfigBase {
             + "configuration to prevent command injection attacks.")
     public static boolean enable_java_udf = true;
 
-    @ConfField(description = "Whether to enable LOCAL TVF and FILE TVF with local storage. Disabled by default. "
-            + "Set this in fe.conf and restart every FE to enable it. Existing access checks still apply.")
-    public static boolean enable_local_tvf = false;
-
     @ConfField(mutable = true, masterOnly = true, description = "When enabled, data can be processed using the "
             + "globally created Java UDF function during import. " + "The default setting is false.")
     public static boolean enable_udf_in_load = false;

@@ -21,24 +21,15 @@ suite("test_uuid_parquet_predicate", "p0,external") {
     sql "SET enable_query_cache = false"
     sql "SET enable_condition_cache = false"
     sql "SET enable_profile = true"
-    String localPath = context.config.otherConfigs.get('uuidLocalExportPath')
     String token = UUID.randomUUID().toString()
     String source
     File fixture = new File(context.dataPath, "test_data/uuid_predicate.parquet")
-    if (localPath != null) {
-        File target = new File("${localPath}_${token}_predicate.parquet")
-        java.nio.file.Files.copy(fixture.toPath(), target.toPath())
-        String path = "${context.config.otherConfigs.get('uuidLocalTvfPath')}_${token}_predicate.parquet"
-        source = """LOCAL('file_path'='${path}',
-                'backend_id'='${(sql 'SHOW BACKENDS')[0][0]}','format'='parquet')"""
-    } else {
-        String bucket = context.config.otherConfigs.get('s3BucketName')
-        String key = "uuid_parquet_predicate/${token}/predicate.parquet"
-        getS3Client().putObject(bucket, key, fixture)
-        source = """S3('uri'='s3://${bucket}/${key}','format'='parquet',
-                's3.endpoint'='${getS3Endpoint()}','s3.region'='${getS3Region()}',
-                's3.access_key'='${getS3AK()}','s3.secret_key'='${getS3SK()}')"""
-    }
+    String bucket = context.config.otherConfigs.get('s3BucketName')
+    String key = "uuid_parquet_predicate/${token}/predicate.parquet"
+    getS3Client().putObject(bucket, key, fixture)
+    source = """S3('uri'='s3://${bucket}/${key}','format'='parquet',
+            's3.endpoint'='${getS3Endpoint()}','s3.region'='${getS3Region()}',
+            's3.access_key'='${getS3AK()}','s3.secret_key'='${getS3SK()}')"""
     for (boolean scannerV2 : [false, true]) {
         sql "SET enable_file_scanner_v2 = ${scannerV2}"
         for (boolean pruning : [false, true]) {

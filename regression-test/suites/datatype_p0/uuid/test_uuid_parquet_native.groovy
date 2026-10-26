@@ -23,26 +23,16 @@ suite("test_uuid_parquet_native", "p0,external") {
     // roundtrips, their footer explicitly has UUID / FIXED_LEN_BYTE_ARRAY(16).
     sql "SET enable_sql_cache = false"
     sql "SET enable_query_cache = false"
-    String localPath = context.config.otherConfigs.get('uuidLocalExportPath')
-    boolean localMode = localPath != null
     String token = UUID.randomUUID().toString()
     for (String encoding : ['plain','dictionary']) {
         File fixture = new File(context.dataPath, "test_data/uuid_${encoding}.parquet")
         String source
-        if (localMode) {
-            File target = new File("${localPath}_${token}_${encoding}.parquet")
-            java.nio.file.Files.copy(fixture.toPath(),target.toPath())
-            def backends = sql "SHOW BACKENDS"
-            String path = "${context.config.otherConfigs.get('uuidLocalTvfPath')}_${token}_${encoding}.parquet"
-            source = """local('file_path'='${path}','backend_id'='${backends[0][0]}','format'='parquet')"""
-        } else {
-            String bucket = context.config.otherConfigs.get('s3BucketName')
-            String key = "uuid_parquet_native/${token}/${encoding}.parquet"
-            getS3Client().putObject(bucket,key,fixture)
-            source = """s3('uri'='s3://${bucket}/${key}','format'='parquet',
-                           's3.endpoint'='${getS3Endpoint()}','s3.region'='${getS3Region()}',
-                           's3.access_key'='${getS3AK()}','s3.secret_key'='${getS3SK()}')"""
-        }
+        String bucket = context.config.otherConfigs.get('s3BucketName')
+        String key = "uuid_parquet_native/${token}/${encoding}.parquet"
+        getS3Client().putObject(bucket,key,fixture)
+        source = """s3('uri'='s3://${bucket}/${key}','format'='parquet',
+                       's3.endpoint'='${getS3Endpoint()}','s3.region'='${getS3Region()}',
+                       's3.access_key'='${getS3AK()}','s3.secret_key'='${getS3SK()}')"""
         for (boolean scannerV2 : [false, true]) {
             sql "SET enable_file_scanner_v2 = ${scannerV2}"
             sql "DROP TABLE IF EXISTS uuid_parquet_native"
