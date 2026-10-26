@@ -369,6 +369,7 @@ TEST(FileScannerV2Test, SupportedFormatMatrix) {
             {"hive", TFileFormatType::FORMAT_ARROW, std::nullopt, false},
             {"", TFileFormatType::FORMAT_ARROW, std::nullopt, false},
             {"", TFileFormatType::FORMAT_WAL, std::nullopt, true},
+            {"es", TFileFormatType::FORMAT_ES_HTTP, std::nullopt, true},
             {"", TFileFormatType::FORMAT_ES_HTTP, std::nullopt, false},
             {"", TFileFormatType::FORMAT_LANCE, std::nullopt, false},
     };
@@ -478,8 +479,14 @@ TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesAndLoads) 
     params.__set_format_type(TFileFormatType::FORMAT_JNI);
     EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
 
-    const std::vector<TFileFormatType::type> unsupported_formats {TFileFormatType::FORMAT_ES_HTTP,
-                                                                  TFileFormatType::FORMAT_LANCE};
+    params.__set_format_type(TFileFormatType::FORMAT_ES_HTTP);
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, true, params));
+    query_options.__set_enable_file_scanner_v2(false);
+    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+    query_options.__set_enable_file_scanner_v2(true);
+
+    const std::vector<TFileFormatType::type> unsupported_formats {TFileFormatType::FORMAT_LANCE};
     for (const auto format : unsupported_formats) {
         params.__set_format_type(format);
         EXPECT_FALSE(
