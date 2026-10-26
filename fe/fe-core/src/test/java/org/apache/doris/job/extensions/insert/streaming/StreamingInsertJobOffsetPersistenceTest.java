@@ -415,17 +415,17 @@ public class StreamingInsertJobOffsetPersistenceTest {
             job.replayOnUpdated(replayRecord);
 
             Mockito.verify(job, Mockito.never()).replayOnCloudMode();
-            Assertions.assertEquals(JobStatus.PAUSED, job.getJobStatus());
-            Assertions.assertEquals("{\"endFile\":\"data/b.csv\"}", job.getOffsetProviderPersist());
-            Assertions.assertEquals("{\"fileName\":\"data/b.csv\"}", job.offsetProvider.getShowCurrentOffset());
-            Assertions.assertEquals(replayJob.getJobStatistic().toJson(), job.getJobStatistic().toJson());
+            Assert.assertEquals(JobStatus.PAUSED, job.getJobStatus());
+            Assert.assertEquals("{\"endFile\":\"data/b.csv\"}", job.getOffsetProviderPersist());
+            Assert.assertEquals("{\"fileName\":\"data/b.csv\"}", job.offsetProvider.getShowCurrentOffset());
+            Assert.assertEquals(replayJob.getJobStatistic().toJson(), job.getJobStatistic().toJson());
 
             job.setJobStatus(JobStatus.PENDING);
             new StreamingJobSchedulerTask(job).run();
 
             Mockito.verify(job).replayOnCloudMode();
-            Assertions.assertEquals(JobStatus.PAUSED, job.getJobStatus());
-            Assertions.assertTrue(job.getFailureReason().getMsg().contains("MS unavailable"));
+            Assert.assertEquals(JobStatus.PAUSED, job.getJobStatus());
+            Assert.assertTrue(job.getFailureReason().getMsg().contains("MS unavailable"));
             Mockito.verify(job, Mockito.never()).replayOffsetProviderIfNeed();
             Mockito.verify(job, Mockito.never()).createStreamingTask();
         }
