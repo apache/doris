@@ -17,7 +17,10 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
+#include <bit>
 #include <limits>
+#include <random>
 
 #include "core/types.h"
 #include "exec/common/arithmetic_overflow.h"
@@ -43,6 +46,18 @@ struct CheckOverFlowTest : public testing::Test {
     };
 
     wide::Int256 to_i256(std::string str) { return wide::Int256::_impl::from_str(str.c_str()); };
+
+    void expect_int128_mul(Int128 left, Int128 right) {
+        const wide::Int256 exact = wide::Int256(left) * wide::Int256(right);
+        const wide::Int256 min_int128 = std::numeric_limits<Int128>::min();
+        const wide::Int256 max_int128 = std::numeric_limits<Int128>::max();
+        const bool expected_overflow = exact < min_int128 || exact > max_int128;
+        const auto expected_bits = static_cast<__uint128_t>(exact);
+
+        Int128 result;
+        EXPECT_EQ(common::mul_overflow(left, right, result), expected_overflow);
+        EXPECT_EQ(static_cast<__uint128_t>(result), expected_bits);
+    }
 };
 
 TEST_F(CheckOverFlowTest, test_overflow_int128) {
@@ -65,6 +80,41 @@ TEST_F(CheckOverFlowTest, test_overflow_int128) {
         Int128 b = to_i128("12000");
         Int128 c;
         EXPECT_FALSE(common::mul_overflow(a, b, c));
+    }
+}
+
+TEST_F(CheckOverFlowTest, test_overflow_int128_boundaries_and_random_values) {
+    constexpr Int128 min_int128 = std::numeric_limits<Int128>::min();
+    constexpr Int128 max_int128 = std::numeric_limits<Int128>::max();
+    constexpr Int128 two_to_64 = Int128 {1} << 64;
+    const std::array<Int128, 17> boundaries = {min_int128,
+                                               min_int128 + 1,
+                                               max_int128,
+                                               max_int128 - 1,
+                                               0,
+                                               1,
+                                               -1,
+                                               2,
+                                               -2,
+                                               two_to_64,
+                                               -two_to_64,
+                                               max_int128 / 2,
+                                               max_int128 / 2 + 1,
+                                               min_int128 / 2,
+                                               min_int128 / 2 - 1,
+                                               Int128 {1} << 63,
+                                               -(Int128 {1} << 63)};
+    for (const auto left : boundaries) {
+        for (const auto right : boundaries) {
+            expect_int128_mul(left, right);
+        }
+    }
+
+    std::mt19937_64 rng(0x21261DEC1A1ULL);
+    for (size_t i = 0; i < 10'000; ++i) {
+        const __uint128_t left_bits = (static_cast<__uint128_t>(rng()) << 64) | rng();
+        const __uint128_t right_bits = (static_cast<__uint128_t>(rng()) << 64) | rng();
+        expect_int128_mul(std::bit_cast<Int128>(left_bits), std::bit_cast<Int128>(right_bits));
     }
 }
 
