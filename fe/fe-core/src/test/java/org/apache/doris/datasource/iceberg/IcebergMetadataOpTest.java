@@ -38,6 +38,9 @@ import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.catalog.ViewCatalog;
+import org.apache.iceberg.exceptions.ForbiddenException;
+import org.apache.iceberg.exceptions.NoSuchNamespaceException;
+import org.apache.iceberg.exceptions.ServiceFailureException;
 import org.apache.iceberg.rest.RESTSessionCatalog;
 import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
@@ -61,6 +64,78 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class IcebergMetadataOpTest {
+
+    @Test
+    public void testListDatabaseNamesSkipsNamespacesDeletedDuringTraversal() {
+        Catalog icebergCatalog = Mockito.mock(Catalog.class,
+                Mockito.withSettings().extraInterfaces(SupportsNamespaces.class));
+        SupportsNamespaces nsCatalog = (SupportsNamespaces) icebergCatalog;
+        Namespace deleted = Namespace.of("deleted");
+        Namespace parent = Namespace.of("parent");
+        Namespace deletedChild = Namespace.of("parent", "deleted");
+        Namespace emptyChild = Namespace.of("parent", "empty");
+        Namespace sibling = Namespace.of("sibling");
+
+        Mockito.when(nsCatalog.listNamespaces(Namespace.empty())).thenReturn(Arrays.asList(deleted, parent, sibling));
+        Mockito.when(nsCatalog.listNamespaces(parent)).thenReturn(Arrays.asList(deletedChild, emptyChild));
+        Mockito.when(nsCatalog.listNamespaces(emptyChild)).thenReturn(Collections.emptyList());
+        Mockito.when(nsCatalog.listNamespaces(deleted))
+                .thenThrow(new NoSuchNamespaceException("Namespace does not exist: %s", deleted));
+        Mockito.when(nsCatalog.listNamespaces(deletedChild))
+                .thenThrow(new NoSuchNamespaceException("Namespace does not exist: %s", deletedChild));
+
+        List<String> result = nestedNamespaceOps(icebergCatalog).listDatabaseNames();
+
+        Assert.assertEquals(Arrays.asList("parent", "parent.empty", "sibling"), result);
+    }
+
+    @Test
+    public void testListDatabaseNamesPropagatesMissingRootNamespace() {
+        Catalog icebergCatalog = Mockito.mock(Catalog.class,
+                Mockito.withSettings().extraInterfaces(SupportsNamespaces.class));
+        SupportsNamespaces nsCatalog = (SupportsNamespaces) icebergCatalog;
+        NoSuchNamespaceException failure = new NoSuchNamespaceException("Missing root");
+        Mockito.when(nsCatalog.listNamespaces(Namespace.empty())).thenThrow(failure);
+
+        RuntimeException exception = Assert.assertThrows(RuntimeException.class,
+                () -> nestedNamespaceOps(icebergCatalog).listDatabaseNames());
+
+        Assert.assertSame(failure, exception.getCause());
+    }
+
+    @Test
+    public void testListDatabaseNamesPropagatesOtherTraversalFailures() {
+        for (RuntimeException failure : Arrays.asList(
+                new ForbiddenException("Access denied"), new ServiceFailureException("Service unavailable"))) {
+            Catalog icebergCatalog = Mockito.mock(Catalog.class,
+                    Mockito.withSettings().extraInterfaces(SupportsNamespaces.class));
+            SupportsNamespaces nsCatalog = (SupportsNamespaces) icebergCatalog;
+            Namespace child = Namespace.of("child");
+            Mockito.when(nsCatalog.listNamespaces(Namespace.empty()))
+                    .thenReturn(Collections.singletonList(child));
+            Mockito.when(nsCatalog.listNamespaces(child)).thenThrow(failure);
+
+            RuntimeException exception = Assert.assertThrows(RuntimeException.class,
+                    () -> nestedNamespaceOps(icebergCatalog).listDatabaseNames());
+
+            Assert.assertSame(failure, exception.getCause());
+        }
+    }
+
+    private IcebergMetadataOps nestedNamespaceOps(Catalog icebergCatalog) {
+        IcebergRestExternalCatalog dorisCatalog = Mockito.mock(IcebergRestExternalCatalog.class);
+        IcebergCatalogResourceTracker tracker = new IcebergCatalogResourceTracker();
+
+        Mockito.when(dorisCatalog.isNestedNamespaceEnabled()).thenReturn(true);
+        Mockito.when(dorisCatalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {
+        });
+        Mockito.when(dorisCatalog.getDelegatedTokenMode())
+                .thenReturn(IcebergRestProperties.DelegatedTokenMode.ACCESS_TOKEN);
+        Mockito.when(dorisCatalog.getProperties()).thenReturn(Collections.emptyMap());
+        Mockito.when(dorisCatalog.beginCatalogOperation(Mockito.any()))
+                .thenAnswer(invocation -> tracker.beginOperation());
+        return new IcebergMetadataOps(dorisCatalog, icebergCatalog);
+    }
 
     @Test
     public void testCatalogOperationDelaysGenerationRetirement() throws Exception {
