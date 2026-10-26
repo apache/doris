@@ -84,7 +84,7 @@ Status AnalyticLocalState::_open_spill_batch(RuntimeState* state,
     DORIS_CHECK_EQ(batch->strategies.size(), batch->result_types.size());
     DORIS_CHECK_EQ(batch->strategies.size(), batch->peer_functions.size());
     DORIS_CHECK_EQ(batch->strategies.size(), batch->partition_results.size());
-    DORIS_CHECK_EQ(batch->strategies.size(), batch->function_parameters.size());
+    DORIS_CHECK_EQ(batch->strategies.size(), batch->ntile_bucket_counts.size());
     DORIS_CHECK_EQ(batch->strategies.size(), batch->change_to_nullable_flags.size());
     _current_batch = std::move(batch);
     _in_memory_block_index = 0;
@@ -370,7 +370,7 @@ void AnalyticLocalState::_create_spill_result_columns(
     for (size_t i = 0; i < function_count; ++i) {
         results[i] = _current_batch->result_types[i]->create_column();
         results[i]->reserve(rows);
-        if (_current_batch->strategies[i] == WindowSpillStrategy::PARTITION_CARDINALITY ||
+        if (_current_batch->strategies[i] == WindowSpillStrategy::NTILE ||
             _current_batch->strategies[i] == WindowSpillStrategy::PEER_GROUP) {
             if (_current_batch->result_types[i]->is_nullable()) {
                 auto* nullable = assert_cast<ColumnNullable*>(results[i].get());
@@ -394,7 +394,7 @@ void AnalyticLocalState::_append_partition_results(
             results[i]->insert_many_from(*_current_batch->partition_results[i], _partition_index,
                                          rows);
             break;
-        case WindowSpillStrategy::PARTITION_CARDINALITY:
+        case WindowSpillStrategy::NTILE:
             _append_ntile_result(i, rows, computed_result_columns[i]);
             break;
         case WindowSpillStrategy::PEER_GROUP:
@@ -408,7 +408,7 @@ void AnalyticLocalState::_append_partition_results(
 
 void AnalyticLocalState::_append_ntile_result(size_t function_index, size_t rows,
                                               IColumn* result_column) const {
-    const int64_t bucket_num = _current_batch->function_parameters[function_index];
+    const int64_t bucket_num = _current_batch->ntile_bucket_counts[function_index];
     DORIS_CHECK_GT(bucket_num, 0);
     const int64_t partition_size = _partition_end - _partition_start;
     const int64_t small_bucket_size = partition_size / bucket_num;

@@ -280,7 +280,7 @@ struct AnalyticSinkOperatorTest : public ::testing::Test {
     char buffer[100];
     void check_cume_dist_peer_groups_inside_batch(bool force_spill);
     void prepare_ntile_spill(const std::vector<int64_t>& bucket_counts, bool force_spill);
-    void check_ntile_parameters_across_batches(bool force_spill);
+    void check_ntile_bucket_counts_across_batches(bool force_spill);
     void prepare_spilled_full_partition_sum();
     void prepare_cume_dist_without_partition();
 
@@ -405,7 +405,7 @@ TEST_F(AnalyticSinkOperatorTest, SpillEligibilityKeepsStreamingAggregateOnExisti
     EXPECT_EQ(sink->_window_spill_unsupported_reason, "Streaming");
 }
 
-TEST_F(AnalyticSinkOperatorTest, SpillEligibilityAllowsPartitionCardinalityFunction) {
+TEST_F(AnalyticSinkOperatorTest, SpillEligibilityAllowsNtileFunction) {
     Initialize(1);
     state->_query_options.__set_enable_spill(true);
     create_operator(true, 1, "ntile", {std::make_shared<DataTypeInt64>()},
@@ -422,7 +422,7 @@ TEST_F(AnalyticSinkOperatorTest, SpillEligibilityAllowsPartitionCardinalityFunct
     EXPECT_TRUE(sink->_enable_spill_analytic);
     EXPECT_TRUE(sink->_spillable);
     ASSERT_EQ(sink->_window_spill_strategies.size(), 1);
-    EXPECT_EQ(sink->_window_spill_strategies[0], WindowSpillStrategy::PARTITION_CARDINALITY);
+    EXPECT_EQ(sink->_window_spill_strategies[0], WindowSpillStrategy::NTILE);
 }
 
 TEST_F(AnalyticSinkOperatorTest, SpillEligibilityTreatsRangeToCurrentRowWithoutOrderAsFullFrame) {
@@ -664,11 +664,11 @@ TEST_F(AnalyticSinkOperatorTest, SpillAdmissionCountsNullableFixedWidthCutStorag
     EXPECT_GE(budget, const_column->cut(0, state->batch_size())->allocated_bytes());
 }
 
-TEST_F(AnalyticSinkOperatorTest, SpillCardinalityKeepsConstantArgumentsCompact) {
+TEST_F(AnalyticSinkOperatorTest, SpillNtileKeepsConstantArgumentsCompact) {
     Initialize(65535);
     auto local_state = AnalyticSinkLocalState::create_unique(sink.get(), state.get());
     local_state->_agg_functions_size = 32;
-    local_state->_spill_strategies.assign(32, WindowSpillStrategy::PARTITION_CARDINALITY);
+    local_state->_spill_strategies.assign(32, WindowSpillStrategy::NTILE);
     local_state->_agg_expr_ctxs.resize(32);
     for (size_t i = 0; i < 32; ++i) {
         local_state->_agg_expr_ctxs[i].push_back(
@@ -681,12 +681,12 @@ TEST_F(AnalyticSinkOperatorTest, SpillCardinalityKeepsConstantArgumentsCompact) 
     auto status = local_state->_materialize_spill_columns(&input, &agg_columns, &partition_columns,
                                                           &order_columns);
     ASSERT_TRUE(status.ok()) << status.to_string();
-    ASSERT_EQ(local_state->_spill_function_parameters.size(), 32);
+    ASSERT_EQ(local_state->_spill_ntile_bucket_counts.size(), 32);
     for (size_t i = 0; i < 32; ++i) {
         EXPECT_TRUE(agg_columns[i].empty());
-        EXPECT_EQ(local_state->_spill_function_parameters[i], 2147483648LL + i);
+        EXPECT_EQ(local_state->_spill_ntile_bucket_counts[i], 2147483648LL + i);
     }
-    EXPECT_EQ(local_state->_spill_function_parameters.size() * sizeof(int64_t), 256);
+    EXPECT_EQ(local_state->_spill_ntile_bucket_counts.size() * sizeof(int64_t), 256);
     EXPECT_EQ(input.columns(), 1);
 }
 
@@ -746,7 +746,7 @@ TEST_F(AnalyticSinkOperatorTest, SpillPathNtileUsesSealedPartitionCardinality) {
     sink->_agg_expr_ctxs[0] =
             MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
     sink->_enable_spill_analytic = true;
-    sink->_window_spill_strategies = {WindowSpillStrategy::PARTITION_CARDINALITY};
+    sink->_window_spill_strategies = {WindowSpillStrategy::NTILE};
     sink->_window_spill_peer_functions = {WindowSpillPeerFunction::NONE};
     create_local_state();
 
@@ -1228,7 +1228,7 @@ TEST_F(AnalyticSinkOperatorTest, SpillPathNtileUsesPartitionCardinalityInsideBat
     sink->_partition_by_eq_expr_ctxs =
             MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
     sink->_enable_spill_analytic = true;
-    sink->_window_spill_strategies = {WindowSpillStrategy::PARTITION_CARDINALITY};
+    sink->_window_spill_strategies = {WindowSpillStrategy::NTILE};
     sink->_window_spill_peer_functions = {WindowSpillPeerFunction::NONE};
     create_local_state();
 
@@ -1271,19 +1271,19 @@ void AnalyticSinkOperatorTest::prepare_ntile_spill(const std::vector<int64_t>& b
     }
     sink->_partition_by_eq_expr_ctxs = MockSlotRef::create_mock_contexts(0, type);
     sink->_enable_spill_analytic = true;
-    sink->_window_spill_strategies.assign(functions, WindowSpillStrategy::PARTITION_CARDINALITY);
+    sink->_window_spill_strategies.assign(functions, WindowSpillStrategy::NTILE);
     sink->_window_spill_peer_functions.assign(functions, WindowSpillPeerFunction::NONE);
     create_local_state();
 }
 
-void AnalyticSinkOperatorTest::check_ntile_parameters_across_batches(bool force_spill) {
+void AnalyticSinkOperatorTest::check_ntile_bucket_counts_across_batches(bool force_spill) {
     ASSERT_TRUE(spill_file_manager.init().ok());
     Initialize(4);
     const std::vector<int64_t> bucket_counts {2, 3, 2147483648LL};
     prepare_ntile_spill(bucket_counts, force_spill);
     Block empty;
     ASSERT_TRUE(sink->sink(state.get(), &empty, false).ok());
-    EXPECT_TRUE(sink_local_state->_spill_function_parameters.empty());
+    EXPECT_TRUE(sink_local_state->_spill_ntile_bucket_counts.empty());
 
     // Partitions 1 and 3 cross input Blocks; partition 2 shares a batch with partition 1.
     // The third input seals another batch, and empty EOS seals the final partition.
@@ -1302,9 +1302,9 @@ void AnalyticSinkOperatorTest::check_ntile_parameters_across_batches(bool force_
         while (!batches.empty()) {
             const auto& batch = batches.front();
             EXPECT_EQ(batch->data_file != nullptr, force_spill);
-            ASSERT_EQ(batch->function_parameters.size(), bucket_counts.size());
+            ASSERT_EQ(batch->ntile_bucket_counts.size(), bucket_counts.size());
             for (size_t i = 0; i < bucket_counts.size(); ++i) {
-                EXPECT_EQ(batch->function_parameters[i], bucket_counts[i]);
+                EXPECT_EQ(batch->ntile_bucket_counts[i], bucket_counts[i]);
             }
             batches.pop();
         }
@@ -1327,15 +1327,15 @@ void AnalyticSinkOperatorTest::check_ntile_parameters_across_batches(bool force_
     EXPECT_TRUE(ColumnHelper::block_equal(actual.to_block(), expected));
 }
 
-TEST_F(AnalyticSinkOperatorTest, SpillPathNtileParametersAcrossInMemoryBatches) {
-    check_ntile_parameters_across_batches(false);
+TEST_F(AnalyticSinkOperatorTest, SpillPathNtileBucketCountsAcrossInMemoryBatches) {
+    check_ntile_bucket_counts_across_batches(false);
 }
 
-TEST_F(AnalyticSinkOperatorTest, SpillPathNtileParametersAcrossSpilledBatches) {
-    check_ntile_parameters_across_batches(true);
+TEST_F(AnalyticSinkOperatorTest, SpillPathNtileBucketCountsAcrossSpilledBatches) {
+    check_ntile_bucket_counts_across_batches(true);
 }
 
-TEST_F(AnalyticSinkOperatorTest, SpillNtileParameterStorageDoesNotGrowWithPartitions) {
+TEST_F(AnalyticSinkOperatorTest, SpillNtileBucketCountStorageDoesNotGrowWithPartitions) {
     Initialize(65535);
     std::vector<int64_t> bucket_counts(32);
     std::iota(bucket_counts.begin(), bucket_counts.end(), 1);
@@ -1352,9 +1352,9 @@ TEST_F(AnalyticSinkOperatorTest, SpillNtileParameterStorageDoesNotGrowWithPartit
     ASSERT_EQ(sink_local_state->_shared_state->spill_batches.size(), 2);
     const auto batch = sink_local_state->_shared_state->spill_batches.front();
     EXPECT_EQ(batch->partition_ends.size(), 65534);
-    EXPECT_EQ(batch->function_parameters.size(), 32);
-    EXPECT_EQ(batch->function_parameters.size() * sizeof(int64_t), 256);
-    EXPECT_LE(batch->function_parameters.capacity(), 64);
+    EXPECT_EQ(batch->ntile_bucket_counts.size(), 32);
+    EXPECT_EQ(batch->ntile_bucket_counts.size() * sizeof(int64_t), 256);
+    EXPECT_LE(batch->ntile_bucket_counts.capacity(), 64);
 }
 
 void AnalyticSinkOperatorTest::check_cume_dist_peer_groups_inside_batch(bool force_spill) {

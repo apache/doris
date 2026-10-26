@@ -76,7 +76,8 @@ using ConstAggregateDataPtr = const char*;
 enum class WindowSpillStrategy : uint8_t {
     UNSUPPORTED,
     PARTITION_REDUCE,
-    PARTITION_CARDINALITY,
+    // NTILE-specific replay: one constant bucket count plus partition size and row position.
+    NTILE,
     PEER_GROUP,
 };
 

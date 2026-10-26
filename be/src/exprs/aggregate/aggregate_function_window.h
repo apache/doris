@@ -364,7 +364,7 @@ public:
     String get_name() const override { return "ntile"; }
 
     WindowSpillStrategy window_spill_strategy() const override {
-        return WindowSpillStrategy::PARTITION_CARDINALITY;
+        return WindowSpillStrategy::NTILE;
     }
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }

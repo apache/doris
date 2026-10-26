@@ -146,13 +146,15 @@ enable_spill = false                         -> 现有 Analytic 路径
 enum class WindowSpillStrategy {
     UNSUPPORTED,
     PARTITION_REDUCE,
-    PARTITION_CARDINALITY,
+    NTILE,
     PEER_GROUP,
 };
 ```
 
-capability 只说明函数访问模式。最终是否可 spill 还必须结合 frame 类型判断。例如 `sum` 只在
-首期支持整个 partition 的 frame，不因此获得任意滑动 frame 的 spill 能力。
+capability 声明函数的 spill 执行策略。`NTILE` 是专用策略：要求一个正整数常量桶数，并使用
+partition 行数与行位置执行 NTILE 分桶公式，不代表所有依赖 partition 行数的函数都能复用。
+最终是否可 spill 还必须结合 frame 类型判断。例如 `sum` 只在首期支持整个 partition 的 frame，
+不因此获得任意滑动 frame 的 spill 能力。
 
 Nereids 会把没有 `ORDER BY` 的 `OVER` 子句（例如 `sum(v) OVER (PARTITION BY k)`）改写为
 `RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW`。此时 partition 内所有行互为 peer，
@@ -364,8 +366,9 @@ partition seal 时 descriptor 已记录总行数 `N`。Source 重放时维护从
 不能在 spill 路径增加新的隐式转换。
 
 FE 保证 bucket 参数在翻译执行计划前已折叠成正整数字面量，因此同一函数在所有 partition
-中的 bucket 数相同。descriptor 按函数索引保存一维参数数组，Source 不再按 partition 索引
-读取参数；参数载荷由 `O(函数数 × partition 数)` 降为 `O(函数数)`。
+中的 bucket 数相同。Sink 用 `_spill_ntile_bucket_counts` 缓存桶数，descriptor 用
+`ntile_bucket_counts` 按函数索引保存一维数组，Source 不再按 partition 索引读取参数；
+参数载荷由 `O(函数数 × partition 数)` 降为 `O(函数数)`。
 
 `ntile` 不需要额外预扫描输入内容；若 descriptor 已有准确行数，可以直接进入 Replay。
 

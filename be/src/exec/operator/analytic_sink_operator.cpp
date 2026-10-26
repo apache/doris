@@ -746,20 +746,20 @@ Status AnalyticSinkLocalState::_materialize_spill_columns(
         std::vector<ColumnPtr>* partition_columns, std::vector<ColumnPtr>* order_columns) {
     const auto original_columns = input_block->columns();
     agg_columns->resize(_agg_functions_size);
-    const bool initialize_parameters = _spill_function_parameters.empty();
-    if (initialize_parameters) {
-        _spill_function_parameters.resize(_agg_functions_size, 0);
+    const bool initialize_ntile_buckets = _spill_ntile_bucket_counts.empty();
+    if (initialize_ntile_buckets) {
+        _spill_ntile_bucket_counts.resize(_agg_functions_size, 0);
     }
     for (size_t i = 0; i < _agg_functions_size; ++i) {
         // FE folds NTILE's bucket argument to a positive integer literal. Read it once, not per
         // partition or Block: NTILE(4) needs only one 4 even for 65535 one-row partitions.
-        if (_spill_strategies[i] == WindowSpillStrategy::PARTITION_CARDINALITY) {
-            if (initialize_parameters) {
+        if (_spill_strategies[i] == WindowSpillStrategy::NTILE) {
+            if (initialize_ntile_buckets) {
                 DCHECK_EQ(_agg_expr_ctxs[i].size(), 1);
                 ColumnPtr column;
                 RETURN_IF_ERROR(_agg_expr_ctxs[i][0]->execute(input_block, column));
-                _spill_function_parameters[i] = column->get_int(0);
-                DCHECK_GT(_spill_function_parameters[i], 0);
+                _spill_ntile_bucket_counts[i] = column->get_int(0);
+                DCHECK_GT(_spill_ntile_bucket_counts[i], 0);
             }
             continue;
         }
@@ -949,7 +949,7 @@ Status AnalyticSinkLocalState::_finish_spill_partition(RuntimeState* state) {
             DCHECK_EQ(result->size(), _batch_partition_ends.size() + 1);
             break;
         }
-        case WindowSpillStrategy::PARTITION_CARDINALITY:
+        case WindowSpillStrategy::NTILE:
         case WindowSpillStrategy::PEER_GROUP:
             break;
         case WindowSpillStrategy::UNSUPPORTED:
@@ -991,7 +991,7 @@ Status AnalyticSinkLocalState::_seal_spill_batch(RuntimeState* state) {
     batch->partition_ends = std::move(_batch_partition_ends);
     batch->strategies = _spill_strategies;
     batch->peer_functions = parent._window_spill_peer_functions;
-    batch->function_parameters = _spill_function_parameters;
+    batch->ntile_bucket_counts = _spill_ntile_bucket_counts;
     batch->change_to_nullable_flags = parent._change_to_nullable_flags;
     batch->partition_results.resize(_agg_functions_size);
     batch->result_types.resize(_agg_functions_size);
@@ -1263,7 +1263,7 @@ void AnalyticSinkOperatorX::_prepare_spill(RuntimeState* state) {
     }
     const bool partition_dependent_function =
             std::ranges::any_of(_window_spill_strategies, [](WindowSpillStrategy strategy) {
-                return strategy == WindowSpillStrategy::PARTITION_CARDINALITY ||
+                return strategy == WindowSpillStrategy::NTILE ||
                        strategy == WindowSpillStrategy::PEER_GROUP;
             });
     const bool streaming_frame =
@@ -1286,7 +1286,7 @@ void AnalyticSinkOperatorX::_prepare_spill(RuntimeState* state) {
         case WindowSpillStrategy::PARTITION_REDUCE:
             frame_supported = full_partition_frame;
             break;
-        case WindowSpillStrategy::PARTITION_CARDINALITY:
+        case WindowSpillStrategy::NTILE:
             frame_supported = _has_window && !_has_range_window && !_has_window_start &&
                               _has_window_end &&
                               _window.window_end.type == TAnalyticWindowBoundaryType::CURRENT_ROW;
@@ -1529,7 +1529,7 @@ size_t AnalyticSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bool eos
             }
             break;
         }
-        case WindowSpillStrategy::PARTITION_CARDINALITY:
+        case WindowSpillStrategy::NTILE:
             // One sink copy and at most two sealed batches per input, independent of partitions.
             partition_result_bytes += 3 * sizeof(int64_t);
             break;

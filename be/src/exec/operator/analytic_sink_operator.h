@@ -222,8 +222,9 @@ private:
     bool _spill_enabled = false;
     bool _has_peer_group_functions = false;
     std::vector<WindowSpillStrategy> _spill_strategies;
-    // Initialized from the first nonempty input and copied into each sealed batch.
-    DorisVector<int64_t> _spill_function_parameters;
+    // NTILE bucket counts, indexed by function index. Initialized from the first nonempty input
+    // and copied into each sealed batch; other strategies leave their entries at zero.
+    DorisVector<int64_t> _spill_ntile_bucket_counts;
     // Rows of the batch that has not been handed to the source yet. Finished partitions are only
     // kept here while one input Block is processed; afterwards it holds at most the open partition.
     std::unique_ptr<AnalyticSpillBatchStore> _batch_store;
