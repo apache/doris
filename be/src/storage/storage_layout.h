@@ -55,7 +55,7 @@ class IColumn;
 // 5. Serialised: BITMAP, HLL, QUANTILE_STATE.
 // 6. AGG_STATE: a string, a bitmap or a fixed-length object, whichever its aggregate
 //    function serialises to; the column holding the states tells which.
-// Compute-layer types: PrimitiveTypeTraits<PT>; storage-layer types: CppTypeTraits<FT>.
+// Compute-layer types: PrimitiveTypeTraits<PT>; storage-layer types: StorageTypeTraits<FT>.
 //
 // Every layout converts a batch the same way: column_to_storage(column, row_pos, n, buffers)
 // returns the stored cells of rows [row_pos, row_pos + n) back to back, n fixed-width values
@@ -115,7 +115,7 @@ namespace storage_layout_detail {
 // stored values.
 template <FieldType FT>
 struct BitCast {
-    using StorageValue = typename CppTypeTraits<FT>::CppType;
+    using StorageValue = typename StorageTypeTraits<FT>::StorageType;
     using PrimitiveValue =
             typename PrimitiveTypeTraits<storage_field_type_to_primitive_type(FT)>::CppType;
     static_assert(sizeof(StorageValue) == sizeof(PrimitiveValue));
@@ -138,7 +138,7 @@ struct BitCast {
 // treat all NaNs as one value.
 template <FieldType FT>
 struct FloatingPoint {
-    using StorageValue = typename CppTypeTraits<FT>::CppType;
+    using StorageValue = typename StorageTypeTraits<FT>::StorageType;
     using PrimitiveValue =
             typename PrimitiveTypeTraits<storage_field_type_to_primitive_type(FT)>::CppType;
     static_assert(std::is_floating_point_v<StorageValue>);
@@ -227,7 +227,7 @@ extern template struct storage_layout_detail::FloatingPoint<FieldType::OLAP_FIEL
 // V1 DATE: three bytes of (year << 9) | (month << 5) | day.
 template <>
 struct StorageLayout<FieldType::OLAP_FIELD_TYPE_DATE> {
-    using StorageValue = typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>::CppType;
+    using StorageValue = typename StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>::StorageType;
     using PrimitiveValue = typename PrimitiveTypeTraits<TYPE_DATE>::CppType;
     static_assert(std::is_same_v<StorageValue, uint24_t>);
 
@@ -248,7 +248,8 @@ struct StorageLayout<FieldType::OLAP_FIELD_TYPE_DATE> {
 // V1 DATETIME: the decimal digits YYYYMMDDhhmmss packed into one integer.
 template <>
 struct StorageLayout<FieldType::OLAP_FIELD_TYPE_DATETIME> {
-    using StorageValue = typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIME>::CppType;
+    using StorageValue =
+            typename StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIME>::StorageType;
     using PrimitiveValue = typename PrimitiveTypeTraits<TYPE_DATETIME>::CppType;
     static_assert(std::is_same_v<StorageValue, int64_t>);
 
@@ -266,7 +267,8 @@ struct StorageLayout<FieldType::OLAP_FIELD_TYPE_DATETIME> {
 // V1 DECIMAL: the integer and the nine-digit fraction stored side by side.
 template <>
 struct StorageLayout<FieldType::OLAP_FIELD_TYPE_DECIMAL> {
-    using StorageValue = typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL>::CppType;
+    using StorageValue =
+            typename StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL>::StorageType;
     using PrimitiveValue = typename PrimitiveTypeTraits<TYPE_DECIMALV2>::CppType;
     static_assert(std::is_same_v<StorageValue, decimal12_t>);
 

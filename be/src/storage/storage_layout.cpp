@@ -55,7 +55,7 @@ void BitCast<FT>::storage_to_column(const uint8_t* values, size_t n, IColumn& ds
 
 template <FieldType FT>
 void repack_from_column(const IColumn& column, size_t row_pos, size_t n, uint8_t* dst) {
-    using StorageValue = typename CppTypeTraits<FT>::CppType;
+    using StorageValue = typename StorageTypeTraits<FT>::StorageType;
     using Column =
             typename PrimitiveTypeTraits<storage_field_type_to_primitive_type(FT)>::ColumnType;
     const auto& data = assert_cast<const Column&>(column).get_data();
@@ -75,7 +75,7 @@ void repack_to_column(const uint8_t* values, size_t n, IColumn& dst) {
         repack_to_column<FT>(values, n, nullable.get_nested_column());
         return;
     }
-    using StorageValue = typename CppTypeTraits<FT>::CppType;
+    using StorageValue = typename StorageTypeTraits<FT>::StorageType;
     using Column =
             typename PrimitiveTypeTraits<storage_field_type_to_primitive_type(FT)>::ColumnType;
     auto& data = assert_cast<Column&>(dst).get_data();

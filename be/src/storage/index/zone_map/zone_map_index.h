@@ -122,7 +122,7 @@ class TypedZoneMapIndexWriter final : public ZoneMapIndexWriter {
 public:
     using ValType = std::conditional_t<
             is_string_type(Type), StringRef,
-            typename CppTypeTraits<primitive_type_to_storage_field_type(Type)>::CppType>;
+            typename StorageTypeTraits<primitive_type_to_storage_field_type(Type)>::StorageType>;
     explicit TypedZoneMapIndexWriter(DataTypePtr&& data_type);
 
     void add_values(const uint8_t* values, size_t count) override;

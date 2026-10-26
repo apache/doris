@@ -89,7 +89,7 @@ struct FieldTag {
 // correct way rather than reinvented here.
 template <FieldType FT>
 struct ValueOf {
-    using CppType = typename CppTypeTraits<FT>::CppType;
+    using CppType = typename StorageTypeTraits<FT>::StorageType;
     static CppType from_rank(int64_t rank) {
         if constexpr (std::is_same_v<CppType, decimal12_t>) {
             decimal12_t value;
@@ -150,7 +150,7 @@ TYPED_TEST_SUITE(SniiBkdAdapterTypesTest, FieldTypeTags);
 
 TYPED_TEST(SniiBkdAdapterTypesTest, AdapterPreservesValueToRowAssociation) {
     constexpr FieldType FT = TypeParam::kFieldType;
-    using CppType = typename CppTypeTraits<FT>::CppType;
+    using CppType = typename StorageTypeTraits<FT>::StorageType;
 
     // 240 rows over 60 distinct ranks, so most values own several rows and a
     // shifted-by-one stride cannot coincidentally reproduce the mapping.

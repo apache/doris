@@ -127,7 +127,7 @@ constexpr uint32_t kLeafCapacities[] = {1, 2, 5, 16, 1024};
 // construction, and that is asserted rather than assumed: a KeyCoder emitting
 // something other than sizeof(CppType) would silently break INV-2.
 template <FieldType FT>
-Bytes encode(const typename CppTypeTraits<FT>::CppType& value) {
+Bytes encode(const typename StorageTypeTraits<FT>::StorageType& value) {
     Bytes buf;
     get_key_coder(FT)->full_encode_ascending(&value, &buf);
     EXPECT_EQ(buf.size(), field_type_size(FT));
@@ -139,7 +139,7 @@ Bytes encode(const typename CppTypeTraits<FT>::CppType& value) {
 // repeats across thousands of points and dozens of leaves.
 template <FieldType FT>
 Bytes encode_rank(int64_t rank) {
-    using CppType = typename CppTypeTraits<FT>::CppType;
+    using CppType = typename StorageTypeTraits<FT>::StorageType;
     return encode<FT>(static_cast<CppType>(rank));
 }
 
@@ -714,8 +714,8 @@ TYPED_TEST(BkdPropertyTest, BuildIsDeterministicUnderPerDocValueOrder) {
 // 1, 2, 4, 8 and 16 bytes, which is where a KeyCoder mistake would actually hide.
 
 template <FieldType FT>
-std::vector<typename CppTypeTraits<FT>::CppType> native_spread() {
-    using CppType = typename CppTypeTraits<FT>::CppType;
+std::vector<typename StorageTypeTraits<FT>::StorageType> native_spread() {
+    using CppType = typename StorageTypeTraits<FT>::StorageType;
     std::vector<CppType> values;
     if constexpr (std::is_floating_point_v<CppType>) {
         // Negative zero is deliberate: it must not sort strictly below +0.0 nor
@@ -727,7 +727,7 @@ std::vector<typename CppTypeTraits<FT>::CppType> native_spread() {
         values.push_back(std::numeric_limits<CppType>::lowest());
         values.push_back(std::numeric_limits<CppType>::max());
     } else {
-        using UnsignedType = typename CppTypeTraits<FT>::UnsignedCppType;
+        using UnsignedType = typename StorageTypeTraits<FT>::UnsignedStorageType;
         constexpr size_t kBits = sizeof(CppType) * 8;
         constexpr bool kIsSigned = std::is_signed_v<CppType>;
         const CppType lo = kIsSigned ? static_cast<CppType>(UnsignedType(1) << (kBits - 1))

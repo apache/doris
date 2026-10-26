@@ -46,8 +46,10 @@
 namespace doris {
 
 TEST(StorageLayoutTest, StorageValueSizeIsFieldTypeSize) {
-#define CHECK_SIZE(FT) \
-    EXPECT_EQ(sizeof(CppTypeTraits<FieldType::FT>::CppType), field_type_size(FieldType::FT)) << #FT;
+#define CHECK_SIZE(FT)                                               \
+    EXPECT_EQ(sizeof(StorageTypeTraits<FieldType::FT>::StorageType), \
+              field_type_size(FieldType::FT))                        \
+            << #FT;
     CHECK_SIZE(OLAP_FIELD_TYPE_BOOL)
     CHECK_SIZE(OLAP_FIELD_TYPE_TINYINT)
     CHECK_SIZE(OLAP_FIELD_TYPE_SMALLINT)
@@ -214,7 +216,7 @@ TEST(StorageLayoutTest, ColumnToStoragePreservesSource) {
     dates->insert_value(day);
     dates->insert_value(day);
     using DateLayout = StorageLayout<FieldType::OLAP_FIELD_TYPE_DATE>;
-    using StoredDate = CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>::CppType;
+    using StoredDate = StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>::StorageType;
     StorageBuffers date_buffers;
     const auto* date_out = DateLayout::column_to_storage(*dates, 0, 2, date_buffers);
     for (size_t i = 0; i < 2; ++i) {
@@ -228,7 +230,7 @@ namespace {
 
 template <FieldType FT>
 void expect_floating_point_range_views() {
-    using Value = typename CppTypeTraits<FT>::CppType;
+    using Value = typename StorageTypeTraits<FT>::StorageType;
     using UInt = std::conditional_t<sizeof(Value) == sizeof(uint32_t), uint32_t, uint64_t>;
     using Column =
             typename PrimitiveTypeTraits<storage_field_type_to_primitive_type(FT)>::ColumnType;
@@ -393,7 +395,7 @@ TEST(StorageLayoutTest, RuntimeTypeConvertsThroughItsLayout) {
     VecDateTimeValue day;
     ASSERT_TRUE(day.from_date_int64(20200101));
     dates->insert_value(day);
-    using StoredDate = CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>::CppType;
+    using StoredDate = StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>::StorageType;
     StoredDate stored;
     memcpy(&stored, column_to_storage(FieldType::OLAP_FIELD_TYPE_DATE, *dates, 0, 1, buffers),
            sizeof(stored));
