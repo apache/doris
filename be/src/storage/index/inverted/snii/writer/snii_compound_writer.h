@@ -40,10 +40,9 @@ class SniiRewriteSnapshot;
 // Writes one SNII container through an append-only FileWriter:
 //
 //   [bootstrap header]
-//   [posting and DICT regions per logical index]
-//   [norms and null-bitmap sections per logical index]
-//   [Core, sampled-term index, and DICT directory per logical index]
-//   [metadata directory][optional cache-block padding][tail pointer]
+//   [posting, DICT, norms, null bitmap, and BSBF per inverted index]
+//   [Core, sampled-term index, and DICT directory per inverted index]
+//   [metadata directory][optional cloud cache-block padding][tail pointer]
 //
 // SectionRefs and directory entries use absolute file offsets. DICT entry posting offsets are relative to their index's posting region; the tail pointer locates the metadata directory.
 namespace doris::snii::writer {

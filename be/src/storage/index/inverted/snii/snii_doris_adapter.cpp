@@ -370,10 +370,7 @@ Status DorisSniiFileReader::read_batch(const std::vector<::doris::snii::io::Rang
         }
     }
 
-    // ----- Phase 3: merge stats, first-error, views, account (serial) -----
-    // Fold every segment's private stats back FIRST: physical IO that already
-    // happened (including partial work inside a segment that then failed) must
-    // reach the query profile even when another segment of this batch errors.
+    // Merge per-segment statistics before returning any read error so completed I/O remains visible.
     if (base_io_ctx->file_cache_stats != nullptr) {
         for (size_t s = 0; s < num_segs; ++s) {
             _merge_file_cache_statistics(base_io_ctx->file_cache_stats, seg_stats[s]);

@@ -37,11 +37,11 @@ namespace doris::snii::writer {
 
 using StreamedTermConsumer = std::function<Status(StreamedTermPostings&&)>;
 
-// G11: compiled-in marker for the per-token prefetch candidate (the locality
+// Compiled-in marker for the per-token prefetch candidate (the locality
 // bench keys its in-process A/B test off this).
 #define SNII_G11_PREFETCH 1
 
-class GlobalMemoryLimiter; // G09 process-wide build-RAM registry (see below)
+class GlobalMemoryLimiter;
 
 // One term's posting list: docids ascending, with parallel freqs and (when
 // positions are enabled) a single FLAT positions buffer.
@@ -102,24 +102,12 @@ struct TermPostings {
     }
 };
 
-// Accumulates postings by term ID and emits them in lexical order. It can borrow
-// or own a vocabulary, spills into bounded runs, and requires unique term strings.
+// Accumulates postings by integer term ID and emits them in lexical order using unique vocabulary strings.
+// Compact postings share an arena and spill to one spool, with merging bounded by workspace and fd limits.
 class SpimiTermBuffer {
 public:
-    // BORROWED-vocab constructor: `vocab` maps term-id -> term string and is
-    // borrowed (NOT owned) -- the caller must keep it alive for the buffer's
-    // lifetime. add_token(term_id, ...) accumulates by id with no string work.
-    // spill_threshold_bytes is the gate-2 internal buffer cap (e.g. 512 MiB),
-    // sourced from config; == 0 means unlimited (pure in-memory, default). A
-    // positive value is a soft spill threshold for the REAL resident accumulator
-    // size (resident_bytes(): arena + every live vocab/slot/rank structure, G08),
-    // triggering a spill once enough reclaimable arena has accumulated -- NOT a
-    // hard cap on persistent vocabulary memory or the old per-token estimate.
-    // `reporter` is the OPTIONAL writer-level build-RAM reporter (null off-Doris /
-    // unit tests). When non-null, the accumulator reports its REAL resident-byte
-    // deltas -- resident_bytes() diffs -- positive on grow, negative on every
-    // reset/free, exactly once. NEVER reports live_bytes_ (a gated estimate that
-    // feeds only the spill threshold).
+    // Borrows vocab for the buffer's lifetime; a zero spill threshold disables
+    // spilling. A non-null reporter receives changes in resident_bytes().
     explicit SpimiTermBuffer(const std::vector<std::string>* vocab, bool has_positions,
                              size_t spill_threshold_bytes = 0, MemoryReporter* reporter = nullptr);
 
@@ -162,7 +150,7 @@ public:
     // Registers this buffer's reclaimable arena with the process-wide limiter. Requests are handled on the buffer's owner thread; the limiter must outlive the buffer.
     void attach_global_limiter(GlobalMemoryLimiter* limiter);
 
-    // TEST-ONLY: G09 advisory-flag observability -- read the pending flag, and
+    // TEST-ONLY: advisory-flag observability -- read the pending flag, and
     // plant a request directly (what the limiter does cross-thread) so the
     // owner-honors-at-next-token contract is testable without a registry.
     bool global_spill_requested_for_test() const {
@@ -177,7 +165,8 @@ public:
     void set_forced_spill_min_arena_bytes(uint64_t bytes) { forced_spill_min_arena_bytes_ = bytes; }
     uint64_t forced_spill_min_arena_bytes() const { return forced_spill_min_arena_bytes_; }
 
-    // Cap active merge inputs; zero leaves fan-in to workspace and file-descriptor limits.
+    // Additional cap on active merge inputs, with a minimum of two.
+    // Zero retains the posting workspace and file descriptor limits.
     static constexpr size_t kDefaultMaxRunFilesPerBuffer = 64;
     void set_max_run_files(size_t cap) { max_run_files_ = cap; }
     size_t max_run_files() const { return max_run_files_; }
@@ -198,12 +187,12 @@ public:
     size_t spill_file_count_for_test() const { return run_spool_path_.empty() ? 0 : 1; }
 
     // TEST-ONLY: the REAL resident accumulator bytes the gate-2 trigger and the
-    // MemoryReporter see (resident_bytes()). Lets the G08 accounting tests assert
+    // MemoryReporter see (resident_bytes()). Lets the accounting tests assert
     // coverage and monotonicity without widening access to the private
     // accounting. Not part of
     // the production API.
     uint64_t resident_bytes_for_test() const { return resident_bytes(); }
-    // TEST-ONLY: the SPILLABLE posting-arena bytes forwarded to the G09 registry
+    // TEST-ONLY: the SPILLABLE posting-arena bytes forwarded to the global registry
     // as this buffer's victim-selection key. Not part of the production API.
     uint64_t arena_bytes_for_test() const { return pool_.arena_bytes(); }
     size_t string_rank_capacity_for_test() const { return string_rank_.capacity(); }
@@ -273,13 +262,8 @@ private:
     void accumulate_without_spill_gate(uint32_t term_id, uint32_t docid, uint32_t pos,
                                        PostingChainShape shape);
 
-    // Per-token gate-2 tail of accumulate(): reports the token's resident growth,
-    // then spills when the unified cap / local threshold fires with a worthwhile
-    // reclaimable arena (the G08 anti-churn floor), when the G09 process-wide
-    // limiter's advisory request flag is pending (honored here, on the owner's
-    // own thread; bypasses the G08 floor but requires one allocated arena block
-    // so a run is writable), or when the arena nears its hard 4 GiB offset
-    // limit. Every public add path invokes this gate once.
+    // Reports resident growth and spills when a local limit, global request,
+    // or arena offset limit requires it. The owner thread handles each request.
     void maybe_spill_after_token();
 
     class ArenaTermPostingSource;
@@ -294,18 +278,11 @@ private:
     // vocabulary. Idempotent until the append-only vocabulary grows.
     void ensure_string_rank() const;
     Status drain_sorted_streamed(const StreamedTermConsumer& fn);
-    // Spills the current buffer to a fresh sorted run file and clears memory.
+    // Appends a sealed sorted run to the spool and clears the posting arena.
     Status spill_to_run();
-    // Writes all current terms (sorted) to an already-open RunWriter, draining.
+    // Writes sorted terms to the encoded run writer and drains their postings.
     Status drain_to_writer(class EncodedRunWriter* w);
-    // REAL resident accumulator bytes -- the single source of truth for the gate-2
-    // spill trigger and every MemoryReporter delta. G08: sums EVERY live input-side
-    // structure -- the posting arena (docs+prx payload)
-    // plus the vocab-sized slot index, the Term slot pool + free/touched lists, the
-    // owned vocabulary (headers by capacity + string heap payloads via
-    // owned_vocab_heap_bytes_) and its intern set, plus the cached string ranks.
-    // Capacity, not size, throughout: the reserved tail is resident RSS and
-    // survives spills.
+    // Counts the posting arena, vocabulary, live term slots and cached ranks by capacity for spill decisions.
     uint64_t resident_bytes() const;
     // Reports the signed change in REAL resident bytes (resident_bytes()) to
     // mem_reporter_ since the previous call, then caches the new total.
@@ -316,7 +293,7 @@ private:
     Status merge_runs_streamed(const StreamedTermConsumer& fn);
     Status prepare_run_merge();
     void finish_run_merge();
-    // Deletes every temp run file; called from the destructor (RAII cleanup).
+    // Removes spool and temporary merge files when the buffer is released.
     void cleanup_runs();
     // Frees a drained term's accumulator (id leaves the touched set).
     void release_term(uint32_t term_id);
@@ -330,7 +307,7 @@ private:
     const std::vector<std::string>* vocab_; // active vocab (borrowed or &owned_)
     std::vector<std::string> owned_vocab_;  // owned mode: interned term strings
 
-    // G08: running sum of the owned vocab strings' HEAP payloads (0 for SSO
+    // Running sum of the owned vocab strings' HEAP payloads (0 for SSO
     // strings -- their bytes live inside the headers owned_vocab_.capacity()
     // already charges; capacity+1 for heap strings). Maintained incrementally by
     // intern_owned_term so resident_bytes() stays O(1); terminal drains zero it
@@ -404,7 +381,7 @@ private:
     MemoryReporter* mem_reporter_ = nullptr;
     int64_t reported_resident_ = 0;
 
-    // ---- G09 process-wide limiter hookup (null / false = feature off) --------
+    // Process-wide limiter hookup (null / false = feature off).
     // The registry this buffer joined via attach_global_limiter (borrowed; must
     // outlive the buffer), and the ADVISORY forced-spill request flag the
     // limiter sets from other threads (only ever under the registry mutex; the
@@ -412,7 +389,7 @@ private:
     // doubles as the buffer's registry identity.
     GlobalMemoryLimiter* global_limiter_ = nullptr;
     std::atomic<bool> global_spill_requested_ {false};
-    // G09 forced-spill floor / run-file cap (see the public setters above).
+    // Forced-spill floor / run-file cap (see the public setters above).
     uint64_t forced_spill_min_arena_bytes_ = kDefaultForcedSpillMinArenaBytes;
     size_t max_run_files_ = kDefaultMaxRunFilesPerBuffer;
 
@@ -450,7 +427,7 @@ private:
 // assertions (count == distinct terms). Process-global; reset between tests. Not part
 // of the production API.
 namespace testing {
-// G11 bench seam (honored under BE_TEST only): disables the add-path
+// Bench seam (honored under BE_TEST only): disables the add-path
 // prefetch hints so the locality bench can A/B them within ONE process.
 // Production builds prefetch unconditionally.
 void set_bench_disable_g11_prefetch(bool disabled);
@@ -458,13 +435,7 @@ void set_bench_disable_g11_prefetch(bool disabled);
 uint64_t vocab_string_materialization_count();
 void reset_vocab_string_materialization_count();
 
-// G09 process-wide limiter seam: spills that observed -- and cleared -- a
-// PENDING global forced-spill request at the moment they fired (whether or not
-// the per-writer gate would also have spilled that token; the request was
-// consumed either way). Incremented under BE_TEST only because the check sits
-// on the per-token path of every
-// concurrent writer). Deterministic on the single-threaded build path; reset
-// between tests. Not part of the production API.
+// Counts consumed global spill requests under BE_TEST.
 uint64_t global_forced_spills();
 void reset_global_forced_spills();
 

@@ -154,7 +154,8 @@ Status SniiIndexColumnWriter::init() {
     _null_docids_reservation = _memory_reporter->make_reservation();
     _term_buffer = std::make_unique<::doris::snii::writer::SpimiTermBuffer>(
             _has_positions, spill_threshold, _memory_reporter.get());
-    // Register this writer so the process limiter can request spills from its posting arena.
+    // Register with the process-wide memory limiter so writers can honor advisory spill requests.
+    // The arena floor and optional fan-in cap limit spill costs while workspace and fd limits still apply.
     _term_buffer->set_forced_spill_min_arena_bytes(
             static_cast<uint64_t>(std::max<int64_t>(config::snii_forced_spill_min_arena_bytes, 0)));
     _term_buffer->set_max_run_files(

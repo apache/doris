@@ -546,7 +546,7 @@ TEST(SniiPhraseSkip, SkippingEqualsOracleAndFullRead) {
     //    high-df term contributes only its prelude + the candidate-covering
     //    windows (dd + prx sub-ranges), never its whole posting, so the 5-term
     //    skip query reads comfortably under 80% of the full-read bytes (a clear
-    //    reduction even with the richer Phase-D prelude and 4 companion terms).
+    //    reduction even with the prelude and 4 companion terms).
     EXPECT_LT(skip.total_request_bytes * 10, full.total_request_bytes * 8)
             << "skip=" << skip.total_request_bytes << " full=" << full.total_request_bytes;
     // 2. Skipping requests strictly fewer bytes than the full-read path.

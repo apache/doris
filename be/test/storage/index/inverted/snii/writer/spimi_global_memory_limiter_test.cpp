@@ -570,7 +570,7 @@ TEST(SniiGlobalMemoryLimiter, ProcessPressureBeyondSniiStillReclaimsWhatSniiHold
 TEST(SniiSpimiGlobalSpill, OwnerHonorsRequestAtNextTokenAndClears) {
     snii_testing::reset_global_forced_spills();
     // Unlimited local threshold: the per-writer gate can never fire, so any
-    // spill below is attributable to the global request alone. The G08
+    // spill below is attributable to the global request alone. The local
     // anti-churn floor (arena >= cap/4) is bypassed by construction here --
     // the arena holds a single 32 KiB block, far below any production cap/4.
     // The forced-spill floor is dropped to its one-block minimum: THIS test
@@ -752,7 +752,7 @@ TEST(SniiSpimiGlobalSpill, AttachRegistersReportsTrackArenaAndDtorUnregisters) {
 // End-to-end: two attached buffers, one small and one that grows. The limiter
 // must flag the larger-ARENA grower once its arena clears the victim floor (the
 // small buffer's single arena block never does); the grower's own next token
-// honors the request (its local threshold is unlimited, the G08 floor
+// honors the request (its local threshold is unlimited, the local floor
 // bypassed); the small buffer is never flagged and never spills.
 TEST(SniiSpimiGlobalSpill, LimiterFlagsLargestOwnerSpillsSmallBufferSpared) {
     snii_testing::reset_global_forced_spills();
@@ -835,7 +835,7 @@ TEST(SniiSpimiGlobalSpill, LimiterFlagsLargestOwnerSpillsSmallBufferSpared) {
 
 // Concurrent register / report / unregister with a tiny overage so cross-thread
 // flagging constantly targets flags that die right after their unregister --
-// the exact lifetime the mutex must protect. Run under TSAN this is the G09
+// the exact lifetime the mutex must protect. Under TSAN this is the
 // race canary; under ASAN it still catches any touch-after-unregister. The
 // floor is dropped so the byte-scale entries keep producing flags (the point is
 // flag traffic, not selection policy).

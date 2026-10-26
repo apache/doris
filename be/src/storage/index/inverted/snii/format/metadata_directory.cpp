@@ -116,7 +116,7 @@ Status decode_blob_entry(const doris::snii::SniiLogicalIndexMetadataPB& index, u
 // and by the encoder's self-check, so it constrains both sides at once.
 Status decode_directory_pb(const doris::snii::SniiMetadataDirectoryPB& input,
                            std::vector<LogicalIndexMetadataRef>* out) {
-    // Row 0a/0b: whitelist of known required features; anything else is a
+    // Accept only known required features; anything else is a
     // format this binary does not understand.
     bool feature_blob = false;
     // Raised directory-wide as the fence for readers that cannot parse a shortened entry. Which
@@ -165,11 +165,11 @@ Status decode_directory_pb(const doris::snii::SniiMetadataDirectoryPB& input,
             RETURN_IF_ERROR(decode_blob_entry(index, kind_value, &entry));
             break;
         default:
-            // Row 5: a kind this binary does not know how to open.
+            // Reject kinds this binary cannot open.
             return metadata_directory_unsupported("metadata directory: unknown logical index kind");
         }
 
-        // Row 6: keys are unique across kinds.
+        // Keys must be unique across kinds.
         for (const auto& existing : entries) {
             if (existing.index_id == entry.index_id &&
                 existing.index_suffix == entry.index_suffix) {

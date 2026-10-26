@@ -67,7 +67,7 @@ struct SniiIndexInput {
     // Streaming merge sessions declare norms up front but supply them only before finish,
     // after rebuilding them alongside postings. The writer validates their size at finalize.
     bool write_norms = false;
-    // G16-h: zstd levels for the dict-block whole-block compression and the
+    // Zstd levels for the dict-block whole-block compression and the
     // .prx window auto mode (both default 3 == the historical constants).
     // Higher levels trade import CPU for size; decode speed is unaffected.
     int dict_block_zstd_level = 3;
@@ -349,7 +349,7 @@ private:
     void finish_high_df_digest(format::HighDfTerms* out) const;
 
     uint32_t target_dict_block_bytes_;
-    // G16-h: zstd levels (dict whole-block / prx auto mode), from SniiIndexInput.
+    // Zstd levels (dict whole-block / prx auto mode), from SniiIndexInput.
     int dict_block_zstd_level_ = 3;
     int prx_zstd_level_ = 3;
     format::PrxWindowLimits prx_window_limits_ = format::kReaderPrxWindowLimits;
