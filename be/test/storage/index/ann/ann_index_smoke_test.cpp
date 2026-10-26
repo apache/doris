@@ -107,7 +107,8 @@ TEST_F(AnnIndexTest, SmokeTest) {
     offsets[10] = 10 * 10; // terminal offset
 
     auto st = ann_index_writer->add_array_values(
-            0, data.get(), nullptr, reinterpret_cast<uint8_t*>(offsets_data.get()), 10);
+            0, reinterpret_cast<const uint8_t*>(data.get()), nullptr,
+            reinterpret_cast<const uint64_t*>(reinterpret_cast<uint8_t*>(offsets_data.get())), 10);
     EXPECT_TRUE(st.ok()) << st.to_string();
 
     ASSERT_TRUE(ann_index_writer->finish().ok());

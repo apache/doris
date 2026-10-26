@@ -111,6 +111,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -510,6 +511,59 @@ public class InsertUtils {
         targetTable.resolveWriteColumns(branchName)
                 .ifPresent(columns -> statementContext.setConnectorWriteSchema(
                         targetTableIf.getId(), columns));
+    }
+
+    /**
+     * Records on the context of an INSERT OVERWRITE's inner insert the writer generation the plan of the overwrite
+     * was normalized against.
+     */
+    static void recordNormalizedWriteGeneration(StatementContext statementContext, TableIf targetTableIf,
+            PluginDrivenInsertCommandContext insertCtx) {
+        statementContext.getConnectorWriteSchema(targetTableIf.getId())
+                .ifPresent(writeSchema -> insertCtx.setNormalizedWriteGeneration(writeSchema,
+                        statementContext.getConnectorWriteMetadataIdentity(targetTableIf.getId())));
+    }
+
+    /**
+     * INSERT OVERWRITE normalizes its plan against the writer schema it pinned, expanding DEFAULT and bare rows by
+     * position and casting values to the column types, and then runs an inner insert that pins the writer schema
+     * again. Without a column list that insert binds the normalized values by position, so values normalized for
+     * one generation would be written into other columns of another. Fail the statement instead, as the commit
+     * fences do for a schema that changes later.
+     */
+    static void checkNormalizedWriteGeneration(StatementContext statementContext, TableIf targetTableIf,
+            Optional<InsertCommandContext> insertCtx) {
+        if (!insertCtx.isPresent() || !(insertCtx.get() instanceof PluginDrivenInsertCommandContext)) {
+            return;
+        }
+        PluginDrivenInsertCommandContext pluginCtx = (PluginDrivenInsertCommandContext) insertCtx.get();
+        if (!pluginCtx.getNormalizedWriteSchema().isPresent()) {
+            return;
+        }
+        Optional<List<Column>> writeSchema = statementContext.getConnectorWriteSchema(targetTableIf.getId());
+        if (!writeSchema.isPresent()
+                || !sameWriteGeneration(pluginCtx.getNormalizedWriteSchema().get(), writeSchema.get())
+                || !pluginCtx.getNormalizedWriteMetadataIdentity().equals(
+                        statementContext.getConnectorWriteMetadataIdentity(targetTableIf.getId()))) {
+            throw new AnalysisException("Table " + targetTableIf.getName()
+                    + " changed while INSERT OVERWRITE was planning its write; retry the statement");
+        }
+    }
+
+    private static boolean sameWriteGeneration(List<Column> normalized, List<Column> pinned) {
+        if (normalized.size() != pinned.size()) {
+            return false;
+        }
+        for (int i = 0; i < normalized.size(); i++) {
+            Column expected = normalized.get(i);
+            Column actual = pinned.get(i);
+            if (!expected.getName().equals(actual.getName()) || expected.getUniqueId() != actual.getUniqueId()
+                    || !expected.getType().equals(actual.getType()) || expected.isAllowNull() != actual.isAllowNull()
+                    || !Objects.equals(expected.getDefaultValueSql(), actual.getDefaultValueSql())) {
+                return false;
+            }
+        }
+        return true;
     }
 
     static Column resolveExplicitConnectorWriteColumn(TableIf table, String name) {

@@ -473,6 +473,84 @@ public class InsertUtilsTest {
     }
 
     @Test
+    public void overwriteInnerInsertRejectsAWriterSchemaReorderedAfterNormalization() {
+        // INSERT OVERWRITE t VALUES (DEFAULT, DEFAULT) expands the defaults by position against [a, b]. When another
+        // client moves b first before the inner insert pins the writer schema again, binding the expanded row by
+        // position would write the default of a into b and the default of b into a.
+        StatementContext statementContext = new StatementContext();
+        PluginDrivenExternalTable table = overwriteTarget();
+        Column a = writeColumn("a", 1, "1");
+        Column b = writeColumn("b", 2, "2");
+        Mockito.when(table.resolveWriteColumns(Optional.empty()))
+                .thenReturn(Optional.of(ImmutableList.of(a, b)), Optional.of(ImmutableList.of(b, a)));
+        PluginDrivenInsertCommandContext insertCtx = normalizeThenRepin(statementContext, table, "g1", "g1");
+
+        AnalysisException e = Assertions.assertThrows(AnalysisException.class,
+                () -> InsertUtils.checkNormalizedWriteGeneration(statementContext, table, Optional.of(insertCtx)));
+        Assertions.assertTrue(e.getMessage().contains(
+                "Table t changed while INSERT OVERWRITE was planning its write; retry the statement"), e.getMessage());
+    }
+
+    @Test
+    public void overwriteInnerInsertRejectsAnotherWriteMetadataIdentity() {
+        // The columns are the same, but the generation the connector fences writes with (for Iceberg the schema
+        // ID, partition spec and sort order) moved on between the two pins.
+        StatementContext statementContext = new StatementContext();
+        PluginDrivenExternalTable table = overwriteTarget();
+        Mockito.when(table.resolveWriteColumns(Optional.empty()))
+                .thenReturn(Optional.of(ImmutableList.of(writeColumn("a", 1, "1"), writeColumn("b", 2, "2"))));
+        PluginDrivenInsertCommandContext insertCtx = normalizeThenRepin(statementContext, table, "g1", "g2");
+
+        Assertions.assertThrows(AnalysisException.class,
+                () -> InsertUtils.checkNormalizedWriteGeneration(statementContext, table, Optional.of(insertCtx)));
+    }
+
+    @Test
+    public void overwriteInnerInsertAcceptsTheGenerationItWasNormalizedAgainst() {
+        StatementContext statementContext = new StatementContext();
+        PluginDrivenExternalTable table = overwriteTarget();
+        Mockito.when(table.resolveWriteColumns(Optional.empty()))
+                .thenReturn(Optional.of(ImmutableList.of(writeColumn("a", 1, "1"), writeColumn("b", 2, "2"))),
+                        Optional.of(ImmutableList.of(writeColumn("a", 1, "1"), writeColumn("b", 2, "2"))));
+        PluginDrivenInsertCommandContext insertCtx = normalizeThenRepin(statementContext, table, "g1", "g1");
+
+        Assertions.assertDoesNotThrow(
+                () -> InsertUtils.checkNormalizedWriteGeneration(statementContext, table, Optional.of(insertCtx)));
+        // Any other insert normalizes its own plan against its own pin.
+        Assertions.assertDoesNotThrow(() -> InsertUtils.checkNormalizedWriteGeneration(
+                statementContext, table, Optional.of(new PluginDrivenInsertCommandContext())));
+    }
+
+    private static PluginDrivenInsertCommandContext normalizeThenRepin(StatementContext statementContext,
+            PluginDrivenExternalTable table, String normalizedIdentity, String repinnedIdentity) {
+        UnboundConnectorTableSink<?> sink = Mockito.mock(UnboundConnectorTableSink.class);
+        // The overwrite pins the writer schema, normalizes its plan against it and records that generation.
+        InsertUtils.pinConnectorWriteSchema(statementContext, table, sink, Optional.empty());
+        statementContext.setConnectorWriteMetadataIdentity(table.getId(), normalizedIdentity);
+        PluginDrivenInsertCommandContext insertCtx = new PluginDrivenInsertCommandContext();
+        InsertUtils.recordNormalizedWriteGeneration(statementContext, table, insertCtx);
+        // Each attempt of the inner insert drops the pins of the statement and pins the writer schema again.
+        statementContext.resetConnectorStatementScope();
+        InsertUtils.pinConnectorWriteSchema(statementContext, table, sink, Optional.empty());
+        statementContext.setConnectorWriteMetadataIdentity(table.getId(), repinnedIdentity);
+        return insertCtx;
+    }
+
+    private static PluginDrivenExternalTable overwriteTarget() {
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
+        Mockito.when(table.getId()).thenReturn(17L);
+        Mockito.when(table.getName()).thenReturn("t");
+        return table;
+    }
+
+    private static Column writeColumn(String name, int fieldId, String defaultSql) {
+        Column column = new Column(name, PrimitiveType.INT, true);
+        column.setUniqueId(fieldId);
+        column.setConnectorDefaultValueSql(defaultSql);
+        return column;
+    }
+
+    @Test
     public void nativeDefaultStillExpandsExplicitDefault() {
         Column column = new Column("v", Type.INT, false, null, true, "7", "");
 
