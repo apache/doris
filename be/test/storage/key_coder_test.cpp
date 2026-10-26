@@ -135,6 +135,7 @@ void test_encode_decode(typename StorageTypeTraits<field_type>::StorageType valu
 }
 
 template <FieldType field_type>
+// NOLINTNEXTLINE(readability-function-cognitive-complexity) -- GTest assertion macros inflate it.
 void test_ordering(typename StorageTypeTraits<field_type>::StorageType a,
                    typename StorageTypeTraits<field_type>::StorageType b) {
     std::string encoded_a = encode_float<field_type>(a);

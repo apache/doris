@@ -432,7 +432,8 @@ TEST(StorageLayoutTest, ToPrimitiveInvertsToStorage) {
     EXPECT_EQ(DecimalLayout::to_primitive(DecimalLayout::to_storage(amount)), amount);
     const DecimalV2Value debt(-123, -456000000);
     EXPECT_EQ(DecimalLayout::to_primitive(DecimalLayout::to_storage(debt)), debt);
-    const DecimalV2Value read_debt = DecimalLayout::to_primitive(decimal12_t {-123, -456000000});
+    const DecimalV2Value read_debt =
+            DecimalLayout::to_primitive(decimal12_t {.integer = -123, .fraction = -456000000});
     EXPECT_EQ(read_debt.int_value(), -123);
     EXPECT_EQ(read_debt.frac_value(), -456000000);
 

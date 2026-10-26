@@ -68,7 +68,7 @@ void repack_from_column(const IColumn& column, size_t row_pos, size_t n, uint8_t
 // Appends n stored values of a repacked layout, each turned back into its PrimitiveValue.
 template <FieldType FT>
 void repack_to_column(const uint8_t* values, size_t n, IColumn& dst) {
-    if (dst.is_nullable()) {
+    if (is_column_nullable(dst)) {
         // A page holds no NULL row: the n rows it decodes are all not NULL.
         auto& nullable = assert_cast<ColumnNullable&>(dst);
         nullable.push_false_to_nullmap(n);

@@ -160,6 +160,29 @@ public:
             EXPECT_EQ(status.code(), ENTRY_NOT_FOUND);
         }
     }
+
+    // Eight consecutive days from 2020-01-01 in one plain page of V1 DATE cells, each date
+    // stored as a uint24.
+    void build_date_v1_page(std::vector<VecDateTimeValue>* days, OwnedSlice* page) {
+        using Layout = StorageLayout<FieldType::OLAP_FIELD_TYPE_DATE>;
+        constexpr size_t kRows = 8;
+        days->resize(kRows);
+        std::vector<uint24_t> cells(kRows);
+        for (size_t i = 0; i < kRows; ++i) {
+            ASSERT_TRUE((*days)[i].from_date_int64(static_cast<int64_t>(20200101 + i)));
+            cells[i] = Layout::to_storage((*days)[i]);
+        }
+        PageBuilderOptions options;
+        options.data_page_size = 256 * 1024;
+        PageBuilder* builder = nullptr;
+        ASSERT_TRUE(
+                PlainPageBuilder<FieldType::OLAP_FIELD_TYPE_DATE>::create(&builder, options).ok());
+        std::unique_ptr<PageBuilder> page_builder(builder);
+        size_t added = kRows;
+        ASSERT_TRUE(page_builder->add(reinterpret_cast<const uint8_t*>(cells.data()), &added).ok());
+        ASSERT_EQ(added, kRows);
+        ASSERT_TRUE(page_builder->finish(page).ok());
+    }
 };
 
 TEST_F(PlainPageTest, TestInt32PlainPageRandom) {
@@ -272,45 +295,38 @@ TEST_F(PlainPageTest, TestBoolPlainPageSeekValue) {
                                                                            nullptr);
 }
 
-// A V1 DATE page holds uint24 cells, which the decoder unpacks into the dates of a ColumnDate,
-// or of a Nullable over it, by batch and by row id.
+// A V1 DATE page holds each date as a uint24 cell; a batch decodes the cells into the dates
+// of a ColumnDate.
 TEST_F(PlainPageTest, TestDateV1PlainPageDecodesIntoDates) {
-    using Layout = StorageLayout<FieldType::OLAP_FIELD_TYPE_DATE>;
-    constexpr size_t kRows = 8;
-    std::vector<VecDateTimeValue> days(kRows);
-    std::vector<uint24_t> cells(kRows);
-    for (size_t i = 0; i < kRows; ++i) {
-        ASSERT_TRUE(days[i].from_date_int64(static_cast<int64_t>(20200101 + i)));
-        cells[i] = Layout::to_storage(days[i]);
-    }
-
-    PageBuilderOptions options;
-    options.data_page_size = 256 * 1024;
-    PageBuilder* builder = nullptr;
-    ASSERT_TRUE(PlainPageBuilder<FieldType::OLAP_FIELD_TYPE_DATE>::create(&builder, options).ok());
-    std::unique_ptr<PageBuilder> page_builder(builder);
-    size_t added = kRows;
-    ASSERT_TRUE(page_builder->add(reinterpret_cast<const uint8_t*>(cells.data()), &added).ok());
-    ASSERT_EQ(added, kRows);
+    std::vector<VecDateTimeValue> days;
     OwnedSlice page;
-    ASSERT_TRUE(page_builder->finish(&page).ok());
-
+    ASSERT_NO_FATAL_FAILURE(build_date_v1_page(&days, &page));
     PageDecoderOptions decoder_options;
     PlainPageDecoder<FieldType::OLAP_FIELD_TYPE_DATE> decoder(page.slice(), decoder_options);
     ASSERT_TRUE(decoder.init().ok());
 
     MutableColumnPtr dates = ColumnDate::create();
-    size_t n = kRows;
+    size_t n = days.size();
     ASSERT_TRUE(decoder.next_batch(&n, dates).ok());
-    ASSERT_EQ(n, kRows);
+    ASSERT_EQ(n, days.size());
     const auto& decoded = assert_cast<const ColumnDate&>(*dates).get_data();
-    for (size_t i = 0; i < kRows; ++i) {
+    for (size_t i = 0; i < days.size(); ++i) {
         EXPECT_EQ(decoded[i], days[i]) << "row " << i;
     }
+}
+
+// Rows read by id into a Nullable over ColumnDate come back as their dates, none of them NULL.
+TEST_F(PlainPageTest, TestDateV1PlainPageReadsRowIdsIntoNullableDates) {
+    std::vector<VecDateTimeValue> days;
+    OwnedSlice page;
+    ASSERT_NO_FATAL_FAILURE(build_date_v1_page(&days, &page));
+    PageDecoderOptions decoder_options;
+    PlainPageDecoder<FieldType::OLAP_FIELD_TYPE_DATE> decoder(page.slice(), decoder_options);
+    ASSERT_TRUE(decoder.init().ok());
 
     const rowid_t rowids[] = {1, 3, 6};
     MutableColumnPtr picked = ColumnNullable::create(ColumnDate::create(), ColumnUInt8::create());
-    n = 3;
+    size_t n = 3;
     ASSERT_TRUE(decoder.read_by_rowids(rowids, 0, &n, picked).ok());
     ASSERT_EQ(n, 3);
     const auto& nullable = assert_cast<const ColumnNullable&>(*picked);

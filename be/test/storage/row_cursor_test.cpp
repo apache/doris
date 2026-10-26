@@ -468,7 +468,8 @@ TEST_F(TestRowCursor, encode_key_double_nan_decimal_string) {
     row.mutable_field(0) =
             Field::create_field<TYPE_DOUBLE>(std::numeric_limits<double>::quiet_NaN());
     // DECIMAL(123.456000000): stored as decimal12_t{123, 456000000}
-    row.mutable_field(1) = field_of_cell<TYPE_DECIMALV2>(decimal12_t {123, 456000000});
+    row.mutable_field(1) =
+            field_of_cell<TYPE_DECIMALV2>(decimal12_t {.integer = 123, .fraction = 456000000});
     row.mutable_field(2) = Field::create_field<TYPE_STRING>(String("hello world"));
 
     // encode_key: STRING truncated to 4 bytes
@@ -607,7 +608,8 @@ TEST_F(TestRowCursor, encode_key_negative_values) {
     row.mutable_field(0) = Field::create_field<TYPE_INT>(int32_t(-12345));
     row.mutable_field(1) = Field::create_field<TYPE_DOUBLE>(-1.0);
     // DECIMAL(-123, -456000000) representing -123.456000000
-    row.mutable_field(2) = field_of_cell<TYPE_DECIMALV2>(decimal12_t {-123, -456000000});
+    row.mutable_field(2) =
+            field_of_cell<TYPE_DECIMALV2>(decimal12_t {.integer = -123, .fraction = -456000000});
 
     {
         std::string buf;
