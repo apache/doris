@@ -47,6 +47,27 @@ public class PaimonUtils {
             }
             return InstantiationUtil.deserializeObject(decoded, PaimonUtils.class.getClassLoader());
         } catch (Throwable e) {
+            // A BE-first rolling upgrade against a legacy Paimon 1.4 warehouse can
+            // send objects the 2.1 connector can no longer decode: the old FE
+            // serializes the table as a PrivilegedFileStoreTable (its privilege
+            // classes are gone), and the old classes are absent from this
+            // classloader. Surface the upgrade cause instead of the bare
+            // ClassNotFoundException, so the fix (upgrade the FE or migrate the
+            // catalog's legacy privilege metadata) is actionable from the error.
+            Throwable cause = e;
+            while (cause.getCause() != null) {
+                cause = cause.getCause();
+            }
+            if (cause instanceof ClassNotFoundException) {
+                throw new RuntimeException(
+                        "Paimon object cannot be decoded by the 2.1 connector: "
+                                + cause.getMessage()
+                                + ". A BE-first rolling upgrade against a legacy Paimon warehouse can send "
+                                + "serialized objects (e.g. PrivilegedFileStoreTable) whose classes were "
+                                + "removed in Paimon 2.1; upgrade the FE to the matching version or migrate "
+                                + "the catalog's legacy privilege metadata.",
+                        cause);
+            }
             throw new RuntimeException(e);
         }
     }
