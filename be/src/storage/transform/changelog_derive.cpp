@@ -89,11 +89,32 @@ Status mapping_from_thrift(const TChangelogWriteColumnMappings& input,
 namespace {
 bool same_type_shape(const TabletColumn& source, const TabletColumn& target, bool top_level) {
     if (source.type() != target.type() || source.length() != target.length() ||
-        source.precision() != target.precision() || source.frac() != target.frac() ||
         source.get_subtype_count() != target.get_subtype_count() ||
         (source.is_nullable() && !target.is_nullable()) ||
         (!top_level && source.is_nullable() != target.is_nullable())) {
         return false;
+    }
+    // INT columns built from PB and Thrift can carry different unused precision/scale
+    // defaults (-1 versus 0). Compare these attributes only for types that use them.
+    switch (source.type()) {
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL:
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL32:
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL64:
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL128I:
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL256:
+        if (source.precision() != target.precision() || source.frac() != target.frac()) {
+            return false;
+        }
+        break;
+    case FieldType::OLAP_FIELD_TYPE_DATETIMEV2:
+    case FieldType::OLAP_FIELD_TYPE_TIMEV2:
+    case FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ:
+        if (source.frac() != target.frac()) {
+            return false;
+        }
+        break;
+    default:
+        break;
     }
     for (uint32_t i = 0; i < source.get_subtype_count(); ++i) {
         if (!same_type_shape(source.get_sub_column(i), target.get_sub_column(i), false)) {
