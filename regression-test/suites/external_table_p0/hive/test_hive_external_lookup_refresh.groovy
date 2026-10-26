@@ -43,6 +43,9 @@ suite("test_hive_external_lookup_refresh", "p0,external") {
     order_qt_names_before "SHOW TABLES FROM hive_lookup_target.fe_lookup_refresh_db"
     qt_schema_before "DESC hive_lookup_target.fe_lookup_refresh_db.owner_target"
     qt_sibling_before "DESC hive_lookup_target.fe_lookup_refresh_db.owner_sibling"
+    // Validate the stable projection used by case-mapping suites without requiring BE data execution.
+    sql """EXPLAIN SELECT * REPLACE(CAST(NULL AS DATETIME) AS UPDATE_TIME)
+        FROM hive_lookup_target.information_schema.tables WHERE TABLE_SCHEMA = 'fe_lookup_refresh_db'"""
 
     sql "DROP TABLE hive_lookup_source.fe_lookup_refresh_db.owner_target"
     sql "REFRESH TABLE hive_lookup_target.fe_lookup_refresh_db.owner_target"

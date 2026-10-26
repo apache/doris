@@ -66,6 +66,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.BooleanSupplier;
 
 /** Tests missing-table repair through real FE lookup/schema caches and a controllable connector. */
 public class PluginDrivenMissingTableTest extends TestWithFeService {
@@ -500,6 +501,104 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
     }
 
     @Test
+    void automaticRepairClearsHistoricalCaseInsensitiveSpellings() {
+        verifyAutomaticRepairClearsHistoricalSpellings(2);
+    }
+
+    @Test
+    void automaticRepairClearsHistoricalFoldedSpellings() {
+        verifyAutomaticRepairClearsHistoricalSpellings(1);
+    }
+
+    private void verifyAutomaticRepairClearsHistoricalSpellings(int mode) {
+        catalog.lowerCaseMode = mode;
+        remoteTables.remove("a");
+        remoteTables.put("Foo", "first_column");
+        PluginDrivenExternalTable first = database.getTableNullable("foo");
+        first.getFullSchema();
+        remoteCache.put("Foo", "first");
+        remoteTables.remove("Foo");
+        remoteTables.put("FOO", "second_column");
+        FeMetaCacheEntry<String, NameCacheValue> names = Deencapsulation.getField(database, "tableNames");
+        names.invalidateKey("");
+        if (mode == 1) {
+            database.evictTableObjectForTest("foo");
+        }
+        PluginDrivenExternalTable second = database.getTableNullable("foo");
+        second.getFullSchema();
+        remoteCache.put("FOO", "second");
+        remoteTables.remove("FOO");
+        remoteTables.put("Foo", "third_column");
+        readMissingHandle(second);
+        Assertions.assertTrue(remoteCache.isEmpty());
+        PluginDrivenExternalTable third = database.getTableNullable("foo");
+        Assertions.assertNotSame(first, third);
+        Assertions.assertEquals("Foo", third.getRemoteName());
+        Assertions.assertEquals("third_column", third.getFullSchema().get(0).getName());
+    }
+
+    @Test
+    void numericLookupCannotRefillBetweenObjectAndNamesRetirement() throws Exception {
+        PluginDrivenExternalTable old = warmTarget();
+        IdNameIndex original = Deencapsulation.getField(database, "tableIdNameIndex");
+        IdNameIndex index = Mockito.spy(original);
+        Deencapsulation.setField(database, "tableIdNameIndex", index);
+        CountDownLatch captured = new CountDownLatch(1);
+        CountDownLatch resume = new CountDownLatch(1);
+        CountDownLatch progress = new CountDownLatch(1);
+        CountDownLatch finishBuild = new CountDownLatch(1);
+        AtomicBoolean capture = new AtomicBoolean(true);
+        database.numericBuildProgress = progress;
+        database.finishNumericBuild = finishBuild;
+        Mockito.doAnswer(call -> {
+            String name = original.getName(old.getId());
+            if (capture.compareAndSet(true, false)) {
+                captured.countDown();
+                Assertions.assertTrue(resume.await(10, TimeUnit.SECONDS));
+            }
+            return name;
+        }).when(index).getName(old.getId());
+        FeMetaCacheEntry<String, PluginDrivenExternalTable> objects =
+                Mockito.spy(Deencapsulation.<FeMetaCacheEntry<String, PluginDrivenExternalTable>>getField(
+                        database, "tables"));
+        Deencapsulation.setField(database, "tables", objects);
+        Mockito.doAnswer(call -> {
+            Optional<FeMetaCacheEntry.Observation> observed = (Optional<FeMetaCacheEntry.Observation>) call.callRealMethod();
+            FeMetaCacheEntry.Observation observation = Mockito.spy(observed.get());
+            org.mockito.stubbing.Answer<Boolean> afterObjectGuard = invocation -> {
+                boolean current = (boolean) invocation.callRealMethod();
+                if (current) {
+                    // Pause the missing repair after its object guard returns but before names retire.
+                    resume.countDown();
+                    Assertions.assertTrue(progress.await(10, TimeUnit.SECONDS));
+                }
+                return current;
+            };
+            Mockito.doAnswer(afterObjectGuard).when(observation).runIfCurrent(Mockito.any(BooleanSupplier.class));
+            Mockito.doAnswer(afterObjectGuard).when(observation).invalidateIfCurrent(Mockito.any(BooleanSupplier.class));
+            return Optional.of(observation);
+        }).when(objects).observe("a", old);
+        Future<PluginDrivenExternalTable> numeric = worker.submit(() -> {
+            PluginDrivenExternalTable result = database.getTableNullable(old.getId());
+            progress.countDown();
+            return result;
+        });
+        try {
+            Assertions.assertTrue(captured.await(10, TimeUnit.SECONDS));
+            remoteTables.remove("a");
+            readMissingHandle(old);
+            finishBuild.countDown();
+            numeric.get(10, TimeUnit.SECONDS);
+            Assertions.assertNull(objects.getIfPresent("a"));
+            Assertions.assertNull(original.getName(old.getId()));
+            Assertions.assertEquals(Set.of("b"), database.getTableNamesWithLock());
+        } finally {
+            resume.countDown();
+            finishBuild.countDown();
+        }
+    }
+
+    @Test
     void ordinaryWritesDoNotReloadNames() {
         verifyOrdinaryWrite(0);
     }
@@ -589,6 +688,9 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
     }
 
     private class TestDatabase extends ExternalDatabase<PluginDrivenExternalTable> {
+        private CountDownLatch numericBuildProgress;
+        private CountDownLatch finishNumericBuild;
+
         TestDatabase() {
             super(catalog, Util.genIdByName(catalog.getName(), "db"), "db", "db");
         }
@@ -596,6 +698,14 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
         @Override
         protected PluginDrivenExternalTable buildTableInternal(String remoteName, String localName, long id,
                 ExternalCatalog owner, ExternalDatabase db) {
+            if (numericBuildProgress != null) {
+                numericBuildProgress.countDown();
+                try {
+                    Assertions.assertTrue(finishNumericBuild.await(10, TimeUnit.SECONDS));
+                } catch (InterruptedException e) {
+                    throw new AssertionError(e);
+                }
+            }
             return new PluginDrivenExternalTable(id, localName, remoteName, owner, db) {
                 @Override
                 protected synchronized void makeSureInitialized() {

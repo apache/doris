@@ -375,15 +375,21 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                                                 != extCatalog) {
                                     return;
                                 }
-                                database.runIfCurrent(() -> membership.invalidateIfCurrent(() ->
-                                        object.invalidateIfCurrent(() -> {
-                                            try {
-                                                invalidateMetadata.run();
-                                            } finally {
-                                                tableIdNameIndex.removeName(table.getName());
-                                            }
+                                database.runIfCurrent(() -> membership.invalidateIfCurrent(
+                                        () -> object.runIfCurrent(() -> {
+                                            invalidateMetadata.run();
                                             return true;
-                                        })));
+                                        }),
+                                        () -> {
+                                            // Retire names before fencing object loads: a numeric reader may have
+                                            // captured its name already and begun loading through the old snapshot.
+                                            if (isStoredTableNamesLowerCase() || isTableNamesCaseInsensitive()) {
+                                                tables.invalidateAllAndRun(tableIdNameIndex::clear);
+                                            } else {
+                                                tables.invalidateKeyAndRun(table.getName(),
+                                                        () -> tableIdNameIndex.removeName(table.getName()));
+                                            }
+                                        }));
                             }
                         }))));
     }

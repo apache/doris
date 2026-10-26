@@ -122,11 +122,21 @@ public class PluginDrivenExternalTable extends ExternalTable {
         PluginDrivenExternalCatalog owner = (PluginDrivenExternalCatalog) catalog;
         Connector connector = owner.getConnector();
         ExternalDatabase<?> database = getDb();
+        boolean invalidateDatabase = owner.getLowerCaseTableNames() != 0;
         Optional<Runnable> observation = database.observeTableLookup(this, () -> {
             try {
-                connector.invalidateTable(db.getRemoteName(), getRemoteName());
+                if (invalidateDatabase) {
+                    connector.invalidateDb(db.getRemoteName());
+                } else {
+                    connector.invalidateTable(db.getRemoteName(), getRemoteName());
+                }
             } finally {
-                Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTable(this);
+                if (invalidateDatabase) {
+                    Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(
+                            owner.getId(), database.getId(), database.getFullName());
+                } else {
+                    Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTable(this);
+                }
             }
         });
         String dbName = db != null ? db.getRemoteName() : "";

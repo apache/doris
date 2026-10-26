@@ -20,7 +20,6 @@ package org.apache.doris.connector.cache;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.BiConsumer;
-import java.util.function.BiFunction;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -105,19 +104,36 @@ public final class MetaCache<K, V> {
      * Conditional invalidation still removes the observed value if its dependency cleanup throws.
      */
     public static final class Observation {
-        private final BiFunction<Boolean, BooleanSupplier, Boolean> operation;
+        private final ObservationOperation operation;
 
-        Observation(BiFunction<Boolean, BooleanSupplier, Boolean> operation) {
+        Observation(ObservationOperation operation) {
             this.operation = operation;
         }
 
         public boolean runIfCurrent(BooleanSupplier action) {
-            return operation.apply(false, Objects.requireNonNull(action, "action"));
+            return operation.run(false, Objects.requireNonNull(action, "action"), () -> {
+            });
         }
 
         public boolean invalidateIfCurrent(BooleanSupplier action) {
-            return operation.apply(true, Objects.requireNonNull(action, "action"));
+            return invalidateIfCurrent(action, () -> {
+            });
         }
+
+        /**
+         * Runs the final action after retiring this registration, before releasing its publication guard.
+         * It follows the same parent-to-child lock order and no-I/O/no-reentry contract as the guarded action.
+         * It also runs when authorized dependency cleanup throws, but never when authorization returns false.
+         */
+        public boolean invalidateIfCurrent(BooleanSupplier action, Runnable afterInvalidation) {
+            return operation.run(true, Objects.requireNonNull(action, "action"),
+                    Objects.requireNonNull(afterInvalidation, "afterInvalidation"));
+        }
+    }
+
+    @FunctionalInterface
+    interface ObservationOperation {
+        boolean run(boolean invalidate, BooleanSupplier action, Runnable afterInvalidation);
     }
 
     public void invalidateKey(K key) {

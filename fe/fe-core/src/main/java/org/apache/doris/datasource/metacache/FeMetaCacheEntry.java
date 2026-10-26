@@ -284,6 +284,12 @@ public class FeMetaCacheEntry<K, V> {
         }
 
         public boolean invalidateIfCurrent(BooleanSupplier action) {
+            return invalidateIfCurrent(action, () -> {
+            });
+        }
+
+        /** Retires the observed value before fencing dependent publication, under the same stripe and guard. */
+        public boolean invalidateIfCurrent(BooleanSupplier action, Runnable afterInvalidation) {
             synchronized (stripe) {
                 return value.invalidateIfCurrent(() -> {
                     boolean invalidate = true;
@@ -295,7 +301,7 @@ public class FeMetaCacheEntry<K, V> {
                             invalidateActions.run();
                         }
                     }
-                });
+                }, afterInvalidation);
             }
         }
     }

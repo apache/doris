@@ -106,6 +106,42 @@ class CatalogMetaCacheTest {
     }
 
     @Test
+    void observationFinalActionSeesRetiredNamesAndAlsoRunsAfterAuthorizedFailure() throws Exception {
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        try (CatalogMetaCache owner = CatalogMetaCache.unmanaged()) {
+            MetaCache<String, Object> cache = owner.create(MetaCacheDefinition.<String, Object>builder(
+                    "observed-final-action", SPEC, ignored -> ScopePath.catalog()).build());
+            Object snapshot = new Object();
+            cache.put("db", snapshot);
+            MetaCache.Observation observed = cache.observe("db", snapshot).get();
+            AtomicInteger finalized = new AtomicInteger();
+            Runnable afterRetirement = () -> {
+                try {
+                    // A cache-only reader can check visibility without entering the held publication gate.
+                    Assertions.assertNull(worker.submit(() -> cache.getIfPresent("db")).get(10, TimeUnit.SECONDS));
+                } catch (Exception e) {
+                    throw new AssertionError(e);
+                }
+                finalized.incrementAndGet();
+            };
+            Assertions.assertFalse(observed.invalidateIfCurrent(() -> false, afterRetirement));
+            Assertions.assertEquals(0, finalized.get());
+            Assertions.assertSame(snapshot, cache.getIfPresent("db"));
+            Assertions.assertTrue(observed.invalidateIfCurrent(() -> true, afterRetirement));
+            Assertions.assertEquals(1, finalized.get());
+            Assertions.assertFalse(observed.invalidateIfCurrent(() -> true, afterRetirement));
+            cache.put("db", snapshot);
+            Assertions.assertThrows(IllegalStateException.class, () ->
+                    cache.observe("db", snapshot).get().invalidateIfCurrent(() -> {
+                        throw new IllegalStateException("authorized cleanup failed");
+                    }, afterRetirement));
+            Assertions.assertEquals(2, finalized.get());
+        } finally {
+            worker.shutdownNow();
+        }
+    }
+
+    @Test
     void observationRejectsReplacementScopeChangeAndSameInstanceReinsertion() {
         CatalogMetaCache owner = CatalogMetaCache.unmanaged();
         try {

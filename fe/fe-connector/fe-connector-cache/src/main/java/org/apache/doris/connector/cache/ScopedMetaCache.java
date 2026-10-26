@@ -276,7 +276,7 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
             return Optional.empty();
         }
         ScopedMetaCacheRegistry.ScopeObservation scope = registry.observe(value.scopeSnapshot);
-        return Optional.of(new MetaCache.Observation((invalidate, action) -> deferRemovals(() -> {
+        return Optional.of(new MetaCache.Observation((invalidate, action, afterInvalidation) -> deferRemovals(() -> {
             BooleanSupplier commit = () -> scope.runIfCurrent(() -> {
                 synchronized (value.keyNode) {
                     if (closed.get() || data.getIfPresent(key) != value || !value.isCurrent(registry, keyNodes)) {
@@ -299,6 +299,7 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
                             replaceKeyState(value.keyNode);
                             value.keyNode.loadPublicationState.set(new Object());
                             removeCurrentVersion(key, value);
+                            afterInvalidation.run();
                         }
                     }
                 }
