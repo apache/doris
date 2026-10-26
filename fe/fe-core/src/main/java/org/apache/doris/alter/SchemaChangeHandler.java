@@ -3759,6 +3759,18 @@ public class SchemaChangeHandler extends AlterHandler {
         for (int i = 0; i < indexIds.size(); i++) {
             List<Column> indexSchema = indexSchemaMap.get(indexIds.get(i));
             MaterializedIndexMeta currentIndexMeta = olapTable.getIndexMetaByIndexId(indexIds.get(i));
+            String forceStaleMaxColUniqueIdTable = DebugPointUtil.getDebugParamOrDefault(
+                    "FE.SchemaChangeHandler.updateBaseIndexSchema.forceStaleMaxColUniqueId", "table_name", "");
+            if (olapTable.getName().equals(forceStaleMaxColUniqueIdTable)) {
+                currentIndexMeta.setMaxColUniqueId(Column.COLUMN_UNIQUE_ID_INIT_VALUE);
+            }
+
+            // Preserve unique ids from the old schema before replacing it. Otherwise a stale maxColUniqueId can
+            // forget the highest id when its column is dropped, allowing a later column to reuse that id.
+            int maxColUniqueId = currentIndexMeta.getMaxColUniqueId();
+            for (Column column : currentIndexMeta.getSchema()) {
+                maxColUniqueId = Math.max(maxColUniqueId, column.getUniqueId());
+            }
             currentIndexMeta.setSchema(indexSchema);
 
             int currentSchemaVersion = currentIndexMeta.getSchemaVersion();
@@ -3766,11 +3778,8 @@ public class SchemaChangeHandler extends AlterHandler {
             currentIndexMeta.setSchemaVersion(newSchemaVersion);
 
             //update max column unique id
-            int maxColUniqueId = currentIndexMeta.getMaxColUniqueId();
             for (Column column : indexSchema) {
-                if (column.getUniqueId() > maxColUniqueId) {
-                    maxColUniqueId = column.getUniqueId();
-                }
+                maxColUniqueId = Math.max(maxColUniqueId, column.getUniqueId());
             }
             currentIndexMeta.setMaxColUniqueId(maxColUniqueId);
             currentIndexMeta.setIndexes(indexes);
