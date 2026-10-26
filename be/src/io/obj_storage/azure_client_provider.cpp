@@ -25,7 +25,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "io/obj_storage/azure_credential_validator.h"
-#include "io/obj_storage/obj_client_factory.h"
+#include "io/obj_storage/obj_client_rate_limit.h"
 #include "util/time.h"
 
 #ifdef USE_AZURE

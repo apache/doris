@@ -65,11 +65,4 @@ private:
 #endif
 };
 
-// Wraps a newly built client with the BE shared rate limiter when its usage requires it.
-// Every provider calls this before publishing to its cache, so all backends follow one
-// policy: in cloud mode only internal storage (storage vaults) is limited, otherwise all
-// clients are.
-std::shared_ptr<ObjStorageClient> apply_rate_limit_policy(std::shared_ptr<ObjStorageClient> client,
-                                                          ClientUsage usage);
-
 } // namespace doris::io
