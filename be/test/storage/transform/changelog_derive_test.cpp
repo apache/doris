@@ -1786,9 +1786,11 @@ TEST_F(ChangelogDeriveTest, PlainInterleavedTargetPreservesValues) {
     ASSERT_EQ(chain.stage_names(), (std::vector<std::string_view> {"PlainChangelogDerive"}));
     ASSERT_TRUE(chain.apply(ctx, &block).ok());
     ASSERT_EQ(block.columns(), target->num_columns());
-    EXPECT_EQ(block.get_by_position(4).column->get_int(0), 11);
-    EXPECT_EQ(block.get_by_position(2).column->get_int(0), 13);
-    EXPECT_EQ(block.get_by_position(0).column->get_int(0), 7);
+    ASSERT_FALSE(block.get_by_position(4).column->is_null_at(0));
+    ASSERT_FALSE(block.get_by_position(2).column->is_null_at(0));
+    EXPECT_EQ(read_int(block, 4, 0), 11);
+    EXPECT_EQ(read_int(block, 2, 0), 13);
+    EXPECT_EQ(read_int(block, 0, 0), 7);
     EXPECT_EQ(read_op(block, target->changelog_op_col_idx(), 0),
               static_cast<int64_t>(ChangelogOp::APPEND));
 }
