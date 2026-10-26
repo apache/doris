@@ -40,9 +40,11 @@ TEST(ParquetMetadataMemoryTest, ReservedVectorsStringsAndStatistics) {
     auto& columns = metadata.row_groups[0].columns;
     columns.resize(1);
     auto& column = columns[0];
+    const auto max_value_capacity_before = column.meta_data.statistics.max_value.capacity();
     auto before = parquet_metadata_dynamic_size(metadata);
     column.meta_data.statistics.max_value.assign(8192, 'm');
-    EXPECT_GE(parquet_metadata_dynamic_size(metadata) - before, 8192);
+    // The empty string's inline capacity is already part of the baseline estimate.
+    EXPECT_GE(parquet_metadata_dynamic_size(metadata) - before, 8192 - max_value_capacity_before);
     before = parquet_metadata_dynamic_size(metadata);
     column.meta_data.path_in_schema.emplace_back(4096, 'p');
     EXPECT_GE(parquet_metadata_dynamic_size(metadata) - before, 4096 + sizeof(std::string));

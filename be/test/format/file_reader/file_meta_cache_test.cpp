@@ -22,6 +22,7 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "io/fs/file_reader.h"
+#include "runtime/memory/cache_manager.h"
 
 namespace doris {
 namespace {
@@ -132,6 +133,26 @@ TEST(FileMetaCacheTest, KeyContentVerification) {
     int64_t extracted_filesize = 0;
     memcpy(&extracted_filesize, key_with_filesize.data() + file_name.size(), sizeof(int64_t));
     EXPECT_EQ(extracted_filesize, file_size);
+}
+
+TEST(FileMetaCacheTest, LegacyClearCacheNamePrunesFileMetadata) {
+    const auto legacy_type = CachePolicy::string_to_type("CommonObjLRUCache");
+    EXPECT_EQ(legacy_type, CachePolicy::CacheType::EXTERNAL_FILE_META_CACHE);
+    EXPECT_EQ(CachePolicy::string_to_type("ExternalFileMetaCache"), legacy_type);
+
+    FileMetaCache cache(4096, LRUCacheType::SIZE, 1);
+    auto value = std::make_unique<int>(1);
+    ObjLRUCache::CacheHandle handle;
+    ASSERT_TRUE(cache.insert("legacy", value, &handle, sizeof(int)));
+    handle = {};
+
+    EXPECT_GT(CacheManager::instance()->cache_prune_all(legacy_type, true), 0);
+    EXPECT_FALSE(cache.lookup("legacy", &handle));
+
+    CacheManager unregistered_manager;
+    EXPECT_EQ(unregistered_manager.cache_prune_all(CachePolicy::CacheType::COMMON_OBJ_LRU_CACHE,
+                                                   true),
+              -1);
 }
 
 TEST(FileMetaCacheTest, InsertAndLookupWithIntValue) {

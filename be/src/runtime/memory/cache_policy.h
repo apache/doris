@@ -135,7 +135,8 @@ public:
             {"MowDeleteBitmapAggCache", CacheType::DELETE_BITMAP_AGG_CACHE},
             {"MowTabletVersionCache", CacheType::TABLET_VERSION_CACHE},
             {"LoadStateChannelCache ", CacheType::LOAD_STATE_CHANNEL_CACHE},
-            {"CommonObjLRUCache", CacheType::COMMON_OBJ_LRU_CACHE},
+            // Preserve the existing clear-cache URL after FileMetaCache gets its own category.
+            {"CommonObjLRUCache", CacheType::EXTERNAL_FILE_META_CACHE},
             {"ForUTCacheSize", CacheType::FOR_UT_CACHE_SIZE},
             {"TabletSchemaCache", CacheType::TABLET_SCHEMA_CACHE},
             {"CreateTabletRRIdxCache", CacheType::CREATE_TABLET_RR_IDX_CACHE},
