@@ -29,10 +29,6 @@ if (NOT ENABLE_HDFS_STORAGE_VAULT)
     list(REMOVE_ITEM SRC_LIST ${CMAKE_CURRENT_SOURCE_DIR}/hdfs_accessor.cpp)
 endif()
 
-if(BUILD_AZURE STREQUAL "OFF")
-    list(REMOVE_ITEM SRC_LIST "${CMAKE_CURRENT_SOURCE_DIR}/azure_obj_client.cpp")
-endif()
-
 if(BUILD_CHECK_META STREQUAL "OFF")
     list(REMOVE_ITEM SRC_LIST ${CMAKE_CURRENT_SOURCE_DIR}/meta_checker.cpp)
 endif ()

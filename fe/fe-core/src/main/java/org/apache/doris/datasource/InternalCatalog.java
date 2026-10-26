@@ -1468,6 +1468,16 @@ public class InternalCatalog implements CatalogIf<Database> {
                                              boolean writeEditLog,
                                              List<Pair<PartitionPersistInfo, Partition>> batchPartitions)
             throws DdlException {
+        addPartition(db, tableName, addPartitionClause, isCreateTable, generatedPartitionId,
+                writeEditLog, batchPartitions, false);
+    }
+
+    public void addPartition(Database db, String tableName, AddPartitionClause addPartitionClause,
+                                             boolean isCreateTable, long generatedPartitionId,
+                                             boolean writeEditLog,
+                                             List<Pair<PartitionPersistInfo, Partition>> batchPartitions,
+                                             boolean enforceAutoPartitionLimit)
+            throws DdlException {
         // in cloud mode, isCreateTable == true, create dynamic partition use, so partitionId must have been generated.
         // isCreateTable == false, other case, partitionId generate in below, must be set 0
         if (!FeConstants.runningUnitTest && Config.isCloudMode()
@@ -1744,6 +1754,18 @@ public class InternalCatalog implements CatalogIf<Database> {
                         return;
                     } else {
                         ErrorReport.reportDdlException(ErrorCode.ERR_SAME_NAME_PARTITION, partitionName);
+                    }
+                }
+
+                // Check at publication under the table write lock. A request may have passed the
+                // batch precheck before another request published its own auto partitions.
+                if (enforceAutoPartitionLimit) {
+                    int partitionNum = olapTable.getPartitionNum();
+                    int autoPartitionLimit = Config.max_auto_partition_num;
+                    if (partitionNum >= autoPartitionLimit) {
+                        throw new DdlException(String.format(
+                                "partition numbers %d exceeded limit of variable max_auto_partition_num %d",
+                                (long) partitionNum + 1, autoPartitionLimit));
                     }
                 }
 

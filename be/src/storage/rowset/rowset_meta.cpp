@@ -127,6 +127,39 @@ io::FileSystemSPtr RowsetMeta::physical_fs() {
     }
 }
 
+io::FileSystemSPtr RowsetMeta::_wrap_packed_fs(io::FileSystemSPtr fs) {
+    if (fs == nullptr || _rowset_meta_pb.packed_slice_locations_size() == 0) {
+        return fs;
+    }
+
+    std::unordered_map<std::string, io::PackedSliceLocation> index_map;
+    for (const auto& [path, index_pb] : _rowset_meta_pb.packed_slice_locations()) {
+        io::PackedSliceLocation index;
+        index.packed_file_path = index_pb.packed_file_path();
+        index.offset = index_pb.offset();
+        index.size = index_pb.size();
+        index.packed_file_size = index_pb.has_packed_file_size() ? index_pb.packed_file_size() : -1;
+        index.tablet_id = tablet_id();
+        index.rowset_id = _rowset_id.to_string();
+        index.resource_id = fs->id();
+        index_map[path] = index;
+    }
+    if (index_map.empty()) {
+        return fs;
+    }
+
+    io::PackedAppendContext append_info;
+    append_info.tablet_id = tablet_id();
+    append_info.rowset_id = _rowset_id.to_string();
+    append_info.txn_id = txn_id();
+    return std::make_shared<io::PackedFileSystem>(std::move(fs), std::move(index_map),
+                                                  std::move(append_info));
+}
+
+io::FileSystemSPtr RowsetMeta::packed_physical_fs() {
+    return _wrap_packed_fs(physical_fs());
+}
+
 io::FileSystemSPtr RowsetMeta::fs() {
     auto fs = physical_fs();
 
@@ -145,30 +178,8 @@ io::FileSystemSPtr RowsetMeta::fs() {
         return nullptr;
     }
 
-    // Apply packed file system first if enabled and index_map is not empty
-    io::FileSystemSPtr wrapped = fs;
-    if (_rowset_meta_pb.packed_slice_locations_size() > 0) {
-        std::unordered_map<std::string, io::PackedSliceLocation> index_map;
-        for (const auto& [path, index_pb] : _rowset_meta_pb.packed_slice_locations()) {
-            io::PackedSliceLocation index;
-            index.packed_file_path = index_pb.packed_file_path();
-            index.offset = index_pb.offset();
-            index.size = index_pb.size();
-            index.packed_file_size =
-                    index_pb.has_packed_file_size() ? index_pb.packed_file_size() : -1;
-            index.tablet_id = tablet_id();
-            index.rowset_id = _rowset_id.to_string();
-            index.resource_id = wrapped->id();
-            index_map[path] = index;
-        }
-        if (!index_map.empty()) {
-            io::PackedAppendContext append_info;
-            append_info.tablet_id = tablet_id();
-            append_info.rowset_id = _rowset_id.to_string();
-            append_info.txn_id = txn_id();
-            wrapped = std::make_shared<io::PackedFileSystem>(wrapped, index_map, append_info);
-        }
-    }
+    // Apply packed file system first
+    io::FileSystemSPtr wrapped = _wrap_packed_fs(std::move(fs));
 
     // Then apply encryption on top
     wrapped = io::make_file_system(wrapped, algorithm.value());

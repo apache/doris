@@ -327,6 +327,12 @@ public class ConnectContext {
 
     // Whether the current COM_STMT_EXECUTE requested a server-side read-only cursor.
     private boolean cursorFetchRequested;
+    @Getter
+    @Setter
+    private boolean emptyCursorSupported = true;
+    private boolean mysqlResultHasRows;
+    @Getter
+    private PreparedStatementContext executingPreparedStatement;
 
     private MysqlHandshakePacket mysqlHandshakePacket;
 
@@ -560,6 +566,24 @@ public class ConnectContext {
 
     public void setCursorFetchRequested(boolean cursorFetchRequested) {
         this.cursorFetchRequested = cursorFetchRequested;
+    }
+
+    public void beginPreparedExecute(PreparedStatementContext prepared) {
+        executingPreparedStatement = prepared;
+        prepared.setEmptyCursorOpen(false);
+    }
+
+    public boolean hasMysqlResultRows() {
+        return mysqlResultHasRows;
+    }
+
+    public void recordMysqlResultRow() {
+        mysqlResultHasRows = true;
+    }
+
+    public void resetMysqlResult() {
+        mysqlResultHasRows = false;
+        getMysqlChannel().reset();
     }
 
     public boolean isTxnModel() {
@@ -1224,7 +1248,11 @@ public class ConnectContext {
         statementContext = null;
         loadBackendSelectionDecision = null;
         loadBackendSelectionHint = null;
+        prepareExecuteBuffer = null;
+        prepareExecuteTypeCodes = null;
         cursorFetchRequested = false;
+        executingPreparedStatement = null;
+        mysqlResultHasRows = false;
     }
 
     public PlSqlOperation getPlSqlOperation() {

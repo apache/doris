@@ -234,14 +234,15 @@ under the License.
         <doris.hive.catalog.shade.version>4.1.0</doris.hive.catalog.shade.version>
         <!-- iceberg 1.9.1 depends avro on 1.12 -->
         <avro.version>1.12.1</avro.version>
-        <parquet.version>1.18.0</parquet.version>
+        <!-- Disable file-controlled KMS URLs by default (CVE-2026-73334). -->
+        <parquet.version>1.18.1</parquet.version>
         <spark.version>3.4.3</spark.version>
         <hudi.version>1.0.2</hudi.version>
         <obs.dependency.scope>compile</obs.dependency.scope>
         <cos.dependency.scope>compile</cos.dependency.scope>
         <qcloud-java-sdk.version>2.0.1</qcloud-java-sdk.version>
         <tencentcos.version>8.2.7</tencentcos.version>
-        <cos-api.version>5.6.211</cos-api.version>
+        <cos-api.version>5.6.269</cos-api.version>
         <tencentcloud-sdk-java-sts.version>3.1.678</tencentcloud-sdk-java-sts.version>
         <huaweicloud-sdk-iam.version>3.1.20</huaweicloud-sdk-iam.version>
         <esdk-obs.version>3.21.11</esdk-obs.version>
@@ -271,9 +272,8 @@ under the License.
         <commons-validator.version>1.9.0</commons-validator.version>
         <gson.version>2.10.1</gson.version>
         <guava.version>33.2.1-jre</guava.version>
-        <!-- Jackson 2.16.0 is affected by multiple 2026 parser and polymorphic-deserialization
-             vulnerabilities, including CVE-2026-54512. Version 2.21.5 contains the complete fixes. -->
-        <jackson.version>2.21.5</jackson.version>
+        <!-- Keep Jackson 2 aligned on the LTS maintenance release fixing CVE-2026-110879. -->
+        <jackson.version>2.21.8</jackson.version>
         <javassist.version>3.18.2-GA</javassist.version>
         <javax.servlet-api.version>3.1.0</javax.servlet-api.version>
         <!-- Spring Framework 7 and Jetty EE11 require Jakarta Servlet 6.1. -->
@@ -294,7 +294,7 @@ under the License.
         <metrics-core.version>4.0.2</metrics-core.version>
         <resilience4j.version>2.4.0</resilience4j.version>
         <!-- Keep Netty compatible with Arrow Flight SQL 19 and other transitive Netty users. -->
-        <netty-all.version>4.2.17.Final</netty-all.version>
+        <netty-all.version>4.2.18.Final</netty-all.version>
         <!-- OpenTelemetry versions before 1.62.0 allow unbounded allocation while parsing W3C
              baggage (CVE-2026-45292); align the complete OpenTelemetry graph on the fixed BOM. -->
         <opentelemetry.version>1.62.0</opentelemetry.version>
@@ -324,6 +324,7 @@ under the License.
         <jetty-servlet.version>11.0.26</jetty-servlet.version>
         <jetty-websocket.version>9.4.58.v20250814</jetty-websocket.version>
         <okhttp.version>5.3.2</okhttp.version>
+        <okio.version>3.16.4</okio.version>
         <snakeyaml.version>2.6</snakeyaml.version>
         <validation-api.version>2.0.1.Final</validation-api.version>
         <zjsonpatch.version>0.2.3</zjsonpatch.version>
@@ -411,7 +412,10 @@ under the License.
         <lz4-java-relocation.version>1.8.1</lz4-java-relocation.version>
         <lz4-java.version>1.11.1</lz4-java.version>
         <immutables.version>2.9.3</immutables.version> 
-        <ivy.version>2.5.2</ivy.version>
+        <!-- Fix PackagerResolver path traversal (CVE-2026-26032). -->
+        <ivy.version>2.6.0</ivy.version>
+        <ant.version>1.10.18</ant.version>
+        <groovy-all.version>2.4.21</groovy-all.version>
         <icu4j.version>78.1</icu4j.version>
         <ini4j.version>0.5.4</ini4j.version>
         <!--todo waiting release-->
@@ -494,6 +498,14 @@ under the License.
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
+            <!-- Align legacy cloud clients with the Okio version used by OkHttp 5. -->
+            <dependency>
+                <groupId>com.squareup.okio</groupId>
+                <artifactId>okio-bom</artifactId>
+                <version>${okio.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
             <dependency>
                 <groupId>io.grpc</groupId>
                 <artifactId>grpc-bom</artifactId>
@@ -547,6 +559,22 @@ under the License.
                 <groupId>org.apache.ivy</groupId>
                 <artifactId>ivy</artifactId>
                 <version>${ivy.version}</version>
+            </dependency>
+            <!-- Hive's provided dependencies also need the Ant and Groovy security fixes. -->
+            <dependency>
+                <groupId>org.apache.ant</groupId>
+                <artifactId>ant</artifactId>
+                <version>${ant.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.ant</groupId>
+                <artifactId>ant-launcher</artifactId>
+                <version>${ant.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.codehaus.groovy</groupId>
+                <artifactId>groovy-all</artifactId>
+                <version>${groovy-all.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.eclipse.jetty.websocket</groupId>
@@ -1116,6 +1144,15 @@ under the License.
                 <artifactId>ranger-plugins-common</artifactId>
                 <version>${ranger-plugins-common.version}</version>
                 <exclusions>
+                    <!-- Use Doris's Hadoop modules; these duplicates bundle old private dependencies. -->
+                    <exclusion>
+                        <groupId>org.apache.hadoop</groupId>
+                        <artifactId>hadoop-client-api</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.apache.hadoop</groupId>
+                        <artifactId>hadoop-client-runtime</artifactId>
+                    </exclusion>
                     <exclusion>
                         <groupId>ch.qos.logback</groupId>
                         <artifactId>logback-classic</artifactId>
@@ -1550,6 +1587,13 @@ under the License.
                 <groupId>org.apache.avro</groupId>
                 <artifactId>avro-mapred</artifactId>
                 <version>${avro.version}</version>
+                <exclusions>
+                    <!-- Scanners read Avro files and do not start Avro's Jetty RPC server. -->
+                    <exclusion>
+                        <groupId>org.apache.avro</groupId>
+                        <artifactId>avro-ipc-jetty</artifactId>
+                    </exclusion>
+                </exclusions>
             </dependency>
             <!-- https://mvnrepository.com/artifact/org.apache.hudi/hudi-common -->
             <dependency>
@@ -1592,6 +1636,11 @@ under the License.
                 <artifactId>hbase-server</artifactId>
                 <version>${hbase.version}</version>
                 <exclusions>
+                    <!-- Hudi reads HFiles and does not start HBase's embedded HTTP server. -->
+                    <exclusion>
+                        <groupId>org.apache.hbase</groupId>
+                        <artifactId>hbase-http</artifactId>
+                    </exclusion>
                     <exclusion>
                         <groupId>org.apache.hbase</groupId>
                         <artifactId>hbase-hadoop2-compat</artifactId>
@@ -1652,6 +1701,11 @@ under the License.
             <dependency>
                 <groupId>org.apache.parquet</groupId>
                 <artifactId>parquet-hadoop</artifactId>
+                <version>${parquet.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.parquet</groupId>
+                <artifactId>parquet-hadoop-bundle</artifactId>
                 <version>${parquet.version}</version>
             </dependency>
             <dependency>
@@ -1769,6 +1823,11 @@ under the License.
                 <artifactId>hadoop-mapreduce-client-core</artifactId>
                 <version>${hadoop.version}</version>
                 <exclusions>
+                    <!-- File readers do not submit YARN jobs; this client brings EOL Jetty 9 WebSockets. -->
+                    <exclusion>
+                        <groupId>org.apache.hadoop</groupId>
+                        <artifactId>hadoop-yarn-client</artifactId>
+                    </exclusion>
                     <exclusion>
                         <groupId>javax.servlet</groupId>
                         <artifactId>servlet-api</artifactId>
@@ -2003,6 +2062,12 @@ under the License.
                         <artifactId>bcprov-jdk15on</artifactId>
                     </exclusion>
                 </exclusions>
+            </dependency>
+            <!-- hadoop-cos uses classes inside this shaded bundle; keep both COS SDK artifacts aligned. -->
+            <dependency>
+                <groupId>com.qcloud</groupId>
+                <artifactId>cos_api-bundle</artifactId>
+                <version>${cos-api.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.qcloud</groupId>

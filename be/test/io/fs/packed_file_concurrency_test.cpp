@@ -74,6 +74,7 @@
 #include "io/io_common.h"
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
+#include "testutil/mock/obj_storage_client_test_stub.h"
 #include "util/s3_util.h"
 #include "util/slice.h"
 #include "util/threadpool.h"
@@ -202,14 +203,13 @@ void reset_mock_s3_store() {
     store.objects.clear();
 }
 
-class MockObjStorageClient : public ObjStorageClient {
+class MockObjStorageClient : public ObjStorageClientTestStub {
 public:
     explicit MockObjStorageClient(MockS3Store* store) : _store(store) {}
 
-    ObjectStorageUploadResponse create_multipart_upload(
-            const ObjectStoragePathOptions& opts) override {
-        ObjectStorageUploadResponse resp;
-        resp.resp = ObjectStorageResponse::OK();
+    ObjStorageUploadResult create_multipart_upload(const ObjStoragePath& opts) override {
+        ObjStorageUploadResult resp;
+        resp.resp = ObjStorageResponse::OK();
         std::lock_guard lock(_store->mutex);
         auto upload_id = fmt::format("upload-{}", _store->next_upload_id++);
         resp.upload_id = upload_id;
@@ -217,41 +217,40 @@ public:
         return resp;
     }
 
-    ObjectStorageResponse put_object(const ObjectStoragePathOptions& opts,
-                                     std::string_view stream) override {
+    ObjStorageResponse put_object(const ObjStoragePath& opts, std::string_view stream) override {
         std::lock_guard lock(_store->mutex);
         _store->objects[_store->make_key(opts.bucket, opts.key)] =
                 std::string(stream.data(), stream.size());
-        return ObjectStorageResponse::OK();
+        return ObjStorageResponse::OK();
     }
 
-    ObjectStorageUploadResponse upload_part(const ObjectStoragePathOptions& opts,
-                                            std::string_view stream, int part_num) override {
-        ObjectStorageUploadResponse resp;
-        if (!opts.upload_id) {
+    ObjStorageUploadResult upload_part(const ObjStoragePath& opts, const std::string& upload_id,
+                                       std::string_view stream, int part_num) override {
+        ObjStorageUploadResult resp;
+        if (upload_id.empty()) {
             resp.resp = make_error("missing upload id");
             return resp;
         }
         std::lock_guard lock(_store->mutex);
-        auto ctx_it = _store->uploads.find(*opts.upload_id);
+        auto ctx_it = _store->uploads.find(upload_id);
         if (ctx_it == _store->uploads.end()) {
             resp.resp = make_error("upload context not found");
             return resp;
         }
         ctx_it->second.parts[part_num] = std::string(stream.data(), stream.size());
-        resp.resp = ObjectStorageResponse::OK();
+        resp.resp = ObjStorageResponse::OK();
         resp.etag = fmt::format("\"mock-etag-{}\"", part_num);
         return resp;
     }
 
-    ObjectStorageResponse complete_multipart_upload(
-            const ObjectStoragePathOptions& opts,
-            const std::vector<ObjectCompleteMultiPart>& completed_parts) override {
-        if (!opts.upload_id) {
+    ObjStorageResponse complete_multipart_upload(
+            const ObjStoragePath& opts, const std::string& upload_id,
+            const std::vector<ObjStorageCompletedPart>& completed_parts) override {
+        if (upload_id.empty()) {
             return make_error("missing upload id");
         }
         std::lock_guard lock(_store->mutex);
-        auto ctx_it = _store->uploads.find(*opts.upload_id);
+        auto ctx_it = _store->uploads.find(upload_id);
         if (ctx_it == _store->uploads.end()) {
             return make_error("upload context not found");
         }
@@ -266,11 +265,11 @@ public:
         _store->objects[_store->make_key(ctx_it->second.bucket, ctx_it->second.key)] =
                 std::move(data);
         _store->uploads.erase(ctx_it);
-        return ObjectStorageResponse::OK();
+        return ObjStorageResponse::OK();
     }
 
-    ObjectStorageHeadResponse head_object(const ObjectStoragePathOptions& opts) override {
-        ObjectStorageHeadResponse resp;
+    ObjStorageHeadResult head_object(const ObjStoragePath& opts) override {
+        ObjStorageHeadResult resp;
         std::lock_guard lock(_store->mutex);
         auto key = _store->make_key(opts.bucket, opts.key);
         auto it = _store->objects.find(key);
@@ -279,14 +278,13 @@ public:
                                    static_cast<int>(Aws::Http::HttpResponseCode::NOT_FOUND));
             return resp;
         }
-        resp.resp = ObjectStorageResponse::OK();
+        resp.resp = ObjStorageResponse::OK();
         resp.file_size = it->second.size();
         return resp;
     }
 
-    ObjectStorageResponse get_object(const ObjectStoragePathOptions& opts, void* buffer,
-                                     size_t offset, size_t bytes_read,
-                                     size_t* size_return) override {
+    ObjStorageResponse get_object(const ObjStoragePath& opts, void* buffer, size_t offset,
+                                  size_t bytes_read, size_t* size_return) override {
         std::lock_guard lock(_store->mutex);
         auto key = _store->make_key(opts.bucket, opts.key);
         auto it = _store->objects.find(key);
@@ -299,64 +297,52 @@ public:
         size_t to_copy = std::min(bytes_read, it->second.size() - offset);
         memcpy(buffer, it->second.data() + offset, to_copy);
         *size_return = to_copy;
-        return ObjectStorageResponse::OK();
+        return ObjStorageResponse::OK();
     }
 
-    ObjectStorageResponse list_objects(const ObjectStoragePathOptions& opts,
-                                       std::vector<FileInfo>* files) override {
+    ObjStorageListPageResult list_objects_page(const ObjStoragePath& opts,
+                                               std::string_view /*continuation_token*/) override {
         std::lock_guard lock(_store->mutex);
-        std::string prefix = _store->make_key(opts.bucket, opts.prefix);
+        const auto& object_prefix = opts.prefix.empty() ? opts.key : opts.prefix;
+        std::string prefix = _store->make_key(opts.bucket, object_prefix);
+        ObjStorageListPageResult page {.resp = ObjStorageResponse::OK()};
         for (const auto& [key, data] : _store->objects) {
             if (key.rfind(prefix, 0) == 0) {
-                FileInfo info;
-                info.file_name = key.substr(prefix.size());
-                info.file_size = data.size();
-                info.is_file = true;
-                files->push_back(std::move(info));
+                page.objects.emplace_back(ObjectMeta {
+                        .key = key.substr(opts.bucket.size() + 1),
+                        .size = static_cast<int64_t>(data.size()),
+                });
             }
         }
-        return ObjectStorageResponse::OK();
+        return page;
     }
 
-    ObjectStorageResponse delete_objects(const ObjectStoragePathOptions& opts,
-                                         std::vector<std::string> objs) override {
+    ObjStorageResponse delete_objects(const ObjStoragePath& opts,
+                                      std::vector<std::string> objs) override {
         std::lock_guard lock(_store->mutex);
         for (const auto& obj : objs) {
             _store->objects.erase(_store->make_key(opts.bucket, obj));
         }
-        return ObjectStorageResponse::OK();
+        return ObjStorageResponse::OK();
     }
 
-    ObjectStorageResponse delete_object(const ObjectStoragePathOptions& opts) override {
+    ObjStorageResponse delete_object(const ObjStoragePath& opts) override {
         std::lock_guard lock(_store->mutex);
         _store->objects.erase(_store->make_key(opts.bucket, opts.key));
-        return ObjectStorageResponse::OK();
+        return ObjStorageResponse::OK();
     }
 
-    ObjectStorageResponse delete_objects_recursively(
-            const ObjectStoragePathOptions& opts) override {
-        std::lock_guard lock(_store->mutex);
-        std::string prefix = _store->make_key(opts.bucket, opts.prefix);
-        for (auto it = _store->objects.begin(); it != _store->objects.end();) {
-            if (it->first.rfind(prefix, 0) == 0) {
-                it = _store->objects.erase(it);
-            } else {
-                ++it;
-            }
-        }
-        return ObjectStorageResponse::OK();
-    }
-
-    std::string generate_presigned_url(const ObjectStoragePathOptions& opts,
-                                       int64_t /*expiration_secs*/,
-                                       const S3ClientConf& /*conf*/) override {
+    std::string generate_presigned_url(const ObjStoragePath& opts,
+                                       int64_t /*expiration_secs*/) override {
         return fmt::format("mock://{}/{}", opts.bucket, opts.key);
     }
 
 private:
-    static ObjectStorageResponse make_error(std::string msg, int http_code = 500) {
-        ObjectStorageResponse resp;
-        resp.status.code = static_cast<int>(ErrorCode::INTERNAL_ERROR);
+    static ObjStorageResponse make_error(std::string msg, int http_code = 500) {
+        ObjStorageResponse resp;
+        resp.status.code = http_code == static_cast<int>(Aws::Http::HttpResponseCode::NOT_FOUND)
+                                   ? ObjStorageStatus::NOT_FOUND
+                                   : static_cast<int>(ErrorCode::INTERNAL_ERROR);
         resp.status.msg = std::move(msg);
         resp.http_code = http_code;
         return resp;
@@ -365,11 +351,11 @@ private:
     MockS3Store* _store;
 };
 
-std::shared_ptr<MockObjStorageClient> g_mock_obj_client;
+std::shared_ptr<MockObjStorageClient> g_mock_obj_provider_client;
 
 void install_mock_environment() {
-    g_mock_obj_client = std::make_shared<MockObjStorageClient>(&mock_s3_store());
-    auto client = g_mock_obj_client;
+    g_mock_obj_provider_client = std::make_shared<MockObjStorageClient>(&mock_s3_store());
+    std::shared_ptr<ObjStorageClient> client = g_mock_obj_provider_client;
     S3ClientFactory::instance().set_client_creator_for_test(
             [client](const S3ClientConf&) { return client; });
 
@@ -384,7 +370,7 @@ void install_mock_environment() {
 
 void remove_mock_environment() {
     S3ClientFactory::instance().clear_client_creator_for_test();
-    g_mock_obj_client.reset();
+    g_mock_obj_provider_client.reset();
 
     auto* sp = SyncPoint::get_instance();
     sp->clear_call_back("PackedFileManager::update_meta_service");

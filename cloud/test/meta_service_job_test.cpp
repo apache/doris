@@ -6904,7 +6904,7 @@ TEST(MetaServiceJobTest, AbortTxnForRelatedRowsetTest3) {
             if (!arena) delete req;
             // Should fail because transaction is aborted
             ASSERT_NE(res.status().code(), MetaServiceCode::OK);
-            ASSERT_TRUE(res.status().msg().find("rowset has already been marked as recycled") !=
+            ASSERT_TRUE(res.status().msg().find("recycle rowset key not found") !=
                         std::string::npos)
                     << res.status().msg();
             LOG(INFO) << "Step 5: commit_rowset correctly failed for aborted txn";
@@ -7016,7 +7016,7 @@ TEST(MetaServiceJobTest, AbortJobForRelatedRowsetTest3) {
             if (!arena) delete req;
             // Should fail because recycle_rowset_key is marked recycled
             ASSERT_NE(res.status().code(), MetaServiceCode::OK);
-            ASSERT_TRUE(res.status().msg().find("rowset has already been marked as recycled") !=
+            ASSERT_TRUE(res.status().msg().find("recycle rowset key not found") !=
                         std::string::npos)
                     << res.status().msg();
             LOG(INFO) << "Step 5: commit_rowset executed with code=" << res.status().code();

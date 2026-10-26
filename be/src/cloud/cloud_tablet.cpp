@@ -36,6 +36,7 @@
 #include <ratio>
 #include <shared_mutex>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "cloud/cloud_meta_mgr.h"
@@ -689,8 +690,10 @@ void CloudTablet::remove_unused_rowsets() {
     int64_t removed_delete_bitmap_num = 0;
     OlapStopWatch watch;
     {
+        // Warmup callbacks use _meta_lock; take it before _gc_mutex, as add_rowsets does.
+        std::unique_lock meta_lock(_meta_lock);
         std::lock_guard<std::mutex> lock(_gc_mutex);
-        // 1. remove unused rowsets's cache data and delete bitmap
+        // 1. select unused rowsets and remove their warmup states and delete bitmap
         for (auto it = _unused_rowsets.begin(); it != _unused_rowsets.end();) {
             auto& rs = it->second;
             if (rs.use_count() > 1) {
@@ -701,7 +704,6 @@ void CloudTablet::remove_unused_rowsets() {
             }
             tablet_meta()->remove_rowset_delete_bitmap(rs->rowset_id(), rs->version());
             _rowset_warm_up_states.erase(rs->rowset_id());
-            rs->clear_cache();
             g_unused_rowsets_count << -1;
             g_unused_rowsets_bytes << -rs->total_disk_size();
             removed_rowsets.push_back(std::move(rs));
@@ -712,7 +714,10 @@ void CloudTablet::remove_unused_rowsets() {
     {
         std::vector<RecycledRowsets> recycled_rowsets;
 
+        // Keep selected rowsets alive here, but release tablet locks before clearing
+        // caches: a compaction batch can synchronously remove many cached blocks.
         for (auto& rs : removed_rowsets) {
+            rs->clear_cache();
             auto index_names = rs->get_index_file_names();
             recycled_rowsets.emplace_back(rs->rowset_id(), rs->num_segments(), index_names);
             int64_t segment_size_sum = 0;
@@ -960,6 +965,12 @@ void CloudTablet::get_compaction_status(std::string* json_result) {
 
     // get snapshot version path json_doc
     _timestamped_version_tracker.get_stale_version_path_json_doc(path_arr);
+    rapidjson::Value compaction_policy_value;
+    auto compaction_policy = _tablet_meta->compaction_policy();
+    compaction_policy_value.SetString(compaction_policy.c_str(),
+                                      cast_set<uint32_t>(compaction_policy.length()),
+                                      root.GetAllocator());
+    root.AddMember("compaction policy", compaction_policy_value, root.GetAllocator());
     root.AddMember("cumulative point", _cumulative_point.load(), root.GetAllocator());
     rapidjson::Value cumu_value;
     std::string format_str = ToStringFromUnixMillis(_last_cumu_compaction_failure_millis.load());
@@ -1491,9 +1502,9 @@ void CloudTablet::agg_delete_bitmap_for_compaction(
 }
 
 Status CloudTablet::sync_meta() {
-    if (!config::enable_file_cache) {
-        return Status::OK();
-    }
+    // Keep tablet metadata refresh serialized with rowset sync and apply local metadata updates
+    // under _meta_lock. The lock order must stay _sync_meta_lock -> _meta_lock.
+    std::unique_lock lock(_sync_meta_lock);
 
     TabletMetaSharedPtr tablet_meta;
     auto st = _engine.meta_mgr().get_tablet_meta(tablet_id(), &tablet_meta);
@@ -1505,57 +1516,64 @@ Status CloudTablet::sync_meta() {
     }
 
     auto new_compaction_policy = tablet_meta->compaction_policy();
-    if (_tablet_meta->compaction_policy() != new_compaction_policy) {
-        _tablet_meta->set_compaction_policy(new_compaction_policy);
-    }
+    auto new_ttl_seconds = tablet_meta->ttl_seconds();
     auto new_time_series_compaction_goal_size_mbytes =
             tablet_meta->time_series_compaction_goal_size_mbytes();
-    if (_tablet_meta->time_series_compaction_goal_size_mbytes() !=
-        new_time_series_compaction_goal_size_mbytes) {
-        _tablet_meta->set_time_series_compaction_goal_size_mbytes(
-                new_time_series_compaction_goal_size_mbytes);
-    }
     auto new_time_series_compaction_file_count_threshold =
             tablet_meta->time_series_compaction_file_count_threshold();
-    if (_tablet_meta->time_series_compaction_file_count_threshold() !=
-        new_time_series_compaction_file_count_threshold) {
-        _tablet_meta->set_time_series_compaction_file_count_threshold(
-                new_time_series_compaction_file_count_threshold);
-    }
     auto new_time_series_compaction_time_threshold_seconds =
             tablet_meta->time_series_compaction_time_threshold_seconds();
-    if (_tablet_meta->time_series_compaction_time_threshold_seconds() !=
-        new_time_series_compaction_time_threshold_seconds) {
-        _tablet_meta->set_time_series_compaction_time_threshold_seconds(
-                new_time_series_compaction_time_threshold_seconds);
-    }
     auto new_time_series_compaction_empty_rowsets_threshold =
             tablet_meta->time_series_compaction_empty_rowsets_threshold();
-    if (_tablet_meta->time_series_compaction_empty_rowsets_threshold() !=
-        new_time_series_compaction_empty_rowsets_threshold) {
-        _tablet_meta->set_time_series_compaction_empty_rowsets_threshold(
-                new_time_series_compaction_empty_rowsets_threshold);
-    }
     auto new_time_series_compaction_level_threshold =
             tablet_meta->time_series_compaction_level_threshold();
-    if (_tablet_meta->time_series_compaction_level_threshold() !=
-        new_time_series_compaction_level_threshold) {
-        _tablet_meta->set_time_series_compaction_level_threshold(
-                new_time_series_compaction_level_threshold);
-    }
-    // Sync disable_auto_compaction (stored in tablet_schema)
     auto new_disable_auto_compaction = tablet_meta->tablet_schema()->disable_auto_compaction();
-    if (_tablet_meta->tablet_schema()->disable_auto_compaction() != new_disable_auto_compaction) {
-        _tablet_meta->mutable_tablet_schema()->set_disable_auto_compaction(
-                new_disable_auto_compaction);
-    }
-    // Sync vertical_compaction_num_columns_per_group
     auto new_vertical_compaction_num_columns_per_group =
             tablet_meta->vertical_compaction_num_columns_per_group();
-    if (_tablet_meta->vertical_compaction_num_columns_per_group() !=
-        new_vertical_compaction_num_columns_per_group) {
-        _tablet_meta->set_vertical_compaction_num_columns_per_group(
-                new_vertical_compaction_num_columns_per_group);
+
+    {
+        std::unique_lock wlock(_meta_lock);
+        if (_tablet_meta->compaction_policy() != new_compaction_policy) {
+            _tablet_meta->set_compaction_policy(new_compaction_policy);
+        }
+        if (_tablet_meta->ttl_seconds() != new_ttl_seconds) {
+            _tablet_meta->set_ttl_seconds(new_ttl_seconds);
+        }
+        if (_tablet_meta->time_series_compaction_goal_size_mbytes() !=
+            new_time_series_compaction_goal_size_mbytes) {
+            _tablet_meta->set_time_series_compaction_goal_size_mbytes(
+                    new_time_series_compaction_goal_size_mbytes);
+        }
+        if (_tablet_meta->time_series_compaction_file_count_threshold() !=
+            new_time_series_compaction_file_count_threshold) {
+            _tablet_meta->set_time_series_compaction_file_count_threshold(
+                    new_time_series_compaction_file_count_threshold);
+        }
+        if (_tablet_meta->time_series_compaction_time_threshold_seconds() !=
+            new_time_series_compaction_time_threshold_seconds) {
+            _tablet_meta->set_time_series_compaction_time_threshold_seconds(
+                    new_time_series_compaction_time_threshold_seconds);
+        }
+        if (_tablet_meta->time_series_compaction_empty_rowsets_threshold() !=
+            new_time_series_compaction_empty_rowsets_threshold) {
+            _tablet_meta->set_time_series_compaction_empty_rowsets_threshold(
+                    new_time_series_compaction_empty_rowsets_threshold);
+        }
+        if (_tablet_meta->time_series_compaction_level_threshold() !=
+            new_time_series_compaction_level_threshold) {
+            _tablet_meta->set_time_series_compaction_level_threshold(
+                    new_time_series_compaction_level_threshold);
+        }
+        if (_tablet_meta->tablet_schema()->disable_auto_compaction() !=
+            new_disable_auto_compaction) {
+            _tablet_meta->mutable_tablet_schema()->set_disable_auto_compaction(
+                    new_disable_auto_compaction);
+        }
+        if (_tablet_meta->vertical_compaction_num_columns_per_group() !=
+            new_vertical_compaction_num_columns_per_group) {
+            _tablet_meta->set_vertical_compaction_num_columns_per_group(
+                    new_vertical_compaction_num_columns_per_group);
+        }
     }
 
     last_sync_tablet_meta_time_s = ::time(nullptr);
@@ -1593,44 +1611,47 @@ Status CloudTablet::check_delete_bitmap_cache(int64_t txn_id,
 
 WarmUpState CloudTablet::get_rowset_warmup_state(RowsetId rowset_id) {
     std::shared_lock rlock(_meta_lock);
-    if (!_rowset_warm_up_states.contains(rowset_id)) {
+    auto it = _rowset_warm_up_states.find(rowset_id);
+    if (it == _rowset_warm_up_states.end()) {
         return {.trigger_source = WarmUpTriggerSource::NONE, .progress = WarmUpProgress::NONE};
     }
-    auto& warmup_info = _rowset_warm_up_states[rowset_id];
-    warmup_info.update_state();
-    return warmup_info.state;
+    return it->second.state;
 }
 
-bool CloudTablet::add_rowset_warmup_state(const RowsetMeta& rowset, WarmUpTriggerSource source,
-                                          std::chrono::steady_clock::time_point start_tp) {
+std::optional<uint64_t> CloudTablet::add_rowset_warmup_state(
+        const RowsetMeta& rowset, WarmUpTriggerSource source,
+        std::chrono::steady_clock::time_point start_tp) {
     std::lock_guard wlock(_meta_lock);
     return add_rowset_warmup_state_unlocked(rowset, source, start_tp);
 }
 
 bool CloudTablet::update_rowset_warmup_state_inverted_idx_num(WarmUpTriggerSource source,
-                                                              RowsetId rowset_id, int64_t delta) {
+                                                              RowsetId rowset_id, int64_t delta,
+                                                              uint64_t generation) {
     std::lock_guard wlock(_meta_lock);
-    return update_rowset_warmup_state_inverted_idx_num_unlocked(source, rowset_id, delta);
+    return update_rowset_warmup_state_inverted_idx_num_unlocked(source, rowset_id, delta,
+                                                                generation);
 }
 
 bool CloudTablet::update_rowset_warmup_state_inverted_idx_num_unlocked(WarmUpTriggerSource source,
                                                                        RowsetId rowset_id,
-                                                                       int64_t delta) {
+                                                                       int64_t delta,
+                                                                       uint64_t generation) {
     auto it = _rowset_warm_up_states.find(rowset_id);
     if (it == _rowset_warm_up_states.end()) {
         return false;
     }
-    if (it->second.state.trigger_source != source) {
-        // Only the same trigger source can update the state
+    // A JOB may replace the attempt while its previous producer is still registering indexes.
+    if (it->second.generation != generation || it->second.state.trigger_source != source) {
         return false;
     }
     it->second.num_inverted_idx += delta;
     return true;
 }
 
-bool CloudTablet::add_rowset_warmup_state_unlocked(const RowsetMeta& rowset,
-                                                   WarmUpTriggerSource source,
-                                                   std::chrono::steady_clock::time_point start_tp) {
+std::optional<uint64_t> CloudTablet::add_rowset_warmup_state_unlocked(
+        const RowsetMeta& rowset, WarmUpTriggerSource source,
+        std::chrono::steady_clock::time_point start_tp) {
     auto rowset_id = rowset.rowset_id();
 
     // Check if rowset already has warmup state
@@ -1643,11 +1664,11 @@ bool CloudTablet::add_rowset_warmup_state_unlocked(const RowsetMeta& rowset,
             if (existing_state.trigger_source == WarmUpTriggerSource::JOB &&
                 existing_state.progress == WarmUpProgress::DOING) {
                 // Same job type already in progress, skip to avoid duplicate warmup
-                return false;
+                return std::nullopt;
             }
         } else {
             // For non-job warmup (EVENT_DRIVEN, SYNC_ROWSET), skip if any warmup exists
-            return false;
+            return std::nullopt;
         }
     }
 
@@ -1662,9 +1683,49 @@ bool CloudTablet::add_rowset_warmup_state_unlocked(const RowsetMeta& rowset,
             .state = {.trigger_source = source,
                       .progress = (rowset.num_segments() == 0 ? WarmUpProgress::DONE
                                                               : WarmUpProgress::DOING)},
+            .generation = ++_next_warmup_generation,
             .num_segments = rowset.num_segments(),
             .start_tp = start_tp};
-    return true;
+    return _next_warmup_generation;
+}
+
+size_t CloudTablet::gc_rowset_warmup_states(std::chrono::seconds grace_period,
+                                            std::chrono::steady_clock::time_point now) {
+    std::unique_lock lock(_meta_lock);
+    // Rowset GC can leave an empty map with a large bucket array.
+    if (_rowset_warm_up_states.empty()) {
+        decltype(_rowset_warm_up_states)().swap(_rowset_warm_up_states);
+        return 0;
+    }
+
+    std::unordered_set<RowsetId> live_rowset_ids;
+    live_rowset_ids.reserve(_rs_version_map.size() + _stale_rs_version_map.size());
+    traverse_rowsets_unlocked(
+            [&](const RowsetSharedPtr& rs) { live_rowset_ids.insert(rs->rowset_id()); }, true);
+
+    size_t removed = 0;
+    for (auto it = _rowset_warm_up_states.begin(); it != _rowset_warm_up_states.end();) {
+        const auto& info = it->second;
+        // R1 may be warmed up, compacted into R2, and never synchronized locally. Keep
+        // recent attempts for deduplication and DOING attempts for cache-aware queries.
+        // Stale rowsets can still be selected by those queries and must also be retained.
+        if (info.state.progress == WarmUpProgress::DONE && info.has_finished() &&
+            now - info.start_tp >= grace_period && !live_rowset_ids.contains(it->first)) {
+            it = _rowset_warm_up_states.erase(it);
+            ++removed;
+        } else {
+            ++it;
+        }
+    }
+
+    // Erasing nodes does not release the bucket array. Shrink only at a low watermark
+    // so normal insertion/GC cycles do not repeatedly rebuild the table.
+    if (_rowset_warm_up_states.empty()) {
+        decltype(_rowset_warm_up_states)().swap(_rowset_warm_up_states);
+    } else if (_rowset_warm_up_states.size() < _rowset_warm_up_states.bucket_count() / 4) {
+        _rowset_warm_up_states.rehash(0);
+    }
+    return removed;
 }
 
 void CloudTablet::RowsetWarmUpInfo::update_state() {
@@ -1681,10 +1742,13 @@ void CloudTablet::RowsetWarmUpInfo::update_state() {
 WarmUpState CloudTablet::complete_rowset_segment_warmup(WarmUpTriggerSource trigger_source,
                                                         RowsetId rowset_id, Status status,
                                                         int64_t segment_num,
-                                                        int64_t inverted_idx_num) {
+                                                        int64_t inverted_idx_num,
+                                                        uint64_t generation) {
     std::lock_guard wlock(_meta_lock);
     auto it = _rowset_warm_up_states.find(rowset_id);
-    if (it == _rowset_warm_up_states.end()) {
+    // GC permits a new attempt for the same RowsetId. Late callbacks from the old
+    // attempt must not advance the new attempt, even when their sources match.
+    if (it == _rowset_warm_up_states.end() || it->second.generation != generation) {
         return {.trigger_source = WarmUpTriggerSource::NONE, .progress = WarmUpProgress::NONE};
     }
     auto& warmup_info = it->second;
@@ -1792,8 +1856,7 @@ bool CloudTablet::_check_rowset_should_be_visible_but_not_warmed_up(
 
 void CloudTablet::_submit_segment_download_task(const RowsetSharedPtr& rs,
                                                 const StorageResource* storage_resource, int seg_id,
-
-                                                int64_t expiration_time) {
+                                                int64_t expiration_time, uint64_t generation) {
     // clang-format off
     const auto& rowset_meta = rs->rowset_meta();
     auto self = std::dynamic_pointer_cast<CloudTablet>(shared_from_this());
@@ -1829,7 +1892,7 @@ void CloudTablet::_submit_segment_download_task(const RowsetSharedPtr& rs,
                                         std::chrono::seconds(sleep_time));
                             }
                 });
-                self->complete_rowset_segment_warmup(WarmUpTriggerSource::SYNC_ROWSET, rowset_meta->rowset_id(), st, 1, 0);
+                self->complete_rowset_segment_warmup(WarmUpTriggerSource::SYNC_ROWSET, rowset_meta->rowset_id(), st, 1, 0, generation);
                 if (!st) {
                     LOG_WARNING("add rowset warm up error ").error(st);
                 }
@@ -1842,7 +1905,8 @@ void CloudTablet::_submit_segment_download_task(const RowsetSharedPtr& rs,
 void CloudTablet::_submit_inverted_index_download_task(const RowsetSharedPtr& rs,
                                                        const StorageResource* storage_resource,
                                                        const io::Path& idx_path, int64_t idx_size,
-                                                       int64_t expiration_time) {
+                                                       int64_t expiration_time,
+                                                       uint64_t generation) {
     // clang-format off
     const auto& rowset_meta = rs->rowset_meta();
     auto self = std::dynamic_pointer_cast<CloudTablet>(shared_from_this());
@@ -1872,14 +1936,14 @@ void CloudTablet::_submit_inverted_index_download_task(const RowsetSharedPtr& rs
                             rs->rowset_id().to_string(), idx_path.string(), sleep_time);
                     std::this_thread::sleep_for(std::chrono::seconds(sleep_time));
                 });
-                self->complete_rowset_segment_warmup(WarmUpTriggerSource::SYNC_ROWSET, rowset_meta->rowset_id(), st, 0, 1);
+                self->complete_rowset_segment_warmup(WarmUpTriggerSource::SYNC_ROWSET, rowset_meta->rowset_id(), st, 0, 1, generation);
                 if (!st) {
                     LOG_WARNING("add rowset warm up error ").error(st);
                 }
             }},
             .tablet_id = _tablet_meta->tablet_id(),
     };
-    self->update_rowset_warmup_state_inverted_idx_num_unlocked(WarmUpTriggerSource::SYNC_ROWSET, rowset_meta->rowset_id(), 1);
+    self->update_rowset_warmup_state_inverted_idx_num_unlocked(WarmUpTriggerSource::SYNC_ROWSET, rowset_meta->rowset_id(), 1, generation);
     _engine.file_cache_block_downloader().submit_download_task(std::move(meta));
     g_file_cache_cloud_tablet_submitted_index_num << 1;
     g_file_cache_cloud_tablet_submitted_index_size << idx_size;
@@ -1897,7 +1961,7 @@ void CloudTablet::_add_rowsets_directly(std::vector<RowsetSharedPtr>& rowsets,
             // inside RowsetMeta::fs() which causes SingleFlight deadlock when the
             // tablet is not yet cached (during initial load_tablet).
             rs->rowset_meta()->set_encryption_algorithm(_tablet_meta->encryption_algorithm());
-            bool warm_up_state_updated = false;
+            std::optional<uint64_t> generation;
             // Warmup rowset data in background
             for (int seg_id = 0; seg_id < rs->num_segments(); ++seg_id) {
                 const auto& rowset_meta = rs->rowset_meta();
@@ -1920,21 +1984,21 @@ void CloudTablet::_add_rowsets_directly(std::vector<RowsetSharedPtr>& rowsets,
                     g_file_cache_cloud_tablet_submitted_segment_size
                             << rs->rowset_meta()->segment_file_size(seg_id);
                 }
-                if (!warm_up_state_updated) {
+                if (!generation) {
                     VLOG_DEBUG << "warm up rowset " << rs->version() << "(" << rs->rowset_id()
                                << ") triggerd by sync rowset";
-                    if (!add_rowset_warmup_state_unlocked(*(rs->rowset_meta()),
-                                                          WarmUpTriggerSource::SYNC_ROWSET)) {
+                    generation = add_rowset_warmup_state_unlocked(*(rs->rowset_meta()),
+                                                                  WarmUpTriggerSource::SYNC_ROWSET);
+                    if (!generation) {
                         LOG(INFO) << "found duplicate warmup task for rowset " << rs->rowset_id()
                                   << ", skip it";
                         break;
                     }
-                    warm_up_state_updated = true;
                 }
 
                 if (!config::file_cache_enable_only_warm_up_idx) {
                     _submit_segment_download_task(rs, storage_resource.value(), seg_id,
-                                                  expiration_time);
+                                                  expiration_time, *generation);
                 }
 
                 auto schema_ptr = rowset_meta->tablet_schema();
@@ -1955,7 +2019,7 @@ void CloudTablet::_add_rowsets_directly(std::vector<RowsetSharedPtr>& rowsets,
                                 *rowset_meta, seg_id, index->index_id(), index->get_index_suffix());
                         _submit_inverted_index_download_task(rs, storage_resource.value(), idx_path,
                                                              index_size_map[index->index_id()],
-                                                             expiration_time);
+                                                             expiration_time, *generation);
                     }
                 } else {
                     if (schema_ptr->has_inverted_or_ann_index()) {
@@ -1969,7 +2033,8 @@ void CloudTablet::_add_rowsets_directly(std::vector<RowsetSharedPtr>& rowsets,
                         auto idx_path =
                                 storage_resource.value()->remote_idx_v2_path(*rowset_meta, seg_id);
                         _submit_inverted_index_download_task(rs, storage_resource.value(), idx_path,
-                                                             idx_size, expiration_time);
+                                                             idx_size, expiration_time,
+                                                             *generation);
                     }
                 }
             }
