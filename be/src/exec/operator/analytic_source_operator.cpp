@@ -25,6 +25,7 @@
 #include <utility>
 
 #include "common/config.h"
+#include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
 #include "exec/operator/operator.h"
@@ -257,8 +258,14 @@ size_t AnalyticLocalState::_next_output_reserve_bytes(RuntimeState* state) const
         // A retained Block is cut into the next output slice. Count the actual rows rather
         // than carrying the previous whole-record read peak into every small slice.
         for (const auto& column : *cut_block) {
-            for (size_t row = cut_start; row < cut_start + rows; ++row) {
-                bytes += 2 * column.column->serialize_size_at(row);
+            if (!is_column_const(*column.column) && column.type->have_maximum_size_of_value()) {
+                // A nullable cut copies both its null map and nested fixed-width values,
+                // including values whose serialized NULL representation omits the nested bytes.
+                bytes += 2 * rows * column.type->get_size_of_value_in_memory();
+            } else {
+                for (size_t row = cut_start; row < cut_start + rows; ++row) {
+                    bytes += 2 * column.column->serialize_size_at(row);
+                }
             }
         }
     }
@@ -424,24 +431,28 @@ void AnalyticLocalState::_append_ntile_result(size_t function_index, size_t rows
 Status AnalyticLocalState::_append_peer_group_results(
         RuntimeState* state, size_t rows, const std::vector<IColumn*>& computed_result_columns) {
     const auto function_count = _current_batch->strategies.size();
-    for (size_t row = 0; row < rows; ++row) {
-        if ((row & 4095) == 0) {
+    for (size_t offset = 0; offset < rows;) {
+        if ((offset & 4095) == 0) {
             RETURN_IF_CANCELLED(state);
         }
-        const int64_t batch_row = _batch_output_position + row;
+        const int64_t batch_row = _batch_output_position + offset;
         while (batch_row >= _peer_group_end) {
             RETURN_IF_ERROR(_next_peer_group_end(state));
         }
         DCHECK_GE(_peer_group_start, _partition_start);
         DCHECK_LE(_peer_group_end, _partition_end);
+        // Keep the existing cancellation cadence even when one peer spans many output rows.
+        const size_t count =
+                std::min({rows - offset, static_cast<size_t>(_peer_group_end - batch_row),
+                          size_t {4096} - (offset & 4095)});
         for (size_t i = 0; i < function_count; ++i) {
             if (_current_batch->strategies[i] != WindowSpillStrategy::PEER_GROUP) {
                 continue;
             }
             assert_cast<ColumnFloat64&>(*computed_result_columns[i])
-                    .get_data()
-                    .push_back(_current_peer_group_result(i));
+                    .insert_many_vals(_current_peer_group_result(i), count);
         }
+        offset += count;
     }
     return Status::OK();
 }

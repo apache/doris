@@ -32,8 +32,10 @@
 #include "core/block/block.h"
 #include "core/column/column_const.h"
 #include "core/column/column_dummy.h"
+#include "core/column/column_nullable.h"
 #include "core/cow.h"
 #include "core/data_type/data_type.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
 #include "exec/operator/analytic_source_operator.h"
 #include "exec/operator/repeat_operator.h"
@@ -607,6 +609,56 @@ TEST_F(AnalyticSinkOperatorTest, SpillAdmissionIncludesFirstAndNextInMemoryCuts)
     ASSERT_EQ(output.rows(), 1024);
     EXPECT_EQ(source_local_state->_replay_block_position, 2048);
     EXPECT_EQ(source->get_reserve_mem_size(state.get()), first_cut);
+}
+
+TEST_F(AnalyticSinkOperatorTest, SpillAdmissionCountsNullableFixedWidthCutStorage) {
+    Initialize(65535);
+    prepare_spilled_full_partition_sum();
+    constexpr size_t block_rows = 65536;
+    constexpr size_t columns = 32;
+    const auto nullable_type = make_nullable(std::make_shared<DataTypeInt64>());
+    const std::vector<int64_t> values(block_rows, 7);
+
+    for (bool mixed_nulls : {false, true}) {
+        std::vector<UInt8> null_map(block_rows, 1);
+        if (mixed_nulls) {
+            for (size_t row = 0; row < block_rows; row += 2) {
+                null_map[row] = 0;
+            }
+        }
+        const auto column = ColumnHelper::create_nullable_column<DataTypeInt64>(values, null_map);
+        Block block;
+        for (size_t i = 0; i < columns; ++i) {
+            block.insert({column, nullable_type, "nullable_input"});
+        }
+        auto batch = std::make_shared<AnalyticSpillBatch>();
+        batch->rows = block_rows;
+        batch->blocks.push_back(std::move(block));
+        source_local_state->_current_batch = batch;
+
+        const size_t rows = state->batch_size();
+        const size_t budget = source_local_state->_next_output_reserve_bytes(state.get());
+        size_t cut_bytes = 0;
+        for (const auto& input : batch->blocks.front()) {
+            cut_bytes += input.column->cut(0, rows)->allocated_bytes();
+        }
+        EXPECT_EQ(budget, 2 * rows * columns * nullable_type->get_size_of_value_in_memory());
+        EXPECT_GE(budget, cut_bytes);
+    }
+
+    // A constant NULL remains one stored value after cut, not 65,535 nested Int64 values.
+    auto null_column = nullable_type->create_column();
+    null_column->insert_default();
+    ColumnPtr const_column = ColumnConst::create(std::move(null_column), block_rows);
+    Block const_block;
+    const_block.insert({const_column, nullable_type, "constant_null"});
+    auto batch = std::make_shared<AnalyticSpillBatch>();
+    batch->rows = block_rows;
+    batch->blocks.push_back(std::move(const_block));
+    source_local_state->_current_batch = batch;
+    const size_t budget = source_local_state->_next_output_reserve_bytes(state.get());
+    EXPECT_EQ(budget, 2 * static_cast<size_t>(state->batch_size()));
+    EXPECT_GE(budget, const_column->cut(0, state->batch_size())->allocated_bytes());
 }
 
 TEST_F(AnalyticSinkOperatorTest, SpillCardinalityKeepsConstantArgumentsCompact) {
@@ -1350,6 +1402,38 @@ size_t replay_read_reserve(const AnalyticSpillBatch::RecordMemory& memory) {
            memory.serialized_bytes + 2 * memory.decoded_bytes;
 }
 
+void expect_large_cume_dist_block(const Block& output, size_t* seen) {
+    constexpr size_t total_rows = 8002;
+    ASSERT_LE(output.rows(), 1024);
+    const auto& order = assert_cast<const ColumnInt64&>(*output.get_by_position(0).column);
+    const auto& result = assert_cast<const ColumnFloat64&>(*output.get_by_position(1).column);
+    for (size_t row = 0; row < output.rows(); ++row, ++(*seen)) {
+        int64_t expected_order = *seen < 5000 ? 1 : 2;
+        double expected_result = *seen < 5000 ? 5000.0 / total_rows : 8001.0 / total_rows;
+        if (*seen == 8001) {
+            expected_order = 3;
+            expected_result = 1.0;
+        }
+        EXPECT_EQ(order.get_data()[row], expected_order);
+        EXPECT_EQ(result.get_data()[row], expected_result);
+    }
+}
+
+void expect_large_cume_dist_peer_output(AnalyticSourceOperatorX* source, RuntimeState* state) {
+    size_t seen = 0;
+    bool eos = false;
+    while (!eos) {
+        Block output;
+        const auto status = source->get_block(state, &output, &eos);
+        ASSERT_TRUE(status.ok()) << status.to_string();
+        if (eos) {
+            break;
+        }
+        expect_large_cume_dist_block(output, &seen);
+    }
+    EXPECT_EQ(seen, 8002);
+}
+
 } // namespace
 
 TEST_F(AnalyticSinkOperatorTest, SpillPathCoalescesSmallBlocksAndSlicesReplay) {
@@ -1599,6 +1683,30 @@ TEST_F(AnalyticSinkOperatorTest, SpillPathReplaysPeerGroupsFromSidecarFile) {
     // Nothing is queued behind the batch, so finishing it reserves nothing.
     EXPECT_EQ(source_local_state->_spill_replay_reserve_bytes(state.get()), 0);
     expect_spill_source_eos(source.get(), state.get());
+}
+
+TEST_F(AnalyticSinkOperatorTest, SpillPathFillsPeerRangesAcrossOutputBlocksAndSidecar) {
+    ASSERT_TRUE(spill_file_manager.init().ok());
+    Initialize(1024);
+    prepare_cume_dist_without_partition();
+
+    // The first large peer crosses output Blocks. Revocation writes its end to the sidecar;
+    // the next peer crosses both the data-record and sidecar-record boundaries.
+    std::vector<int64_t> first_values(5000, 1);
+    first_values.push_back(2);
+    Block first = ColumnHelper::create_block<DataTypeInt64>(first_values);
+    auto status = sink->sink(state.get(), &first, false);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    status = sink->revoke_memory(state.get());
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_TRUE(sink_local_state->_batch_store->has_spilled_peer_groups());
+
+    std::vector<int64_t> second_values(3000, 2);
+    second_values.push_back(3);
+    Block second = ColumnHelper::create_block<DataTypeInt64>(second_values);
+    status = sink->sink(state.get(), &second, true);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    expect_large_cume_dist_peer_output(source.get(), state.get());
 }
 
 TEST_F(AnalyticSinkOperatorTest, SpillPathFlushesPeerGroupsAtSpillBufferSize) {
