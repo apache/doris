@@ -49,10 +49,13 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.VolatileExpression;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.DateAddSubMonotonic;
+import org.apache.doris.nereids.trees.expressions.functions.DateCeilFloorMonotonic;
 import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
@@ -76,6 +79,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
@@ -83,8 +88,18 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewri
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitors;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Filter;
+import org.apache.doris.nereids.trees.plans.algebra.Generate;
+import org.apache.doris.nereids.trees.plans.algebra.Join;
+import org.apache.doris.nereids.trees.plans.algebra.Limit;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
+import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalExcept;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VariantType;
@@ -132,6 +147,42 @@ public class ExpressionUtils {
     // (worst case 4 * 4 * 3^3 = 432 for N = MAX_MARK_SLOT_COUNT = 4, each pass rebuilding and
     // folding the conjunct). We restrict MAX_MARK_SLOT_COUNT to 4 to bound this cost.
     private static final int MAX_MARK_SLOT_COUNT = 4;
+
+    /**
+     * Date arithmetic can throw for values outside its valid range. Keep it above a lower
+     * condition, join, limit, rejecting set operation, generate, or CTE consumer so rejected
+     * rows are not evaluated early.
+     * A date add/subtract with literal zero is an identity and remains safe to push through.
+     */
+    public static boolean requiresDateArithmeticProtection(Expression expression, Plan input) {
+        return expression.anyMatch(expr -> isUnsafeDateArithmetic((Expression) expr))
+                && input.anyMatch(plan -> plan instanceof Filter || plan instanceof Join || plan instanceof Limit
+                        || plan instanceof LogicalExcept || plan instanceof PhysicalExcept
+                        || plan instanceof LogicalIntersect || plan instanceof PhysicalIntersect
+                        || plan instanceof Generate || plan instanceof LogicalCTEConsumer
+                        || plan instanceof PhysicalCTEConsumer);
+    }
+
+    private static boolean isUnsafeDateArithmetic(Expression expression) {
+        if (expression instanceof DateCeilFloorMonotonic) {
+            return true;
+        }
+        int dateChildIndex;
+        if (expression instanceof TimestampArithmetic) {
+            dateChildIndex = 0;
+        } else if (expression instanceof DateAddSubMonotonic) {
+            dateChildIndex = ((DateAddSubMonotonic) expression).getMonotonicFunctionChildIndex();
+        } else {
+            return false;
+        }
+        for (int i = 0; i < expression.children().size(); i++) {
+            if (i != dateChildIndex && !(expression.child(i) instanceof IntegerLikeLiteral
+                    && ((IntegerLikeLiteral) expression.child(i)).compareTo(new IntegerLiteral(0)) == 0)) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     public static List<Expression> extractConjunction(Expression expr) {
         return extract(And.class, expr);
