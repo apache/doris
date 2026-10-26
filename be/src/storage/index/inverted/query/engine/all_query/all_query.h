@@ -96,10 +96,14 @@ public:
 
     ~AllWeight() override = default;
 
-    ScorerPtr scorer(const QueryExecutionContext& context) override {
+    ScorerPtr scorer(const QueryExecutionContext& context) override { return scorer(context, {}); }
+
+    ScorerPtr scorer(const QueryExecutionContext& context,
+                     const std::string& binding_key) override {
         auto inner = std::make_shared<AllScorer>(context.segment_num_rows, _enable_scoring);
         if (_nullable && context.null_resolver != nullptr) {
-            std::string logical = logical_field_or_fallback(context, "", _field);
+            // NULL bitmaps use SQL field names ("body"), not physical index field IDs ("1").
+            std::string logical = logical_field_or_fallback(context, binding_key, _field);
             auto nulls = FieldNullBitmapFetcher::fetch(context, logical, inner.get());
             if (nulls != nullptr && !nulls->isEmpty()) {
                 auto truths = std::make_shared<roaring::Roaring>();
