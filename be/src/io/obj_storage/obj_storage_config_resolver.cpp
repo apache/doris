@@ -103,34 +103,18 @@ std::string flat_fields_to_string(const FlatClientFields& fields) {
             credential_type_name(fields.credential), fields.is_internal_bucket);
 }
 
-// The rules FE properties have always been checked against when they are converted.
-Status validate_flat_fields(const FlatClientFields& fields) {
-    if (fields.endpoint.empty()) {
-        return Status::InvalidArgument<false>("Invalid s3 conf, empty endpoint");
-    }
+// The rules of FE properties that the typed configuration does not cover: every provider, Azure
+// included, must name a region, and an Azure source cannot carry a provider-native credential,
+// which only an S3 backend has a field for.
+Status validate_property_rules(const FlatClientFields& fields) {
     if (fields.region.empty()) {
         return Status::InvalidArgument<false>("Invalid s3 conf, empty region");
     }
-    ObjCredentialValidationContext credential_context {
-            .provider = to_obj_credential_provider(fields.provider),
-            .ak = fields.ak,
-            .sk = fields.sk,
-            .token = fields.token,
-            .has_aws_role_arn = !fields.role_arn.empty(),
-            .has_aws_external_id = !fields.external_id.empty(),
-            .has_aws_credential_provider = fields.cred_provider_type != CredProviderType::Default,
-    };
-    if (auto error = validate_obj_credential_config(fields.credential, credential_context);
-        error.has_value()) {
-        return Status::InvalidArgument<false>(*error);
-    }
-    if (fields.role_arn.empty()) {
-        // Either both credentials are provided or both are empty (anonymous access)
-        if (!fields.ak.empty() && fields.sk.empty()) {
-            return Status::InvalidArgument<false>("Invalid s3 conf, empty sk");
-        }
-        if (!fields.sk.empty() && fields.ak.empty()) {
-            return Status::InvalidArgument<false>("Invalid s3 conf, empty ak");
+    if (fields.provider == ObjStorageProvider::AZURE) {
+        if (auto error = validate_obj_credential_config(fields.credential,
+                                                        {.provider = ObjCredentialProvider::Azure});
+            error.has_value()) {
+            return Status::InvalidArgument<false>(*error);
         }
     }
     return Status::OK();
@@ -138,8 +122,8 @@ Status validate_flat_fields(const FlatClientFields& fields) {
 
 std::variant<S3ClientConfig, AzureClientConfig> flat_backend(const FlatClientFields& fields) {
     if (fields.provider == ObjStorageProvider::AZURE) {
-        // Provider-native credentials are GCP only, which FE and the meta service reject for
-        // any other provider, so an Azure source never carries one.
+        // Provider-native credentials are GCP only. FE properties reject one for Azure in
+        // validate_property_rules, and FE and the meta service never store one for Azure.
         DORIS_CHECK(std::holds_alternative<std::monostate>(fields.credential));
         return AzureClientConfig {
                 .endpoint = fields.endpoint,
@@ -286,11 +270,13 @@ Result<ObjStorageConfig> ObjStorageConfigResolver::from_properties(
         return ResultError(Status::InvalidArgument(*error));
     }
 
-    RETURN_IF_ERROR_RESULT(validate_flat_fields(fields));
+    RETURN_IF_ERROR_RESULT(validate_property_rules(fields));
+    auto client = flat_client_config(fields);
+    RETURN_IF_ERROR_RESULT(validate_obj_client_config(client));
     return ObjStorageConfig {
             .bucket = location.bucket,
             .prefix = "",
-            .client = flat_client_config(fields),
+            .client = std::move(client),
     };
 }
 
@@ -445,33 +431,6 @@ Result<ObjClientConfig> ObjStorageConfigResolver::from_azure_client_config(
             .usage = ClientUsage::EXTERNAL_ACCESS,
             .backend = std::move(azure).value(),
     };
-}
-
-Result<ObjClientConfig> ObjStorageConfigResolver::merge_update(const ObjClientConfig& current,
-                                                               const ObjClientConfig& update) {
-    if (current.backend.index() != update.backend.index()) {
-        return ResultError(Status::InvalidArgument<false>(
-                "storage backend changed from {} to {}; the storage target cannot be reset in "
-                "place",
-                current.to_string(), update.to_string()));
-    }
-    ObjClientConfig merged = current;
-    merged.connection = update.connection;
-    merged.usage = update.usage;
-    if (auto* s3 = std::get_if<S3ClientConfig>(&merged.backend)) {
-        const auto& update_s3 = std::get<S3ClientConfig>(update.backend);
-        // The refreshed source's provider is authoritative, as in the flat merge.
-        s3->vendor = update_s3.vendor;
-        s3->use_virtual_addressing = update_s3.use_virtual_addressing;
-        s3->auth = update_s3.auth;
-    } else {
-        auto& azure = std::get<AzureClientConfig>(merged.backend);
-        const auto& update_azure = std::get<AzureClientConfig>(update.backend);
-        azure.account = update_azure.account;
-        azure.container = update_azure.container;
-        azure.auth = update_azure.auth;
-    }
-    return merged;
 }
 
 } // namespace doris::io

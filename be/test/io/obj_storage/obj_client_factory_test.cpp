@@ -370,7 +370,7 @@ TEST_F(ObjClientFactoryTest, ResetMergeKeepsTheStorageTarget) {
     update_param.__set_use_path_style(true);
     update_param.__set_max_conn(7);
 
-    auto merged = ObjStorageConfigResolver::merge_update(current, resolve(update_param));
+    auto merged = merge_obj_client_config(current, resolve(update_param));
     ASSERT_TRUE(merged.has_value()) << merged.error();
     const auto& s3 = std::get<S3ClientConfig>(merged->backend);
     // The target stays; credentials, addressing and connection options follow the update.
@@ -381,8 +381,8 @@ TEST_F(ObjClientFactoryTest, ResetMergeKeepsTheStorageTarget) {
     EXPECT_EQ(merged->connection.max_connections, 7);
 
     // Another backend is another storage target, which needs a new binding.
-    auto as_azure = ObjStorageConfigResolver::merge_update(
-            current, resolve(make_azure_param("merge-target.example.com")));
+    auto as_azure =
+            merge_obj_client_config(current, resolve(make_azure_param("merge-target.example.com")));
     ASSERT_FALSE(as_azure.has_value());
     EXPECT_TRUE(as_azure.error().is<ErrorCode::INVALID_ARGUMENT>()) << as_azure.error();
 }
@@ -431,7 +431,24 @@ TEST_F(ObjClientFactoryTest, ResolvesPropertiesAndVaults) {
     ASSERT_TRUE(azure.has_value()) << azure.error();
     EXPECT_EQ(std::get<AzureClientConfig>(azure->client.backend).container, "props-bucket");
 
-    // Properties are checked when they are converted: a region is required.
+    // Properties are checked when they are converted with the typed rules of the backend, e.g.
+    // an Azure account key needs an account name.
+    auto without_account = props;
+    without_account.erase("AWS_ACCESS_KEY");
+    auto no_account = ObjStorageConfigResolver::from_properties(without_account, location.value());
+    ASSERT_FALSE(no_account.has_value());
+    EXPECT_TRUE(no_account.error().is<ErrorCode::INVALID_ARGUMENT>()) << no_account.error();
+
+    // Azure properties cannot carry a provider-native credential, which only S3 has a field for.
+    auto with_gcp_credential = props;
+    with_gcp_credential["gs.credential_provider_type"] = "DEFAULT";
+    auto gcp_on_azure =
+            ObjStorageConfigResolver::from_properties(with_gcp_credential, location.value());
+    ASSERT_FALSE(gcp_on_azure.has_value());
+    EXPECT_NE(gcp_on_azure.error().to_string().find("provider=GCP"), std::string::npos)
+            << gcp_on_azure.error();
+
+    // A region is still required for every provider, Azure included.
     props.erase("AWS_REGION");
     EXPECT_FALSE(ObjStorageConfigResolver::from_properties(props, location.value()).has_value());
 

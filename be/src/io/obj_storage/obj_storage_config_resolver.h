@@ -47,8 +47,7 @@ class ObjStorageConfigResolver {
 public:
     // FE properties of a FILE_S3 request (AWS_* keys; provider=azure selects Azure) for the
     // file at `location`, whose bucket becomes the binding's bucket. Validated like before:
-    // endpoint and region are required, and ak/sk must come together unless a role is
-    // assumed.
+    // the property rules (a region for every provider) and then validate_obj_client_config.
     static Result<ObjStorageConfig> from_properties(
             const std::map<std::string, std::string>& properties, const ObjStorageUri& location);
 
@@ -67,15 +66,6 @@ public:
     // instead of at the first request.
     static Result<ObjClientConfig> from_azure_client_config(const TAzureClientConfig& config,
                                                             const ObjStorageUri& location);
-
-    // Merges a refreshed resource or vault configuration into the one a holder uses. The
-    // storage target stays: S3 keeps its endpoint, region and endpoint override, Azure keeps
-    // its endpoint. Credentials, connection options, usage, the S3 vendor and addressing, and
-    // the Azure account and container come from `update`, as the flat-field merge does. A
-    // different backend is a different storage target, which needs a new binding rather than
-    // a reset, so it is rejected.
-    static Result<ObjClientConfig> merge_update(const ObjClientConfig& current,
-                                                const ObjClientConfig& update);
 };
 
 } // namespace doris::io
