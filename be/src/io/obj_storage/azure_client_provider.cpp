@@ -23,7 +23,7 @@
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "io/obj_storage/obj_client_factory.h"
+#include "io/obj_storage/obj_client_rate_limit.h"
 
 #ifdef USE_AZURE
 #include <azure/core/http/curl_transport.hpp>
