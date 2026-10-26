@@ -271,9 +271,9 @@ protected:
         ctx->tuple_desc = ctx->desc_tbl->get_tuple_descriptor(0);
         ASSERT_NE(ctx->tuple_desc, nullptr);
 
-        ctx->memtable = std::make_shared<MemTable>(
-                ctx->request.tablet_id, ctx->tablet->tablet_schema(), &ctx->tuple_desc->slots(),
-                ctx->tuple_desc, false, nullptr, thread_context()->resource_ctx(), true);
+        ctx->memtable = MemTable::create(ctx->request.tablet_id, ctx->tablet->tablet_schema(),
+                                         &ctx->tuple_desc->slots(), ctx->tuple_desc, false, nullptr,
+                                         thread_context()->resource_ctx(), true);
         Block block;
         for (const auto& slot : ctx->tuple_desc->slots()) {
             block.insert(ColumnWithTypeAndName(slot->get_empty_mutable_column(), slot->type(),

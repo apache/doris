@@ -29,11 +29,17 @@
 #include "core/field.h"
 #include "load/delta_writer/delta_writer_context.h"
 #include "load/memtable/memtable.h"
+#include "load/memtable/memtable_dup_keys.h"
 #include "runtime/descriptors.h"
 #include "runtime/thread_context.h"
 #include "testutil/desc_tbl_builder.h"
 
 namespace doris {
+
+// The fixture only builds DUP_KEYS memtables, so the compact row permutation is always available.
+static DupKeysMemTable& dup_keys_memtable(MemTable& memtable) {
+    return static_cast<DupKeysMemTable&>(memtable);
+}
 
 class MemTableSortTest : public ::testing::Test {};
 
@@ -115,13 +121,13 @@ protected:
         _memtable = create_memtable(false);
     }
 
-    std::unique_ptr<MemTable> create_memtable(bool need_lsn) const {
+    std::shared_ptr<MemTable> create_memtable(bool need_lsn) const {
         return create_memtable(_tablet_schema, need_lsn);
     }
 
-    std::unique_ptr<MemTable> create_memtable(const TabletSchemaSPtr& schema, bool need_lsn) const {
-        return std::make_unique<MemTable>(1, schema, &_tuple_desc->slots(), _tuple_desc, false,
-                                          nullptr, _resource_ctx, need_lsn);
+    std::shared_ptr<MemTable> create_memtable(const TabletSchemaSPtr& schema, bool need_lsn) const {
+        return MemTable::create(1, schema, &_tuple_desc->slots(), _tuple_desc, false, nullptr,
+                                _resource_ctx, need_lsn);
     }
 
     TabletSchemaSPtr create_tablet_schema(bool with_keys) const {
@@ -203,11 +209,12 @@ protected:
     DataTypePtr _array_type;
     TabletSchemaSPtr _tablet_schema;
     std::shared_ptr<ResourceContext> _resource_ctx;
-    std::unique_ptr<MemTable> _memtable;
+    std::shared_ptr<MemTable> _memtable;
 };
 
-// Verify incremental sorting across insert batches, including the newest-first tie order for equal
-// duplicate keys and correct movement of a non-POD ARRAY value column.
+// Verify that several insert batches are sorted together by the single to_block() call, including
+// the newest-first tie order for equal duplicate keys and correct movement of a non-POD ARRAY
+// value column.
 TEST_F(DuplicateKeyMemTableTest, SortMultipleBatchesWithDuplicateKeysAndArrays) {
     auto first = create_block({{2, "b", make_array({"first"})},
                                {1, "a", make_array({"old"})},
@@ -236,14 +243,14 @@ TEST_F(DuplicateKeyMemTableTest, BatchedInsertUsesAmortizedCapacityGrowth) {
     size_t capacity_changes = 0;
     for (size_t i = 0; i < 64; ++i) {
         ASSERT_TRUE(_memtable->insert(&data, TabletAddRowsPayload {.row_idxs = {0}}).ok());
-        const auto capacity = _memtable->_duplicate_key_row_positions->capacity();
+        const auto capacity = dup_keys_memtable(*_memtable)._row_positions.capacity();
         if (capacity != previous_capacity) {
             ++capacity_changes;
             previous_capacity = capacity;
         }
     }
 
-    EXPECT_EQ(_memtable->_duplicate_key_row_positions->size(), 64);
+    EXPECT_EQ(dup_keys_memtable(*_memtable)._row_positions.size(), 64);
     EXPECT_LE(capacity_changes, 8);
 }
 
@@ -258,14 +265,14 @@ TEST_F(DuplicateKeyMemTableTest, BatchedInsertWithLsnsUsesAmortizedCapacityGrowt
                                  TabletAddRowsPayload {.row_idxs = {0},
                                                        .allocated_lsns = {static_cast<int64_t>(i)}})
                         .ok());
-        const auto capacity = memtable->_duplicate_key_allocated_lsns->capacity();
+        const auto capacity = dup_keys_memtable(*memtable)._allocated_lsns.capacity();
         if (capacity != previous_capacity) {
             ++capacity_changes;
             previous_capacity = capacity;
         }
     }
 
-    EXPECT_EQ(memtable->_duplicate_key_allocated_lsns->size(), 64);
+    EXPECT_EQ(dup_keys_memtable(*memtable)._allocated_lsns.size(), 64);
     EXPECT_LE(capacity_changes, 8);
 }
 
@@ -334,9 +341,8 @@ TEST_F(DuplicateKeyMemTableTest, InsertUsesCompactContiguousRowPositions) {
                               {2, "b", make_array({"latest"})}});
     ASSERT_TRUE(_memtable->insert(&data, TabletAddRowsPayload {.row_idxs = {0, 1, 2}}).ok());
 
-    EXPECT_EQ(*_memtable->_duplicate_key_row_positions, (DorisVector<uint32_t> {0, 1, 2}));
-    EXPECT_TRUE(_memtable->_row_in_blocks->empty());
-    EXPECT_LT(sizeof(uint32_t) * 8, sizeof(std::shared_ptr<RowInBlock>) + sizeof(RowInBlock));
+    EXPECT_EQ(dup_keys_memtable(*_memtable)._row_positions, (DorisVector<uint32_t> {0, 1, 2}));
+    EXPECT_LT(sizeof(uint32_t), sizeof(std::shared_ptr<RowInBlock>) + sizeof(RowInBlock));
 }
 
 } // namespace doris

@@ -64,6 +64,11 @@ suite("test_dup_key_compact_row_position") {
         FROM test_dup_key_compact_row_position_src
     """
 
+    // The framework re-sorts the rows of an order_qt_ tag by their string form before comparing
+    // with the .out file, so this ORDER BY only makes the raw result deterministic. What the case
+    // pins down is that all six rows survive the compact row permutation and that the ARRAY value
+    // moves together with its row. The newest-first tie order of equal duplicate keys is asserted
+    // by DuplicateKeyMemTableTest.SortMultipleBatchesWithDuplicateKeysAndArrays instead.
     order_qt_dup_key_array """
         SELECT shard_num, label_name, label_value, uid, dt
         FROM test_dup_key_compact_row_position
