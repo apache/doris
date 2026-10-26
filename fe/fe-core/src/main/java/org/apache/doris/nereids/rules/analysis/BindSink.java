@@ -661,7 +661,7 @@ public class BindSink implements AnalysisRuleFactory {
         }
 
         if (tvfName.equals(LocalTableValuedFunction.NAME)) {
-            LocalTableValuedFunction.checkAccess(ctx.connectContext);
+            LocalTableValuedFunction.checkAccess();
         }
 
         // Validate required properties
