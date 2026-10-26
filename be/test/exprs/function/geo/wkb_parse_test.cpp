@@ -38,6 +38,49 @@ public:
     ~WkbParseTest() override = default;
 };
 
+static void expect_calculation_rings(const std::string& hex) {
+    std::string bytes(hex.size() / 2, '\0');
+    ASSERT_EQ(string_hex::hex_decode(hex.data(), hex.size(), bytes.data()), bytes.size());
+    GeoCoordinateListList sequences;
+    GeoShapeType type;
+    ASSERT_EQ(WkbParse::calculation_coordinates(bytes.data(), bytes.size(), &sequences, &type),
+              GeoParseStatus::GEO_PARSE_OK);
+    ASSERT_EQ(type, GeoShapeType::GEO_SHAPE_POLYGON);
+    ASSERT_EQ(sequences.list.size(), 2);
+    ASSERT_EQ(sequences.list[0]->list.size(), 4);
+    ASSERT_EQ(sequences.list[1]->list.size(), 4);
+    EXPECT_EQ(sequences.list[0]->list[0].y, 58);
+    EXPECT_EQ(sequences.list[0]->list[2].y, 58.00000000000001);
+    EXPECT_NE(sequences.list[0]->list[0].y, sequences.list[0]->list[2].y);
+}
+
+TEST_F(WkbParseTest, CalculationCoordinatesRetainRawRings) {
+    for (const std::string hex :
+         {"000000000300000002000000040000000000000000404d000000000000405680000000000000000000000000"
+          "000000000000000000404d0000000000010000000000000000404d0000000000000000000440240000000000"
+          "0040240000000000004026000000000000402400000000000040260000000000004026000000000000402400"
+          "00000000004024000000000000",
+          "0103000000020000000400000000000000000000000000000000004d40000000000080564000000000000000"
+          "0000000000000000000100000000004d4000000000000000000000000000004d400400000000000000000024"
+          "4000000000000024400000000000002640000000000000244000000000000026400000000000002640000000"
+          "00000024400000000000002440"}) {
+        expect_calculation_rings(hex);
+    }
+}
+
+TEST_F(WkbParseTest, CalculationCoordinatesRejectUnsupportedInputs) {
+    for (const std::string hex : {"010300000000000000", "010400000000000000",
+                                  "01E9030000000000000000244000000000008046400000000000000840",
+                                  "01030000000100000004000000"}) {
+        std::string bytes(hex.size() / 2, '\0');
+        ASSERT_EQ(string_hex::hex_decode(hex.data(), hex.size(), bytes.data()), bytes.size());
+        GeoCoordinateListList sequences;
+        GeoShapeType type;
+        EXPECT_NE(WkbParse::calculation_coordinates(bytes.data(), bytes.size(), &sequences, &type),
+                  GeoParseStatus::GEO_PARSE_OK);
+    }
+}
+
 TEST_F(WkbParseTest, RawCoordinatesKeepSourceOrdinateBits) {
     for (const auto& hex : {"010100000000000000000024400000000000804640",
                             "000000000140240000000000004046800000000000",

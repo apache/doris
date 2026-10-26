@@ -323,4 +323,27 @@ suite("test_spatial_wkb_compatibility") {
             ST_GeogFromWKB('01010000000000000000806640ffffffffff7f46c0') b,
             ST_GeogFromWKB('010100000000000000008066c001000000008046c0') c,
             ST_GeogFromWKB('010100000000000000000000000000000000004740') n) shapes"""
+
+    // Distinct raw endpoints can collide after degrees-to-radians conversion.
+    order_qt_geography_rounded_endpoint_identity """select
+        ST_Distance(p, l) < 1, ST_Distance(l, p) < 1,
+        ST_Distance(p, l) = ST_Distance(l, p), ST_DWithin(p, l, 1), ST_DWithin(l, p, 1),
+        ST_Intersects(p, l), ST_Intersects(l, p), ST_Disjoint(p, l),
+        ST_Touches(p, l), ST_Contains(l, p), ST_Within(p, l), ST_Touches(e, l), ST_Equals(p, e)
+        from (select ST_GeogFromWKB('010100000000000000000000000000000000004d40') p,
+            ST_GeogFromWKB('01020000000200000000000000000000000100000000004d4000000000008066400000000000004dc0') l,
+            ST_GeogFromWKB('010100000000000000000000000100000000004d40') e) shapes"""
+    // Admit the same tiny hole with an original, subdivided or reversed near-antipodal shell.
+    order_qt_geography_stable_hole_admission """select
+        ST_Intersects(a, p), ST_Intersects(p, a), ST_Intersects(b, p), ST_Intersects(c, p),
+        ST_Contains(a, q), ST_Contains(b, q), ST_Contains(c, q), ST_Touches(a, v),
+        ST_Distance(a, p) > 0, ST_Distance(p, a) > 0, ST_DWithin(a, p, 1),
+        abs(ST_Area_Square_Meters(a) / ST_Area_Square_Meters(b) - 1) < 1e-12,
+        abs(ST_Area_Square_Km(a) / ST_Area_Square_Km(c) - 1) < 1e-12
+        from (select ST_GeogFromWKB('01030000000200000004000000fcffffffff7f46c000000000008046c0ffffffffffdf6040000000000080464000000000008046400000000000804640fcffffffff7f46c000000000008046c0040000006b4029ffff7f4640314514eef032ae3e95bfd60000804640314514eef032ae3e000000000080464082b861ca7674b23e6b4029ffff7f4640314514eef032ae3e') a,
+            ST_GeogFromWKB('01030000000200000005000000fcffffffff7f46c000000000008046c000000000008046400000000000000000ffffffffffdf6040000000000080464000000000008046400000000000804640fcffffffff7f46c000000000008046c0040000006b4029ffff7f4640314514eef032ae3e95bfd60000804640314514eef032ae3e000000000080464082b861ca7674b23e6b4029ffff7f4640314514eef032ae3e') b,
+            ST_GeogFromWKB('01030000000200000004000000fcffffffff7f46c000000000008046c000000000008046400000000000804640ffffffffffdf60400000000000804640fcffffffff7f46c000000000008046c0040000006b4029ffff7f4640314514eef032ae3e95bfd60000804640314514eef032ae3e000000000080464082b861ca7674b23e6b4029ffff7f4640314514eef032ae3e') c,
+            ST_GeogFromWKB('010100000000000000008046408dedb5a0f7c6b03e') p,
+            ST_GeogFromWKB('010100000000000000008046408dedb5a0f7c6a03e') q,
+            ST_GeogFromWKB('0101000000000000000080464082b861ca7674b23e') v) shapes"""
 }

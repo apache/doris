@@ -919,6 +919,111 @@ static void geography_measurement(const std::string& name, const Strings& wkts, 
     *result = value.get<TYPE_DOUBLE>();
 }
 
+TEST(VGeoFunctionsTest, GeographyRawEndpointsSurviveRoundedPointCollisions) {
+    const std::string point = "POINT (0 58)";
+    const std::string line = "LINESTRING (0 58.00000000000001,180 -58)";
+    for (bool reverse : {false, true}) {
+        double distance = -1;
+        geography_measurement("st_distance", {reverse ? line : point, reverse ? point : line},
+                              &distance);
+        EXPECT_GE(distance, 0);
+        EXPECT_LT(distance, 1);
+        expect_geography_relation("st_intersects", reverse ? line : point, reverse ? point : line,
+                                  false);
+        expect_geography_relation("st_touches", reverse ? line : point, reverse ? point : line,
+                                  false);
+    }
+    expect_geography_relation("st_touches", line, "POINT (0 58.00000000000001)", true);
+    expect_geography_relation("st_contains", line, point, false);
+    expect_geography_relation("st_within", point, line, false);
+    expect_geography_relation("st_equals", point, "POINT (0 58.00000000000001)", false);
+    expect_geography_relation("st_equals", "POINT (180 58)", "POINT (-180 58)", true);
+    expect_geography_relation("st_equals", "POINT (0 90)", "POINT (123 90)", true);
+    double distance = -1;
+    geography_measurement("st_distance",
+                          {"LINESTRING (0 58,90 0,0 58.00000000000001,180 -58)", "POINT (90 45)"},
+                          &distance);
+    EXPECT_GE(distance, 0);
+}
+
+static void expect_geography_hole_points(const std::string& polygon) {
+    for (bool reverse : {false, true}) {
+        const std::string center = "POINT (45 0.000001)";
+        const std::string vertex = "POINT (45 0.0000011)";
+        expect_geography_relation("st_intersects", reverse ? center : polygon,
+                                  reverse ? polygon : center, false);
+        expect_geography_relation("st_touches", reverse ? vertex : polygon,
+                                  reverse ? polygon : vertex, true);
+        double distance = -1;
+        geography_measurement("st_distance",
+                              {reverse ? center : polygon, reverse ? polygon : center}, &distance);
+        EXPECT_GT(distance, 0);
+        EXPECT_LT(distance, 0.02);
+    }
+}
+
+static void expect_geography_raw_binary(const std::string& polygon) {
+    const auto hex = geography_test_hex(polygon);
+    const auto bytes = spatial_test_wkb(hex);
+    Block accessor;
+    ASSERT_TRUE(execute_geography_test("st_asbinary", {hex},
+                                       make_nullable(std::make_shared<DataTypeVarbinary>()),
+                                       &accessor)
+                        .ok());
+    const auto raw = accessor.get_by_position(1).column->get_data_at(0);
+    EXPECT_EQ(std::string(raw.data, raw.size), bytes);
+}
+
+TEST(VGeoFunctionsTest, GeographyStabilizesShellBeforeAdmittingHole) {
+    const Strings rings {
+            "(-44.99999999999997 -45,134.99999999999997 45,45 45,-44.99999999999997 -45)",
+            "(-44.99999999999997 -45,45 0,134.99999999999997 45,45 45,-44.99999999999997 -45)",
+            "(-44.99999999999997 -45,45 45,134.99999999999997 45,-44.99999999999997 -45)"};
+    const std::string hole =
+            "(44.9999999 0.0000009,45.0000001 0.0000009,45 0.0000011,"
+            "44.9999999 0.0000009)";
+    double reference = 0;
+    for (const auto& ring : rings) {
+        const std::string polygon = "POLYGON (" + ring + "," + hole + ")";
+        double area = 0;
+        double km = 0;
+        geography_measurement("st_area_square_meters", {polygon}, &area);
+        geography_measurement("st_area_square_km", {polygon}, &km);
+        EXPECT_GT(area, 1e7);
+        EXPECT_NEAR(area, km * 1e6, area * 1e-12);
+        if (reference == 0) {
+            reference = area;
+        }
+        EXPECT_NEAR(area, reference, reference * 1e-12);
+        expect_geography_relation("st_contains", polygon, "POINT (45 0.0000005)", true);
+        expect_geography_hole_points(polygon);
+        expect_geography_raw_binary(polygon);
+    }
+    // Legacy STRING admission is intentionally unchanged.
+    const auto hex = geography_test_hex("POLYGON (" + rings[0] + "," + hole + ")");
+    GeoParseStatus status;
+    EXPECT_EQ(GeoShape::from_wkb(hex.data(), hex.size(), status), nullptr);
+}
+
+TEST(VGeoFunctionsTest, GeographyStableAdmissionKeepsInvalidRingsAndNestedDepths) {
+    for (const auto* invalid :
+         {"POLYGON ((0 0,4 4,0 4,4 0,0 0))", "POLYGON ((0 0,4 0,4 4,0 4,0 0),(5 1,6 1,6 2,5 1))",
+          "POLYGON ((0 0,4 0,4 4,0 4,0 0),(3 1,5 1,3 2,3 1))", "POLYGON ((0 0,4 0,4 4,0 4))",
+          "POLYGON ((0 0,180 0,90 45,0 0))"}) {
+        Block block;
+        EXPECT_FALSE(execute_geography_test("st_area_square_meters", {geography_test_hex(invalid)},
+                                            make_nullable(std::make_shared<DataTypeFloat64>()),
+                                            &block)
+                             .ok());
+    }
+    // InitNested retains an island at depth two even if it reorders input loops.
+    const std::string nested =
+            "POLYGON ((0 0,10 0,10 10,0 10,0 0),"
+            "(4 4,6 4,6 6,4 6,4 4),(2 2,8 2,8 8,2 8,2 2))";
+    expect_geography_relation("st_contains", nested, "POINT (5 5)", true);
+    expect_geography_relation("st_intersects", nested, "POINT (3 3)", false);
+}
+
 TEST(VGeoFunctionsTest, GeographyAreaUsesStableRingsInBothUnits) {
     const Strings rings {
             "(-44.99999999999997 -45,134.99999999999997 45,45 45,-44.99999999999997 -45)",

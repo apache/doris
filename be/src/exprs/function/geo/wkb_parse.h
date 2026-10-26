@@ -54,6 +54,10 @@ public:
     // Retain original XY ordinates when proving common meridians/equator for calculations.
     static GeoParseStatus xy_coordinates(const char* data, size_t size,
                                          GeoCoordinateList* coordinates);
+    // Preserve sequence/ring boundaries for admitted XY calculation shapes.
+    static GeoParseStatus calculation_coordinates(const char* data, size_t size,
+                                                  GeoCoordinateListList* sequences,
+                                                  GeoShapeType* type);
     static GeoParseStatus point_coordinates(const char* data, size_t size, double* x, double* y);
     static GeoParseStatus geometry_type(const char* data, size_t size, std::string* type);
 

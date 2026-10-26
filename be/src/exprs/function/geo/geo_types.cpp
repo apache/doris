@@ -60,6 +60,9 @@ GeoLine::GeoLine() = default;
 GeoLine::~GeoLine() = default;
 
 GeoPolygon::GeoPolygon() = default;
+
+GeoPolygon::GeoPolygon(std::unique_ptr<S2Polygon> polygon, std::vector<int> ring_depths)
+        : _polygon(std::move(polygon)), _calculation_ring_depths(std::move(ring_depths)) {}
 GeoPolygon::~GeoPolygon() = default;
 
 GeoCircle::GeoCircle() = default;

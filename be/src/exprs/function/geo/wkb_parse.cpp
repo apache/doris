@@ -102,8 +102,13 @@ GeoParseStatus read_wkb_type(WkbParseContext& ctx, uint32_t* type, uint32_t* dim
 class RawWkbReader {
 public:
     RawWkbReader(WkbParseContext& context, bool geographic, std::ostream* output = nullptr,
-                 GeoCoordinateList* coordinates = nullptr)
-            : _ctx(context), _geographic(geographic), _output(output), _coordinates(coordinates) {}
+                 GeoCoordinateList* coordinates = nullptr,
+                 GeoCoordinateListList* sequences = nullptr)
+            : _ctx(context),
+              _geographic(geographic),
+              _output(output),
+              _coordinates(coordinates),
+              _sequences(sequences) {}
 
     GeoParseStatus read() {
         do {
@@ -208,6 +213,9 @@ private:
         if (_coordinates != nullptr) {
             _coordinates->add({.x = _coordinate[0], .y = _coordinate[1]});
         }
+        if (_sequences != nullptr) {
+            _sequences->list.back()->add({.x = _coordinate[0], .y = _coordinate[1]});
+        }
         return valid_xy(_coordinate[0], _coordinate[1]);
     }
 
@@ -229,7 +237,14 @@ private:
         }
     }
 
+    void begin_sequence() {
+        if (_sequences != nullptr) {
+            _sequences->add(std::make_unique<GeoCoordinateList>());
+        }
+    }
+
     bool read_point() {
+        begin_sequence();
         if (!read_coordinate()) {
             return false;
         }
@@ -245,6 +260,7 @@ private:
     }
 
     bool read_coordinates(uint32_t count, bool ring) {
+        begin_sequence();
         if (count > _ctx.dis.size() / (ordinates() * sizeof(double))) {
             return false;
         }
@@ -332,6 +348,7 @@ private:
     const bool _geographic;
     std::ostream* const _output;
     GeoCoordinateList* const _coordinates;
+    GeoCoordinateListList* const _sequences;
     uint32_t _root_type = 0;
     uint32_t _dimensions = 0;
     std::array<double, 4> _coordinate {};
@@ -456,6 +473,42 @@ GeoParseStatus WkbParse::xy_coordinates(const char* data, size_t size,
         return GeoParseStatus::GEO_PARSE_WKB_SYNTAX_ERROR;
     }
     return RawWkbReader(ctx, false, nullptr, coordinates).read();
+}
+
+GeoParseStatus WkbParse::calculation_coordinates(const char* data, size_t size,
+                                                 GeoCoordinateListList* sequences,
+                                                 GeoShapeType* type) {
+    WkbParseContext ctx;
+    if (initialize_context(data, size, &ctx) != GeoParseStatus::GEO_PARSE_OK) {
+        return GeoParseStatus::GEO_PARSE_WKB_SYNTAX_ERROR;
+    }
+    uint32_t kind;
+    const auto header = read_wkb_type(ctx, &kind);
+    if (header != GeoParseStatus::GEO_PARSE_OK) {
+        return header;
+    }
+    if (kind > static_cast<uint32_t>(wkbType::wkbPolygon)) {
+        return GeoParseStatus::GEO_PARSE_WKB_SYNTAX_ERROR;
+    }
+    // Rewind the same byte cursor; no payload copy or second WKB grammar.
+    const auto initialized = initialize_context(data, size, &ctx);
+    DCHECK_EQ(initialized, GeoParseStatus::GEO_PARSE_OK);
+    const auto status = RawWkbReader(ctx, true, nullptr, nullptr, sequences).read();
+    if (status != GeoParseStatus::GEO_PARSE_OK) {
+        return status;
+    }
+    if (sequences->list.empty()) {
+        return GeoParseStatus::GEO_PARSE_WKB_SYNTAX_ERROR;
+    }
+    for (const auto& sequence : sequences->list) {
+        for (const auto& coordinate : sequence->list) {
+            if (!std::isfinite(coordinate.x) || !std::isfinite(coordinate.y)) {
+                return GeoParseStatus::GEO_PARSE_COORD_INVALID;
+            }
+        }
+    }
+    *type = static_cast<GeoShapeType>(kind);
+    return GeoParseStatus::GEO_PARSE_OK;
 }
 
 GeoParseStatus WkbParse::point_coordinates(const char* data, size_t size, double* x, double* y) {

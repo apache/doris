@@ -188,6 +188,9 @@ class GeoPolygon : public GeoShape {
 
 public:
     GeoPolygon();
+    // Typed calculation admission retains input ring depths after S2 reorders loops.
+    GeoPolygon(std::unique_ptr<S2Polygon> polygon, std::vector<int> ring_depths);
+    const std::vector<int>& calculation_ring_depths() const { return _calculation_ring_depths; }
     ~GeoPolygon() override;
 
     GeoParseStatus from_coords(const GeoCoordinateListList& list);
@@ -221,6 +224,7 @@ protected:
 
 private:
     std::unique_ptr<S2Polygon> _polygon;
+    std::vector<int> _calculation_ring_depths;
 };
 
 class GeoMultiPolygon : public GeoShape {
