@@ -76,7 +76,7 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* operator_
     _fs = DORIS_TRY(FileFactory::create_fs(fs_properties, file_description));
     if (auto* s3_fs = dynamic_cast<io::S3FileSystem*>(_fs.get());
         s3_fs != nullptr &&
-        !hive_multipart_protocol_supported(s3_fs->client_holder()->s3_client_conf().provider,
+        !hive_multipart_protocol_supported(s3_fs->client_holder()->state()->config.provider(),
                                            _supports_deferred_azure_multipart)) {
         // An old coordinator cannot publish namespaced Azure block IDs; lease expiry is not a
         // compatibility fence, so reject before creating an upload that it could corrupt.

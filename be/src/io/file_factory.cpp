@@ -46,12 +46,14 @@
 #include "io/fs/stream_load_pipe.h"
 #include "io/hdfs_builder.h"
 #include "io/hdfs_util.h"
+#include "io/obj_storage/obj_client_holder.h"
+#include "io/obj_storage/obj_storage_config_resolver.h"
+#include "io/obj_storage/obj_storage_uri.h"
 #include "load/stream_load/new_load_stream_mgr.h"
 #include "load/stream_load/stream_load_context.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
-#include "util/s3_uri.h"
 #include "util/s3_util.h"
 #include "util/uid_util.h"
 
@@ -70,6 +72,31 @@ static io::FileReaderOptions with_storage_in_cache_key(const io::FileReaderOptio
         return fmt::format("{}:{}:{}", storage, path, mtime);
     };
     return keyed;
+}
+
+struct ResolvedObjLocation {
+    // bucket is the file's bucket; the prefix stays empty because the location is always a
+    // full path.
+    io::ObjStorageConfig config;
+    std::string key;
+};
+
+// Resolves the object storage access for one FILE_S3 location from the S3-style keys in the
+// property map. The reader, create_fs and create_file_writer share it.
+static Result<ResolvedObjLocation> resolve_obj_location(
+        const std::map<std::string, std::string>& properties, const std::string& path) {
+    auto location = io::ObjStorageUri::parse_s3(path);
+    if (!location.has_value()) {
+        return ResultError(std::move(location).error());
+    }
+    auto config = io::ObjStorageConfigResolver::from_properties(properties, location.value());
+    if (!config.has_value()) {
+        return ResultError(std::move(config).error());
+    }
+    return ResolvedObjLocation {
+            .config = std::move(config).value(),
+            .key = std::move(location->key),
+    };
 }
 
 io::FileReaderOptions FileFactory::get_reader_options(const TQueryOptions& option,
@@ -126,12 +153,11 @@ Result<io::FileSystemSPtr> FileFactory::create_fs(const io::FSPropertiesRef& fs_
                                             *fs_properties.properties, io::FileSystem::TMP_FS_ID);
     }
     case TFileType::FILE_S3: {
-        S3URI s3_uri(file_description.path);
-        RETURN_IF_ERROR_RESULT(s3_uri.parse());
-        S3Conf s3_conf;
-        RETURN_IF_ERROR_RESULT(S3ClientFactory::convert_properties_to_s3_conf(
-                *fs_properties.properties, s3_uri, &s3_conf));
-        return io::S3FileSystem::create(std::move(s3_conf), io::FileSystem::TMP_FS_ID);
+        auto resolved = resolve_obj_location(*fs_properties.properties, file_description.path);
+        if (!resolved.has_value()) {
+            return ResultError(std::move(resolved).error());
+        }
+        return io::S3FileSystem::create(std::move(resolved->config), io::FileSystem::TMP_FS_ID);
     }
     case TFileType::FILE_HDFS: {
         std::string fs_name = _get_fs_name(file_description);
@@ -190,15 +216,15 @@ Result<io::FileWriterPtr> FileFactory::create_file_writer(
         return io::BrokerFileWriter::create(env, broker_addresses[index], properties, path);
     }
     case TFileType::FILE_S3: {
-        S3URI s3_uri(path);
-        RETURN_IF_ERROR_RESULT(s3_uri.parse());
-        S3Conf s3_conf;
-        RETURN_IF_ERROR_RESULT(
-                S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf));
-        auto client = std::make_shared<io::ObjClientHolder>(std::move(s3_conf.client_conf));
+        auto resolved = resolve_obj_location(properties, path);
+        if (!resolved.has_value()) {
+            return ResultError(std::move(resolved).error());
+        }
+        auto client = std::make_shared<io::ObjClientHolder>(std::move(resolved->config.client));
         RETURN_IF_ERROR_RESULT(client->init());
-        return std::make_unique<io::S3FileWriter>(std::move(client), std::move(s3_conf.bucket),
-                                                  s3_uri.get_key(), &options);
+        return std::make_unique<io::S3FileWriter>(std::move(client),
+                                                  std::move(resolved->config.bucket),
+                                                  std::move(resolved->key), &options);
     }
     case TFileType::FILE_HDFS: {
         THdfsParams hdfs_params = parse_properties(properties);
@@ -238,15 +264,18 @@ Result<io::FileReaderSPtr> FileFactory::_create_file_reader_internal(
         return file_reader;
     }
     case TFileType::FILE_S3: {
-        S3URI s3_uri(file_description.path);
-        RETURN_IF_ERROR_RESULT(s3_uri.parse());
-        S3Conf s3_conf;
-        RETURN_IF_ERROR_RESULT(S3ClientFactory::convert_properties_to_s3_conf(
-                system_properties.properties, s3_uri, &s3_conf));
-        auto client_holder = std::make_shared<io::ObjClientHolder>(s3_conf.client_conf);
+        auto resolved = resolve_obj_location(system_properties.properties, file_description.path);
+        if (!resolved.has_value()) {
+            return ResultError(std::move(resolved).error());
+        }
+        auto client_holder =
+                std::make_shared<io::ObjClientHolder>(std::move(resolved->config.client));
+        std::string bucket = std::move(resolved->config.bucket);
+        std::string key = std::move(resolved->key);
         RETURN_IF_ERROR_RESULT(client_holder->init());
-        auto options = with_storage_in_cache_key(reader_options, s3_conf.client_conf.endpoint);
-        return io::S3FileReader::create(std::move(client_holder), s3_conf.bucket, s3_uri.get_key(),
+        auto options = with_storage_in_cache_key(reader_options,
+                                                 client_holder->state()->config.endpoint());
+        return io::S3FileReader::create(std::move(client_holder), bucket, key,
                                         file_description.file_size, profile)
                 .and_then([&options](auto&& reader) {
                     return io::create_cached_file_reader(std::move(reader), options);

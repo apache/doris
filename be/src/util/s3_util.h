@@ -51,108 +51,21 @@ template <typename T>
 class Adder;
 }
 
+namespace doris::io {
+struct S3AuthConfig;
+} // namespace doris::io
+
 namespace doris {
 
 std::string hide_access_key(const std::string& ak);
 
-class S3URI;
-struct S3ClientConf {
-    std::string endpoint;
-    std::string region;
-    std::string ak;
-    std::string sk;
-    std::string token;
-    // For azure we'd better support the bucket at the first time init azure blob container client
-    std::string bucket;
-    io::ObjStorageProvider provider = io::ObjStorageProvider::AWS;
-    int max_connections = -1;
-    int request_timeout_ms = -1;
-    int connect_timeout_ms = -1;
-    bool use_virtual_addressing = true;
-    // For aws s3, no need to override endpoint
-    bool need_override_endpoint = true;
-
-    CredProviderType cred_provider_type = CredProviderType::Default;
-    std::string role_arn;
-    std::string external_id;
-    CredentialConfig credential {};
-    // True when this client is bound to a Doris internal object storage bucket
-    // (a storage vault in cloud mode). S3ClientFactory wraps such clients with the
-    // shared rate limiter; external buckets (S3 load, TVF, external catalogs) are
-    // returned bare in cloud mode.
-    bool is_internal_bucket = false;
-
-    // Full-field identity. get_hash() is only good for picking an unordered_map
-    // bucket; distinct configurations can collide, so never treat hash equality as
-    // configuration equality.
-    bool operator==(const S3ClientConf&) const = default;
-
-    uint64_t get_hash() const {
-        uint64_t hash_code = 0;
-        // Use crc32_hash(ak + sk) hash to prevent swapped AK/SK order from producing same result.
-        hash_code ^= crc32_hash(ak + sk);
-        hash_code ^= crc32_hash(token);
-        hash_code ^= crc32_hash(endpoint);
-        hash_code ^= crc32_hash(region);
-        hash_code ^= crc32_hash(bucket);
-        hash_code ^= max_connections;
-        hash_code ^= request_timeout_ms;
-        hash_code ^= connect_timeout_ms;
-        hash_code ^= use_virtual_addressing;
-        hash_code ^= static_cast<int>(provider);
-
-        hash_code ^= static_cast<int>(cred_provider_type);
-        hash_code ^= crc32_hash(role_arn);
-        hash_code ^= crc32_hash(external_id);
-        hash_combine_credential(&hash_code, credential);
-        hash_code ^= is_internal_bucket;
-        return hash_code;
-    }
-
-    std::string to_string() const {
-        return fmt::format(
-                "(ak={}, token={}, endpoint={}, region={}, bucket={}, max_connections={}, "
-                "request_timeout_ms={}, connect_timeout_ms={}, use_virtual_addressing={}, "
-                "cred_provider_type={},role_arn={}, external_id={}, credential_type={}, "
-                "is_internal_bucket={}",
-                hide_access_key(ak), token.empty() ? "" : "******", endpoint, region, bucket,
-                max_connections, request_timeout_ms, connect_timeout_ms, use_virtual_addressing,
-                cred_provider_type, role_arn, external_id, credential_type_name(credential),
-                is_internal_bucket);
-    }
-};
-
-struct S3ClientConfHash {
-    size_t operator()(const S3ClientConf& conf) const {
-        return static_cast<size_t>(conf.get_hash());
-    }
-};
-
-struct S3Conf {
-    std::string bucket;
-    std::string prefix;
-    S3ClientConf client_conf;
-
-    bool sse_enabled = false;
-    static S3Conf get_s3_conf(const cloud::ObjectStoreInfoPB&);
-    static S3Conf get_s3_conf(const TS3StorageParam&);
-
-    std::string to_string() const {
-        return fmt::format("(bucket={}, prefix={}, client_conf={}, sse_enabled={})", bucket, prefix,
-                           client_conf.to_string(), sse_enabled);
-    }
-};
-
+// Owns the AWS SDK lifetime and the AWS helpers shared by object storage clients and other AWS
+// users (e.g. Kinesis). Object storage clients themselves come from io::ObjClientFactory.
 class S3ClientFactory {
 public:
     ~S3ClientFactory();
 
     static S3ClientFactory& instance();
-
-    Result<std::shared_ptr<io::ObjStorageClient>> create(const S3ClientConf& s3_conf);
-
-    static Status convert_properties_to_s3_conf(const std::map<std::string, std::string>& prop,
-                                                const S3URI& s3_uri, S3Conf* s3_conf);
 
     static Aws::Client::ClientConfiguration& getClientConfiguration() {
         // The default constructor of ClientConfiguration will do some http call
@@ -165,33 +78,22 @@ public:
         return instance;
     }
 
-    AwsCredentialResult create_aws_credentials_provider(const S3ClientConf& s3_conf);
+    AwsCredentialResult create_aws_credentials_provider(const io::S3AuthConfig& auth);
 
-#ifdef BE_TEST
-    void set_client_creator_for_test(
-            std::function<std::shared_ptr<io::ObjStorageClient>(const S3ClientConf&)> creator);
-
-    void clear_client_creator_for_test();
-#endif
+    // The first valid path of config::ca_cert_file_paths, resolved lazily and cached; empty
+    // when none is valid yet, in which case the next call resolves it again.
+    std::string ca_cert_file_path() { return _get_ca_cert_file_path(); }
 
 private:
 #ifdef BE_TEST
     FRIEND_TEST(S3ClientFactoryTest, RefreshCaCertForCredentialsProvider);
 #endif
-    Result<std::shared_ptr<io::ObjStorageClient>> _create_s3_client(const S3ClientConf& s3_conf);
-    Result<std::shared_ptr<io::ObjStorageClient>> _create_azure_client(const S3ClientConf& s3_conf);
     std::string _get_ca_cert_file_path();
     S3ClientFactory();
 
     Aws::SDKOptions _aws_options;
-    std::mutex _lock;
-    std::unordered_map<S3ClientConf, std::shared_ptr<io::ObjStorageClient>, S3ClientConfHash>
-            _cache;
     std::mutex _ca_cert_lock;
     std::string _ca_cert_file_path;
-#ifdef BE_TEST
-    std::function<std::shared_ptr<io::ObjStorageClient>(const S3ClientConf&)> _test_client_creator;
-#endif
 };
 
 } // end namespace doris

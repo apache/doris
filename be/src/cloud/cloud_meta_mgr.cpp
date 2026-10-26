@@ -58,6 +58,7 @@
 #include "common/status.h"
 #include "cpp/obj-client/obj_storage_client.h"
 #include "cpp/sync_point.h"
+#include "io/obj_storage/obj_storage_config_resolver.h"
 #include "load/stream_load/stream_load_context.h"
 #include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
@@ -1910,7 +1911,8 @@ Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos, bool
     *is_vault_mode = resp.enable_storage_vault();
 
     auto add_obj_store = [&vault_infos](const auto& obj_store) {
-        vault_infos->emplace_back(obj_store.id(), S3Conf::get_s3_conf(obj_store),
+        vault_infos->emplace_back(obj_store.id(),
+                                  io::ObjStorageConfigResolver::from_object_store_info(obj_store),
                                   StorageVaultPB_PathFormat {});
     };
 

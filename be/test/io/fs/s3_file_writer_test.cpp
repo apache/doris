@@ -62,6 +62,7 @@
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_writer.h"
 #include "testutil/mock/obj_storage_client_test_stub.h"
+#include "testutil/obj_storage_test_util.h"
 #include "util/slice.h"
 #include "util/threadpool.h"
 #include "util/uuid_generator.h"
@@ -287,13 +288,9 @@ public:
                           sp->set_call_back(mockcallback.point_name, mockcallback.callback);
                       });
         std::string cur_path = std::filesystem::current_path();
-        S3Conf s3_conf;
-        s3_conf.client_conf.ak = "fake_ak";
-        s3_conf.client_conf.sk = "fake_sk";
-        s3_conf.client_conf.endpoint = "fake_s3_endpoint";
-        s3_conf.client_conf.region = "fake_s3_region";
-        s3_conf.bucket = "fake_s3_bucket";
-        s3_conf.prefix = "s3_file_writer_test";
+        io::ObjStorageConfig s3_conf = io::make_test_s3_storage_config(
+                "fake_s3_bucket", "s3_file_writer_test", "fake_s3_endpoint", "fake_s3_region",
+                "fake_ak", "fake_sk");
         LOG_INFO("s3 conf is {}", s3_conf.to_string());
         auto res = io::S3FileSystem::create(std::move(s3_conf), io::FileSystem::TMP_FS_ID);
         ASSERT_TRUE(res.has_value()) << res.error();
@@ -1328,9 +1325,9 @@ create_s3_client(const std::string& path) {
     auto st = s3_fs->create_file(path, &file_writer, &opts);
     EXPECT_TRUE(st.ok()) << st;
     std::shared_ptr<S3FileWriter> s3_file_writer(static_cast<S3FileWriter*>(file_writer.release()));
-    auto holder = std::make_shared<ObjClientHolder>(S3ClientConf {});
+    auto holder = std::make_shared<ObjClientHolder>(ObjClientConfig {});
     auto mock_client = std::make_shared<SimpleMockObjStorageClient>();
-    holder->_client = mock_client;
+    holder->set_client_for_test(mock_client);
     s3_file_writer->_obj_client = holder;
     return {mock_client, s3_file_writer};
 }
@@ -1531,9 +1528,9 @@ TEST_F(S3FileWriterTest, test_empty_file) {
     io::FileWriterPtr file_writer;
     auto st = s3_fs->create_file("test_empty_file.idx", &file_writer, &opts);
     ASSERT_TRUE(st.ok()) << st;
-    auto holder = std::make_shared<ObjClientHolder>(S3ClientConf {});
+    auto holder = std::make_shared<ObjClientHolder>(ObjClientConfig {});
     auto mock_client = std::make_shared<SimpleMockObjStorageClient>();
-    holder->_client = mock_client;
+    holder->set_client_for_test(mock_client);
     dynamic_cast<io::S3FileWriter*>(file_writer.get())->_obj_client = holder;
     auto* s3_writer = file_writer.get();
     const auto file_path = s3_writer->path().native();

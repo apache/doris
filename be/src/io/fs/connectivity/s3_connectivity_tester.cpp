@@ -18,7 +18,9 @@
 #include "io/fs/connectivity/s3_connectivity_tester.h"
 
 #include "io/fs/s3_file_system.h"
-#include "util/s3_uri.h"
+#include "io/obj_storage/obj_client_factory.h"
+#include "io/obj_storage/obj_storage_config_resolver.h"
+#include "io/obj_storage/obj_storage_uri.h"
 
 namespace doris::io {
 
@@ -28,18 +30,16 @@ Status S3ConnectivityTester::test(const std::map<std::string, std::string>& prop
         return Status::InvalidArgument("Missing '{}' property in S3 connectivity test request",
                                        TEST_LOCATION);
     }
-    S3URI s3_uri(it->second);
-    RETURN_IF_ERROR(s3_uri.parse());
+    auto location = DORIS_TRY(ObjStorageUri::parse_s3(it->second));
 
-    std::string bucket = s3_uri.get_bucket();
+    std::string bucket = location.bucket;
     if (bucket.empty()) {
         return Status::InvalidArgument("Failed to extract bucket from location: {}", it->second);
     }
 
-    S3Conf s3_conf;
-    RETURN_IF_ERROR(S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf));
+    auto config = DORIS_TRY(ObjStorageConfigResolver::from_properties(properties, location));
 
-    auto obj_client = DORIS_TRY(S3ClientFactory::instance().create(s3_conf.client_conf));
+    auto obj_client = DORIS_TRY(ObjClientFactory::instance().get_or_create(config.client));
 
     auto resp = obj_client->head_object({.bucket = bucket, .key = ""});
     if (resp.resp.status.code != ErrorCode::OK && resp.resp.status.code != ErrorCode::NOT_FOUND) {

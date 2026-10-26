@@ -21,6 +21,8 @@
 
 #include "cpp/obj-client/obj_storage_client.h"
 #include "io/fs/file_system.h"
+#include "io/obj_storage/obj_client_factory.h"
+#include "testutil/obj_storage_test_util.h"
 #include "util/s3_util.h"
 
 namespace doris {
@@ -53,18 +55,10 @@ protected:
 
         S3ObjStorageClientTest::bucket = std::getenv("AWS_BUCKET");
 
-        auto client_result = S3ClientFactory::instance().create({
-                .endpoint = endpoint,
-                .region = "dummy-region",
-                .ak = access_key,
-                .sk = secret_key,
-                .token = "",
-                .bucket = bucket,
-                .provider = ObjStorageProvider::AWS,
-                .use_virtual_addressing = false,
-                .role_arn = "",
-                .external_id = "",
-        });
+        auto client_config =
+                io::make_test_s3_client_config(endpoint, "dummy-region", access_key, secret_key);
+        std::get<io::S3ClientConfig>(client_config.backend).use_virtual_addressing = false;
+        auto client_result = io::ObjClientFactory::instance().get_or_create(client_config);
         ASSERT_TRUE(client_result.has_value()) << client_result.error();
         S3ObjStorageClientTest::obj_storage_client = std::move(client_result).value();
     }

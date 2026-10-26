@@ -128,10 +128,17 @@ std::unique_ptr<VHivePartitionWriter> create_closed_hive_writer(
             std::move(write_info), "part", 0, TFileFormatType::FORMAT_PARQUET,
             TFileCompressType::PLAIN, nullptr, hadoop_conf);
 
-    S3ClientConf client_conf;
-    client_conf.provider = provider;
-    auto holder = std::make_shared<io::ObjClientHolder>(client_conf);
-    holder->_client = client;
+    // Only the backend type matters here: the writer's multipart protocol check reads it.
+    io::ObjClientConfig client_config;
+    if (provider == io::ObjStorageProvider::AZURE) {
+        client_config.backend = io::AzureClientConfig {};
+    } else {
+        io::S3ClientConfig s3;
+        s3.vendor = provider;
+        client_config.backend = std::move(s3);
+    }
+    auto holder = std::make_shared<io::ObjClientHolder>(std::move(client_config));
+    holder->set_client_for_test(client);
     io::FileWriterOptions options {.used_by_s3_committer = true};
     auto file_writer =
             std::make_unique<io::S3FileWriter>(holder, "bucket", "table/part.parquet", &options);
