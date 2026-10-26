@@ -1392,6 +1392,19 @@ public class CreateIcebergSpatialV3Table {
     sql """refresh table geometry_values"""
     order_qt_spatial_select_typed_nulls """select id, geom is null, geog is null
         from geometry_values where id in (201,202,203,204)"""
+    // Repeated NULL slots and star expansion must not retag the ordinary INT->BIGINT input.
+    sql """drop table if exists spatial_repeated_null_outputs"""
+    sql """create table spatial_repeated_null_outputs (n bigint, geom geometry, geog geography)
+        properties ('format-version'='3')"""
+    sql """insert into spatial_repeated_null_outputs select v, v, v
+        from (select cast(null as int) v) q"""
+    sql """insert into spatial_repeated_null_outputs select q.*, q.v, q.v
+        from (select cast(null as int) v) q"""
+    sql """insert into spatial_repeated_null_outputs select cast(7 as tinyint),
+        cast(null as int), cast(null as int)"""
+    sql """refresh table spatial_repeated_null_outputs"""
+    order_qt_spatial_repeated_null_output_casts """select count(*), count(n), sum(n), count(geom), count(geog)
+        from spatial_repeated_null_outputs"""
     sql """insert into spatial_nested_copy (id, g_array, gg_map, g_struct)
         with source as (select array(cast(null as geometry('EPSG:3857'))) a,
             map('shape', cast(null as int)) m,

@@ -148,6 +148,7 @@ class GeoLine : public GeoShape {
 
 public:
     GeoLine();
+    explicit GeoLine(std::unique_ptr<S2Polyline> polyline);
     ~GeoLine() override;
 
     GeoParseStatus from_coords(const GeoCoordinateList& list);

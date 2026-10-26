@@ -187,3 +187,6 @@ true	true	true	true	true	false	false	true	false	false	false	true	false
 -- !geography_stable_hole_admission --
 false	false	false	false	true	true	true	true	true	true	true	true	true
 
+-- !geography_stable_line_admission --
+true	true	true	true	true	true	true	true	true	true	false	true	true	true
+

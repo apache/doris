@@ -346,4 +346,22 @@ suite("test_spatial_wkb_compatibility") {
             ST_GeogFromWKB('010100000000000000008046408dedb5a0f7c6b03e') p,
             ST_GeogFromWKB('010100000000000000008046408dedb5a0f7c6a03e') q,
             ST_GeogFromWKB('0101000000000000000080464082b861ca7674b23e') v) shapes"""
+
+    // Preserve a valid raw minor arc even when endpoint conversion yields antipodal vectors.
+    order_qt_geography_stable_line_admission """select
+        ST_Distance(a, p) = 0, ST_Distance(p, a) = 0, ST_Distance(c, p) = 0,
+        ST_DWithin(a, p, 0), ST_DWithin(p, a, 0), ST_DWithin(c, p, 1),
+        abs(ST_Length(a) - ST_Length(b)) < 0.000001,
+        abs(ST_Length(c) - ST_Length(b)) < 0.000001,
+        ST_Contains(a, p), ST_Within(p, a), ST_Touches(a, p), ST_Equals(a, b),
+        ST_Area_Square_Meters(a) = 0, ST_Area_Square_Km(c) = 0
+        from (select ST_GeogFromWKB('0102000000020000000000000000003e400000000000004d400000000000c062c00100000000004dc0') a,
+            ST_GeogFromWKB('0102000000030000000000000000003e400000000000004d400000000000003e4000000000008056c00000000000c062c00100000000004dc0') b,
+            ST_GeogFromWKB('0102000000020000000000000000c062c00100000000004dc00000000000003e400000000000004d40') c,
+            ST_GeogFromWKB('0101000000000000000000000000000000008056c0') p) shapes"""
+    // Exactly antipodal raw endpoints have no unique spherical edge; storage is still valid.
+    test {
+        sql "select ST_Length(ST_GeogFromWKB('0102000000020000000000000000000000000000000000000000000000008066400000000000000000'))"
+        exception "does not support this Geography WKB shape"
+    }
 }

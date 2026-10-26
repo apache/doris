@@ -88,7 +88,9 @@ public final class ConnectorSpatialWriteNormalizer {
             if (isLiteralConstruction(value)) {
                 Expression normalized = normalizeSpatialNulls(value, DataType.fromCatalogType(target.getType()));
                 if (!normalized.getDataType().equals(slot.getDataType())) {
-                    outputs.set(i, new Alias(slot.getExprId(), normalized, slot.getName()));
+                    // SELECT v,v can feed an ordinary BIGINT and a spatial NULL. Sharing
+                    // v's ExprId would let project merging replace the ordinary cast's input.
+                    outputs.set(i, new Alias(normalized, slot.getName()));
                     changed = true;
                 }
             }

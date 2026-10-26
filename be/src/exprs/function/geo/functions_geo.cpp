@@ -270,37 +270,71 @@ struct GeographyCoordinates {
     }
 };
 
+static bool geography_stable_points(const DorisVector<GeographyVertex>& sequence,
+                                    std::vector<S2Point>* points) {
+    for (size_t i = 0; i + 1 < sequence.size(); ++i) {
+        const auto& a = sequence[i];
+        const auto& b = sequence[i + 1];
+        // (0,0)->(180,0) has no unique arc and would normalize a zero raw normal.
+        if (geography_antipodal(a, b)) {
+            return false;
+        }
+        points->push_back(a.point);
+        // Stabilize before S2 admission: rounded (30,58)->(-150,-58-e) can be
+        // exactly antipodal despite its unique raw arc passing through the south pole.
+        if (a.point.DotProd(b.point) < 0) {
+            points->push_back(GeographyRawArc(a.coordinate, b.coordinate).midpoint);
+        }
+    }
+    // A line's final vertex is real, including its closing edge; only rings remove it.
+    points->push_back(sequence.back().point);
+    points->erase(std::ranges::unique(*points).begin(), points->end());
+    return true;
+}
+
+static std::unique_ptr<GeoShape> decode_geography_line(const GeographyCoordinates& raw,
+                                                       StringRef value) {
+    std::vector<S2Point> points;
+    if (!geography_stable_points(raw.sequences.front(), &points)) {
+        return nullptr;
+    }
+    if (points.size() < 2) {
+        // Canonical pole aliases such as (0,90),(90,90) collapse to one calculation
+        // point. Preserve their prior admission; the old parser still rejects a
+        // truly duplicate-only line such as (1,1),(1,1).
+        GeoParseStatus status;
+        return GeoShape::from_wkb_bytes(value.data, value.size, status);
+    }
+    auto polyline = std::make_unique<S2Polyline>(points, S2Debug::DISABLE);
+    if (!polyline->IsValid()) {
+        return nullptr;
+    }
+    return GeoLine::create_unique(std::move(polyline));
+}
+
 static std::unique_ptr<GeoShape> decode_geography_calculation_shape(StringRef value) {
     GeographyCoordinates raw(value);
     if (raw.status != GeoParseStatus::GEO_PARSE_OK) {
         return nullptr;
     }
-    if (raw.type != GeoShapeType::GEO_SHAPE_POLYGON) {
+    if (raw.type == GeoShapeType::GEO_SHAPE_POINT) {
         GeoParseStatus status;
         return GeoShape::from_wkb_bytes(value.data, value.size, status);
+    }
+    if (raw.type == GeoShapeType::GEO_SHAPE_LINE_STRING) {
+        return decode_geography_line(raw, value);
     }
     std::vector<std::unique_ptr<S2Loop>> loops;
     std::vector<const S2Loop*> input_loops;
     for (const auto& ring : raw.sequences) {
         std::vector<S2Point> points;
-        for (size_t i = 0; i + 1 < ring.size(); ++i) {
-            const auto& a = ring[i];
-            const auto& b = ring[i + 1];
-            // (0,0)->(180,0) has no unique arc and would normalize a zero raw normal.
-            if (geography_antipodal(a, b)) {
-                return nullptr;
-            }
-            points.push_back(a.point);
-            // Stabilize before IsValid/Contains, not after a valid near-edge hole
-            // has been rejected by the rounded (-45+e,-45)->(135-e,45) shell.
-            if (a.point.DotProd(b.point) < 0) {
-                points.push_back(GeographyRawArc(a.coordinate, b.coordinate).midpoint);
-            }
+        // Validate holes against stable raw arcs, as with typed line admission.
+        if (!geography_stable_points(ring, &points)) {
+            return nullptr;
         }
-        points.erase(std::ranges::unique(points).begin(), points.end());
-        if (points.size() > 1 && points.front() == points.back()) {
-            points.pop_back();
-        }
+        // Validated WKB rings are closed; only polygon admission removes that endpoint.
+        DCHECK(points.front() == points.back());
+        points.pop_back();
         if (points.size() < 3) {
             return nullptr;
         }

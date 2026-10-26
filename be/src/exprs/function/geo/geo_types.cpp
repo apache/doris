@@ -57,6 +57,8 @@ GeoPoint::GeoPoint() : _point(new S2Point()) {}
 GeoPoint::~GeoPoint() = default;
 
 GeoLine::GeoLine() = default;
+
+GeoLine::GeoLine(std::unique_ptr<S2Polyline> polyline) : _polyline(std::move(polyline)) {}
 GeoLine::~GeoLine() = default;
 
 GeoPolygon::GeoPolygon() = default;

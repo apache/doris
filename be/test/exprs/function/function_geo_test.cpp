@@ -919,6 +919,42 @@ static void geography_measurement(const std::string& name, const Strings& wkts, 
     *result = value.get<TYPE_DOUBLE>();
 }
 
+static void expect_geography_line_pole(const std::string& line) {
+    for (bool reverse : {false, true}) {
+        const std::string point = "POINT (0 -90)";
+        double distance = -1;
+        geography_measurement("st_distance", {reverse ? point : line, reverse ? line : point},
+                              &distance);
+        EXPECT_EQ(distance, 0);
+        expect_geography_relation("st_intersects", reverse ? point : line, reverse ? line : point,
+                                  true);
+        expect_geography_relation("st_touches", reverse ? point : line, reverse ? line : point,
+                                  false);
+    }
+    expect_geography_relation("st_contains", line, "POINT (0 -90)", true);
+    expect_geography_relation("st_within", "POINT (0 -90)", line, true);
+    for (const auto* name : {"st_area_square_meters", "st_area_square_km"}) {
+        double area = -1;
+        geography_measurement(name, {line}, &area);
+        EXPECT_EQ(area, 0);
+    }
+}
+
+TEST(VGeoFunctionsTest, GeographyLineAdmissionUsesOriginalNearAntipodalArc) {
+    const Strings lines {"LINESTRING (30 58,-150 -58.00000000000001)",
+                         "LINESTRING (30 58,30 -90,-150 -58.00000000000001)",
+                         "LINESTRING (-150 -58.00000000000001,30 58)"};
+    double reference_length = 0;
+    geography_measurement("st_length", {lines[1]}, &reference_length);
+    for (const auto& line : lines) {
+        double length = 0;
+        geography_measurement("st_length", {line}, &length);
+        EXPECT_NEAR(length, reference_length, 1e-6);
+        expect_geography_line_pole(line);
+        expect_geography_relation("st_equals", line, lines[1], true);
+    }
+}
+
 TEST(VGeoFunctionsTest, GeographyRawEndpointsSurviveRoundedPointCollisions) {
     const std::string point = "POINT (0 58)";
     const std::string line = "LINESTRING (0 58.00000000000001,180 -58)";
@@ -972,6 +1008,33 @@ static void expect_geography_raw_binary(const std::string& polygon) {
                         .ok());
     const auto raw = accessor.get_by_position(1).column->get_data_at(0);
     EXPECT_EQ(std::string(raw.data, raw.size), bytes);
+}
+
+TEST(VGeoFunctionsTest, GeographyLineAdmissionRetainsInvalidAndAliasBoundaries) {
+    for (const auto* line : {"LINESTRING (0 0,180 0)", "LINESTRING (30 58,-150 -58)",
+                             "LINESTRING (1 1,1 1)", "LINESTRING (1 1)"}) {
+        const auto hex = geography_test_hex(line);
+        for (const auto* name : {"st_length", "st_area_square_meters", "st_area_square_km"}) {
+            Block block;
+            EXPECT_FALSE(execute_geography_test(name, {hex},
+                                                make_nullable(std::make_shared<DataTypeFloat64>()),
+                                                &block)
+                                 .ok());
+        }
+        Block distance;
+        EXPECT_FALSE(execute_geography_test(
+                             "st_distance", {hex, geography_test_hex("POINT (0 -90)")},
+                             make_nullable(std::make_shared<DataTypeFloat64>()), &distance)
+                             .ok());
+    }
+    expect_geography_raw_binary("LINESTRING (0 0,180 0)");
+    double length = -1;
+    geography_measurement("st_length", {"LINESTRING (0 90,90 90)"}, &length);
+    EXPECT_GE(length, 0);
+    const auto hex = geography_test_hex("LINESTRING (30 58,-150 -58.00000000000001)");
+    GeoParseStatus status;
+    EXPECT_EQ(GeoShape::from_wkb(hex.data(), hex.size(), status), nullptr);
+    expect_geography_raw_binary("LINESTRING (30 58,-150 -58.00000000000001)");
 }
 
 TEST(VGeoFunctionsTest, GeographyStabilizesShellBeforeAdmittingHole) {
@@ -1049,7 +1112,7 @@ TEST(VGeoFunctionsTest, GeographyAreaUsesStableRingsInBothUnits) {
         } else {
             EXPECT_NEAR(reference * 1e6, reference_meters, reference_meters * 1e-12);
         }
-        for (const auto* zero : {"POINT (0 45)", "LINESTRING (0 0,180 0)"}) {
+        for (const auto* zero : {"POINT (0 45)", "LINESTRING (0 0,90 0)"}) {
             double area = -1;
             geography_measurement(name, {zero}, &area);
             EXPECT_EQ(area, 0);

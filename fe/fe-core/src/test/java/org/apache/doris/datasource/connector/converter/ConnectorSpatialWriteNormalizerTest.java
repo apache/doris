@@ -27,6 +27,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
+import org.apache.doris.nereids.rules.rewrite.MergeProjectable;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -49,6 +50,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
+import org.apache.doris.nereids.trees.plans.logical.ProjectMergeable;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -62,6 +65,35 @@ import java.time.Duration;
 import java.util.List;
 
 public class ConnectorSpatialWriteNormalizerTest {
+    @Test
+    public void testRepeatedNullOutputsPreserveOrdinarySinkCastAfterMerge() {
+        Type geometry = ScalarType.createGeometryType("OGC:CRS84");
+        Type geography = ScalarType.createGeographyType("OGC:CRS84", "spherical");
+        LogicalPlan seed = row(new Cast(NullLiteral.INSTANCE, IntegerType.INSTANCE));
+        LogicalPlan source = new LogicalProject<>(ImmutableList.of(seed.getOutput().get(0),
+                seed.getOutput().get(0), seed.getOutput().get(0)), seed);
+        LogicalPlan normalized = ConnectorSpatialWriteNormalizer.normalize(ImmutableList.of(
+                new Column("n", Type.BIGINT), new Column("geom", geometry),
+                new Column("geog", geography)), source, new CTEContext());
+        Assertions.assertSame(source.getOutput().get(0), normalized.getOutput().get(0));
+        Assertions.assertNotEquals(normalized.getOutput().get(0).getExprId(),
+                normalized.getOutput().get(1).getExprId());
+        Assertions.assertNotEquals(normalized.getOutput().get(0).getExprId(),
+                normalized.getOutput().get(2).getExprId());
+        Assertions.assertNotEquals(normalized.getOutput().get(1).getExprId(),
+                normalized.getOutput().get(2).getExprId());
+        LogicalProject<?> sink = new LogicalProject<>(ImmutableList.of(new Alias(new Cast(
+                normalized.getOutput().get(0), BigIntType.INSTANCE), "n"),
+                normalized.getOutput().get(1), normalized.getOutput().get(2)), normalized);
+        Plan merged = MergeProjectable.mergeProjectable(sink);
+        Expression ordinary = ((ProjectMergeable) merged).getProjects().get(0).child(0);
+        Assertions.assertInstanceOf(Cast.class, ordinary);
+        Assertions.assertEquals(BigIntType.INSTANCE, ordinary.getDataType());
+        Assertions.assertEquals(IntegerType.INSTANCE, ordinary.child(0).getDataType());
+        Assertions.assertEquals(DataType.fromCatalogType(geometry), normalized.getOutput().get(1).getDataType());
+        Assertions.assertEquals(DataType.fromCatalogType(geography), normalized.getOutput().get(2).getDataType());
+    }
+
     @Test
     public void testSharedCteExpressionsAreNotExpanded() {
         Type geometry = ScalarType.createGeometryType("OGC:CRS84");
@@ -93,7 +125,7 @@ public class ConnectorSpatialWriteNormalizerTest {
                 ImmutableList.of(new Column("shape", target)), source, context);
         Assertions.assertInstanceOf(LogicalProject.class, normalized);
         Assertions.assertSame(source, normalized.child(0));
-        Assertions.assertEquals(source.getOutput().get(0).getExprId(), normalized.getOutput().get(0).getExprId());
+        Assertions.assertNotEquals(source.getOutput().get(0).getExprId(), normalized.getOutput().get(0).getExprId());
         Assertions.assertEquals(DataType.fromCatalogType(target), normalized.getOutput().get(0).getDataType());
         Expression value = ((LogicalProject<?>) normalized).getProjects().get(0).child(0);
         Assertions.assertTrue(value.isNullLiteral());
