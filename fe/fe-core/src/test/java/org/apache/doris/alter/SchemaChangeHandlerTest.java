@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
@@ -56,6 +57,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 public class SchemaChangeHandlerTest extends TestWithFeService {
     private static final Logger LOG = LogManager.getLogger(SchemaChangeHandlerTest.class);
@@ -851,6 +853,55 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             // Verify the error message contains relevant info
             Assertions.assertTrue(e.getMessage().contains("index `idx_error_msg` already exist."));
         }
+    }
+
+    @Test
+    public void testDropIndexOnPartitionsMustBeTheOnlyClause() throws Exception {
+        String tableName = "sc_drop_index_on_partitions_alone";
+        dropTable("test." + tableName, false);
+        createTable("CREATE TABLE test." + tableName + " (\n"
+                + "k1 INT,\n"
+                + "vi INT,\n"
+                + "v1 STRING,\n"
+                + "v2 STRING,\n"
+                + "INDEX idx_v1 (v1) USING INVERTED,\n"
+                + "INDEX idx_v2 (v2) USING INVERTED\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "PARTITION BY RANGE(k1) (PARTITION p1 VALUES LESS THAN (\"10\"),"
+                + " PARTITION p2 VALUES LESS THAN (\"20\"))\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'light_schema_change' = 'true');");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+        SchemaChangeHandler handler = Env.getCurrentEnv().getSchemaChangeHandler();
+        int schemaVersion = tbl.getIndexMetaByIndexId(tbl.getBaseIndexId()).getSchemaVersion();
+        int indexChangeJobCount = handler.getIndexChangeJobs().size();
+
+        // Reject mixed work before it can change columns, indexes, or partition scopes.
+        for (String clauses : Lists.newArrayList(
+                "MODIFY COLUMN vi BIGINT NULL, DROP INDEX idx_v1 PARTITION (p1)",
+                "ADD COLUMN x INT, DROP INDEX idx_v1 PARTITION (p1)",
+                "DROP INDEX idx_v1 PARTITION (p1), DROP INDEX idx_v2",
+                "DROP INDEX idx_v1 PARTITION (p1), DROP INDEX idx_v2 PARTITION (p2)")) {
+            String sql = "ALTER TABLE test." + tableName + " " + clauses;
+            Exception e = Assertions.assertThrows(Exception.class, () -> alterTable(sql, connectContext));
+            Assertions.assertTrue(e.getMessage().contains("DROP INDEX on partitions can not be combined"),
+                    e.getMessage());
+        }
+        Assertions.assertEquals(PrimitiveType.INT, tbl.getColumn("vi").getType().getPrimitiveType());
+        Assertions.assertNull(tbl.getColumn("x"));
+        Assertions.assertEquals(Lists.newArrayList("idx_v1", "idx_v2"),
+                tbl.getIndexes().stream().map(Index::getIndexName).collect(Collectors.toList()));
+        Assertions.assertEquals(schemaVersion, tbl.getIndexMetaByIndexId(tbl.getBaseIndexId()).getSchemaVersion());
+        Assertions.assertEquals(indexChangeJobCount, handler.getIndexChangeJobs().size());
+
+        // Alone, it still submits an index job for the partition and keeps the index in the table metadata.
+        alterTable("ALTER TABLE test." + tableName + " DROP INDEX idx_v1 PARTITION (p1)", connectContext);
+        Assertions.assertEquals(indexChangeJobCount + 1, handler.getIndexChangeJobs().size());
+        Assertions.assertEquals(Lists.newArrayList("idx_v1", "idx_v2"),
+                tbl.getIndexes().stream().map(Index::getIndexName).collect(Collectors.toList()));
     }
 
     @Test

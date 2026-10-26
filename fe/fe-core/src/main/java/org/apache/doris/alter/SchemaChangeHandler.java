@@ -1999,6 +1999,14 @@ public class SchemaChangeHandler extends AlterHandler {
             Map<Long, Set<String>> indexOnPartitions = new HashMap<>();
             boolean isDropIndex = false;
             Map<String, String> propertyMap = new HashMap<>();
+            // Partition index jobs cannot apply other schema changes or independent partition scopes.
+            if (alterClauses.size() > 1 && alterClauses.stream().anyMatch(
+                    alterClause -> alterClause instanceof DropIndexClause
+                            && ((DropIndexClause) alterClause).hasPartitionSpec())) {
+                throw new DdlException("DROP INDEX on partitions can not be combined with other clauses in one"
+                        + " ALTER statement, please run them in separate statements.");
+            }
+
             for (AlterClause alterClause : alterClauses) {
                 Map<String, String> properties = alterClause.getProperties();
                 // alter table properties
