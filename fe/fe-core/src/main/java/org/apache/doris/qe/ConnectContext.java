@@ -152,6 +152,9 @@ public class ConnectContext {
     // range [Integer.MIN_VALUE, Integer.MAX_VALUE]
     protected int preparedStmtId = INITIAL_PREPARED_STMT_ID;
     protected volatile LoadTaskInfo streamLoadInfo;
+    // Authenticated SQL HTTP load owner; internal token-based loads keep this null even if they
+    // use a privileged planning identity. Passed to beginTransaction before publishing the state.
+    private UserIdentity streamLoadTxnUser;
 
     protected volatile TUniqueId queryId = null;
     // only be active one time. tell Coordinator to regenerate instance ids for certain query(when retry).
@@ -594,6 +597,14 @@ public class ConnectContext {
 
     public LoadTaskInfo getStreamLoadInfo() {
         return streamLoadInfo;
+    }
+
+    public UserIdentity getStreamLoadTxnUser() {
+        return streamLoadTxnUser;
+    }
+
+    public void setStreamLoadTxnUser(UserIdentity streamLoadTxnUser) {
+        this.streamLoadTxnUser = streamLoadTxnUser;
     }
 
     public void setStmtId(long stmtId) {

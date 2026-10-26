@@ -68,6 +68,7 @@ import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DuplicatedRequestException;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.IncrWindowNotReadyException;
 import org.apache.doris.common.InternalErrorCode;
@@ -3266,13 +3267,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         ConnectContext ctx = ConnectContext.get();
 
+        UserIdentity txnUser = null;
         if (request.isSetAuthCode()) {
             // TODO: deprecated, removed in 3.1, use token instead.
         } else if (Strings.isNullOrEmpty(request.getToken())) {
-            checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
-                    request.getTbl(),
-                    request.getUserIp(), PrivPredicate.LOAD);
+            txnUser = checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
+                    request.getTbl(), request.getUserIp(), PrivPredicate.LOAD,
+                    toForwardedCertificateInfo(request.getCertBasedAuth()));
         }
+        ctx.setStreamLoadTxnUser(txnUser);
         if (request.isSetMemtableOnSinkNode()) {
             ctx.getSessionVariable().enableMemtableOnSinkNode = request.isMemtableOnSinkNode();
         } else {

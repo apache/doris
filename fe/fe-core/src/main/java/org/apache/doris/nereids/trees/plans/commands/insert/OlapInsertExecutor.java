@@ -126,11 +126,11 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                 loadJobSourceType = LoadJobSourceType.STREAMING_JOB;
             }
             this.txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
-                    database.getId(), ImmutableList.of(table.getId()), labelName,
+                    database.getId(), ImmutableList.of(table.getId()), labelName, null,
                     new TxnCoordinator(TxnSourceType.FE, 0,
                             FrontendOptions.getLocalHostAddress(),
                             ExecuteEnv.getInstance().getStartupTime()),
-                    loadJobSourceType, ctx.getExecTimeoutS());
+                    loadJobSourceType, -1, ctx.getExecTimeoutS(), ctx.getStreamLoadTxnUser());
         } catch (Exception e) {
             throw new AnalysisException("begin transaction failed. " + e.getMessage(), e);
         }

@@ -40,6 +40,8 @@ import org.apache.doris.qe.InsertResult;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.service.ExecuteEnv;
+import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
@@ -60,13 +62,55 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Tests for publish-timeout behaviors in {@link OlapInsertExecutor}.
+ * Tests for transaction ownership and completion in {@link OlapInsertExecutor}.
  */
 class OlapInsertExecutorTest {
 
     @AfterEach
     void tearDown() {
         ConnectContext.remove();
+    }
+
+    @Test
+    void testHttpStreamBeginRecordsAuthenticatedOwner() throws Exception {
+        verifyBeginTransactionOwner(UserIdentity.createAnalyzedUserIdentWithIp("loader", "192.168.%"));
+    }
+
+    @Test
+    void testInternalBeginKeepsNullOwner() throws Exception {
+        verifyBeginTransactionOwner(null);
+    }
+
+    private void verifyBeginTransactionOwner(UserIdentity owner) throws Exception {
+        ConnectContext ctx = createExecutorContext();
+        // Planning uses ROOT here; only the identity authenticated by the HTTP load is the owner.
+        ctx.setStreamLoadTxnUser(owner);
+        Coordinator coordinator = createCoordinator();
+        GlobalTransactionMgrIface txnMgr = Mockito.mock(GlobalTransactionMgrIface.class);
+        Env currentEnv = createCurrentEnv(Mockito.mock(LoadManager.class));
+        try (MockedStatic<EnvFactory> envFactoryMock = Mockito.mockStatic(EnvFactory.class);
+                MockedStatic<Env> envMock = Mockito.mockStatic(Env.class);
+                MockedStatic<ExecuteEnv> executeEnvMock = Mockito.mockStatic(ExecuteEnv.class);
+                MockedStatic<FrontendOptions> frontendOptionsMock = Mockito.mockStatic(FrontendOptions.class)) {
+            prepareFactoryMocks(envFactoryMock, envMock, coordinator, txnMgr,
+                    Mockito.mock(TransactionState.class), currentEnv);
+            executeEnvMock.when(ExecuteEnv::getInstance).thenReturn(Mockito.mock(ExecuteEnv.class));
+            frontendOptionsMock.when(FrontendOptions::getLocalHostAddress).thenReturn("127.0.0.1");
+            ctx.setEnv(currentEnv);
+            Mockito.when(txnMgr.beginTransaction(Mockito.eq(1L), Mockito.eq(List.of(2L)),
+                    Mockito.eq("label_test"), Mockito.isNull(), Mockito.any(TransactionState.TxnCoordinator.class),
+                    Mockito.eq(TransactionState.LoadJobSourceType.INSERT_STREAMING), Mockito.eq(-1L),
+                    Mockito.eq((long) ctx.getExecTimeoutS()), Mockito.eq(owner))).thenReturn(10008L);
+
+            OlapInsertExecutor executor = createExecutor(ctx);
+            executor.beginTransaction();
+
+            Assertions.assertEquals(10008L, executor.getTxnId());
+            Mockito.verify(txnMgr).beginTransaction(Mockito.eq(1L), Mockito.eq(List.of(2L)),
+                    Mockito.eq("label_test"), Mockito.isNull(), Mockito.any(TransactionState.TxnCoordinator.class),
+                    Mockito.eq(TransactionState.LoadJobSourceType.INSERT_STREAMING), Mockito.eq(-1L),
+                    Mockito.eq((long) ctx.getExecTimeoutS()), Mockito.eq(owner));
+        }
     }
 
     @Test
