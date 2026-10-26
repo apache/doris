@@ -22,6 +22,8 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.request.CommitOffsetRequest;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
@@ -125,7 +127,7 @@ public class StreamingInsertJobOffsetPersistenceTest {
         job.setJobStatus(JobStatus.PAUSED);
         Deencapsulation.setField(job, "tvfType", CdcStreamTableValuedFunction.NAME);
         Deencapsulation.setField(job, "createUser", UserIdentity.ROOT);
-        job.setExecuteSql("INSERT INTO target_table SELECT * FROM cdc_stream("
+        job.setExecuteSql("INSERT INTO internal.test_db.target_table SELECT * FROM cdc_stream("
                 + "\"type\"=\"postgres\", \"jdbc_url\"=\"jdbc:postgresql://127.0.0.1:5432/source_db\", "
                 + "\"table\"=\"source_table\")");
 
@@ -135,7 +137,14 @@ public class StreamingInsertJobOffsetPersistenceTest {
 
         ConnectContext previousContext = ConnectContext.get();
         try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class)) {
-            envMockedStatic.when(Env::getCurrentEnv).thenReturn(Mockito.mock(Env.class));
+            Env env = Mockito.mock(Env.class);
+            InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+            CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+            Mockito.when(catalog.getName()).thenReturn(InternalCatalog.INTERNAL_CATALOG_NAME);
+            Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+            Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+            Mockito.when(catalogMgr.getCatalog(InternalCatalog.INTERNAL_CATALOG_NAME)).thenReturn(catalog);
+            envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
             ConnectContext caller = new ConnectContext();
             caller.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("alter_user", "%"));
             caller.setAuthenticatedRoles(Collections.singleton("session_role"));
