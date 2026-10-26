@@ -497,9 +497,11 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StAswkt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAzimuth;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StCircle;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StContains;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StDWithin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StDisjoint;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StDistance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StDistanceSphere;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StEquals;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeogFromWKB;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeomFromWKB;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometries;
@@ -515,6 +517,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StLinefromtex
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StLinestringfromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StNumGeometries;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StNumPoints;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StOverlaps;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StPoint;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StPolyfromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StPolygon;
@@ -1114,6 +1117,9 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(StIntersects.class, "st_intersects"),
             scalar(StDisjoint.class, "st_disjoint"),
             scalar(StTouches.class, "st_touches"),
+            scalar(StDWithin.class, "st_dwithin"),
+            scalar(StEquals.class, "st_equals"),
+            scalar(StOverlaps.class, "st_overlaps"),
             scalar(StWithin.class, "st_within"),
             scalar(StLength.class, "st_length"),
             scalar(StGeometryType.class, "st_geometrytype"),

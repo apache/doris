@@ -1018,6 +1018,14 @@ public class CreateIcebergSpatialV3Table {
                 ${function}_state(gg_map, id) e, ${function}_state(gg_struct, id) f
                 from spatial_nested_source where id in (1, 2)) partial_values""")
     }
+    order_qt_spatial_new_functions_scan """select id,
+        ST_Equals(geog, geog), ST_Overlaps(geog, geog), ST_Contains(geog, geog),
+        ST_Touches(geog, geog), ST_DWithin(geog, geog, id)
+        from geometry_values order by id"""
+    order_qt_spatial_new_functions_nested_scan """select id,
+        ST_Equals(gg_array[1], gg_map['shape']),
+        ST_DWithin(struct_element(gg_struct, 'shape'), gg_array[1], id)
+        from spatial_nested_source where id in (1,2,5,6,7) order by id"""
     sql """drop table if exists spatial_nested_copy"""
     sql """create table spatial_nested_copy (
         id int, g_array array<geometry>, g_map map<string, geometry>,

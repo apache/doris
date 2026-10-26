@@ -101,8 +101,9 @@ GeoParseStatus read_wkb_type(WkbParseContext& ctx, uint32_t* type, uint32_t* dim
 // by the input size, rather than by the C++ call stack. Coordinates remain raw.
 class RawWkbReader {
 public:
-    RawWkbReader(WkbParseContext& context, bool geographic, std::ostream* output = nullptr)
-            : _ctx(context), _geographic(geographic), _output(output) {}
+    RawWkbReader(WkbParseContext& context, bool geographic, std::ostream* output = nullptr,
+                 GeoCoordinateList* coordinates = nullptr)
+            : _ctx(context), _geographic(geographic), _output(output), _coordinates(coordinates) {}
 
     GeoParseStatus read() {
         do {
@@ -203,6 +204,9 @@ private:
             if (std::isinf(_coordinate[i])) {
                 return false;
             }
+        }
+        if (_coordinates != nullptr) {
+            _coordinates->add({.x = _coordinate[0], .y = _coordinate[1]});
         }
         return valid_xy(_coordinate[0], _coordinate[1]);
     }
@@ -327,6 +331,7 @@ private:
     WkbParseContext& _ctx;
     const bool _geographic;
     std::ostream* const _output;
+    GeoCoordinateList* const _coordinates;
     uint32_t _root_type = 0;
     uint32_t _dimensions = 0;
     std::array<double, 4> _coordinate {};
@@ -442,6 +447,15 @@ GeoParseStatus WkbParse::wkb_to_wkt(const char* data, size_t size, std::string* 
         *wkt = os.str();
     }
     return status;
+}
+
+GeoParseStatus WkbParse::xy_coordinates(const char* data, size_t size,
+                                        GeoCoordinateList* coordinates) {
+    WkbParseContext ctx;
+    if (initialize_context(data, size, &ctx) != GeoParseStatus::GEO_PARSE_OK) {
+        return GeoParseStatus::GEO_PARSE_WKB_SYNTAX_ERROR;
+    }
+    return RawWkbReader(ctx, false, nullptr, coordinates).read();
 }
 
 GeoParseStatus WkbParse::point_coordinates(const char* data, size_t size, double* x, double* y) {

@@ -128,3 +128,32 @@ true
 -- !ordinary_min_max --
 0	2	3
 
+-- !geography_complete_contains --
+true	true	false	true
+
+-- !geography_complete_touches --
+false	true	true	true
+
+-- !geography_topological_equals --
+true	true	true	true
+
+-- !geography_partial_overlap --
+true	false	false	true	false
+
+-- !geography_meridian_boundaries --
+true	false
+
+-- !geography_dwithin_zero --
+true	true	false
+
+-- !geography_dwithin_threshold --
+false	true	true
+
+-- !geography_new_relation_nulls --
+\N	\N	\N
+
+-- !geography_dwithin_dynamic_radius --
+0	false
+1	false
+2	true
+

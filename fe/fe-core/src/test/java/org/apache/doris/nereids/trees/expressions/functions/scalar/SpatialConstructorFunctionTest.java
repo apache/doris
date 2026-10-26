@@ -17,15 +17,19 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.GeographyType;
 import org.apache.doris.nereids.types.GeometryType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
@@ -204,4 +208,28 @@ public class SpatialConstructorFunctionTest {
             }
         }
     }
+
+    @Test
+    public void testNewGeographyRelationsPreserveTypesAndRejectStringCarriers() {
+        GeographyType geography = new GeographyType("OGC:CRS84", "spherical");
+        SlotReference value = new SlotReference("shape", geography);
+        for (ScalarFunction function : List.of(new StEquals(value, value), new StOverlaps(value, value),
+                new StDWithin(value, value, new IntegerLiteral(1)))) {
+            function.checkLegalityBeforeTypeCoercion();
+            Assertions.assertEquals(geography, function.expectedInputTypes().get(0));
+            Assertions.assertEquals(geography, function.expectedInputTypes().get(1));
+            Assertions.assertEquals(BooleanType.INSTANCE, function.getDataType());
+        }
+        Assertions.assertEquals(DoubleType.INSTANCE,
+                new StDWithin(value, value,
+                        new IntegerLiteral(1))
+                        .expectedInputTypes().get(2));
+        SlotReference text = new SlotReference("text", StringType.INSTANCE);
+        for (ScalarFunction function : List.of(new StEquals(text, value), new StOverlaps(value, text),
+                new StDWithin(text, value, new IntegerLiteral(1)))) {
+            Assertions.assertThrows(AnalysisException.class,
+                    function::checkLegalityBeforeTypeCoercion);
+        }
+    }
+
 }

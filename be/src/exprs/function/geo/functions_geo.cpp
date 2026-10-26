@@ -20,21 +20,28 @@
 #include <glog/logging.h>
 #include <s2/mutable_s2shape_index.h>
 #include <s2/s2boolean_operation.h>
+#include <s2/s2builderutil_s2polyline_vector_layer.h>
 #include <s2/s2closest_edge_query.h>
+#include <s2/s2closest_point_query.h>
 #include <s2/s2earth.h>
 #include <s2/s2lax_polygon_shape.h>
 #include <s2/s2lax_polyline_shape.h>
 #include <s2/s2loop.h>
 #include <s2/s2point.h>
+#include <s2/s2point_index.h>
+#include <s2/s2point_vector_shape.h>
 #include <s2/s2polygon.h>
 #include <s2/s2polyline.h>
 #include <s2/s2predicates.h>
 
 #include <algorithm>
+#include <array>
 #include <boost/iterator/iterator_facade.hpp>
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <map>
+#include <optional>
 #include <utility>
 
 #include "common/cast_set.h"
@@ -137,14 +144,153 @@ static S2Point canonical_geography_point(const S2Point& point) {
     return point;
 }
 
-static void geography_shape_index(const GeoShape& shape, MutableS2ShapeIndex* index) {
+// S2 predicates operate on exact rounded vectors. Splitting a meridian at a new latitude
+// can otherwise turn one common edge into two almost-coplanar curves. Node only edges whose
+// shared great circle is proved by original WKB ordinates; never snap nearby parallel curves.
+class GeographyEdgeNodes {
+public:
+    GeographyEdgeNodes(StringRef left, StringRef right) {
+        GeoCoordinateList coordinates;
+        const auto left_status = WkbParse::xy_coordinates(left.data, left.size, &coordinates);
+        const auto right_status = WkbParse::xy_coordinates(right.data, right.size, &coordinates);
+        DCHECK_EQ(left_status, GeoParseStatus::GEO_PARSE_OK);
+        DCHECK_EQ(right_status, GeoParseStatus::GEO_PARSE_OK);
+        for (auto coordinate : coordinates.list) {
+            if (coordinate.x == 180) {
+                coordinate.x = -180;
+            }
+            const auto point = canonical_geography_point(
+                    S2LatLng::FromDegrees(coordinate.y, coordinate.x).ToPoint());
+            _coordinates.emplace(point, coordinate);
+            _vertex_index.Add(point, 0);
+            if (std::abs(coordinate.y) != 90) {
+                _meridians[meridian(coordinate.x)][coordinate.x < 0].push_back(
+                        {coordinate.y, point});
+            }
+        }
+        for (auto& entry : _meridians) {
+            for (auto& side : entry.second) {
+                std::ranges::sort(side, {}, &Vertex::latitude);
+                const auto duplicate = std::ranges::unique(side, {}, &Vertex::point);
+                side.erase(duplicate.begin(), duplicate.end());
+            }
+        }
+    }
+
+    void append_edge(const S2Point& raw_start, const S2Point& raw_end,
+                     std::vector<S2Point>* output) const {
+        const auto start = canonical_geography_point(raw_start);
+        const auto end = canonical_geography_point(raw_end);
+        output->push_back(start);
+        // Different raw longitudes at one pole denote the same calculation point.
+        if (start == end) {
+            return;
+        }
+        const auto& a = _coordinates.at(start);
+        const auto& b = _coordinates.at(end);
+        const bool a_pole = std::abs(a.y) == 90;
+        const bool b_pole = std::abs(b.y) == 90;
+        const auto key = meridian(a_pole ? b.x : a.x);
+        const bool common_meridian = a_pole || b_pole || key == meridian(b.x);
+        // Exact antipodes have no unique edge; rounded S2 vectors can conceal this ambiguity.
+        if (a.y == -b.y && common_meridian && ((a_pole && b_pole) || (a.x < 0) != (b.x < 0))) {
+            throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                            "Geography calculations do not support antipodal edges");
+        }
+        if (common_meridian) {
+            const bool a_side = (a_pole ? b.x : a.x) < 0;
+            const bool b_side = (b_pole ? a.x : b.x) < 0;
+            const auto& group = _meridians.at(key);
+            if (a_side == b_side) {
+                append_range(group[a_side], a.y, b.y, output);
+            } else {
+                // (10,80) -> (-170,80) passes through the north pole. Keep latitude
+                // as-is on each side: computing 180-latitude would erase tiny ordinates.
+                const double latitude = a.y > -b.y ? 90 : -90;
+                append_range(group[a_side], a.y, latitude, output);
+                output->emplace_back(0, 0, latitude > 0 ? 1 : -1);
+                append_range(group[b_side], latitude, b.y, output);
+            }
+            return;
+        }
+        // For other great circles, including the equator, node only exact coplanar
+        // points on the edge. The query radius selects candidates, never equality.
+        S2ClosestPointQuery<int> query(&_vertex_index);
+        query.mutable_options()->set_conservative_max_distance(
+                S1Angle::Radians(8 * std::numeric_limits<double>::epsilon()));
+        S2ClosestPointQuery<int>::EdgeTarget target(start, end);
+        std::vector<S2Point> on_edge;
+        for (const auto& candidate : query.FindClosestPoints(&target)) {
+            const auto& point = candidate.point();
+            if (point != start && point != end &&
+                s2pred::ExpensiveSign(start, end, point, false) == 0 &&
+                s2pred::CompareEdgeDistance(point, start, end, S1ChordAngle::Zero()) <= 0) {
+                on_edge.push_back(point);
+            }
+        }
+        // Rounded angles can tie near the middle of a long edge, reversing adjacent nodes.
+        std::ranges::sort(on_edge, [&](const S2Point& a, const S2Point& b) {
+            return s2pred::CompareDistances(start, a, b) < 0;
+        });
+        for (const auto& point : on_edge) {
+            if (output->back() != point) {
+                output->push_back(point);
+            }
+        }
+    }
+
+private:
+    struct Vertex {
+        double latitude;
+        S2Point point;
+    };
+    static std::pair<double, double> meridian(double longitude) {
+        if (longitude >= 0) {
+            return {longitude, 0};
+        }
+        // Error-free TwoSum: -1e-15+180 and -2e-15+180 both round to 180.
+        // Retain the residual so distinct original meridians never become one.
+        const double high = longitude + 180;
+        const double offset = high - 180;
+        const double low = (180 - (high - offset)) + (longitude - offset);
+        return {high, low};
+    }
+    static void append_range(const std::vector<Vertex>& vertices, double from, double to,
+                             std::vector<S2Point>* output) {
+        if (from == to) {
+            return;
+        }
+        auto first = std::ranges::upper_bound(vertices, std::min(from, to), {}, &Vertex::latitude);
+        auto last = std::ranges::lower_bound(vertices, std::max(from, to), {}, &Vertex::latitude);
+        if (from < to) {
+            for (auto it = first; it != last; ++it) {
+                output->push_back(it->point);
+            }
+        } else {
+            while (last != first) {
+                output->push_back((--last)->point);
+            }
+        }
+    }
+    std::map<S2Point, GeoCoordinate> _coordinates;
+    S2PointIndex<int> _vertex_index;
+    std::map<std::pair<double, double>, std::array<std::vector<Vertex>, 2>> _meridians;
+};
+
+static void geography_shape_index(const GeoShape& shape, const GeographyEdgeNodes& nodes,
+                                  MutableS2ShapeIndex* index) {
     switch (shape.type()) {
+    case GeoShapeType::GEO_SHAPE_POINT:
+        index->Add(std::make_unique<S2PointVectorShape>(std::vector<S2Point> {
+                canonical_geography_point(*assert_cast<const GeoPoint&>(shape).point())}));
+        break;
     case GeoShapeType::GEO_SHAPE_LINE_STRING: {
         const auto* line = assert_cast<const GeoLine&>(shape).polyline();
         std::vector<S2Point> vertices;
-        for (int i = 0; i < line->num_vertices(); ++i) {
-            vertices.push_back(canonical_geography_point(line->vertex(i)));
+        for (int i = 0; i + 1 < line->num_vertices(); ++i) {
+            nodes.append_edge(line->vertex(i), line->vertex(i + 1), &vertices);
         }
+        vertices.push_back(canonical_geography_point(line->vertex(line->num_vertices() - 1)));
         index->Add(std::make_unique<S2LaxPolylineShape>(vertices));
         break;
     }
@@ -155,7 +301,8 @@ static void geography_shape_index(const GeoShape& shape, MutableS2ShapeIndex* in
             auto& vertices = loops.emplace_back();
             const auto* loop = polygon->loop(i);
             for (int j = 0; j < loop->num_vertices(); ++j) {
-                vertices.push_back(canonical_geography_point(loop->oriented_vertex(j)));
+                nodes.append_edge(loop->oriented_vertex(j),
+                                  loop->oriented_vertex((j + 1) % loop->num_vertices()), &vertices);
             }
         }
         index->Add(std::make_unique<S2LaxPolygonShape>(loops));
@@ -230,31 +377,99 @@ static bool geography_point_relation(std::string_view name, const GeoShape& lhs,
 }
 
 static Status geography_relation(std::string_view name, const GeoShape& lhs, const GeoShape& rhs,
-                                 bool* result) {
+                                 StringRef left_wkb, StringRef right_wkb, bool* result) {
     const auto& container = name == "st_within" ? rhs : lhs;
     const auto& value = name == "st_within" ? lhs : rhs;
-    // Legacy base contains() returns false even for p within itself. Complex containment
-    // and touches pairs need interior/boundary semantics that are not implemented here.
-    if (((name == "st_contains" || name == "st_within") &&
-         value.type() != GeoShapeType::GEO_SHAPE_POINT) ||
-        (name == "st_touches" && lhs.type() != GeoShapeType::GEO_SHAPE_POINT &&
-         rhs.type() != GeoShapeType::GEO_SHAPE_POINT)) {
-        return Status::NotSupported("Function {} does not support this Geography shape pair", name);
+    const bool containment = name == "st_contains" || name == "st_within";
+    // A point cannot contain a line or polygon; this is a defined false result.
+    if (containment && container.type() == GeoShapeType::GEO_SHAPE_POINT &&
+        value.type() != GeoShapeType::GEO_SHAPE_POINT) {
+        *result = false;
+        return Status::OK();
+    }
+    if (name == "st_equals" && lhs.type() != rhs.type()) {
+        *result = false;
+        return Status::OK();
+    }
+    if (name == "st_overlaps" &&
+        (lhs.type() != rhs.type() || lhs.type() == GeoShapeType::GEO_SHAPE_POINT)) {
+        *result = false;
+        return Status::OK();
     }
     if (lhs.type() == GeoShapeType::GEO_SHAPE_POINT ||
         rhs.type() == GeoShapeType::GEO_SHAPE_POINT) {
+        // Point equality has the same canonical position test as point containment.
         *result = geography_point_relation(name, lhs, rhs);
         return Status::OK();
     }
     MutableS2ShapeIndex left;
     MutableS2ShapeIndex right;
-    geography_shape_index(container, &left);
-    geography_shape_index(value, &right);
+    const GeographyEdgeNodes nodes(left_wkb, right_wkb);
+    geography_shape_index(container, nodes, &left);
+    geography_shape_index(value, nodes, &right);
     S2BooleanOperation::Options options;
     options.set_polygon_model(S2BooleanOperation::PolygonModel::CLOSED);
     options.set_polyline_model(S2BooleanOperation::PolylineModel::CLOSED);
     options.set_polyline_loops_have_boundaries(false);
+    if (name == "st_equals") {
+        *result = S2BooleanOperation::Equals(left, right, options);
+        return Status::OK();
+    }
+    if (containment && container.type() == GeoShapeType::GEO_SHAPE_LINE_STRING &&
+        value.type() == GeoShapeType::GEO_SHAPE_POLYGON) {
+        *result = false;
+        return Status::OK();
+    }
+    if (containment && !S2BooleanOperation::Contains(left, right, options)) {
+        *result = false;
+        return Status::OK();
+    }
+    auto interior_options = options;
+    interior_options.set_polygon_model(S2BooleanOperation::PolygonModel::OPEN);
+    interior_options.set_polyline_model(S2BooleanOperation::PolylineModel::OPEN);
+    if (containment) {
+        // CLOSED Contains is covers: a polygon must not contain a line solely on its boundary.
+        *result = S2BooleanOperation::Intersects(left, right, interior_options);
+        return Status::OK();
+    }
+    if (name == "st_overlaps") {
+        // Neither equality nor containment is a partial overlap.
+        if (S2BooleanOperation::Contains(left, right, options) ||
+            S2BooleanOperation::Contains(right, left, options)) {
+            *result = false;
+            return Status::OK();
+        }
+        if (lhs.type() == GeoShapeType::GEO_SHAPE_POLYGON) {
+            *result = S2BooleanOperation::Intersects(left, right, interior_options);
+            return Status::OK();
+        }
+        // S2 emits a crossing point as a degenerate polyline: only a real shared edge overlaps.
+        std::vector<std::unique_ptr<S2Polyline>> intersection;
+        S2BooleanOperation operation(
+                S2BooleanOperation::OpType::INTERSECTION,
+                std::make_unique<s2builderutil::S2PolylineVectorLayer>(&intersection),
+                interior_options);
+        S2Error error;
+        if (!operation.Build(left, right, &error)) {
+            return Status::InternalError("Geography intersection failed: {}", error.text());
+        }
+        *result = std::ranges::any_of(intersection, [](const auto& line) {
+            for (int i = 1; i < line->num_vertices(); ++i) {
+                if (line->vertex(i - 1) != line->vertex(i)) {
+                    return true;
+                }
+            }
+            return false;
+        });
+        return Status::OK();
+    }
     bool intersects = S2BooleanOperation::Intersects(left, right, options);
+    // A nearby disjoint curve must not become a boundary contact through the legacy
+    // conversion-distance fallback used below by Intersects/Disjoint.
+    if (name == "st_touches") {
+        *result = intersects && !S2BooleanOperation::Intersects(left, right, interior_options);
+        return Status::OK();
+    }
     // Independently converted LINESTRING(10 45,10 46) and (10 45.3,10 45.9)
     // are not exactly coplanar either. Apply the same conversion bound to all
     // admitted nonpoint pairs, retaining polygon interiors and real open-line edges.
@@ -1047,7 +1262,9 @@ struct StRelationFunction {
             // The legacy relation helpers use planar segments and may close open lines.
             // Dispatch typed Geography separately so date-line edges remain geodesic.
             if (is_spatial_type(left_type)) {
-                RETURN_IF_ERROR(geography_relation(NAME, *shape1, *shape2, &relation_value));
+                RETURN_IF_ERROR(geography_relation(NAME, *shape1, *shape2,
+                                                   left_col->get_data_at(row),
+                                                   right_col->get_data_at(row), &relation_value));
             } else {
                 relation_value = Func::evaluate(shape1.get(), shape2.get());
             }
@@ -1077,6 +1294,20 @@ struct StDisjointFunc {
 struct StTouchesFunc {
     static constexpr auto NAME = "st_touches";
     static bool evaluate(GeoShape* shape1, GeoShape* shape2) { return shape1->touches(shape2); }
+};
+
+struct StEqualsFunc {
+    static constexpr auto NAME = "st_equals";
+    static bool evaluate(GeoShape*, GeoShape*) {
+        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "ST_Equals requires typed Geography");
+    }
+};
+
+struct StOverlapsFunc {
+    static constexpr auto NAME = "st_overlaps";
+    static bool evaluate(GeoShape*, GeoShape*) {
+        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "ST_Overlaps requires typed Geography");
+    }
 };
 
 struct StWithinFunc {
@@ -1476,13 +1707,33 @@ struct StIsClosed {
     }
 };
 
-struct StDistance {
-    static constexpr auto NAME = "st_distance";
-    static const size_t NUM_ARGS = 2;
-    using Type = DataTypeFloat64;
+static double geography_distance(const GeoShape& left_shape, const GeoShape& right_shape,
+                                 StringRef left_wkb, StringRef right_wkb) {
+    // Keep the common point-pair path allocation-free while canonicalizing date-line/pole aliases.
+    if (left_shape.type() == GeoShapeType::GEO_SHAPE_POINT &&
+        right_shape.type() == GeoShapeType::GEO_SHAPE_POINT) {
+        return S2Earth::GetDistanceMeters(
+                canonical_geography_point(*assert_cast<const GeoPoint&>(left_shape).point()),
+                canonical_geography_point(*assert_cast<const GeoPoint&>(right_shape).point()));
+    }
+    const GeographyEdgeNodes nodes(left_wkb, right_wkb);
+    MutableS2ShapeIndex left;
+    MutableS2ShapeIndex right;
+    geography_shape_index(left_shape, nodes, &left);
+    geography_shape_index(right_shape, nodes, &right);
+    S2ClosestEdgeQuery query(&left);
+    S2ClosestEdgeQuery::ShapeIndexTarget target(&right);
+    return S2Earth::ToMeters(query.GetDistance(&target).ToAngle());
+}
+
+template <bool Within>
+struct StDistanceFunction {
+    static constexpr auto NAME = Within ? "st_dwithin" : "st_distance";
+    static constexpr size_t NUM_ARGS = Within ? 3 : 2;
+    using Type = std::conditional_t<Within, DataTypeUInt8, DataTypeFloat64>;
 
     static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
-        DCHECK_EQ(arguments.size(), 2);
+        DCHECK_EQ(arguments.size(), NUM_ARGS);
         auto return_type = block.get_data_type(result);
         const auto& [left_column, left_const] =
                 unpack_if_const(block.get_by_position(arguments[0]).column);
@@ -1494,9 +1745,14 @@ struct StDistance {
         RETURN_IF_ERROR(validate_geography_semantics(left_type, NAME));
         RETURN_IF_ERROR(validate_geography_semantics(right_type, NAME));
 
-        const auto size = std::max(left_column->size(), right_column->size());
+        const auto size = block.rows();
 
-        auto res = ColumnFloat64::create();
+        auto res = Type::ColumnType::create();
+        std::optional<ColumnView<TYPE_DOUBLE>> threshold_column;
+        if constexpr (Within) {
+            threshold_column.emplace(
+                    ColumnView<TYPE_DOUBLE>::create(block.get_by_position(arguments[2]).column));
+        }
         res->reserve(size);
         auto null_map = ColumnUInt8::create(size, 0);
         auto& null_map_data = null_map->get_data();
@@ -1512,6 +1768,15 @@ struct StDistance {
                 null_map_data[row] = 1;
                 res->insert_default();
                 continue;
+            }
+            double threshold = 0;
+            if constexpr (Within) {
+                threshold = threshold_column->value_at(row);
+                // A dynamic negative/NaN/infinite radius is not a valid distance threshold.
+                if (!std::isfinite(threshold) || threshold < 0) {
+                    return Status::InvalidArgument(
+                            "ST_DWithin distance must be finite and nonnegative");
+                }
             }
             if (!left_const || !left_decoded) {
                 RETURN_IF_ERROR(
@@ -1530,13 +1795,22 @@ struct StDistance {
                 res->insert_default();
                 continue;
             }
-            const double distance = left_shape->Distance(right_shape.get());
+            const double distance =
+                    is_spatial_type(left_type)
+                            ? geography_distance(*left_shape, *right_shape,
+                                                 left_column->get_data_at(left_const ? 0 : row),
+                                                 right_column->get_data_at(right_const ? 0 : row))
+                            : left_shape->Distance(right_shape.get());
             if (UNLIKELY(distance < 0)) {
                 null_map_data[row] = 1;
                 res->insert_default();
                 continue;
             }
-            res->insert_value(distance);
+            if constexpr (Within) {
+                res->insert_value(distance <= threshold);
+            } else {
+                res->insert_value(distance);
+            }
         }
         block.replace_by_position(result,
                                   ColumnNullable::create(std::move(res), std::move(null_map)));
@@ -1721,6 +1995,8 @@ void register_function_geo(SimpleFunctionFactory& factory) {
     factory.register_function<SpatialWkbGeoFunction<StRelationFunction<StDisjointFunc>>>();
     factory.register_function<SpatialWkbGeoFunction<StRelationFunction<StTouchesFunc>>>();
     factory.register_function<SpatialWkbGeoFunction<StRelationFunction<StWithinFunc>>>();
+    factory.register_function<SpatialWkbGeoFunction<StRelationFunction<StEqualsFunc>>>();
+    factory.register_function<SpatialWkbGeoFunction<StRelationFunction<StOverlapsFunc>>>();
     factory.register_function<GeoFunction<StCircle>>();
     factory.register_function<GeoFunction<StGeoFromText<StGeometryFromText>>>();
     factory.register_function<GeoFunction<StGeoFromText<StGeomFromText>>>();
@@ -1739,7 +2015,8 @@ void register_function_geo(SimpleFunctionFactory& factory) {
     factory.register_function<StAsBinaryFunction>();
     factory.register_function<SpatialWkbGeoFunction<StLength>>();
     factory.register_function<SpatialWkbGeoFunction<StGeometryType>>();
-    factory.register_function<SpatialWkbGeoFunction<StDistance>>();
+    factory.register_function<SpatialWkbGeoFunction<StDistanceFunction<false>>>();
+    factory.register_function<SpatialWkbGeoFunction<StDistanceFunction<true>>>();
     factory.register_function<GeoFunction<StIsClosed>>();
     factory.register_function<GeoFunction<StNumGeometries>>();
     factory.register_function<GeoFunction<StNumPoints>>();

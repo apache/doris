@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.GeographyType;
@@ -66,6 +67,13 @@ final class SpatialFunctionSignature {
             }
         }
         return FunctionSignature.ret(returnType).args(inputTypes);
+    }
+
+    static void checkSpatialArguments(String function, Expression left, Expression right) {
+        if ((!isSpatial(left) && !left.getDataType().isNullType())
+                || (!isSpatial(right) && !right.getDataType().isNullType())) {
+            throw new AnalysisException(function + " requires typed spatial arguments");
+        }
     }
 
     private static boolean isSpatial(Expression expression) {

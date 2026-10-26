@@ -38,6 +38,21 @@ public:
     ~WkbParseTest() override = default;
 };
 
+TEST_F(WkbParseTest, RawCoordinatesKeepSourceOrdinateBits) {
+    for (const auto& hex : {"010100000000000000000024400000000000804640",
+                            "000000000140240000000000004046800000000000",
+                            "01E9030000000000000000244000000000008046400000000000000840"}) {
+        const std::string input(hex);
+        std::string bytes(input.size() / 2, '\0');
+        ASSERT_EQ(string_hex::hex_decode(input.data(), input.size(), bytes.data()), bytes.size());
+        GeoCoordinateList coordinates;
+        ASSERT_EQ(WkbParse::xy_coordinates(bytes.data(), bytes.size(), &coordinates),
+                  GeoParseStatus::GEO_PARSE_OK);
+        ASSERT_EQ(coordinates.list.size(), 1);
+        EXPECT_DOUBLE_EQ(coordinates.list[0].x, 10);
+        EXPECT_DOUBLE_EQ(coordinates.list[0].y, 45);
+    }
+}
 TEST_F(WkbParseTest, ByteShapesMatchLegacyHexAndOwnCoordinates) {
     const std::vector<std::string> cases {
             "0101000000000000000000F03F0000000000000040",

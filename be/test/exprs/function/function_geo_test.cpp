@@ -20,8 +20,11 @@
 #include <gtest/gtest-test-part.h>
 #include <stdint.h>
 
+#include <bit>
 #include <iomanip>
+#include <limits>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -574,24 +577,295 @@ TEST(VGeoFunctionsTest, GeographyMeridianMembershipAllowsOnlyConversionRoundoff)
     }
 }
 
-TEST(VGeoFunctionsTest, GeographyContainmentAndTouchesRejectUnimplementedPairs) {
-    const std::string point = "0101000000000000000000f03f0000000000000040";
-    const std::string line =
-            "0102000000020000000000000000000000000000000000000000000000000000400000000000000000";
-    const auto result_type = make_nullable(std::make_shared<DataTypeUInt8>());
-    for (const auto& name : {"st_contains", "st_within"}) {
-        Block block;
-        ASSERT_TRUE(execute_geography_test(name, {point, point}, result_type, &block).ok());
-        EXPECT_EQ((*block.get_by_position(2).column)[0].get<TYPE_BOOLEAN>(), 1);
-        Block unsupported;
-        const auto status = execute_geography_test(name, {line, line}, result_type, &unsupported);
-        EXPECT_FALSE(status.ok());
-        EXPECT_NE(status.to_string().find("does not support this Geography shape pair"),
-                  std::string::npos);
+// WKT makes topology cases readable; exercise the public typed WKB function, not its helper.
+static std::string geography_test_hex(const std::string& wkt) {
+    // Encode the fixture's decimal ordinates directly: a GeoShape round trip would first
+    // round longitude through S2, defeating the meridian subdivision regression.
+    std::ostringstream hex;
+    hex << std::hex << std::setfill('0');
+    const auto append = [&](uint64_t value, int bytes) {
+        for (int i = 0; i < bytes; ++i) {
+            hex << std::setw(2) << ((value >> (8 * i)) & 255);
+        }
+    };
+    const bool point = wkt.starts_with("POINT");
+    const bool polygon = wkt.starts_with("POLYGON");
+    append(1, 1);
+    uint32_t kind = 2;
+    if (point) {
+        kind = 1;
+    } else if (polygon) {
+        kind = 3;
     }
-    Block unsupported;
-    EXPECT_FALSE(
-            execute_geography_test("st_touches", {line, line}, result_type, &unsupported).ok());
+    append(kind, 4);
+    std::vector<std::vector<double>> rings;
+    size_t cursor = polygon ? wkt.find('(') + 1 : 0;
+    while ((cursor = wkt.find('(', cursor)) != std::string::npos) {
+        const auto close = wkt.find(')', cursor);
+        auto text = wkt.substr(cursor + 1, close - cursor - 1);
+        std::ranges::replace(text, ',', ' ');
+        std::istringstream coordinates(text);
+        auto& ring = rings.emplace_back();
+        double value;
+        while (coordinates >> value) {
+            ring.push_back(value);
+        }
+        cursor = close + 1;
+    }
+    if (polygon) {
+        append(rings.size(), 4);
+    }
+    for (const auto& ring : rings) {
+        if (!point) {
+            append(ring.size() / 2, 4);
+        }
+        for (double coordinate : ring) {
+            append(std::bit_cast<uint64_t>(coordinate), 8);
+        }
+    }
+    return hex.str();
+}
+
+static void expect_geography_relation(const std::string& name, const std::string& left,
+                                      const std::string& right, bool expected) {
+    SCOPED_TRACE(name + "(" + left + ", " + right + ")");
+    Block block;
+    const auto type = make_nullable(std::make_shared<DataTypeUInt8>());
+    ASSERT_TRUE(execute_geography_test(name, {geography_test_hex(left), geography_test_hex(right)},
+                                       type, &block)
+                        .ok());
+    EXPECT_EQ((*block.get_by_position(2).column)[0].get<TYPE_BOOLEAN>(), expected);
+}
+
+TEST(VGeoFunctionsTest, GeographyContainmentCoversEveryAdmittedDimension) {
+    struct Case {
+        std::string container;
+        std::string value;
+        bool expected;
+    };
+    const std::string polygon = "POLYGON ((0 0,4 0,4 4,0 4,0 0))";
+    const std::string hole = "POLYGON ((0 0,4 0,4 4,0 4,0 0),(1 1,1 3,3 3,3 1,1 1))";
+    const std::vector<Case> cases {
+            {"POINT (1 2)", "POINT (1 2)", true},
+            {"POINT (1 0)", "LINESTRING (0 0,2 0)", false},
+            {"LINESTRING (0 0,2 0)", "LINESTRING (0 0,2 0)", true},
+            {"LINESTRING (0 0,2 0)", "LINESTRING (2 0,1 0,0 0)", true},
+            {"LINESTRING (10 45,10 46)", "LINESTRING (10 45.3,10 45.9)", true},
+            {"LINESTRING (0 0,2 0)", "LINESTRING (1 0,3 0)", false},
+            {polygon, "LINESTRING (1 1,3 1)", true},
+            {polygon, "LINESTRING (0 0,4 0)", false},
+            {polygon, "LINESTRING (1 1,5 1)", false},
+            {polygon, polygon, true},
+            {polygon, "POLYGON ((1 1,2 1,2 2,1 2,1 1))", true},
+            {hole, "LINESTRING (0.5 2,3.5 2)", false},
+            {"POLYGON ((10 45,11 45,11 46,10 46,10 45))", "LINESTRING (10 45.3,10 45.9)", false},
+            {hole, "POLYGON ((1.5 1.5,2 1.5,2 2,1.5 2,1.5 1.5))", false},
+            {"LINESTRING (0 0,2 0)", polygon, false},
+    };
+    for (const auto& value : cases) {
+        expect_geography_relation("st_contains", value.container, value.value, value.expected);
+        expect_geography_relation("st_within", value.value, value.container, value.expected);
+    }
+}
+
+TEST(VGeoFunctionsTest, GeographyTouchesDistinguishesBoundaryFromInterior) {
+    struct Case {
+        std::string left;
+        std::string right;
+        bool expected;
+    };
+    const std::string polygon = "POLYGON ((0 0,2 0,2 2,0 2,0 0))";
+    const std::vector<Case> cases {
+            {"LINESTRING (0 0,2 0)", "LINESTRING (2 0,3 1)", true},
+            {"LINESTRING (0 0,2 0)", "LINESTRING (1 -1,1 1)", false},
+            {"LINESTRING (0 0,2 0)", "LINESTRING (1 0,3 0)", false},
+            {"LINESTRING (0 0,1 0)", "LINESTRING (0 0.000000000000001,1 0.000000000000001)", false},
+            {"LINESTRING (0 0,2 0)", polygon, true},
+            {"LINESTRING (1 -1,1 1)", polygon, false},
+            {polygon, "POLYGON ((2 0,4 0,4 2,2 2,2 0))", true},
+            {polygon, "POLYGON ((2 2,3 2,3 3,2 3,2 2))", true},
+            {polygon, "POLYGON ((1 0,3 0,3 2,1 2,1 0))", false},
+            {polygon, polygon, false},
+            {"POLYGON ((10 45,11 45,11 46,10 46,10 45))", "LINESTRING (10 45.3,10 45.9)", true},
+            {"POINT (0 0)", "LINESTRING (0 0,1 0,1 1,0 0)", false},
+    };
+    for (const auto& value : cases) {
+        expect_geography_relation("st_touches", value.left, value.right, value.expected);
+        expect_geography_relation("st_touches", value.right, value.left, value.expected);
+    }
+}
+
+TEST(VGeoFunctionsTest, GeographyEqualsUsesPointSetsAndOverlapsRequiresPositiveDimension) {
+    struct Case {
+        std::string left;
+        std::string right;
+        bool equal;
+        bool overlap;
+    };
+    const std::string polygon = "POLYGON ((0 0,2 0,2 2,0 2,0 0))";
+    const std::vector<Case> cases {
+            {"POINT (1 2)", "POINT (1 2)", true, false},
+            {"POLYGON ((89 0,-89 0,-89 -10,89 -10,89 0))",
+             "POLYGON ((89 0,0.000000000000001 0,0 0,-0.000000000000001 0,-89 0,-89 -10,89 -10,89 "
+             "0))",
+             true, false},
+            {"LINESTRING (-0.000000000000001 0,-0.000000000000001 2)",
+             "LINESTRING (-0.000000000000002 1,-0.000000000000002 3)", false, false},
+            {"LINESTRING (-170 0,-170 0.00000000000001)",
+             "LINESTRING (-170 0.00000000000001,-170 0.000000000000005,-170 0)", true, false},
+            {"POINT (1 2)", "POINT (1.00000001 2)", false, false},
+            {"POINT (180 0)", "POINT (-180 0)", true, false},
+            {"POINT (0 90)", "POINT (30 90)", true, false},
+            {"LINESTRING (0 0,2 0)", "LINESTRING (2 0,1 0,0 0)", true, false},
+            {"LINESTRING (10 45,10 46)", "LINESTRING (10 46,10 45.5,10 45)", true, false},
+            {"LINESTRING (10 80,-170 80)", "LINESTRING (10 80,30 90,-170 80)", true, false},
+            {"LINESTRING (-45 -45,45 45)", "LINESTRING (45 45,0 0,-45 -45)", true, false},
+            {"LINESTRING (0 0,2 0)", "LINESTRING (1 0,3 0)", false, true},
+            {"LINESTRING (0 0,2 0)", "LINESTRING (1 -1,1 1)", false, false},
+            {"LINESTRING (0 0,2 0)", "LINESTRING (2 0,3 0)", false, false},
+            {"LINESTRING (0 0,2 0)", "LINESTRING (0.5 0,1.5 0)", false, false},
+            {polygon, "POLYGON ((2 2,2 0,0 0,0 2,2 2))", true, false},
+            {polygon, "POLYGON ((1 0,3 0,3 2,1 2,1 0))", false, true},
+            {polygon, "POLYGON ((2 0,4 0,4 2,2 2,2 0))", false, false},
+            {polygon, "POLYGON ((0.5 0.5,1 0.5,1 1,0.5 1,0.5 0.5))", false, false},
+            {polygon, "LINESTRING (0 0,2 0)", false, false},
+            {"POLYGON ((10 45,11 45,11 46,10 46,10 45))",
+             "POLYGON ((10 45,11 45,11 46,10 46,10 45.5,10 45))", true, false},
+            {"LINESTRING (-0.00000000000001 0,0.00000000000001 0)",
+             "LINESTRING (0 -0.00000000000001,0 0.00000000000001)", false, false},
+            {"LINESTRING (0 0,1 0)", "LINESTRING (0 0.000000000001,1 0.000000000001)", false,
+             false},
+    };
+    for (const auto& value : cases) {
+        for (bool reverse : {false, true}) {
+            const auto& left = reverse ? value.right : value.left;
+            const auto& right = reverse ? value.left : value.right;
+            expect_geography_relation("st_equals", left, right, value.equal);
+            expect_geography_relation("st_overlaps", left, right, value.overlap);
+        }
+    }
+}
+
+static Status execute_dwithin_test(double threshold, bool null_threshold, Block* block) {
+    const auto type = std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY);
+    const auto wkb = spatial_test_wkb("0101000000000000000000f03f0000000000000040");
+    for (int i = 0; i < 2; ++i) {
+        auto column = type->create_column();
+        column->insert_data(wkb.data(), wkb.size());
+        block->insert({std::move(column), type, "shape"});
+    }
+    auto radius = ColumnFloat64::create();
+    radius->insert_value(threshold);
+    auto nulls = ColumnUInt8::create(1, null_threshold);
+    block->insert({ColumnNullable::create(std::move(radius), std::move(nulls)),
+                   make_nullable(std::make_shared<DataTypeFloat64>()), "radius"});
+    const auto result = make_nullable(std::make_shared<DataTypeUInt8>());
+    auto function = SimpleFunctionFactory::instance().get_function(
+            "st_dwithin", block->get_columns_with_type_and_name(), result);
+    EXPECT_NE(function, nullptr);
+    block->insert({nullptr, result, "result"});
+    return function->execute(nullptr, *block, {0, 1, 2}, 3, 1);
+}
+
+TEST(VGeoFunctionsTest, GeographyDWithinValidatesDynamicRadiusAndPropagatesNull) {
+    for (double radius : {0.0, 1.0}) {
+        Block block;
+        ASSERT_TRUE(execute_dwithin_test(radius, false, &block).ok());
+        EXPECT_EQ((*block.get_by_position(3).column)[0].get<TYPE_BOOLEAN>(), true);
+    }
+    for (double radius :
+         {-1.0, std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity(),
+          std::numeric_limits<double>::quiet_NaN()}) {
+        Block block;
+        const auto status = execute_dwithin_test(radius, false, &block);
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("finite and nonnegative"), std::string::npos);
+        Block null_block;
+        ASSERT_TRUE(execute_dwithin_test(radius, true, &null_block).ok());
+        EXPECT_TRUE(null_block.get_by_position(3).column->is_null_at(0));
+    }
+}
+
+static void expect_dwithin_constant_shapes(const std::vector<double>& radii, bool invalid,
+                                           bool nullable_radius) {
+    const auto type = std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY);
+    Block block;
+    for (const auto& wkt : {"POINT (0 0)", "POINT (1 0)"}) {
+        const auto wkb = spatial_test_wkb(geography_test_hex(wkt));
+        auto column = type->create_column();
+        column->insert_data(wkb.data(), wkb.size());
+        block.insert({ColumnConst::create(std::move(column), radii.size()), type, "shape"});
+    }
+    auto radius = ColumnFloat64::create();
+    radius->get_data().assign(radii.begin(), radii.end());
+    ColumnPtr radius_column = std::move(radius);
+    DataTypePtr radius_type = std::make_shared<DataTypeFloat64>();
+    if (nullable_radius) {
+        auto nulls = ColumnUInt8::create(radii.size(), 0);
+        nulls->get_data()[1] = 1;
+        radius_column = ColumnNullable::create(radius_column, std::move(nulls));
+        radius_type = make_nullable(radius_type);
+    }
+    block.insert({radius_column, radius_type, "radius"});
+    const auto result_type = make_nullable(std::make_shared<DataTypeUInt8>());
+    const auto function = SimpleFunctionFactory::instance().get_function(
+            "st_dwithin", block.get_columns_with_type_and_name(), result_type);
+    ASSERT_NE(function, nullptr);
+    block.insert({nullptr, result_type, "result"});
+    const auto status = function->execute(nullptr, block, {0, 1, 2}, 3, radii.size());
+    if (invalid) {
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("finite and nonnegative"), std::string::npos);
+        return;
+    }
+    ASSERT_TRUE(status.ok()) << status;
+    const auto& result = *block.get_by_position(3).column;
+    ASSERT_EQ(result.size(), radii.size());
+    EXPECT_EQ(result[0].get<TYPE_BOOLEAN>(), false);
+    EXPECT_EQ(result.is_null_at(1), nullable_radius);
+    if (!nullable_radius) {
+        EXPECT_EQ(result[1].get<TYPE_BOOLEAN>(), true);
+    }
+}
+
+TEST(VGeoFunctionsTest, GeographyDWithinConstantShapesEvaluateEveryRadiusRow) {
+    expect_dwithin_constant_shapes({0, 200000}, false, false);
+    expect_dwithin_constant_shapes({0, -1}, true, false);
+    expect_dwithin_constant_shapes({0, -1}, false, true);
+}
+
+static void expect_dwithin_zero(const std::string& left, const std::string& right, bool expected) {
+    const auto type = std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY);
+    Block block;
+    for (const auto& wkt : {left, right}) {
+        const auto wkb = spatial_test_wkb(geography_test_hex(wkt));
+        auto column = type->create_column();
+        column->insert_data(wkb.data(), wkb.size());
+        block.insert({std::move(column), type, "shape"});
+    }
+    const auto radius_type = std::make_shared<DataTypeFloat64>();
+    block.insert({ColumnFloat64::create(1, 0), radius_type, "radius"});
+    const auto result_type = make_nullable(std::make_shared<DataTypeUInt8>());
+    const auto function = SimpleFunctionFactory::instance().get_function(
+            "st_dwithin", block.get_columns_with_type_and_name(), result_type);
+    ASSERT_NE(function, nullptr);
+    block.insert({nullptr, result_type, "result"});
+    ASSERT_TRUE(function->execute(nullptr, block, {0, 1, 2}, 3, 1).ok());
+    EXPECT_EQ((*block.get_by_position(3).column)[0].get<TYPE_BOOLEAN>(), expected);
+}
+
+TEST(VGeoFunctionsTest, GeographyDWithinHasNoLegacyMetreClamp) {
+    const Strings shapes {"POINT (1 0)", "LINESTRING (0 0,2 0)", "POLYGON ((0 0,2 0,2 2,0 2,0 0))"};
+    for (const auto& left : shapes) {
+        for (const auto& right : shapes) {
+            expect_dwithin_zero(left, right, true);
+        }
+    }
+    expect_dwithin_zero("POINT (180 0)", "POINT (-180 0)", true);
+    expect_dwithin_zero("POINT (0 90)", "POINT (20 90)", true);
+    expect_dwithin_zero("LINESTRING (10 45,10 46)", "LINESTRING (10 45.3,10 45.9)", true);
+    expect_dwithin_zero("LINESTRING (0 0,1 0)", "LINESTRING (0 0.000000000001,1 0.000000000001)",
+                        false);
 }
 
 TEST(VGeoFunctionsTest, GeographyPointRelationsDistinguishInteriorAndBoundary) {
