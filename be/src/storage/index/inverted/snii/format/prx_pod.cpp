@@ -1207,7 +1207,7 @@ Status build_prx_window(std::span<const std::vector<uint32_t>> per_doc_positions
         freqs.push_back(static_cast<uint32_t>(doc.size()));
         flat.insert(flat.end(), doc.begin(), doc.end());
     }
-    // G16-h: level < -1 is auto mode at zstd level |level| (-1 stays the default).
+    // Level < -1 is auto mode at zstd level |level| (-1 stays the default).
     const int auto_level = zstd_level_or_negative_for_auto == -1 ? kPrxPodDefaultZstdLevel
                                                                  : -zstd_level_or_negative_for_auto;
     PrxWindowBuildOutcome outcome = PrxWindowBuildOutcome::kBuilt;
@@ -1292,7 +1292,7 @@ Status try_build_prx_window_flat(std::span<const uint32_t> positions_flat,
     }
     // Auto mode: shared path with a direct singleton RAW fast path, then PFOR,
     // with raw plaintext materialized only for zstd or a tightened-limit fallback.
-    // G16-h: level < -1 is auto mode at zstd level |level| (-1 stays the default).
+    // Level < -1 is auto mode at zstd level |level| (-1 stays the default).
     const int auto_level = zstd_level_or_negative_for_auto == -1 ? kPrxPodDefaultZstdLevel
                                                                  : -zstd_level_or_negative_for_auto;
     return build_prx_window_auto_from_flat(positions_flat, freqs, auto_level, limits, sink,
