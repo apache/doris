@@ -99,6 +99,21 @@ public class CloudTablet extends Tablet implements GsonPostProcessable {
     }
 
     @Override
+    public Multimap<Long, Long> getLoadReplicaBackendPathMap() throws UserException {
+        return getNormalReplicaBackendPathMap();
+    }
+
+    public Multimap<Long, Long> getLoadReplicaBackendPathMapByClusterId(String clusterId) throws UserException {
+        // The logical replica has already resolved to one physical BE. Post-filtering that single
+        // result cannot reroute a load and may cause a false REPLICA_FEW_ERR during graceful shutdown.
+        return getNormalReplicaBackendPathMapByClusterId(clusterId);
+    }
+
+    public Multimap<Long, Long> getLoadReplicaBackendPathMap(String beEndpoint) throws UserException {
+        return getNormalReplicaBackendPathMap(beEndpoint);
+    }
+
+    @Override
     public void addReplica(Replica replica, boolean isRestore) {
         this.replica = replica;
         if (!isRestore) {

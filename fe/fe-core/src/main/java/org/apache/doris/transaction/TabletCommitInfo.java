@@ -25,6 +25,7 @@ import com.google.gson.Gson;
 import java.util.List;
 
 public class TabletCommitInfo {
+    public static final long PARTITION_INVOLVEMENT_BACKEND_ID = -1L;
 
     private long tabletId;
     private long backendId;

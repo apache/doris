@@ -125,6 +125,7 @@ import org.apache.doris.thrift.TTabletCommitInfo;
 import org.apache.doris.thrift.TTopnFilterDesc;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.CommitDataSerializer;
+import org.apache.doris.transaction.ErrorTabletInfo;
 import org.apache.doris.transaction.Transaction;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -1244,6 +1245,9 @@ public class Coordinator implements CoordInterface {
     }
 
     private void updateErrorTabletInfos(List<TErrorTabletInfo> errorTabletInfos) {
+        if (!Config.isCloudMode()) {
+            updateCommitInfos(ErrorTabletInfo.toInvolvedTabletCommitInfos(errorTabletInfos));
+        }
         lock.lock();
         try {
             if (this.errorTabletInfos.size() <= Config.max_error_tablet_of_broker_load) {

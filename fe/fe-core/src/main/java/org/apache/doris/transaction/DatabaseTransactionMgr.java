@@ -579,7 +579,12 @@ public class DatabaseTransactionMgr {
             if (!tabletToBackends.containsKey(tabletId)) {
                 tabletToBackends.put(tabletId, new HashSet<>());
             }
-            tabletToBackends.get(tabletId).add(tabletCommitInfos.get(i).getBackendId());
+            long backendId = tabletCommitInfos.get(i).getBackendId();
+            // Partition involvement markers use a negative backend only to include the
+            // partition in quorum validation. They must never count as successful replicas.
+            if (backendId >= 0) {
+                tabletToBackends.get(tabletId).add(backendId);
+            }
         }
         List<Replica> tabletSuccReplicas = Lists.newArrayList();
         List<Replica> tabletWriteFailedReplicas = Lists.newArrayList();

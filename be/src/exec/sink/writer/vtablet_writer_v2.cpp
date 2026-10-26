@@ -32,6 +32,7 @@
 #include <unordered_map>
 #include <utility>
 
+#include "common/check.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
 #include "common/metrics/doris_metrics.h"
@@ -115,7 +116,7 @@ Status VTabletWriterV2::_incremental_open_streams(
                     VLOG_DEBUG << "incremental open stream (" << partition->id << ", " << tablet_id
                                << ")";
                 }
-                _build_tablet_replica_info(tablet_id, partition);
+                RETURN_IF_ERROR(_build_tablet_replica_info(tablet_id, partition));
             }
         }
     }
@@ -357,31 +358,84 @@ Status VTabletWriterV2::_build_tablet_node_mapping() {
                     _indexes_from_node[node].emplace_back(tablet);
                     known_indexes.insert(index.index_id);
                 }
-                _build_tablet_replica_info(tablet_id, partition);
+                RETURN_IF_ERROR(_build_tablet_replica_info(tablet_id, partition));
             }
         }
     }
     return Status::OK();
 }
 
-void VTabletWriterV2::_build_tablet_replica_info(const int64_t tablet_id,
-                                                 VOlapTablePartition* partition) {
+Status VTabletWriterV2::_build_tablet_replica_info(const int64_t tablet_id,
+                                                   VOlapTablePartition* partition) {
+    const auto* tablet_location = _location->find_tablet(tablet_id);
+    if (tablet_location == nullptr) {
+        return Status::InternalError("unknown tablet location, tablet_id={}", tablet_id);
+    }
+    int selected_replicas_num = cast_set<int>(tablet_location->node_ids.size());
+    if (selected_replicas_num == 0) {
+        return Status::InternalError("tablet {} has no selected replicas", tablet_id);
+    }
+    constexpr int64_t DUMMY_TABLET_ID = 0;
+    if (tablet_id == DUMMY_TABLET_ID) [[unlikely]] {
+        if (selected_replicas_num != 1) {
+            return Status::InternalError(
+                    "bootstrap tablet {} must have exactly one selected replica, actual {}",
+                    tablet_id, selected_replicas_num);
+        }
+        return _register_tablet_replica_info(tablet_id, partition == nullptr ? -1 : partition->id,
+                                             1, 1, 1, {});
+    }
     if (partition != nullptr) {
         int total_replicas_num =
                 partition->total_replica_num == 0 ? _num_replicas : partition->total_replica_num;
-        int load_required_replicas_num = partition->load_required_replica_num == 0
-                                                 ? (_num_replicas + 1) / 2
-                                                 : partition->load_required_replica_num;
-        _tablet_replica_info[tablet_id] =
-                std::make_pair(total_replicas_num, load_required_replicas_num);
-        // Copy version gap backends info for this tablet
+        int default_required_replicas_num = (_num_replicas + 1) / 2;
+        // Older FE createPartition responses omit these optional fields. Clamp the fallback to
+        // the selected destinations instead of rejecting a valid min_load_replica_num load.
+        int load_required_replicas_num =
+                partition->load_required_replica_num == 0
+                        ? std::min(default_required_replicas_num, selected_replicas_num)
+                        : partition->load_required_replica_num;
+        std::unordered_set<int64_t> selected_gap_backends;
         if (auto it = partition->tablet_version_gap_backends.find(tablet_id);
             it != partition->tablet_version_gap_backends.end()) {
-            _tablet_version_gap_backends[tablet_id] = it->second;
+            for (int64_t backend_id : it->second) {
+                if (std::ranges::find(tablet_location->node_ids, backend_id) !=
+                    tablet_location->node_ids.end()) {
+                    selected_gap_backends.insert(backend_id);
+                }
+            }
         }
-    } else {
-        _tablet_replica_info[tablet_id] = std::make_pair(_num_replicas, (_num_replicas + 1) / 2);
+        return _register_tablet_replica_info(tablet_id, partition->id, total_replicas_num,
+                                             load_required_replicas_num, selected_replicas_num,
+                                             std::move(selected_gap_backends));
     }
+    return _register_tablet_replica_info(tablet_id, -1, _num_replicas,
+                                         std::min((_num_replicas + 1) / 2, selected_replicas_num),
+                                         selected_replicas_num, {});
+}
+
+Status VTabletWriterV2::_register_tablet_replica_info(
+        int64_t tablet_id, int64_t partition_id, int total_replicas_num,
+        int load_required_replicas_num, int selected_replicas_num,
+        std::unordered_set<int64_t> version_gap_backends) {
+    if (selected_replicas_num < load_required_replicas_num) {
+        return Status::InternalError(
+                "tablet {} in partition {} has {} selected replicas, fewer than required {}, "
+                "load_id={}",
+                tablet_id, partition_id, selected_replicas_num, load_required_replicas_num,
+                print_id(_load_id));
+    }
+    _tablet_replica_info[tablet_id] =
+            TabletReplicaInfo {.total_replicas_num = total_replicas_num,
+                               .load_required_replicas_num = load_required_replicas_num,
+                               .selected_replicas_num = selected_replicas_num};
+    _tablet_version_gap_backends[tablet_id] = version_gap_backends;
+    return _load_stream_map->merge_tablet_replica_info(
+            tablet_id, LoadStreamMap::TabletReplicaInfo {
+                               .total_replicas_num = total_replicas_num,
+                               .load_required_replicas_num = load_required_replicas_num,
+                               .selected_replicas_num = selected_replicas_num,
+                               .version_gap_backends = std::move(version_gap_backends)});
 }
 
 void VTabletWriterV2::_generate_rows_for_tablet(std::vector<RowPartTabletIds>& row_part_tablet_ids,
@@ -947,12 +1001,17 @@ bool VTabletWriterV2::_quorum_success(
     return true;
 }
 
-int VTabletWriterV2::_load_required_replicas_num(int64_t tablet_id) {
-    auto [total_replicas_num, load_required_replicas_num] = _tablet_replica_info[tablet_id];
-    if (total_replicas_num == 0) {
+int VTabletWriterV2::_load_required_replicas_num(int64_t tablet_id) const {
+    LoadStreamMap::TabletReplicaInfo shared_replica_info;
+    if (_load_stream_map->get_tablet_replica_info(tablet_id, &shared_replica_info)) {
+        return shared_replica_info.load_required_replicas_num;
+    }
+    DORIS_CHECK(_tablet_replica_info.contains(tablet_id));
+    const auto& replica_info = _tablet_replica_info.at(tablet_id);
+    if (replica_info.total_replicas_num == 0) {
         return (_num_replicas + 1) / 2;
     }
-    return load_required_replicas_num;
+    return replica_info.load_required_replicas_num;
 }
 
 int64_t VTabletWriterV2::_calc_max_wait_time_ms(
@@ -1097,24 +1156,78 @@ Status VTabletWriterV2::_create_commit_info(std::vector<TTabletCommitInfo>& tabl
     });
 
     for (auto& [tablet_id, failed_backends] : failed_tablets) {
-        // Version-gap replicas cannot contribute to quorum, even if this write succeeds.
-        // Count a backend only once when it also reported a write failure.
-        if (auto gap_it = _tablet_version_gap_backends.find(tablet_id);
-            gap_it != _tablet_version_gap_backends.end()) {
-            failed_backends.insert(gap_it->second.begin(), gap_it->second.end());
+        RETURN_IF_ERROR(_check_failed_tablet(tablet_id, failed_backends, failed_reason[tablet_id],
+                                             load_stream_map));
+    }
+    if (_state != nullptr && !failed_tablets.empty()) {
+        std::vector<TErrorTabletInfo> error_tablet_infos;
+        error_tablet_infos.reserve(failed_tablets.size());
+        for (const auto& [tablet_id, _] : failed_tablets) {
+            TErrorTabletInfo error_info;
+            error_info.__set_tabletId(tablet_id);
+            error_info.__set_msg(failed_reason[tablet_id].to_string());
+            error_tablet_infos.emplace_back(std::move(error_info));
         }
-        auto [total_replicas_num, load_required_replicas_num] = _tablet_replica_info[tablet_id];
-        int max_failed_replicas = total_replicas_num == 0
-                                          ? (_num_replicas - 1) / 2
-                                          : total_replicas_num - load_required_replicas_num;
-        if (std::cmp_greater(failed_backends.size(), max_failed_replicas)) {
-            LOG(INFO) << "tablet " << tablet_id
-                      << " failed on majority backends (failed=" << failed_backends.size()
-                      << ", max_failed=" << max_failed_replicas
-                      << "): " << failed_reason[tablet_id];
-            return Status::InternalError("tablet {} failed on majority backends: {}", tablet_id,
-                                         failed_reason[tablet_id]);
+        _state->add_error_tablet_infos(error_tablet_infos);
+    }
+    if (!config::is_cloud_mode()) {
+        // The final local writer may stop after quorum before a slow stream returns another
+        // writer's tablet result. tablets_to_commit is populated by every local writer before
+        // release(), so these markers keep every touched partition in FE's global quorum check.
+        load_stream_map->append_partition_involvement_commit_infos(tablet_commit_infos);
+    }
+    return Status::OK();
+}
+
+Status VTabletWriterV2::_check_failed_tablet(
+        int64_t tablet_id, std::unordered_set<int64_t>& failed_backends,
+        const Status& failed_reason, const std::shared_ptr<LoadStreamMap>& load_stream_map) const {
+    // Version-gap replicas cannot contribute to quorum, even if this write succeeds.
+    // Count a backend only once when it also reported a write failure.
+    if (auto gap_it = _tablet_version_gap_backends.find(tablet_id);
+        gap_it != _tablet_version_gap_backends.end()) {
+        failed_backends.insert(gap_it->second.begin(), gap_it->second.end());
+    }
+    int configured_max_failed;
+    int selected_max_failed;
+    LoadStreamMap::TabletReplicaInfo shared_replica_info;
+    if (load_stream_map->get_tablet_replica_info(tablet_id, &shared_replica_info)) {
+        failed_backends.insert(shared_replica_info.version_gap_backends.begin(),
+                               shared_replica_info.version_gap_backends.end());
+        configured_max_failed = shared_replica_info.total_replicas_num -
+                                shared_replica_info.load_required_replicas_num;
+        selected_max_failed = shared_replica_info.selected_replicas_num -
+                              shared_replica_info.load_required_replicas_num;
+    } else {
+        auto replica_info_it = _tablet_replica_info.find(tablet_id);
+        if (replica_info_it == _tablet_replica_info.end()) {
+            // A receiver can return a dynamic tablet's final result to a different source BE,
+            // which never received that partition's replica policy. Shared-nothing FE combines
+            // its error marker with commit infos from every source and validates quorum. Cloud
+            // commit has no equivalent global error-tablet aggregation.
+            if (config::is_cloud_mode()) {
+                return Status::InternalError("missing replica information for failed tablet {}",
+                                             tablet_id);
+            }
+            return Status::OK();
         }
+        const auto& replica_info = replica_info_it->second;
+        configured_max_failed =
+                replica_info.total_replicas_num == 0
+                        ? (_num_replicas - 1) / 2
+                        : replica_info.total_replicas_num - replica_info.load_required_replicas_num;
+        selected_max_failed =
+                replica_info.selected_replicas_num - replica_info.load_required_replicas_num;
+    }
+    DORIS_CHECK_GE(configured_max_failed, 0);
+    DORIS_CHECK_GE(selected_max_failed, 0);
+    int max_failed_replicas = std::min(configured_max_failed, selected_max_failed);
+    if (std::cmp_greater(failed_backends.size(), max_failed_replicas)) {
+        LOG(INFO) << "tablet " << tablet_id
+                  << " failed on majority backends (failed=" << failed_backends.size()
+                  << ", max_failed=" << max_failed_replicas << "): " << failed_reason;
+        return Status::InternalError("tablet {} failed on majority backends: {}", tablet_id,
+                                     failed_reason);
     }
     return Status::OK();
 }

@@ -18,6 +18,7 @@
 package org.apache.doris.transaction;
 
 import org.apache.doris.thrift.TErrorTabletInfo;
+import org.apache.doris.thrift.TTabletCommitInfo;
 
 import com.google.common.collect.Lists;
 
@@ -46,5 +47,17 @@ public class ErrorTabletInfo {
             errorInfos.add(new ErrorTabletInfo(tErrorInfo.getTabletId(), tErrorInfo.getMsg()));
         }
         return errorInfos;
+    }
+
+    public static List<TTabletCommitInfo> toInvolvedTabletCommitInfos(
+            List<TErrorTabletInfo> errorTabletInfos) {
+        List<TTabletCommitInfo> commitInfos = Lists.newArrayList();
+        for (TErrorTabletInfo errorInfo : errorTabletInfos) {
+            if (errorInfo.isSetTabletId()) {
+                commitInfos.add(new TTabletCommitInfo(
+                        errorInfo.getTabletId(), TabletCommitInfo.PARTITION_INVOLVEMENT_BACKEND_ID));
+            }
+        }
+        return commitInfos;
     }
 }

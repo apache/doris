@@ -117,6 +117,10 @@ private:
     Status _create_commit_info(std::vector<TTabletCommitInfo>& tablet_commit_infos,
                                std::shared_ptr<LoadStreamMap> load_stream_map);
 
+    Status _check_failed_tablet(int64_t tablet_id, std::unordered_set<int64_t>& failed_backends,
+                                const Status& failed_reason,
+                                const std::shared_ptr<LoadStreamMap>& load_stream_map) const;
+
 private:
     static constexpr int64_t CLOSE_WAIT_EVENT_FALLBACK_MS = 1000;
 
@@ -130,7 +134,12 @@ private:
 
     Status _incremental_open_streams(const std::vector<TOlapTablePartition>& partitions);
 
-    void _build_tablet_replica_info(const int64_t tablet_id, VOlapTablePartition* partition);
+    Status _build_tablet_replica_info(const int64_t tablet_id, VOlapTablePartition* partition);
+
+    Status _register_tablet_replica_info(int64_t tablet_id, int64_t partition_id,
+                                         int total_replicas_num, int load_required_replicas_num,
+                                         int selected_replicas_num,
+                                         std::unordered_set<int64_t> version_gap_backends);
 
     Status _send_new_partition_batch();
 
@@ -157,7 +166,7 @@ private:
             const std::unordered_set<std::shared_ptr<LoadStreamStub>>& unfinished_streams,
             const std::unordered_set<int64_t>& need_finish_tablets);
 
-    int _load_required_replicas_num(int64_t tablet_id);
+    int _load_required_replicas_num(int64_t tablet_id) const;
 
     Status _check_timeout();
 
@@ -253,8 +262,14 @@ private:
     // reuse to avoid frequent memory allocation and release.
     std::vector<RowPartTabletIds> _row_part_tablet_ids;
 
-    // tablet_id -> <total replicas num, load required replicas num>
-    std::unordered_map<int64_t, std::pair<int, int>> _tablet_replica_info;
+    struct TabletReplicaInfo {
+        int total_replicas_num;
+        int load_required_replicas_num;
+        int selected_replicas_num;
+    };
+
+    // tablet_id -> configured and selected replica counts used by failure accounting
+    std::unordered_map<int64_t, TabletReplicaInfo> _tablet_replica_info;
 
     // tablet_id -> set of backend_ids that have version gaps
     std::unordered_map<int64_t, std::unordered_set<int64_t>> _tablet_version_gap_backends;

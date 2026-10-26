@@ -70,6 +70,13 @@ class LoadStreamMapPool;
 
 class LoadStreamMap {
 public:
+    struct TabletReplicaInfo {
+        int total_replicas_num;
+        int load_required_replicas_num;
+        int selected_replicas_num;
+        std::unordered_set<int64_t> version_gap_backends;
+    };
+
     LoadStreamMap(UniqueId load_id, int64_t src_id, int num_streams, int num_use,
                   LoadStreamMapPool* pool);
 
@@ -84,6 +91,13 @@ public:
     Status for_each_st(std::function<Status(int64_t, LoadStreamStubs&)> fn);
 
     void save_tablets_to_commit(int64_t dst_id, const std::vector<PTabletID>& tablets_to_commit);
+
+    void append_partition_involvement_commit_infos(
+            std::vector<TTabletCommitInfo>& tablet_commit_infos);
+
+    Status merge_tablet_replica_info(int64_t tablet_id, const TabletReplicaInfo& replica_info);
+
+    bool get_tablet_replica_info(int64_t tablet_id, TabletReplicaInfo* replica_info);
 
     void save_segments_for_tablet(const std::unordered_map<int64_t, int32_t>& segments_for_tablet) {
         _segments_for_tablet.insert(segments_for_tablet.cbegin(), segments_for_tablet.cend());
@@ -117,6 +131,7 @@ private:
     std::atomic<int> _num_incremental_streams;
     std::mutex _mutex;
     std::unordered_map<int64_t, std::shared_ptr<LoadStreamStubs>> _streams_for_node;
+    std::unordered_map<int64_t, TabletReplicaInfo> _tablet_replica_infos;
     LoadStreamMapPool* _pool = nullptr;
     std::shared_ptr<IndexToTabletSchema> _tablet_schema_for_index;
     std::shared_ptr<IndexToEnableMoW> _enable_unique_mow_for_index;

@@ -31,12 +31,14 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.insertoverwrite.InsertOverwriteManager;
 import org.apache.doris.mysql.authenticate.TestLogAppender;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.system.Backend;
 import org.apache.doris.tablefunction.BackendsTableValuedFunction;
 import org.apache.doris.thrift.TBackendsMetadataParams;
 import org.apache.doris.thrift.TCheckAuthRequest;
@@ -61,6 +63,8 @@ import org.apache.doris.thrift.TNullableStringLiteral;
 import org.apache.doris.thrift.TPrivilegeCtrl;
 import org.apache.doris.thrift.TPrivilegeHier;
 import org.apache.doris.thrift.TPrivilegeType;
+import org.apache.doris.thrift.TReplacePartitionRequest;
+import org.apache.doris.thrift.TReplacePartitionResult;
 import org.apache.doris.thrift.TRollbackTxnRequest;
 import org.apache.doris.thrift.TSchemaTableName;
 import org.apache.doris.thrift.TSchemaTableRequestParams;
@@ -92,6 +96,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
@@ -658,6 +663,88 @@ public class FrontendServiceImplTest extends TestWithFeService {
         request.setTableId(table.getId());
         request.setPartitionValues(partitionValues);
         return request;
+    }
+
+    @Test
+    public void testCreatePartitionRejectsEmptyLoadLocation() throws Exception {
+        createTable("CREATE TABLE test.partition_no_load_backend (city VARCHAR(20) NOT NULL, id INT) "
+                + "DUPLICATE KEY(city, id) AUTO PARTITION BY LIST (city) () "
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num' = '1')");
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("partition_no_load_backend");
+        FrontendServiceImpl service = new FrontendServiceImpl(exeEnv);
+        TCreatePartitionResult successfulResult = service
+                .createPartition(createPartitionRequest(db, table, "SHANGHAI"));
+        Assertions.assertEquals(TStatusCode.OK, successfulResult.getStatus().getStatusCode());
+        Assertions.assertEquals(1, successfulResult.getPartitions().get(0).getTotalReplicaNum());
+        Assertions.assertEquals(1, successfulResult.getPartitions().get(0).getLoadRequiredReplicaNum());
+
+        Map<Long, Boolean> originalLoadDisabled = disableLoadOnAllBackends();
+        try {
+            TCreatePartitionResult result = service.createPartition(createPartitionRequest(db, table, "BEIJING"));
+
+            Assertions.assertEquals(TStatusCode.RUNTIME_ERROR, result.getStatus().getStatusCode());
+            Assertions.assertTrue(result.getStatus().getErrorMsgs().get(0)
+                    .contains("no load available backend for tablet"));
+        } finally {
+            restoreLoadDisabled(originalLoadDisabled);
+        }
+    }
+
+    @Test
+    public void testReplacePartitionRejectsEmptyLoadLocation() throws Exception {
+        createTable("CREATE TABLE test.replace_partition_no_load_backend (id INT, city INT) "
+                + "DUPLICATE KEY(id) PARTITION BY RANGE(city) "
+                + "(PARTITION p1 VALUES LESS THAN (10), PARTITION p2 VALUES LESS THAN (20)) "
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1 "
+                + "PROPERTIES('replication_num' = '1')");
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("replace_partition_no_load_backend");
+        InsertOverwriteManager overwriteManager = Env.getCurrentEnv().getInsertOverwriteManager();
+        long groupId = overwriteManager.registerTaskGroup(table);
+        FrontendServiceImpl service = new FrontendServiceImpl(exeEnv);
+
+        TReplacePartitionRequest successfulRequest = new TReplacePartitionRequest();
+        successfulRequest.setDbId(db.getId());
+        successfulRequest.setTableId(table.getId());
+        successfulRequest.setPartitionIds(Collections.singletonList(table.getPartition("p1").getId()));
+        successfulRequest.setOverwriteGroupId(groupId);
+        TReplacePartitionResult successfulResult = service.replacePartition(successfulRequest);
+        Assertions.assertEquals(TStatusCode.OK, successfulResult.getStatus().getStatusCode());
+        Assertions.assertEquals(1, successfulResult.getPartitions().get(0).getTotalReplicaNum());
+        Assertions.assertEquals(1, successfulResult.getPartitions().get(0).getLoadRequiredReplicaNum());
+
+        Map<Long, Boolean> originalLoadDisabled = disableLoadOnAllBackends();
+        try {
+            TReplacePartitionRequest request = new TReplacePartitionRequest();
+            request.setDbId(db.getId());
+            request.setTableId(table.getId());
+            request.setPartitionIds(Collections.singletonList(table.getPartition("p2").getId()));
+            request.setOverwriteGroupId(groupId);
+            TReplacePartitionResult result = service.replacePartition(request);
+
+            Assertions.assertEquals(TStatusCode.RUNTIME_ERROR, result.getStatus().getStatusCode());
+            Assertions.assertTrue(result.getStatus().getErrorMsgs().get(0)
+                    .contains("no load available backend for tablet"));
+        } finally {
+            restoreLoadDisabled(originalLoadDisabled);
+            overwriteManager.taskGroupFail(groupId);
+        }
+    }
+
+    private Map<Long, Boolean> disableLoadOnAllBackends() {
+        Map<Long, Boolean> originalLoadDisabled = new HashMap<>();
+        for (long backendId : Env.getCurrentSystemInfo().getAllBackendIds(false)) {
+            Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
+            originalLoadDisabled.put(backendId, backend.isLoadDisabled());
+            backend.setLoadDisabled(true);
+        }
+        return originalLoadDisabled;
+    }
+
+    private void restoreLoadDisabled(Map<Long, Boolean> originalLoadDisabled) {
+        originalLoadDisabled.forEach((backendId, disabled) ->
+                Env.getCurrentSystemInfo().getBackend(backendId).setLoadDisabled(disabled));
     }
 
     @Test
