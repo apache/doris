@@ -578,6 +578,18 @@ bool CompactionMixin::handle_ordered_data_compaction() {
         }
     }
 
+    // Non-empty singleton rowsets store a placeholder for the publish-time VERSION column.
+    // A linked range rowset would expose it instead of the version synthesized on read.
+    // Check only the tidy prefix actually selected for linking.
+    auto links_unmaterialized_version = [this] {
+        return _input_rowsets.front()->start_version() != _input_rowsets.back()->end_version() &&
+               std::ranges::any_of(_input_rowsets, [](const RowsetSharedPtr& rowset) {
+                   return rowset->num_rows() > 0 &&
+                          rowset->start_version() == rowset->end_version() &&
+                          rowset->tablet_schema()->field_index(VERSION_COL) >= 0;
+               });
+    };
+
     // check if rowsets are tidy so we can just modify meta and do link
     // files to handle compaction
     auto input_size = _input_rowsets.size();
@@ -592,6 +604,9 @@ bool CompactionMixin::handle_ordered_data_compaction() {
                 break;
             }
         }
+    }
+    if (links_unmaterialized_version()) {
+        return false;
     }
     // most rowset of current compaction is nonoverlapping
     // just handle nonoverlappint rowsets
