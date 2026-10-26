@@ -21,12 +21,15 @@ import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.CredProviderTypePB;
 import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB.Provider;
 import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
+import org.apache.doris.filesystem.auth.ObjectStorageAuthentication;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 
+import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * fe-core-only cloud meta-service glue: builds {@link Cloud.ObjectStoreInfoPB} from the
@@ -60,6 +63,10 @@ public final class CloudObjectStoreAdapter {
 
     /** Direct move of legacy {@code S3Properties.getObjStoreInfoPB}. */
     public static Cloud.ObjectStoreInfoPB.Builder getObjStoreInfoPB(Map<String, String> properties) {
+        Optional<ObjectStorageAuthentication> authentication = StorageAdapter.resolveAuthentication(properties);
+        if (authentication.filter(ObjectStorageAuthentication::isAnonymous).isPresent()) {
+            throw new IllegalArgumentException("Anonymous GCS authentication is not supported for storage vaults.");
+        }
         Cloud.ObjectStoreInfoPB.Builder builder = Cloud.ObjectStoreInfoPB.newBuilder();
         if (properties.containsKey(ENDPOINT)) {
             builder.setEndpoint(properties.get(ENDPOINT));
@@ -86,7 +93,9 @@ public final class CloudObjectStoreAdapter {
         }
         if (properties.containsKey(FS_PROVIDER_KEY)) {
             // S3 Provider properties should be case insensitive.
-            builder.setProvider(Provider.valueOf(properties.get(FS_PROVIDER_KEY).toUpperCase()));
+            String provider = properties.get(FS_PROVIDER_KEY).toUpperCase(Locale.ROOT);
+            // GCS is a filesystem alias; the cloud protocol uses GCP.
+            builder.setProvider("GCS".equals(provider) ? Provider.GCP : Provider.valueOf(provider));
         }
 
         if (properties.containsKey(USE_PATH_STYLE)) {
@@ -115,7 +124,17 @@ public final class CloudObjectStoreAdapter {
             }
         }
 
+        ObjectStorageCredentialAdapter.fromAuthentication(authentication)
+                .ifPresent(credential -> credential.applyTo(builder));
         return builder;
+    }
+
+    /** ALTER carries only explicitly supplied credential fields, including empty values. */
+    public static void applyCredentialPatch(Cloud.ObjectStoreInfoPB.Builder builder, Map<String, String> properties) {
+        builder.clearCredential();
+        StorageAdapter.resolveAuthentication(properties)
+                .flatMap(ObjectStorageAuthentication::getCredentialUpdates)
+                .ifPresent(credential -> ObjectStorageCredentialAdapter.fromCredential(credential).applyTo(builder));
     }
 
     private static boolean hasCredentialsProviderType(Map<String, String> properties) {

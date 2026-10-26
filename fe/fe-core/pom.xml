@@ -202,6 +202,11 @@ under the License.
                 </exclusion>
             </exclusions>
         </dependency>
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>fe-storage-protocol</artifactId>
+            <version>${revision}</version>
+        </dependency>
         <!-- fe-filesystem-api: consumer-facing filesystem API (FileSystem, Location, FileEntry, etc.) -->
         <dependency>
             <groupId>${project.groupId}</groupId>
