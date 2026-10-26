@@ -25,7 +25,7 @@ public final class HttpHeaderUtils {
     }
 
     /** Mask credentials without reading or changing the header used for authentication. */
-    public static String getHeaderForLogging(HttpServletRequest request, String headerName) {
+    public static String getRedactedHeaderValueForLogging(HttpServletRequest request, String headerName) {
         return isSensitiveHeader(headerName) ? "***MASKED***" : request.getHeader(headerName);
     }
 

@@ -121,7 +121,7 @@ public class CopyIntoAction extends RestBaseController {
             }
             while (headerNames.hasMoreElements()) {
                 String key = headerNames.nextElement();
-                String value = HttpHeaderUtils.getHeaderForLogging(request, key);
+                String value = HttpHeaderUtils.getRedactedHeaderValueForLogging(request, key);
                 map.put(key, value);
             }
             return map;

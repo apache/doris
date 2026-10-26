@@ -31,7 +31,7 @@ public class HttpHeaderUtilsTest {
         for (String name : new String[] {"Authorization", "Proxy-Authorization", "Cookie", "Set-Cookie",
                 "token", "Auth-Token", "auth_code", "aUtHoRiZaTiOn", "pRoXy-AuThOrIzAtIoN"}) {
             for (String spelling : new String[] {name, name.toLowerCase(Locale.ROOT), name.toUpperCase(Locale.ROOT)}) {
-                Assertions.assertEquals("***MASKED***", HttpHeaderUtils.getHeaderForLogging(request, spelling));
+                Assertions.assertEquals("***MASKED***", HttpHeaderUtils.getRedactedHeaderValueForLogging(request, spelling));
             }
         }
         Mockito.verifyNoInteractions(request);
@@ -42,7 +42,7 @@ public class HttpHeaderUtilsTest {
         HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
         for (String value : new String[] {"Basic dXNlcjpzZWNyZXQ=", "Bearer synthetic-token", "Basic malformed"}) {
             Mockito.when(request.getHeader("Authorization")).thenReturn(value);
-            Assertions.assertEquals("***MASKED***", HttpHeaderUtils.getHeaderForLogging(request, "Authorization"));
+            Assertions.assertEquals("***MASKED***", HttpHeaderUtils.getRedactedHeaderValueForLogging(request, "Authorization"));
             Assertions.assertEquals(value, request.getHeader("Authorization"));
         }
     }
@@ -52,8 +52,8 @@ public class HttpHeaderUtilsTest {
         HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
         Mockito.when(request.getHeader("label")).thenReturn("load_label");
         Mockito.when(request.getHeader("fileName")).thenReturn("data.csv");
-        Assertions.assertEquals("load_label", HttpHeaderUtils.getHeaderForLogging(request, "label"));
-        Assertions.assertEquals("data.csv", HttpHeaderUtils.getHeaderForLogging(request, "fileName"));
-        Assertions.assertNull(HttpHeaderUtils.getHeaderForLogging(request, "missing"));
+        Assertions.assertEquals("load_label", HttpHeaderUtils.getRedactedHeaderValueForLogging(request, "label"));
+        Assertions.assertEquals("data.csv", HttpHeaderUtils.getRedactedHeaderValueForLogging(request, "fileName"));
+        Assertions.assertNull(HttpHeaderUtils.getRedactedHeaderValueForLogging(request, "missing"));
     }
 }

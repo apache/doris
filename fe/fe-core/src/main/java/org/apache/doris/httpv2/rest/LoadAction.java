@@ -679,7 +679,7 @@ public class LoadAction extends RestBaseController {
         Enumeration<String> headerNames = request.getHeaderNames();
         while (headerNames.hasMoreElements()) {
             String headerName = headerNames.nextElement();
-            String headerValue = HttpHeaderUtils.getHeaderForLogging(request, headerName);
+            String headerValue = HttpHeaderUtils.getRedactedHeaderValueForLogging(request, headerName);
             headers.append(headerName).append(":").append(headerValue).append(", ");
         }
         return headers.toString();
