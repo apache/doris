@@ -79,6 +79,7 @@ import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.InclusiveMetricsEvaluator;
+import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.expressions.ManifestEvaluator;
 import org.apache.iceberg.expressions.Projections;
 import org.apache.iceberg.expressions.ResidualEvaluator;
@@ -92,6 +93,7 @@ import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.types.Types.NestedField;
+import org.apache.iceberg.util.DateTimeUtil;
 import org.apache.iceberg.util.ScanTaskUtil;
 import org.apache.iceberg.util.TableScanUtil;
 import org.apache.logging.log4j.LogManager;
@@ -2108,7 +2110,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             // every branch so the default and current field type match BE's read.
             if (hasApplicableEqualityDeletes) {
                 List<NestedField> equalityFields = schemaForPotentialEqualityDeletes(
-                        table, scanSchema, applicableEqualityDeleteFieldIds);
+                        table, exactScan.snapshot(), scanSchema, applicableEqualityDeleteFieldIds);
                 dict = IcebergSchemaUtils.encodeEqualitySchemaEvolutionProp(
                         table, equalityFields, appendRowLineage,
                         enableVarbinary, enableTimestampTz);
@@ -2280,29 +2282,27 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * delete manifests does not enumerate data files or byte-split tasks, and retained state is bounded by the
      * number of equality keys rather than the table's entire schema history.
      *
-     * <p>The metadata schema list is searched in reverse chronology up to the selected schema (schema IDs are
-     * identifiers, not a sequence), so the latest definition of each stable field ID wins. Current fields remain
-     * first, allowing a dropped/re-added name to resolve the projected field by name while a live historical
-     * equality key resolves by its stable field ID.</p>
+     * <p>Schema IDs are identifiers, not a sequence: Iceberg reuses an ID when evolution returns to an earlier
+     * schema, so a schema's position in the metadata list does not tell when it was last active, and the list may
+     * also hold schemas committed after a time-travel or branch target. The scan snapshot's parent chain is
+     * therefore searched first, so the definition active on that lineage wins; the whole metadata list, newest
+     * first, is the fallback for schema-only changes and expired ancestors. The selected definition keeps its name
+     * and initial default but takes the relaxations its field has in any retained schema
+     * ({@link #withRetainedRelaxations}): a delete committed after a schema-only promotion or required-to-optional
+     * change follows the relaxed definition even when no snapshot records it. Current fields remain first,
+     * allowing a dropped/re-added name to resolve the projected field by name while a live historical equality key
+     * resolves by its stable field ID.</p>
      */
     @VisibleForTesting
     static List<NestedField> schemaForPotentialEqualityDeletes(
             Table table, TableScan scan, Schema scanSchema) {
         return schemaForPotentialEqualityDeletes(
-                table, scanSchema, applicableEqualityDeleteFieldIds(table, scan));
+                table, scan.snapshot(), scanSchema, applicableEqualityDeleteFieldIds(table, scan));
     }
 
-    private static List<NestedField> schemaForPotentialEqualityDeletes(
-            Table table, Schema scanSchema, Set<Integer> equalityFieldIds) {
-        List<Schema> metadataSchemas = metadataSchemaHistory(table);
-        int selectedSchemaIndex = -1;
-        for (int index = 0; index < metadataSchemas.size(); index++) {
-            if (metadataSchemas.get(index).schemaId() == scanSchema.schemaId()) {
-                selectedSchemaIndex = index;
-            }
-        }
-        int lastRelevantIndex = selectedSchemaIndex >= 0
-                ? selectedSchemaIndex : metadataSchemas.size() - 1;
+    @VisibleForTesting
+    static List<NestedField> schemaForPotentialEqualityDeletes(
+            Table table, Snapshot scanSnapshot, Schema scanSchema, Set<Integer> equalityFieldIds) {
         Set<Integer> missing = new HashSet<>(equalityFieldIds);
         missing.removeAll(TypeUtil.indexById(scanSchema.asStruct()).keySet());
         if (missing.isEmpty()) {
@@ -2310,8 +2310,24 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         }
 
         List<NestedField> fields = new ArrayList<>(scanSchema.columns());
-        for (int index = lastRelevantIndex; index >= 0 && !missing.isEmpty(); index--) {
-            addHistoricalEqualityFields(fields, missing, metadataSchemas.get(index));
+        List<Schema> metadataSchemas = metadataSchemaHistory(table);
+        // Snapshots on one lineage mostly share a schema, so each schema is indexed at most once.
+        Set<Integer> lineageSchemaIds = new HashSet<>();
+        for (Snapshot snapshot = scanSnapshot; snapshot != null && !missing.isEmpty();
+                snapshot = snapshot.parentId() == null ? null : table.snapshot(snapshot.parentId())) {
+            Integer schemaId = snapshot.schemaId();
+            if (schemaId == null || !lineageSchemaIds.add(schemaId)) {
+                continue;
+            }
+            Schema lineageSchema = table.schemas().get(schemaId);
+            if (lineageSchema == null) {
+                throw new IllegalStateException(
+                        "Iceberg snapshot schema " + schemaId + " is absent from table metadata");
+            }
+            addHistoricalEqualityFields(fields, missing, lineageSchema, metadataSchemas);
+        }
+        for (int index = metadataSchemas.size() - 1; index >= 0 && !missing.isEmpty(); index--) {
+            addHistoricalEqualityFields(fields, missing, metadataSchemas.get(index), metadataSchemas);
         }
         if (!missing.isEmpty()) {
             throw new IllegalStateException(
@@ -2327,8 +2343,105 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         return new ArrayList<>(table.schemas().values());
     }
 
-    private static void addHistoricalEqualityFields(
-            List<NestedField> fields, Set<Integer> missingFieldIds, Schema historicalSchema) {
+    /**
+     * A writer commits with the schema that is current at commit, so a key dropped before its delete commits loses
+     * the schema-only changes made before the drop from every snapshot. Field IDs are never reused and a field
+     * only relaxes compatibly, by promotion or from required to optional, so each field of the selected definition
+     * takes the widest promotion of its type ({@link #widestPromotion}) and the optionality it has in any retained
+     * schema; neither depends on the order of the schemas. A field required in every retained schema stays
+     * required; a rebuilt field keeps its initial default in the promoted type ({@link #promotedDefault}) and drops
+     * its write default, which no reader uses and whose stale value may not fit the promoted type.
+     */
+    private static List<NestedField> withRetainedRelaxations(List<NestedField> fields, List<Schema> schemas) {
+        List<NestedField> relaxed = new ArrayList<>(fields.size());
+        for (NestedField field : fields) {
+            Type type = field.type();
+            boolean optional = field.isOptional();
+            List<Type.PrimitiveType> promotions = new ArrayList<>();
+            for (Schema schema : schemas) {
+                NestedField retained = schema.findField(field.fieldId());
+                if (retained == null) {
+                    continue;
+                }
+                optional |= retained.isOptional();
+                if (type.isPrimitiveType() && retained.type().isPrimitiveType()
+                        && isWideningPromotion(type.asPrimitiveType(), retained.type().asPrimitiveType())) {
+                    promotions.add(retained.type().asPrimitiveType());
+                }
+            }
+            if (type.isPrimitiveType()) {
+                type = widestPromotion(field, promotions);
+            }
+            if (type.isStructType()) {
+                type = Types.StructType.of(withRetainedRelaxations(type.asStructType().fields(), schemas));
+            }
+            relaxed.add(type.equals(field.type()) && optional == field.isOptional()
+                    ? field : Types.NestedField.from(field).ofType(type).isOptional(optional)
+                            .withInitialDefault(promotedDefault(field.initialDefaultLiteral(), field.type(), type))
+                            .withWriteDefault((Literal<?>) null)
+                            .build());
+        }
+        return relaxed;
+    }
+
+    /**
+     * The promotion of {@code field} that every other one in {@code promotions} promotes to. Evolution moves a
+     * field only along promotions, so its retained promotions form a chain unless the current schema was set back
+     * to an earlier one and the field was then promoted differently: DATE to both TIMESTAMP and TIMESTAMP_NS, or
+     * UNKNOWN to two unrelated types. Neither type then holds the other's values exactly, and the metadata does not
+     * record which one a delete file was written in, so planning fails instead of comparing in either.
+     */
+    private static Type.PrimitiveType widestPromotion(NestedField field, List<Type.PrimitiveType> promotions) {
+        Type.PrimitiveType widest = field.type().asPrimitiveType();
+        for (Type.PrimitiveType promotion : promotions) {
+            if (isWideningPromotion(widest, promotion)) {
+                widest = promotion;
+            }
+        }
+        for (Type.PrimitiveType promotion : promotions) {
+            if (!isWideningPromotion(promotion, widest)) {
+                throw new IllegalStateException("Iceberg equality-delete field " + field.fieldId() + " ("
+                        + field.name() + ") was promoted to both " + widest + " and " + promotion
+                        + " in schema history");
+            }
+        }
+        return widest;
+    }
+
+    /**
+     * {@link TypeUtil#isPromotionAllowed} plus the v3 promotions that the SDK's schema update does not implement yet
+     * but the format allows: UNKNOWN to any primitive type, and DATE to an unzoned TIMESTAMP or TIMESTAMP_NS.
+     */
+    private static boolean isWideningPromotion(Type.PrimitiveType from, Type.PrimitiveType to) {
+        if (TypeUtil.isPromotionAllowed(from, to)) {
+            return true;
+        }
+        if (from.typeId() == Type.TypeID.UNKNOWN) {
+            return true;
+        }
+        if (from.typeId() != Type.TypeID.DATE) {
+            return false;
+        }
+        return to.typeId() == Type.TypeID.TIMESTAMP && !((Types.TimestampType) to).shouldAdjustToUTC()
+                || to.typeId() == Type.TypeID.TIMESTAMP_NANO && !((Types.TimestampNanoType) to).shouldAdjustToUTC();
+    }
+
+    /**
+     * {@code value}, the initial default of a field of type {@code from}, in the type {@code to} the field is rebuilt
+     * with. NestedField casts the initial default to its type, which converts the literals of the SDK promotions,
+     * but in Iceberg 1.12.0 a DATE literal converts only to DATE: a DATE default moves to midnight of its day in the
+     * promoted TIMESTAMP or TIMESTAMP_NS, and a date outside that type's range throws, as the format requires.
+     */
+    private static Literal<?> promotedDefault(Literal<?> value, Type from, Type to) {
+        if (value == null || from.typeId() != Type.TypeID.DATE || to.equals(from)) {
+            return value;
+        }
+        return Literal.of(DateTimeUtil.microsFromTimestamp(
+                DateTimeUtil.dateFromDays((Integer) value.value()).atStartOfDay())).to(to);
+    }
+
+    private static void addHistoricalEqualityFields(List<NestedField> fields, Set<Integer> missingFieldIds,
+            Schema historicalSchema, List<Schema> retainedSchemas) {
         Map<Integer, NestedField> historicalFields = TypeUtil.indexById(historicalSchema.asStruct());
         Set<Integer> selectedFieldIds = new HashSet<>();
         for (Integer fieldId : missingFieldIds) {
@@ -2345,7 +2458,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             return;
         }
         Schema selectedSchema = TypeUtil.select(historicalSchema, selectedFieldIds);
-        mergeHistoricalEqualityFields(fields, selectedSchema.columns());
+        mergeHistoricalEqualityFields(fields, withRetainedRelaxations(selectedSchema.columns(), retainedSchemas));
         missingFieldIds.removeAll(selectedFieldIds);
     }
 
