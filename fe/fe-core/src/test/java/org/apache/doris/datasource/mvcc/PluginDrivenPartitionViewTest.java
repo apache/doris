@@ -106,6 +106,32 @@ class PluginDrivenPartitionViewTest {
     }
 
     @Test
+    void disabledBinarySearchDoesNotBuildOrReuseAnOrderedIndex() {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            PluginDrivenMvccExternalTable table = table();
+            List<ConnectorPartitionInfo> parts = List.of(partition("1", 10));
+            context.getSessionVariable().enableBinarySearchFilteringPartitions = false;
+            PluginDrivenPartitionView withoutIndex = table.partitionView(parts, List.of(Type.INT));
+            Assertions.assertTrue(withoutIndex.getSortedRanges().isEmpty());
+            Assertions.assertSame(withoutIndex, table.partitionView(parts, List.of(Type.INT)));
+
+            context.getSessionVariable().enableBinarySearchFilteringPartitions = true;
+            PluginDrivenPartitionView withIndex = table.partitionView(parts, List.of(Type.INT));
+            Assertions.assertNotSame(withoutIndex, withIndex);
+            Assertions.assertTrue(withIndex.getSortedRanges().isPresent());
+            Assertions.assertSame(withIndex, table.partitionView(parts, List.of(Type.INT)));
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
     void rangeViewAccountingDoesNotTraverseExpressionSuppliers() {
         PartitionKey lower = new PartitionKey();
         lower.pushColumn(new IntLiteral(1), PrimitiveType.BIGINT);

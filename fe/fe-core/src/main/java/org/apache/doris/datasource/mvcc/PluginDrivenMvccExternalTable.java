@@ -285,7 +285,8 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
             for (int i = 0; i < partitionColumns.size(); i++) {
                 columns.add(new Column(partitionColumns.get(i).getName(), frozenTypes.get(i)));
             }
-            return buildRangePartitionView(version.isPresent() ? partitions : k.rangePartitions(), columns);
+            return buildRangePartitionView(version.isPresent() ? partitions : k.rangePartitions(),
+                    columns, k.buildSortedRanges());
         });
         return new PluginDrivenMvccSnapshot(connectorSnapshot, converted,
                 pinnedSchema, partitionType, snapshotIdFreshness, view.getNewestUpdateMonotonicMarker(),
@@ -293,7 +294,7 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
     }
 
     private PluginDrivenPartitionView buildRangePartitionView(List<ConnectorMvccPartition> partitions,
-            List<Column> partitionColumns) {
+            List<Column> partitionColumns, boolean buildSortedRanges) {
         Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMap();
         Map<String, Long> nameToFreshnessValue = Maps.newHashMap();
         for (ConnectorMvccPartition partition : partitions) {
@@ -308,7 +309,7 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
             }
             nameToFreshnessValue.put(partition.getName(), partition.getFreshnessValue());
         }
-        return new PluginDrivenPartitionView(nameToPartitionItem, nameToFreshnessValue);
+        return new PluginDrivenPartitionView(nameToPartitionItem, nameToFreshnessValue, buildSortedRanges);
     }
 
     /**
@@ -352,7 +353,8 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
             PluginDrivenPartitionView.Key key = PluginDrivenPartitionView.Key.versioned(
                     getId(), getDbName(), getName(), version.get(), types, false);
             return cachedPartitionView(key, k -> buildListPartitionView(
-                    metadata.listPartitions(session, handle, Optional.empty()), k.frozenTypes()));
+                    metadata.listPartitions(session, handle, Optional.empty()), k.frozenTypes(),
+                    k.buildSortedRanges()));
         }
         return partitionView(metadata.listPartitions(session, handle, Optional.empty()), types);
     }
@@ -360,7 +362,8 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
     PluginDrivenPartitionView partitionView(List<ConnectorPartitionInfo> parts, List<Type> types) {
         PluginDrivenPartitionView.Key key = PluginDrivenPartitionView.Key.list(
                 getId(), getDbName(), getName(), parts, types);
-        return cachedPartitionView(key, k -> buildListPartitionView(k.listPartitions(), k.frozenTypes()));
+        return cachedPartitionView(key, k -> buildListPartitionView(
+                k.listPartitions(), k.frozenTypes(), k.buildSortedRanges()));
     }
 
     PluginDrivenPartitionView cachedPartitionView(PluginDrivenPartitionView.Key key,
@@ -368,7 +371,8 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         return Env.getCurrentEnv().getExtMetaCacheMgr().getPartitionView(this, key, loader);
     }
 
-    private PluginDrivenPartitionView buildListPartitionView(List<ConnectorPartitionInfo> parts, List<Type> types) {
+    private PluginDrivenPartitionView buildListPartitionView(List<ConnectorPartitionInfo> parts, List<Type> types,
+            boolean buildSortedRanges) {
         Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMapWithExpectedSize(parts.size());
         Map<String, Long> nameToLastModifiedMillis = Maps.newHashMapWithExpectedSize(parts.size());
         for (ConnectorPartitionInfo part : parts) {
@@ -416,7 +420,7 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
                             + "and the values it lists do not agree.",
                     getDbName(), getName(), parts.size(), types.size(), types);
         }
-        return new PluginDrivenPartitionView(nameToPartitionItem, nameToLastModifiedMillis);
+        return new PluginDrivenPartitionView(nameToPartitionItem, nameToLastModifiedMillis, buildSortedRanges);
     }
 
     private ConnectorMvccSnapshot emptySnapshot() {

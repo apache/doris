@@ -90,7 +90,8 @@ public class ConnectorPluginSurfaceTest {
         }
         // Major 20 adds deleteUsingMetadata to the connector write surface; major 21 adds
         // typed filesystem credential descriptions and statement-scoped metadata.
-        Assertions.assertEquals("21.0", version.getProperty("api.version"));
+        // Major 22 adds the metadata-only DDL handle path.
+        Assertions.assertEquals("22.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */

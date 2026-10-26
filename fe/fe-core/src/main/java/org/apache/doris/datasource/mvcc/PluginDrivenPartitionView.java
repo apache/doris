@@ -49,11 +49,17 @@ public final class PluginDrivenPartitionView {
     private final SortedPartitionRanges<String> sortedRanges;
 
     PluginDrivenPartitionView(Map<String, PartitionItem> items, Map<String, Long> freshness) {
+        this(items, freshness, true);
+    }
+
+    PluginDrivenPartitionView(Map<String, PartitionItem> items, Map<String, Long> freshness,
+            boolean buildSortedRanges) {
         this.items = ImmutableMap.copyOf(items);
         this.freshness = ImmutableMap.copyOf(freshness);
         // Build before cache admission, like HivePartitionValues: the cache accounts for the index
         // together with its maps, and readers never observe a partially initialized generation.
-        this.sortedRanges = hasComparableKeys(this.items) ? SortedPartitionRanges.build(this.items) : null;
+        this.sortedRanges = buildSortedRanges && hasComparableKeys(this.items)
+                ? SortedPartitionRanges.build(this.items) : null;
     }
 
     // Iceberg display partitions can come from different specs. They remain useful for counts and
@@ -180,6 +186,7 @@ public final class PluginDrivenPartitionView {
         private final boolean range;
         private final List<TTypeDesc> types;
         private final String timeZone;
+        private final boolean buildSortedRanges;
         private final int hash;
         private final String version;
 
@@ -200,12 +207,15 @@ public final class PluginDrivenPartitionView {
             ConnectContext context = ConnectContext.get();
             // Same fallback as TimestampTzLiteral when parsing an unqualified value.
             this.timeZone = context == null ? "UTC" : context.getSessionVariable().getTimeZone();
+            this.buildSortedRanges = context == null
+                    || context.getSessionVariable().enableBinarySearchFilteringPartitions;
             int recordsHash = 1;
             for (Object partition : this.partitions) {
                 recordsHash = 31 * recordsHash + (range ? partition.hashCode()
                         : listRecordHash((ConnectorPartitionInfo) partition));
             }
-            this.hash = Objects.hash(tableId, database, table, range, this.types, timeZone, version, recordsHash);
+            this.hash = Objects.hash(tableId, database, table, range, this.types, timeZone,
+                    buildSortedRanges, version, recordsHash);
         }
 
         static Key versioned(long tableId, String database, String table,
@@ -234,6 +244,10 @@ public final class PluginDrivenPartitionView {
 
         public String getTable() {
             return table;
+        }
+
+        boolean buildSortedRanges() {
+            return buildSortedRanges;
         }
 
         @SuppressWarnings("unchecked")
@@ -290,6 +304,7 @@ public final class PluginDrivenPartitionView {
             }
             Key that = (Key) other;
             if (hash != that.hash || tableId != that.tableId || range != that.range
+                    || buildSortedRanges != that.buildSortedRanges
                     || !Objects.equals(version, that.version)
                     || !Objects.equals(database, that.database) || !Objects.equals(table, that.table)
                     || !types.equals(that.types) || !timeZone.equals(that.timeZone)

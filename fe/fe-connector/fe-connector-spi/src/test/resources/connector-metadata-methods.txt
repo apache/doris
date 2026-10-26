@@ -44,6 +44,7 @@ getSysTableHandle(org.apache.doris.connector.spi.ConnectorSession,org.apache.dor
 getTableComment(org.apache.doris.connector.spi.ConnectorSession,java.lang.String,java.lang.String)
 getTableFreshness(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle)
 getTableHandle(org.apache.doris.connector.spi.ConnectorSession,java.lang.String,java.lang.String)
+getTableHandleForDdl(org.apache.doris.connector.spi.ConnectorSession,java.lang.String,java.lang.String)
 getTableSchema(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle)
 getTableSchema(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle,org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot)
 getTableStatistics(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle)
