@@ -17,7 +17,7 @@
 
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
-import java.sql.DriverManager
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 
 // Optional million-file acceptance fixture: 10,000 HMS partitions, 100 one-row files per partition.
@@ -71,31 +71,25 @@ suite("test_hive_split_early_stop", "p0,external") {
             control([phase: phase, empty: waitingForFirst, delay_ms: 50])
             long connectionId = (sql("select connection_id()")[0][0] as Number).longValue()
             def cancelledAt = new AtomicReference<Long>()
-            def killerFailure = new AtomicReference<Throwable>()
-            Thread killer = Thread.start {
-                try {
-                    long deadline = System.nanoTime() + 30000000000L
-                    def started = { ->
-                        def counts = metrics().counts[phase]
-                        waitingForFirst ? (counts?.LIST ?: 0) >= 10 : (counts?.GET ?: 0) > 0
-                    }
-                    while (!started() && System.nanoTime() < deadline) { Thread.sleep(25) }
-                    if (!started()) { throw new IllegalStateException("No scan activity: " + phase) }
-                    DriverManager.getConnection(context.config.jdbcUrl, context.config.jdbcUser,
-                            context.config.jdbcPassword).withCloseable { conn ->
-                        conn.createStatement().withCloseable { statement ->
-                            cancelledAt.set(System.currentTimeMillis())
-                            statement.execute("kill query " + connectionId)
-                        }
-                    }
-                } catch (Throwable failure) { killerFailure.set(failure) }
+            def killer = extraThread("split-query-canceller") {
+                long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30)
+                def started = { ->
+                    def counts = metrics().counts[phase]
+                    waitingForFirst ? (counts?.LIST ?: 0) >= 10 : (counts?.GET ?: 0) > 0
+                }
+                while (!started() && System.nanoTime() < deadline) { Thread.sleep(25) }
+                if (!started()) { throw new IllegalStateException("No scan activity: " + phase) }
+                cancelledAt.set(System.currentTimeMillis())
+                sql "kill query ${connectionId}"
             }
-            test {
-                sql "select sum(id) from ${table}"
-                exception "cancel"
+            try {
+                test {
+                    sql "select sum(id) from ${table}"
+                    exception "cancel"
+                }
+            } finally {
+                killer.get(35, TimeUnit.SECONDS)
             }
-            killer.join(35000)
-            if (killerFailure.get() != null) { throw killerFailure.get() }
             assertTrue(System.currentTimeMillis() - cancelledAt.get() < 10000, phase + " did not return in 10s")
             assertStopped(phase, cancelledAt.get())
         }
