@@ -1908,17 +1908,16 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
         key.meta.type = type;
         key.meta.expiration_time = expiration_time;
         key.meta.tablet_id = tablet_id;
-        if (sync) {
-            int64_t duration_ns = 0;
-            Status st;
-            {
-                SCOPED_RAW_TIMER(&duration_ns);
-                st = _storage->remove(key);
-            }
-            *_storage_sync_remove_latency_us << (duration_ns / 1000);
-            if (!st.ok()) {
-                LOG_WARNING("").error(st);
-            }
+        _pending_storage_removes.mark(key);
+        DeferredStorageRemoveScope* deferred_scope = DeferredStorageRemoveScope::current();
+        const bool can_defer = config::enable_file_cache_async_evict_io &&
+                               deferred_scope != nullptr && deferred_scope->owned_by(this);
+        if (sync && can_defer) {
+            // Runs once the cache lock is released, before the evicting caller continues, so
+            // the space is still freed on the caller's own thread.
+            deferred_scope->add(key);
+        } else if (sync) {
+            run_storage_remove(hash, offset, _storage_sync_remove_latency_us.get());
         } else {
             // the file will be deleted in the bottom half
             // so there will be a window that the file is not in the cache but still in the storage
@@ -1926,18 +1925,14 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
             bool ret = _recycle_keys.enqueue(key);
             if (ret) [[likely]] {
                 *_recycle_keys_length_recorder << _recycle_keys.size_approx();
+            } else if (can_defer) {
+                // A full recycle queue must not bring the file I/O back under the cache lock:
+                // remove it on this thread once the lock is released instead.
+                LOG_WARNING("Failed to push recycle key to queue, remove it after the cache lock");
+                deferred_scope->add(key);
             } else {
                 LOG_WARNING("Failed to push recycle key to queue, do it synchronously");
-                int64_t duration_ns = 0;
-                Status st;
-                {
-                    SCOPED_RAW_TIMER(&duration_ns);
-                    st = _storage->remove(key);
-                }
-                *_storage_retry_sync_remove_latency_us << (duration_ns / 1000);
-                if (!st.ok()) {
-                    LOG_WARNING("").error(st);
-                }
+                run_storage_remove(hash, offset, _storage_retry_sync_remove_latency_us.get());
             }
         }
     } else if (state == FileBlock::State::DOWNLOADING) {
@@ -1967,6 +1962,154 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
         }
     }
     *_num_removed_blocks << 1;
+}
+
+void BlockFileCache::run_storage_remove(const UInt128Wrapper& hash, size_t offset,
+                                        bvar::LatencyRecorder* latency_us) const {
+    FileCacheKey key;
+    bool again = _pending_storage_removes.claim(hash, offset, &key);
+    while (again) {
+        TEST_SYNC_POINT_CALLBACK("BlockFileCache::run_storage_remove", &key);
+        int64_t duration_ns = 0;
+        Status st;
+        {
+            SCOPED_RAW_TIMER(&duration_ns);
+            st = _storage->remove(key);
+        }
+        if (latency_us != nullptr) {
+            *latency_us << (duration_ns / 1000);
+        }
+        if (!st.ok()) {
+            LOG_WARNING("failed to remove file cache block, hash={} offset={}",
+                        key.hash.to_string(), key.offset)
+                    .error(st);
+        }
+        again = _pending_storage_removes.finish(hash, offset) &&
+                _pending_storage_removes.claim(hash, offset, &key);
+    }
+}
+
+void BlockFileCache::drain_pending_storage_remove(const UInt128Wrapper& hash, size_t offset) const {
+    FileCacheKey key;
+    while (_pending_storage_removes.wait_and_claim(hash, offset, &key)) {
+        TEST_SYNC_POINT_CALLBACK("BlockFileCache::drain_pending_storage_remove", &key);
+        Status st = _storage->remove(key);
+        if (!st.ok()) {
+            LOG_WARNING("failed to remove file cache block, hash={} offset={}",
+                        key.hash.to_string(), key.offset)
+                    .error(st);
+        }
+        _pending_storage_removes.finish(hash, offset);
+    }
+}
+
+PendingStorageRemoves::Shard& PendingStorageRemoves::shard_of(const FileWriterMapKey& key) const {
+    return _shards[FileWriterMapKeyHash {}(key) % kShardCount];
+}
+
+void PendingStorageRemoves::mark(const FileCacheKey& key) {
+    FileWriterMapKey map_key {key.hash, key.offset};
+    auto& shard = shard_of(map_key);
+    std::lock_guard lock(shard.mtx);
+    auto [it, inserted] = shard.entries.try_emplace(map_key);
+    if (!inserted && it->second.running) {
+        it->second.marked_while_running = true;
+    }
+    it->second.key = key;
+}
+
+bool PendingStorageRemoves::claim(const UInt128Wrapper& hash, size_t offset, FileCacheKey* key) {
+    FileWriterMapKey map_key {hash, offset};
+    auto& shard = shard_of(map_key);
+    std::lock_guard lock(shard.mtx);
+    auto it = shard.entries.find(map_key);
+    if (it == shard.entries.end() || it->second.running) {
+        return false;
+    }
+    it->second.running = true;
+    *key = it->second.key;
+    return true;
+}
+
+bool PendingStorageRemoves::wait_and_claim(const UInt128Wrapper& hash, size_t offset,
+                                           FileCacheKey* key) {
+    FileWriterMapKey map_key {hash, offset};
+    auto& shard = shard_of(map_key);
+    std::unique_lock lock(shard.mtx);
+    while (true) {
+        auto it = shard.entries.find(map_key);
+        if (it == shard.entries.end()) {
+            return false;
+        }
+        if (!it->second.running) {
+            it->second.running = true;
+            *key = it->second.key;
+            return true;
+        }
+        shard.cv.wait(lock);
+    }
+}
+
+bool PendingStorageRemoves::finish(const UInt128Wrapper& hash, size_t offset) {
+    FileWriterMapKey map_key {hash, offset};
+    auto& shard = shard_of(map_key);
+    bool again = false;
+    {
+        std::lock_guard lock(shard.mtx);
+        auto it = shard.entries.find(map_key);
+        DCHECK(it != shard.entries.end() && it->second.running);
+        if (it != shard.entries.end()) {
+            if (it->second.marked_while_running) {
+                it->second.running = false;
+                it->second.marked_while_running = false;
+                again = true;
+            } else {
+                shard.entries.erase(it);
+            }
+        }
+    }
+    shard.cv.notify_all();
+    return again;
+}
+
+bool PendingStorageRemoves::contains(const UInt128Wrapper& hash, size_t offset) const {
+    FileWriterMapKey map_key {hash, offset};
+    auto& shard = shard_of(map_key);
+    std::lock_guard lock(shard.mtx);
+    return shard.entries.contains(map_key);
+}
+
+size_t PendingStorageRemoves::size() const {
+    size_t total = 0;
+    for (auto& shard : _shards) {
+        std::lock_guard lock(shard.mtx);
+        total += shard.entries.size();
+    }
+    return total;
+}
+
+namespace {
+thread_local DeferredStorageRemoveScope* tls_deferred_storage_remove_scope = nullptr;
+} // namespace
+
+DeferredStorageRemoveScope::DeferredStorageRemoveScope(const BlockFileCache* cache)
+        : _cache(cache), _prev(tls_deferred_storage_remove_scope) {
+    tls_deferred_storage_remove_scope = this;
+}
+
+DeferredStorageRemoveScope::~DeferredStorageRemoveScope() {
+    // Scopes nest on one thread; nothing under the cache lock may switch threads (bthreads do not
+    // migrate while blocked on a std::mutex or in a syscall), so this scope is still innermost.
+    DCHECK(tls_deferred_storage_remove_scope == this);
+    tls_deferred_storage_remove_scope = _prev;
+    for (const auto& key : _keys) {
+        _cache->run_storage_remove(key.hash, key.offset,
+                                   _cache->_storage_sync_remove_latency_us.get());
+    }
+}
+
+DeferredStorageRemoveScope* DeferredStorageRemoveScope::current() {
+    return tls_deferred_storage_remove_scope;
 }
 
 size_t BlockFileCache::get_used_cache_size(FileCacheType cache_type) const {
@@ -2532,17 +2675,7 @@ void BlockFileCache::run_background_gc() {
         recycle_deleting_blocks(batch_limit);
 
         while (batch_count < batch_limit && _recycle_keys.try_dequeue(key)) {
-            int64_t duration_ns = 0;
-            Status st;
-            {
-                SCOPED_RAW_TIMER(&duration_ns);
-                st = _storage->remove(key);
-            }
-            *_storage_async_remove_latency_us << (duration_ns / 1000);
-
-            if (!st.ok()) {
-                LOG_WARNING("").error(st);
-            }
+            run_storage_remove(key.hash, key.offset, _storage_async_remove_latency_us.get());
             batch_count++;
         }
         *_recycle_keys_length_recorder << _recycle_keys.size_approx();

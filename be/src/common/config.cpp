@@ -1293,6 +1293,7 @@ DEFINE_mInt64(file_cache_leak_grace_seconds, "3600");
 
 DEFINE_mInt64(file_cache_remove_block_qps_limit, "1000");
 DEFINE_mInt64(file_cache_background_gc_interval_ms, "100");
+DEFINE_mBool(enable_file_cache_async_evict_io, "true");
 DEFINE_mInt64(file_cache_background_block_lru_update_interval_ms, "5000");
 DEFINE_mInt64(file_cache_background_block_lru_update_qps_limit, "1000");
 DEFINE_mInt64(file_cache_background_block_lru_update_queue_max_size, "500000");

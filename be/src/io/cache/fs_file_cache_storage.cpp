@@ -29,9 +29,11 @@
 #include <algorithm>
 #include <atomic>
 #include <cctype>
+#include <cerrno>
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
+#include <cstring>
 #include <ctime>
 #include <filesystem>
 #include <limits>
@@ -76,6 +78,26 @@ void FSFileCacheStorage::set_inode_estimation_test_hooks(
     g_inode_estimation_hooks = hooks;
 }
 #endif
+
+namespace {
+// A missing file is already removed: concurrent removers and a cleared cache directory both
+// produce it, so it is not an error.
+Status remove_file_if_exists(const std::string& path) {
+    if (::unlink(path.c_str()) == 0 || errno == ENOENT) {
+        return Status::OK();
+    }
+    return Status::IOError("failed to delete file cache block {}: {}", path, std::strerror(errno));
+}
+
+// rmdir only succeeds on an empty directory, which makes it the check and the removal in one
+// call. A directory that still holds blocks or is already gone is left as is.
+void remove_directory_if_empty(const std::string& dir) {
+    if (::rmdir(dir.c_str()) == 0 || errno == ENOENT || errno == ENOTEMPTY || errno == EEXIST) {
+        return;
+    }
+    LOG_WARNING("failed to remove cache directory {}: {}", dir, std::strerror(errno));
+}
+} // namespace
 
 struct BatchLoadArgs {
     UInt128Wrapper hash;
@@ -211,14 +233,24 @@ Status FSFileCacheStorage::get_or_create_file_writer(const FileCacheKey& key, Fi
     }
 
     std::string dir = get_path_in_local_cache_v3(key.hash);
-    auto st = fs->create_directory(dir, false);
-    if (!st.ok() && !st.is<ErrorCode::ALREADY_EXIST>()) {
-        return st;
-    }
     std::string tmp_file = get_path_in_local_cache_v3(dir, key.offset, true);
     FileWriterPtr file_writer;
     FileWriterOptions opts {.sync_file_data = false};
-    RETURN_IF_ERROR(fs->create_file(tmp_file, &file_writer, &opts));
+    // The removal of the last block of another offset under this hash may rmdir the directory
+    // between create_directory and create_file; recreate it once in that case.
+    for (int attempt = 0;; ++attempt) {
+        auto st = fs->create_directory(dir, false);
+        if (!st.ok() && !st.is<ErrorCode::ALREADY_EXIST>()) {
+            return st;
+        }
+        st = fs->create_file(tmp_file, &file_writer, &opts);
+        if (st.ok()) {
+            break;
+        }
+        if (attempt > 0 || !st.is<ErrorCode::NOT_FOUND>()) {
+            return st;
+        }
+    }
     *writer = file_writer.get();
     shard.map.emplace(file_writer_map_key, std::move(file_writer));
     return Status::OK();
@@ -412,36 +444,22 @@ Status FSFileCacheStorage::remove(const FileCacheKey& key) {
     const std::string v3_dir = get_path_in_local_cache_v3(key.hash);
     const std::string v3_file = get_path_in_local_cache_v3(v3_dir, key.offset);
     FDCache::instance()->remove_file_reader(std::make_pair(key.hash, key.offset));
-    RETURN_IF_ERROR(fs->delete_file(v3_file));
-    // return OK not means the file is deleted, it may be not exist
+    RETURN_IF_ERROR(remove_file_if_exists(v3_file));
 
-    std::string v2_dir;
-    { // try to detect the file with old v2 format
-        v2_dir = get_path_in_local_cache_v2(key.hash, key.meta.expiration_time);
-        const std::string v2_file = get_path_in_local_cache_v2(v2_dir, key.offset, key.meta.type);
-        RETURN_IF_ERROR(fs->delete_file(v2_file));
+    // A block written in the old v2 layout lives in a directory named after its expiration time.
+    // With expiration time 0 both layouts resolve to the same directory.
+    const std::string v2_dir = get_path_in_local_cache_v2(key.hash, key.meta.expiration_time);
+    const std::string v2_file = get_path_in_local_cache_v2(v2_dir, key.offset, key.meta.type);
+    if (v2_file != v3_file) {
+        RETURN_IF_ERROR(remove_file_if_exists(v2_file));
     }
 
     BlockMetaKey mkey(key.meta.tablet_id, UInt128Wrapper(key.hash), key.offset);
     _meta_store->delete_key(mkey);
-    std::vector<FileInfo> files;
-    bool exists {false};
-    RETURN_IF_ERROR(fs->list(v2_dir, true, &files, &exists));
-    if (exists && files.empty()) {
-        auto st = fs->delete_empty_directory(v2_dir);
-        if (!st.ok()) {
-            LOG_WARNING("failed to remove cache directory {}", v2_dir).error(st);
-        }
-    }
 
-    files.clear();
-    exists = false;
-    RETURN_IF_ERROR(fs->list(v3_dir, true, &files, &exists));
-    if (exists && files.empty()) {
-        auto st = fs->delete_empty_directory(v3_dir);
-        if (!st.ok()) {
-            LOG_WARNING("failed to remove cache directory {}", v3_dir).error(st);
-        }
+    remove_directory_if_empty(v3_dir);
+    if (v2_dir != v3_dir) {
+        remove_directory_if_empty(v2_dir);
     }
     return Status::OK();
 }

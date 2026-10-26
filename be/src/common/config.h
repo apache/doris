@@ -1340,6 +1340,9 @@ DECLARE_mInt32(file_cache_leak_scan_pause_ms);
 DECLARE_mInt64(file_cache_leak_grace_seconds);
 DECLARE_mInt64(file_cache_remove_block_qps_limit);
 DECLARE_mInt64(file_cache_background_gc_interval_ms);
+// Run the storage removal of blocks evicted while holding the file cache lock after that lock
+// is released, instead of inline under it.
+DECLARE_mBool(enable_file_cache_async_evict_io);
 DECLARE_mInt64(file_cache_background_block_lru_update_interval_ms);
 DECLARE_mInt64(file_cache_background_block_lru_update_qps_limit);
 DECLARE_mInt64(file_cache_background_block_lru_update_queue_max_size);
