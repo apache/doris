@@ -128,7 +128,7 @@ public class BackendServiceProxy {
         }
 
         if (serviceClientExtIp != null) {
-            serviceClientExtIp.client.shutdown();
+            serviceClientExtIp.client.shutdownGracefully();
         }
     }
 
@@ -184,7 +184,8 @@ public class BackendServiceProxy {
         } finally {
             lock.unlock();
             if (removedClient != null) {
-                removedClient.shutdown();
+                // Replacement must not force-close another query's outstanding RPC.
+                removedClient.shutdownGracefully();
             }
         }
     }
