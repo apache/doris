@@ -62,8 +62,10 @@ struct AnalyticSpillBatch {
     std::vector<WindowSpillPeerFunction> peer_functions;
     // Row p holds the result of partition p for PARTITION_REDUCE functions.
     std::vector<ColumnPtr> partition_results;
-    // Element p holds the parameter of partition p for PARTITION_CARDINALITY functions.
-    std::vector<std::vector<int64_t>> function_parameters;
+    // One constant bucket count per PARTITION_CARDINALITY function, indexed by function index.
+    // FE requires NTILE arguments to be positive integer literals, e.g. NTILE(4) uses 4 in every
+    // partition. Other strategies leave their entries at zero.
+    DorisVector<int64_t> function_parameters;
     std::vector<DataTypePtr> result_types;
     std::vector<bool> change_to_nullable_flags;
 };

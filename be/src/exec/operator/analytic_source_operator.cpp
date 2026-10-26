@@ -408,8 +408,7 @@ void AnalyticLocalState::_append_partition_results(
 
 void AnalyticLocalState::_append_ntile_result(size_t function_index, size_t rows,
                                               IColumn* result_column) const {
-    const int64_t bucket_num =
-            _current_batch->function_parameters[function_index][_partition_index];
+    const int64_t bucket_num = _current_batch->function_parameters[function_index];
     DORIS_CHECK_GT(bucket_num, 0);
     const int64_t partition_size = _partition_end - _partition_start;
     const int64_t small_bucket_size = partition_size / bucket_num;

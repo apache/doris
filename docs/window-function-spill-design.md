@@ -229,8 +229,9 @@ Source 不得读取仍有 active writer 的 `SpillFile`。
 ```
 
 窗口参数、partition key 和 order key 在当前输入 Block 上临时物化。partition key 只用于
-Sink 检测边界；order key 只用于增量检测 peer group；`ntile` 的常量参数在 partition 开始时
-保存为标量。临时列不会进入 spill Block，也不会泄漏给下游。
+Sink 检测边界；order key 只用于增量检测 peer group；`ntile` 的常量参数仅在首个非空输入上
+求值，每个函数保存一个标量，并随每个 batch 传递一次，不按 partition 重复保存。
+临时列不会进入 spill Block，也不会泄漏给下游。
 
 ### 5.2 partition 边界
 
@@ -240,8 +241,8 @@ partition，并保留上一批最后一行的 key 作为跨 Block 比较基准�
 一个输入 Block 可以被切分成多个 row range：
 
 1. 以 Block 内最后一个 partition 的起始行为界，把前面的 row range 一次性追加到当前 Store；
-2. 按 partition 依次更新归约状态和 peer group 元数据，每个 partition 结束时把结果、行边界和
-   `ntile` 参数追加到 batch 元数据，并 `reset` 聚合状态；
+2. 按 partition 依次更新归约状态和 peer group 元数据，每个 partition 结束时把结果和行边界
+   追加到 batch 元数据，并 `reset` 聚合状态；
 3. 若本 Block 内有 partition 结束，seal 整个 batch 并创建新的 Store；
 4. Block 内最后一个 partition 作为 open partition 追加到 Store。整个 Block 属于同一个
    partition 且不需要按字节切分时直接接管该 Block，不复制。
@@ -361,6 +362,10 @@ serialize/merge 就自动加入该能力。
 partition seal 时 descriptor 已记录总行数 `N`。Source 重放时维护从 0 开始的全局行号，按
 现有大 bucket/小 bucket 公式计算结果。bucket 参数必须沿用现有常量参数检查和 NULL 语义，
 不能在 spill 路径增加新的隐式转换。
+
+FE 保证 bucket 参数在翻译执行计划前已折叠成正整数字面量，因此同一函数在所有 partition
+中的 bucket 数相同。descriptor 按函数索引保存一维参数数组，Source 不再按 partition 索引
+读取参数；参数载荷由 `O(函数数 × partition 数)` 降为 `O(函数数)`。
 
 `ntile` 不需要额外预扫描输入内容；若 descriptor 已有准确行数，可以直接进入 Replay。
 

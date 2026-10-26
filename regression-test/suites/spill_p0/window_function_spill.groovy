@@ -112,6 +112,24 @@ suite("window_function_spill") {
             where skew in (0, 1)
             group by skew, n
         """)
+        // Distinct per-function constants must survive partition and batch transitions.
+        // The first partition crosses the 97-row input/output batch size; the others are tiny.
+        "order_qt_${tag}_ntile_function_parameters"("""
+            select g, count(*), max(n1), max(n2), max(n3), max(nlarge),
+                   sum(n2), sum(n3), sum(nlarge)
+            from (
+                select g,
+                       ntile(1) over (partition by g order by k) n1,
+                       ntile(2) over (partition by g order by k) n2,
+                       ntile(1 + 2) over (partition by g order by k) n3,
+                       ntile(2147483648) over (partition by g order by k) nlarge
+                from (
+                    select k, case when k < 200 then 0 else cast((k - 200) / 3 as int) + 1 end g
+                    from window_function_spill_t where k < 210
+                ) input_rows
+            ) w
+            group by g
+        """)
         "order_qt_${tag}_peer_group"("""
             select g, o, count(*), max(pr), min(pr), max(cd), min(cd)
             from (

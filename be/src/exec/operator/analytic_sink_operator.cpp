@@ -199,7 +199,6 @@ void AnalyticSinkLocalState::_init_spill_mode(const AnalyticSinkOperatorX& paren
             std::ranges::any_of(_spill_strategies, [](WindowSpillStrategy strategy) {
                 return strategy == WindowSpillStrategy::PEER_GROUP;
             });
-    _open_partition_parameters.resize(parent._agg_functions_size, 0);
 
     std::string spill_mode = "Unsupported";
     if (_spill_enabled) {
@@ -747,18 +746,28 @@ Status AnalyticSinkLocalState::_materialize_spill_columns(
         std::vector<ColumnPtr>* partition_columns, std::vector<ColumnPtr>* order_columns) {
     const auto original_columns = input_block->columns();
     agg_columns->resize(_agg_functions_size);
+    const bool initialize_parameters = _spill_function_parameters.empty();
+    if (initialize_parameters) {
+        _spill_function_parameters.resize(_agg_functions_size, 0);
+    }
     for (size_t i = 0; i < _agg_functions_size; ++i) {
+        // FE folds NTILE's bucket argument to a positive integer literal. Read it once, not per
+        // partition or Block: NTILE(4) needs only one 4 even for 65535 one-row partitions.
+        if (_spill_strategies[i] == WindowSpillStrategy::PARTITION_CARDINALITY) {
+            if (initialize_parameters) {
+                DCHECK_EQ(_agg_expr_ctxs[i].size(), 1);
+                ColumnPtr column;
+                RETURN_IF_ERROR(_agg_expr_ctxs[i][0]->execute(input_block, column));
+                _spill_function_parameters[i] = column->get_int(0);
+                DCHECK_GT(_spill_function_parameters[i], 0);
+            }
+            continue;
+        }
         (*agg_columns)[i].reserve(_agg_expr_ctxs[i].size());
         for (const auto& expr : _agg_expr_ctxs[i]) {
             ColumnPtr column;
             RETURN_IF_ERROR(expr->execute(input_block, column));
-            // NTILE only reads the argument at the first row of each partition. Expanding a
-            // constant for every row and function can allocate more than the input Block itself
-            // (for example, 32 literal arguments over 65535 one-row partitions).
-            (*agg_columns)[i].emplace_back(
-                    _spill_strategies[i] == WindowSpillStrategy::PARTITION_CARDINALITY
-                            ? std::move(column)
-                            : column->convert_to_full_column_if_const());
+            (*agg_columns)[i].emplace_back(column->convert_to_full_column_if_const());
         }
     }
     partition_columns->reserve(_partition_by_eq_expr_ctxs.size());
@@ -841,15 +850,6 @@ Status AnalyticSinkLocalState::_accumulate_spill_range(
         int64_t batch_row) {
     DCHECK_GT(length, 0);
     DCHECK_LE(batch_row + static_cast<int64_t>(length), _batch_store->rows());
-    if (_open_partition_rows == 0) {
-        for (size_t i = 0; i < _agg_functions_size; ++i) {
-            if (_spill_strategies[i] == WindowSpillStrategy::PARTITION_CARDINALITY) {
-                DORIS_CHECK_EQ(agg_columns[i].size(), 1);
-                _open_partition_parameters[i] = agg_columns[i][0]->get_int(start);
-                DORIS_CHECK_GT(_open_partition_parameters[i], 0);
-            }
-        }
-    }
     _update_spill_aggregate_states(start, length, agg_columns);
     RETURN_IF_ERROR(_record_peer_groups(state, order_columns, start, length, batch_row));
     _open_partition_rows += length;
@@ -916,7 +916,6 @@ void AnalyticSinkLocalState::_ensure_spill_batch_store() {
     _batch_store = std::make_unique<AnalyticSpillBatchStore>(operator_profile(), _parent->node_id(),
                                                              _has_peer_group_functions);
     _batch_partition_results.resize(_agg_functions_size);
-    _batch_function_parameters.resize(_agg_functions_size);
     for (size_t i = 0; i < _agg_functions_size; ++i) {
         if (_spill_strategies[i] == WindowSpillStrategy::PARTITION_REDUCE) {
             _batch_partition_results[i] = _agg_functions[i]->data_type()->create_column();
@@ -951,8 +950,6 @@ Status AnalyticSinkLocalState::_finish_spill_partition(RuntimeState* state) {
             break;
         }
         case WindowSpillStrategy::PARTITION_CARDINALITY:
-            _batch_function_parameters[i].push_back(_open_partition_parameters[i]);
-            break;
         case WindowSpillStrategy::PEER_GROUP:
             break;
         case WindowSpillStrategy::UNSUPPORTED:
@@ -994,7 +991,7 @@ Status AnalyticSinkLocalState::_seal_spill_batch(RuntimeState* state) {
     batch->partition_ends = std::move(_batch_partition_ends);
     batch->strategies = _spill_strategies;
     batch->peer_functions = parent._window_spill_peer_functions;
-    batch->function_parameters = std::move(_batch_function_parameters);
+    batch->function_parameters = _spill_function_parameters;
     batch->change_to_nullable_flags = parent._change_to_nullable_flags;
     batch->partition_results.resize(_agg_functions_size);
     batch->result_types.resize(_agg_functions_size);
@@ -1015,7 +1012,6 @@ Status AnalyticSinkLocalState::_seal_spill_batch(RuntimeState* state) {
     _batch_store.reset();
     _batch_partition_ends.clear();
     _batch_partition_results.clear();
-    _batch_function_parameters.clear();
     _update_spill_memory_usage();
     return Status::OK();
 }
@@ -1534,7 +1530,8 @@ size_t AnalyticSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bool eos
             break;
         }
         case WindowSpillStrategy::PARTITION_CARDINALITY:
-            partition_result_bytes += incoming_rows * sizeof(int64_t);
+            // One sink copy and at most two sealed batches per input, independent of partitions.
+            partition_result_bytes += 3 * sizeof(int64_t);
             break;
         case WindowSpillStrategy::PEER_GROUP:
             partition_result_bytes += incoming_rows * sizeof(int64_t);
