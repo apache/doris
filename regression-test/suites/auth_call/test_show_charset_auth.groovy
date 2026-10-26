@@ -71,9 +71,8 @@ suite("test_show_no_auth","p0,auth_call") {
     sql """revoke grant_priv on *.*.* from ${user}"""
     sql """grant admin_priv on *.*.* to ${user}"""
     connect(user, "${pwd}", context.config.jdbcUrl) {
-        def res = sql """SHOW TRASH;"""
-        logger.info("res: " + res)
-        assertTrue(res.size() >= 1)
+        // Do not assert res.size() >= 1, as a clean CI environment may have no trash data.
+        sql """SHOW TRASH;"""
     }
 
     try_sql("DROP USER ${user}")
