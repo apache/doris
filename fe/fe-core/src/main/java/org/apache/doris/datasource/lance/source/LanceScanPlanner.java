@@ -56,7 +56,6 @@ final class LanceScanPlanner {
     private final List<Expr> lancePushedConjuncts;
     private final int fragmentsPerSplit;
     private final int countParallelism;
-    private final boolean scalarIndexAutoSelection;
     private int plannedFragments;
     private int plannedFragmentsPerSplit;
     private int plannedUnindexedFragments;
@@ -66,8 +65,7 @@ final class LanceScanPlanner {
     private VectorIndexStatus vectorIndexStatus = VectorIndexStatus.NOT_PLANNED;
 
     private LanceScanPlanner(LanceTableMetadata metadata, SearchKind kind, TExternalSearchRequest request,
-            int fieldId, List<Expr> pushedConjuncts, int fragmentsPerSplit, int countParallelism,
-            boolean scalarIndexAutoSelection) {
+            int fieldId, List<Expr> pushedConjuncts, int fragmentsPerSplit, int countParallelism) {
         this.plannedMetadata = metadata;
         this.searchKind = kind;
         this.externalSearchRequest = request;
@@ -75,20 +73,13 @@ final class LanceScanPlanner {
         this.lancePushedConjuncts = pushedConjuncts;
         this.fragmentsPerSplit = fragmentsPerSplit;
         this.countParallelism = countParallelism;
-        this.scalarIndexAutoSelection = scalarIndexAutoSelection;
     }
 
     static LanceScanPlan plan(LanceTableMetadata metadata, SearchKind kind, TExternalSearchRequest request,
             int fieldId, List<Expr> pushedConjuncts, int fragmentsPerSplit, int countParallelism) throws UserException {
-        return plan(metadata, kind, request, fieldId, pushedConjuncts, fragmentsPerSplit, countParallelism, true);
-    }
-
-    static LanceScanPlan plan(LanceTableMetadata metadata, SearchKind kind, TExternalSearchRequest request,
-            int fieldId, List<Expr> pushedConjuncts, int fragmentsPerSplit, int countParallelism,
-            boolean scalarIndexAutoSelection) throws UserException {
         try (LanceMetadataMetrics metrics = LanceMetadataMetrics.startSplitPlanning()) {
             LanceScanPlanner planner = new LanceScanPlanner(metadata, kind, request,
-                    fieldId, pushedConjuncts, fragmentsPerSplit, countParallelism, scalarIndexAutoSelection);
+                    fieldId, pushedConjuncts, fragmentsPerSplit, countParallelism);
             List<Split> splits = planner.buildSplits();
             LanceScanPlan plan = new LanceScanPlan(splits, planner.plannedFragments,
                     planner.plannedFragmentsPerSplit, planner.plannedIndexSegments, planner.plannedIndexFragments,
@@ -202,8 +193,7 @@ final class LanceScanPlanner {
             return LanceSplitBuilder.buildFragmentSplits(metadata.getDatasetUri(), metadata.getVersion(),
                     visibleFragments.values(), plannedFragmentsPerSplit);
         }
-        scalarIndexPlan = LanceScalarIndexPlanner.plan(
-                metadata, lancePushedConjuncts, visibleFragments, scalarIndexAutoSelection);
+        scalarIndexPlan = LanceScalarIndexPlanner.plan(metadata, lancePushedConjuncts, visibleFragments);
         LanceSplitBuilder plan;
         if (scalarIndexPlan != null) {
             plan = scalarIndexPlan.splits;

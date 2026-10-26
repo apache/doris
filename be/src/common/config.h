@@ -1264,6 +1264,8 @@ DECLARE_Int32(blocking_pipeline_executor_size);
 // Lance shared session and optional Foyer data-file cache.
 DECLARE_Int64(lance_index_cache_size_bytes);
 DECLARE_Int64(lance_metadata_cache_size_bytes);
+// Runtime BTree selection uses page metadata and preserves the explicit fragment domain.
+DECLARE_Bool(enable_lance_scalar_index_auto_selection);
 DECLARE_Bool(enable_lance_data_cache);
 DECLARE_String(lance_data_cache_path);
 DECLARE_Int64(lance_data_cache_disk_capacity_bytes);

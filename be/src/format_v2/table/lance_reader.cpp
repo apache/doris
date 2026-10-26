@@ -111,6 +111,11 @@ Status LanceTableReader::init(TableReadOptions&& options) {
     DORIS_CHECK(_scanner_profile != nullptr);
     DORIS_CHECK(_scan_params != nullptr);
     RETURN_IF_ERROR(_resolve_search_kind());
+    if (_search_kind == SearchKind::NORMAL) {
+        _scanner_profile->add_info_string(
+                "LanceScalarIndexAutoSelection",
+                config::enable_lance_scalar_index_auto_selection ? "true" : "false");
+    }
 
     const auto& lance_scan_params = _scan_params->lance_scan_params;
     ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, LANCE_READER_PROFILE, TUnit::NONE,
@@ -958,6 +963,10 @@ Status LanceTableReader::_configure_normal_scan(LanceScanner* scanner,
         if (lance_params.__isset.use_scalar_index && !lance_params.use_scalar_index) {
             return Status::InvalidArgument(
                     "Lance scalar index segment cannot be combined with use_scalar_index=false");
+        }
+        if (lance_scanner_set_scalar_index_auto_selection(
+                    scanner, config::enable_lance_scalar_index_auto_selection) != 0) {
+            return lance_error("set Lance runtime scalar index selection");
         }
         if (lance_scanner_set_scalar_index_segment(scanner, segment_uuids.data()) != 0) {
             return lance_error("set Lance scanner scalar index segment");

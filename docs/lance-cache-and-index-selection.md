@@ -26,31 +26,46 @@ summing reader windows. These counters do not measure the FE's separate metadata
 
 ## Automatic scalar index selection
 
-```sql
-SET enable_lance_scalar_index_auto_selection = true;
-```
+`enable_lance_scalar_index_auto_selection` is a startup BE configuration, enabled
+by default. Restart the BE after changing it. There is no FE session variable.
 
-This session variable is enabled by default. For ordinary Lance table scans, the FE
-uses Nereids predicate selectivity estimates to choose at most one eligible logical
-BTree, Bitmap, or LabelList index. The estimated work is:
+FE retains its existing coverage-based grouping and assigns each task an explicit,
+disjoint fragment domain. In BE, lance-c can replace the grouping index with a
+BTree segment whose known coverage contains the **entire** task domain. It uses
+the current snapshot's BTree page lookup (page min/max and null counts), without
+Doris column statistics or `ANALYZE`. It estimates matching pages for equality,
+range, small IN lists, IS NULL, and supported AND/OR combinations:
 
 ```text
-uncovered physical rows + covered physical rows * driver selectivity
+estimated work = matching index pages * rows per index page
 ```
 
-Only indexable predicates on the selected field reduce its estimated candidates.
-Estimates for independent conjuncts on that field are multiplied; they are advisory
-and can be inaccurate for correlated predicates or stale/missing column statistics.
-Multi-field predicates are not used to estimate a single index's candidates. Without
-usable estimates, selection retains the existing largest-coverage rule and stable
-index-name tie breaking. Existing eligibility, expression-budget and fragment-ownership
-checks still apply. Uncovered fragments retain their non-indexed fallback scans.
-`EXPLAIN` shows the chosen index as `lanceGroupingIndex`.
+This is a conservative page-based estimate, not an exact candidate count or a
+latency measurement. Intersected AND predicates may still match different values
+inside the same page. Cache residency and the cost of fetching projected columns
+are not modeled. Only a strictly cheaper estimate replaces the grouping index;
+ties retain it. If the best estimate is at least the task's physical row count,
+BE scans that domain with the complete filter instead of searching an index.
 
-Setting the variable to `false` retains the previous coverage-based selection; it
-does not disable scalar indexes. The `lance_fragments_per_split` debug override still
-bypasses index-segment grouping. This setting does not alter vector/FTS index selection
-or move an external-search TVF's outer `WHERE` predicates before candidate selection.
+Each selection examines at most eight segments and an aggregate 8 MiB of lookup
+files; a lookup has at most 65,536 pages, an IN list at most 256 values, and
+one estimate at most 1,000,000 page/predicate comparisons. Lookup
+batches share the bounded Session metadata cache. Probing does not search index
+leaf pages or materialize candidate row IDs. Unknown file sizes, unsupported
+expressions/formats, probe errors, or an unestimable grouping index retain the
+existing segment path. Bitmap and LabelList remain supported on that path, but
+are not cost-ranked. Uncovered fragments keep their existing fallback scans.
+
+`LanceScalarIndexAutoCandidates`, `LanceScalarIndexAutoChanged`,
+`LanceScalarIndexAutoEstimatedPages`, `LanceScalarIndexAutoEstimatedRows`, and
+`LanceScalarIndexAutoFullScans` expose runtime decisions in Profile. Estimates
+are accumulated over tasks. `EXPLAIN`'s `lanceGroupingIndex` identifies FE's task
+grouping, which can differ from the runtime index.
+
+Setting the BE option to `false` retains the previous segment behavior and avoids
+these probes. The `lance_fragments_per_split` debug override still bypasses
+index-segment grouping. Vector/FTS index selection and external-search TVF filter
+semantics are unchanged.
 
 ## Foyer memory capacity
 

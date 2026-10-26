@@ -718,10 +718,10 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " AZURE " ]]; then
     echo "Finished patching ${AZURE_SOURCE}"
 fi
 
-# Foyer remains a local patch until its cache interface is accepted upstream.
-# All search fixes are supplied by the immutable lance-c dependency revision.
+# Local cache and runtime-selection extensions are applied to the pinned lance-c.
+# Bind the source marker to both patches so cached builds cannot retain an older ABI.
 if [[ " ${TP_ARCHIVES[*]} " =~ " LANCE_C " ]]; then
-    foyer_patch_checksum="$(cksum < "${TP_PATCH_DIR}/lance-c-foyer.patch")"
+    foyer_patch_checksum="$(cksum < "${TP_PATCH_DIR}/lance-c-foyer.patch") $(cksum < "${TP_PATCH_DIR}/lance-c-runtime-index-selection.patch")"
     foyer_patch_marker="${TP_SOURCE_DIR}/${LANCE_C_SOURCE}/${PATCHED_MARK}_foyer"
     # A new local patch must also replace previously patched cached sources.
     # Empty markers from older builds cannot identify the applied patch version.
@@ -734,6 +734,8 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " LANCE_C " ]]; then
     if [[ ! -f "${PATCHED_MARK}_foyer" ]]; then
         patch --batch --forward --reject-file=- --fuzz=0 --no-backup-if-mismatch -s \
             -p1 <"${TP_PATCH_DIR}/lance-c-foyer.patch"
+        patch --batch --forward --reject-file=- --fuzz=0 --no-backup-if-mismatch -s \
+            -p1 <"${TP_PATCH_DIR}/lance-c-runtime-index-selection.patch"
         printf '%s\n' "${foyer_patch_checksum}" > "${PATCHED_MARK}_foyer"
     fi
     cd -

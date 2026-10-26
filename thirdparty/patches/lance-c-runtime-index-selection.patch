@@ -1,0 +1,723 @@
+diff --git a/include/lance/lance.h b/include/lance/lance.h
+index b592396..052a0fc 100644
+--- a/include/lance/lance.h
++++ b/include/lance/lance.h
+@@ -2439,6 +2439,11 @@ int32_t lance_scanner_set_index_segments(
+ int32_t lance_scanner_set_scalar_index_segment(
+     LanceScanner* scanner, const uint8_t* segment_uuid);
+
++/* Opt in to bounded runtime BTree page-cost selection for a scalar segment scan.
++ * Defaults to false. The explicit fragment domain and complete filter are preserved.
++ * Unsupported/unknown estimates retain the selected segment. Returns 0 or -1. */
++int32_t lance_scanner_set_scalar_index_auto_selection(LanceScanner* scanner, bool enabled);
++
+ /* ─── Full-text search (Phase 2) ─── */
+
+ /**
+diff --git a/src/lib.rs b/src/lib.rs
+index 4a96bb5..267e63b 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -43,6 +43,7 @@ mod merge_insert;
+ mod multivector;
+ mod restore;
+ pub mod runtime;
++mod scalar_index_selection;
+ mod scalar_segment;
+ mod scanner;
+ mod session;
+diff --git a/src/scalar_index_selection.rs b/src/scalar_index_selection.rs
+new file mode 100644
+index 0000000..87270ff
+--- /dev/null
++++ b/src/scalar_index_selection.rs
+@@ -0,0 +1,408 @@
++// SPDX-License-Identifier: Apache-2.0
++// SPDX-FileCopyrightText: Copyright The Lance Authors
++
++//! Bounded runtime BTree cost comparison. Estimates affect only acceleration;
++//! the caller always retains its explicit fragment domain and complete filter.
++
++use std::{borrow::Cow, cmp::Ordering, ops::Bound};
++
++use arrow_array::{Array, RecordBatch, UInt32Array};
++use datafusion::common::ScalarValue;
++use lance::{
++    Dataset,
++    dataset::{index::LanceIndexStoreExt, scanner::ExecutionSummaryCounts},
++};
++use lance_core::{
++    Error,
++    cache::CacheKey,
++    deepsize::{Context, DeepSizeOf},
++};
++use lance_index::scalar::{
++    IndexStore, SargableQuery,
++    btree::{BTREE_LOOKUP_NAME, DEFAULT_BTREE_BATCH_SIZE},
++    expression::ScalarIndexExpr,
++    lance_format::LanceIndexStore,
++};
++use lance_table::format::IndexMetadata;
++use uuid::Uuid;
++
++use crate::scalar_segment::scoped_expression;
++
++const MAX_CANDIDATES: usize = 8;
++const MAX_LOOKUP_BYTES: u64 = 8 * 1024 * 1024;
++const MAX_LOOKUP_PAGES: usize = 65_536;
++const MAX_IN_VALUES: usize = 256;
++const MAX_ESTIMATE_COMPARISONS: usize = 1_000_000;
++
++struct Lookup {
++    batch: RecordBatch,
++    rows_per_page: u64,
++}
++
++impl DeepSizeOf for Lookup {
++    fn deep_size_of_children(&self, _context: &mut Context) -> usize {
++        self.batch.get_array_memory_size()
++    }
++}
++
++struct LookupKey(String);
++impl CacheKey for LookupKey {
++    type ValueType = Lookup;
++    fn key(&self) -> Cow<'_, str> {
++        self.0.as_str().into()
++    }
++    fn type_name() -> &'static str {
++        "DorisBTreeCostLookup"
++    }
++}
++
++fn is_btree_expression(expr: &ScalarIndexExpr) -> bool {
++    match expr {
++        ScalarIndexExpr::Query(search) => search.index_type.eq_ignore_ascii_case("btree"),
++        ScalarIndexExpr::And(a, b) | ScalarIndexExpr::Or(a, b) => {
++            is_btree_expression(a) && is_btree_expression(b)
++        }
++        ScalarIndexExpr::Not(_) => false,
++    }
++}
++
++fn overlaps(
++    min: &ScalarValue,
++    max: &ScalarValue,
++    query: &SargableQuery,
++    nulls: u32,
++) -> Option<bool> {
++    let contains = |value: &ScalarValue| -> Option<bool> {
++        if value.is_null() {
++            return Some(nulls != 0);
++        }
++        if min.is_null() || max.is_null() {
++            return Some(false);
++        }
++        Some(
++            min.partial_cmp(value)? != Ordering::Greater
++                && max.partial_cmp(value)? != Ordering::Less,
++        )
++    };
++    match query {
++        SargableQuery::Equals(value) => contains(value),
++        SargableQuery::IsNull() => Some(nulls != 0),
++        SargableQuery::IsIn(values) if values.len() <= MAX_IN_VALUES => {
++            for value in values {
++                if contains(value)? {
++                    return Some(true);
++                }
++            }
++            Some(false)
++        }
++        SargableQuery::Range(start, end) => {
++            if min.is_null() || max.is_null() {
++                return Some(false);
++            }
++            let above_lower = match start {
++                Bound::Included(v) if !v.is_null() => max.partial_cmp(v)? != Ordering::Less,
++                Bound::Excluded(v) if !v.is_null() => max.partial_cmp(v)? == Ordering::Greater,
++                Bound::Unbounded => true,
++                _ => return None,
++            };
++            let below_upper = match end {
++                Bound::Included(v) if !v.is_null() => min.partial_cmp(v)? != Ordering::Greater,
++                Bound::Excluded(v) if !v.is_null() => min.partial_cmp(v)? == Ordering::Less,
++                Bound::Unbounded => true,
++                _ => return None,
++            };
++            Some(above_lower && below_upper)
++        }
++        _ => None,
++    }
++}
++
++fn matches_page(
++    expr: &ScalarIndexExpr,
++    min: &ScalarValue,
++    max: &ScalarValue,
++    nulls: u32,
++) -> Option<bool> {
++    match expr {
++        ScalarIndexExpr::Query(search) => overlaps(
++            min,
++            max,
++            search.query.as_any().downcast_ref::<SargableQuery>()?,
++            nulls,
++        ),
++        ScalarIndexExpr::And(a, b) => {
++            Some(matches_page(a, min, max, nulls)? && matches_page(b, min, max, nulls)?)
++        }
++        ScalarIndexExpr::Or(a, b) => {
++            Some(matches_page(a, min, max, nulls)? || matches_page(b, min, max, nulls)?)
++        }
++        // A page's min/max cannot determine which rows survive a complement.
++        ScalarIndexExpr::Not(_) => None,
++    }
++}
++
++fn comparisons_per_page(expr: &ScalarIndexExpr) -> Option<usize> {
++    match expr {
++        ScalarIndexExpr::Query(search) => {
++            match search.query.as_any().downcast_ref::<SargableQuery>()? {
++                SargableQuery::IsIn(values) if values.len() <= MAX_IN_VALUES => {
++                    Some(values.len().max(1))
++                }
++                SargableQuery::Equals(_) | SargableQuery::Range(_, _) | SargableQuery::IsNull() => {
++                    Some(1)
++                }
++                _ => None,
++            }
++        }
++        ScalarIndexExpr::And(a, b) | ScalarIndexExpr::Or(a, b) => {
++            comparisons_per_page(a)?.checked_add(comparisons_per_page(b)?)
++        }
++        ScalarIndexExpr::Not(_) => None,
++    }
++}
++
++fn estimate_pages(batch: &RecordBatch, expr: &ScalarIndexExpr) -> Option<usize> {
++    if batch.num_columns() < 3 || batch.num_rows() > MAX_LOOKUP_PAGES {
++        return None;
++    }
++    // Node and byte limits alone still allow pages * IN-values * leaves work.
++    if batch.num_rows().checked_mul(comparisons_per_page(expr)?)? > MAX_ESTIMATE_COMPARISONS {
++        return None;
++    }
++    let nulls = batch.column(2).as_any().downcast_ref::<UInt32Array>()?;
++    let mut pages = 0;
++    for row in 0..batch.num_rows() {
++        let min = ScalarValue::try_from_array(batch.column(0), row).ok()?;
++        let max = ScalarValue::try_from_array(batch.column(1), row).ok()?;
++        pages += usize::from(matches_page(expr, &min, &max, nulls.value(row))?);
++    }
++    Some(pages)
++}
++
++async fn estimate_cost(
++    dataset: &Dataset,
++    index: &IndexMetadata,
++    expr: &ScalarIndexExpr,
++    remaining_bytes: &mut u64,
++) -> Option<(u64, usize)> {
++    if !is_btree_expression(expr) {
++        return None;
++    }
++    // Inspect immutable manifest sizes before opening a file. Older/partition-only
++    // layouts without this root are deliberately left to the existing search path.
++    let size = index
++        .files
++        .as_ref()?
++        .iter()
++        .find(|f| f.path == BTREE_LOOKUP_NAME)?
++        .size_bytes;
++    if size > *remaining_bytes {
++        return None;
++    }
++    *remaining_bytes -= size;
++    let key = LookupKey(format!("{}/{}", dataset.uri(), index.uuid));
++    let session = dataset.session();
++    let lookup = session
++        .file_metadata_cache()
++        .get_or_insert_with_key(key, || async {
++            let store = LanceIndexStore::from_dataset_for_existing(dataset, index).await?;
++            let reader = store.open_index_file(BTREE_LOOKUP_NAME).await?;
++            if reader.num_rows() > MAX_LOOKUP_PAGES {
++                return Err(Error::not_supported(
++                    "BTree cost lookup exceeds the page budget",
++                ));
++            }
++            let rows_per_page = reader
++                .schema()
++                .metadata
++                .get("batch_size")
++                .map(|s| s.parse::<u64>())
++                .transpose()
++                .map_err(|_| Error::not_supported("invalid BTree page size"))?
++                .unwrap_or(DEFAULT_BTREE_BATCH_SIZE);
++            if rows_per_page == 0 {
++                return Err(Error::not_supported("zero BTree page size"));
++            }
++            let batch = reader.read_range(0..reader.num_rows(), None).await?;
++            Ok(Lookup {
++                batch,
++                rows_per_page,
++            })
++        })
++        .await
++        .ok()?;
++    let pages = estimate_pages(&lookup.batch, expr)?;
++    Some((lookup.rows_per_page.saturating_mul(pages as u64), pages))
++}
++
++/// None selects a scoped full scan. Unknown estimates preserve the grouping index.
++pub(crate) async fn choose(
++    dataset: &Dataset,
++    indices: &[IndexMetadata],
++    grouping: &IndexMetadata,
++    grouping_expr: ScalarIndexExpr,
++    index_query: &ScalarIndexExpr,
++    fragment_ids: &[u64],
++    physical_rows: u64,
++    stats: &mut ExecutionSummaryCounts,
++) -> Option<(Uuid, ScalarIndexExpr)> {
++    if !is_btree_expression(&grouping_expr) {
++        return Some((grouping.uuid, grouping_expr));
++    }
++    let mut remaining_bytes = MAX_LOOKUP_BYTES;
++    stats
++        .all_counts
++        .insert("scalar_index_auto_candidates".into(), 1);
++    let Some((mut cost, mut pages)) =
++        estimate_cost(dataset, grouping, &grouping_expr, &mut remaining_bytes).await
++    else {
++        return Some((grouping.uuid, grouping_expr));
++    };
++    let mut selected = (grouping.uuid, grouping_expr);
++    let mut candidates = 1;
++    let mut alternatives: Vec<_> = indices.iter().filter(|i| i.uuid != grouping.uuid).collect();
++    alternatives.sort_by(|a, b| (&a.name, a.uuid).cmp(&(&b.name, b.uuid)));
++    for candidate in alternatives {
++        if candidates >= MAX_CANDIDATES {
++            break;
++        }
++        let Some(field_id) = candidate.keyed_field() else {
++            continue;
++        };
++        let Some(field) = dataset.schema().fields.iter().find(|f| f.id == field_id) else {
++            continue;
++        };
++        let Some(coverage) = &candidate.fragment_bitmap else {
++            continue;
++        };
++        if fragment_ids
++            .iter()
++            .any(|id| u32::try_from(*id).map_or(true, |id| !coverage.contains(id)))
++        {
++            continue;
++        }
++        let Ok(Some(expr)) = scoped_expression(
++            index_query,
++            &candidate.name,
++            &field.name,
++            false,
++            0,
++            &mut 128,
++        ) else {
++            continue;
++        };
++        if !is_btree_expression(&expr) {
++            continue;
++        }
++        candidates += 1;
++        if let Some((candidate_cost, candidate_pages)) =
++            estimate_cost(dataset, candidate, &expr, &mut remaining_bytes).await
++        {
++            if candidate_cost < cost {
++                cost = candidate_cost;
++                pages = candidate_pages;
++                selected = (candidate.uuid, expr);
++            }
++        }
++    }
++    stats
++        .all_counts
++        .insert("scalar_index_auto_candidates".into(), candidates);
++    stats
++        .all_counts
++        .insert("scalar_index_auto_estimated_pages".into(), pages);
++    stats.all_counts.insert(
++        "scalar_index_auto_estimated_rows".into(),
++        cost.min(usize::MAX as u64) as usize,
++    );
++    if cost >= physical_rows {
++        stats
++            .all_counts
++            .insert("scalar_index_auto_full_scans".into(), 1);
++        return None;
++    }
++    stats.all_counts.insert(
++        "scalar_index_auto_changed".into(),
++        usize::from(selected.0 != grouping.uuid),
++    );
++    Some(selected)
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use arrow_array::{Int32Array, UInt32Array};
++    use arrow_schema::{DataType, Field, Schema};
++    use datafusion::common::ScalarValue;
++    use lance_index::scalar::{SargableQuery, expression::ScalarIndexSearch};
++    use std::sync::Arc;
++
++    fn lookup() -> RecordBatch {
++        RecordBatch::try_new(
++            Arc::new(Schema::new(vec![
++                Field::new("min", DataType::Int32, true),
++                Field::new("max", DataType::Int32, true),
++                Field::new("null_count", DataType::UInt32, false),
++            ])),
++            vec![
++                Arc::new(Int32Array::from(vec![None, Some(0), Some(10), Some(20)])),
++                Arc::new(Int32Array::from(vec![None, Some(9), Some(19), Some(29)])),
++                Arc::new(UInt32Array::from(vec![4, 0, 1, 0])),
++            ],
++        )
++        .unwrap()
++    }
++    fn eq(value: i32) -> ScalarIndexExpr {
++        ScalarIndexExpr::Query(ScalarIndexSearch {
++            column: "key".into(),
++            index_name: "key_idx".into(),
++            index_type: "BTree".into(),
++            query: Arc::new(SargableQuery::Equals(ScalarValue::Int32(Some(value)))),
++            needs_recheck: false,
++            fragment_bitmap: None,
++        })
++    }
++    #[test]
++    fn runtime_lookup_distinguishes_narrow_and_broad_predicates() {
++        assert_eq!(estimate_pages(&lookup(), &eq(15)), Some(1));
++        assert_eq!(estimate_pages(&lookup(), &eq(99)), Some(0));
++        let broad = ScalarIndexExpr::Or(Box::new(eq(5)), Box::new(eq(15)));
++        assert_eq!(estimate_pages(&lookup(), &broad), Some(2));
++    }
++    #[test]
++    fn intersect_page_sets_without_counting_or_duplicates_twice() {
++        let repeated = ScalarIndexExpr::Or(Box::new(eq(15)), Box::new(eq(15)));
++        assert_eq!(estimate_pages(&lookup(), &repeated), Some(1));
++        let disjoint = ScalarIndexExpr::And(Box::new(eq(5)), Box::new(eq(15)));
++        assert_eq!(estimate_pages(&lookup(), &disjoint), Some(0));
++        assert_eq!(
++            estimate_pages(&lookup(), &ScalarIndexExpr::Not(Box::new(eq(15)))),
++            None
++        );
++    }
++    #[test]
++    fn runtime_lookup_respects_nulls_and_exclusive_range_bounds() {
++        let mut expression = eq(0);
++        if let ScalarIndexExpr::Query(search) = &mut expression {
++            search.query = Arc::new(SargableQuery::IsNull());
++        }
++        assert_eq!(estimate_pages(&lookup(), &expression), Some(2));
++        if let ScalarIndexExpr::Query(search) = &mut expression {
++            search.query = Arc::new(SargableQuery::Range(
++                std::ops::Bound::Excluded(ScalarValue::Int32(Some(9))),
++                std::ops::Bound::Excluded(ScalarValue::Int32(Some(20))),
++            ));
++        }
++        assert_eq!(estimate_pages(&lookup(), &expression), Some(1));
++    }
++    #[test]
++    fn expensive_in_cost_probes_fall_back_without_searching() {
++        let mut expression = eq(0);
++        if let ScalarIndexExpr::Query(search) = &mut expression {
++            search.query = Arc::new(SargableQuery::IsIn(
++                (0..257).map(|v| ScalarValue::Int32(Some(v))).collect(),
++            ));
++        }
++        assert_eq!(estimate_pages(&lookup(), &expression), None);
++    }
++}
+diff --git a/src/scalar_segment.rs b/src/scalar_segment.rs
+index 6515fbf..6354006 100644
+--- a/src/scalar_segment.rs
++++ b/src/scalar_segment.rs
+@@ -26,6 +26,7 @@ use uuid::Uuid;
+ pub(crate) struct PreparedScalarSegment {
+     pub dataset: Arc<Dataset>,
+     pub segment_uuid: Uuid,
++    pub auto_selection: bool,
+     pub fragment_ids: Vec<u64>,
+     pub use_scalar_index: bool,
+     pub callback: Option<ExecutionStatsCallback>,
+@@ -39,7 +40,7 @@ fn invalid(message: impl Into<String>) -> Error {
+ const MAX_EXPRESSION_NODES: usize = 128;
+ const MAX_EXPRESSION_DEPTH: usize = 32;
+
+-fn scoped_expression(
++pub(crate) fn scoped_expression(
+     expr: &ScalarIndexExpr,
+     index_name: &str,
+     column: &str,
+@@ -304,9 +305,45 @@ impl PreparedScalarSegment {
+             Ok(None) => return Ok(Some("no_driver")),
+             Err(reason) => return Ok(Some(reason)),
+         };
++        let (segment_uuid, expr) = if self.auto_selection {
++            let physical_rows = fragments
++                .iter()
++                .filter(|f| scope.contains(&(f.id() as u64)))
++                .fold(0_u64, |sum, f| {
++                    sum.saturating_add(f.metadata().physical_rows.unwrap_or(0) as u64)
++                });
++            let Some(selected) = crate::scalar_index_selection::choose(
++                &self.dataset,
++                &indices,
++                index_meta,
++                expr,
++                filter_plan.index_query.as_ref().unwrap(),
++                &self.fragment_ids,
++                physical_rows,
++                stats,
++            )
++            .await
++            else {
++                return Ok(Some("runtime_cost"));
++            };
++            selected
++        } else {
++            (self.segment_uuid, expr)
++        };
++        let index_meta = indices
++            .iter()
++            .find(|i| i.uuid == segment_uuid)
++            .ok_or_else(|| invalid("runtime scalar index is absent from the dataset snapshot"))?;
++        let field = self
++            .dataset
++            .schema()
++            .field_by_id(index_meta.keyed_field().unwrap())
++            .ok_or_else(|| {
++                invalid("runtime scalar index field is absent from the dataset schema")
++            })?;
+         let index = self
+             .dataset
+-            .open_scalar_index(&field.name, &self.segment_uuid, metrics)
++            .open_scalar_index(&field.name, &segment_uuid, metrics)
+             .await?;
+         // These implementations can return exact candidates. Keep the runtime
+         // Exact check below: a type alone is not a guarantee for every query.
+diff --git a/src/scanner.rs b/src/scanner.rs
+index e5ff5ca..f2f1a00 100644
+--- a/src/scanner.rs
++++ b/src/scanner.rs
+@@ -117,6 +117,7 @@ pub struct LanceScanner {
+     row_addr_blocklist: Option<RowAddrTreeMap>,
+     index_segments: Option<Vec<Uuid>>,
+     scalar_index_segment: Option<Uuid>,
++    scalar_index_auto_selection: bool,
+     nearest: Option<NearestQuery>,
+     nprobes: NprobesRange,
+     approx_mode: Option<LanceApproxMode>,
+@@ -317,6 +318,7 @@ impl LanceScanner {
+             row_addr_blocklist: None,
+             index_segments: None,
+             scalar_index_segment: None,
++            scalar_index_auto_selection: false,
+             nearest: None,
+             nprobes: NprobesRange::default(),
+             approx_mode: None,
+@@ -637,6 +639,7 @@ impl LanceScanner {
+             Some(PreparedScalarSegment {
+                 dataset: Arc::clone(&self.dataset),
+                 segment_uuid,
++                auto_selection: self.scalar_index_auto_selection,
+                 fragment_ids: fragment_ids.clone(),
+                 use_scalar_index: self.use_scalar_index.unwrap_or(true),
+                 callback: self.scan_statistics_callback.clone(),
+@@ -1079,6 +1082,22 @@ macro_rules! scanner_ffi_try {
+     }};
+ }
+
++/// Enable bounded runtime BTree selection for an explicitly scoped scalar segment scan.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn lance_scanner_set_scalar_index_auto_selection(
++    scanner: *mut LanceScanner,
++    enabled: bool,
++) -> i32 {
++    scanner_poison_check!(scanner, -1);
++    scanner_ffi_try!(scanner, {
++        let scanner = unsafe { scanner.as_mut() }
++            .ok_or_else(|| lance_core::Error::invalid_input_source("scanner is NULL".into()))?;
++        scanner.ensure_scan_not_started("scalar_index_auto_selection")?;
++        scanner.scalar_index_auto_selection = enabled;
++        Ok(0)
++    })
++}
++
+ /// Select one physical scalar index segment. NULL clears the selection.
+ /// Requires explicit fragment_ids and an ordinary live-row scan. See the C header.
+ /// include_deleted_rows=true is rejected when preparing the scan, even if
+diff --git a/tests/c_api_test.rs b/tests/c_api_test.rs
+index d9af02a..0042745 100644
+--- a/tests/c_api_test.rs
++++ b/tests/c_api_test.rs
+@@ -15704,6 +15704,18 @@ fn scalar_segment_ids_with_filter(
+     filter: ScalarSegmentFilter<'_>,
+     limit: Option<i64>,
+     offset: i64,
++) -> (Vec<i32>, CapturedScanStatistics) {
++    scalar_segment_ids_with_auto(uri, uuid, fragments, filter, limit, offset, false)
++}
++
++fn scalar_segment_ids_with_auto(
++    uri: &str,
++    uuid: &[u8; 16],
++    fragments: &[u64],
++    filter: ScalarSegmentFilter<'_>,
++    limit: Option<i64>,
++    offset: i64,
++    auto_selection: bool,
+ ) -> (Vec<i32>, CapturedScanStatistics) {
+     let uri = c_str(uri);
+     let sql = match filter {
+@@ -15737,6 +15749,10 @@ fn scalar_segment_ids_with_filter(
+             lance_scanner_set_scalar_index_segment(scanner, uuid.as_ptr()),
+             0
+         );
++        assert_eq!(
++            lance_scanner_set_scalar_index_auto_selection(scanner, auto_selection),
++            0
++        );
+         if let Some(limit) = limit {
+             assert_eq!(lance_scanner_set_limit(scanner, limit), 0);
+         }
+@@ -15788,6 +15804,127 @@ fn scalar_segment_ids_with_filter(
+     (ids, captured)
+ }
+
++#[test]
++fn test_runtime_scalar_index_selection_uses_page_cost_and_honors_switch() {
++    use lance::dataset::WriteParams;
++    use lance::index::DatasetIndexExt;
++    use lance_index::{IndexType, scalar::ScalarIndexParams};
++    let tmp = tempfile::tempdir().unwrap();
++    let uri = tmp
++        .path()
++        .join("runtime_selection")
++        .to_str()
++        .unwrap()
++        .to_owned();
++    let (grouping, fragments) = lance_c::runtime::block_on(async {
++        let schema = Arc::new(Schema::new(vec![
++            Field::new("id", DataType::Int32, false),
++            Field::new("key", DataType::Int32, false),
++        ]));
++        let batch = RecordBatch::try_new(
++            schema.clone(),
++            vec![
++                Arc::new(Int32Array::from_iter_values(0..16384)),
++                Arc::new(Int32Array::from_iter_values(0..16384)),
++            ],
++        )
++        .unwrap();
++        let mut ds = Dataset::write(
++            arrow::record_batch::RecordBatchIterator::new(vec![Ok(batch)], schema),
++            &uri,
++            Some(WriteParams {
++                max_rows_per_file: 4096,
++                ..Default::default()
++            }),
++        )
++        .await
++        .unwrap();
++        ds.create_index(
++            &["key"],
++            IndexType::BTree,
++            Some("key_idx".into()),
++            &ScalarIndexParams::default(),
++            false,
++        )
++        .await
++        .unwrap();
++        ds.create_index(
++            &["id"],
++            IndexType::BTree,
++            Some("id_idx".into()),
++            &ScalarIndexParams::default(),
++            false,
++        )
++        .await
++        .unwrap();
++        let indices = ds.load_indices().await.unwrap();
++        let uuid = *indices
++            .iter()
++            .find(|i| i.name == "key_idx")
++            .unwrap()
++            .uuid
++            .as_bytes();
++        let fragments: Vec<_> = ds.get_fragments().iter().map(|f| f.id() as u64).collect();
++        (uuid, fragments)
++    });
++    let metric = |stats: &CapturedScanStatistics, key: &str| {
++        stats
++            .metrics
++            .iter()
++            .filter(|(name, _, _)| name == key)
++            .map(|(_, _, n)| n)
++            .sum::<u64>()
++    };
++    for enabled in [false, true] {
++        let (ids, stats) = scalar_segment_ids_with_auto(
++            &uri,
++            &grouping,
++            &fragments,
++            ScalarSegmentFilter::Sql("key >= 0 AND id = 123"),
++            None,
++            0,
++            enabled,
++        );
++        assert_eq!(ids, vec![123]);
++        assert_eq!(
++            metric(&stats, "scalar_index_auto_changed"),
++            u64::from(enabled)
++        );
++        assert_eq!(
++            metric(&stats, "scalar_index_auto_candidates"),
++            if enabled { 2 } else { 0 }
++        );
++        if enabled {
++            assert_eq!(metric(&stats, "scalar_index_auto_estimated_pages"), 1);
++            assert_eq!(metric(&stats, "scalar_index_auto_estimated_rows"), 4096);
++            assert_eq!(metric(&stats, "scalar_segments_searched"), 1);
++        }
++    }
++    let (ids, stats) = scalar_segment_ids_with_auto(
++        &uri,
++        &grouping,
++        &fragments,
++        ScalarSegmentFilter::Sql("key >= 0"),
++        None,
++        0,
++        true,
++    );
++    assert_eq!(ids.len(), 16384);
++    assert_eq!(metric(&stats, "scalar_index_auto_full_scans"), 1);
++    assert_eq!(metric(&stats, "scalar_segments_searched"), 0);
++    // A switch cannot broaden an explicitly assigned fragment domain.
++    let (ids, _) = scalar_segment_ids_with_auto(
++        &uri,
++        &grouping,
++        &[fragments[1]],
++        ScalarSegmentFilter::Sql("key >= 0 AND id >= 0"),
++        Some(2),
++        1,
++        true,
++    );
++    assert_eq!(ids, vec![4097, 4098]);
++}
++
+ #[test]
+ fn test_scalar_segment_scope_residual_limit_and_unindexed_fallback() {
+     for kind in [
