@@ -86,6 +86,7 @@ public final class ChangelogColumnIdPreparer {
         AlterLightSchChangeHelper helper = new AlterLightSchChangeHelper(db, table);
         Map<Long, PFetchColIdsRequest> requests;
         String captured;
+        boolean withoutPartitions;
         table.readLock();
         try {
             if (!needsPreparation(table)) {
@@ -98,21 +99,31 @@ public final class ChangelogColumnIdPreparer {
                 throw new UserException("Changelog column identities must be prepared on the master");
             }
             captured = fingerprint(table);
-            requests = helper.initParams();
+            withoutPartitions = table.getAllPartitions().isEmpty();
+            requests = withoutPartitions ? Map.of() : helper.initParams();
         } finally {
             table.readUnlock();
         }
-        Map<Long, Map<String, Integer>> fetched;
-        try {
-            fetched = helper.callForColumnsInfo(requests).getIndexIdToColumnInfo();
-        } catch (IllegalStateException e) {
-            throw new UserException("Failed to fetch changelog column identities", e);
+        Map<Long, Map<String, Integer>> fetched = Map.of();
+        if (!withoutPartitions) {
+            try {
+                fetched = helper.callForColumnsInfo(requests).getIndexIdToColumnInfo();
+            } catch (IllegalStateException e) {
+                throw new UserException("Failed to fetch changelog column identities", e);
+            }
         }
         EditLogItem journal;
         table.writeLockOrDdlException();
         try {
             if (!captured.equals(fingerprint(table))) {
                 throw new UserException("Table schema or replicas changed while preparing column identities; retry");
+            }
+            if (withoutPartitions) {
+                if (Env.getCurrentRecycleBin().hasRecycledPartitions(db.getId(), table.getId())) {
+                    throw new UserException("Cannot initialize changelog column identities for table "
+                            + table.getId() + " while recycled partitions still exist");
+                }
+                fetched = initialColumnIds(table);
             }
             ChangelogColumnIdentityInfo info = prepareInfo(db.getId(), table, fetched);
             info.apply(table);
@@ -122,6 +133,29 @@ public final class ChangelogColumnIdPreparer {
             table.writeUnlock();
         }
         journal.await();
+    }
+
+    // Called under the write lock, after proving there are no live, temporary or recycled partitions.
+    private static Map<Long, Map<String, Integer>> initialColumnIds(OlapTable table) {
+        Map<Long, Map<String, Integer>> ids = new HashMap<>();
+        for (Map.Entry<Long, MaterializedIndexMeta> entry : table.getIndexIdToMeta(true).entrySet()) {
+            MaterializedIndexMeta meta = entry.getValue();
+            int maximum = Math.max(Column.COLUMN_UNIQUE_ID_INIT_VALUE, meta.getMaxColUniqueId());
+            for (Column column : meta.getSchema(true)) {
+                maximum = Math.max(maximum, column.getUniqueId());
+            }
+            Map<String, Integer> columns = new HashMap<>();
+            for (Column column : meta.getSchema(true)) {
+                int id = column.getUniqueId();
+                if (id < 0) {
+                    maximum = Math.incrementExact(maximum);
+                    id = maximum;
+                }
+                columns.put(column.getName(), id);
+            }
+            ids.put(entry.getKey(), columns);
+        }
+        return ids;
     }
 
     private static boolean needsPreparation(OlapTable table) {
