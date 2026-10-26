@@ -291,4 +291,19 @@ suite("test_spatial_wkb_compatibility") {
             ST_GeogFromWKB('010200000003000000fcffffffff7f46c000000000008046c000000000008046400000000000000000ffffffffffdf60400000000000804640') b,
             ST_GeogFromWKB('010100000000000000008046408dedb5a0f7c6b03e') p) shapes"""
 
+    // Equivalent raw ring subdivision must preserve interior and boundary predicates.
+    order_qt_geography_stable_polygon_interior """select
+        ST_Contains(a, p), ST_Contains(b, p), ST_Within(p, a), ST_Within(p, b),
+        ST_Intersects(a, p), ST_Intersects(p, a), ST_Disjoint(a, p), ST_Disjoint(p, a),
+        ST_Touches(a, p), ST_Contains(a, q), ST_Contains(a, m), ST_Touches(a, m),
+        ST_Contains(a, l), ST_Contains(b, l), ST_Equals(a, b), ST_Overlaps(a, b),
+        ST_Contains(t, s), ST_Contains(t, p)
+        from (select ST_GeogFromWKB('01030000000100000004000000fcffffffff7f46c000000000008046c0ffffffffffdf6040000000000080464000000000008046400000000000804640fcffffffff7f46c000000000008046c0') a,
+            ST_GeogFromWKB('01030000000100000005000000fcffffffff7f46c000000000008046c000000000008046400000000000000000ffffffffffdf6040000000000080464000000000008046400000000000804640fcffffffff7f46c000000000008046c0') b,
+            ST_GeogFromWKB('010100000000000000008046408dedb5a0f7c6b03e') p,
+            ST_GeogFromWKB('010100000000000000008046408dedb5a0f7c6b0be') q,
+            ST_GeogFromWKB('010100000000000000008046400000000000000000') m,
+            ST_GeogFromWKB('01020000000200000000000000008046408dedb5a0f7c6b03e00000000008046408dedb5a0f7c6c03e') l,
+            ST_GeogFromWKB('01030000000100000004000000fcffffffff7f46c000000000008046c0ffffffffffdf6040000000000080464000000000008046408dedb5a0f7c6b03efcffffffff7f46c000000000008046c0') t,
+            ST_GeogFromWKB('010100000000000000008046408dedb5a0f7c6a03e') s) shapes"""
 }

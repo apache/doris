@@ -822,6 +822,89 @@ TEST(VGeoFunctionsTest, GeographyNearAntipodalPointMembershipUsesRawArc) {
     }
 }
 
+static void expect_geography_polygon_relation(const std::string& polygon, const std::string& value,
+                                              bool interior, bool boundary) {
+    expect_geography_relation("st_contains", polygon, value, interior);
+    expect_geography_relation("st_within", value, polygon, interior);
+    for (bool reverse : {false, true}) {
+        const auto& left = reverse ? value : polygon;
+        const auto& right = reverse ? polygon : value;
+        expect_geography_relation("st_intersects", left, right, interior || boundary);
+        expect_geography_relation("st_disjoint", left, right, !interior && !boundary);
+        expect_geography_relation("st_touches", left, right, boundary);
+    }
+}
+
+TEST(VGeoFunctionsTest, GeographyPolygonInteriorIsIndependentOfRawArcSubdivision) {
+    const Strings rings {
+            "(-44.99999999999997 -45,134.99999999999997 45,45 45,-44.99999999999997 -45)",
+            "(-44.99999999999997 -45,45 0,134.99999999999997 45,45 45,-44.99999999999997 -45)",
+            "(-44.99999999999997 -45,45 45,134.99999999999997 45,-44.99999999999997 -45)",
+            "(-44.99999999999997 -45,45 45,134.99999999999997 45,45 0,-44.99999999999997 -45)"};
+    for (const auto& ring : rings) {
+        const std::string polygon = "POLYGON (" + ring + ")";
+        expect_geography_polygon_relation(polygon, "POINT (45 0.000001)", true, false);
+        expect_geography_polygon_relation(polygon, "POINT (45 -0.000001)", false, false);
+        expect_geography_polygon_relation(polygon, "POINT (45 0)", false, true);
+        expect_geography_polygon_relation(polygon, "POINT (-44.99999999999997 -45)", false, true);
+        const std::string hole = "POLYGON (" + ring + ",(44 20,46 20,46 22,44 22,44 20))";
+        expect_geography_polygon_relation(hole, "POINT (45 0.000001)", true, false);
+        expect_geography_polygon_relation(hole, "POINT (45 21)", false, false);
+        expect_geography_polygon_relation(hole, "POINT (44 21)", false, true);
+    }
+}
+
+TEST(VGeoFunctionsTest, GeographyPolygonInteriorRetainsSmallerRingAndNonpointValues) {
+    const Strings rings {
+            "(-44.99999999999997 -45,134.99999999999997 45,45 45,-44.99999999999997 -45)",
+            "(-44.99999999999997 -45,45 0,134.99999999999997 45,45 45,-44.99999999999997 -45)"};
+    for (const auto& ring : rings) {
+        const std::string polygon = "POLYGON (" + ring + ")";
+        for (const auto* value :
+             {"LINESTRING (45 0.000001,45 0.000002)",
+              "POLYGON ((44.999999 0.00001,45.000001 0.00001,45 0.00002,44.999999 0.00001))"}) {
+            expect_geography_polygon_relation(polygon, value, true, false);
+        }
+    }
+    const std::string original = "POLYGON (" + rings[0] + ")";
+    const std::string subdivided = "POLYGON (" + rings[1] + ")";
+    expect_geography_relation("st_equals", original, subdivided, true);
+    expect_geography_relation("st_equals", subdivided, original, true);
+    expect_geography_relation("st_overlaps", original, subdivided, false);
+    expect_geography_relation("st_overlaps", subdivided, original, false);
+    // Normalization must select the smaller raw ring even when conversion puts
+    // the third vertex on the opposite side of the rounded near-antipodal edge.
+    for (const auto* ring :
+         {"(-44.99999999999997 -45,134.99999999999997 45,45 0.000001,-44.99999999999997 -45)",
+          "(-44.99999999999997 -45,45 0,134.99999999999997 45,45 0.000001,-44.99999999999997 "
+          "-45)"}) {
+        const std::string polygon = "POLYGON (" + std::string(ring) + ")";
+        expect_geography_polygon_relation(polygon, "POINT (45 0.0000005)", true, false);
+        expect_geography_polygon_relation(polygon, "POINT (45 20)", false, false);
+        expect_geography_polygon_relation(polygon, "POINT (45 -20)", false, false);
+    }
+}
+
+TEST(VGeoFunctionsTest, GeographyPolygonInteriorPreservesPoleAliases) {
+    for (const auto* polygon :
+         {"POLYGON ((0 90,90 90,90 80,0 80,0 90))", "POLYGON ((0 90,90 80,0 80,0 90))"}) {
+        expect_geography_polygon_relation(polygon, "POINT (45 89)", true, false);
+        expect_geography_polygon_relation(polygon, "POINT (-45 89)", false, false);
+        expect_geography_polygon_relation(polygon, "POINT (45 90)", false, true);
+    }
+}
+
+TEST(VGeoFunctionsTest, GeographySyntheticMidpointRemainsLineInterior) {
+    for (const auto* line : {"LINESTRING (-44.99999999999997 -45,134.99999999999997 45)",
+                             "LINESTRING (-44.99999999999997 -45,45 0,134.99999999999997 45)"}) {
+        const std::string crossing = "LINESTRING (45 -1,45 1)";
+        expect_geography_relation("st_intersects", line, crossing, true);
+        expect_geography_relation("st_intersects", crossing, line, true);
+        expect_geography_relation("st_touches", line, crossing, false);
+        expect_geography_relation("st_touches", crossing, line, false);
+    }
+}
+
 TEST(VGeoFunctionsTest, GeographyUncertainCircleDoesNotBroadenStableCircleSearches) {
     for (const int count : {32, 64, 128}) {
         std::ostringstream lines;

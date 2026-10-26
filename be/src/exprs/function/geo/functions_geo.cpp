@@ -23,9 +23,11 @@
 #include <s2/s2builderutil_s2polyline_vector_layer.h>
 #include <s2/s2closest_edge_query.h>
 #include <s2/s2closest_point_query.h>
+#include <s2/s2contains_point_query.h>
 #include <s2/s2earth.h>
 #include <s2/s2lax_polygon_shape.h>
 #include <s2/s2loop.h>
+#include <s2/s2loop_measures.h>
 #include <s2/s2point.h>
 #include <s2/s2point_index.h>
 #include <s2/s2point_vector_shape.h>
@@ -475,9 +477,9 @@ public:
     }
 
     // Calculation-only points never enter the raw-degree identity/noding map.
-    std::optional<S2Point> distance_midpoint(const S2Point& a, const S2Point& b) const {
+    std::optional<S2Point> arc_midpoint(const S2Point& a, const S2Point& b) const {
         // For (-45+e,-45)->(135-e,45), independently rounded endpoints rotate
-        // the plane. A raw midpoint makes both distance edges shorter than pi/2.
+        // the plane. A raw midpoint makes both subedges shorter than pi/2.
         if (a.DotProd(b) < 0) {
             const auto coordinate = [&](const S2Point& point) -> GeoCoordinate {
                 // Meridian noding can introduce a pole absent from the original WKB.
@@ -491,7 +493,7 @@ public:
         return std::nullopt;
     }
 
-    void add_line(const GeoLine& shape, MutableS2ShapeIndex* index, bool distance) const {
+    void add_line(const GeoLine& shape, MutableS2ShapeIndex* index) const {
         using Edge = std::pair<S2Point, S2Point>;
         using EdgeSet = std::set<Edge, std::less<>, CustomStdAllocator<Edge>>;
         using Interval = std::pair<double, double>;
@@ -548,10 +550,13 @@ public:
         }
         std::set<S2Point, std::less<>, CustomStdAllocator<S2Point>> interior_vertices;
         for (const auto& [a, b] : edges) {
-            const auto midpoint = distance ? distance_midpoint(a, b) : std::nullopt;
+            const auto midpoint = arc_midpoint(a, b);
             if (midpoint) {
                 add(a, *midpoint);
                 add(*midpoint, b);
+                // The synthetic split is interior, not a new OPEN line boundary:
+                // a crossing at this point must not become ST_Touches=true.
+                interior_vertices.insert(*midpoint);
             } else {
                 add(a, b);
             }
@@ -766,14 +771,14 @@ private:
 };
 
 static void geography_shape_index(const GeoShape& shape, const GeographyEdgeNodes& nodes,
-                                  MutableS2ShapeIndex* index, bool distance = false) {
+                                  MutableS2ShapeIndex* index) {
     switch (shape.type()) {
     case GeoShapeType::GEO_SHAPE_POINT:
         index->Add(std::make_unique<S2PointVectorShape>(std::vector<S2Point> {
                 canonical_geography_point(*assert_cast<const GeoPoint&>(shape).point())}));
         break;
     case GeoShapeType::GEO_SHAPE_LINE_STRING:
-        nodes.add_line(assert_cast<const GeoLine&>(shape), index, distance);
+        nodes.add_line(assert_cast<const GeoLine&>(shape), index);
         break;
     case GeoShapeType::GEO_SHAPE_POLYGON: {
         const auto* polygon = assert_cast<const GeoPolygon&>(shape).polygon();
@@ -784,20 +789,24 @@ static void geography_shape_index(const GeoShape& shape, const GeographyEdgeNode
             DorisVector<S2Point> edge;
             for (int j = 0; j < loop->num_vertices(); ++j) {
                 edge.clear();
-                nodes.append_edge(loop->oriented_vertex(j),
-                                  loop->oriented_vertex((j + 1) % loop->num_vertices()), &edge);
-                if (distance) {
-                    edge.push_back(canonical_geography_point(
-                            loop->oriented_vertex((j + 1) % loop->num_vertices())));
-                    for (size_t k = 0; k + 1 < edge.size(); ++k) {
-                        vertices.push_back(edge[k]);
-                        if (const auto midpoint = nodes.distance_midpoint(edge[k], edge[k + 1])) {
-                            vertices.push_back(*midpoint);
-                        }
+                nodes.append_edge(loop->vertex(j), loop->vertex(j + 1), &edge);
+                edge.push_back(canonical_geography_point(loop->vertex(j + 1)));
+                for (size_t k = 0; k + 1 < edge.size(); ++k) {
+                    vertices.push_back(edge[k]);
+                    // Use the same stable long arcs for interiors and distances.
+                    // The raw (-45+e,-45)->(135-e,45) edge otherwise changes sides
+                    // around POINT(45 0.000001) when its midpoint is inserted.
+                    if (const auto midpoint = nodes.arc_midpoint(edge[k], edge[k + 1])) {
+                        vertices.push_back(*midpoint);
                     }
-                    continue;
                 }
-                vertices.insert(vertices.end(), edge.begin(), edge.end());
+            }
+            // A thin near-antipodal ring may have been reversed by normalization
+            // of the rounded edge. Restore the smaller-region shell orientation
+            // after stabilization while preserving the admitted hole depths.
+            // Span normalization also retains canonical pole-alias degeneracies.
+            if (S2::IsNormalized(vertices) == loop->is_hole()) {
+                std::ranges::reverse(vertices);
             }
         }
         index->Add(std::make_unique<S2LaxPolygonShape>(loops));
@@ -875,7 +884,13 @@ static bool geography_point_relation(std::string_view name, const GeoShape& lhs,
                            nodes.contains_point(loop->vertex(j), loop->vertex(j + 1), point);
             }
         }
-        interior = !boundary && polygon->Contains(point);
+        // Raw boundary membership above stays authoritative. Off-boundary points
+        // need the stable polygon too, not the original rounded near-antipodal loop.
+        if (!boundary) {
+            MutableS2ShapeIndex index;
+            geography_shape_index(other, nodes, &index);
+            interior = MakeS2ContainsPointQuery(&index).Contains(point);
+        }
     }
     if (name == "st_intersects") {
         return interior || boundary;
@@ -2233,8 +2248,8 @@ static double geography_distance(const GeoShape& left_shape, const GeoShape& rig
     const GeographyEdgeNodes nodes(left_wkb, right_wkb);
     MutableS2ShapeIndex left;
     MutableS2ShapeIndex right;
-    geography_shape_index(left_shape, nodes, &left, true);
-    geography_shape_index(right_shape, nodes, &right, true);
+    geography_shape_index(left_shape, nodes, &left);
+    geography_shape_index(right_shape, nodes, &right);
     S2ClosestEdgeQuery query(&left);
     S2ClosestEdgeQuery::ShapeIndexTarget target(&right);
     return S2Earth::ToMeters(query.GetDistance(&target).ToAngle());
