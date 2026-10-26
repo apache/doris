@@ -1742,10 +1742,12 @@ TEST_F(ChangelogDeriveTest, ResolveRejectsShapeAndNullableNarrowing) {
     invalid_target->init_from_pb(pb);
     std::shared_ptr<const changelog::ResolvedChangelogLayout> layout;
     EXPECT_FALSE(changelog::resolve_layout(source, invalid_target, mapping, &layout).ok());
+    pb.Clear();
     target->to_schema_pb(&pb);
     pb.mutable_column(1)->set_type("BIGINT");
     invalid_target->init_from_pb(pb);
     EXPECT_FALSE(changelog::resolve_layout(source, invalid_target, mapping, &layout).ok());
+    pb.Clear();
     source->to_schema_pb(&pb);
     pb.mutable_column(1)->set_is_nullable(false);
     auto nonnullable_source = std::make_shared<TabletSchema>();
@@ -1753,11 +1755,66 @@ TEST_F(ChangelogDeriveTest, ResolveRejectsShapeAndNullableNarrowing) {
     ASSERT_TRUE(changelog::resolve_layout(nonnullable_source, target, mapping, &layout).ok());
     EXPECT_TRUE(layout->current_nullable_widening[1]);
     EXPECT_FALSE(layout->current_nullable_widening[0]);
+    pb.Clear();
     target->to_schema_pb(&pb);
     pb.mutable_column(0)->set_is_nullable(true);
     auto nullable_key_target = std::make_shared<TabletSchema>();
     nullable_key_target->init_from_pb(pb);
     EXPECT_FALSE(changelog::resolve_layout(source, nullable_key_target, mapping, &layout).ok());
+}
+
+TEST_F(ChangelogDeriveTest, ResolveIgnoresUnusedIntegerPrecisionAndScale) {
+    auto source = create_changelog_pu_source_schema();
+    auto target = create_changelog_before_schema();
+    TabletSchemaPB pb;
+    source->to_schema_pb(&pb);
+    pb.mutable_column(1)->set_precision(0);
+    pb.mutable_column(1)->set_frac(0);
+    source->init_from_pb(pb);
+    const auto mapping = testutil::create_changelog_mapping(*source, *target, true);
+    std::shared_ptr<const changelog::ResolvedChangelogLayout> layout;
+    auto status = changelog::resolve_layout(source, target, mapping, &layout);
+    ASSERT_TRUE(status.ok()) << status;
+}
+
+TEST_F(ChangelogDeriveTest, ResolvePreservesDecimalAndDatetimeScaleChecks) {
+    for (bool decimal : {true, false}) {
+        SCOPED_TRACE(decimal ? "DECIMAL32" : "DATETIMEV2");
+        auto source = create_changelog_pu_source_schema();
+        auto target = create_changelog_before_schema();
+        TabletSchemaPB source_pb;
+        TabletSchemaPB target_pb;
+        source->to_schema_pb(&source_pb);
+        target->to_schema_pb(&target_pb);
+        auto set_type = [decimal](ColumnPB* column) {
+            column->set_type(decimal ? "DECIMAL32" : "DATETIMEV2");
+            column->set_length(decimal ? 4 : 8);
+            column->set_precision(9);
+            column->set_frac(2);
+        };
+        set_type(source_pb.mutable_column(1));
+        set_type(target_pb.mutable_column(1));
+        set_type(target_pb.mutable_column(3));
+        source->init_from_pb(source_pb);
+        target->init_from_pb(target_pb);
+        const auto mapping = testutil::create_changelog_mapping(*source, *target, true);
+        std::shared_ptr<const changelog::ResolvedChangelogLayout> layout;
+        auto status = changelog::resolve_layout(source, target, mapping, &layout);
+        ASSERT_TRUE(status.ok()) << status;
+        target_pb.mutable_column(1)->set_frac(3);
+        target->init_from_pb(target_pb);
+        EXPECT_FALSE(changelog::resolve_layout(source, target, mapping, &layout).ok());
+        target_pb.mutable_column(1)->set_frac(2);
+        target_pb.mutable_column(3)->set_frac(3);
+        target->init_from_pb(target_pb);
+        EXPECT_FALSE(changelog::resolve_layout(source, target, mapping, &layout).ok());
+        if (decimal) {
+            target_pb.mutable_column(3)->set_frac(2);
+            target_pb.mutable_column(1)->set_precision(8);
+            target->init_from_pb(target_pb);
+            EXPECT_FALSE(changelog::resolve_layout(source, target, mapping, &layout).ok());
+        }
+    }
 }
 
 TEST_F(ChangelogDeriveTest, PlainInterleavedTargetPreservesValues) {
