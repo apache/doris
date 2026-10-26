@@ -931,10 +931,10 @@ TEST(VExprExecuteColumnTest, TypeMismatchFails) {
     EXPECT_FALSE(st.ok());
 }
 
-TEST(VExprExecuteColumnTest, NullableTypeWithNonNullableColumnIsWrapped) {
+TEST(VExprExecuteColumnTest, NullableTypeWithNonNullableColumnFails) {
     using namespace doris;
     FakeVExpr expr;
-    // Declared type is Nullable(Int32), so the result must carry a nullable column wrapper.
+    // A Nullable(Int32) declaration rejects a physically non-nullable column.
     expr.set_data_type(std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()));
 
     auto col = ColumnInt32::create();
@@ -943,8 +943,7 @@ TEST(VExprExecuteColumnTest, NullableTypeWithNonNullableColumnIsWrapped) {
 
     ColumnPtr result;
     auto st = expr.execute_column(nullptr, nullptr, nullptr, 1, result);
-    EXPECT_TRUE(st.ok());
-    EXPECT_TRUE(result->is_nullable());
+    EXPECT_FALSE(st.ok());
 }
 
 TEST(VExprExecuteColumnTest, ColumnNothingPassesTypeCheck) {
