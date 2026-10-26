@@ -27,8 +27,11 @@
 #include "io/fs/local_file_system.h"
 #include "storage/index/index_query_context.h"
 #include "storage/index/inverted/analyzer/custom_analyzer.h"
+#include "storage/index/inverted/query_v2/bit_set_query/bit_set_query.h"
 #include "storage/index/inverted/query_v2/collect/doc_set_collector.h"
 #include "storage/index/inverted/query_v2/collect/multi_segment_util.h"
+#include "storage/index/inverted/query_v2/collect/top_k_collector.h"
+#include "storage/index/inverted/query_v2/null_masked_query.h"
 #include "storage/index/inverted/query_v2/term_query/term_query.h"
 #include "storage/index/inverted/util/string_helper.h"
 
@@ -138,6 +141,41 @@ TEST_F(MultiSegmentCollectorTest, CollectDocSetWithMultiReader) {
     EXPECT_TRUE(roaring->contains(0));
     EXPECT_TRUE(roaring->contains(3));
 
+    _CLDECDELETE(dir0);
+    _CLDECDELETE(dir1);
+}
+
+TEST_F(MultiSegmentCollectorTest, SearchMaskPreservesReaderDocIdsAcrossCollectors) {
+    auto* dir0 = FSDirectory::getDirectory((kTestDir + "/segment0").c_str());
+    auto* dir1 = FSDirectory::getDirectory((kTestDir + "/segment1").c_str());
+
+    ValueArray<lucene::index::IndexReader*> readers(2);
+    readers[0] = lucene::index::IndexReader::open(dir0, true);
+    readers[1] = lucene::index::IndexReader::open(dir1, true);
+    auto reader = make_shared_reader(_CLNEW lucene::index::MultiReader(&readers, true));
+
+    auto postings = std::make_shared<roaring::Roaring>();
+    postings->add(0);
+    postings->add(3);
+    auto nulls = std::make_shared<roaring::Roaring>();
+    nulls->add(0);
+    NullMaskedQuery query(std::make_shared<BitSetQuery>(postings), nulls);
+    QueryExecutionContext context;
+    context.segment_num_rows = 4;
+    context.readers = {reader};
+    context.preserve_doc_ids = true;
+    for (bool scoring : {false, true}) {
+        auto result = std::make_shared<roaring::Roaring>();
+        collect_multi_segment_doc_set(query.weight(scoring), context, "", result, nullptr, scoring);
+        EXPECT_EQ(1u, result->cardinality());
+        EXPECT_TRUE(result->contains(3));
+    }
+    for (bool wand : {false, true}) {
+        auto result = std::make_shared<roaring::Roaring>();
+        collect_multi_segment_top_k(query.weight(true), context, "", 1, result, nullptr, wand);
+        EXPECT_EQ(1u, result->cardinality());
+        EXPECT_TRUE(result->contains(3));
+    }
     _CLDECDELETE(dir0);
     _CLDECDELETE(dir1);
 }
