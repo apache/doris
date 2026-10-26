@@ -47,8 +47,16 @@ are not modeled. Only a strictly cheaper estimate replaces the grouping index;
 ties retain it. If the best estimate is at least the task's physical row count,
 BE scans that domain with the complete filter instead of searching an index.
 
-Each selection examines at most eight segments and an aggregate 8 MiB of lookup
-files; a lookup has at most 65,536 pages, an IN list at most 256 values, and
+Each selection examines at most eight segments, an aggregate 8 MiB of serialized
+lookup files, and a separate aggregate 8 MiB allowance for decoded lookup buffers.
+The decoded allowance is checked from schema and row count before materialization
+and charged for both cache hits and new loads. With the current native reader API,
+only fixed-width scalar lookup columns have a known decoded-size bound. String
+and variable-width binary costs remain unknown: retain such a grouping index or
+skip such an alternative without opening its lookup for estimation. These indices
+remain usable on the existing segment path.
+
+A lookup has at most 65,536 pages, an IN list at most 256 values, and
 one estimate at most 1,000,000 page/predicate comparisons. Lookup
 batches share the bounded Session metadata cache. Probing does not search index
 leaf pages or materialize candidate row IDs. Unknown file sizes, unsupported
@@ -66,6 +74,10 @@ Setting the BE option to `false` retains the previous segment behavior and avoid
 these probes. The `lance_fragments_per_split` debug override still bypasses
 index-segment grouping. Vector/FTS index selection and external-search TVF filter
 semantics are unchanged.
+
+The native selection implementation and decoded-memory guards are supplied by
+upstream lance-c, pinned to an immutable commit in `thirdparty/vars.sh`. Doris
+does not carry a local runtime-selection patch.
 
 ## Foyer memory capacity
 
