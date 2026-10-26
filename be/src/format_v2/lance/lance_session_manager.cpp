@@ -64,6 +64,8 @@ LanceSessionManager::Config load_lance_session_config() {
             .lance_data_cache_disk_capacity_bytes = config::lance_data_cache_disk_capacity_bytes,
             .lance_data_cache_read_block_size_bytes =
                     config::lance_data_cache_read_block_size_bytes,
+            .lance_data_cache_memory_capacity_bytes =
+                    config::lance_data_cache_memory_capacity_bytes,
     };
 }
 
@@ -159,8 +161,8 @@ LanceSessionManager::LanceSessionManager(Config config) : _config(std::move(conf
               << ", lance_data_cache_disk_capacity_bytes="
               << _config.lance_data_cache_disk_capacity_bytes
               << ", lance_data_cache_read_block_size_bytes="
-              << _config.lance_data_cache_read_block_size_bytes
-              << ", foyer_memory_capacity_bytes=" << _config.lance_data_cache_read_block_size_bytes;
+              << _config.lance_data_cache_read_block_size_bytes << ", foyer_memory_capacity_bytes="
+              << _config.resolved_data_cache_memory_capacity_bytes();
 }
 
 LanceSessionManager::~LanceSessionManager() {
@@ -170,17 +172,20 @@ LanceSessionManager::~LanceSessionManager() {
 
 Status LanceSessionManager::_initialize() {
     if (_config.enable_lance_data_cache) {
+        if (_config.lance_data_cache_memory_capacity_bytes < 0) {
+            return Status::InvalidArgument(
+                    "lance_data_cache_memory_capacity_bytes must be non-negative");
+        }
         // Treat the configured cache mode as a process-level requirement. If an enabled
         // data cache cannot initialize, report the failure instead of silently creating a
         // session without it. This keeps directory/configuration/device failures visible
         // to the operator. Disabling the cache is an explicit configuration change.
         const LanceDataCacheOptions data_cache_options {
                 .directory = _config.lance_data_cache_path.c_str(),
-                // Foyer's HybridCache requires a memory tier. Keep it at the minimum useful
-                // capacity of exactly one range-cache block; WriteOnInsertion enqueues disk
-                // writes on insertion rather than waiting for memory-tier eviction.
+                // Keep the historical one-block tier when the memory capacity is unset.
+                // Its capacity is independent of the range-cache block granularity otherwise.
                 .memory_capacity_bytes =
-                        static_cast<uint64_t>(_config.lance_data_cache_read_block_size_bytes),
+                        static_cast<uint64_t>(_config.resolved_data_cache_memory_capacity_bytes()),
                 .disk_capacity_bytes =
                         static_cast<uint64_t>(_config.lance_data_cache_disk_capacity_bytes),
                 .read_block_size_bytes =
@@ -220,19 +225,37 @@ Status LanceSessionManager::open_dataset(const char* uri, const char* const* sto
     }
     *dataset = nullptr;
 
-    // Initialize lazily on the first dataset open, not at BE startup. A failed Status is a
+    RETURN_IF_ERROR(_ensure_initialized());
+
+    *dataset = lance_dataset_open_with_session(uri, storage_options, version, _session);
+    if (*dataset == nullptr) {
+        return lance_error("open Lance dataset with shared session");
+    }
+    return Status::OK();
+}
+
+Status LanceSessionManager::_ensure_initialized() {
+    // Initialize lazily on the first use, not at BE startup. A failed Status is a
     // normal return from this lambda, so call_once completes and retains that failure just
     // like a successful initialization. All subsequent readers receive the same copied
     // error; fixing the cache directory alone does not trigger another attempt. This is
     // intentional: repair the cache configuration/storage (or disable the data cache), then
     // restart the BE to recreate the process-wide manager and session.
     std::call_once(_initialize_once, [this] { _initialize_status = _initialize(); });
-    RETURN_IF_ERROR(_initialize_status);
+    return _initialize_status;
+}
 
-    *dataset = lance_dataset_open_with_session(uri, storage_options, version, _session);
-    if (*dataset == nullptr) {
-        return lance_error("open Lance dataset with shared session");
+Status LanceSessionManager::get_cache_statistics(CacheStatistics* statistics) {
+    if (statistics == nullptr) {
+        return Status::InvalidArgument("Lance cache statistics output must not be null");
     }
+    RETURN_IF_ERROR(_ensure_initialized());
+    LanceSessionCacheStats stats {};
+    if (lance_session_get_cache_stats(_session, &stats) != 0) {
+        return lance_error("collect Lance session cache statistics");
+    }
+    statistics->index_cache_misses = stats.index_cache_misses;
+    statistics->metadata_cache_misses = stats.metadata_cache_misses;
     return Status::OK();
 }
 

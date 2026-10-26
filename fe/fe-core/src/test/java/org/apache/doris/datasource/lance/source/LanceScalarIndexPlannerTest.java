@@ -54,6 +54,81 @@ import java.util.UUID;
 
 public class LanceScalarIndexPlannerTest {
     @Test
+    public void testSelectsLowerEstimatedCandidateCount() {
+        Expr broad = estimatedEqual("key", 0.8);
+        Expr selective = estimatedEqual("other", 0.01);
+        Assertions.assertEquals("other_idx", competingPlan(broad, selective, true).indexName);
+    }
+
+    @Test
+    public void testUncoveredRowsContributeToIndexCost() {
+        Expr broad = estimatedEqual("key", 0.2);
+        Expr selective = estimatedEqual("other", 0.01);
+        // Reading the uncovered half costs more than using the fully covered index.
+        Assertions.assertEquals("key_idx", competingPlan(broad, selective, false).indexName);
+    }
+
+    @Test
+    public void testUnknownEstimatesRetainCoverageAndStableNameOrder() {
+        Assertions.assertEquals("key_idx", competingPlan(equal("key", 1), equal("other", 1), true).indexName);
+        Assertions.assertEquals("key_idx", competingPlan(estimatedEqual("key", Double.NaN),
+                estimatedEqual("other", Double.POSITIVE_INFINITY), true).indexName);
+    }
+
+    private static Expr estimatedEqual(String column, double selectivity) {
+        Expr predicate = equal(column, 1);
+        predicate.setSelectivity(selectivity);
+        return predicate;
+    }
+
+    private static LanceScalarIndexPlanner.Plan competingPlan(Expr first, Expr second, boolean fullCoverage) {
+        return competingPlan(first, second, fullCoverage, true);
+    }
+
+    private static LanceScalarIndexPlanner.Plan competingPlan(Expr first, Expr second,
+            boolean fullCoverage, boolean autoSelection) {
+        List<LanceFragmentInfo> fragments = Arrays.asList(
+                new LanceFragmentInfo(1, 100, 100), new LanceFragmentInfo(2, 100, 100));
+        Map<Long, LanceFragmentInfo> visible = new HashMap<>();
+        fragments.forEach(fragment -> visible.put(fragment.getId(), fragment));
+        Map<String, Integer> fields = new HashMap<>();
+        fields.put("key", 9);
+        fields.put("other", 10);
+        LanceTableMetadata metadata = LanceTableMetadata.createSnapshotWithIndexes(
+                new LanceTableAccess("s3://bucket/table.lance", Collections.emptyMap()), 42,
+                new Schema(Arrays.asList(Field.nullable("key", new ArrowType.Int(64, true)),
+                        Field.nullable("other", new ArrowType.Int(64, true)))), fragments, fields,
+                Arrays.asList(new LanceIndexSegmentInfo(UUID.randomUUID(), "key_idx", Collections.singletonList(9),
+                                Arrays.asList(1L, 2L), IndexType.BTREE, null),
+                        new LanceIndexSegmentInfo(UUID.randomUUID(), "other_idx", Collections.singletonList(10),
+                                fullCoverage ? Arrays.asList(1L, 2L) : Collections.singletonList(1L),
+                                IndexType.BTREE, null)));
+        return LanceScalarIndexPlanner.plan(metadata, Arrays.asList(first, second), visible, autoSelection);
+    }
+
+    @Test
+    public void testDisablingAutoSelectionRetainsCoveragePlan() {
+        Assertions.assertEquals("key_idx", competingPlan(estimatedEqual("key", 0.8),
+                estimatedEqual("other", 0.01), true, false).indexName);
+    }
+
+    @Test
+    public void testZeroSelectivityAndInvalidEstimates() {
+        Assertions.assertEquals("other_idx", competingPlan(estimatedEqual("key", 0.8),
+                estimatedEqual("other", 0), true).indexName);
+        Assertions.assertEquals("key_idx", competingPlan(estimatedEqual("key", -1),
+                estimatedEqual("other", 2), true).indexName);
+    }
+
+    @Test
+    public void testResidualOnAnotherFieldDoesNotReduceDriverCost() {
+        Expr mixed = and(equal("key", 1), new BinaryPredicate(BinaryPredicate.Operator.NE,
+                new SlotRef(null, "other"), new IntLiteral(0)));
+        mixed.setSelectivity(0.0001);
+        Assertions.assertEquals("other_idx", competingPlan(mixed, estimatedEqual("other", 0.5), true).indexName);
+    }
+
+    @Test
     public void testBooleanDriverSelectionPreservesAllBranches() {
         Expr key = equal("key", 1);
         Expr otherKey = equal("key", 2);

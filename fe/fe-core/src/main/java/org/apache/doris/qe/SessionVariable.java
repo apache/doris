@@ -587,6 +587,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_LANCE_LAZY_MATERIALIZATION = "enable_lance_lazy_materialization";
 
+    public static final String ENABLE_LANCE_SCALAR_INDEX_AUTO_SELECTION = "enable_lance_scalar_index_auto_selection";
+
     public static final String FILE_SPLIT_SIZE_ON_FE = "file_split_size_on_fe";
 
     public static final String FILE_SPLIT_SIZE_ON_BE = "file_split_size_on_be";
@@ -2669,6 +2671,13 @@ public class SessionVariable implements Serializable, Writable {
                             + "independently of topn_lazy_materialization_threshold. "
                             + "Enabled by default for eligible columns in vector_search and full_text_search."})
     public boolean enableLanceLazyMaterialization = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_LANCE_SCALAR_INDEX_AUTO_SELECTION, needForward = true,
+            description = {
+                    "根据过滤选择率和索引覆盖范围自动选择 Lance 标量索引，默认开启。关闭后保留按覆盖行数选择的行为。",
+                    "Select a Lance scalar index using predicate selectivity and fragment coverage. "
+                            + "Enabled by default; disabling retains coverage-based selection."})
+    public boolean enableLanceScalarIndexAutoSelection = true;
 
     @VariableMgr.VarAttr(name = FILE_SPLIT_SIZE_ON_FE, needForward = true, description = {
             "支持 BE 细粒度切分时，FE 粗粒度文件分片的目标大小，单位为字节，默认为 512MB",

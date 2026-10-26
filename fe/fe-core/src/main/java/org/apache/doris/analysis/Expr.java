@@ -238,6 +238,11 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable, ExprStat
         return selectivity;
     }
 
+    public void setSelectivity(double selectivity) {
+        this.selectivity = Double.isFinite(selectivity) && selectivity >= 0 && selectivity <= 1
+                ? selectivity : -1;
+    }
+
     public boolean hasSelectivity() {
         return selectivity >= 0;
     }

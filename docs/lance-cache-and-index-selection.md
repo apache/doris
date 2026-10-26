@@ -1,0 +1,71 @@
+# Lance cache diagnostics and scalar index selection
+
+## Cache misses in query profiles
+
+The `LanceReader / LanceSessionCache` profile group contains:
+
+| Counter | Meaning |
+| --- | --- |
+| `LanceSessionIndexCacheMisses` | Increase in the BE-wide Lance Session index-cache miss counter during this reader's dataset-open windows. |
+| `LanceSessionMetadataCacheMisses` | Increase in the BE-wide Lance Session metadata-cache miss counter during the same windows, including dataset opening. |
+
+The reader takes a baseline before opening its dataset and publishes the difference
+when closing it. Reopening a dataset adds another observation window; closing a
+reader twice does not count the same window twice. `LanceSessionCacheStatsAvailable`
+is `true` only after statistics have been collected successfully for every observed
+window. When it is `false`, zero counters do not establish that the caches had no misses.
+
+The Session is shared by all readers in one BE. These counters include activity from
+concurrent readers and are **not query-exclusive miss counts**. Overlapping windows
+must not be summed to obtain a query's exact misses or a cluster-wide miss total.
+`LanceSessionCacheStatsScope` records this limitation in the profile. An isolated
+query can still have several readers in one BE. For an exact query total, isolate
+the query and compare each BE's Session metrics before and after it, rather than
+summing reader windows. These counters do not measure the FE's separate metadata cache.
+`LanceIndexPartitionCacheMissLoads` remains a separate, narrower execution metric.
+
+## Automatic scalar index selection
+
+```sql
+SET enable_lance_scalar_index_auto_selection = true;
+```
+
+This session variable is enabled by default. For ordinary Lance table scans, the FE
+uses Nereids predicate selectivity estimates to choose at most one eligible logical
+BTree, Bitmap, or LabelList index. The estimated work is:
+
+```text
+uncovered physical rows + covered physical rows * driver selectivity
+```
+
+Only indexable predicates on the selected field reduce its estimated candidates.
+Estimates for independent conjuncts on that field are multiplied; they are advisory
+and can be inaccurate for correlated predicates or stale/missing column statistics.
+Multi-field predicates are not used to estimate a single index's candidates. Without
+usable estimates, selection retains the existing largest-coverage rule and stable
+index-name tie breaking. Existing eligibility, expression-budget and fragment-ownership
+checks still apply. Uncovered fragments retain their non-indexed fallback scans.
+`EXPLAIN` shows the chosen index as `lanceGroupingIndex`.
+
+Setting the variable to `false` retains the previous coverage-based selection; it
+does not disable scalar indexes. The `lance_fragments_per_split` debug override still
+bypasses index-segment grouping. This setting does not alter vector/FTS index selection
+or move an external-search TVF's outer `WHERE` predicates before candidate selection.
+
+## Foyer memory capacity
+
+`lance_data_cache_memory_capacity_bytes` is a startup BE configuration, independent
+of `lance_data_cache_read_block_size_bytes` and the disk capacity. Restart the BE
+after changing it.
+
+| Value | Behavior |
+| --- | --- |
+| `0` (default) | Use one configured read block, preserving the previous behavior. With the default block size this is 1 MiB. |
+| Positive | Set the Foyer memory tier's capacity in bytes. It must be at least one read block. |
+| Negative | Invalid when the Lance data cache is enabled. |
+
+For example, `lance_data_cache_memory_capacity_bytes=10737418240` allows a 10 GiB
+memory tier while retaining 1 MiB read blocks. This capacity is shared by Lance
+readers in one BE and is separate from index and metadata cache capacities. Cache
+bookkeeping and in-flight reads can consume additional memory. When
+`enable_lance_data_cache=false`, the Foyer configuration is ignored.

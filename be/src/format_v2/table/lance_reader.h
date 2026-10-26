@@ -26,6 +26,7 @@
 
 #include "common/status.h"
 #include "format_v2/lance/lance_record_batch_converter.h"
+#include "format_v2/lance/lance_session_manager.h"
 #include "format_v2/table_reader.h"
 #include "runtime/runtime_profile.h"
 
@@ -92,6 +93,7 @@ private:
     // Collect the cumulative statistics owned by this dataset handle. The Lance-C API returns an
     // absolute snapshot, so this method replaces rather than increments the profile counters.
     void _collect_data_cache_statistics();
+    void _collect_session_cache_statistics();
     // Keep lance-c's anonymous statistics typedef out of this header. _open_scanner installs the
     // strongly typed C callback adapter before forwarding the borrowed value here.
     static void _collect_scan_statistics(void* callback_ctx, const void* opaque_statistics);
@@ -101,6 +103,11 @@ private:
     Status _dataset_key(const TFileRangeDesc& range, DatasetKey* key) const;
 
     LanceDataset* _dataset = nullptr;
+    LanceSessionManager::CacheStatistics _session_cache_statistics;
+    bool _session_cache_statistics_valid = false;
+    bool _session_cache_statistics_complete = true;
+    RuntimeProfile::Counter* _session_index_cache_misses = nullptr;
+    RuntimeProfile::Counter* _session_metadata_cache_misses = nullptr;
     std::shared_ptr<arrow::Schema> _dataset_schema;
     LanceScanner* _scanner = nullptr;
     ShardedKVCache* _runtime_filter_cache = nullptr;

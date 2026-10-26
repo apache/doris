@@ -100,6 +100,7 @@ import org.apache.doris.nereids.properties.DistributionSpecStorageGather;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWindow.WindowFrameGroup;
 import org.apache.doris.nereids.rules.rewrite.MergeLimits;
+import org.apache.doris.nereids.stats.FilterEstimation;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.UnaryNode;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
@@ -243,6 +244,7 @@ import org.apache.doris.planner.UnionNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.StatisticConstants;
+import org.apache.doris.statistics.Statistics;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import org.apache.doris.thrift.TExternalTableSinkHashAlgorithm;
 import org.apache.doris.thrift.TExternalTableSinkWriterAssignment;
@@ -3069,7 +3071,18 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             PlanTranslatorContext context) {
         for (Expression conjunct : filter.getConjuncts()) {
             for (Expression singleConjunct : ExpressionUtils.extractConjunctionToSet(conjunct)) {
-                planNode.addConjunct(ExpressionTranslator.translate(singleConjunct, context));
+                Expr translated = ExpressionTranslator.translate(singleConjunct, context);
+                if (planNode instanceof LanceScanNode
+                        && ((LanceScanNode) planNode).isScalarIndexAutoSelectionEnabled()
+                        && filter.child().getStats() != null && filter.child().getStats().getRowCount() > 0) {
+                    double inputRows = filter.child().getStats().getRowCount();
+                    // Estimation may normalize column statistics. Keep the optimizer's input
+                    // unchanged, and attach only an advisory cost to the translated predicate.
+                    double outputRows = new FilterEstimation().estimate(
+                            singleConjunct, new Statistics(filter.child().getStats())).getRowCount();
+                    translated.setSelectivity(outputRows / inputRows);
+                }
+                planNode.addConjunct(translated);
             }
         }
         updateLegacyPlanIdToPhysicalPlan(planNode, filter);

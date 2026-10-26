@@ -1349,6 +1349,43 @@ TEST(LanceTableReaderSnapshotTest, ProfileShowsTheSnapshotRead) {
     EXPECT_TRUE(latest_reader.close().ok());
 }
 
+TEST(LanceTableReaderSnapshotTest, ProfileReportsObservedSessionCacheMisses) {
+    LanceSessionManager::CacheStatistics before;
+    ASSERT_TRUE(LanceSessionManager::instance().get_cache_statistics(&before).ok());
+    const std::filesystem::path dataset_uri =
+            "./be/test/format_v2/table/lance/data/all_types.lance";
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+    RuntimeProfile profile("lance_session_cache_profile");
+    TFileScanRangeParams scan_params;
+    const Columns columns {projected_column("row_id", TYPE_BIGINT, false)};
+    LanceTableReader reader;
+    ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
+    ASSERT_TRUE(prepare_range(&reader, make_latest_lance_range(dataset_uri)).ok());
+    ASSERT_TRUE(reader.close().ok());
+    LanceSessionManager::CacheStatistics after;
+    ASSERT_TRUE(LanceSessionManager::instance().get_cache_statistics(&after).ok());
+    for (const char* name : {"LanceSessionIndexCacheMisses", "LanceSessionMetadataCacheMisses"}) {
+        auto* counter = profile.get_counter(name);
+        ASSERT_NE(counter, nullptr) << name;
+        EXPECT_GE(counter->value(), 0) << name;
+    }
+    EXPECT_EQ(profile.get_counter("LanceSessionIndexCacheMisses")->value(),
+              after.index_cache_misses - before.index_cache_misses);
+    EXPECT_EQ(profile.get_counter("LanceSessionMetadataCacheMisses")->value(),
+              after.metadata_cache_misses - before.metadata_cache_misses);
+    const auto* scope = profile.get_info_string("LanceSessionCacheStatsScope");
+    ASSERT_NE(scope, nullptr);
+    EXPECT_NE(scope->find("concurrent"), std::string::npos);
+    const auto* available = profile.get_info_string("LanceSessionCacheStatsAvailable");
+    ASSERT_NE(available, nullptr);
+    EXPECT_EQ(*available, "true");
+    auto* misses = profile.get_counter("LanceSessionMetadataCacheMisses");
+    const auto before_close = misses->value();
+    ASSERT_TRUE(reader.close().ok());
+    EXPECT_EQ(misses->value(), before_close);
+}
+
 TEST(LanceTableReaderSnapshotTest, OpenErrorsNameTheVersionWithoutTheQueryString) {
     const std::filesystem::path dataset_uri =
             "./be/test/format_v2/table/lance/data/all_types.lance";

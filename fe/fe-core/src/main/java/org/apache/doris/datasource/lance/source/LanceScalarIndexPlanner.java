@@ -63,6 +63,11 @@ final class LanceScalarIndexPlanner {
 
     static Plan plan(LanceTableMetadata metadata, List<Expr> pushedConjuncts,
             Map<Long, LanceFragmentInfo> visibleFragments) {
+        return plan(metadata, pushedConjuncts, visibleFragments, true);
+    }
+
+    static Plan plan(LanceTableMetadata metadata, List<Expr> pushedConjuncts,
+            Map<Long, LanceFragmentInfo> visibleFragments, boolean autoSelection) {
         if (metadata.getVersion() <= 0
                 || !metadata.getIndexMetadataState().canPlanIndexSegments()) {
             return null;
@@ -86,6 +91,9 @@ final class LanceScalarIndexPlanner {
             }
         }
         Plan selected = null;
+        double selectedCost = Double.NaN;
+        double totalRows = visibleFragments.values().stream()
+                .mapToDouble(fragment -> Math.max(fragment.getPhysicalRows(), 0)).sum();
         Map<IndexType, Set<Integer>> fieldsByIndexType = new HashMap<>();
         for (LanceIndexSegmentGroup logicalIndex : indices) {
             List<LanceIndexSegmentInfo> segments = logicalIndex.getSegments();
@@ -103,11 +111,44 @@ final class LanceScalarIndexPlanner {
                 continue;
             }
             Plan candidate = groupFragments(metadata, segments, visibleFragments);
-            if (candidate != null && (selected == null || candidate.coveredRows > selected.coveredRows)) {
+            if (candidate == null) {
+                continue;
+            }
+            double cost = autoSelection ? estimateCandidateRows(metadata, pushedConjuncts,
+                    index, candidate.coveredRows, totalRows) : Double.NaN;
+            int comparison = Double.isNaN(cost) && Double.isNaN(selectedCost) ? 0
+                    : Double.compare(Double.isNaN(cost) ? totalRows : cost,
+                            Double.isNaN(selectedCost) ? totalRows : selectedCost);
+            if (selected == null || comparison < 0
+                    || (comparison == 0 && candidate.coveredRows > selected.coveredRows)) {
                 selected = candidate;
+                selectedCost = cost;
             }
         }
         return selected;
+    }
+
+    private static double estimateCandidateRows(LanceTableMetadata metadata, List<Expr> conjuncts,
+            LanceIndexSegmentInfo index, long coveredRows, double totalRows) {
+        double selectivity = 1;
+        boolean estimated = false;
+        int field = index.getFieldIds().get(0);
+        for (Expr conjunct : conjuncts) {
+            double value = conjunct.getSelectivity();
+            Set<SlotRef> slots = new HashSet<>();
+            conjunct.collect(SlotRef.class, slots);
+            boolean singleField = !slots.isEmpty() && slots.stream().allMatch(slot ->
+                    metadata.getLanceFieldId(slot.getColumnName()).orElse(-1) == field);
+            if (Double.isFinite(value) && value >= 0 && value <= 1
+                    && singleField
+                    && collectDriverFields(metadata, conjunct, index.getIndexType(), false).contains(field)) {
+                selectivity *= value;
+                estimated = true;
+            }
+        }
+        // Only predicates that can drive this index reduce its candidates. Uncovered fragments
+        // still need a full scan, and unrelated residuals must not make this index look cheaper.
+        return estimated ? Math.max(0, totalRows - coveredRows) + coveredRows * selectivity : Double.NaN;
     }
 
     private static Set<Integer> collectFilterFields(LanceTableMetadata metadata,

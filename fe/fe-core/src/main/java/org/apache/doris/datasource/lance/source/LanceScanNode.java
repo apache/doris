@@ -263,8 +263,13 @@ public class LanceScanNode extends FileQueryScanNode {
                     * Math.max(numBackends, 1));
         }
         scanPlan = LanceScanPlanner.plan(plannedMetadata, searchKind, externalSearchRequest, searchFieldId,
-                lancePushedConjuncts, sessionVariable.lanceFragmentsPerSplit, countParallelism);
+                lancePushedConjuncts, sessionVariable.lanceFragmentsPerSplit, countParallelism,
+                isScalarIndexAutoSelectionEnabled());
         return scanPlan.createSchedulingSplits();
+    }
+
+    public boolean isScalarIndexAutoSelectionEnabled() {
+        return searchKind == SearchKind.NORMAL && sessionVariable.enableLanceScalarIndexAutoSelection;
     }
 
     @Override

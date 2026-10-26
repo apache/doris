@@ -81,6 +81,47 @@ import java.util.UUID;
 public class LanceScanNodeTest {
 
     @Test
+    public void testScalarAutoSelectionSwitchSurvivesPushdownAndForwarding() throws Exception {
+        UUID keyIndex = UUID.randomUUID();
+        UUID otherIndex = UUID.randomUUID();
+        Map<String, Integer> fields = new LinkedHashMap<>();
+        fields.put("key", 9);
+        fields.put("other", 10);
+        LanceTableMetadata metadata = LanceTableMetadata.createSnapshotWithIndexes(
+                new LanceTableAccess("s3://bucket/table.lance", Collections.emptyMap()), 42,
+                new Schema(Arrays.asList(Field.nullable("key", new ArrowType.Int(64, true)),
+                        Field.nullable("other", new ArrowType.Int(64, true)))),
+                Arrays.asList(new LanceFragmentInfo(1, 100, 100), new LanceFragmentInfo(2, 100, 100)), fields,
+                Arrays.asList(new LanceIndexSegmentInfo(keyIndex, "key_idx", Collections.singletonList(9),
+                                Arrays.asList(1L, 2L), IndexType.BTREE, null),
+                        new LanceIndexSegmentInfo(otherIndex, "other_idx", Collections.singletonList(10),
+                                Arrays.asList(1L, 2L), IndexType.BTREE, null)));
+        for (boolean enabled : Arrays.asList(true, false)) {
+            SessionVariable variables = new SessionVariable();
+            Assert.assertTrue(variables.enableLanceScalarIndexAutoSelection);
+            variables.enableLanceScalarIndexAutoSelection = enabled;
+            Assert.assertEquals(Boolean.toString(enabled), variables.getForwardVariables().get(
+                    SessionVariable.ENABLE_LANCE_SCALAR_INDEX_AUTO_SELECTION));
+            LanceScanNode node = newNode(variables);
+            setMetadata(node, metadata);
+            Expr broad = scalarPredicate();
+            broad.setSelectivity(0.8);
+            Expr selective = new BinaryPredicate(BinaryPredicate.Operator.EQ,
+                    new SlotRef(null, "other"), new IntLiteral(1));
+            selective.setSelectivity(0.01);
+            node.getConjuncts().addAll(Arrays.asList(broad, selective));
+            node.convertPredicate();
+            Assert.assertTrue(node.getConjuncts().isEmpty());
+            List<Split> splits = node.getSplits(1);
+            Assert.assertEquals(1, splits.size());
+            TFileRangeDesc range = new TFileRangeDesc();
+            node.setScanParams(range, splits.get(0));
+            ByteBuffer uuid = range.getTableFormatParams().getLanceParams().getIndexSegmentUuids().get(0).duplicate();
+            Assert.assertEquals(enabled ? otherIndex : keyIndex, new UUID(uuid.getLong(), uuid.getLong()));
+        }
+    }
+
+    @Test
     public void testSplitPlanningReportsSuccessAndFailureToQueryProfile() throws Exception {
         ConnectContext previous = ConnectContext.get();
         ConnectContext context = new ConnectContext();
