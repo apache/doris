@@ -22,8 +22,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.MetaCache;
 import org.apache.doris.connector.cache.MetaCacheDefinition;
-import org.apache.doris.connector.cache.MetaCacheSizeEstimator;
-import org.apache.doris.connector.cache.MetaCacheSizeEstimators;
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -31,7 +29,6 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.SchemaCacheValue;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Maps;
 
 import java.time.Duration;
@@ -292,7 +289,7 @@ public abstract class ExternalCatalogMetaCache implements ExternalMetaCache {
         Function<K, V> loader = wrapSchemaValidator(entryDef.getLoader(), entryDef.getValueType());
         MetaCacheDefinition.Builder<K, V> builder = MetaCacheDefinition.<K, V>builder(
                 entryDef.getName(), cacheSpec, entryDef.getInvalidation()::scope)
-                .sizeEstimator(sizeEstimator(entryDef.getValueType()));
+                .sizeEstimator(entryDef.getSizeEstimator());
         if (loader != null) {
             builder.loader(loader);
         }
@@ -301,14 +298,6 @@ public abstract class ExternalCatalogMetaCache implements ExternalMetaCache {
                     Duration.ofMinutes(Config.external_cache_refresh_time_minutes), refreshExecutor);
         }
         return group.owner().create(builder.build());
-    }
-
-    /** A whole-value walk of a wide table's schema would exhaust the visit budget, so it goes column by column. */
-    @VisibleForTesting
-    static <K, V> MetaCacheSizeEstimator<K, V> sizeEstimator(Class<V> valueType) {
-        return SchemaCacheValue.class.isAssignableFrom(valueType)
-                ? MetaCacheSizeEstimators.reflectivePerElement(value -> ((SchemaCacheValue) value).getColumnLists())
-                : MetaCacheSizeEstimators.reflective();
     }
 
     private <K, V> Function<K, V> wrapSchemaValidator(Function<K, V> loader, Class<V> valueType) {

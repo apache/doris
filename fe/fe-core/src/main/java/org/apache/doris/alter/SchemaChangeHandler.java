@@ -2396,6 +2396,14 @@ public class SchemaChangeHandler extends AlterHandler {
             // that can reject those jobs before any clause below touches table metadata (processDropColumn
             // updates the bloom filter columns in place), so a rejected statement leaves the table unchanged.
             checkLightDropIndexPreconditions(db, olapTable, alterOps, enableAddIndexForNewData);
+            // DROP INDEX ... PARTITION only submits partition scoped index jobs: that path ignores every other
+            // clause, and both the light index path and other partition scoped drops would apply its index to
+            // the wrong partitions. So it has to be the only clause of its statement.
+            if (alterOps.size() > 1 && alterOps.stream().anyMatch(
+                    alterOp -> alterOp instanceof DropIndexOp && ((DropIndexOp) alterOp).hasPartitionSpec())) {
+                throw new DdlException("DROP INDEX on partitions can not be combined with other clauses in one"
+                        + " ALTER statement, please run them in separate statements.");
+            }
 
             for (AlterOp alterOp : alterOps) {
                 Map<String, String> properties = alterOp.getProperties();

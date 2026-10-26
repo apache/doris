@@ -19,6 +19,7 @@ package org.apache.doris.datasource.scan;
 
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.blockrule.SqlBlockRuleMgr;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.TableIf;
@@ -287,6 +288,7 @@ class PluginDrivenScanNodeHiveStreamingTest {
         }
 
         void start() {
+            Mockito.when(Env.getCurrentEnv().getSqlBlockRuleMgr()).thenReturn(Mockito.mock(SqlBlockRuleMgr.class));
             Assertions.assertTrue(node.isBatchMode());
             node.startSplit(1);
         }
