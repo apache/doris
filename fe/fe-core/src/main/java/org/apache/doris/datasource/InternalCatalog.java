@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.alter.ChangelogColumnIdPreparer;
 import org.apache.doris.alter.QuotaType;
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.analysis.DistributionDesc;
@@ -1558,6 +1559,12 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         // check
         OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
+        // Complete identity preparation before copying schemas or creating any tablet.
+        try {
+            ChangelogColumnIdPreparer.ensureReady(db, olapTable);
+        } catch (UserException e) {
+            throw new DdlException("Failed to prepare changelog column identities", e);
+        }
         olapTable.readLock();
         try {
             olapTable.checkNormalStateForAlter();

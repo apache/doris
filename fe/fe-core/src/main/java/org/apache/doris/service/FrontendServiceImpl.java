@@ -2446,25 +2446,29 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         TableIf tableIf = db.getTableOrMetaException(request.getTbl(), TableType.OLAP);
         OlapTable table = (OlapTable) tableIf;
-        try {
-            if (!request.isSetWriteSchemas() || request.getWriteSchemasSize() != 1) {
-                throw new UserException("Remote commit requires exactly one prepared table schema");
-            }
-            TxnWriteSchemaSnapshot snapshot = TxnWriteSchemaSnapshotCodec.fromThrift(
-                    request.getWriteSchemas().get(0), table.getId(), table.getBaseIndexId());
-            if (!Config.isCloudMode()) {
-                TransactionState state = Env.getCurrentGlobalTransactionMgr().getTransactionState(
-                        db.getId(), request.getTxnId());
-                if (state == null) {
-                    throw new UserException("Missing remote transaction " + request.getTxnId());
+        // Ordinary tables accept legacy remote commits without a write schema.
+        // An explicitly supplied snapshot is always validated.
+        if (request.isSetWriteSchemas() || table.hasChangelog()) {
+            try {
+                if (!request.isSetWriteSchemas() || request.getWriteSchemasSize() != 1) {
+                    throw new UserException("Remote commit requires exactly one prepared table schema");
                 }
-                if (!state.getTableIdList().contains(table.getId())) {
-                    throw new UserException("Remote transaction does not include the target table");
+                TxnWriteSchemaSnapshot snapshot = TxnWriteSchemaSnapshotCodec.fromThrift(
+                        request.getWriteSchemas().get(0), table.getId(), table.getBaseIndexId());
+                if (!Config.isCloudMode()) {
+                    TransactionState state = Env.getCurrentGlobalTransactionMgr().getTransactionState(
+                            db.getId(), request.getTxnId());
+                    if (state == null) {
+                        throw new UserException("Missing remote transaction " + request.getTxnId());
+                    }
+                    if (!state.getTableIdList().contains(table.getId())) {
+                        throw new UserException("Remote transaction does not include the target table");
+                    }
+                    state.installRemoteWriteSchemas(Collections.singletonList(snapshot));
                 }
-                state.installRemoteWriteSchemas(Collections.singletonList(snapshot));
+            } catch (IllegalArgumentException | IllegalStateException e) {
+                throw new UserException("Invalid remote write schema: " + e.getMessage(), e);
             }
-        } catch (IllegalArgumentException | IllegalStateException e) {
-            throw new UserException("Invalid remote write schema: " + e.getMessage(), e);
         }
         return Env.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
                 db, Lists.newArrayList(table),

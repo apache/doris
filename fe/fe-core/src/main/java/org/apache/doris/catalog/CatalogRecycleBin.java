@@ -291,6 +291,15 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         return isRecycleTable(dbId, tableId) || idToPartition.containsKey(partitionId);
     }
 
+    public boolean hasRecycledPartitions(long dbId, long tableId) {
+        readLock();
+        try {
+            return dbTblIdPartitionNameToIds.containsKey(Pair.of(dbId, tableId));
+        } finally {
+            readUnlock();
+        }
+    }
+
     public void getRecycleIds(Set<Long> dbIds, Set<Long> tableIds, Set<Long> partitionIds) {
         dbIds.addAll(idToDatabase.keySet());
         tableIds.addAll(idToTable.keySet());
