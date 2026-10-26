@@ -508,7 +508,7 @@ private:
     void remove(FileBlockSPtr file_block, T& cache_lock, U& segment_lock, bool sync = true);
 
     // Runs the pending storage removal at (hash, offset) if this thread can claim it. Never call
-    // it with the cache lock held unless enable_file_cache_async_evict_io is off.
+    // it with the cache lock held unless enable_file_cache_evict_io_outside_lock is off.
     void run_storage_remove(const UInt128Wrapper& hash, size_t offset,
                             bvar::LatencyRecorder* latency_us) const;
 

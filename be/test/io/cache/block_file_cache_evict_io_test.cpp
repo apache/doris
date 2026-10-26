@@ -93,10 +93,11 @@ bool is_locked_elsewhere(std::mutex& mutex) {
 
 class EvictIoConfigGuard {
 public:
-    explicit EvictIoConfigGuard(bool value) : _old(config::enable_file_cache_async_evict_io) {
-        config::enable_file_cache_async_evict_io = value;
+    explicit EvictIoConfigGuard(bool value)
+            : _old(config::enable_file_cache_evict_io_outside_lock) {
+        config::enable_file_cache_evict_io_outside_lock = value;
     }
-    ~EvictIoConfigGuard() { config::enable_file_cache_async_evict_io = _old; }
+    ~EvictIoConfigGuard() { config::enable_file_cache_evict_io_outside_lock = _old; }
 
 private:
     bool _old;
@@ -234,6 +235,9 @@ TEST_F(BlockFileCacheTest, evict_io_lookup_proceeds_while_remove_stalls) {
             },
             &guard);
 
+    // Declared before the Defer that releases the evictor, so on a failure path the evictor is
+    // released before this future's destructor waits for the lookup.
+    std::future<bool> lookup;
     // Inserting into the full cache evicts the victim; its removal then stalls on this thread.
     std::thread evictor([&] { insert_block(cache, newcomer, 0, kBlockSize); });
     Defer join_evictor {[&] {
@@ -243,7 +247,7 @@ TEST_F(BlockFileCacheTest, evict_io_lookup_proceeds_while_remove_stalls) {
     ASSERT_EQ(remove_entered.get_future().wait_for(std::chrono::seconds(10)),
               std::future_status::ready);
 
-    auto lookup = std::async(std::launch::async, [&] {
+    lookup = std::async(std::launch::async, [&] {
         CacheContext context;
         ReadStatistics rstats;
         context.stats = &rstats;
@@ -255,6 +259,41 @@ TEST_F(BlockFileCacheTest, evict_io_lookup_proceeds_while_remove_stalls) {
     ASSERT_EQ(lookup.wait_for(std::chrono::seconds(10)), std::future_status::ready);
     EXPECT_TRUE(lookup.get());
     EXPECT_FALSE(is_locked_elsewhere(cache._mutex));
+}
+
+// A block evicted while its removal is still pending is not brought back by loading the hash's
+// blocks from storage (lazy load at startup, async load, LRU restore), which would leave a cached
+// block whose file the pending removal then deletes.
+TEST_F(BlockFileCacheTest, evict_io_load_skips_block_pending_removal) {
+    EvictIoConfigGuard config_guard(true);
+    auto base = evict_io_cache_path("load_pending");
+    fs::remove_all(base);
+    fs::create_directories(base);
+    Defer cleanup {[&] { fs::remove_all(base); }};
+
+    BlockFileCache cache(base, normal_only_settings(10 * kBlockSize, kBlockSize));
+    ASSERT_TRUE(cache.initialize());
+    wait_until_cache_ready(cache);
+
+    auto key = BlockFileCache::hash("evict_io_load_pending");
+    FileCacheKey pending;
+    pending.hash = key;
+    pending.offset = 0;
+    cache._pending_storage_removes.mark(pending);
+
+    CacheContext context;
+    context.cache_type = FileCacheType::NORMAL;
+    std::lock_guard cache_lock(cache._mutex);
+    EXPECT_EQ(cache.add_cell(key, context, 0, kBlockSize, FileBlock::State::DOWNLOADED, cache_lock),
+              nullptr);
+    EXPECT_FALSE(cache._files.contains(key));
+    // Another offset of the same hash, and a new block at the pending position, are added: the
+    // new block's downloader drains the pending removal before it writes.
+    EXPECT_NE(cache.add_cell(key, context, kBlockSize, kBlockSize, FileBlock::State::DOWNLOADED,
+                             cache_lock),
+              nullptr);
+    EXPECT_NE(cache.add_cell(key, context, 0, kBlockSize, FileBlock::State::EMPTY, cache_lock),
+              nullptr);
 }
 
 // A block is evicted and its removal stalls; meanwhile the same position is downloaded again.

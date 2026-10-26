@@ -1319,6 +1319,15 @@ FileBlockCell* BlockFileCache::add_cell(const UInt128Wrapper& hash, const CacheC
         return nullptr;
     }
 
+    // A block loaded back from storage (DOWNLOADED) at a position whose removal is still pending
+    // is the evicted block itself: its file and meta are deleted right after the evicting thread
+    // releases the cache lock. E.g. at startup, a lookup lazily loads hash H from the meta store
+    // between the eviction of (H, 0) and its deferred removal; without this check (H, 0) would be
+    // cached with no file behind it.
+    if (state == FileBlock::State::DOWNLOADED && _pending_storage_removes.contains(hash, offset)) {
+        return nullptr;
+    }
+
     auto& offsets = _files[hash];
     auto itr = offsets.find(offset);
     if (itr != offsets.end()) {
@@ -1910,7 +1919,10 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
         key.meta.tablet_id = tablet_id;
         _pending_storage_removes.mark(key);
         DeferredStorageRemoveScope* deferred_scope = DeferredStorageRemoveScope::current();
-        const bool can_defer = config::enable_file_cache_async_evict_io &&
+        // Every cache-lock holder that can reach here took the lock with SCOPED_CACHE_LOCK, which
+        // opens the scope. A missing or foreign scope (another cache's lock is the innermost)
+        // falls back to removing inline, as before.
+        const bool can_defer = config::enable_file_cache_evict_io_outside_lock &&
                                deferred_scope != nullptr && deferred_scope->owned_by(this);
         if (sync && can_defer) {
             // Runs once the cache lock is released, before the evicting caller continues, so
