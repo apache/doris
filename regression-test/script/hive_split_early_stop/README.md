@@ -120,14 +120,56 @@ Split initialization. Report this distinction when sharing results.
    Stop the fixture with Ctrl-C, stop the isolated cluster, and remove the FE agent
    options. HMS metadata is retained for debugging; the tool does not drop tables.
 
-For an existing physical dataset, start `fixture.py --upstream http://S3_HOST:PORT`
-to observe real requests, then configure a dedicated catalog for that proxy and
-the existing HMS table. Preserve the original S3 credentials: the proxy preserves
-the request Host and path used for signing. `prepare.py` intentionally refuses
-this mode because it only creates logical-fixture metadata. Empty/delayed listings
-are test controls for first-Split waiting; document those controls separately from
-normal reads of physical data. Verify the actual partition and object counts
-before describing a dataset as a physical million-file benchmark.
+For a physical million-file benchmark, use a dedicated, empty S3-compatible
+bucket. Store its credentials in `SPLIT_S3_ACCESS_KEY` and `SPLIT_S3_SECRET_KEY`
+without printing them or putting them on command lines. Create the actual files:
+
+```bash
+"$split_test_output/venv/bin/python" regression-test/script/hive_split_early_stop/materialize.py \
+    --endpoint http://S3_HOST:PORT --bucket split-physical --process-pool \
+    --output "$split_test_output"
+```
+
+The defaults create 10,000 partition prefixes with 100 unique Parquet objects
+each, containing one `id=1` row per object. Allow for object-store metadata and
+filesystem overhead in addition to the 481 MB of Parquet payload (the exact
+file size depends on PyArrow). Uploads resume from a partition checkpoint in
+the output directory. The tool refuses a nonempty bucket without its ownership
+marker or with a different shape or encoding. Use a distinct output directory
+for each bucket. `--verify-only` skips uploads and verifies existing objects.
+
+After uploading, the tool lists the complete dataset and checks every key,
+per-partition count, size and MD5 ETag. Only successful verification produces
+`physical-manifest.json`. Use an S3 implementation whose single-PUT ETags are
+MD5 hashes; encrypted or multipart ETags require a different verifier.
+
+Start the fixture with `--bucket split-physical --upstream http://S3_HOST:PORT`
+and prepare a new database and catalog using the verified manifest:
+
+```bash
+"$split_test_output/venv/bin/python" regression-test/script/hive_split_early_stop/prepare.py \
+    --hms-host 127.0.0.1 --hms-port 28650 \
+    --fe-host 127.0.0.1 --fe-port 40167 --fe-http-port 39167 \
+    --fixture-url http://127.0.0.1:39367 --bucket split-physical \
+    --database doris_split_physical --catalog hive_split_physical \
+    --physical-manifest "$split_test_output/physical-manifest.json" --output "$split_test_output"
+```
+
+The HMS service must also have filesystem access to this bucket, using its own
+S3 endpoint and credentials configuration. HMS checks database/table locations
+when creating metadata; configuring only the Doris catalog does not give HMS
+access to a separate object store.
+
+The proxy preserves the signed Host and path; the catalog uses the same S3
+credentials. `prepare.py` requires a verified manifest matching the upstream,
+bucket and shape. It supplies accurate row-count metadata for these one-row
+objects. The generated regression config selects physical controls: first-Split
+waiting delays real upstream LIST responses instead of synthesizing empty
+directories. Execution-stage cancellation still waits for a real BE file read.
+Run the same seven-scenario suite and report command above. The report includes
+the verified physical manifest and identifies the response-delay control.
+Keep the dataset unchanged between verification and the queries. Report a
+self-created dataset separately from any original production benchmark table.
 
 To check cross-query cache isolation, prepare another catalog with the same HMS
 database/table and `--file-cache`, writing its config into a child directory:
@@ -152,6 +194,11 @@ dispose their resources, and a follow-up query must reuse the completed listing.
 This barrier synchronizes the cache race; normal request cessation is checked by
 the seven-scenario suite. Run these suites sequentially because they control the
 same fixture. The committed cache result assumes 100 files per partition.
+
+For physical cache isolation, also pass the physical benchmark's `--database`,
+`--bucket` and `--physical-manifest` to the cache preparation command. Keep the
+same running proxy and credentials. The two readers must access the same real
+partition directory.
 
 Run the analyzer's negative tests with:
 

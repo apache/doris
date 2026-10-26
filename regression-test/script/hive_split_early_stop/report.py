@@ -47,6 +47,17 @@ def query_key(query):
     return tuple(int(part, 16) for part in query.split("-"))
 
 
+def physical_evidence(fixture, hms, manifest):
+    require(fixture["mode"] == "physical_proxy" and manifest["mode"] == "physical_files"
+            and manifest["status"] == "VERIFIED", "Missing verified physical dataset evidence")
+    require(all(manifest[key] == hms[key] for key in ("partitions", "files_per_partition", "file_bytes"))
+            and manifest["verified_objects"] == hms["physical_files"]
+            == hms["partitions"] * hms["files_per_partition"]
+            and manifest["bucket"] == fixture["bucket"]
+            and manifest["endpoint"] == fixture["upstream"], "Physical evidence does not match the tested dataset")
+    return manifest
+
+
 def read_samples(path):
     samples = defaultdict(list)
     with path.open() as source:
@@ -84,6 +95,7 @@ def analyze(log, samples, events, expected_phases=PHASES):
         relevant = [event for event in events if event["phase"] == phase
                     and previous <= event["time_ms"] <= end]
         requests = [event["time_ms"] for event in relevant if event["action"] == "LIST"]
+        synthetic = sum(event.get("synthetic_listing", True) for event in relevant if event["action"] == "LIST")
         late = sum(when >= signal + 10000 for when in requests)
         require(late == 0, phase + ": new file requests after the 10-second deadline")
         reads = sum(event["action"] == "GET" and event["time_ms"] <= signal for event in relevant)
@@ -93,6 +105,7 @@ def analyze(log, samples, events, expected_phases=PHASES):
                       "producer_exit_delay_ms": max(0, quiet["time_ms"] - signal),
                       "last_file_request_delay_ms": max(requests) - signal if requests else None,
                       "file_requests_after_10s": late, "file_requests_total": len(requests),
+                      "synthetic_directory_requests": synthetic,
                       "file_reads_before_stop": reads, "final_snapshot": rows[-1]})
         previous = end
     waits = [{"configured_ms": int(a), "observed_ms": int(b)} for a, b in
@@ -165,6 +178,12 @@ def main():
                   hms=json.loads((root / "hms-fixture.json").read_text()),
                   backends=json.loads((root / "backends.json").read_text()),
                   observation="Test-only observer retains assignments; explicit disposal is checked independently of GC.")
+    if report["hms"]["mode"] == "physical_files":
+        report["physical_dataset"] = physical_evidence(
+            report["fixture"], report["hms"], json.loads((root / "physical-manifest.json").read_text()))
+        require(all(case["synthetic_directory_requests"] == 0 for case in report["cases"]),
+                "Physical acceptance used synthetic or unverified directory listings")
+        report["first_split_wait_control"] = "Real upstream LIST responses are delayed before delivery to FE."
     if args.concurrency_log:
         concurrent_log = args.concurrency_log.read_text()
         require("All suites success." in concurrent_log, "Concurrent-cache regression did not report success")

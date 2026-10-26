@@ -22,7 +22,8 @@ import java.util.concurrent.atomic.AtomicReference
 
 // Optional million-file acceptance fixture: 10,000 HMS partitions, 100 one-row files per partition.
 // The S3 fixture exposes /__control (phase, empty, delay_ms) and /__metrics (state.active, counts[phase].LIST/GET).
-// Empty listings keep planning inside the first-split wait. Count requests at the fixture, not in SQL profiles.
+// Empty logical listings or delayed real listings keep planning inside the first-split wait.
+// Count requests at the fixture, not in SQL profiles.
 suite("test_hive_split_early_stop", "p0,external") {
     String fixtureUrl = context.config.otherConfigs.get("hiveSplitEarlyStopControlUrl")
     if (!fixtureUrl) {
@@ -31,6 +32,8 @@ suite("test_hive_split_early_stop", "p0,external") {
     logger.info("SPLIT_RUN_START " + System.currentTimeMillis())
     String catalog = context.config.otherConfigs.get("hiveSplitEarlyStopCatalog")
     String table = context.config.otherConfigs.get("hiveSplitEarlyStopTable")
+    boolean physicalFixture = context.config.otherConfigs.get("hiveSplitEarlyStopPhysicalFixture")
+            ?.toString()?.toBoolean() ?: false
     def metrics = { -> new JsonSlurper().parse(new URL(fixtureUrl + "/__metrics")) }
     def control = { Map settings ->
         def conn = new URL(fixtureUrl + "/__control").openConnection()
@@ -68,7 +71,8 @@ suite("test_hive_split_early_stop", "p0,external") {
         for (boolean waitingForFirst : [false, true]) {
             String phase = waitingForFirst ? "planning_cancel" : "cancel"
             sql "refresh catalog ${catalog}"
-            control([phase: phase, empty: waitingForFirst, delay_ms: 50])
+            control([phase: phase, empty: waitingForFirst && !physicalFixture,
+                    delay_ms: waitingForFirst && physicalFixture ? 5000 : 50])
             long connectionId = (sql("select connection_id()")[0][0] as Number).longValue()
             def cancelledAt = new AtomicReference<Long>()
             def killer = extraThread("split-query-canceller") {
@@ -98,7 +102,8 @@ suite("test_hive_split_early_stop", "p0,external") {
             String phase = waitingForFirst ? "planning_timeout" : "timeout"
             sql "refresh catalog ${catalog}"
             sql "set query_timeout=3"
-            control([phase: phase, empty: waitingForFirst, delay_ms: 50])
+            control([phase: phase, empty: waitingForFirst && !physicalFixture,
+                    delay_ms: waitingForFirst && physicalFixture ? 5000 : 50])
             long begin = System.currentTimeMillis()
             test {
                 sql "select sum(id) from ${table}"
@@ -116,7 +121,7 @@ suite("test_hive_split_early_stop", "p0,external") {
             String phase = "first_split_timeout_${timeout}"
             sql "refresh catalog ${catalog}"
             sql "set first_split_wait_timeout_ms=${timeout}"
-            control([phase: phase, empty: true, delay_ms: 100])
+            control([phase: phase, empty: !physicalFixture, delay_ms: physicalFixture ? timeout + 1000 : 100])
             long begin = System.currentTimeMillis()
             test {
                 sql "select sum(id) from ${table}"

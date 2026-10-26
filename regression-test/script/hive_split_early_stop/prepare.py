@@ -38,6 +38,26 @@ def identifier(value):
     return value
 
 
+def fixture_metadata(args, fixture):
+    if fixture["files_per_partition"] != args.files_per_partition or fixture["bucket"] != args.bucket:
+        raise ValueError("files-per-partition and bucket must match the running fixture")
+    if args.physical_manifest:
+        manifest = json.loads(args.physical_manifest.read_text())
+        expected = args.partitions * args.files_per_partition
+        if (fixture["mode"] != "physical_proxy" or manifest["status"] != "VERIFIED"
+                or manifest["mode"] != "physical_files" or manifest["verified_objects"] != expected
+                or manifest["partitions"] != args.partitions
+                or manifest["files_per_partition"] != args.files_per_partition
+                or manifest["bucket"] != args.bucket or manifest["rows_per_file"] != 1
+                or manifest["prefix"] != "data/" or manifest["endpoint"] != fixture["upstream"]):
+            raise ValueError("Verified physical manifest does not match the proxy, bucket or requested shape")
+        return {"mode": "physical_files", "file_bytes": manifest["file_bytes"], "physical_files": expected}
+    if fixture["mode"] != "logical_files":
+        raise ValueError("A physical proxy requires --physical-manifest from materialize.py")
+    return {"mode": "logical_files", "file_bytes": fixture["file_bytes"],
+            "logical_files": args.partitions * args.files_per_partition}
+
+
 def prepare_hms(args, file_bytes):
     location = "s3a://%s/data" % args.bucket
     marker = "doris.split.early.stop.fixture"
@@ -56,11 +76,14 @@ def prepare_hms(args, file_bytes):
             client.create_table(ttypes.Table(dbName=args.database, tableName=args.table, owner="hive",
                     createTime=int(time.time()), lastAccessTime=0, retention=0, sd=sd,
                     partitionKeys=[ttypes.FieldSchema(name="p", type="int")], tableType="EXTERNAL_TABLE",
-                    parameters={"EXTERNAL": "TRUE", marker: "1", "numRows": str(count),
+                    parameters={"EXTERNAL": "TRUE", marker: "1", "doris.split.early.stop.mode": args.mode,
+                                "numRows": str(count),
                                 "numFiles": str(count), "totalSize": str(count * file_bytes)}))
         table = client.get_table(args.database, args.table)
         if table.parameters.get(marker) != "1" or table.sd.location != location:
             raise ValueError("Refusing to reuse an existing table that is not this fixture")
+        if table.parameters.get("doris.split.early.stop.mode", "logical_files") != args.mode:
+            raise ValueError("Existing fixture table uses a different physical/logical mode")
         if int(table.parameters["numRows"]) != args.partitions * args.files_per_partition:
             raise ValueError("Existing fixture table has a different shape; use another table name")
         existing = set(client.get_partition_names(args.database, args.table, -1))
@@ -105,6 +128,9 @@ def main():
     parser.add_argument("--partitions", type=int, default=10000)
     parser.add_argument("--files-per-partition", type=int, default=100)
     parser.add_argument("--file-cache", action="store_true", help="Enable Hive's shared file-list cache")
+    parser.add_argument("--physical-manifest", type=Path, help="Verified manifest emitted by materialize.py")
+    parser.add_argument("--access-key-env", default="SPLIT_S3_ACCESS_KEY")
+    parser.add_argument("--secret-key-env", default="SPLIT_S3_SECRET_KEY")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     if args.partitions <= 0 or args.files_per_partition <= 0:
@@ -112,17 +138,17 @@ def main():
     args.fixture_url = args.fixture_url.rstrip("/")
     with urlopen(args.fixture_url + "/__metrics", timeout=5) as response:
         fixture = json.load(response)["fixture"]
-    if fixture["mode"] != "logical_files":
-        parser.error("prepare creates logical-fixture metadata; configure an existing table for a physical proxy")
-    if fixture["files_per_partition"] != args.files_per_partition or fixture["bucket"] != args.bucket:
-        parser.error("files-per-partition and bucket must match the running fixture")
+    metadata = fixture_metadata(args, fixture)
+    args.mode = metadata["mode"]
     args.output.mkdir(parents=True, exist_ok=True)
-    partitions = prepare_hms(args, fixture["file_bytes"])
+    partitions = prepare_hms(args, metadata["file_bytes"])
     conn = pymysql.connect(host=args.fe_host, port=args.fe_port, user=args.user,
                            password=os.environ.get(args.password_env, ""))
+    access = os.environ[args.access_key_env] if args.physical_manifest else "test"
+    secret = os.environ[args.secret_key_env] if args.physical_manifest else "test"
     properties = {"type": "hms", "hive.metastore.uris": "thrift://%s:%d" % (args.hms_host, args.hms_port),
-                  "s3.endpoint": args.fixture_url, "s3.region": "us-east-1", "s3.access_key": "test",
-                  "s3.secret_key": "test", "use_path_style": "true", "enable_auto_analyze": "false",
+                  "s3.endpoint": args.fixture_url, "s3.region": "us-east-1", "s3.access_key": access,
+                  "s3.secret_key": secret, "use_path_style": "true", "enable_auto_analyze": "false",
                   "meta.cache.hive.file.enable": str(args.file_cache).lower()}
     try:
         with conn.cursor(pymysql.cursors.DictCursor) as cursor:
@@ -144,18 +170,18 @@ def main():
                  "feHttpAddress": "%s:%d" % (args.fe_host, args.fe_http_port),
                  "feHttpUser": args.user, "feHttpPassword": os.environ.get(args.password_env, ""),
                  "hiveSplitEarlyStopControlUrl": args.fixture_url, "hiveSplitEarlyStopCatalog": args.catalog,
-                 "hiveSplitEarlyStopTable": "%s.%s.%s" % (args.catalog, args.database, args.table)}
+                 "hiveSplitEarlyStopTable": "%s.%s.%s" % (args.catalog, args.database, args.table),
+                 "hiveSplitEarlyStopPhysicalFixture": str(bool(args.physical_manifest)).lower()}
     for key, value in overrides.items():
         # Groovy double-quoted strings interpolate '$'; the JSON string otherwise preserves escapes.
         config += "\n%s = %s\n" % (key, json.dumps(value).replace("$", "\\$"))
     config_path = args.output / "regression-conf.groovy"
     config_path.write_text(config)
     config_path.chmod(0o600)
-    (args.output / "hms-fixture.json").write_text(json.dumps({
-        "mode": "logical_files", "hms_host": args.hms_host, "hms_port": args.hms_port,
-        "database": args.database, "table": args.table, "catalog": args.catalog,
-        "partitions": partitions, "files_per_partition": args.files_per_partition,
-        "logical_files": partitions * args.files_per_partition}, indent=2) + "\n")
+    (args.output / "hms-fixture.json").write_text(json.dumps(dict(metadata,
+        hms_host=args.hms_host, hms_port=args.hms_port,
+        database=args.database, table=args.table, catalog=args.catalog,
+        partitions=partitions, files_per_partition=args.files_per_partition), indent=2) + "\n")
     print("Prepared %d partitions; config: %s" % (partitions, config_path))
 
 

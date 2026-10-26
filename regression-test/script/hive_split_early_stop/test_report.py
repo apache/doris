@@ -44,6 +44,16 @@ class ReportTest(unittest.TestCase):
         result = analyze(*self.inputs(), expected_phases=("limit",))
         self.assertEqual(100, result["cases"][0]["producer_exit_delay_ms"])
 
+    def test_synthetic_or_unrecorded_listings_are_not_physical_evidence(self):
+        for synthetic in (True, False, None):
+            with self.subTest(synthetic=synthetic):
+                log, samples, events = self.inputs()
+                if synthetic is not None:
+                    events[1]["synthetic_listing"] = synthetic
+                result = analyze(log, samples, events, ("limit",))
+                self.assertEqual(0 if synthetic is False else 1,
+                                 result["cases"][0]["synthetic_directory_requests"])
+
     def test_retained_buffers_are_not_successful_termination(self):
         for counter in COUNTERS:
             with self.subTest(counter=counter):

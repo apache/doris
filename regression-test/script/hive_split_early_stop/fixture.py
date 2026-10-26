@@ -111,7 +111,8 @@ class Handler(BaseHTTPRequestHandler):
                 body = json.dumps({"state": fixture.state, "counts": fixture.counts, "fixture": {
                     "mode": "physical_proxy" if fixture.upstream else "logical_files",
                     "files_per_partition": fixture.files_per_partition,
-                    "bucket": fixture.bucket, "file_bytes": len(fixture.data)}}).encode()
+                    "bucket": fixture.bucket, "file_bytes": len(fixture.data),
+                    "upstream": fixture.upstream.geturl().rstrip("/") if fixture.upstream else None}}).encode()
             self.send(200, body, "application/json")
             return
         params = parse_qs(url.query, keep_blank_values=True)
@@ -124,17 +125,18 @@ class Handler(BaseHTTPRequestHandler):
             counter[action] += 1
             fixture.events.write(json.dumps({"time_ms": int(time.time() * 1000),
                                              "phase": phase, "action": action,
+                                             "synthetic_listing": listing and (empty or not fixture.upstream),
                                              "path": self.path}) + "\n")
         try:
             if listing:
                 if not fixture.listings_ready.wait(60):
                     self.send(503, b"Test did not release the directory-listing barrier")
                     return
-                time.sleep(delay / 1000)
             if listing and (empty or not fixture.upstream):
+                time.sleep(delay / 1000)
                 self.list_files(params.get("prefix", [""])[0], empty)
             elif fixture.upstream:
-                self.forward()
+                self.forward(delay if listing else 0)
             elif url.path.rstrip("/") == "/" + fixture.bucket:
                 self.send(200)
             else:
@@ -180,7 +182,7 @@ class Handler(BaseHTTPRequestHandler):
             code = 206
         self.send(code, data, headers=headers)
 
-    def forward(self):
+    def forward(self, delay_ms):
         upstream = self.server.fixture.upstream
         connection_type = http.client.HTTPSConnection if upstream.scheme == "https" else http.client.HTTPConnection
         connection = connection_type(upstream.hostname, upstream.port, timeout=60)
@@ -189,6 +191,8 @@ class Handler(BaseHTTPRequestHandler):
             connection.request(self.command, self.path, headers=dict(self.headers))
             response = connection.getresponse()
             data = response.read()
+            # Delay delivery of a real listing, rather than issuing an upstream request after cancellation.
+            time.sleep(delay_ms / 1000)
             headers = {key.lower(): value for key, value in response.getheaders()
                        if key.lower() in ("content-length", "etag", "last-modified", "content-range",
                                           "accept-ranges", "x-amz-request-id")}
@@ -222,7 +226,8 @@ def main():
     fixture = Fixture(args.output, args.files_per_partition, args.bucket, args.upstream)
     metadata = {"mode": "physical_proxy" if args.upstream else "logical_files",
                 "files_per_partition": args.files_per_partition, "bucket": args.bucket,
-                "file_bytes": len(fixture.data), "port": args.port}
+                "file_bytes": len(fixture.data), "port": args.port,
+                "upstream": args.upstream.rstrip("/") if args.upstream else None}
     (args.output / "fixture.json").write_text(json.dumps(metadata, indent=2) + "\n")
     server = Server((args.host, args.port), Handler)
     server.fixture = fixture
