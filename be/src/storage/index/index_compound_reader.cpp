@@ -32,6 +32,7 @@
 #include "storage/index/index_fs_directory.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/debug_points.h"
+#include "util/defer_op.h"
 
 namespace doris::io {
 class FileWriter;
@@ -43,6 +44,22 @@ class FileWriter;
 using FileWriterPtr = std::unique_ptr<doris::io::FileWriter>;
 
 namespace doris::segment_v2 {
+namespace {
+
+// The context of DorisCompoundReader::ScopedIOContext.
+thread_local const io::IOContext* scoped_io_ctx = nullptr;
+
+} // namespace
+
+DorisCompoundReader::ScopedIOContext::ScopedIOContext(const io::IOContext* io_ctx)
+        : _previous(scoped_io_ctx) {
+    scoped_io_ctx = io_ctx;
+}
+
+DorisCompoundReader::ScopedIOContext::~ScopedIOContext() {
+    scoped_io_ctx = _previous;
+}
+
 /** Implementation of an IndexInput that reads from a portion of the
  *  compound file.
  */
@@ -91,9 +108,18 @@ void CSIndexInput::readInternal(uint8_t* b, const int32_t len) {
         _CLTHROWA(CL_ERR_IO, "read past EOF");
     }
 
-    if (_io_ctx) {
-        base->setIoContext(_io_ctx);
+    // A stream without a context of its own reads with the thread's scoped one, if any.
+    const io::IOContext* io_ctx = _io_ctx != nullptr ? _io_ctx : scoped_io_ctx;
+    if (io_ctx) {
+        base->setIoContext(io_ctx);
     }
+    // The base stream copies the context, statistics pointer included, and outlives the query
+    // that gave it, so it drops the context even when the read throws.
+    Defer reset_io_ctx {[&]() {
+        if (io_ctx) {
+            base->setIoContext(nullptr);
+        }
+    }};
 
     DBUG_EXECUTE_IF("CSIndexInput.readInternal", {
         for (const auto& entry : InvertedIndexDescriptor::index_file_info_map) {
@@ -119,10 +145,6 @@ void CSIndexInput::readInternal(uint8_t* b, const int32_t len) {
     base->seek(fileOffset + start);
     bool read_from_buffer = true;
     base->readBytes(b, len, read_from_buffer);
-
-    if (_io_ctx) {
-        base->setIoContext(nullptr);
-    }
 }
 
 CSIndexInput::~CSIndexInput() = default;
