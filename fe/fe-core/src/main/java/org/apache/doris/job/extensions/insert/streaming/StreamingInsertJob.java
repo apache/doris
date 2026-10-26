@@ -79,6 +79,7 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
+import org.apache.doris.tablefunction.CdcStreamTableValuedFunction;
 import org.apache.doris.tablefunction.S3TableValuedFunction;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
@@ -267,6 +268,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         try {
             init();
             checkRequiredSourceProperties();
+            StreamingJobUtils.checkCdcDriverPrivilege(ConnectContext.get(),
+                    sourceProperties.get(DataSourceConfigKeys.DRIVER_URL));
             DataSourceConfigValidator.validateSourceBeforeTableCreation(
                     dataSourceType, sourceProperties);
             List<String> createTbls = createTableIfNotExists();
@@ -429,9 +432,13 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     private void initInsertJob() {
         try {
             init();
+            ConnectContext ctx = ConnectContext.get();
             UnboundTVFRelation currentTvf = getCurrentTvf();
             this.tvfType = currentTvf.getFunctionName();
             this.originTvfProps = currentTvf.getProperties().getMap();
+            if (CdcStreamTableValuedFunction.NAME.equalsIgnoreCase(tvfType)) {
+                StreamingJobUtils.checkCdcDriverPrivilege(ctx, originTvfProps.get(DataSourceConfigKeys.DRIVER_URL));
+            }
             this.offsetProvider = createOffsetProvider(sourceProperties);
             this.offsetProvider.ensureInitialized(getJobId(), originTvfProps);
             // cdc_stream TVF has TABLE; S3 TVF doesn't, so syncTables stays null there.

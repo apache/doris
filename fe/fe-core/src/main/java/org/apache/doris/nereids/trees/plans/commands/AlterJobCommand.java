@@ -28,6 +28,7 @@ import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.extensions.insert.streaming.DataSourceConfigValidator;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.job.extensions.insert.streaming.StreamingJobProperties;
+import org.apache.doris.job.util.StreamingJobUtils;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -168,6 +169,8 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
                 boolean sourcePropModified =
                         isPropertiesModified(streamingJob.getSourceProperties(), this.getSourceProperties());
                 if (sourcePropModified) {
+                    StreamingJobUtils.checkCdcDriverPrivilege(ConnectContext.get(),
+                            sourceProperties.get(DataSourceConfigKeys.DRIVER_URL));
                     DataSourceConfigValidator.validateSource(this.getSourceProperties(),
                             streamingJob.getDataSourceType().name());
                     checkUnmodifiableSourceProperties(streamingJob.getSourceProperties());
@@ -306,6 +309,8 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
                         "The uri property cannot be modified in ALTER JOB");
                 break;
             case "cdc_stream":
+                StreamingJobUtils.checkCdcDriverPrivilege(ConnectContext.get(),
+                        inputTvf.getProperties().getMap().get(DataSourceConfigKeys.DRIVER_URL));
                 // type, jdbc_url, database, schema, and table identify the source and cannot be changed.
                 // snapshot_split_key determines persisted split boundaries and cannot be changed.
                 // slot_name / publication_name are fixed at create time to keep ownership stable.
