@@ -142,8 +142,6 @@ bool has_schema_index_diff(const TabletSchema* new_schema, const TabletSchema* o
 // create engine-side ColumnMap<String, String> for variant sparse/doc storage payloads.
 MutableColumnPtr create_variant_binary_column();
 
-DataTypePtr get_variant_binary_column_type();
-
 // create TabletColumn Map<String, String> for sparse storage
 TabletColumn create_sparse_column(const TabletColumn& variant);
 

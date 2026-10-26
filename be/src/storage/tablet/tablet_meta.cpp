@@ -467,6 +467,9 @@ void TabletMeta::init_schema_from_thrift(const TTabletSchema& tablet_schema,
     case TCompressionType::LZ4F:
         tablet_schema_pb->set_compression_type(segment_v2::LZ4F);
         break;
+    case TCompressionType::LZ4HC:
+        tablet_schema_pb->set_compression_type(segment_v2::LZ4HC);
+        break;
     case TCompressionType::ZLIB:
         tablet_schema_pb->set_compression_type(segment_v2::ZLIB);
         break;

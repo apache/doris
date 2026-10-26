@@ -659,7 +659,8 @@ suite("test_json_load", "p0,nonConcurrent") {
                 def code = process.waitFor()
                 def out = process.text
                 log.info("result: ${out}".toString())
-                def reason = "Reason: There is no column matching jsonpaths in the json file, columns:[name, age, agent_id, ], please check columns and jsonpaths:[\"\$.Name\", \"\$.Age\", \"\$.Agent_id\"]. src line [{\"name\":\"Name1\",\"age\":21,\"agent_id\":\"1\"}]; \n"
+                // V2 distinguishes unmatched JSON paths from unmatched object fields.
+                def reason = "Reason: [DATA_QUALITY_ERROR]No source column matches the JSON paths. src line [{\"name\":\"Name1\",\"age\":21,\"agent_id\":\"1\"}]; \n"
                 assertEquals("${reason}", "${out}")
             }
         }
@@ -695,7 +696,8 @@ suite("test_json_load", "p0,nonConcurrent") {
                 def code = process.waitFor()
                 def out = process.text
                 log.info("result: ${out}".toString())
-                def reason = "Reason: There is no column matching jsonpaths in the json file, columns:[Name, Age, Agent_id, ], please check columns and jsonpaths:. src line [{\"name\":\"Name1\",\"age\":21,\"agent_id\":\"1\"}]; \n"
+                // Case-sensitive source aliases take V2's unmatched-object path.
+                def reason = "Reason: [DATA_QUALITY_ERROR]No source column matches this JSON object. src line [{\"name\":\"Name1\",\"age\":21,\"agent_id\":\"1\"}]; \n"
                 assertEquals("${reason}", "${out}")
             }
         }

@@ -36,7 +36,6 @@ class ColumnFixedLengthObject final : public COWHelper<IColumn, ColumnFixedLengt
 private:
     using Self = ColumnFixedLengthObject;
     friend class COWHelper<IColumn, ColumnFixedLengthObject>;
-    friend class OlapBlockDataConvertor;
 
 public:
     using Container = PaddedPODArray<uint8_t>;
