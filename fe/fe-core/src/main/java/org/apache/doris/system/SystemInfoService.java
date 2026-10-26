@@ -864,9 +864,21 @@ public class SystemInfoService {
         // backend may already be dropped. this may happen when
         // drop and modify operations do not guarantee the order.
         if (memoryBe != null) {
+            // This replay path bypasses handleHbResponse. Clear the old host's local
+            // connections before making the restarted backend visible to scheduling.
+            if (memoryBe.getLastStartTime() > 0
+                    && ((be.isAlive() && !memoryBe.isAlive())
+                            || (be.getLastStartTime() > 0
+                                    && be.getLastStartTime() != memoryBe.getLastStartTime())
+                            || !be.getHost().equals(memoryBe.getHost()))) {
+                memoryBe.setAlive(false);
+                memoryBe.invalidateLocalConnections();
+                if (!be.getHost().equals(memoryBe.getHost())) {
+                    be.invalidateLocalConnections();
+                }
+            }
             memoryBe.setHost(be.getHost());
             memoryBe.setBePort(be.getBePort());
-            memoryBe.setAlive(be.isAlive());
             memoryBe.setDecommissioned(be.isDecommissioned());
             memoryBe.setHttpPort(be.getHttpPort());
             memoryBe.setBeRpcPort(be.getBeRpcPort());
@@ -877,6 +889,7 @@ public class SystemInfoService {
             memoryBe.setDisks(be.getDisks());
             memoryBe.setCpuCores(be.getCputCores());
             memoryBe.setPipelineExecutorSize(be.getPipelineExecutorSize());
+            memoryBe.setAlive(be.isAlive());
         }
     }
 

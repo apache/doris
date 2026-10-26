@@ -18,6 +18,7 @@
 #include "util/dns_cache.h"
 
 #include "service/backend_options.h"
+#include "util/defer_op.h"
 #include "util/network_util.h"
 
 namespace doris {
@@ -25,6 +26,8 @@ namespace doris {
 DNSCache::DNSCache() {
     refresh_thread = std::thread(&DNSCache::_refresh_cache, this);
 }
+
+DNSCache::DNSCache(Resolver resolver) : _resolver(std::move(resolver)) {}
 
 DNSCache::~DNSCache() {
     stop_refresh = true;
@@ -37,18 +40,13 @@ Status DNSCache::get(const std::string& hostname, std::string* ip) {
     {
         std::shared_lock<std::shared_mutex> lock(mutex);
         auto it = cache.find(hostname);
-        if (it != cache.end()) {
+        if (it != cache.end() && !_refresh_pending.count(hostname) &&
+            !_refresh_inflight.count(hostname)) {
             *ip = it->second;
             return Status::OK();
         }
     }
-    // Update if not found
-    RETURN_IF_ERROR(_update(hostname));
-    {
-        std::shared_lock<std::shared_mutex> lock(mutex);
-        *ip = cache[hostname];
-        return Status::OK();
-    }
+    return _update(hostname, ip);
 }
 
 // Resolve hostname to IP address, similar to Java's DNSCache.resolveHostname.
@@ -67,7 +65,10 @@ std::string DNSCache::_resolve_hostname(const std::string& hostname) {
 
     // Try to resolve hostname
     std::string resolved_ip;
-    Status status = hostname_to_ip(hostname, resolved_ip, BackendOptions::is_bind_ipv6());
+    int error = 0;
+    Status status =
+            _resolver ? _resolver(hostname, resolved_ip, BackendOptions::is_bind_ipv6(), &error)
+                      : hostname_to_ip(hostname, resolved_ip, BackendOptions::is_bind_ipv6());
 
     if (!status.ok() || resolved_ip.empty()) {
         // Resolution failed
@@ -84,7 +85,46 @@ std::string DNSCache::_resolve_hostname(const std::string& hostname) {
     return resolved_ip;
 }
 
-Status DNSCache::_update(const std::string& hostname) {
+void DNSCache::invalidate(const std::string& hostname) {
+    std::unique_lock<std::shared_mutex> lock(mutex);
+    if (cache.count(hostname) || _refresh_locks.count(hostname)) {
+        _refresh_pending.insert(hostname);
+    }
+}
+
+Status DNSCache::_update(const std::string& hostname, std::string* ip) {
+    std::shared_ptr<std::mutex> refresh_mutex;
+    {
+        std::unique_lock<std::shared_mutex> lock(mutex);
+        auto [it, inserted] = _refresh_locks.try_emplace(hostname);
+        if (inserted) {
+            it->second = std::make_shared<std::mutex>();
+        }
+        refresh_mutex = it->second;
+    }
+    Defer remove_refresh_lock {[&] {
+        std::unique_lock<std::shared_mutex> lock(mutex);
+        if (refresh_mutex.use_count() == 2) {
+            _refresh_locks.erase(hostname);
+        }
+    }};
+    // Serialize background and forced lookups so an older lookup cannot overwrite a newer IP.
+    std::lock_guard<std::mutex> refresh_lock(*refresh_mutex);
+    Defer finish_refresh {[&] {
+        std::unique_lock<std::shared_mutex> lock(mutex);
+        _refresh_inflight.erase(hostname);
+    }};
+    {
+        std::unique_lock<std::shared_mutex> lock(mutex);
+        auto it = cache.find(hostname);
+        if (ip != nullptr && it != cache.end() && !_refresh_pending.count(hostname)) {
+            *ip = it->second;
+            return Status::OK();
+        }
+        if (_refresh_pending.erase(hostname)) {
+            _refresh_inflight.insert(hostname);
+        }
+    }
     std::string real_ip = _resolve_hostname(hostname);
     if (real_ip.empty()) {
         return Status::InternalError("Failed to resolve hostname {} and no cached ip available",
@@ -96,6 +136,9 @@ Status DNSCache::_update(const std::string& hostname) {
     if (it == cache.end() || it->second != real_ip) {
         cache[hostname] = real_ip;
         LOG(INFO) << "update hostname " << hostname << "'s ip to " << real_ip;
+    }
+    if (ip != nullptr) {
+        *ip = real_ip;
     }
     return Status::OK();
 }

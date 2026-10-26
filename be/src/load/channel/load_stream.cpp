@@ -904,6 +904,10 @@ void LoadStream::on_idle_timeout(StreamId id) {
 }
 
 void LoadStream::on_closed(StreamId id) {
+    // TODO: Clean up receivers after partial-open failures. With total_streams=2,
+    // one accepted stream and one open rejected before registration yield only one
+    // on_closed(), leaving the receiver in LoadStreamMgr. Coordinate abort cleanup
+    // with in-flight opens and callbacks before changing the expected-stream count.
     // `this` may be freed by other threads after increasing `_close_rpc_cnt`,
     // format string first to prevent use-after-free
     std::stringstream ss;

@@ -431,7 +431,9 @@ void PInternalService::open_load_stream(google::protobuf::RpcController* control
                                         const POpenLoadStreamRequest* request,
                                         POpenLoadStreamResponse* response,
                                         google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([this, controller, request, response, done]() {
+    auto reservation = _exec_env->load_stream_mgr()->reserve_open();
+    bool ret = _heavy_work_pool.try_offer([this, controller, request, response, done,
+                                           reservation]() {
         signal::SignalTaskIdKeeper keeper(request->load_id());
         brpc::ClosureGuard done_guard(done);
         brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
