@@ -403,7 +403,10 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
 
     @Override
     public MvccSnapshot loadSnapshot(Optional<TableSnapshot> tableSnapshot, Optional<TableScanParams> scanParams) {
-        return new PaimonMvccSnapshot(getPaimonSnapshotCacheValue(tableSnapshot, scanParams));
+        return withMissingTableRepair(() -> {
+            return new PaimonMvccSnapshot(getPaimonSnapshotCacheValue(tableSnapshot, scanParams));
+
+        });
     }
 
     @Override
@@ -479,15 +482,21 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
 
     @Override
     public List<Column> getFullSchema() {
-        // Descriptor serialization is table-only and may follow multiple OPTIONS aliases. Keep it
-        // on a validated statement projection rather than falling back to the neutral cache.
-        return getPaimonSchemaCacheValue(
-                MvccUtil.getSnapshotForTableMetadataFromContext(this)).getSchema();
+        return withMissingTableRepair(() -> {
+            // Descriptor serialization is table-only and may follow multiple OPTIONS aliases. Keep it
+            // on a validated statement projection rather than falling back to the neutral cache.
+            return getPaimonSchemaCacheValue(
+                    MvccUtil.getSnapshotForTableMetadataFromContext(this)).getSchema();
+
+        });
     }
 
     @Override
     public List<Column> getFullSchema(Optional<MvccSnapshot> snapshot) {
-        return getPaimonSchemaCacheValue(snapshot).getSchema();
+        return withMissingTableRepair(() -> {
+            return getPaimonSchemaCacheValue(snapshot).getSchema();
+
+        });
     }
 
     @Override
@@ -506,8 +515,10 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
 
     @Override
     public Optional<SchemaCacheValue> getSchemaCacheValue() {
-        return Optional.of(getPaimonSchemaCacheValue(
-                MvccUtil.getSnapshotForTableMetadataFromContext(this)));
+        return withMissingTableRepair(() -> {
+            return Optional.of(getPaimonSchemaCacheValue(
+                    MvccUtil.getSnapshotForTableMetadataFromContext(this)));
+        });
     }
 
     private PaimonSchemaCacheValue getPaimonSchemaCacheValue(Optional<MvccSnapshot> snapshot) {

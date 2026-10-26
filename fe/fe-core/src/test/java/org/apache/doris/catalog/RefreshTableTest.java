@@ -104,10 +104,14 @@ public class RefreshTableTest extends TestWithFeService {
         Assertions.assertFalse(table.isObjectCreated());
         long l3 = table.getUpdateTime();
         Assertions.assertTrue(l3 >= l2);
+        TestExternalTable replacement = (TestExternalTable) test1.getDbNullable("db1").getTable("tbl11").get();
+        Assertions.assertNotSame(table, replacement);
+        Assertions.assertTrue(replacement.getUpdateTime() >= l3);
+        table = replacement;
         table.getFullSchema();
-        // only table.getFullSchema() can change table.lastUpdateTime
+        // Read the new object's timestamp after schema hydration.
         long l4 = table.getUpdateTime();
-        Assertions.assertTrue(l4 > l3);
+        Assertions.assertTrue(l4 >= l3);
         // updateTime is equal to schema update time as default
         long l5 = table.getUpdateTime();
         Assertions.assertTrue(l5 >= l4);

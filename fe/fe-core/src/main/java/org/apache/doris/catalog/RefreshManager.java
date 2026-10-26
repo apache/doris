@@ -189,9 +189,9 @@ public class RefreshManager {
             return;
         }
         long updateTime = System.currentTimeMillis();
-        refreshTableInternal((ExternalDatabase) db, (ExternalTable) table, updateTime);
+        refreshTableInternal((ExternalDatabase) db, (ExternalTable) table, updateTime, true);
         ExternalObjectLog log = ExternalObjectLog.createForRefreshTable(catalog.getId(), db.getFullName(),
-                table.getName(), updateTime);
+                table.getName(), updateTime, true);
         Env.getCurrentEnv().getEditLog().logRefreshExternalTable(log);
     }
 
@@ -236,6 +236,23 @@ public class RefreshManager {
                 table = db.get().getTableForReplay(log.getTableName());
             } else {
                 table = db.get().getTableForReplay(log.getTableId());
+            }
+            if (log.isInvalidateTableLookup()) {
+                if (table.isPresent()) {
+                    refreshTableInternal(db.get(), table.get(), log.getLastUpdateTime(), true);
+                } else {
+                    try {
+                        db.get().invalidateTableLookup(log.getTableName());
+                    } finally {
+                        if (catalog.getLowerCaseTableNames() != 0) {
+                            db.get().invalidateTableLookupDependencies();
+                        } else {
+                            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableByNameOrWider(
+                                    catalog.getId(), db.get().getFullName(), log.getTableName());
+                        }
+                    }
+                }
+                return;
             }
             if (!table.isPresent()) {
                 LOG.warn("failed to find table when replaying refresh table: {}", log.debugForRefreshTable());
@@ -349,20 +366,42 @@ public class RefreshManager {
     }
 
     public void refreshTableInternal(ExternalDatabase db, ExternalTable table, long updateTime) {
-        // The table's metadata can become visible to a new load as soon as it is reset.
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateRowCountCache(table);
-        table.unsetObjectCreated();
-        // Iceberg partition evolution can change partition specs across FEs.
-        // Clear related-table validation cache to avoid stale partitioned/unpartitioned judgment.
-        if (table instanceof IcebergExternalTable) {
-            ((IcebergExternalTable) table).setIsValidRelatedTableCached(false);
+        refreshTableInternal(db, table, updateTime, false);
+    }
+
+    private void refreshTableInternal(ExternalDatabase db, ExternalTable table, long updateTime,
+            boolean invalidateTableLookup) {
+        Optional<Runnable> finished = db.beginTableMetadataRefresh();
+        try {
+            // The table's metadata can become visible to a new load as soon as it is reset.
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateRowCountCache(table);
+            table.unsetObjectCreated();
+            // Iceberg partition evolution can change partition specs across FEs.
+            // Clear related-table validation cache to avoid stale partitioned/unpartitioned judgment.
+            if (table instanceof IcebergExternalTable) {
+                ((IcebergExternalTable) table).setIsValidRelatedTableCached(false);
+            }
+            if (updateTime > 0) {
+                table.setUpdateTime(updateTime);
+            }
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(table);
+            LOG.info("refresh table {}, id {} from db {} in catalog {}, update time: {}",
+                    table.getName(), table.getId(), db.getFullName(), db.getCatalog().getName(), updateTime);
+        } finally {
+            try {
+                if (invalidateTableLookup) {
+                    try {
+                        db.invalidateTableLookup(table.getName());
+                    } finally {
+                        if (table.getCatalog().getLowerCaseTableNames() != 0) {
+                            db.invalidateTableLookupDependencies();
+                        }
+                    }
+                }
+            } finally {
+                finished.ifPresent(Runnable::run);
+            }
         }
-        if (updateTime > 0) {
-            table.setUpdateTime(updateTime);
-        }
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(table);
-        LOG.info("refresh table {}, id {} from db {} in catalog {}, update time: {}",
-                table.getName(), table.getId(), db.getFullName(), db.getCatalog().getName(), updateTime);
     }
 
     /**

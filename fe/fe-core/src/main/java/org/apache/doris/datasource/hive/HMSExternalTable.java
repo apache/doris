@@ -370,40 +370,48 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     @Override
     public List<Column> getFullSchema() {
-        makeSureInitialized();
-        if (getDlaType() == DLAType.HUDI) {
-            return ((HudiDlaTable) dlaTable).getHudiSchemaCacheValue(MvccUtil.getSnapshotFromContext(this))
-                    .getSchema();
-        } else if (getDlaType() == DLAType.ICEBERG) {
-            return getIcebergSchema(MvccUtil.getSnapshotFromContext(this)).getSchema();
-        }
-        Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
-        return schemaCacheValue.map(SchemaCacheValue::getSchema).orElse(null);
+        return withMissingTableRepair(() -> {
+            makeSureInitialized();
+            if (getDlaType() == DLAType.HUDI) {
+                return ((HudiDlaTable) dlaTable).getHudiSchemaCacheValue(MvccUtil.getSnapshotFromContext(this))
+                        .getSchema();
+            } else if (getDlaType() == DLAType.ICEBERG) {
+                return getIcebergSchema(MvccUtil.getSnapshotFromContext(this)).getSchema();
+            }
+            Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
+            return schemaCacheValue.map(SchemaCacheValue::getSchema).orElse(null);
+
+        });
     }
 
     @Override
     public List<Column> getFullSchema(Optional<MvccSnapshot> snapshot) {
-        makeSureInitialized();
-        // HMS can front snapshot-aware formats too; callers that pin a relation must not fall
-        // back to the table's current schema merely because its catalog type is HMS.
-        if (getDlaType() == DLAType.HUDI) {
-            return ((HudiDlaTable) dlaTable).getHudiSchemaCacheValue(snapshot).getSchema();
-        } else if (getDlaType() == DLAType.ICEBERG) {
-            return getIcebergSchema(snapshot).getSchema();
-        }
-        return super.getFullSchema(snapshot);
+        return withMissingTableRepair(() -> {
+            makeSureInitialized();
+            // HMS can front snapshot-aware formats too; callers that pin a relation must not fall
+            // back to the table's current schema merely because its catalog type is HMS.
+            if (getDlaType() == DLAType.HUDI) {
+                return ((HudiDlaTable) dlaTable).getHudiSchemaCacheValue(snapshot).getSchema();
+            } else if (getDlaType() == DLAType.ICEBERG) {
+                return getIcebergSchema(snapshot).getSchema();
+            }
+            return super.getFullSchema(snapshot);
+
+        });
     }
 
     @Override
     public Optional<SchemaCacheValue> getSchemaCacheValue() {
-        makeSureInitialized();
-        if (dlaType == DLAType.HUDI) {
-            return Optional.of(
-                    ((HudiDlaTable) dlaTable).getHudiSchemaCacheValue(MvccUtil.getSnapshotFromContext(this)));
-        } else if (dlaType == DLAType.ICEBERG) {
-            return Optional.of(getIcebergSchema(MvccUtil.getSnapshotFromContext(this)));
-        }
-        return super.getSchemaCacheValue();
+        return withMissingTableRepair(() -> {
+            makeSureInitialized();
+            if (dlaType == DLAType.HUDI) {
+                return Optional.of(
+                        ((HudiDlaTable) dlaTable).getHudiSchemaCacheValue(MvccUtil.getSnapshotFromContext(this)));
+            } else if (dlaType == DLAType.ICEBERG) {
+                return Optional.of(getIcebergSchema(MvccUtil.getSnapshotFromContext(this)));
+            }
+            return super.getSchemaCacheValue();
+        });
     }
 
     private SchemaCacheValue getIcebergSchema(Optional<MvccSnapshot> snapshot) {
@@ -435,8 +443,10 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     @Override
     public List<Column> getPartitionColumns(Optional<MvccSnapshot> snapshot) {
-        makeSureInitialized();
-        return dlaTable.getPartitionColumns(snapshot);
+        return withMissingTableRepair(() -> {
+            makeSureInitialized();
+            return dlaTable.getPartitionColumns(snapshot);
+        });
     }
 
     @Override
@@ -543,8 +553,10 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     @Override
     public boolean isView() {
-        makeSureInitialized();
-        return remoteTable.isSetViewOriginalText() || remoteTable.isSetViewExpandedText();
+        return withMissingTableRepair(() -> {
+            makeSureInitialized();
+            return remoteTable.isSetViewOriginalText() || remoteTable.isSetViewExpandedText();
+        });
     }
 
     @Override
@@ -1246,14 +1258,17 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     @Override
     public MvccSnapshot loadSnapshot(Optional<TableSnapshot> tableSnapshot, Optional<TableScanParams> scanParams) {
-        if (getDlaType() == DLAType.HUDI) {
-            return HudiUtils.getHudiMvccSnapshot(tableSnapshot, this);
-        } else if (getDlaType() == DLAType.ICEBERG) {
-            return new IcebergMvccSnapshot(
-                    IcebergUtils.getSnapshotCacheValue(tableSnapshot, this, scanParams));
-        } else {
-            return new EmptyMvccSnapshot();
-        }
+        return withMissingTableRepair(() -> {
+            if (getDlaType() == DLAType.HUDI) {
+                return HudiUtils.getHudiMvccSnapshot(tableSnapshot, this);
+            } else if (getDlaType() == DLAType.ICEBERG) {
+                return new IcebergMvccSnapshot(
+                        IcebergUtils.getSnapshotCacheValue(tableSnapshot, this, scanParams));
+            } else {
+                return new EmptyMvccSnapshot();
+            }
+
+        });
     }
 
     public boolean firstColumnIsString() {
