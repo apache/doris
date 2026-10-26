@@ -184,7 +184,7 @@ final class IcebergWriterHelper {
                 partitionData = Optional.of(convertToPartitionData(partitionValues, spec, zone));
             }
             DataFile dataFile = genDataFile(fileFormat, location, spec, partitionData, recordCount, fileSize,
-                    metrics, sortOrder);
+                    metrics, sortOrder, commitData.getSplitOffsets());
             dataFiles.add(dataFile);
         }
         return WriteResult.builder()
@@ -194,7 +194,7 @@ final class IcebergWriterHelper {
 
     private static DataFile genDataFile(FileFormat format, String location, PartitionSpec spec,
             Optional<PartitionData> partitionData, long recordCount, long fileSize, Metrics metrics,
-            SortOrder sortOrder) {
+            SortOrder sortOrder, List<Long> splitOffsets) {
         DataFiles.Builder builder = DataFiles.builder(spec)
                 .withPath(location)
                 .withFileSizeInBytes(fileSize)
@@ -202,6 +202,10 @@ final class IcebergWriterHelper {
                 .withMetrics(metrics)
                 .withSortOrder(sortOrder)
                 .withFormat(format);
+        // Older BE fragments omit this optional field; only Parquet data writers report these boundaries.
+        if (format == FileFormat.PARQUET && splitOffsets != null && !splitOffsets.isEmpty()) {
+            builder.withSplitOffsets(splitOffsets);
+        }
         partitionData.ifPresent(builder::withPartition);
         return builder.build();
     }

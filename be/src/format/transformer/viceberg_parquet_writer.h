@@ -44,6 +44,8 @@ public:
 
     Status collect_file_statistics_after_close(TIcebergColumnStats* stats);
 
+    Status collect_split_offsets_after_close(std::vector<int64_t>* offsets);
+
 protected:
     arrow::Status _open_file_writer() override;
 

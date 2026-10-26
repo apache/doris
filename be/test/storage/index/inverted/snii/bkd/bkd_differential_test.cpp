@@ -15,25 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// P1-5, design 12.1: the differential test between the SNII-native BKD and the
-// CLucene BKD it replaces. It is the only test that can show the rewrite did not
-// change SEMANTICS, because it feeds the SAME points and the SAME query
-// intervals to both implementations and demands the same doc ids back.
-//
-// THREE answers are compared on every query, not two (design 12.2 / R1):
-//   brute force   -- a linear scan of the point list, independent of both indexes
-//   CLucene BKD   -- the implementation shipping for V1/V2/V3 today
-//   native BKD    -- BkdBuilder + BkdReader
-// A differential test alone can only prove "same as before"; the brute-force
-// oracle is what decides WHO is right when the two disagree, and the old
-// implementation has catalogued defects (design 14), so a disagreement is not
-// automatically a bug in the new code.
-//
-// Point values on BOTH sides come from KeyCoder::full_encode_ascending (INV-1):
-// unsigned big-endian sortable bytes for the index's own FieldType. CLucene's
-// NumericUtils is deliberately NOT used -- Doris production never encodes BKD
-// points with it (inverted_index_writer.cpp calls the KeyCoder), so encoding the
-// baseline differently would compare something that never ships.
+// Compares native BKD, CLucene BKD, and a brute-force scan on the same KeyCoder-encoded points and ranges.
 
 #include <CLucene.h> // IWYU pragma: keep
 #include <CLucene/store/IndexInput.h>
@@ -461,9 +443,7 @@ public:
         opened_ = reader_->open();
     }
 
-    // false only for the 0-point index: the old reader signals emptiness by
-    // refusing to open (design 5.3 replaces that with an index that opens and
-    // answers every query with an empty bitmap).
+    // The CLucene reader does not open a zero-point index.
     bool opened() const { return opened_; }
 
     // Leaves the old writer actually cut. Asserted non-trivial by the test so a
@@ -576,9 +556,7 @@ std::vector<Dataset> make_datasets(Rng* rng) {
         datasets.push_back(std::move(dataset));
     }
     {
-        // Unordered values with ascending doc ids: inside a leaf the doc ids are
-        // NOT monotone, so this is the only shape that really exercises the RAW
-        // leaf's doc-id encoding (design 5.2).
+        // Unordered values make doc IDs non-monotone inside a raw leaf.
         Dataset dataset;
         dataset.name = "unordered_values";
         for (int64_t i = 0; i < kBigPointCount; ++i) {
@@ -670,10 +648,7 @@ std::vector<Dataset> make_datasets(Rng* rng) {
         datasets.push_back(std::move(dataset));
     }
     {
-        // Runs SHORTER than a leaf: every leaf holds many runs, which is the
-        // kRle mode of design 5.2 (as opposed to the whole-leaf kAllEqual that
-        // runs_across_leaves below produces) and the old writer's
-        // low-cardinality leaf encoding.
+        // Short equal-value runs exercise kRle leaves.
         Dataset dataset;
         dataset.name = "medium_runs";
         uint32_t doc = 0;
@@ -876,14 +851,11 @@ TYPED_TEST(BkdDifferentialTest, SameAnswersAsCluceneAndAsBruteForce) {
         CluceneIndex clucene;
         clucene.build(dataset, bytes_per_dim);
 
-        // Documented API difference (design 5.3): the old reader signals "empty"
-        // by refusing to open; the new one opens and answers with empty bitmaps.
+        // The native reader opens an empty index and returns empty results.
         EXPECT_EQ(clucene.opened(), !dataset.points.empty());
         EXPECT_EQ(native.reader().empty(), dataset.points.empty());
         EXPECT_EQ(native.reader().point_count(), dataset.points.size());
-        // doc_count is counted inside the builder now (design 6.1 / 14 #7)
-        // instead of being pushed in from outside, and an array column repeating
-        // one doc id must not inflate it.
+        // Repeated doc IDs from array values must count as one document.
         EXPECT_EQ(native.reader().doc_count(), distinct_doc_count(dataset.points));
         // Above 1024 points the baseline must really be a tree; if a future edit
         // shrinks these datasets the comparison would quietly degrade to a

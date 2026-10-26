@@ -29,6 +29,7 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_spatial.h"
 #include "core/column/column_struct.h"
+#include "core/column/column_varbinary.h"
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_variant_v2.h"
@@ -84,6 +85,7 @@ private:
         // Spatial StringViews require insert_from to copy WKB into the result's arena;
         // the fixed-width SIMD path would copy only the views.
         if constexpr (std::is_same_v<ColumnType, ColumnString> ||
+                      std::is_same_v<ColumnType, ColumnVarbinary> ||
                       std::is_same_v<ColumnType, ColumnBitmap> ||
                       std::is_same_v<ColumnType, ColumnArray> ||
                       std::is_same_v<ColumnType, ColumnMap> ||
@@ -141,6 +143,7 @@ private:
             CASE_TYPE(TYPE_CHAR, ColumnString)
             CASE_TYPE(TYPE_VARCHAR, ColumnString)
             CASE_TYPE(TYPE_JSONB, ColumnString)
+            CASE_TYPE(TYPE_VARBINARY, ColumnVarbinary)
             CASE_TYPE(TYPE_DATE, ColumnDate)
             CASE_TYPE(TYPE_DATETIME, ColumnDateTime)
             CASE_TYPE(TYPE_DATEV2, ColumnDateV2)

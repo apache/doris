@@ -154,6 +154,8 @@ const char* file_format_name(FileFormat format) {
         return "JNI";
     case FileFormat::ARROW:
         return "ARROW";
+    case FileFormat::ES_HTTP:
+        return "ES_HTTP";
     case FileFormat::WAL:
         return "WAL";
     }
