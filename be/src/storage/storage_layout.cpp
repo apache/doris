@@ -65,24 +65,20 @@ void repack_from_column(const IColumn& column, size_t row_pos, size_t n, uint8_t
     }
 }
 
-// The column the values a page decodes go to: `dst` itself, or the values of a Nullable
-// `dst`, whose n new rows are marked not NULL first.
-IColumn& values_column(IColumn& dst, size_t n) {
-    if (!dst.is_nullable()) {
-        return dst;
-    }
-    auto& nullable = assert_cast<ColumnNullable&>(dst);
-    nullable.push_false_to_nullmap(n);
-    return nullable.get_nested_column();
-}
-
 // Appends n stored values of a repacked layout, each turned back into its PrimitiveValue.
 template <FieldType FT>
 void repack_to_column(const uint8_t* values, size_t n, IColumn& dst) {
+    if (dst.is_nullable()) {
+        // A page holds no NULL row: the n rows it decodes are all not NULL.
+        auto& nullable = assert_cast<ColumnNullable&>(dst);
+        nullable.push_false_to_nullmap(n);
+        repack_to_column<FT>(values, n, nullable.get_nested_column());
+        return;
+    }
     using StorageValue = typename CppTypeTraits<FT>::CppType;
     using Column =
             typename PrimitiveTypeTraits<storage_field_type_to_primitive_type(FT)>::ColumnType;
-    auto& data = assert_cast<Column&>(values_column(dst, n)).get_data();
+    auto& data = assert_cast<Column&>(dst).get_data();
     data.reserve(data.size() + n);
     for (size_t i = 0; i < n; ++i) {
         StorageValue value;

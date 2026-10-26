@@ -120,8 +120,6 @@ public:
 template <PrimitiveType Type>
 class TypedZoneMapIndexWriter final : public ZoneMapIndexWriter {
 public:
-    // The cells the column writer feeds: a string as a Slice, read as a StringRef, else the
-    // stored value of the column's FieldType.
     using ValType = std::conditional_t<
             is_string_type(Type), StringRef,
             typename CppTypeTraits<primitive_type_to_storage_field_type(Type)>::CppType>;
