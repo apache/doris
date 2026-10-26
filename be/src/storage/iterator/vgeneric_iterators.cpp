@@ -44,10 +44,7 @@ Status VStatisticsIterator::init(const StorageReadOptions& opts) {
     if (!_init) {
         _push_down_agg_type_opt = opts.push_down_agg_type_opt;
 
-        // COUNT only fills defaults. Every other aggregate reads the min and max of each column
-        // out of that column's own segment zone map, so each block column gets its own iterator:
-        // a unique id does not tell the columns apart, since every VARIANT path a scan adds to its
-        // read schema carries -1.
+        // Not keyed by unique id: every VARIANT path a scan adds carries -1.
         if (_push_down_agg_type_opt != TPushAggOp::COUNT) {
             _column_iterators.resize(_schema.num_block_columns());
             for (size_t ordinal = 0; ordinal < _schema.num_block_columns(); ++ordinal) {
@@ -78,8 +75,6 @@ Status VStatisticsIterator::next_batch(Block* block) {
                 column->insert_many_defaults(size);
             }
         } else {
-            // A CHAR bound comes out of the zone map without its '\0' padding already
-            // (DataTypeStringSerDeBase::from_olap_string), like the rows of a normal read.
             for (size_t i = 0; i < columns.size(); ++i) {
                 RETURN_IF_ERROR(_column_iterators[i]->next_batch_of_zone_map(&size, columns[i]));
             }
