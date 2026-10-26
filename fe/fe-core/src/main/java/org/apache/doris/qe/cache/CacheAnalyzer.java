@@ -203,8 +203,7 @@ public class CacheAnalyzer {
     }
 
     public static boolean commonCacheCondition(SessionVariable sessionVariable) {
-        return sessionVariable.getSqlSelectLimit() < 0 && sessionVariable.getDefaultOrderByLimit() < 0
-                && !sessionVariable.dryRunQuery
+        return !sessionVariable.dryRunQuery
                 && !sessionVariable.skipDeleteBitmap
                 && !sessionVariable.skipDeleteSign
                 && !sessionVariable.skipDeletePredicate
