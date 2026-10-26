@@ -25,6 +25,7 @@ import org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.SupportsDistributedScanPlanning;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -33,6 +34,7 @@ import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Proxy;
 import java.util.Collections;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -59,6 +61,32 @@ class IcebergTableHandleReuseTest {
 
     private static long existenceCalls(RecordingIcebergCatalogOps ops) {
         return ops.log.stream().filter(s -> s.startsWith("tableExists:")).count();
+    }
+
+    @Test
+    void ddlHandleDoesNotRequireLocalScanPlanning() {
+        RecordingIcebergCatalogOps ops = ops();
+        Table serverPlanned = (Table) Proxy.newProxyInstance(Table.class.getClassLoader(),
+                new Class<?>[] {Table.class, SupportsDistributedScanPlanning.class},
+                (proxy, method, args) -> {
+                    if (method.getName().equals("allowDistributedPlanning")) {
+                        return false;
+                    }
+                    throw new AssertionError("DDL must not read scan metadata: " + method.getName());
+                });
+        ops.table = serverPlanned;
+        IcebergConnectorMetadata metadata = metadata(ops, null);
+        ConnectorSession session = session("ddl", new TestStatementScope());
+
+        RuntimeException scanFailure = Assertions.assertThrows(RuntimeException.class,
+                () -> metadata.getTableHandle(session, "db1", "t1"));
+        Assertions.assertTrue(scanFailure.getMessage().contains("server-side scan planning"));
+        Assertions.assertTrue(metadata.tableExists(session, "db1", "t1"));
+        int loads = (int) ops.log.stream().filter(s -> s.startsWith("loadTable:")).count();
+        ConnectorTableHandle handle = metadata.getTableHandleForDdl(session, "db1", "t1").orElseThrow();
+        Assertions.assertEquals(loads, ops.log.stream().filter(s -> s.startsWith("loadTable:")).count());
+        metadata.dropTable(session, handle);
+        Assertions.assertTrue(ops.log.stream().anyMatch(s -> s.startsWith("dropTable:")));
     }
 
     @Test

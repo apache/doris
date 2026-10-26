@@ -107,6 +107,8 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         session = Mockito.mock(ConnectorSession.class);
         Mockito.when(metadata.tableExists(Mockito.any(), Mockito.anyString(), Mockito.anyString()))
                 .thenCallRealMethod();
+        Mockito.when(metadata.getTableHandleForDdl(Mockito.any(), Mockito.anyString(), Mockito.anyString()))
+                .thenCallRealMethod();
         Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
         Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(metadata);
         Mockito.when(metadata.fromRemoteDatabaseName(Mockito.eq(session), Mockito.anyString()))

@@ -847,7 +847,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         // first check current existence so IF EXISTS still performs local cleanup in that case.
         Optional<ConnectorTableHandle> handle = metadata.tableExists(
                 session, dorisTable.getRemoteDbName(), dorisTable.getRemoteName())
-                ? metadata.getTableHandle(session, dorisTable.getRemoteDbName(), dorisTable.getRemoteName())
+                ? metadata.getTableHandleForDdl(session, dorisTable.getRemoteDbName(), dorisTable.getRemoteName())
                 : Optional.empty();
         // The table is present in the FE cache but may have been dropped out-of-band on the remote
         // side; preserve the existing IF EXISTS handling for that case.
@@ -1414,7 +1414,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
      */
     private ConnectorTableHandle resolveAlterHandle(ExternalTable externalTable, ConnectorSession session,
             ConnectorMetadata metadata) throws DdlException {
-        Optional<ConnectorTableHandle> handle = metadata.getTableHandle(
+        Optional<ConnectorTableHandle> handle = metadata.getTableHandleForDdl(
                 session, externalTable.getRemoteDbName(), externalTable.getRemoteName());
         if (!handle.isPresent()) {
             throw new DdlException("Failed to get table: '" + externalTable.getName()

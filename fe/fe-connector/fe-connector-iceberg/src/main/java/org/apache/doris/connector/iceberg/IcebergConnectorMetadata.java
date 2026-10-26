@@ -493,6 +493,13 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     }
 
     @Override
+    public Optional<ConnectorTableHandle> getTableHandleForDdl(
+            ConnectorSession session, String dbName, String tableName) {
+        return tableExists(session, dbName, tableName)
+                ? Optional.of(new IcebergTableHandle(dbName, tableName)) : Optional.empty();
+    }
+
+    @Override
     public boolean tableExists(
             ConnectorSession session, String dbName, String tableName) {
         // Existence checks are used by DDL and must observe out-of-band drops even while a
