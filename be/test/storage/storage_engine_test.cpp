@@ -153,15 +153,15 @@ TEST_F(StorageEngineTest, TestAsyncPublish) {
                 "StorageEngine::add_async_publish_task::save_pending_publish_info",
                 [](auto&& args) {
                     auto* result = try_any_cast_ret<Status>(args);
-                    result->first =
-                            Status::Error<META_PUT_ERROR>("injected pending-publish write failure");
+                    result->first = Status::Error<ErrorCode::META_PUT_ERROR>(
+                            "injected pending-publish write failure");
                     result->second = true;
                 },
                 &guard);
         SyncPoint::get_instance()->enable_processing();
         auto failed = _storage_engine->add_async_publish_task(partition_id, tablet_id, 11, 11,
                                                               false, 110, mapping);
-        EXPECT_TRUE(failed.is<META_PUT_ERROR>()) << failed;
+        EXPECT_TRUE(failed.is<ErrorCode::META_PUT_ERROR>()) << failed;
         EXPECT_TRUE(_storage_engine->_async_publish_tasks.empty());
         SyncPoint::get_instance()->disable_processing();
     }
