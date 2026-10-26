@@ -4831,8 +4831,50 @@ public final class SPMPlanTreeSupport {
             collectBlockQualifiers(((LogicalCTE<?>) plan).child(0), qualifiers);
             return;
         }
+        if (plan instanceof LogicalGenerate) {
+            // A LATERAL VIEW generator's TABLE ALIAS is a relation qualifier of this block
+            // (round-81 #5): its output slot binds under it (`lv.x`), so leaving it out made
+            // outputLabelOf classify `lv.x` as a STRUCT FIELD path and rename the CORRECT
+            // frozen header to `lv.x` even for the identical query.
+            List<org.apache.doris.nereids.trees.expressions.Slot> generated =
+                    ((LogicalGenerate<?>) plan).getGeneratorOutput();
+            if (generated != null) {
+                for (org.apache.doris.nereids.trees.expressions.Slot output : generated) {
+                    collectGeneratorQualifier(output, qualifiers);
+                }
+            }
+        }
         for (Plan child : plan.children()) {
             collectBlockQualifiers(child, qualifiers);
+        }
+    }
+
+    /**
+     * Adds the QUALIFIER one generated output column binds under (see collectBlockQualifiers).
+     *
+     * The parse tree stores the generator output as the written two-part slot (`lv.x`), the
+     * analyzed one as a SlotReference carrying the qualifier list; both name the generator's
+     * table alias, never a struct field.
+     *
+     * @param output     the generator output slot
+     * @param qualifiers the collected relation names
+     */
+    private static void collectGeneratorQualifier(
+            org.apache.doris.nereids.trees.expressions.Slot output, Set<String> qualifiers) {
+        if (output instanceof UnboundSlot) {
+            java.util.List<String> parts = ((UnboundSlot) output).getNameParts();
+            if (parts != null && parts.size() >= 2) {
+                qualifiers.add(parts.get(0).toLowerCase(Locale.ROOT));
+            }
+            return;
+        }
+        if (output instanceof org.apache.doris.nereids.trees.expressions.SlotReference) {
+            java.util.List<String> qualifier =
+                    ((org.apache.doris.nereids.trees.expressions.SlotReference) output)
+                            .getQualifier();
+            if (qualifier != null && !qualifier.isEmpty()) {
+                qualifiers.add(qualifier.get(qualifier.size() - 1).toLowerCase(Locale.ROOT));
+            }
         }
     }
 
@@ -5452,7 +5494,15 @@ public final class SPMPlanTreeSupport {
 
     /**
      * The identity of one non-leaf node for the resolved-key comparison (see sameResolvedKey): a
-     * FUNCTION contributes its name, everything else its node class.
+     * FUNCTION contributes its name, everything else its node class - plus the SEMANTIC
+     * ATTRIBUTES the class alone does not carry.
+     *
+     * A CAST's TARGET TYPE is exactly such an attribute (round-81 #1): {@code CAST(k AS INT)} and
+     * {@code CAST(k AS DOUBLE)} are the same class over the same child, so an alias PERMUTATION
+     * that swapped the two output casts passed this comparison although it resolves `x` to the
+     * other cast - the bind HAVING then filtered {@code CAST(0.5 AS INT) = 0} (dropping the row)
+     * while the frozen replay filtered the DOUBLE value (keeping it). The class-only identity of
+     * a node whose constructor arguments change its meaning has to list them here.
      *
      * @param expression the node
      * @return the identity text
@@ -5461,6 +5511,11 @@ public final class SPMPlanTreeSupport {
         if (expression instanceof org.apache.doris.nereids.trees.expressions.functions.Function) {
             return ((org.apache.doris.nereids.trees.expressions.functions.Function) expression)
                     .getName().toLowerCase(Locale.ROOT);
+        }
+        if (expression instanceof org.apache.doris.nereids.trees.expressions.Cast) {
+            return expression.getClass().getName() + "->"
+                    + ((org.apache.doris.nereids.trees.expressions.Cast) expression)
+                            .getDataType().toSql();
         }
         return expression.getClass().getName();
     }
@@ -7235,9 +7290,16 @@ public final class SPMPlanTreeSupport {
      * The entry comparison above is only as strong as the two snapshots it compares: a
      * definition re-created and then restored to the original body inside the capture window
      * leaves both snapshots identical although the expansion inlined the INTERMEDIATE body
-     * (round-79 #9). When the bind text references a UDF, the registry's monotonic UDF version
-     * must therefore be unchanged as well - it records that nothing happened, not just that the
-     * endpoints agree.
+     * (round-79 #9). When the bind text references functions, the registry's monotonic UDF
+     * version must therefore be unchanged as well - it records that nothing happened, not just
+     * that the endpoints agree.
+     *
+     * EVERY function reference counts, not only the ones that resolve to a UDF today
+     * (round-81 #4): with {@code prefer_udf_over_builtin=true} a new alias UDF SHADOWS a builtin
+     * of the same name, so a CREATE plus a DROP inside the capture window turns `lower(s)` from
+     * builtin to the alias and back - the two entry sets are identical (both say builtin) while
+     * the frozen plan inlined `upper(s)`. A query that calls no function at all cannot be
+     * affected and keeps skipping the version check.
      *
      * @param ctx                     the creating session
      * @param bindPlan                the parsed (unbound) bind tree
@@ -7267,10 +7329,10 @@ public final class SPMPlanTreeSupport {
                         + " the CREATE");
             }
             if (functionRegistryVersion != null && functionRegistryVersion >= 0
-                    && referencesUdf(current)
+                    && referencesFunctions(current)
                     && functionRegistryVersion() != functionRegistryVersion.longValue()) {
                 throw new IllegalStateException("SPM cannot certify the function definitions of"
-                        + " a baseline whose bind text references a UDF: the UDF definitions"
+                        + " a baseline whose bind text references functions: the UDF definitions"
                         + " MOVED while the plan was being captured (version "
                         + functionRegistryVersion + " -> " + functionRegistryVersion() + "). The"
                         + " derived entries agree NOW, but the expansion inlined whatever body"
@@ -7310,19 +7372,18 @@ public final class SPMPlanTreeSupport {
     }
 
     /**
-     * Whether one function-entry set references at least one UDF (see
+     * Whether one function-entry set references at least one function (see
      * schemaFingerprintForCreateFromLockedEntries).
      *
+     * A builtin entry counts: an alias UDF created inside the capture window can SHADOW it under
+     * prefer_udf_over_builtin and be dropped again, leaving the endpoints identical while the
+     * frozen plan inlined the alias body (round-81 #4).
+     *
      * @param entries the derived function entries
-     * @return whether any entry resolved to a UDF
+     * @return whether the bind text calls any function
      */
-    private static boolean referencesUdf(java.util.Set<String> entries) {
-        for (String entry : entries) {
-            if (entry != null && entry.contains("|udf|")) {
-                return true;
-            }
-        }
-        return false;
+    private static boolean referencesFunctions(java.util.Set<String> entries) {
+        return !entries.isEmpty();
     }
 
     /**
@@ -8211,14 +8272,22 @@ public final class SPMPlanTreeSupport {
             org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdf udf =
                     ((org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdfBuilder)
                             builder).getAliasUdf();
+            // The ORDERED FORMAL-PARAMETER list is part of the identity (round-81 #3):
+            // AliasUdfBuilder maps arguments[i] through getParameters().get(i), so re-creating
+            // `f(STRING,STRING) WITH PARAMETER(y,x) AS concat(x,y)` over the SAME body text,
+            // types and saved variables expands `f(a,b)` to concat(b,a) - the frozen text keeps
+            // the old concat(a,b) and the replay returns AB where the caller gets BA. Only the
+            // parameter list separates the two declarations, so it is rendered in order.
             return "alias:" + (udf == null ? "null"
-                    : udf.getUnboundFunction().toSql() + "|" + udf.getSessionVariables())
+                    : udf.getUnboundFunction().toSql() + "|params=" + udf.getParameters()
+                            + "|" + udf.getSessionVariables())
                     + "|" + signature + "|" + planBehaviorOf(udf)
                     + "|" + describeAliasBodyEntries(ctx, udf, expandingAliasBody);
         }
         return "other:" + builder.functionClass().getName() + "|" + signature
                 + "|" + planBehaviorOf(builder.functionClass())
-                + "|m=" + instanceNullableModeOf(builder);
+                + "|m=" + instanceNullableModeOf(builder)
+                + "|vol=" + instanceVolatilityOf(builder);
     }
 
     /**
@@ -8274,6 +8343,32 @@ public final class SPMPlanTreeSupport {
                 ((org.apache.doris.nereids.trees.expressions.functions.udf.UdfBuilder) builder)
                         .getUdf();
         return udf == null || udf.getNullableMode() == null ? "-" : udf.getNullableMode().name();
+    }
+
+    /**
+     * The INSTANCE-level VOLATILITY of one catalog UDF candidate (see describeUdfCandidate).
+     *
+     * Volatility is what `isDeterministic()` answers with, and the optimizer treats the calls
+     * accordingly (round-81 #2): re-creating the SAME function - class, argument types, return
+     * type and nullability unchanged - as VOLATILE makes ordinary planning give two calls of it
+     * FRESH volatile identities (`withFreshVolatileIdentity`), so `f(k) = f(k)` stays a real
+     * comparison that may return FALSE, while the frozen baseline was simplified to TRUE and
+     * keeps returning it. The registry-version fence runs at CREATE only, so the later change
+     * has to show up here, in the definition identity both metadata guards compare.
+     *
+     * @param builder the UDF builder
+     * @return the volatility name ('-' when the builder carries no instance)
+     */
+    private static String instanceVolatilityOf(
+            org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder builder) {
+        if (!(builder instanceof org.apache.doris.nereids.trees.expressions.functions.udf
+                .UdfBuilder)) {
+            return "-";
+        }
+        org.apache.doris.nereids.trees.expressions.functions.Udf udf =
+                ((org.apache.doris.nereids.trees.expressions.functions.udf.UdfBuilder) builder)
+                        .getUdf();
+        return udf == null || udf.getVolatility() == null ? "-" : udf.getVolatility().name();
     }
 
     /**

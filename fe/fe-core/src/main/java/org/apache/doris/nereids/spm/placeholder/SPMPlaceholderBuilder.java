@@ -432,6 +432,17 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             // the MAP spelling lost the value marker the same way (round-80 #1).
             return !children.isEmpty() && isAllNullContainer(children.get(0));
         }
+        if (isArrayReducerCall(expr)) {
+            // The SAME producer classification, for the array REDUCERS (round-81 P1):
+            // ARRAY_MIN / ARRAY_MAX return `FollowToAnyDataType(0)`, i.e. the INPUT array's
+            // element type, so an all-NULL input makes the whole call NullType - binding then
+            // replaced `k > 0 OR array_min(array(NULL))` with `k > ph OR NULL` and the
+            // `array_min(array(TRUE))` caller got NULL instead of TRUE. Keeping the family in
+            // ONE classifier is what lets the marker be retyped before the Boolean consumer
+            // drops it - the same defect the bare element_at trigger had, so it is carried here
+            // instead of in a per-function inline.
+            return !children.isEmpty() && isAllNullArray(children.get(0));
+        }
         return false;
     }
 
@@ -613,6 +624,26 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         }
         return expr instanceof Function
                 && "element_at".equalsIgnoreCase(((Function) expr).getName());
+    }
+
+    /**
+     * Whether the expression is an {@code array_min} / {@code array_max} call (see
+     * producesNullType).
+     *
+     * Both declare {@code ret(FollowToAnyDataType(0))}, i.e. the result IS the input array's
+     * element type, so an all-NULL input makes the call a NullType producer exactly like
+     * {@code element_at}. Matched by NAME through {@link Function}, which covers the unbound
+     * calls and the bound {@code ArrayMin} / {@code ArrayMax} nodes.
+     *
+     * @param expr the expression to classify
+     * @return whether it is an array reducer
+     */
+    private static boolean isArrayReducerCall(Expression expr) {
+        if (!(expr instanceof Function)) {
+            return false;
+        }
+        String name = ((Function) expr).getName();
+        return "array_min".equalsIgnoreCase(name) || "array_max".equalsIgnoreCase(name);
     }
 
     /**
