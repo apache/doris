@@ -25,6 +25,7 @@ import org.apache.doris.connector.spi.ConnectorDatabaseMetadata;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.connector.spi.ConnectorTableSchema;
 import org.apache.doris.connector.spi.ConnectorTableStatistics;
@@ -45,6 +46,7 @@ import org.apache.doris.connector.spi.handle.ConnectorTransaction;
 import org.apache.doris.connector.spi.handle.WriteOperation;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartitionView;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.spi.mvcc.ConnectorSqlCacheVersion;
 import org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec;
 import org.apache.doris.connector.spi.pushdown.ConnectorAnd;
 import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
@@ -79,6 +81,7 @@ import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.SnapshotSummary;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
@@ -343,6 +346,17 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     }
 
     @Override
+    public List<String> listRelationNames(ConnectorSession session, String dbName) {
+        try {
+            return executeAuthenticated(() -> catalogOps.listRelationNames(dbName));
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to list relation names, error message is: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
     public List<String> listViewNames(ConnectorSession session, String dbName) {
         // Mirror legacy IcebergMetadataOps.listViewNames: wrap in the auth context; a RuntimeException
         // (e.g. NoSuchNamespaceException) is rethrown verbatim, other failures are wrapped.
@@ -455,8 +469,44 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     @Override
     public Optional<ConnectorTableHandle> getTableHandle(
             ConnectorSession session, String dbName, String tableName) {
+        IcebergTableHandle handle = new IcebergTableHandle(dbName, tableName);
+        if (IcebergStatementScope.hasReadTable(session, dbName, tableName)
+                || (tableCache != null && tableCache.contains(TableIdentifier.of(dbName, tableName)))) {
+            return Optional.of(handle);
+        }
+        // Offline callers cannot retain a cache lease. Pure existence checks use tableExists instead.
+        if (session == null || session.getStatementScope() == ConnectorStatementScope.NONE) {
+            return tableExists(session, dbName, tableName) ? Optional.of(handle) : Optional.empty();
+        }
+        try {
+            // Loading proves existence and pins the same metadata used by schema/snapshot/scan planning.
+            // Borrow through the existing generation-aware cache so concurrent cold readers share one load.
+            executeAuthenticated(() -> resolveTableForRead(session, handle));
+            return Optional.of(handle);
+        } catch (Exception e) {
+            if (ExceptionUtils.getThrowableList(e).stream().anyMatch(NoSuchTableException.class::isInstance)) {
+                return Optional.empty();
+            }
+            throw IcebergExceptionUtils.wrapTableLoadFailure(handle, e,
+                    "Failed to load table, error message is:");
+        }
+    }
+
+    @Override
+    public Optional<ConnectorTableHandle> getTableHandleForDdl(
+            ConnectorSession session, String dbName, String tableName) {
+        return tableExists(session, dbName, tableName)
+                ? Optional.of(new IcebergTableHandle(dbName, tableName)) : Optional.empty();
+    }
+
+    @Override
+    public boolean tableExists(
+            ConnectorSession session, String dbName, String tableName) {
+        // Existence checks are used by DDL and must observe out-of-band drops even while a
+        // read-table cache entry or an in-flight reader still owns the previous metadata.
+        // Query planning reuses pinned/cached metadata through getTableHandle instead.
         // Mirror legacy IcebergMetadataOps.tableExist: wrap the remote existence check in the auth context
-        // (the handle build below is pure — no remote call).
+        // without loading and pinning a table merely to answer a DDL existence check.
         boolean exists;
         try {
             exists = executeAuthenticated(() -> catalogOps.tableExists(dbName, tableName));
@@ -464,17 +514,14 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             // Preserve Optional.empty even when an auth/catalog layer wraps NoSuchTableException.
             if (ExceptionUtils.getThrowableList(e).stream()
                     .anyMatch(NoSuchTableException.class::isInstance)) {
-                return Optional.empty();
+                return false;
             }
             // Existence checks in several catalogs load metadata internally, so normalize them at the shared
             // handle boundary just like explicit table loads.
             throw IcebergExceptionUtils.wrapTableLoadFailure(new IcebergTableHandle(dbName, tableName), e,
                     "Failed to check table exist, error message is:");
         }
-        if (!exists) {
-            return Optional.empty();
-        }
-        return Optional.of(new IcebergTableHandle(dbName, tableName));
+        return exists;
     }
 
     @Override
@@ -2455,6 +2502,32 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         return true;
     }
 
+    @Override
+    public Optional<ConnectorSqlCacheVersion> getSqlCacheVersion(
+            ConnectorSession session, ConnectorTableHandle handle) {
+        IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        try {
+            return executeAuthenticated(() -> {
+                Table table = resolveTableForRead(session, iceHandle);
+                String version = metadataVersion(table, iceHandle).orElseThrow(
+                        () -> new UnsupportedOperationException("Iceberg SQL cache requires published table metadata"));
+                long updateMillis = iceHandle.getSnapshotId() < 0 ? 0
+                        : table.snapshot(iceHandle.getSnapshotId()).timestampMillis();
+                return Optional.of(new ConnectorSqlCacheVersion(version, updateMillis));
+            });
+        } catch (Exception e) {
+            throw IcebergExceptionUtils.wrapTableLoadFailure(iceHandle, e,
+                    "Failed to get iceberg SQL cache version, error message is:");
+        }
+    }
+
+    @Override
+    public boolean supportsNativePartitionPlanning(ConnectorSession session, ConnectorTableHandle handle) {
+        return !((IcebergTableHandle) handle).isSystemTable()
+                && (session == null || !Boolean.parseBoolean(session.getSessionProperties()
+                        .getOrDefault("enable_iceberg_internal_partition_pruning", "false")));
+    }
+
     // ========== B-2: partition enumeration (MTMV RANGE view + SHOW PARTITIONS) ==========
 
     /**
@@ -2559,6 +2632,39 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         }
     }
 
+    private static Optional<String> metadataVersion(Table table, IcebergTableHandle handle) {
+        // Custom catalog tables and unpublished metadata cannot supply a stable metadata generation.
+        if (!(table instanceof BaseTable)) {
+            return Optional.empty();
+        }
+        TableMetadata metadata = ((BaseTable) table).operations().current();
+        String location = metadata.metadataFileLocation();
+        if (location == null) {
+            return Optional.empty();
+        }
+        return Optional.of(metadata.uuid() + ":" + handle.getSnapshotId() + ":"
+                + handle.getSchemaId() + ":" + location);
+    }
+
+    @Override
+    public Optional<String> getPartitionViewVersion(ConnectorSession session, ConnectorTableHandle handle) {
+        IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        if (!iceHandle.hasSnapshotPin() || session == null
+                || session.getStatementScope() == ConnectorStatementScope.NONE) {
+            // Without a statement-frozen table, metadata could change between version lookup and listing.
+            return Optional.empty();
+        }
+        try {
+            return executeAuthenticated(() -> {
+                Table table = resolveTableForRead(session, iceHandle);
+                return metadataVersion(table, iceHandle);
+            });
+        } catch (Exception e) {
+            throw IcebergExceptionUtils.wrapTableLoadFailure(iceHandle, e,
+                    "Failed to resolve iceberg partition view version, error message is:");
+        }
+    }
+
     /**
      * The physical iceberg partitions of {@code handle} with per-partition value maps, so the generic
      * {@code PluginDrivenExternalTable.getNameToPartitionItems} can populate {@code selectedPartitionNum}
@@ -2627,7 +2733,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     }
 
     private List<ConnectorPartitionInfo> listPartitions(Table table, IcebergTableHandle iceHandle) {
-        return IcebergPartitionUtils.listPartitions(table,
+        return IcebergPartitionUtils.listPartitions(table, iceHandle.getSnapshotId(),
                 TableIdentifier.of(iceHandle.getDbName(), iceHandle.getTableName()), partitionCache);
     }
 
@@ -2639,12 +2745,13 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      * snapshot id (or {@code -1} for an empty table — iceberg DOES support MVCC, so it still pins, mirroring
      * paimon), and the LATEST schema id (NOT {@code currentSnapshot().schemaId()} — a schema-only change without
      * a new snapshot advances the schema while the snapshot's id lags; legacy reads {@code table.schema()
-     * .schemaId()}). T08 serves this through the per-catalog {@link IcebergLatestSnapshotCache}: within the TTL
-     * a HIT returns the cached pin without re-loading the table (saves the load I/O and keeps the snapshot
-     * STABLE across queries — the legacy with-cache catalog). The cached value carries BOTH ids atomically so a
-     * schema-only ALTER between two queries cannot skew snapshotId vs schemaId. A disabled cache
-     * ({@code meta.cache.iceberg.table.enable=false}, {@code ttl-second <= 0} or {@code capacity=0}) reads live
-     * every call (the legacy no-cache catalog).
+     * .schemaId()}). An already frozen statement read takes precedence. With a raw table cache, the pin comes
+     * from that same table generation: its eviction and the separate latest-snapshot cache can occur at
+     * different times, so consulting both could pair a current table with an older snapshot. Catalogs without
+     * a raw table cache use the per-catalog {@link IcebergLatestSnapshotCache}, which keeps a stable pin within
+     * its TTL. The pin carries BOTH ids atomically so a schema-only ALTER cannot skew snapshotId vs schemaId.
+     * A disabled cache ({@code meta.cache.iceberg.table.enable=false}, {@code ttl-second <= 0} or
+     * {@code capacity=0}) reads live every call (the legacy no-cache catalog).
      */
     @Override
     public Optional<ConnectorMvccSnapshot> beginQuerySnapshot(
@@ -2655,11 +2762,25 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         // per-user loadTable authorization) reads live per-user every call, so authorization runs every time (no
         // stale-authz window); mirrors resolveTableForRead's tableCache null-fallback. A disabled cache (the table
         // entry turned off) is a non-null cache that reads live internally.
-        IcebergLatestSnapshotCache.CachedSnapshot pin = latestSnapshotCache != null
-                ? latestSnapshotCache.getOrLoad(id, () -> loadLatestSnapshotPin(session, iceHandle))
-                : loadLatestSnapshotPin(session, iceHandle);
+        IcebergLatestSnapshotCache.CachedSnapshot pin;
+        if (IcebergStatementScope.hasReadTable(session, iceHandle.getDbName(), iceHandle.getTableName())) {
+            // Handle/schema resolution may have frozen an older generation before another query's REFRESH.
+            // A newer shared pin must not point outside that frozen metadata, nor may this reader publish its
+            // old pin over the refreshed cache entry.
+            pin = latestSnapshotPin(loadTable(session, iceHandle));
+        } else if (tableCache != null) {
+            // The table cache owns this generation. Its capacity eviction must evict the latest pin as well;
+            // the independently sized latestSnapshotCache cannot establish that relationship.
+            pin = loadLatestSnapshotPin(session, iceHandle);
+        } else {
+            pin = latestSnapshotCache != null
+                    ? latestSnapshotCache.getOrLoad(id, () -> loadLatestSnapshotPin(session, iceHandle))
+                    : loadLatestSnapshotPin(session, iceHandle);
+        }
+        // SQL result-cache identity and column binding must describe the same read generation. The engine
+        // must not combine this snapshot/schema pin with an independently expiring name-keyed schema cache.
         ConnectorMvccSnapshot.Builder snapshot = ConnectorMvccSnapshot.builder()
-                .snapshotId(pin.snapshotId).schemaId(pin.schemaId);
+                .snapshotId(pin.snapshotId).schemaId(pin.schemaId).retainSchema(true);
         if (pin.snapshotId < 0) {
             snapshot.property(EMPTY_PARTITION_STYLE_PROPERTY, pin.emptyPartitionStyle.name());
         }

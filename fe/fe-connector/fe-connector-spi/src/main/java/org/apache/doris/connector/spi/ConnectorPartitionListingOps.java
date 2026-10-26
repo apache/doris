@@ -38,6 +38,18 @@ import java.util.Optional;
 public interface ConnectorPartitionListingOps {
 
     /**
+     * Optional immutable generation of the unfiltered LIST and MVCC partition views for this handle.
+     * Equal tokens within a table must imply identical partition conversion inputs, including freshness
+     * and partition rules. A snapshot-applied handle must enumerate that snapshot, not a live latest.
+     * Resolving the token must not enumerate partitions. The token and subsequent listings must use the
+     * same statement-frozen metadata. Return empty when the connector cannot provide this guarantee.
+     * The engine additionally keys its converted view by column types and session timezone.
+     */
+    default Optional<String> getPartitionViewVersion(ConnectorSession session, ConnectorTableHandle handle) {
+        return Optional.empty();
+    }
+
+    /**
      * Lists all partition display names (e.g., {@code "year=2024/month=01"}).
      *
      * <p>Should be cheap and avoid loading per-partition metadata.</p>
