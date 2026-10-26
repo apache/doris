@@ -1007,9 +1007,9 @@ Status LogicalIndexReader::dict_block_scan_memory(uint32_t ordinal,
     return Status::OK();
 }
 
-Status LogicalIndexReader::visit_prefix_terms(std::string_view prefix,
-                                              const PrefixHitVisitor& visitor,
-                                              DictBlockCache* cache) const {
+Status LogicalIndexReader::visit_prefix_terms(
+        std::string_view prefix, const PrefixHitVisitor& visitor, DictBlockCache* cache,
+        const std::function<bool(std::string_view term)>& accept_key) const {
     if (!visitor) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                 "logical_index: null prefix visitor");
@@ -1039,12 +1039,12 @@ Status LogicalIndexReader::visit_prefix_terms(std::string_view prefix,
         // Stream this block's prefix range: anchor-jump past pre-prefix segments,
         // decode only the bodies we keep, and stop at the first term past the
         // range (decode_all materialized every entry of every scanned block).
-        // The visitor still owns final term acceptance, so results are identical;
-        // `br`/`pin` stay alive across this synchronous call.
+        // `accept_key` rejects a term before its body is decoded; the visitor sees only accepted
+        // terms. `br`/`pin` stay alive across this synchronous call.
         bool prefix_exhausted = false;
         bool visitor_stopped = false;
         RETURN_IF_ERROR(br->visit_prefix_range(
-                prefix, /*accept_key=*/ {},
+                prefix, accept_key,
                 [&](DictEntry&& e, bool* stop) -> Status {
                     PrefixHit hit;
                     hit.term = e.term;
