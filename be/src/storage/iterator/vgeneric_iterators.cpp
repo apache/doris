@@ -44,7 +44,6 @@ Status VStatisticsIterator::init(const StorageReadOptions& opts) {
     if (!_init) {
         _push_down_agg_type_opt = opts.push_down_agg_type_opt;
 
-        // Not keyed by unique id: every VARIANT path a scan adds carries -1.
         if (_push_down_agg_type_opt != TPushAggOp::COUNT) {
             _column_iterators.resize(_schema.num_block_columns());
             for (size_t ordinal = 0; ordinal < _schema.num_block_columns(); ++ordinal) {

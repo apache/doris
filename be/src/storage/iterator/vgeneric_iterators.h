@@ -63,7 +63,6 @@ private:
     size_t _output_rows = 0;
     bool _init = false;
     TPushAggOp::type _push_down_agg_type_opt;
-    // One iterator per block column, in block order; none for COUNT, which reads no zone map.
     std::vector<std::unique_ptr<ColumnIterator>> _column_iterators;
 
     static constexpr size_t MAX_ROW_SIZE_IN_COUNT = 65535;
