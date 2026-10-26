@@ -1095,6 +1095,82 @@ public class PushDownVectorTopNIntoPaimonScanTest {
                 new LogicalProject<>(ImmutableList.of(idSlot(scan), dis), scan), dis, true));
     }
 
+    @Test
+    public void testNonFiniteQueryVectorElementNotPushedDown() {
+        // [CAST('infinity' AS FLOAT), 0] and NaN coordinates: the ordinary path
+        // answers these (an infinite distance row), while paimon-rust's
+        // validate_query rejects non-finite coordinates — the one-way rewrite
+        // must decline for both metrics.
+        for (Literal bad : ImmutableList.of(
+                new FloatLiteral(Float.POSITIVE_INFINITY),
+                new FloatLiteral(Float.NaN))) {
+            for (boolean innerProduct : ImmutableList.of(false, true)) {
+                LogicalFileScan scan = paimonScan(ImmutableMap.of(
+                        "pk-vector.index.columns", "vec",
+                        "fields.vec.pk-vector.distance.metric",
+                        innerProduct ? "inner_product" : "l2"));
+                ArrayLiteral query = new ArrayLiteral(
+                        ImmutableList.of(bad, new FloatLiteral(2.0f)));
+                Alias dis = innerProduct
+                        ? new Alias(new InnerProductApproximate(vecSlot(scan), query), "dis")
+                        : new Alias(new L2DistanceApproximate(vecSlot(scan), query), "dis");
+                assertNotPushedDown(topN(
+                        new LogicalProject<>(ImmutableList.of(idSlot(scan), dis), scan),
+                        dis, innerProduct ? false : true));
+            }
+        }
+    }
+
+    @Test
+    public void testResolvingFileIoCatalogNotPushedDown() {
+        // A resolving-file-io catalog stores data-file.external-paths across
+        // backends Java dispatches per URI, but the rust reader opens the table
+        // through a single FileIO and rejects a foreign scheme; the pre-flight
+        // declines the whole rewrite when the catalog opts into that layout.
+        List<Column> schema = ImmutableList.of(
+                new Column("id", Type.INT, true),
+                new Column("vec", new ArrayType(Type.FLOAT), true));
+        PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
+        Mockito.when(externalTable.getName()).thenReturn("paimon_tbl");
+        Mockito.when(externalTable.getBaseSchema()).thenReturn(schema);
+        Mockito.when(externalTable.getFullSchema()).thenReturn(schema);
+        Mockito.when(externalTable.getFullSchema(Mockito.<Optional<org.apache.doris.datasource.mvcc.MvccSnapshot>>any()))
+                .thenReturn(schema);
+        Mockito.when(externalTable.initSelectedPartitions(Mockito.any()))
+                .thenReturn(SelectedPartitions.NOT_PRUNED);
+        FileStoreTable paimonTable = mockFileStoreTable(ImmutableMap.of(
+                "pk-vector.index.columns", "vec",
+                "fields.vec.pk-vector.distance.metric", "l2"),
+                schema.stream().map(Column::getName).collect(Collectors.toList()), null);
+        Mockito.when(externalTable.getPaimonTable(Mockito.<Optional<org.apache.doris.datasource.mvcc.MvccSnapshot>>any()))
+                .thenReturn(paimonTable);
+        PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
+        Mockito.when(externalTable.getCatalog()).thenReturn(catalog);
+        CatalogProperty catalogProperty = Mockito.mock(CatalogProperty.class);
+        Mockito.when(catalog.getCatalogProperty()).thenReturn(catalogProperty);
+        Mockito.when(catalogProperty.getOrDefault(
+                Mockito.eq("paimon.resolving-file-io.enabled"), Mockito.anyString()))
+                .thenReturn("true");
+        org.apache.doris.datasource.property.metastore.MetastoreProperties mockedMetastore =
+                Mockito.mock(org.apache.doris.datasource.property.metastore.MetastoreProperties.class);
+        Mockito.lenient().when(mockedMetastore.getType())
+                .thenReturn(org.apache.doris.datasource.property.metastore.MetastoreProperties.Type.FILE_SYSTEM);
+        Mockito.lenient().when(catalogProperty.getMetastoreProperties())
+                .thenReturn(mockedMetastore);
+        Mockito.lenient().doReturn(new java.util.HashMap<
+                        org.apache.doris.datasource.property.storage.StorageProperties.Type,
+                        org.apache.doris.datasource.property.storage.StorageProperties>())
+                .when(catalogProperty).getStoragePropertiesMap();
+        LogicalFileScan scan = new LogicalFileScan(StatementScopeIdGenerator.newRelationId(),
+                externalTable, ImmutableList.of("paimon_ctl", "paimon_db"), ImmutableList.of(),
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
+        SlotReference vec = (SlotReference) scan.getOutput().get(1);
+        Alias dis = new Alias(new L2DistanceApproximate(vec, queryVector()), "dis");
+        assertNotPushedDown(topN(
+                new LogicalProject<>(ImmutableList.of(scan.getOutput().get(0), dis), scan),
+                dis, true));
+    }
+
     // ------------------------------------------------------------------ helpers
 
     private Plan applyRule(int ruleIndex, LogicalTopN<Plan> topN) {

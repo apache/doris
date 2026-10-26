@@ -271,6 +271,17 @@ public class PushDownVectorTopNIntoPaimonScan implements RewriteRuleFactory {
         if (((ArrayLiteral) right).getValue().stream().anyMatch(NullLiteral.class::isInstance)) {
             return null;
         }
+        // A NON-FINITE coordinate (CAST('infinity' AS FLOAT), NaN) is a legal literal
+        // the ordinary path supports: FunctionArrayDistance returns the row with an
+        // infinite distance, but paimon-rust's PkVectorSearchParams::resolve ->
+        // validate_query rejects non-finite coordinates ("must be finite"). The
+        // rewrite is one-way, so it must decline and keep the ordinary execution
+        // for these inputs; both metrics and NaN share this.
+        if (((ArrayLiteral) right).getValue().stream().anyMatch(
+                literal -> !literal.isNullLiteral()
+                        && !Double.isFinite(literal.getDouble()))) {
+            return null;
+        }
         SlotReference vectorSlot = (SlotReference) left;
         if (!vectorSlot.getOriginalColumn().isPresent() || !vectorSlot.getOriginalTable().isPresent()) {
             return null;
@@ -393,6 +404,18 @@ public class PushDownVectorTopNIntoPaimonScan implements RewriteRuleFactory {
         try {
             Table baseTable = boundPaimonTable(paimonTable, scan);
             PaimonExternalCatalog catalog = (PaimonExternalCatalog) paimonTable.getCatalog();
+            // data-file.external-paths storage: a resolving-file-io catalog stores
+            // data across backends Java dispatches per URI, but paimon-rust opens
+            // the table through a single FileIO and rejects foreign schemes (an
+            // oss:// external path on an S3 table). The per-split external gate
+            // stays scan-node-side; this pre-flight declines the whole rewrite
+            // when the catalog (or the table's options) opts into that layout.
+            if ("true".equalsIgnoreCase(catalog.getCatalogProperty().getOrDefault(
+                            "paimon.resolving-file-io.enabled", "false"))
+                    || "true".equalsIgnoreCase(baseTable.options().getOrDefault(
+                            "resolving-file-io.enabled", "false"))) {
+                return null;
+            }
             Map<StorageProperties.Type, StorageProperties> storagePropertiesMap =
                     VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
                             catalog.getCatalogProperty().getMetastoreProperties(),

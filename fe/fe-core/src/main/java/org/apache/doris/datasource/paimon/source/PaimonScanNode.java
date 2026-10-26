@@ -1060,7 +1060,11 @@ public class PaimonScanNode extends FileQueryScanNode {
                     && sessionVariable.enableFileScannerV2
                     && rustEligibility.eligible()
                     && !fallbackRead && !isIncremental
-                    && !orcLtzSchema && !projectedVariant && !needsNanosecondReader();
+                    && !orcLtzSchema && !projectedVariant && !needsNanosecondReader()
+                    // data-file.external-paths are unusable on BOTH rust paths: the
+                    // table's single FileIO cannot serve the external backend, and
+                    // the vector materializer rides the same open.
+                    && !externalFileSplit;
             // The remaining gates judge the DataSplit the BATCH reader opens: the
             // native DataSplit shape, unmaterialized partial-update / aggregation
             // deletion vectors, external-path files, and the
@@ -1097,8 +1101,7 @@ public class PaimonScanNode extends FileQueryScanNode {
                 }
             }
             if (!vectorSearchSplit && canUseRust) {
-                canUseRust = canUseRust && nativeSplit && !splitDvNotMaterialized
-                        && !externalFileSplit;
+                canUseRust = canUseRust && nativeSplit && !splitDvNotMaterialized;
                 if (canUseRust) {
                     if (rustReaderCapabilities == null) {
                         rustReaderCapabilities = new PaimonRustReaderCapabilities(paimonFileStoreTable, desc);
@@ -1143,7 +1146,7 @@ public class PaimonScanNode extends FileQueryScanNode {
                 if (projectedVariant) {
                     reasons.add("projected_variant");
                 }
-                if (!vectorSearchSplit && externalFileSplit) {
+                if (externalFileSplit) {
                     reasons.add("external_file_split");
                 }
                 if (rustEligibility.deduplicateIgnoreDelete) {
