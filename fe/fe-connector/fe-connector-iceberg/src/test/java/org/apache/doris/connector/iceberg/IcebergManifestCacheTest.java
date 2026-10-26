@@ -58,6 +58,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -167,6 +168,55 @@ public class IcebergManifestCacheTest {
                     current.getDataFiles().get(0).partition().get(0, Object.class));
             Assertions.assertEquals("north", file.partition().get(0, String.class), "cached value remains intact");
         }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"true", "false"})
+    public void droppedPromotedSourceUsesWriterSchemaOrManifestHeader(boolean writerSnapshotRetained)
+            throws Exception {
+        Schema initial = new Schema(Types.NestedField.optional(1, "p", Types.IntegerType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(initial).identity("p").build();
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("schema-id-order", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db1"));
+        Table table = catalog.createTable(TableIdentifier.of("db1", "t1"), initial, spec);
+        table.updateSchema().updateColumn("p", Types.LongType.get()).commit();
+        PartitionData partition = new PartitionData(table.spec().rawPartitionType());
+        partition.set(0, 7L);
+        table.newFastAppend().appendFile(DataFiles.builder(table.spec()).withPath("/data/long.parquet")
+                .withFileSizeInBytes(100).withRecordCount(1).withPartition(partition).build()).commit();
+        ManifestFile manifest = table.currentSnapshot().dataManifests(table.io()).get(0);
+        Assertions.assertNotNull(table.snapshot(manifest.snapshotId()));
+        table.updateSpec().removeField("p").commit();
+        table.updateSchema().deleteColumn("p").commit();
+
+        // Schema IDs are identifiers, not a chronology: an older INT schema can have a larger ID.
+        Map<Integer, Schema> schemas = new LinkedHashMap<>(table.schemas());
+        schemas.put(100, new Schema(100, Collections.singletonList(
+                Types.NestedField.optional(1, "p", Types.IntegerType.get()))));
+        CountingFileIO io = new CountingFileIO(table.io());
+        Table source = (Table) Proxy.newProxyInstance(Table.class.getClassLoader(), new Class<?>[] {Table.class},
+                (proxy, method, args) -> {
+                    if (method.getName().equals("schemas")) {
+                        return schemas;
+                    }
+                    if (!writerSnapshotRetained && method.getName().equals("snapshot")
+                            && manifest.snapshotId().equals(args[0])) {
+                        return null;
+                    }
+                    if (method.getName().equals("io")) {
+                        return io;
+                    }
+                    try {
+                        return method.invoke(table, args);
+                    } catch (InvocationTargetException e) {
+                        throw e.getCause();
+                    }
+                });
+        ManifestCacheValue cached = new IcebergManifestCache().getManifestCacheValue(manifest, source);
+        DataFile projected = cached.forScan(table.specs().get(manifest.partitionSpecId())).getDataFiles().get(0);
+        Assertions.assertEquals(7L, projected.partition().get(0, Long.class));
+        Assertions.assertEquals(writerSnapshotRetained ? 1 : 2, io.opens.get());
     }
 
     @Test

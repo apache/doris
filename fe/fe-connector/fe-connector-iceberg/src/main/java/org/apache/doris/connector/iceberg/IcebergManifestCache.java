@@ -33,6 +33,7 @@ import org.apache.iceberg.ManifestReader;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.types.Types;
 
@@ -323,7 +324,7 @@ final class IcebergManifestCache {
         return dataFiles;
     }
 
-    /** Recover dropped partition sources from retained schemas, or the manifest when those schemas expired. */
+    /** Recover the manifest writer's partition source types, or read its header when that schema expired. */
     private static Map<Integer, PartitionSpec> manifestReadSpecs(ManifestFile manifest, Table table) {
         PartitionSpec spec = table.specs().get(manifest.partitionSpecId());
         // Fixed-result transforms (bucket/year/month/day/hour) remain readable without their source
@@ -333,23 +334,20 @@ final class IcebergManifestCache {
         if (!missingSource) {
             return Collections.singletonMap(spec.specId(), spec);
         }
+        Long writerSnapshotId = manifest.snapshotId();
+        Snapshot writerSnapshot = writerSnapshotId == null ? null : table.snapshot(writerSnapshotId);
+        Schema writerSchema = writerSnapshot == null ? null : table.schemas().get(writerSnapshot.schemaId());
+        if (writerSchema == null) {
+            // The manifest header retains its physical partition type after snapshot/schema expiration.
+            return null;
+        }
         Map<Integer, Types.NestedField> sources = new LinkedHashMap<>();
         Set<String> reservedNames = new HashSet<>();
         spec.fields().forEach(field -> reservedNames.add(field.name()));
         for (PartitionField field : spec.fields()) {
-            Types.NestedField source = spec.schema().findField(field.sourceId());
+            Types.NestedField source = writerSchema.findField(field.sourceId());
             if (source == null) {
-                source = table.schemas().entrySet().stream()
-                        .sorted(Map.Entry.<Integer, Schema>comparingByKey().reversed())
-                        .map(entry -> entry.getValue().findField(field.sourceId()))
-                        .filter(Objects::nonNull).findFirst().orElse(null);
-                if (source == null) {
-                    // Snapshot expiration may remove every schema containing an identity/truncate source
-                    // while its manifest remains live. Only the manifest header retains the physical type.
-                    // Let the SDK recover it instead of failing a lazy scan; normal/promoted schemas and
-                    // fixed-result transforms keep the single-stream path above.
-                    return null;
-                }
+                return null;
             }
             String name = "source_" + field.sourceId();
             while (!reservedNames.add(name)) {
