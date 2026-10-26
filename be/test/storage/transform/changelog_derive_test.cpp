@@ -1770,6 +1770,7 @@ TEST_F(ChangelogDeriveTest, PlainInterleavedTargetPreservesValues) {
     target->init_from_pb(pb);
     RowsetWriterContext context;
     context.tablet_schema = target;
+    context.write_type = DataWriteType::TYPE_DIRECT;
     context.write_changelog_opt().enable = true;
     auto& cfg = context.write_changelog_opt().write_changelog_config();
     cfg.source.tablet_schema = source;
@@ -1782,7 +1783,9 @@ TEST_F(ChangelogDeriveTest, PlainInterleavedTargetPreservesValues) {
     block.get_by_position(3).column->assert_mutable()->insert_default();
     auto ctx = exec_ctx(target, &context);
     auto chain = build_transform_chain(context);
+    ASSERT_EQ(chain.stage_names(), (std::vector<std::string_view> {"PlainChangelogDerive"}));
     ASSERT_TRUE(chain.apply(ctx, &block).ok());
+    ASSERT_EQ(block.columns(), target->num_columns());
     EXPECT_EQ(block.get_by_position(4).column->get_int(0), 11);
     EXPECT_EQ(block.get_by_position(2).column->get_int(0), 13);
     EXPECT_EQ(block.get_by_position(0).column->get_int(0), 7);
