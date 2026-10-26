@@ -227,10 +227,9 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
     if (master_info.__isset.token) {
         if (_cluster_info->token == "") {
             _cluster_info->token = master_info.token;
-            LOG(INFO) << "get token. token: " << _cluster_info->token;
+            LOG(INFO) << "get token";
         } else if (_cluster_info->token != master_info.token) {
-            return Status::InternalError("invalid token. local: {}, master: {}",
-                                         _cluster_info->token, master_info.token);
+            return Status::InternalError("invalid token");
         }
     }
 
@@ -330,10 +329,9 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
     if (master_info.__isset.auth_token) {
         if (_cluster_info->curr_auth_token == "") {
             _cluster_info->curr_auth_token = master_info.auth_token;
-            LOG(INFO) << "set new auth token: " << master_info.auth_token;
+            LOG(INFO) << "set new auth token";
         } else if (_cluster_info->curr_auth_token != master_info.auth_token) {
-            LOG(INFO) << "last auth token: " << _cluster_info->last_auth_token
-                      << "set new auth token: " << master_info.auth_token;
+            LOG(INFO) << "update auth token";
             _cluster_info->last_auth_token = _cluster_info->curr_auth_token;
             _cluster_info->curr_auth_token = master_info.auth_token;
         }
