@@ -111,6 +111,7 @@ public class MetaCacheEntry<K, V> {
     // before a max-weight is configured. This keeps estimation and dependency retirement on every
     // load/refresh path instead of letting Caffeine publish values behind those hooks.
     private final boolean generationFencedRefresh;
+    private final boolean requiresManualMissLoad;
     // Keep the loading cache for refreshAfterWrite and the legacy sync-load path when the feature is disabled.
     private final LoadingCache<K, V> loadingData;
     // Use the plain cache view for manual miss load so slow I/O does not happen in Caffeine's sync load path.
@@ -215,6 +216,20 @@ public class MetaCacheEntry<K, V> {
             @Nullable Function<V, ?> removalTokenExtractor,
             @Nullable MetaCacheEntryRemovalListener<K, ?> removalListener,
             @Nullable Consumer<V> unpublishedValueRetirer, boolean softValues) {
+        this(name, loader, cacheSpec, refreshExecutor, autoRefresh, contextualOnly,
+                sizeEstimator, entryBudget, replacementListener, removalTokenExtractor,
+                removalListener, unpublishedValueRetirer, softValues, false);
+    }
+
+    @SuppressWarnings("unchecked")
+    public MetaCacheEntry(String name, @Nullable Function<K, V> loader, CacheSpec cacheSpec,
+            ExecutorService refreshExecutor, boolean autoRefresh, boolean contextualOnly,
+            @Nullable MetaCacheSizeEstimator<K, V> sizeEstimator, @Nullable EntryBudget entryBudget,
+            @Nullable MetaCacheEntryReplacementListener<K, V> replacementListener,
+            @Nullable Function<V, ?> removalTokenExtractor,
+            @Nullable MetaCacheEntryRemovalListener<K, ?> removalListener,
+            @Nullable Consumer<V> unpublishedValueRetirer, boolean softValues, boolean requiresManualMissLoad) {
+        this.requiresManualMissLoad = requiresManualMissLoad;
         this.name = name;
         if (contextualOnly) {
             if (loader != null) {
@@ -1377,7 +1392,8 @@ public class MetaCacheEntry<K, V> {
 
     // Read the config dynamically so existing cache entries follow runtime config updates.
     private boolean isManualMissLoadEnabled() {
-        return weightBounded || generationFencedRefresh || Config.enable_external_meta_cache_manual_miss_load;
+        return requiresManualMissLoad || weightBounded || generationFencedRefresh
+                || Config.enable_external_meta_cache_manual_miss_load;
     }
 
     // Execute slow miss loads outside Caffeine's sync load path and suppress stale write-back after invalidation.

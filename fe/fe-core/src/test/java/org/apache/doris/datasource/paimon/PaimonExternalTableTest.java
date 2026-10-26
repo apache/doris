@@ -68,6 +68,29 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class PaimonExternalTableTest {
 
     @Test
+    public void testOptionsFirstMissingFenceRepairsLookup() {
+        PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
+        PaimonExternalDatabase database = Mockito.mock(PaimonExternalDatabase.class);
+        Mockito.when(catalog.getName()).thenReturn("ctl");
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        PaimonExternalTable table = new PaimonExternalTable(10L, "table", "table", catalog, database);
+        AtomicInteger repaired = new AtomicInteger();
+        Mockito.when(database.observeTableLookup(table)).thenReturn(Optional.of(repaired::incrementAndGet));
+        RuntimeException missing = new RuntimeException(new org.apache.paimon.catalog.Catalog.TableNotExistException(
+                new org.apache.paimon.catalog.Identifier("db", "table")));
+        TableScanParams options = new TableScanParams(TableScanParams.OPTIONS,
+                ImmutableMap.of("scan.mode", "latest"), Collections.emptyList());
+        try (MockedStatic<PaimonUtils> utils = Mockito.mockStatic(PaimonUtils.class)) {
+            utils.when(() -> PaimonUtils.loadLatestSnapshotFence(table)).thenThrow(missing);
+            StatementContext statement = new StatementContext(new ConnectContext(), null);
+            Assert.assertSame(missing, Assert.assertThrows(RuntimeException.class,
+                    () -> statement.loadSnapshots(table, Optional.empty(), Optional.of(options))));
+            Assert.assertEquals(1, repaired.get());
+        }
+    }
+
+    @Test
     public void testWriteUsesBaseTableInsteadOfStatementSnapshot() {
         PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
         PaimonExternalDatabase database = Mockito.mock(PaimonExternalDatabase.class);
