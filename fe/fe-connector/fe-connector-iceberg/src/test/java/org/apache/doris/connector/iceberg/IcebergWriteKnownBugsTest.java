@@ -45,6 +45,9 @@ public class IcebergWriteKnownBugsTest {
     private static final String SEED = "s3://bucket/events/seed.parquet";
     private static final String ADDED = "s3://bucket/events/added.parquet";
     private static final String DELETED = "s3://bucket/events/deleted.parquet";
+    // Stands in for the raw location planWrite registers for the sink it builds; every reported file
+    // above lives under it.
+    private static final String COMMIT_LOCATION = "s3://bucket/events";
 
     @Test
     @Disabled("Known issue: DELETE ignores the standard snapshot isolation property.")
@@ -113,7 +116,10 @@ public class IcebergWriteKnownBugsTest {
     private static IcebergConnectorTransaction transaction(Table table) {
         RecordingIcebergCatalogOps operations = new RecordingIcebergCatalogOps();
         operations.table = table;
-        return new IcebergConnectorTransaction(9, operations, new RecordingConnectorContext());
+        IcebergConnectorTransaction transaction =
+                new IcebergConnectorTransaction(9, operations, new RecordingConnectorContext());
+        transaction.addCommitLocation(COMMIT_LOCATION);
+        return transaction;
     }
 
     private static TIcebergCommitData fragment(String path, long count, TFileContent content) {

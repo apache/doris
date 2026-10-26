@@ -58,6 +58,9 @@ public class IcebergWriteTransactionCoverageTest {
     private static final String SEED = "s3://bucket/events/seed.parquet";
     private static final String ADDED = "s3://bucket/events/added.parquet";
     private static final String DELETED = "s3://bucket/events/deleted.parquet";
+    // Stands in for the raw location planWrite registers for the sink it builds; every reported file
+    // above lives under it.
+    private static final String COMMIT_LOCATION = "s3://bucket/events";
 
     @Test
     public void appendV1PreservesHistoricalSnapshot() throws IOException {
@@ -252,6 +255,7 @@ public class IcebergWriteTransactionCoverageTest {
         operations.throwOnLoadTable = true;
         IcebergConnectorTransaction transaction = new IcebergConnectorTransaction(
                 7, operations, new RecordingConnectorContext());
+        transaction.addCommitLocation(COMMIT_LOCATION);
         Assertions.assertThrows(DorisConnectorException.class,
                 () -> transaction.beginWrite(session(null), "db", "events", context(WriteOperation.INSERT)));
         Assertions.assertNull(transaction.getTransaction());
@@ -321,7 +325,10 @@ public class IcebergWriteTransactionCoverageTest {
     private static IcebergConnectorTransaction transaction(Table table) {
         RecordingIcebergCatalogOps operations = new RecordingIcebergCatalogOps();
         operations.table = table;
-        return new IcebergConnectorTransaction(7, operations, new RecordingConnectorContext());
+        IcebergConnectorTransaction transaction =
+                new IcebergConnectorTransaction(7, operations, new RecordingConnectorContext());
+        transaction.addCommitLocation(COMMIT_LOCATION);
+        return transaction;
     }
 
     private static IcebergWriteContext context(WriteOperation operation) {
