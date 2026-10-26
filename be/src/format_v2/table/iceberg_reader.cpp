@@ -616,7 +616,8 @@ static Status build_v2_initial_default_field(const format::ColumnDefinition& fie
     }
     if (is_complex_type(primitive_type)) {
         rapidjson::Document document;
-        document.Parse(field.initial_default_value->data(), field.initial_default_value->size());
+        document.Parse<rapidjson::kParseFullPrecisionFlag>(field.initial_default_value->data(),
+                                                           field.initial_default_value->size());
         if (document.HasParseError()) {
             return Status::InvalidArgument("Invalid Iceberg JSON initial default for field '{}'",
                                            field.name);

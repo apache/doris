@@ -375,7 +375,9 @@ Status ObjStorageFileSystem::download_impl(const Path& remote_file, const Path& 
 // whether to return a public endpoint.
 std::string ObjStorageFileSystem::generate_presigned_url(const Path& path, int64_t expiration_secs,
                                                          bool is_public_endpoint) const {
-    std::string key = fmt::format("{}/{}", _prefix, path.native());
+    // An empty prefix must not add a separator absent from the uploaded object key.
+    std::string key =
+            _prefix.empty() ? path.native() : fmt::format("{}/{}", _prefix, path.native());
     std::shared_ptr<ObjStorageClient> client;
     // Read the conf and the client from one snapshot so a concurrent reset cannot pair the
     // endpoint of one generation with the client of another.

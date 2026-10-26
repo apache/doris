@@ -129,7 +129,7 @@ void run(benchmark::State& state, const Vec& values) {
         size_t off = 0;
         while (off < total) {
             size_t n = std::min(batch, total - off);
-            w->add_values(reinterpret_cast<const void*>(&values[off]), n);
+            w->add_values(reinterpret_cast<const uint8_t*>(&values[off]), n);
             off += n;
         }
         (void)w->flush();
@@ -162,7 +162,7 @@ void run_column_writer_like(benchmark::State& state, const Vec& values, size_t e
             size_t block_left = std::min(block_rows, total - off);
             while (block_left > 0) {
                 size_t n = std::min(block_left, page_capacity - page_used);
-                w->add_values(reinterpret_cast<const void*>(&values[off]), n);
+                w->add_values(reinterpret_cast<const uint8_t*>(&values[off]), n);
                 off += n;
                 block_left -= n;
                 page_used += n;

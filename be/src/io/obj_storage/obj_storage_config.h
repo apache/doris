@@ -24,6 +24,7 @@
 #include <variant>
 
 #include "cpp/aws_common.h"
+#include "cpp/obj-client/auth/obj_credential.h"
 #include "cpp/obj-client/obj_storage_client.h"
 
 namespace doris::io {
@@ -66,6 +67,9 @@ struct S3AuthConfig {
     CredProviderType provider_type = CredProviderType::Default;
     std::string role_arn;
     std::string external_id;
+    // Provider-native passwordless credential, e.g. GCP IAM; monostate for static keys and the
+    // AWS credential provider chain.
+    CredentialConfig credential {};
 
     bool operator==(const S3AuthConfig&) const = default;
 };
@@ -160,6 +164,10 @@ struct ObjStorageConfig {
     // Credentials are masked.
     std::string to_string() const;
 };
+
+// Adapter from the storage-domain provider to the credential layer's own provider identity,
+// used where a provider-native credential is validated.
+ObjCredentialProvider to_obj_credential_provider(ObjStorageProvider provider);
 
 struct ObjClientConfigHash {
     size_t operator()(const ObjClientConfig& config) const {

@@ -52,6 +52,9 @@
 #endif
 #include "cloud/config.h"
 #include "cpp/aws_logger.h"
+#include "cpp/obj-client/auth/gcp/gcp_token_provider.h"
+#include "cpp/obj-client/auth/obj_credential.h"
+#include "cpp/obj-client/auth/obj_s3_client_factory.h"
 #include "cpp/obj-client/rate_limited_obj_storage_client.h"
 #include "cpp/obj-client/s3_obj_storage_client.h"
 #include "cpp/obj_retry_strategy.h"

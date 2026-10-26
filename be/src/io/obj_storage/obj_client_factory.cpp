@@ -66,6 +66,19 @@ Status validate_obj_client_backend(const S3ClientConfig& s3) {
     if (s3.region.empty()) {
         return Status::InvalidArgument<false>("Invalid s3 conf, empty region");
     }
+    ObjCredentialValidationContext credential_context {
+            .provider = to_obj_credential_provider(s3.vendor),
+            .ak = s3.auth.access_key,
+            .sk = s3.auth.secret_key,
+            .token = s3.auth.session_token,
+            .has_aws_role_arn = !s3.auth.role_arn.empty(),
+            .has_aws_external_id = !s3.auth.external_id.empty(),
+            .has_aws_credential_provider = s3.auth.provider_type != CredProviderType::Default,
+    };
+    if (auto error = validate_obj_credential_config(s3.auth.credential, credential_context);
+        error.has_value()) {
+        return Status::InvalidArgument<false>(*error);
+    }
     if (s3.auth.role_arn.empty()) {
         // Either both credentials are provided or both are empty (anonymous access)
         if (!s3.auth.access_key.empty() && s3.auth.secret_key.empty()) {

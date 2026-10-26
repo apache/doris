@@ -69,9 +69,9 @@ public:
                                                             const ObjStorageUri& location);
 
     // Merges a refreshed resource or vault configuration into the one a holder uses. The
-    // storage target stays: S3 keeps its vendor, endpoint, region and endpoint override, Azure
-    // keeps its endpoint. Credentials, connection options, usage, S3 addressing and the Azure
-    // account and container come from `update`, as the flat-field merge always did. A
+    // storage target stays: S3 keeps its endpoint, region and endpoint override, Azure keeps
+    // its endpoint. Credentials, connection options, usage, the S3 vendor and addressing, and
+    // the Azure account and container come from `update`, as the flat-field merge does. A
     // different backend is a different storage target, which needs a new binding rather than
     // a reset, so it is rejected.
     static Result<ObjClientConfig> merge_update(const ObjClientConfig& current,

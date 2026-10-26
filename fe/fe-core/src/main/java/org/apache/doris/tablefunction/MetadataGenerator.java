@@ -1984,6 +1984,16 @@ public class MetadataGenerator {
                     trow.addToColumnValue(new TCell().setLongVal(entryStats.getEstimatedWeight()));
                     trow.addToColumnValue(new TCell().setLongVal(entryStats.getWeightAdmissionRejectedCount()));
                     trow.addToColumnValue(new TCell().setStringVal(entryStats.getLastWeightRejectReason()));
+                    trow.addToColumnValue(new TCell().setBoolVal(entryStats.isWeightBounded())); // WEIGHT_BOUNDED
+                    trow.addToColumnValue(new TCell().setLongVal(entryStats.getEvictionWeight())); // EVICTION_WEIGHT
+                    trow.addToColumnValue(
+                            new TCell().setLongVal(entryStats.getCatalogMaxWeight())); // CATALOG_MAX_WEIGHT
+                    trow.addToColumnValue(new TCell().setLongVal(
+                            entryStats.getCatalogEstimatedWeight())); // CATALOG_ESTIMATED_WEIGHT
+                    trow.addToColumnValue(
+                            new TCell().setLongVal(entryStats.getGlobalMaxWeight())); // GLOBAL_MAX_WEIGHT
+                    trow.addToColumnValue(new TCell().setLongVal(
+                            entryStats.getGlobalEstimatedWeight())); // GLOBAL_ESTIMATED_WEIGHT
                     dataBatch.add(trow);
                 }
             }

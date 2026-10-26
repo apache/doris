@@ -25,6 +25,8 @@
 #include "exec/sink/writer/vhive_table_writer.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vslot_ref.h"
+#include "format/table/iceberg/schema.h"
+#include "format/table/iceberg/types.h"
 #include "runtime/runtime_state.h"
 
 namespace doris {
@@ -93,7 +95,11 @@ TEST_P(ExternalTableWriterPartitionLimitTest, IcebergRejectsNextPartitionBeforeO
     sink.__set_iceberg_table_sink(TIcebergTableSink());
     VExprContextSPtrs exprs;
     iceberg::PartitionField field(1, 1000, "p", "identity");
-    VIcebergTableWriter writer(sink, exprs, nullptr, nullptr);
+    VIcebergTableWriter writer(sink, exprs);
+    // open() pins the table schema, and every written block is validated against it.
+    std::vector<iceberg::NestedField> columns;
+    columns.emplace_back(true, 1, "p", std::make_unique<iceberg::IntegerType>(), std::nullopt);
+    writer._schema = std::make_shared<iceberg::Schema>(std::move(columns));
     writer._iceberg_partition_columns.emplace_back(
             field, TYPE_INT, 0, std::vector<size_t> {},
             std::make_unique<IdentityPartitionColumnTransform>(std::make_shared<DataTypeInt32>()));

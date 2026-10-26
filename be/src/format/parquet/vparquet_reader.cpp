@@ -575,8 +575,10 @@ void ParquetReader::_init_read_columns(const std::vector<std::string>& column_na
     // Build file_col_name → table_col_name map, skipping missing columns.
     // Must iterate file schema in physical order so that _generate_random_access_ranges
     // sees monotonically increasing chunk offsets.
+    // Several table columns may read the same file column, e.g. a projected Iceberg struct and the
+    // hidden carrier of an equality key nested in it. Each of them gets its own column reader.
     auto schema_desc = _file_metadata->schema();
-    std::map<std::string, std::string> required_file_columns;
+    std::multimap<std::string, std::string> required_file_columns;
     for (const auto& col_name : column_names) {
         if (_fill_missing_cols.contains(col_name)) {
             continue;
@@ -585,14 +587,15 @@ void ParquetReader::_init_read_columns(const std::vector<std::string>& column_na
         if (_table_info_node_ptr && _table_info_node_ptr->children_column_exists(col_name)) {
             file_col = _table_info_node_ptr->children_file_column_name(col_name);
         }
-        required_file_columns[file_col] = col_name;
+        required_file_columns.emplace(std::move(file_col), col_name);
     }
     for (int i = 0; i < schema_desc.size(); ++i) {
         const auto& name = schema_desc.get_column(i)->name;
-        if (required_file_columns.contains(name)) {
+        const auto [begin, end] = required_file_columns.equal_range(name);
+        for (auto required = begin; required != end; ++required) {
             _read_file_columns.emplace_back(name);
-            _read_table_columns.emplace_back(required_file_columns[name]);
-            _read_table_columns_set.insert(required_file_columns[name]);
+            _read_table_columns.emplace_back(required->second);
+            _read_table_columns_set.insert(required->second);
         }
     }
 }
@@ -961,7 +964,13 @@ Status ParquetReader::_next_row_group_reader() {
             return size;
         };
         int64_t group_size = 0; // only calculate the needed columns
+        const std::string* previous_read_col = nullptr;
         for (auto& read_col : _read_file_columns) {
+            // A file column read under several table names is listed once per name, consecutively.
+            if (previous_read_col != nullptr && *previous_read_col == read_col) {
+                continue;
+            }
+            previous_read_col = &read_col;
             const FieldSchema* field = _file_metadata->schema().get_column(read_col);
             group_size += column_compressed_size(field);
         }
@@ -1074,7 +1083,14 @@ std::vector<io::PrefetchRange> ParquetReader::_generate_random_access_ranges(
                 }
             };
     const tparquet::RowGroup& row_group = _t_metadata->row_groups[group.row_group_id];
+    const std::string* previous_read_col = nullptr;
     for (const auto& read_col : _read_file_columns) {
+        // Chunk offsets must increase, so a file column read under several table names is
+        // prefetched once.
+        if (previous_read_col != nullptr && *previous_read_col == read_col) {
+            continue;
+        }
+        previous_read_col = &read_col;
         const FieldSchema* field = _file_metadata->schema().get_column(read_col);
         scalar_range(field, row_group);
     }

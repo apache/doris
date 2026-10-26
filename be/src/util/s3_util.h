@@ -39,6 +39,7 @@
 #include "core/string_ref.h"
 #include "cpp/aws_common.h"
 #include "cpp/obj-client/auth/aws_credential_factory.h"
+#include "cpp/obj-client/auth/obj_credential.h"
 #include "cpp/obj-client/obj_storage_client.h"
 
 namespace Aws::S3 {

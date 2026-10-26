@@ -25,7 +25,7 @@
 // The corpus deliberately hits the edge lanes: empty value (analyzed: skipped;
 // keyword: a VALID empty token), punctuation-only row (zero analyzed tokens),
 // >ignore_above value (keyword: skipped row), long token, repeated terms
-// (position increments), unicode/mixed text, multiple add_values
+// (position increments), unicode/mixed text, multiple add
 // batches, and interleaved add_nulls runs.
 //
 // If a digest changes INTENTIONALLY (format or analyzer change), re-harvest by
@@ -236,10 +236,10 @@ void add_batch(SniiIndexColumnWriter* writer, const std::vector<std::string>& ro
     for (const std::string& row : rows) {
         slices.emplace_back(row);
     }
-    assert_ok(writer->add_values("c1", slices.data(), slices.size()));
+    assert_ok(writer->add_values(reinterpret_cast<const uint8_t*>(slices.data()), slices.size()));
 }
 
-// The fixed corpus: two add_values batches with add_nulls runs interleaved.
+// The fixed corpus: two add batches with add_nulls runs interleaved.
 void feed_corpus(SniiIndexColumnWriter* writer) {
     add_batch(writer, {
                               "hello world hello doris",

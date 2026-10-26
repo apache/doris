@@ -29,8 +29,10 @@
 #include <utility>
 #include <variant>
 
+#include "common/check.h"
 #include "common/logging.h"
 #include "cpp/aws_common.h"
+#include "cpp/obj-client/auth/obj_credential.h"
 #include "io/obj_storage/azure_config_codec.h"
 #include "io/obj_storage/azure_config_validator.h"
 #include "io/obj_storage/obj_storage_uri.h"
@@ -61,11 +63,13 @@ struct FlatClientFields {
     CredProviderType cred_provider_type = CredProviderType::Default;
     std::string role_arn;
     std::string external_id;
+    CredentialConfig credential {};
     bool is_internal_bucket = false;
 };
 
 constexpr char FLAT_USE_PATH_STYLE[] = "use_path_style";
 constexpr char FLAT_AZURE_PROVIDER_STRING[] = "AZURE";
+constexpr char FLAT_GCP_PROVIDER_STRING[] = "GCP";
 constexpr char FLAT_PROVIDER[] = "provider";
 constexpr char FLAT_AK[] = "AWS_ACCESS_KEY";
 constexpr char FLAT_SK[] = "AWS_SECRET_KEY";
@@ -90,12 +94,13 @@ std::string flat_fields_to_string(const FlatClientFields& fields) {
     return fmt::format(
             "(ak={}, token={}, endpoint={}, region={}, bucket={}, max_connections={}, "
             "request_timeout_ms={}, connect_timeout_ms={}, use_virtual_addressing={}, "
-            "cred_provider_type={},role_arn={}, external_id={}, is_internal_bucket={}",
+            "cred_provider_type={},role_arn={}, external_id={}, credential_type={}, "
+            "is_internal_bucket={}",
             hide_access_key(fields.ak), fields.token.empty() ? "" : "******", fields.endpoint,
             fields.region, fields.bucket, fields.max_connections, fields.request_timeout_ms,
             fields.connect_timeout_ms, fields.use_virtual_addressing,
             static_cast<int>(fields.cred_provider_type), fields.role_arn, fields.external_id,
-            fields.is_internal_bucket);
+            credential_type_name(fields.credential), fields.is_internal_bucket);
 }
 
 // The rules FE properties have always been checked against when they are converted.
@@ -105,6 +110,19 @@ Status validate_flat_fields(const FlatClientFields& fields) {
     }
     if (fields.region.empty()) {
         return Status::InvalidArgument<false>("Invalid s3 conf, empty region");
+    }
+    ObjCredentialValidationContext credential_context {
+            .provider = to_obj_credential_provider(fields.provider),
+            .ak = fields.ak,
+            .sk = fields.sk,
+            .token = fields.token,
+            .has_aws_role_arn = !fields.role_arn.empty(),
+            .has_aws_external_id = !fields.external_id.empty(),
+            .has_aws_credential_provider = fields.cred_provider_type != CredProviderType::Default,
+    };
+    if (auto error = validate_obj_credential_config(fields.credential, credential_context);
+        error.has_value()) {
+        return Status::InvalidArgument<false>(*error);
     }
     if (fields.role_arn.empty()) {
         // Either both credentials are provided or both are empty (anonymous access)
@@ -120,6 +138,9 @@ Status validate_flat_fields(const FlatClientFields& fields) {
 
 std::variant<S3ClientConfig, AzureClientConfig> flat_backend(const FlatClientFields& fields) {
     if (fields.provider == ObjStorageProvider::AZURE) {
+        // Provider-native credentials are GCP only, which FE and the meta service reject for
+        // any other provider, so an Azure source never carries one.
+        DORIS_CHECK(std::holds_alternative<std::monostate>(fields.credential));
         return AzureClientConfig {
                 .endpoint = fields.endpoint,
                 .account = fields.ak,
@@ -141,6 +162,7 @@ std::variant<S3ClientConfig, AzureClientConfig> flat_backend(const FlatClientFie
                             .provider_type = fields.cred_provider_type,
                             .role_arn = fields.role_arn,
                             .external_id = fields.external_id,
+                            .credential = fields.credential,
                     },
     };
 }
@@ -231,6 +253,8 @@ Result<ObjStorageConfig> ObjStorageConfigResolver::from_properties(
         // S3 Provider properties should be case insensitive.
         if (0 == strcasecmp(it->second.c_str(), FLAT_AZURE_PROVIDER_STRING)) {
             fields.provider = ObjStorageProvider::AZURE;
+        } else if (0 == strcasecmp(it->second.c_str(), FLAT_GCP_PROVIDER_STRING)) {
+            fields.provider = ObjStorageProvider::GCP;
         }
     }
 
@@ -256,6 +280,10 @@ Result<ObjStorageConfig> ObjStorageConfigResolver::from_properties(
     }
     if (auto it = properties.find(FLAT_CREDENTIALS_PROVIDER_TYPE); it != properties.end()) {
         fields.cred_provider_type = cred_provider_type_from_string(it->second);
+    }
+    if (auto error = parse_obj_credential_properties(properties, &fields.credential);
+        error.has_value()) {
+        return ResultError(Status::InvalidArgument(*error));
     }
 
     RETURN_IF_ERROR_RESULT(validate_flat_fields(fields));
@@ -286,6 +314,7 @@ ObjStorageConfig ObjStorageConfigResolver::from_object_store_info(
     if (info.has_cred_provider_type()) {
         fields.cred_provider_type = cred_provider_type_from_pb(info.cred_provider_type());
     }
+    convert_obj_credential(info, &fields.credential);
 
     switch (info.provider()) {
     case cloud::ObjectStoreInfoPB_Provider_OSS:
@@ -344,6 +373,9 @@ ObjStorageConfig ObjStorageConfigResolver::from_storage_param(const TS3StoragePa
     };
     if (param.__isset.cred_provider_type) {
         fields.cred_provider_type = flat_cred_provider_type_from_thrift(param.cred_provider_type);
+    }
+    if (param.__isset.credential) {
+        convert_obj_credential(param.credential, &fields.credential);
     }
 
     switch (param.provider) {
@@ -428,6 +460,8 @@ Result<ObjClientConfig> ObjStorageConfigResolver::merge_update(const ObjClientCo
     merged.usage = update.usage;
     if (auto* s3 = std::get_if<S3ClientConfig>(&merged.backend)) {
         const auto& update_s3 = std::get<S3ClientConfig>(update.backend);
+        // The refreshed source's provider is authoritative, as in the flat merge.
+        s3->vendor = update_s3.vendor;
         s3->use_virtual_addressing = update_s3.use_virtual_addressing;
         s3->auth = update_s3.auth;
     } else {

@@ -38,6 +38,7 @@ uint64_t hash_backend(const S3ClientConfig& s3) {
     hash_code ^= static_cast<uint64_t>(s3.auth.provider_type);
     hash_code ^= crc32_hash(s3.auth.role_arn);
     hash_code ^= crc32_hash(s3.auth.external_id);
+    hash_combine_credential(&hash_code, s3.auth.credential);
     return hash_code;
 }
 
@@ -70,11 +71,11 @@ std::string backend_to_string(const S3ClientConfig& s3) {
     return fmt::format(
             "s3(vendor={}, endpoint={}, region={}, need_override_endpoint={}, "
             "use_virtual_addressing={}, ak={}, token={}, cred_provider_type={}, role_arn={}, "
-            "external_id={})",
+            "external_id={}, credential_type={})",
             static_cast<int>(s3.vendor), s3.endpoint, s3.region, s3.need_override_endpoint,
             s3.use_virtual_addressing, hide_access_key(s3.auth.access_key),
             s3.auth.session_token.empty() ? "" : "******", static_cast<int>(s3.auth.provider_type),
-            s3.auth.role_arn, s3.auth.external_id);
+            s3.auth.role_arn, s3.auth.external_id, credential_type_name(s3.auth.credential));
 }
 
 const char* azure_auth_name(const AzureSharedKeyConfig&) {
@@ -104,6 +105,30 @@ ObjStorageProvider backend_provider(const AzureClientConfig&) {
 }
 
 } // namespace
+
+ObjCredentialProvider to_obj_credential_provider(ObjStorageProvider provider) {
+    switch (provider) {
+    case ObjStorageProvider::AWS:
+        return ObjCredentialProvider::Aws;
+    case ObjStorageProvider::AZURE:
+        return ObjCredentialProvider::Azure;
+    case ObjStorageProvider::BOS:
+        return ObjCredentialProvider::Bos;
+    case ObjStorageProvider::COS:
+        return ObjCredentialProvider::Cos;
+    case ObjStorageProvider::GCP:
+        return ObjCredentialProvider::Gcp;
+    case ObjStorageProvider::OBS:
+        return ObjCredentialProvider::Obs;
+    case ObjStorageProvider::OSS:
+        return ObjCredentialProvider::Oss;
+    case ObjStorageProvider::TOS:
+        return ObjCredentialProvider::Tos;
+    case ObjStorageProvider::UNKNOWN:
+        return ObjCredentialProvider::Unknown;
+    }
+    return ObjCredentialProvider::Unknown;
+}
 
 uint64_t ObjClientConfig::hash() const {
     uint64_t hash_code = std::visit([](const auto& b) { return hash_backend(b); }, backend);

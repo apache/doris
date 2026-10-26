@@ -256,6 +256,18 @@ public class IcebergConnectorMetadataColumnEvolutionTest {
     }
 
     @Test
+    public void testModifyScalarColumnThreadsNullableSpecifiedToSeam() {
+        // #65329: the flat modify must forward isNullableSpecified() so an omitted NULL keeps a required column
+        // required (the preserve behavior itself is proven in CatalogBackedIcebergCatalogOpsColumnEvolutionTest).
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        metadata(ops, ctx).modifyColumn(null, HANDLE, col("age", "BIGINT"), null);
+        Assertions.assertFalse(ops.lastModifyNullableSpecified);
+        metadata(ops, ctx).modifyColumn(null, HANDLE, col("age", "BIGINT").withSpecified(true, false), null);
+        Assertions.assertTrue(ops.lastModifyNullableSpecified);
+    }
+
+    @Test
     public void testModifyComplexColumnBuildsTreeAndIsAuthWrapped() {
         // B2b: a complex modify now routes to the seam carrying the FULL new complex iceberg type
         // (built PURELY outside auth); the seam diffs it against the current schema.

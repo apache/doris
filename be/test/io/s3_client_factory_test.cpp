@@ -18,28 +18,63 @@
 #include <aws/core/auth/AWSCredentialsProviderChain.h>
 #include <aws/core/auth/GeneralHTTPCredentialsProvider.h>
 #include <aws/core/auth/STSCredentialsProvider.h>
+#include <aws/core/auth/signer/AWSAuthV4Signer.h>
 #include <aws/core/client/ClientConfiguration.h>
+#include <aws/core/http/HttpClientFactory.h>
+#include <aws/core/utils/stream/ResponseStream.h>
 #include <aws/identity-management/auth/STSAssumeRoleCredentialsProvider.h>
+#include <aws/s3/model/AbortMultipartUploadRequest.h>
+#include <aws/s3/model/AbortMultipartUploadResult.h>
+#include <aws/s3/model/CompleteMultipartUploadRequest.h>
+#include <aws/s3/model/CompleteMultipartUploadResult.h>
+#include <aws/s3/model/CreateMultipartUploadRequest.h>
+#include <aws/s3/model/CreateMultipartUploadResult.h>
+#include <aws/s3/model/DeleteObjectRequest.h>
+#include <aws/s3/model/DeleteObjectResult.h>
+#include <aws/s3/model/DeleteObjectsRequest.h>
+#include <aws/s3/model/DeleteObjectsResult.h>
+#include <aws/s3/model/GetBucketLifecycleConfigurationRequest.h>
+#include <aws/s3/model/GetBucketLifecycleConfigurationResult.h>
+#include <aws/s3/model/GetBucketVersioningRequest.h>
+#include <aws/s3/model/GetBucketVersioningResult.h>
+#include <aws/s3/model/GetObjectRequest.h>
+#include <aws/s3/model/GetObjectResult.h>
+#include <aws/s3/model/HeadObjectRequest.h>
 #include <aws/s3/model/HeadObjectResult.h>
+#include <aws/s3/model/ListObjectsV2Request.h>
+#include <aws/s3/model/ListObjectsV2Result.h>
+#include <aws/s3/model/PutObjectRequest.h>
+#include <aws/s3/model/PutObjectResult.h>
+#include <aws/s3/model/UploadPartRequest.h>
+#include <aws/s3/model/UploadPartResult.h>
 #include <gtest/gtest.h>
 #include <unistd.h>
 
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
 #include "cloud/config.h"
+#include "common/check.h"
 #include "common/config.h"
 #include "cpp/aws_common.h"
 #include "cpp/custom_aws_credentials_provider_chain.h"
 #include "cpp/obj-client/auth/aws_credential_factory.h"
+#include "cpp/obj-client/auth/gcp/gcp_auth.h"
+#include "cpp/obj-client/auth/gcp/gcp_s3_client.h"
+#include "cpp/obj-client/auth/gcp/gcs_signed_url.h"
+#include "cpp/obj-client/rate_limited_obj_storage_client.h"
 #include "cpp/obj-client/s3_obj_storage_client.h"
 #include "cpp/sync_point.h"
+#include "io/fs/err_utils.h"
 #include "io/fs/obj_storage_file_system.h"
 #include "io/obj_storage/obj_client_factory.h"
 #include "io/obj_storage/obj_client_holder.h"
@@ -132,6 +167,61 @@ private:
     size_t _bytes_max_speed;
     size_t _bytes_max_burst;
     size_t _bytes_limit;
+};
+
+io::ObjClientConfig make_gcp_native_conf(std::string impersonation_service_account = {}) {
+    auto conf = make_factory_conf("storage.googleapis.com", true);
+    auto& s3 = std::get<io::S3ClientConfig>(conf.backend);
+    s3.vendor = io::ObjStorageProvider::GCP;
+    s3.region = "us-east1";
+    s3.auth.provider_type = CredProviderType::Default;
+    s3.auth.credential = GcpCredentialConfig {
+            .provider_type = GcpCredentialProviderType::Default,
+            .impersonation_service_account = std::move(impersonation_service_account),
+    };
+    return conf;
+}
+
+io::S3AuthConfig& auth_of(io::ObjClientConfig& conf) {
+    return std::get<io::S3ClientConfig>(conf.backend).auth;
+}
+
+const CredentialConfig& credential_of(const io::ObjStorageConfig& conf) {
+    return std::get<io::S3ClientConfig>(conf.client.backend).auth.credential;
+}
+
+// FE properties resolved for s3://test-bucket/test-prefix.
+Result<io::ObjStorageConfig> resolve_test_properties(
+        const std::map<std::string, std::string>& properties) {
+    auto location = io::ObjStorageUri::parse_s3("s3://test-bucket/test-prefix");
+    DORIS_CHECK(location.has_value());
+    return io::ObjStorageConfigResolver::from_properties(properties, location.value());
+}
+
+class FixedTokenGcpS3Client final : public GcpS3Client {
+public:
+    explicit FixedTokenGcpS3Client(std::string endpoint = "https://storage.googleapis.com")
+            : GcpS3Client(GcpCredentialConfig {}, "", make_config(endpoint),
+                          Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never, true) {}
+
+    using GcpS3Client::BuildHttpRequest;
+    using GcpS3Client::authorize_request;
+
+    std::optional<std::string> token = "test-gcp-token";
+    mutable int token_requests = 0;
+
+protected:
+    std::optional<std::string> fetch_token() const override {
+        ++token_requests;
+        return token;
+    }
+
+private:
+    static Aws::Client::ClientConfiguration make_config(const std::string& endpoint) {
+        Aws::Client::ClientConfiguration config;
+        config.endpointOverride = endpoint;
+        return config;
+    }
 };
 
 class SyncPointProcessingGuard {
@@ -289,6 +379,250 @@ TEST_F(S3ClientFactoryTest, RateLimitResponseDistinguishesBytesFromProviderThrot
     EXPECT_EQ(response.status.code, static_cast<int>(ErrorCode::EXCEEDED_LIMIT));
     EXPECT_EQ(response.http_code, 0);
     EXPECT_NE(response.status.msg.find("s3 get request exceeds bytes limit"), std::string::npos);
+}
+
+TEST_F(S3ClientFactoryTest, ObjClientHolderResetRefreshesNativeCredential) {
+    auto initial_conf = make_gcp_native_conf();
+    auto rotated_conf = make_gcp_native_conf("rotated@my-project.iam.gserviceaccount.com");
+    std::vector<io::ObjClientConfig> created_confs;
+    auto client = std::make_shared<io::S3ObjStorageClient>(std::shared_ptr<Aws::S3::S3Client> {});
+    io::ObjClientFactory::instance().set_client_creator_for_test(
+            [&](const io::ObjClientConfig& conf) -> std::shared_ptr<io::ObjStorageClient> {
+                created_confs.push_back(conf);
+                return client;
+            });
+
+    io::ObjClientHolder holder(initial_conf);
+    ASSERT_TRUE(holder.init().ok());
+    ASSERT_TRUE(holder.reset(rotated_conf).ok());
+
+    ASSERT_EQ(created_confs.size(), 2);
+    EXPECT_EQ(created_confs.back(), rotated_conf);
+    EXPECT_EQ(holder.state()->config, rotated_conf);
+}
+
+TEST_F(S3ClientFactoryTest, ObjClientHolderResetSwitchesS3AndGcpProviders) {
+    auto native_conf = make_gcp_native_conf();
+    auto s3_conf = native_conf;
+    std::get<io::S3ClientConfig>(s3_conf.backend).vendor = io::ObjStorageProvider::AWS;
+    auth_of(s3_conf).credential = std::monostate {};
+
+    std::vector<io::ObjClientConfig> created_confs;
+    auto client = std::make_shared<io::S3ObjStorageClient>(std::shared_ptr<Aws::S3::S3Client> {});
+    io::ObjClientFactory::instance().set_client_creator_for_test(
+            [&](const io::ObjClientConfig& conf) -> std::shared_ptr<io::ObjStorageClient> {
+                created_confs.push_back(conf);
+                return client;
+            });
+
+    io::ObjClientHolder holder(s3_conf);
+    ASSERT_TRUE(holder.init().ok());
+    // Existing policy resources take this reset path after receiving the new FE version.
+    ASSERT_TRUE(holder.reset(native_conf).ok());
+    EXPECT_EQ(holder.state()->config, native_conf);
+    ASSERT_TRUE(holder.reset(s3_conf).ok());
+    EXPECT_EQ(holder.state()->config, s3_conf);
+    ASSERT_EQ(created_confs.size(), 3);
+    EXPECT_EQ(created_confs[1], native_conf);
+    EXPECT_EQ(created_confs[2], s3_conf);
+}
+
+TEST_F(S3ClientFactoryTest, ObjClientHolderResetSwitchesNativeAndStaticCredentials) {
+    auto native_conf = make_gcp_native_conf();
+    auto static_conf = native_conf;
+    auth_of(static_conf).credential = std::monostate {};
+    auth_of(static_conf).access_key = "access-key";
+    auth_of(static_conf).secret_key = "secret-key";
+
+    std::vector<io::ObjClientConfig> created_confs;
+    auto client = std::make_shared<io::S3ObjStorageClient>(std::shared_ptr<Aws::S3::S3Client> {});
+    io::ObjClientFactory::instance().set_client_creator_for_test(
+            [&](const io::ObjClientConfig& conf) -> std::shared_ptr<io::ObjStorageClient> {
+                created_confs.push_back(conf);
+                return client;
+            });
+
+    io::ObjClientHolder holder(native_conf);
+    ASSERT_TRUE(holder.init().ok());
+    ASSERT_TRUE(holder.reset(static_conf).ok());
+    const auto& static_auth = std::get<io::S3ClientConfig>(holder.state()->config.backend).auth;
+    ASSERT_TRUE(std::holds_alternative<std::monostate>(static_auth.credential));
+    EXPECT_EQ(static_auth.access_key, "access-key");
+
+    ASSERT_TRUE(holder.reset(native_conf).ok());
+    ASSERT_EQ(created_confs.size(), 3);
+    EXPECT_EQ(created_confs[1], static_conf);
+    EXPECT_EQ(created_confs[2], native_conf);
+    EXPECT_EQ(holder.state()->config, native_conf);
+}
+
+TEST_F(S3ClientFactoryTest, CredentialTypeNamesAreExplicit) {
+    CredentialConfig none;
+    CredentialConfig gcp = GcpCredentialConfig {};
+
+    EXPECT_EQ(credential_type_name(none), "none");
+    EXPECT_EQ(credential_type_name(gcp), "gcp");
+}
+
+TEST_F(S3ClientFactoryTest, GcpBearerHeaderSurvivesAnonymousAwsSigning) {
+    FixedTokenGcpS3Client client;
+    Aws::S3::Model::GetObjectRequest request;
+    request.SetBucket("bucket");
+    request.SetKey("key");
+    auto http_request = Aws::Http::CreateHttpRequest(
+            Aws::Http::URI("https://storage.googleapis.com/bucket/key"),
+            Aws::Http::HttpMethod::HTTP_GET,
+            Aws::Utils::Stream::DefaultResponseStreamFactoryMethod);
+
+    ASSERT_FALSE(client.authorize_request(request, request.GetBucket()).has_value());
+    client.BuildHttpRequest(request, http_request);
+    EXPECT_EQ(http_request->GetHeaderValue("Authorization"), "Bearer test-gcp-token");
+
+    // AWSAuthV4Signer reads this before it checks for anonymous credentials.
+    http_request->SetServiceSpecificParameters(
+            std::make_shared<Aws::Http::ServiceSpecificParameters>());
+    Aws::Client::AWSAuthV4Signer signer(
+            std::make_shared<Aws::Auth::AnonymousAWSCredentialsProvider>(), "s3", "us-east-1");
+    EXPECT_TRUE(signer.SignRequest(*http_request));
+    EXPECT_EQ(http_request->GetHeaderValue("Authorization"), "Bearer test-gcp-token");
+}
+
+TEST_F(S3ClientFactoryTest, GcpRejectsUntrustedEndpointsBeforeFetchingToken) {
+    for (const auto* endpoint :
+         {"https://attacker.example", "http://storage.googleapis.com",
+          "https://storage.googleapis.com.attacker.example",
+          "https://storage.googleapis.com@attacker.example", "https://storage.googleapis.com:8443",
+          "https://bucket.storage.googleapis.com",
+          "https://bucket.us-central1-storage.googleapis.com",
+          "https://bucket.storage.us-central1.rep.googleapis.com", ""}) {
+        FixedTokenGcpS3Client client(endpoint);
+        Aws::S3::Model::GetObjectRequest request;
+        request.SetBucket("bucket");
+        request.SetKey("key");
+        auto outcome = client.GetObject(request);
+        ASSERT_FALSE(outcome.IsSuccess()) << endpoint;
+        EXPECT_EQ(outcome.GetError().GetExceptionName(), "GcpEndpointError");
+        EXPECT_EQ(client.token_requests, 0);
+    }
+    FixedTokenGcpS3Client client;
+    Aws::S3::Model::GetObjectRequest request;
+    request.SetBucket("arn:aws:s3:us-east-1:123456789012:accesspoint/example");
+    EXPECT_FALSE(client.GetObject(request).IsSuccess());
+    EXPECT_EQ(client.token_requests, 0);
+}
+
+TEST_F(S3ClientFactoryTest, GcpAcceptsGoogleStorageEndpoints) {
+    for (const auto* endpoint :
+         {"https://storage.googleapis.com", "https://storage.googleapis.com:443/",
+          "https://us-central1-storage.googleapis.com",
+          "https://storage.us-central1.rep.googleapis.com"}) {
+        EXPECT_TRUE(is_valid_gcp_storage_endpoint(endpoint)) << endpoint;
+    }
+}
+
+TEST_F(S3ClientFactoryTest, GcpErrorLogPresigningUsesUploadedKey) {
+    for (const std::string prefix : {"", "instance-prefix"}) {
+        io::ObjStorageConfig conf {
+                .bucket = "test-bucket",
+                .prefix = prefix,
+                .client = make_gcp_native_conf(),
+        };
+        io::ObjStorageFileSystem fs(std::move(conf), "gcp-error-log-test");
+        const std::string expected_key =
+                prefix.empty() ? "error_log/id" : "instance-prefix/error_log/id";
+        io::Path upload_path;
+        ASSERT_TRUE(fs.absolute_path("error_log/id", upload_path).ok());
+        auto upload_uri = io::ObjStorageUri::parse_s3(upload_path.native());
+        ASSERT_TRUE(upload_uri.has_value()) << upload_uri.error();
+        ASSERT_EQ(upload_uri->key, expected_key);
+
+        fs.client_holder()->set_client_for_test(std::make_shared<S3ObjStorageClient>(
+                nullptr, ObjStorageEndpointInfo {},
+                [&](const ObjStoragePath& path, int64_t expiration_secs) {
+                    EXPECT_EQ(path.key, upload_uri->key);
+                    GcsV4SignedUrlOptions options {
+                            .endpoint = "https://storage.googleapis.com",
+                            .bucket = path.bucket,
+                            .key = path.key,
+                            .signer_email = "signer@test.iam.gserviceaccount.com",
+                            .expiration_secs = expiration_secs,
+                    };
+                    auto result = build_gcs_v4_signed_url(
+                            options, std::chrono::system_clock::time_point {},
+                            [](std::string_view) {
+                                return GcsSignBlobResult {.signature = "test"};
+                            });
+                    EXPECT_TRUE(result.ok()) << result.error;
+                    return result.signed_url;
+                }));
+        EXPECT_TRUE(fs.generate_presigned_url("error_log/id", 60, false)
+                            .starts_with("https://storage.googleapis.com/test-bucket/" +
+                                         expected_key + "?"));
+    }
+}
+
+TEST_F(S3ClientFactoryTest, GcpTokenFailureRejectsEveryObjectStorageOperation) {
+    FixedTokenGcpS3Client client;
+    for (const auto& token : {std::optional<std::string> {}, std::optional<std::string> {""}}) {
+        client.token = token;
+        auto check = [](const auto& outcome) {
+            ASSERT_FALSE(outcome.IsSuccess());
+            EXPECT_EQ(outcome.GetError().GetExceptionName(), "GcpAuthenticationError");
+            EXPECT_EQ(outcome.GetError().GetResponseCode(),
+                      Aws::Http::HttpResponseCode::UNAUTHORIZED);
+            EXPECT_FALSE(outcome.GetError().ShouldRetry());
+            EXPECT_EQ(doris::s3fs_error(outcome.GetError(), "GCS request failed").code,
+                      ObjStorageStatus::PERMISSION_DENIED);
+        };
+        check(client.AbortMultipartUpload(Aws::S3::Model::AbortMultipartUploadRequest {}));
+        check(client.CompleteMultipartUpload(Aws::S3::Model::CompleteMultipartUploadRequest {}));
+        check(client.CreateMultipartUpload(Aws::S3::Model::CreateMultipartUploadRequest {}));
+        check(client.DeleteObject(Aws::S3::Model::DeleteObjectRequest {}));
+        check(client.DeleteObjects(Aws::S3::Model::DeleteObjectsRequest {}));
+        check(client.GetBucketLifecycleConfiguration(
+                Aws::S3::Model::GetBucketLifecycleConfigurationRequest {}));
+        check(client.GetBucketVersioning(Aws::S3::Model::GetBucketVersioningRequest {}));
+        check(client.GetObject(Aws::S3::Model::GetObjectRequest {}));
+        check(client.HeadObject(Aws::S3::Model::HeadObjectRequest {}));
+        check(client.ListObjectsV2(Aws::S3::Model::ListObjectsV2Request {}));
+        check(client.PutObject(Aws::S3::Model::PutObjectRequest {}));
+        check(client.UploadPart(Aws::S3::Model::UploadPartRequest {}));
+    }
+}
+
+TEST_F(S3ClientFactoryTest, UnauthorizedObjectStoreResponseIsPermissionDenied) {
+    Aws::S3::S3Error error;
+    error.SetResponseCode(Aws::Http::HttpResponseCode::UNAUTHORIZED);
+    error.SetExceptionName("InvalidAuthenticationCredentials");
+    error.SetMessage("missing or invalid bearer token");
+
+    auto status = doris::s3fs_error(error, "GCS request failed");
+    EXPECT_EQ(status.code, ObjStorageStatus::PERMISSION_DENIED);
+}
+
+TEST_F(S3ClientFactoryTest, GcpServiceAccountEmailValidation) {
+    const std::vector<std::string_view> valid_emails = {
+            "target@my-project.iam.gserviceaccount.com",
+            "123456789-compute@developer.gserviceaccount.com",
+            "my-project@appspot.gserviceaccount.com",
+    };
+    for (auto email : valid_emails) {
+        EXPECT_TRUE(is_valid_gcp_service_account_email(email)) << email;
+    }
+
+    const std::vector<std::string_view> invalid_emails = {
+            "",
+            "@my-project.iam.gserviceaccount.com",
+            "target@.iam.gserviceaccount.com",
+            "target@@my-project.iam.gserviceaccount.com",
+            "target@evil.developer.gserviceaccount.com",
+            "target@evil.appspot.gserviceaccount.com",
+            "target@my-project.iam.gserviceaccount.com.evil.example",
+            "target account@my-project.iam.gserviceaccount.com",
+    };
+    for (auto email : invalid_emails) {
+        EXPECT_FALSE(is_valid_gcp_service_account_email(email)) << email;
+    }
 }
 
 TEST_F(S3ClientFactoryTest, AwsCredentialsProvider) {
@@ -499,6 +833,137 @@ TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ConfProviderTypeMatrix) {
         ASSERT_EQ(std::get<io::S3ClientConfig>(s3_conf->client.backend).auth.provider_type,
                   test_case.expected)
                 << "provider_type=" << test_case.provider_type;
+    }
+}
+
+TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ConfGcpCredentialModes) {
+    std::map<std::string, std::string> base_properties {
+            {"AWS_ENDPOINT", "storage.googleapis.com"},
+            {"AWS_REGION", "us-east1"},
+            {"provider", "GCP"},
+    };
+
+    struct TestCase {
+        const char* provider_type;
+        const char* impersonation_service_account;
+        GcpCredentialProviderType expected_provider_type;
+    };
+
+    // Both ADC and Compute Engine metadata credentials may be used directly or
+    // as the source credential for service-account impersonation.
+    std::vector<TestCase> cases = {
+            {"DEFAULT", "", GcpCredentialProviderType::Default},
+            {"default", "", GcpCredentialProviderType::Default},
+            {"DEFAULT", "target@my-project.iam.gserviceaccount.com",
+             GcpCredentialProviderType::Default},
+            {"COMPUTE_ENGINE", "", GcpCredentialProviderType::ComputeEngine},
+            {" compute_engine ", "", GcpCredentialProviderType::ComputeEngine},
+            {"COMPUTE_ENGINE", "target@my-project.iam.gserviceaccount.com",
+             GcpCredentialProviderType::ComputeEngine},
+    };
+
+    for (const auto& test_case : cases) {
+        auto properties = base_properties;
+        properties["gs.credential_provider_type"] = test_case.provider_type;
+        if (test_case.impersonation_service_account[0] != '\0') {
+            properties["gs.impersonation_service_account"] =
+                    test_case.impersonation_service_account;
+        }
+
+        auto s3_conf = resolve_test_properties(properties);
+        ASSERT_TRUE(s3_conf.has_value())
+                << "provider_type=" << test_case.provider_type << ": " << s3_conf.error();
+        ASSERT_EQ(s3_conf->client.provider(), io::ObjStorageProvider::GCP);
+        ASSERT_TRUE(std::holds_alternative<GcpCredentialConfig>(credential_of(*s3_conf)));
+        const auto& credential = std::get<GcpCredentialConfig>(credential_of(*s3_conf));
+        EXPECT_EQ(credential.provider_type, test_case.expected_provider_type);
+        EXPECT_EQ(credential.impersonation_service_account,
+                  test_case.impersonation_service_account);
+    }
+}
+
+TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ConfGcpDefaultImpersonation) {
+    std::map<std::string, std::string> properties {
+            {"AWS_ENDPOINT", "storage.googleapis.com"},
+            {"AWS_REGION", "us-east1"},
+            {"provider", "GCP"},
+            {"gs.impersonation_service_account", "target@my-project.iam.gserviceaccount.com"},
+    };
+    auto s3_conf = resolve_test_properties(properties);
+    ASSERT_TRUE(s3_conf.has_value()) << s3_conf.error();
+    const auto& credential = std::get<GcpCredentialConfig>(credential_of(*s3_conf));
+    EXPECT_EQ(credential.provider_type, GcpCredentialProviderType::Default);
+    EXPECT_EQ(credential.impersonation_service_account,
+              "target@my-project.iam.gserviceaccount.com");
+
+    properties["gs.impersonation_service_account"] = "";
+    auto direct_conf = resolve_test_properties(properties);
+    ASSERT_TRUE(direct_conf.has_value()) << direct_conf.error();
+    const auto& direct_credential = std::get<GcpCredentialConfig>(credential_of(*direct_conf));
+    EXPECT_EQ(direct_credential.provider_type, GcpCredentialProviderType::Default);
+    EXPECT_TRUE(direct_credential.impersonation_service_account.empty());
+}
+
+TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ConfRejectsConflictingGcpCredentials) {
+    std::map<std::string, std::string> base_properties {
+            {"AWS_ENDPOINT", "storage.googleapis.com"},
+            {"AWS_REGION", "us-east1"},
+            {"provider", "GCP"},
+            {"gs.credential_provider_type", "DEFAULT"},
+    };
+
+    const std::vector<std::pair<std::string, std::string>> conflicts = {
+            {"AWS_ACCESS_KEY", "ak"},
+            {"AWS_SECRET_KEY", "sk"},
+            {"AWS_TOKEN", "token"},
+            {"AWS_ROLE_ARN", "arn:aws:iam::123456789012:role/test-role"},
+            {"AWS_EXTERNAL_ID", "external-id"},
+            {"AWS_CREDENTIALS_PROVIDER_TYPE", "INSTANCE_PROFILE"},
+    };
+    for (const auto& [key, value] : conflicts) {
+        auto properties = base_properties;
+        properties[key] = value;
+        auto s3_conf = resolve_test_properties(properties);
+        ASSERT_FALSE(s3_conf.has_value()) << key;
+        EXPECT_NE(s3_conf.error().to_string().find("cannot be combined"), std::string::npos) << key;
+    }
+}
+
+TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ConfRejectsInvalidGcpCredentialModes) {
+    std::map<std::string, std::string> base_properties {
+            {"AWS_ENDPOINT", "storage.googleapis.com"},
+            {"AWS_REGION", "us-east1"},
+            {"provider", "GCP"},
+    };
+    for (const auto& provider_type : {"ADC", "", "unknown"}) {
+        auto properties = base_properties;
+        properties["gs.credential_provider_type"] = provider_type;
+        auto s3_conf = resolve_test_properties(properties);
+        ASSERT_FALSE(s3_conf.has_value()) << provider_type;
+        auto message = s3_conf.error().to_string();
+        EXPECT_NE(message.find("gs.credential_provider_type"), std::string::npos) << provider_type;
+        EXPECT_NE(message.find("DEFAULT"), std::string::npos) << provider_type;
+        EXPECT_NE(message.find("COMPUTE_ENGINE"), std::string::npos) << provider_type;
+    }
+
+    for (const auto& account : {" ", "invalid-account"}) {
+        auto properties = base_properties;
+        properties["gs.impersonation_service_account"] = account;
+        ASSERT_FALSE(resolve_test_properties(properties).has_value()) << account;
+    }
+}
+
+TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ConfRejectsGcpCredentialWithAwsProvider) {
+    for (const auto& provider : {"S3", "AWS"}) {
+        std::map<std::string, std::string> properties {
+                {"AWS_ENDPOINT", "storage.googleapis.com"},
+                {"AWS_REGION", "us-east1"},
+                {"provider", provider},
+                {"gs.credential_provider_type", "DEFAULT"},
+        };
+        auto s3_conf = resolve_test_properties(properties);
+        ASSERT_FALSE(s3_conf.has_value()) << provider;
+        EXPECT_NE(s3_conf.error().to_string().find("provider=GCP"), std::string::npos) << provider;
     }
 }
 
