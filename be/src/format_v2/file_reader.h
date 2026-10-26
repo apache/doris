@@ -61,6 +61,7 @@ enum class FileFormat {
     ARROW,
     WAL,
     LANCE,
+    ES_HTTP,
 };
 
 // Format-local description of one independently readable part of a file. Scanner scheduling

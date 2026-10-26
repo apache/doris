@@ -196,8 +196,7 @@ bool FileScanLocalState::should_use_file_scanner_v2(const TQueryOptions& query_o
     // Iceberg's default write format does not describe retained files, and remote splits arrive
     // after scanner construction. Keep versioned Iceberg scans on V2 without eagerly listing
     // every file.
-    return scanner_v2_requested && !is_load &&
-           scan_params.format_type != TFileFormatType::FORMAT_ES_HTTP && !is_transactional_hive;
+    return scanner_v2_requested && !is_load && !is_transactional_hive;
 }
 
 bool FileScanLocalState::_can_generate_physical_splits(const TQueryOptions& query_options,

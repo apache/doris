@@ -19,6 +19,8 @@
 
 #include <stdlib.h>
 
+#include <algorithm>
+#include <cctype>
 #include <map>
 #include <sstream>
 #include <string>
@@ -28,6 +30,7 @@
 #include "common/status.h"
 #include "exec/es/es_scroll_parser.h"
 #include "exec/es/es_scroll_query.h"
+#include "service/backend_options.h"
 #include "service/http/http_method.h"
 
 namespace doris {
@@ -266,4 +269,60 @@ Status ESScanReader::close() {
         return Status::InternalError("es_scan_reader delete scroll context failure");
     }
 }
+
+std::string ESScanReader::extract_hostname(std::string host) {
+    auto scheme_end = host.find("://");
+    if (scheme_end != std::string::npos) {
+        host = host.substr(scheme_end + 3);
+    }
+
+    if (!host.empty() && host.front() == '[') {
+        auto bracket_end = host.find(']');
+        if (bracket_end != std::string::npos) {
+            return host.substr(1, bracket_end - 1);
+        }
+        return host;
+    }
+
+    auto colon = host.rfind(':');
+    if (colon == std::string::npos) {
+        return host;
+    }
+    std::string port = host.substr(colon + 1);
+    if (!port.empty() &&
+        std::ranges::all_of(port, [](unsigned char ch) { return std::isdigit(ch) != 0; })) {
+        return host.substr(0, colon);
+    }
+    return host;
+}
+
+std::string ESScanReader::select_host(const std::map<std::string, std::string>& properties) {
+    // If es_hosts contains multiple hosts, prefer localhost for locality
+    auto it = properties.find("es_hosts");
+    if (it != properties.end() && !it->second.empty()) {
+        std::string localhost = BackendOptions::get_localhost();
+        std::string best;
+        std::istringstream stream(it->second);
+        std::string host;
+        while (std::getline(stream, host, ',')) {
+            if (best.empty()) {
+                best = host;
+            }
+            std::string hostname = extract_hostname(host);
+            if (hostname == localhost) {
+                return host;
+            }
+        }
+        if (!best.empty()) {
+            return best;
+        }
+    }
+    // Fallback to host_port
+    auto hp = properties.find(ESScanReader::KEY_HOST_PORT);
+    if (hp != properties.end()) {
+        return hp->second;
+    }
+    return "";
+}
+
 } // namespace doris
