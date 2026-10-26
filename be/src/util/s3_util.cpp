@@ -229,8 +229,12 @@ public:
                           config::s3_client_cache_idle_ttl_seconds, true),
               _cache(cache) {}
 
-    void prune_stale() override { COUNTER_SET(_freed_entrys_counter, _cache.prune_stale()); }
-    void prune_all(bool /*force*/) override { COUNTER_SET(_freed_entrys_counter, _cache.clear()); }
+    void prune_stale() override {
+        COUNTER_SET(_freed_entrys_counter, static_cast<int64_t>(_cache.prune_stale()));
+    }
+    void prune_all(bool /*force*/) override {
+        COUNTER_SET(_freed_entrys_counter, static_cast<int64_t>(_cache.clear()));
+    }
     int64_t adjust_capacity_weighted(double /*weight*/) override { return 0; }
     size_t get_capacity() override { return _initial_capacity; }
     int64_t reset_initial_capacity(double /*weight*/) override { return 0; }
