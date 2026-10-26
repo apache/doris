@@ -26,6 +26,7 @@
 
 #include "common/status.h"
 #include "core/value/variant/variant_batch_builder.h"
+#include "core/value/variant/variant_decimal_paths.h"
 #include "core/value/variant/variant_value.h"
 
 namespace cctz {
@@ -45,6 +46,10 @@ struct JsonToVariantOptions {
     // serde turns this off because it mostly re-reads JSON that a Variant serde wrote: a value the
     // parser cannot read back, such as an integer beyond 64 bits, then keeps its text.
     bool throw_on_invalid_json = true;
+    // The DECIMAL paths of the destination VARIANT's Schema Template (nullptr or empty: none). With
+    // paths, a document is read with simdjson's ondemand parser, and a JSON number on one of them is
+    // parsed from its text into a decimal instead of through a binary64.
+    VariantDecimalPathSetPtr decimal_paths = nullptr;
 
     // Takes a value snapshot. Later changes to mutable config do not affect an encoder.
     static JsonToVariantOptions current_config();

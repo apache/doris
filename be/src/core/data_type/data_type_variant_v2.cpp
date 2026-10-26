@@ -21,6 +21,7 @@
 #include <gen_cpp/data.pb.h>
 
 #include <sstream>
+#include <utility>
 
 #include "common/exception.h"
 #include "core/column/variant_v2/column_variant_v2.h"
@@ -34,7 +35,13 @@ DataTypeVariantV2::DataTypeVariantV2(int32_t max_subcolumns_count)
         : DataTypeVariantV2(max_subcolumns_count, false) {}
 
 DataTypeVariantV2::DataTypeVariantV2(int32_t max_subcolumns_count, bool enable_doc_mode)
-        : _max_subcolumns_count(max_subcolumns_count), _enable_doc_mode(enable_doc_mode) {
+        : DataTypeVariantV2(max_subcolumns_count, enable_doc_mode, nullptr) {}
+
+DataTypeVariantV2::DataTypeVariantV2(int32_t max_subcolumns_count, bool enable_doc_mode,
+                                     VariantDecimalPathSetPtr decimal_paths)
+        : _max_subcolumns_count(max_subcolumns_count),
+          _enable_doc_mode(enable_doc_mode),
+          _decimal_paths(std::move(decimal_paths)) {
     _name = fmt::format("Variant(max subcolumns count = {}, enable doc mode = {})",
                         max_subcolumns_count, enable_doc_mode);
 }
@@ -81,7 +88,7 @@ Field DataTypeVariantV2::get_field(const TExprNode& node) const {
 }
 
 DataTypeSerDeSPtr DataTypeVariantV2::get_serde(int nesting_level) const {
-    return std::make_shared<DataTypeVariantV2SerDe>(nesting_level);
+    return std::make_shared<DataTypeVariantV2SerDe>(nesting_level, _decimal_paths);
 }
 
 void DataTypeVariantV2::to_protobuf(PTypeDesc*, PTypeNode* node, PScalarType*) const {
