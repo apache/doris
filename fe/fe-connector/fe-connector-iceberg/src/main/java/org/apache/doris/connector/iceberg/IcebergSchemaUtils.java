@@ -30,10 +30,12 @@ import org.apache.doris.thrift.schema.external.TSchema;
 import org.apache.doris.thrift.schema.external.TStructField;
 
 import org.apache.commons.lang3.exception.ExceptionUtils;
+import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SingleValueParser;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
+import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.mapping.MappedField;
 import org.apache.iceberg.mapping.MappedFields;
 import org.apache.iceberg.mapping.NameMapping;
@@ -102,10 +104,57 @@ public final class IcebergSchemaUtils {
     static final String ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL = "_last_updated_sequence_number";
     static final int ICEBERG_ROW_ID_FIELD_ID = 2147483540;
     static final int ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_FIELD_ID = 2147483539;
+    static final int ICEBERG_ROW_LINEAGE_MIN_VERSION = 3;
 
     private static final Base64.Encoder BASE64_ENCODER = Base64.getEncoder();
 
     private IcebergSchemaUtils() {
+    }
+
+    /**
+     * Validates the effective row-lineage schema before a table property update can make it observable.
+     *
+     * <p>Iceberg keeps row-lineage columns outside the physical table schema, so an {@code UpdateProperties}
+     * format-version upgrade does not itself validate their names against user columns. Doris exposes both sets
+     * through one connector schema, which must remain a valid Iceberg {@link Schema}. Delegate that contract to
+     * Iceberg instead of maintaining a second reserved-name rule here.</p>
+     */
+    static void validateRowLineageFormatVersionUpgrade(Table table, Map<String, String> properties) {
+        int currentFormatVersion = IcebergWriterHelper.getFormatVersion(table);
+        if (currentFormatVersion >= ICEBERG_ROW_LINEAGE_MIN_VERSION) {
+            return;
+        }
+
+        String requestedFormatVersion = properties.get(TableProperties.FORMAT_VERSION);
+        if (requestedFormatVersion == null) {
+            return;
+        }
+
+        int targetFormatVersion;
+        try {
+            targetFormatVersion = Integer.parseInt(requestedFormatVersion);
+        } catch (NumberFormatException ignored) {
+            // Leave invalid values to Iceberg's UpdateProperties validation.
+            return;
+        }
+
+        if (targetFormatVersion >= ICEBERG_ROW_LINEAGE_MIN_VERSION) {
+            validateRowLineageSchema(table.schema());
+        }
+    }
+
+    /**
+     * Verifies that the physical schema can be exposed together with Iceberg's row-lineage metadata columns.
+     * {@link MetadataColumns#schemaWithRowLineage(Schema)} is the authority for the combined schema, including
+     * its requirement that field names are unique and field ids match.
+     */
+    static void validateRowLineageSchema(Schema schema) {
+        try {
+            MetadataColumns.schemaWithRowLineage(schema);
+        } catch (ValidationException | IllegalArgumentException e) {
+            throw new DorisConnectorException(
+                    "Cannot expose Iceberg row lineage columns with the current table schema: " + e.getMessage(), e);
+        }
     }
 
     /**

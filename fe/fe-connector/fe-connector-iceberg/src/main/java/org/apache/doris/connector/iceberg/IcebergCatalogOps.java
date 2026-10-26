@@ -511,6 +511,7 @@ public interface IcebergCatalogOps {
         @Override
         public void setTableProperties(String dbName, String tableName, Map<String, String> properties) {
             withTable(dbName, tableName, table -> {
+                IcebergSchemaUtils.validateRowLineageFormatVersionUpgrade(table, properties);
                 UpdateProperties updateProperties = table.updateProperties();
                 properties.forEach(updateProperties::set);
                 updateProperties.commit();
