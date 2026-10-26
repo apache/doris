@@ -28,17 +28,17 @@
 6	again%20and	0	10	0	4,5,6,11
 6	alpha%20beta%20gamma	0	15	0	4,5,6,11
 6	hello%20nonexistent	0		0	4,5,6,11
-7	hello%20world	-6001		0	4,5,6,11
-7	world%20hello	-6001		0	4,5,6,11
-7	again%20and%20again	-6001		0	4,5,6,11
-7	alpha%20beta	-6001		0	4,5,6,11
+7	hello%20world	3		0	4,5,6,11
+7	world%20hello	3		0	4,5,6,11
+7	again%20and%20again	3		0	4,5,6,11
+7	alpha%20beta	3		0	4,5,6,11
 7	重复%20词元	0		0	4,5,6,11
-7	brown%20fox	-6001		0	4,5,6,11
+7	brown%20fox	3		0	4,5,6,11
 7	hello	0	0,10,18,19	0	4,5,6,11
-8	hello%20wor	-6001		0	4,5,6,11
-8	prefix%20pre	-6001		0	4,5,6,11
-8	alpha%20be	-6001		0	4,5,6,11
-8	again%20ag	-6001		0	4,5,6,11
+8	hello%20wor	3		0	4,5,6,11
+8	prefix%20pre	3		0	4,5,6,11
+8	alpha%20be	3		0	4,5,6,11
+8	again%20ag	3		0	4,5,6,11
 8	sing	0	8	0	4,5,6,11
 0	single	0	8	0	4,5,6,11
 0	hello%20world%20hello%20doris	0	0	0	4,5,6,11

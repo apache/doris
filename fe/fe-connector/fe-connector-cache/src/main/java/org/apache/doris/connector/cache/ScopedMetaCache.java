@@ -91,6 +91,7 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
     private final LongAdder loadFailureCount = new LongAdder();
     private final LongAdder totalLoadTimeNanos = new LongAdder();
     private final LongAdder evictionCount = new LongAdder();
+    private final AtomicLong evictionWeight = new AtomicLong();
     private final LongAdder invalidateCount = new LongAdder();
     private final AtomicReference<Long> lastLoadSuccessTimeMs = new AtomicReference<>(-1L);
     private final AtomicReference<Long> lastLoadFailureTimeMs = new AtomicReference<>(-1L);
@@ -576,8 +577,13 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
                     lastError.get(),
                     weightBounded,
                     entryBudget == null ? -1L : entryBudget.getEffectiveMaxWeight(),
-                    entryBudget == null ? 0L : entryBudget.getUsedWeight(),
-                    weightRejectCount.sum(),
+                    entryBudget == null ? -1L : entryBudget.getUsedWeight(),
+                    entryBudget == null ? -1L : evictionWeight.get(),
+                    entryBudget == null ? -1L : weightRejectCount.sum(),
+                    entryBudget == null ? -1L : entryBudget.getCatalogMaxWeight(),
+                    entryBudget == null ? -1L : entryBudget.getCatalogUsedWeight(),
+                    entryBudget == null ? -1L : entryBudget.getGlobalMaxWeight(),
+                    entryBudget == null ? -1L : entryBudget.getGlobalUsedWeight(),
                     lastWeightRejectReason.get()));
     }
 
@@ -826,7 +832,7 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         for (Map.Entry<K, VersionedValue<K, V>> candidate : coldest.entrySet()) {
             VersionedValue<K, V> current = data.getIfPresent(candidate.getKey());
             if (current == candidate.getValue()) {
-                long weight = current.registration.reservation.getBytes();
+                long weight = current.registration.admittedBytes;
                 budgetEvictionRegistration.set(current.registration);
                 try {
                     if (data.asMap().remove(candidate.getKey(), current)) {
@@ -1144,6 +1150,11 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
             VersionedValue<K, V> versioned, RemovalCause cause, boolean budgetEviction) {
         if (cause.wasEvicted() || budgetEviction) {
             evictionCount.increment();
+            if (weightBounded) {
+                // Releasing a reservation zeroes it, and an exact invalidation can release the evicted generation
+                // before this deferred removal runs, so count the bytes the generation was admitted with.
+                evictionWeight.accumulateAndGet(versioned.registration.admittedBytes, JvmSizeUtils::saturatedAdd);
+            }
         } else if (cause == RemovalCause.EXPLICIT) {
             invalidateCount.increment();
         }
@@ -1298,7 +1309,12 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         private final boolean weightBounded;
         private final long maxWeight;
         private final long estimatedWeight;
+        private final long evictionWeight;
         private final long weightRejectCount;
+        private final long catalogMaxWeight;
+        private final long catalogEstimatedWeight;
+        private final long globalMaxWeight;
+        private final long globalEstimatedWeight;
         private final String lastWeightRejectReason;
 
         private CacheMetrics(
@@ -1322,7 +1338,12 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
                 boolean weightBounded,
                 long maxWeight,
                 long estimatedWeight,
+                long evictionWeight,
                 long weightRejectCount,
+                long catalogMaxWeight,
+                long catalogEstimatedWeight,
+                long globalMaxWeight,
+                long globalEstimatedWeight,
                 String lastWeightRejectReason) {
             this.physicalEntryCount = physicalEntryCount;
             this.keyNodeCount = keyNodeCount;
@@ -1344,7 +1365,12 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
             this.weightBounded = weightBounded;
             this.maxWeight = maxWeight;
             this.estimatedWeight = estimatedWeight;
+            this.evictionWeight = evictionWeight;
             this.weightRejectCount = weightRejectCount;
+            this.catalogMaxWeight = catalogMaxWeight;
+            this.catalogEstimatedWeight = catalogEstimatedWeight;
+            this.globalMaxWeight = globalMaxWeight;
+            this.globalEstimatedWeight = globalEstimatedWeight;
             this.lastWeightRejectReason = lastWeightRejectReason;
         }
 
@@ -1428,8 +1454,29 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
             return estimatedWeight;
         }
 
+        /** Bytes of the values removed by eviction, by Caffeine or to make room in the budget; -1 if unbounded. */
+        public long getEvictionWeight() {
+            return evictionWeight;
+        }
+
         public long getWeightRejectCount() {
             return weightRejectCount;
+        }
+
+        public long getCatalogMaxWeight() {
+            return catalogMaxWeight;
+        }
+
+        public long getCatalogEstimatedWeight() {
+            return catalogEstimatedWeight;
+        }
+
+        public long getGlobalMaxWeight() {
+            return globalMaxWeight;
+        }
+
+        public long getGlobalEstimatedWeight() {
+            return globalEstimatedWeight;
         }
 
         public String getLastWeightRejectReason() {
@@ -1557,6 +1604,9 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
     /** Lightweight ownership token: deliberately does not retain the cached value. */
     private static final class Registration {
         private final MetaCacheBudgetManager.AdmissionReservation reservation;
+        // Read when the generation is created, right after its reservation is admitted: releasing the
+        // reservation zeroes its bytes, while eviction accounting still needs them.
+        private final long admittedBytes;
         private final CacheAddress address;
         private final ScopeSnapshot scopeSnapshot;
         private final AtomicBoolean released = new AtomicBoolean(false);
@@ -1564,6 +1614,7 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         private Registration(MetaCacheBudgetManager.AdmissionReservation reservation,
                 CacheAddress address, ScopeSnapshot scopeSnapshot) {
             this.reservation = reservation;
+            this.admittedBytes = reservation == null ? 0L : reservation.getBytes();
             this.address = address;
             this.scopeSnapshot = scopeSnapshot;
         }

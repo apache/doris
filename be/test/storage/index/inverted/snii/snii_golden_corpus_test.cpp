@@ -361,7 +361,7 @@ Status write_sample(const std::string& dir, const Sample& sample, const TabletIn
     SniiIndexColumnWriter writer(&index_file_writer, &meta, FieldType::OLAP_FIELD_TYPE_VARCHAR);
     RETURN_IF_ERROR(writer.init());
     if (sample.array) {
-        // Follow ArrayColumnWriter::append_nullable: pass all rows to add_array_values,
+        // Follow feed_array_index(): pass all rows to add_array_values,
         // representing NULL rows as empty arrays, then mark them with add_array_nulls.
         const auto rows = array_corpus();
         std::vector<std::string> storage;
@@ -381,9 +381,9 @@ Status write_sample(const std::string& dir, const Sample& sample, const TabletIn
         std::vector<Slice> elements;
         elements.reserve(storage.size());
         for (const auto& value : storage) elements.emplace_back(value);
-        RETURN_IF_ERROR(writer.add_array_values(
-                sizeof(Slice), elements.data(), element_nulls.data(),
-                reinterpret_cast<const uint8_t*>(offsets.data()), rows.size()));
+        RETURN_IF_ERROR(writer.add_array_values(sizeof(Slice),
+                                                reinterpret_cast<const uint8_t*>(elements.data()),
+                                                element_nulls.data(), offsets.data(), rows.size()));
         RETURN_IF_ERROR(writer.add_array_nulls(row_nulls.data(), rows.size()));
         RETURN_IF_ERROR(writer.finish());
         RETURN_IF_ERROR(index_file_writer.begin_close());
@@ -397,7 +397,8 @@ Status write_sample(const std::string& dir, const Sample& sample, const TabletIn
         std::vector<Slice> slices;
         slices.reserve(batch.size());
         for (const auto& row : batch) slices.emplace_back(row);
-        RETURN_IF_ERROR(writer.add_values(kColumn, slices.data(), slices.size()));
+        RETURN_IF_ERROR(
+                writer.add_values(reinterpret_cast<const uint8_t*>(slices.data()), slices.size()));
         batch.clear();
         return Status::OK();
     };
@@ -461,41 +462,35 @@ Observation observe(const Sample& sample, const OpenedSample& opened, const Quer
 
 // ---------------------------------------------------------------- fixture
 
-std::filesystem::path corpus_directory(std::string_view explicit_dir, std::string_view doris_home,
-                                       const std::filesystem::path& source_file) {
+std::filesystem::path corpus_directory(std::string_view explicit_dir) {
     // Explicit directories select an external corpus or a write destination.
     if (!explicit_dir.empty()) return std::filesystem::path(explicit_dir);
-    // The runner starts at DORIS_HOME, where build-relative paths such as ../test miss the corpus.
-    const auto source_dir = doris_home.empty() ? source_file.parent_path()
-                                               : std::filesystem::path(doris_home) /
-                                                         "be/test/storage/index/inverted/snii";
-    return source_dir / "testdata" / "compatibility_corpus";
+    return std::filesystem::path(SNII_GOLDEN_CORPUS_DIR);
 }
 
-TEST(SniiGoldenCorpusPath, ExplicitDirectoryOverridesDorisHome) {
-    EXPECT_EQ(corpus_directory("/external/corpus", "/checkout", "../test/corpus_test.cpp"),
-              std::filesystem::path("/external/corpus"));
+TEST(SniiGoldenCorpusPath, ExplicitDirectoryOverridesBundledCorpus) {
+    EXPECT_EQ(corpus_directory("/external/corpus"), std::filesystem::path("/external/corpus"));
 }
 
-TEST(SniiGoldenCorpusPath, DorisHomeResolvesBuildRelativeSourcePath) {
-    EXPECT_EQ(corpus_directory("", "/checkout", "../test/corpus_test.cpp"),
-              std::filesystem::path("/checkout/be/test/storage/index/inverted/snii/testdata/"
-                                    "compatibility_corpus"));
+TEST(SniiGoldenCorpusPath, RelativeDirectoryIsPreserved) {
+    EXPECT_EQ(corpus_directory("relative/corpus"), std::filesystem::path("relative/corpus"));
 }
 
-TEST(SniiGoldenCorpusPath, SourcePathWorksWithoutDorisHome) {
-    EXPECT_EQ(corpus_directory("", "", "/checkout/be/test/corpus_test.cpp"),
-              std::filesystem::path("/checkout/be/test/testdata/compatibility_corpus"));
+TEST(SniiGoldenCorpusPath, BundledDirectoryContainsAllSamples) {
+    const auto dir = corpus_directory("");
+    for (const auto& sample : samples()) {
+        const auto index = dir / (sample.name + ".idx");
+        const auto expectation = dir / (sample.name + ".expect");
+        EXPECT_TRUE(std::filesystem::is_regular_file(index)) << index;
+        EXPECT_TRUE(std::filesystem::is_regular_file(expectation)) << expectation;
+    }
 }
 
 class SniiGoldenCorpus : public testing::Test {
 protected:
     void SetUp() override {
         const char* dir = std::getenv("SNII_GOLDEN_DIR");
-        const char* doris_home = std::getenv("DORIS_HOME");
-        _dir = corpus_directory(dir != nullptr ? dir : "", doris_home != nullptr ? doris_home : "",
-                                __FILE__)
-                       .string();
+        _dir = corpus_directory(dir != nullptr ? dir : "").string();
         const char* mode = std::getenv("SNII_GOLDEN_MODE");
         _write_mode = mode != nullptr && std::string_view(mode) == "write";
         if (_write_mode && (dir == nullptr || *dir == '\0')) {

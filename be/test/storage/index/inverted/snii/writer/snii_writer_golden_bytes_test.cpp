@@ -15,7 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Pins ordinary SNII writer bytes for fixed analyzed and keyword corpora. A changed digest requires checking format and analyzer compatibility before updating it.
+// Pins ordinary SNII writer bytes for fixed analyzed and keyword corpora.
+// A changed digest requires checking format and analyzer compatibility before updating it.
 
 #include <gtest/gtest.h>
 
@@ -210,10 +211,10 @@ void add_batch(SniiIndexColumnWriter* writer, const std::vector<std::string>& ro
     for (const std::string& row : rows) {
         slices.emplace_back(row);
     }
-    assert_ok(writer->add_values("c1", slices.data(), slices.size()));
+    assert_ok(writer->add_values(reinterpret_cast<const uint8_t*>(slices.data()), slices.size()));
 }
 
-// The fixed corpus: two add_values batches with add_nulls runs interleaved.
+// The fixed corpus: two add batches with add_nulls runs interleaved.
 void feed_corpus(SniiIndexColumnWriter* writer) {
     add_batch(writer, {
                               "hello world hello doris",
