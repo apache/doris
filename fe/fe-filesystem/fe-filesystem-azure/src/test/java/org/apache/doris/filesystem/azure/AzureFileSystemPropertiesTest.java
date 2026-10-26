@@ -50,6 +50,35 @@ class AzureFileSystemPropertiesTest {
     }
 
     @Test
+    void oauth2_derivesBlobEndpointFromDfsAccountHost() {
+        // Only the ADLS Gen2 host is given: the Blob endpoint of the same account and cloud is used.
+        for (String[] hostAndEndpoint : new String[][] {
+                {"acct.dfs.core.windows.net", "https://acct.blob.core.windows.net"},
+                {"acct.dfs.core.chinacloudapi.cn", "https://acct.blob.core.chinacloudapi.cn"},
+                {"https://acct.dfs.core.windows.net", "https://acct.blob.core.windows.net"},
+                {"acct.blob.core.windows.net", "https://acct.blob.core.windows.net"},
+                {"storage.example.com", "https://storage.example.com"}}) {
+            AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
+                    "azure.auth_type", "OAuth2",
+                    "azure.oauth2_account_host", hostAndEndpoint[0],
+                    "azure.oauth2_client_id", "client",
+                    "azure.oauth2_client_secret", "secret",
+                    "azure.oauth2_server_uri", "https://login.microsoftonline.com/tenant/oauth2/token"));
+            Assertions.assertEquals(hostAndEndpoint[1], properties.getEndpoint(), hostAndEndpoint[0]);
+        }
+
+        // An explicit endpoint wins over the account host.
+        AzureFileSystemProperties explicit = AzureFileSystemProperties.of(Map.of(
+                "azure.auth_type", "OAuth2",
+                "azure.endpoint", "https://custom.example.com",
+                "azure.oauth2_account_host", "acct.dfs.core.windows.net",
+                "azure.oauth2_client_id", "client",
+                "azure.oauth2_client_secret", "secret",
+                "azure.oauth2_server_uri", "https://login.microsoftonline.com/tenant/oauth2/token"));
+        Assertions.assertEquals("https://custom.example.com", explicit.getEndpoint());
+    }
+
+    @Test
     void toString_masksCredentialsAndNeverLeaksPlaintext() {
         AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
                 "azure.endpoint", "account.blob.core.windows.net",

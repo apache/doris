@@ -529,9 +529,27 @@ public final class AzureFileSystemProperties
             if (StringUtils.isNotBlank(accountName)) {
                 return String.format(AZURE_ENDPOINT_TEMPLATE, accountName);
             }
-            return addHttpsScheme(accountHost);
+            return blobEndpointOfAccountHost(accountHost);
         }
         return addHttpsScheme(endpoint);
+    }
+
+    // The OAuth2 account host is the ADLS Gen2 host Hadoop ABFS addresses, e.g.
+    // acct.dfs.core.windows.net. The native SDK on FE and the BE client speak the Blob API, which
+    // the same account serves on its blob host (acct.blob.core.windows.net); sending Blob requests
+    // to the DFS host fails with HTTP 400. A host without a dfs label (a blob or custom host) is
+    // used as is.
+    private static String blobEndpointOfAccountHost(String accountHost) {
+        String endpoint = addHttpsScheme(accountHost);
+        if (endpoint.isEmpty()) {
+            return endpoint;
+        }
+        int hostStart = endpoint.indexOf("://") + 3;
+        String[] labels = endpoint.substring(hostStart).split("\\.", 3);
+        if (labels.length == 3 && labels[1].equalsIgnoreCase("dfs")) {
+            return endpoint.substring(0, hostStart) + labels[0] + ".blob." + labels[2];
+        }
+        return endpoint;
     }
 
     private static String addHttpsScheme(String endpoint) {
