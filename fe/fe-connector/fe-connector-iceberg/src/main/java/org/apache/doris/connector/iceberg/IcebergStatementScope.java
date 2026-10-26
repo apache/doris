@@ -74,6 +74,11 @@ final class IcebergStatementScope {
 
     private IcebergStatementScope() {}
 
+    /** A frozen read or its live lease proves existence even if REFRESH retires the catalog cache. */
+    static boolean hasReadTable(ConnectorSession session, String dbName, String tableName) {
+        return ConnectorStatementScopes.getIfPresent(session, TABLE_NAMESPACE, dbName, tableName) != null;
+    }
+
     /**
      * Loads and freezes the iceberg {@link Table} for {@code db.tbl} once per statement. The frozen operations
      * prevent another statement's write refresh from changing the metadata generation after slots are bound.
