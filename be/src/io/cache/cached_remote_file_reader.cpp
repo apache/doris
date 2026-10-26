@@ -104,6 +104,7 @@ bvar::PassiveStatus<int> g_active_peer_races_bvar(
 bvar::Adder<uint64_t> g_peer_race_peer_win("peer_race_peer_win");
 bvar::Adder<uint64_t> g_peer_race_s3_win("peer_race_s3_win");
 bvar::Adder<uint64_t> g_peer_race_both_fail("peer_race_both_fail");
+bvar::Adder<uint64_t> g_peer_race_s3_skipped_after_queue("peer_race_s3_skipped_after_queue");
 bvar::Adder<uint64_t> g_peer_cross_compute_group_read("peer_cross_compute_group_read");
 bvar::Adder<uint64_t> g_peer_same_compute_group_read("peer_same_compute_group_read");
 bvar::Adder<uint64_t> g_peer_lazy_fetch_triggered("peer_lazy_fetch_triggered");
@@ -468,6 +469,20 @@ void launch_s3_race(std::shared_ptr<RaceState> race, size_t empty_start, size_t 
     // peer wins; passing nullptr is safe because S3FileReader::read_at_impl ignores it.
     auto do_s3_read = [race, empty_start, span_size, remote_reader, owner]() {
         (void)owner;
+        TEST_SYNC_POINT("CachedRemoteFileReader::_execute_winner_race::s3_task_start");
+        {
+            // The peer may win while this task waits in PeerRaceS3ThreadPool. Skip the GET
+            // before allocating the span buffer or counting an S3 read.
+            std::unique_lock<bthread::Mutex> lk(race->mtx);
+            if (race->winner == 0) {
+                race->s3_done = true;
+                race->s3_status =
+                        Status::InternalError<false>("skipped: peer won before s3 task started");
+                race->cv.notify_all();
+                g_peer_race_s3_skipped_after_queue << 1;
+                return;
+            }
+        }
         auto s3_buf = std::make_unique<char[]>(span_size);
         size_t read_size = span_size;
         s3_read_counter << 1;
