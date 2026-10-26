@@ -32,6 +32,7 @@
 #include "storage/index/inverted/clucene/searcher_cache_value.h"
 #include "storage/index/inverted/common/inverted_index_cache.h"
 #include "storage/index/inverted/common/inverted_index_desc.h"
+#include "storage/index/inverted/common/norm_length_sums.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/olap_common.h"
 #include "util/lru_cache.h"
@@ -320,10 +321,10 @@ TEST_F(InvertedIndexSearcherCacheTest, remove_element_only_in_table) {
     delete index_searcher_cache;
 }
 
-// The non-NULL norm length sum of a field is computed once per cached searcher, kept apart from
-// the other fields' sums, and not kept when computing it fails.
-TEST(CluceneSearcherCacheValueTest, NonNullNormLengthSumIsComputedOncePerField) {
-    CluceneSearcherCacheValue value(FulltextIndexSearcherPtr(nullptr), 0, 0);
+// The non-NULL norm length sum of a field is computed once per cached index reader, kept apart
+// from the other fields' sums, and not kept when computing it fails.
+TEST(NormLengthSumsTest, NonNullNormLengthSumIsComputedOncePerField) {
+    NormLengthSums value;
     int computed = 0;
     auto compute = [&computed](uint64_t sum) {
         return [&computed, sum](uint64_t* out) {
@@ -353,8 +354,8 @@ TEST(CluceneSearcherCacheValueTest, NonNullNormLengthSumIsComputedOncePerField) 
 
 // The norm length sum of a set of hidden rows is computed once per field and set, and a few sets
 // per field are kept, the oldest given up first.
-TEST(CluceneSearcherCacheValueTest, HiddenNormLengthSumIsComputedOncePerRowSet) {
-    CluceneSearcherCacheValue value(FulltextIndexSearcherPtr(nullptr), 0, 0);
+TEST(NormLengthSumsTest, HiddenNormLengthSumIsComputedOncePerRowSet) {
+    NormLengthSums value;
     int computed = 0;
     auto compute = [&computed](uint64_t sum) {
         return [&computed, sum](uint64_t* out) {
