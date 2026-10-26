@@ -42,11 +42,40 @@ import java.util.regex.Pattern;
 class S3CompatibleFileSystemTest {
 
     @Test
-    void numericRangesRejectExcessiveExpansion() {
-        Assertions.assertThrows(IllegalArgumentException.class,
-                () -> S3CompatibleFileSystem.compileGlobPattern("data_{1..10001}.csv"));
-        Assertions.assertThrows(IllegalArgumentException.class,
-                () -> S3CompatibleFileSystem.compileGlobPattern("{1..101}/data_{1..101}.csv"));
+    void numericRangesPreservePaddedMinimumLong() {
+        Pattern matcher = S3CompatibleFileSystem.compileGlobPattern(
+                "data_{-09223372036854775808..-09223372036854775807,x}.csv");
+        Assertions.assertTrue(matcher.matcher("data_-09223372036854775808.csv").matches());
+        Assertions.assertTrue(matcher.matcher("data_-09223372036854775807.csv").matches());
+        Assertions.assertFalse(matcher.matcher("data_-9223372036854775808.csv").matches());
+    }
+
+    @Test
+    void escapedRangeEndpointsUseConservativeListPrefix() throws IOException {
+        for (String characterClass : List.of("[\\a-z]", "[a-\\c]")) {
+            PagingObjStorage storage = new PagingObjStorage(List.of(new RemoteObjects(
+                    List.of(remoteObject("data/b/sub/file.csv")), false, null))) {
+                @Override
+                public RemoteObjects listObjects(String remotePath, String continuationToken) throws IOException {
+                    Assertions.assertEquals("s3://bucket/data/", remotePath);
+                    return super.listObjects(remotePath, continuationToken);
+                }
+            };
+            GlobListing listing = new TestFileSystem(storage).globListWithLimit(
+                    Location.of("s3://bucket/data/" + characterClass + "/*/file.csv"), null, 0L, 0L);
+            Assertions.assertEquals(1, listing.getFiles().size());
+            Assertions.assertEquals("s3://bucket/data/b/sub/file.csv", listing.getFiles().get(0).location().uri());
+        }
+    }
+
+    @Test
+    void numericRangesMatchWithoutExcessiveExpansion() {
+        Pattern largeRange = S3CompatibleFileSystem.compileGlobPattern("data_{1..10001}.csv");
+        Assertions.assertTrue(largeRange.matcher("data_10001.csv").matches());
+        Assertions.assertFalse(largeRange.matcher("data_10002.csv").matches());
+        Pattern product = S3CompatibleFileSystem.compileGlobPattern("{1..101}/data_{1..101}.csv");
+        Assertions.assertTrue(product.matcher("101/data_101.csv").matches());
+        Assertions.assertFalse(product.matcher("102/data_101.csv").matches());
     }
 
     @Test
