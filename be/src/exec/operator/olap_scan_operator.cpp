@@ -698,10 +698,13 @@ void OlapScanLocalState::_prune_rowsets_by_tso(const TPaloScanRange& scan_range,
 //   SELECT k1 FROM t ORDER BY l2_distance_approximate(embedding, [1.0, 2.0]) LIMIT 2
 //   SELECT k1 FROM t WHERE msg MATCH_PHRASE 'error timeout'
 bool OlapScanLocalState::_use_scan_parallelism_by_per_segment() {
+    if (!state()->query_options().__isset.optimize_index_scan_parallelism ||
+        !state()->query_options().optimize_index_scan_parallelism) {
+        return false;
+    }
     // TODO: Use optimize_index_scan_parallelism for ann range search in the future.
     // Currently, ann topn is enough
-    if (state()->query_options().__isset.optimize_index_scan_parallelism &&
-        state()->query_options().optimize_index_scan_parallelism && _ann_topn_runtime != nullptr) {
+    if (_ann_topn_runtime != nullptr) {
         return true;
     }
     return config::is_cloud_mode() &&
