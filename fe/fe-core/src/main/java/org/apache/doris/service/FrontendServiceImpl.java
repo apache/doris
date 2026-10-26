@@ -336,6 +336,7 @@ import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
 import org.apache.doris.transaction.TransactionStatus;
+import org.apache.doris.transaction.TransactionUtil;
 import org.apache.doris.transaction.TxnCommitAttachment;
 import org.apache.doris.transaction.WriteBlockAllocatingTransaction;
 
@@ -1538,7 +1539,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 if (existing == null) {
                     throw new UserException("transaction [" + e.getTxnId() + "] not found");
                 }
-                checkTransactionUser(txnUser, existing);
+                TransactionUtil.checkTransactionUser(txnUser, existing);
             }
             throw e;
         }
@@ -1867,7 +1868,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (transactionState == null) {
             throw new UserException("transaction [" + request.getTxnId() + "] not found");
         }
-        checkTransactionUser(currentUser, transactionState);
+        TransactionUtil.checkTransactionUser(currentUser, transactionState);
         if (LOG.isDebugEnabled()) {
             LOG.debug("txn {} has multi table {}", request.getTxnId(), transactionState.getTableIdList());
         }
@@ -1895,16 +1896,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             Env.getCurrentGlobalTransactionMgr().abortTransaction2PC(database.getId(), request.getTxnId(), tableList);
         } else {
             throw new UserException("transaction operation should be \'commit\' or \'abort\'");
-        }
-    }
-
-    private void checkTransactionUser(UserIdentity currentUser, TransactionState transactionState)
-            throws AuthenticationException {
-        // Transactions without a txnUser retain their previous authorization during rolling upgrades.
-        if (transactionState.getTxnUser() != null && !transactionState.getTxnUser().equals(currentUser)
-                && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(currentUser, PrivPredicate.ADMIN)) {
-            throw new AuthenticationException("Access denied: user " + currentUser
-                    + " is not the owner of transaction [" + transactionState.getTransactionId() + "]");
         }
     }
 

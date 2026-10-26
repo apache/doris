@@ -74,6 +74,11 @@ suite("test_stream_load_2pc_owner", "p0,auth_call") {
                 + ["http://${feAddress}/api/${db}/_stream_load_2pc"])
     }
 
+    def cancel = { String user, def txn ->
+        return curl(["-X", "POST", "-u", "${user}:${password}",
+                "http://${feAddress}/api/${db}/_cancel?label=${txn.Label}"])
+    }
+
     try {
         [owner, other].each { user ->
             try_sql "DROP USER ${user}"
@@ -102,6 +107,25 @@ suite("test_stream_load_2pc_owner", "p0,auth_call") {
                     assertTrue(denied.toString().contains("not the owner"), denied.toString())
                     // A rejected request must leave the transaction available for its creator.
                     def completed = finish(owner, txn, byLabel, operation)
+                    assertEquals("Success", completed.status)
+                }
+            }
+        }
+        // Database LOAD is required by the parallel cancel API, but must not grant ownership.
+        [owner, other].each { user ->
+            sql "GRANT LOAD_PRIV ON ${db}.* TO ${user}"
+        }
+        [null, "1", "not_a_number"].each { authCode ->
+            ["commit", "cancel"].each { operation ->
+                def txn = prepare("cancel_owner_${UUID.randomUUID().toString()}", authCode)
+                def denied = cancel(other, txn)
+                assertTrue(denied.code != 0, denied.toString())
+                assertTrue(denied.toString().contains("not the owner"), denied.toString())
+                if (operation == "cancel") {
+                    def cancelled = cancel(owner, txn)
+                    assertEquals(0, cancelled.code)
+                } else {
+                    def completed = finish(owner, txn, false, "commit")
                     assertEquals("Success", completed.status)
                 }
             }
