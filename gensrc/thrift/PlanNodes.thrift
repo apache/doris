@@ -1139,7 +1139,7 @@ struct TOlapScanNode {
   // equals the sole HASH distribution key, and all scan ranges carry bucket metadata.
   // BE may prune only final inclusive point ranges; absent means disabled.
   29: optional bool enable_scan_key_bucket_prune
-  31: optional Descriptors.TChangelogReadColumnMappings changelog_column_mappings
+  30: optional Descriptors.TChangelogReadColumnMappings changelog_column_mappings
 }
 
 struct TEqJoinCondition {

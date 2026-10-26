@@ -391,7 +391,7 @@ struct TOlapTableIndexSchema {
     6: optional Exprs.TExpr where_clause
     // ATTN(changelog-rename): formerly "row_binlog_id"
     7: optional i64 changelog_index_id
-    10: optional TChangelogWriteColumnMappings changelog_column_mappings
+    8: optional TChangelogWriteColumnMappings changelog_column_mappings
 }
 
 struct TOlapTableSchemaParam {

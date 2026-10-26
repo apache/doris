@@ -1850,10 +1850,8 @@ struct TCommitRemoteTxnRequest {
     7: optional i64 txn_id
     8: optional list<Types.TTabletCommitInfo> commit_infos
     9: optional i64 insert_visible_timeout_ms
-    // Reserved legacy changelog-only snapshot; unified writers use write_schemas.
-    13: optional list<Descriptors.TChangelogIndexWriteSnapshot> changelog_column_mappings
     // Complete schema identity for every table written by the remote transaction.
-    14: optional list<Descriptors.TTxnWriteSchemaSnapshot> write_schemas
+    10: optional list<Descriptors.TTxnWriteSchemaSnapshot> write_schemas
 }
 
 struct TCommitRemoteTxnResult {
