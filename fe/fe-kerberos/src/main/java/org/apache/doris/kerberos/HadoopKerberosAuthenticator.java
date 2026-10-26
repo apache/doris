@@ -22,17 +22,20 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.CommonConfigurationKeysPublic;
-import org.apache.hadoop.security.SecurityUtil;
 import org.apache.hadoop.security.UserGroupInformation;
+import org.apache.hadoop.security.authentication.util.KerberosName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.Collections;
 import java.util.Date;
+import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import javax.security.auth.Subject;
 import javax.security.auth.kerberos.KerberosPrincipal;
 import javax.security.auth.kerberos.KerberosTicket;
@@ -47,9 +50,10 @@ public class HadoopKerberosAuthenticator implements HadoopAuthenticator {
     private long nextRefreshTime;
     private UserGroupInformation ugi;
 
-    // The authentication method the first caller published to the process-wide UGI configuration.
-    // Guarded by HadoopKerberosAuthenticator.class; null until the first setConfiguration.
-    private static UserGroupInformation.AuthenticationMethod configuredAuthMethod = null;
+    // Hadoop's rule grammar keeps whitespace inside a regex or substitution distinct from rule separators.
+    private static final Pattern AUTH_TO_LOCAL_RULE = Pattern.compile(
+            "\\s*((DEFAULT)|(RULE:\\[(\\d*):([^\\]]*)](\\(([^)]*)\\))?"
+                    + "(s/([^/]*)/([^/]*)/(g)?)?))/?(L)?");
 
     public HadoopKerberosAuthenticator(KerberosAuthenticationConfig config) {
         this.config = config;
@@ -57,26 +61,73 @@ public class HadoopKerberosAuthenticator implements HadoopAuthenticator {
 
     public static void initializeAuthConfig(Configuration hadoopConf) {
         hadoopConf.set(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHORIZATION, "true");
-        // UserGroupInformation.setConfiguration mutates a single process-wide global, so multiple HDFS
-        // catalogs with differing hadoop.security.authentication cannot truly coexist. First-writer-wins:
-        // only the first caller publishes the global config; later catalogs (and every ticket refresh,
-        // which re-enters this method via login()) skip it so they don't stomp on each other. A WARN
-        // fires only on a genuine auth-method mismatch. We compare against a remembered method rather than
-        // UserGroupInformation.getLoginUser() on purpose: Doris never establishes a process-wide login user
-        // (per-instance getUGIFromSubject only), and getLoginUser() would trigger exactly that.
-        UserGroupInformation.AuthenticationMethod desired = SecurityUtil.getAuthenticationMethod(hadoopConf);
-        synchronized (HadoopKerberosAuthenticator.class) {
-            if (configuredAuthMethod == null) {
+        String additionalRules = hadoopConf.get(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTH_TO_LOCAL);
+        String mechanism = hadoopConf.get(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTH_TO_LOCAL_MECHANISM,
+                KerberosName.DEFAULT_MECHANISM);
+        // UGI changes its auth mode before parsing rules. Reject malformed input before it can leave
+        // an enabled UGI with the permissive rules inherited from a previous SIMPLE initialization.
+        Preconditions.checkArgument(KerberosName.MECHANISM_HADOOP.equalsIgnoreCase(mechanism)
+                        || KerberosName.MECHANISM_MIT.equalsIgnoreCase(mechanism),
+                "Invalid auth_to_local mechanism: %s", mechanism);
+        Set<String> requestedRules = additionalRules == null
+                ? Collections.emptySet() : parseAuthToLocalRules(additionalRules);
+        // Plugins can load separate copies of this class while sharing Hadoop. Lock on the shared
+        // UGI class, and inspect its state instead of keeping a per-plugin initialization flag.
+        synchronized (UserGroupInformation.class) {
+            if (!UserGroupInformation.isSecurityEnabled()) {
                 UserGroupInformation.setConfiguration(hadoopConf);
-                configuredAuthMethod = desired;
                 return;
             }
-            if (configuredAuthMethod != desired) {
-                LOG.warn("UGI already configured with authentication={} but this catalog requests {}; "
-                        + "keeping existing JVM-global setting (first-writer-wins).",
-                        configuredAuthMethod, desired);
+            if (additionalRules == null) {
+                return;
+            }
+            Preconditions.checkArgument(mechanism.equalsIgnoreCase(KerberosName.getRuleMechanism()),
+                    "Kerberos catalogs sharing a Hadoop runtime must use the same auth_to_local mechanism "
+                            + "(existing=%s, requested=%s)", KerberosName.getRuleMechanism(), mechanism);
+            Set<String> rules = parseAuthToLocalRules(KerberosName.getRules());
+            int previousSize = rules.size();
+            // Append after all existing rules, including DEFAULT: a later realm must not change an
+            // earlier principal's mapping. Replacing the global configuration would break its next login.
+            if (rules.addAll(requestedRules)) {
+                // MIT accepts an unmatched principal unchanged; extending its rules could rename a user.
+                Preconditions.checkArgument(KerberosName.MECHANISM_HADOOP.equalsIgnoreCase(mechanism),
+                        "MIT auth_to_local rules cannot be extended after Hadoop initialization; "
+                                + "configure a common policy before initializing catalogs");
+                KerberosName.setRules(String.join("\n", rules));
+                LOG.debug("Extended JVM-global Kerberos auth_to_local rules from {} to {} rules",
+                        previousSize, rules.size());
             }
         }
+    }
+
+    private static Set<String> parseAuthToLocalRules(String rawRules) {
+        String rules = rawRules.trim();
+        Set<String> result = new LinkedHashSet<>();
+        Matcher matcher = AUTH_TO_LOCAL_RULE.matcher(rules);
+        int position = 0;
+        while (position < rules.length()) {
+            matcher.region(position, rules.length());
+            if (!matcher.lookingAt()) {
+                throw new IllegalArgumentException("Invalid auth_to_local rule: " + rules.substring(position));
+            }
+            String rule = matcher.group(1);
+            if (matcher.group(4) != null) {
+                if (matcher.group(7) != null) {
+                    Pattern.compile(matcher.group(7));
+                }
+                if (matcher.group(9) != null) {
+                    Pattern.compile(matcher.group(9));
+                }
+                rule = "RULE:[" + Integer.parseInt(matcher.group(4)) + ":" + matcher.group(5) + "]"
+                        + Objects.toString(matcher.group(6), "") + Objects.toString(matcher.group(8), "");
+                if (matcher.group(12) != null) {
+                    rule += "/L";
+                }
+            }
+            result.add(rule);
+            position = matcher.end();
+        }
+        return result;
     }
 
     @Override
@@ -132,13 +183,15 @@ public class HadoopKerberosAuthenticator implements HadoopAuthenticator {
     }
 
     private UserGroupInformation login(Subject subject) throws IOException {
-        // login and get ugi when catalog is initialized
-        initializeAuthConfig(config.getConf());
+        // Login and get UGI when the catalog is initialized.
         String principal = config.getKerberosPrincipal();
         if (LOG.isDebugEnabled()) {
             LOG.debug("Login by kerberos authentication with principal: {}", principal);
         }
-        return UserGroupInformation.getUGIFromSubject(subject);
+        synchronized (UserGroupInformation.class) {
+            initializeAuthConfig(config.getConf());
+            return UserGroupInformation.getUGIFromSubject(subject);
+        }
     }
 
     private static long calculateNextRefreshTime(Subject subject) {
