@@ -88,7 +88,7 @@ suite("test_streaming_job_cdc_stream_mysql", "p0,external,mysql,external_docker,
         String driverUserUrl = jdbcTokens[0] + "//" + jdbcTokens[2] + "/" + currentDb + "?"
         sql """DROP USER IF EXISTS '${driverUser}'"""
         sql """CREATE USER '${driverUser}' IDENTIFIED BY '123456'"""
-        sql """GRANT SELECT_PRIV, LOAD_PRIV ON ${currentDb}.* TO '${driverUser}'"""
+        sql """GRANT LOAD_PRIV ON ${currentDb}.* TO '${driverUser}'"""
         if (isCloudMode()) {
             def cluster = sql_return_maparray("SHOW CLUSTERS").find { it.is_current.equalsIgnoreCase("TRUE") }.cluster
             sql """GRANT USAGE_PRIV ON CLUSTER `${cluster}` TO '${driverUser}'"""
@@ -151,6 +151,12 @@ suite("test_streaming_job_cdc_stream_mysql", "p0,external,mysql,external_docker,
             test {
                 sql """ALTER JOB ${jobName} ${insertSql.replace(driver_url, driver_url + '?admin_check=1')}"""
                 exception "HTTP/HTTPS CDC driver URLs require ADMIN privilege"
+            }
+            String duplicateDriverSql = insertSql.replace('"driver_url"',
+                    '"driver_url" = "file:///trusted/mysql.jar", "Driver_url"')
+            test {
+                sql """ALTER JOB ${jobName} ${duplicateDriverSql}"""
+                exception "Duplicate property (case-insensitive)"
             }
         }
         sql """DROP USER '${driverUser}'"""

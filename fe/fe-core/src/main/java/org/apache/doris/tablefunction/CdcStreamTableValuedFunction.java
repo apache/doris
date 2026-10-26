@@ -43,6 +43,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.UUID;
 
 public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunction {
@@ -121,6 +123,12 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
     }
 
     public static void validateProperties(Map<String, String> properties) throws AnalysisException {
+        Set<String> propertyNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        for (String key : properties.keySet()) {
+            if (!propertyNames.add(key)) {
+                throw new AnalysisException("Duplicate property (case-insensitive): " + key);
+            }
+        }
         if (StringUtils.isEmpty(properties.get(DataSourceConfigKeys.JDBC_URL))) {
             throw new AnalysisException("jdbc_url is required");
         }

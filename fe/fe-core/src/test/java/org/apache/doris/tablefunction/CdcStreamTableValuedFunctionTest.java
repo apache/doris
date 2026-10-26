@@ -44,6 +44,18 @@ public class CdcStreamTableValuedFunctionTest {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     @Test
+    public void testCaseInsensitiveDuplicatePropertiesAreRejected() {
+        Map<String, String> properties = baseProperties();
+        properties.put(DataSourceConfigKeys.DRIVER_URL, "file:///trusted/mysql.jar");
+        properties.put("Driver_url", "https://example.invalid/driver.jar");
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> CdcStreamTableValuedFunction.validateProperties(properties));
+
+        Assertions.assertTrue(exception.getMessage().contains("Duplicate property (case-insensitive)"));
+    }
+
+    @Test
     public void testDeleteSignIsExcludedByDefault() throws Exception {
         List<Column> columns = getTableColumns(baseProperties());
 
