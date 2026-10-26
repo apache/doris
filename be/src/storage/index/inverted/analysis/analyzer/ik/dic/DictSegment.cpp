@@ -70,7 +70,7 @@ void DictSegment::match(const CharacterUtil::TypedRuneArray& typed_runes, size_t
 
     if (ds) {
         if (length == 1) {
-            if (ds->node_state_ == 1) {
+            if (ds->is_word_end_) {
                 search_hit.setMatch();
             }
             if (ds->hasNextNode()) {
@@ -109,7 +109,7 @@ void DictSegment::fillSegment(const char* text) {
         if (!child) return;
         current = child;
     }
-    current->node_state_ = 1;
+    current->is_word_end_ = true;
 }
 
 DictSegment* DictSegment::lookforSegment(int32_t keyChar, bool create) {

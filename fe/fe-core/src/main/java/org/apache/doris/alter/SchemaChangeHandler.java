@@ -2388,6 +2388,11 @@ public class SchemaChangeHandler extends AlterHandler {
                 }
             }
 
+            // A light DROP INDEX publishes the index metadata before it submits its delete jobs. Run the checks
+            // that can reject those jobs before any clause below touches table metadata (processDropColumn
+            // updates the bloom filter columns in place), so a rejected statement leaves the table unchanged.
+            checkLightDropIndexPreconditions(db, olapTable, alterOps, enableAddIndexForNewData);
+
             for (AlterOp alterOp : alterOps) {
                 Map<String, String> properties = alterOp.getProperties();
                 // alter table properties
@@ -2641,21 +2646,7 @@ public class SchemaChangeHandler extends AlterHandler {
                                 break;
                             }
                         }
-                        // Inverted index supports light schema change in both cloud and local mode.
-                        // NGRAM_BF and BfIndex support it only in cloud mode.
-                        boolean supportLightIndexChange = false;
-                        if (found != null) {
-                            if (Config.isCloudMode()) {
-                                supportLightIndexChange = enableAddIndexForNewData
-                                        && (found.getIndexType() == IndexType.NGRAM_BF
-                                        || found.getIndexType() == IndexType.BLOOMFILTER
-                                        || found.getIndexType() == IndexType.INVERTED);
-                            } else {
-                                supportLightIndexChange = found.getIndexType() == IndexType.INVERTED
-                                        || found.getIndexType() == IndexType.ANN;
-                            }
-                        }
-                        if (supportLightIndexChange) {
+                        if (found != null && isLightDropIndexSupported(found, enableAddIndexForNewData)) {
                             alterIndexes.add(found);
                             isDropIndex = true;
                             lightIndexChange = true;
@@ -3897,7 +3888,7 @@ public class SchemaChangeHandler extends AlterHandler {
                     }
 
                     if (hasIndexChangeJobOnPartition(originIndexId, db.getId(), olapTable.getId(),
-                            partitionName, alterIndexes, isDropOp)) {
+                            partitionName, alterIndexes)) {
                         throw new DdlException("partition " + partitionName + " has been built specified index."
                                             + " please check your build stmt.");
                     }
@@ -3921,23 +3912,87 @@ public class SchemaChangeHandler extends AlterHandler {
         }
     }
 
+    // Inverted index supports light schema change in both cloud and local mode.
+    // NGRAM_BF and BfIndex support it only in cloud mode.
+    private static boolean isLightDropIndexSupported(Index index, boolean enableAddIndexForNewData) {
+        if (Config.isCloudMode()) {
+            return enableAddIndexForNewData
+                    && (index.getIndexType() == IndexType.NGRAM_BF
+                    || index.getIndexType() == IndexType.BLOOMFILTER
+                    || index.getIndexType() == IndexType.INVERTED);
+        }
+        return index.getIndexType() == IndexType.INVERTED || index.getIndexType() == IndexType.ANN;
+    }
+
+    // Throws if a full-table DROP INDEX in alterOps takes the light index change path and would then fail to
+    // submit its delete jobs: no compute group, or an unfinished index change job on the dropped index.
+    // Also rejects a light DROP INDEX together with a light ADD INDEX: their delete jobs carry one direction
+    // for all altered indexes, so the added index would be deleted or the dropped one would be kept.
+    private void checkLightDropIndexPreconditions(Database db, OlapTable olapTable, List<AlterOp> alterOps,
+            boolean enableAddIndexForNewData) throws UserException {
+        if (!Config.enable_light_index_change) {
+            return;
+        }
+        List<Index> droppedIndexes = new ArrayList<>();
+        for (AlterOp alterOp : alterOps) {
+            if (!(alterOp instanceof DropIndexOp) || ((DropIndexOp) alterOp).hasPartitionSpec()) {
+                continue;
+            }
+            String indexName = ((DropIndexOp) alterOp).getIndexName();
+            olapTable.getIndexes().stream()
+                    .filter(index -> index.getIndexName().equalsIgnoreCase(indexName))
+                    .filter(index -> isLightDropIndexSupported(index, enableAddIndexForNewData))
+                    .findFirst()
+                    .ifPresent(droppedIndexes::add);
+        }
+        if (droppedIndexes.isEmpty()) {
+            return;
+        }
+        if (alterOps.stream().anyMatch(alterOp -> alterOp instanceof CreateIndexOp
+                && ((CreateIndexOp) alterOp).getIndex().isLightAddIndexSupported(enableAddIndexForNewData))) {
+            throw new DdlException("Can not add and drop indexes in one ALTER statement,"
+                    + " please run them in separate statements.");
+        }
+        getCloudClusterName();
+        checkNoIndexChangeJobOnPartitions(db, olapTable, droppedIndexes, olapTable.getPartitionNames());
+    }
+
+    // Throws if any of the partitions still has an unfinished index change job on the base index.
+    private void checkNoIndexChangeJobOnPartitions(Database db, OlapTable olapTable, List<Index> alterIndexes,
+            Set<String> partitionNames) throws DdlException {
+        // Scan the retained job history once instead of once per partition, the table write lock is held here.
+        for (IndexChangeJob indexChangeJob : ImmutableList.copyOf(indexChangeJobs.values())) {
+            // Cheap partition check first, the predicate compares index lists.
+            if (partitionNames.contains(indexChangeJob.getPartitionName())
+                    && isConflictingIndexChangeJob(indexChangeJob, olapTable.getBaseIndexId(), db.getId(),
+                    olapTable.getId(), alterIndexes)) {
+                throw new DdlException("partition " + indexChangeJob.getPartitionName() + " of table "
+                        + olapTable.getName() + " has an unfinished index change job, please retry after it finishes.");
+            }
+        }
+    }
+
     public boolean hasIndexChangeJobOnPartition(
-            long originIndexId, long dbId, long tableId, String partitionName,
-            List<Index> alterIndexes, boolean isDrop) {
+            long originIndexId, long dbId, long tableId, String partitionName, List<Index> alterIndexes) {
         // TODO: this is temporary methods
         for (IndexChangeJob indexChangeJob : ImmutableList.copyOf(indexChangeJobs.values())) {
-            if (indexChangeJob.getOriginIndexId() == originIndexId
-                    && indexChangeJob.getDbId() == dbId
-                    && indexChangeJob.getTableId() == tableId
-                    && indexChangeJob.getPartitionName().equals(partitionName)
-                    && ((Config.isNotCloudMode() && indexChangeJob.hasSameAlterInvertedIndex(isDrop, alterIndexes))
-                    || Config.isCloudMode())
-                    && !indexChangeJob.isDone()) {
-                // if JobState is done (CANCELLED or FINISHED), also allow user to create job again
+            if (indexChangeJob.getPartitionName().equals(partitionName)
+                    && isConflictingIndexChangeJob(indexChangeJob, originIndexId, dbId, tableId, alterIndexes)) {
                 return true;
             }
         }
         return false;
+    }
+
+    private static boolean isConflictingIndexChangeJob(IndexChangeJob indexChangeJob, long originIndexId,
+            long dbId, long tableId, List<Index> alterIndexes) {
+        // if JobState is done (CANCELLED or FINISHED), also allow user to create job again
+        return indexChangeJob.getOriginIndexId() == originIndexId
+                && indexChangeJob.getDbId() == dbId
+                && indexChangeJob.getTableId() == tableId
+                && ((Config.isNotCloudMode() && indexChangeJob.hasAlterInvertedIndex(alterIndexes))
+                || Config.isCloudMode())
+                && !indexChangeJob.isDone();
     }
 
     // schema change job is not allowed when index change job is running

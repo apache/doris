@@ -531,7 +531,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_notready_keep
     TabletSharedPtr tablet(
             new Tablet(_engine, _tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
     ASSERT_TRUE(tablet->init().ok());
-    ASSERT_TRUE(tablet->set_tablet_state(TABLET_NOTREADY).ok());
+    ASSERT_TRUE(tablet->set_tablet_state(TabletState::TABLET_NOTREADY).ok());
     tablet->calculate_cumulative_point();
 
     EXPECT_EQ(2, tablet->cumulative_layer_point());

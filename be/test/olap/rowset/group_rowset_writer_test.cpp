@@ -427,7 +427,8 @@ TEST_F(GroupRowsetWriterTest, partialUpdateSkipsHiddenNonKeyColumns) {
     EXPECT_TRUE(output_block.get_by_position(3).column->is_null_at(0));
     EXPECT_TRUE(output_block.get_by_position(4).column->is_null_at(0));
     EXPECT_EQ(1000, (*output_block.get_by_position(5).column)[0].get<TYPE_BIGINT>());
-    EXPECT_EQ(CHANGELOG_OP_APPEND, (*output_block.get_by_position(6).column)[0].get<TYPE_BIGINT>());
+    EXPECT_EQ(static_cast<int64_t>(ChangelogOp::APPEND),
+              (*output_block.get_by_position(6).column)[0].get<TYPE_BIGINT>());
 
     Block eof_block = read_schema->create_read_block();
     status = rowset_reader->next_batch(&eof_block);
@@ -499,7 +500,7 @@ TEST_F(GroupRowsetWriterTest, keyOnlyFixedPartialUpdatePreservesNarrowBlock) {
         EXPECT_EQ(7, (*output_block.get_by_position(2).column)[row].get<TYPE_INT>());
         EXPECT_TRUE(output_block.get_by_position(3).column->is_null_at(row));
         EXPECT_EQ(1000 + row, (*output_block.get_by_position(5).column)[row].get<TYPE_BIGINT>());
-        EXPECT_EQ(CHANGELOG_OP_APPEND,
+        EXPECT_EQ(static_cast<int64_t>(ChangelogOp::APPEND),
                   (*output_block.get_by_position(6).column)[row].get<TYPE_BIGINT>());
     }
 

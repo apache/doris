@@ -427,4 +427,8 @@ private:
 
 ColumnPtr make_nullable(const ColumnPtr& column, bool is_nullable = false);
 ColumnPtr remove_nullable(const ColumnPtr& column);
+
+// Return the nested column if nullable, otherwise the column itself.
+// Set null_map to the flags at row_pos, or nullptr for a non-nullable column.
+const IColumn& peel_nullable(const IColumn& column, size_t row_pos, const uint8_t** null_map);
 } // namespace doris

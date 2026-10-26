@@ -85,6 +85,7 @@ Status ObjClientHolder::reset(const S3ClientConf& conf) {
     {
         std::shared_lock lock(_mtx);
         reset_conf = _conf;
+        reset_conf.provider = conf.provider;
         reset_conf.ak = conf.ak;
         reset_conf.sk = conf.sk;
         reset_conf.token = conf.token;
@@ -98,6 +99,7 @@ Status ObjClientHolder::reset(const S3ClientConf& conf) {
         reset_conf.role_arn = conf.role_arn;
         reset_conf.external_id = conf.external_id;
         reset_conf.cred_provider_type = conf.cred_provider_type;
+        reset_conf.credential = conf.credential;
 
         // Compare full-field equality of the merged conf, not get_hash(): the hash is
         // an XOR of crc32s and distinct configurations can collide, which would skip a
@@ -444,7 +446,9 @@ Status S3FileSystem::download_impl(const Path& remote_file, const Path& local_fi
 // whether to return a public endpoint.
 std::string S3FileSystem::generate_presigned_url(const Path& path, int64_t expiration_secs,
                                                  bool is_public_endpoint) const {
-    std::string key = fmt::format("{}/{}", _prefix, path.native());
+    // An empty prefix must not add a separator absent from the uploaded object key.
+    std::string key =
+            _prefix.empty() ? path.native() : fmt::format("{}/{}", _prefix, path.native());
     std::shared_ptr<ObjStorageClient> client;
     if (is_public_endpoint &&
         _client->s3_client_conf().endpoint.ends_with(OSS_PRIVATE_ENDPOINT_SUFFIX)) {

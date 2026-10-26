@@ -33,7 +33,6 @@
 #include "runtime/exec_env.h"
 #include "storage/changelog.h"
 #include "storage/data_dir.h"
-#include "storage/iterator/olap_data_convertor.h"
 #include "storage/key/row_key_encoder.h"
 #include "storage/mow/historical_row_fetcher.h"
 #include "storage/mow/key_probe.h"
@@ -102,11 +101,9 @@ Status PrimaryKeyModelRowRetriever::retrieve_historical_row(const Int8* delete_s
     PartialUpdateStats discarded_stats;
 
     for (size_t block_pos = row_pos; block_pos < row_pos + num_rows; block_pos++) {
-        // After converting to olap column, [0, num_rows) in the result column is corresponding to
-        // [row_pos, row_pos + num_rows) in the original block
         size_t delta_pos = block_pos - row_pos;
         std::string key = encode_mow_key_invalidate_cache(
-                *_key_encoder, _key_columns, _seq_column, delta_pos, _seq_column != nullptr,
+                *_key_encoder, _key_columns, _seq_column, block_pos, _seq_column != nullptr,
                 _context.tablet->tablet_id(), *tablet_schema, _context.write_type);
 
         // mark key with delete sign as deleted.
@@ -120,13 +117,13 @@ Status PrimaryKeyModelRowRetriever::retrieve_historical_row(const Int8* delete_s
             // it's an insert row
             _has_default_or_nullable = true;
             _use_default_or_null_flag.emplace_back(true);
-            _operators.emplace_back(have_delete_sign ? CHANGELOG_OP_DELETE : CHANGELOG_OP_APPEND);
+            _operators.emplace_back(have_delete_sign ? ChangelogOp::DELETE : ChangelogOp::APPEND);
             continue;
         }
         if (outcome.use_default_or_null) {
             _has_default_or_nullable = true;
             _use_default_or_null_flag.emplace_back(true);
-            _operators.emplace_back(CHANGELOG_OP_DELETE);
+            _operators.emplace_back(ChangelogOp::DELETE);
         } else {
             // partial update should not contain invisible columns
             _use_default_or_null_flag.emplace_back(false);
@@ -134,7 +131,7 @@ Status PrimaryKeyModelRowRetriever::retrieve_historical_row(const Int8* delete_s
             // currently we think row_pos must be zero, so we won't consider row_pos > 0
             DCHECK(row_pos == 0);
             _row_fetcher->plan_fixed_read(outcome.loc, delta_pos);
-            _operators.emplace_back(have_delete_sign ? CHANGELOG_OP_DELETE : CHANGELOG_OP_UPDATE);
+            _operators.emplace_back(have_delete_sign ? ChangelogOp::DELETE : ChangelogOp::UPDATE);
         }
     }
 
@@ -194,10 +191,10 @@ Status PrimaryKeyModelRowRetriever::materialize_flexible_partial_update(
     }
     DCHECK_EQ(insert_after_delete_flags.size(), num_rows);
 
-    std::vector<IOlapColumnDataAccessor*> key_columns;
-    RETURN_IF_ERROR(aggregator.convert_pk_columns(block, 0, num_rows, key_columns));
-    IOlapColumnDataAccessor* seq_column = nullptr;
-    RETURN_IF_ERROR(aggregator.convert_seq_column(block, 0, num_rows, seq_column));
+    std::vector<const IColumn*> key_columns;
+    aggregator.collect_pk_columns(*block, key_columns);
+    const IColumn* seq_column = nullptr;
+    aggregator.collect_seq_column(*block, seq_column);
 
     auto* skip_bitmaps =
             &get_mutable_skip_bitmap_column(block, tablet_schema->skip_bitmap_col_idx())
@@ -265,8 +262,8 @@ Status PrimaryKeyModelRowRetriever::materialize_flexible_partial_update(
         }
         _operators.emplace_back(
                 outcome.result == KeyProbeResult::NOT_FOUND
-                        ? (have_delete_sign ? CHANGELOG_OP_DELETE : CHANGELOG_OP_APPEND)
-                        : (have_delete_sign ? CHANGELOG_OP_DELETE : CHANGELOG_OP_UPDATE));
+                        ? (have_delete_sign ? ChangelogOp::DELETE : ChangelogOp::APPEND)
+                        : (have_delete_sign ? ChangelogOp::DELETE : ChangelogOp::UPDATE));
     }
 
     RETURN_IF_ERROR(_row_fetcher->fill_non_primary_key_columns(
@@ -354,8 +351,8 @@ Status PrimaryKeyModelRowRetriever::revise_operators_by_old_delete_sign(size_t n
     DCHECK_EQ(_old_delete_signs.size(), num_rows);
 
     for (size_t idx = 0; idx < num_rows; ++idx) {
-        if (_operators[idx] == CHANGELOG_OP_UPDATE && _old_delete_signs[idx] != 0) {
-            _operators[idx] = CHANGELOG_OP_APPEND;
+        if (_operators[idx] == ChangelogOp::UPDATE && _old_delete_signs[idx] != 0) {
+            _operators[idx] = ChangelogOp::APPEND;
         }
     }
     return Status::OK();

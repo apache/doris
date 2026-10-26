@@ -206,7 +206,8 @@ TabletSchemaSPtr BaseTablet::tablet_schema_with_merged_max_schema_version(
 }
 
 Status BaseTablet::set_tablet_state(TabletState state) {
-    if (_tablet_meta->tablet_state() == TABLET_SHUTDOWN && state != TABLET_SHUTDOWN) {
+    if (_tablet_meta->tablet_state() == TabletState::TABLET_SHUTDOWN &&
+        state != TabletState::TABLET_SHUTDOWN) {
         return Status::Error<META_INVALID_ARGUMENT>(
                 "could not change tablet state from shutdown to {}", state);
     }
@@ -483,6 +484,26 @@ Status BaseTablet::lookup_row_data(const Slice& encoded_key, const RowLocation& 
                                    RowsetSharedPtr input_rowset, OlapReaderStatistics& stats,
                                    std::string& values, bool write_to_cache,
                                    const io::IOContext* io_ctx) {
+    return _lookup_row_data(encoded_key, row_location, nullptr, std::move(input_rowset), stats,
+                            values, write_to_cache, io_ctx);
+}
+
+Status BaseTablet::lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
+                                   const segment_v2::SegmentSharedPtr& segment,
+                                   RowsetSharedPtr input_rowset, OlapReaderStatistics& stats,
+                                   std::string& values, bool write_to_cache,
+                                   const io::IOContext* io_ctx) {
+    DCHECK(segment != nullptr);
+    DCHECK_EQ(segment->id(), row_location.segment_id);
+    return _lookup_row_data(encoded_key, row_location, &segment, std::move(input_rowset), stats,
+                            values, write_to_cache, io_ctx);
+}
+
+Status BaseTablet::_lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
+                                    const segment_v2::SegmentSharedPtr* segment,
+                                    RowsetSharedPtr input_rowset, OlapReaderStatistics& stats,
+                                    std::string& values, bool write_to_cache,
+                                    const io::IOContext* io_ctx) const {
     MonotonicStopWatch watch;
     size_t row_size = 1;
     watch.start();
@@ -497,9 +518,14 @@ Status BaseTablet::lookup_row_data(const Slice& encoded_key, const RowLocation& 
     SegmentCacheHandle segment_cache_handle;
     std::unique_ptr<segment_v2::ColumnIterator> column_iterator;
     const auto& column = *DORIS_TRY(tablet_schema->column(BeConsts::ROW_STORE_COL));
-    RETURN_IF_ERROR(_get_segment_column_iterator(rowset, row_location.segment_id, column,
-                                                 &segment_cache_handle, &column_iterator, stats,
-                                                 io_ctx));
+    if (segment != nullptr) {
+        RETURN_IF_ERROR(_init_segment_column_iterator(rowset, *segment, column, &column_iterator,
+                                                      stats, io_ctx));
+    } else {
+        RETURN_IF_ERROR(_get_segment_column_iterator(rowset, row_location.segment_id, column,
+                                                     &segment_cache_handle, &column_iterator, stats,
+                                                     io_ctx));
+    }
     // get and parse tuple row
     MutableColumnPtr column_ptr = ColumnString::create();
     std::vector<segment_v2::rowid_t> rowids {static_cast<segment_v2::rowid_t>(row_location.row_id)};
@@ -522,7 +548,8 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
                                   std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
                                   RowsetSharedPtr* rowset, bool with_rowid,
                                   std::string* encoded_seq_value, OlapReaderStatistics* stats,
-                                  DeleteBitmapPtr delete_bitmap, const io::IOContext* io_ctx) {
+                                  DeleteBitmapPtr delete_bitmap, const io::IOContext* io_ctx,
+                                  segment_v2::SegmentSharedPtr* segment) {
     SCOPED_BVAR_LATENCY(g_tablet_lookup_rowkey_latency);
     size_t seq_col_length = 0;
     // use the latest tablet schema to decide if the tablet has sequence column currently
@@ -607,6 +634,9 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
             }
             TEST_SYNC_POINT_CALLBACK("BaseTablet::lookup_row_key:found", this, rs.get(),
                                      with_seq_col, s.code());
+            if (segment) {
+                *segment = segments[id];
+            }
             // find it and return
             return s;
         }
@@ -1549,7 +1579,7 @@ Status BaseTablet::commit_phase_update_delete_bitmap(
                     std::static_pointer_cast<CloudTablet>(tablet)->get_sync_meta_lock());
         }
         std::shared_lock meta_rlock(tablet->_meta_lock);
-        if (tablet->tablet_state() == TABLET_NOTREADY) {
+        if (tablet->tablet_state() == TabletState::TABLET_NOTREADY) {
             // tablet is under alter process. The delete bitmap will be calculated after conversion.
             LOG(INFO) << "tablet is under alter process, delete bitmap will be calculated later, "
                          "tablet_id: "
@@ -1756,7 +1786,7 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
     {
         std::shared_lock meta_rlock(self->_meta_lock);
         // tablet is under alter process. The delete bitmap will be calculated after conversion.
-        if (self->tablet_state() == TABLET_NOTREADY) {
+        if (self->tablet_state() == TabletState::TABLET_NOTREADY) {
             LOG(INFO) << "tablet is under alter process, update delete bitmap later, tablet_id="
                       << self->tablet_id();
             return Status::OK();
@@ -2528,7 +2558,7 @@ void BaseTablet::prefill_dbm_agg_cache_after_compaction(const RowsetSharedPtr& o
             std::shared_lock rlock(get_header_lock());
             // Schema change may still be rebuilding the delete bitmap of a NOTREADY tablet.
             // Prefilling now can cache incomplete bitmaps that remain stale after it becomes RUNNING.
-            if (tablet_state() != TABLET_RUNNING) {
+            if (tablet_state() != TabletState::TABLET_RUNNING) {
                 return;
             }
             cur_max_version = max_version_unlocked();

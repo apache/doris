@@ -28,7 +28,6 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
 #include "storage/changelog.h"
-#include "storage/iterator/olap_data_convertor.h"
 #include "storage/key/row_key_encoder.h"
 #include "storage/mow/historical_row_fetcher.h"
 #include "storage/partial_update_info.h"
@@ -48,13 +47,11 @@ constexpr uint32_t CHANGELOG_COLNUM = 3;
 // Runs the primary-key historical lookup over `block`'s source key (+seq)
 // columns, leaving the planned reads and the op for each row in `retriever` for
 // building AFTER/BEFORE. `seq_pos` is the seq column's position in the input
-// block (-1 if absent). `convertor` must live longer than `retriever`: its
-// accessors back the lookup plan.
+// block (-1 if absent).
 Status setup_retriever_and_lookup(TransformExecContext& ctx,
                                   const SegmentWriteChangelogOptions& cfg,
                                   const TabletSchemaSPtr& source_schema, const Block* block,
                                   int32_t seq_pos, const Int8* delete_signs, size_t num_rows,
-                                  OlapBlockDataConvertor& convertor,
                                   std::unique_ptr<PrimaryKeyModelRowRetriever>& retriever) {
     retriever = std::make_unique<PrimaryKeyModelRowRetriever>();
     // Changelog lives in its own tablet, so ctx.tablet is that changelog tablet
@@ -70,14 +67,12 @@ Status setup_retriever_and_lookup(TransformExecContext& ctx,
             .is_transient_rowset_writer = cfg.source.is_transient_rowset_writer,
             .write_type = cfg.source.source_write_type}));
 
-    // key (+seq) only conversion from the input block for the lookup
-    convertor.resize(source_schema->num_columns());
-    std::vector<IOlapColumnDataAccessor*> key_columns;
-    RETURN_IF_ERROR(convert_key_columns(convertor, *source_schema, *block, num_rows, key_columns));
-    IOlapColumnDataAccessor* seq_column = nullptr;
+    // key (+seq) columns of the input block for the lookup
+    std::vector<const IColumn*> key_columns;
+    collect_key_columns(*source_schema, *block, key_columns);
+    const IColumn* seq_column = nullptr;
     if (seq_pos != -1) {
-        RETURN_IF_ERROR(convert_seq_column(convertor, *source_schema, *block,
-                                           static_cast<size_t>(seq_pos), num_rows, seq_column));
+        seq_column = block->get_by_position(static_cast<size_t>(seq_pos)).column.get();
     }
     RETURN_IF_ERROR(retriever->prepare_lookup_plan_from_source_columns(key_columns, seq_column,
                                                                        cfg.source.mow_context));
@@ -116,7 +111,7 @@ Status fill_before_columns(Block& out, const TabletSchema& changelog_schema,
 void fill_changelog_system_columns(Block& out, const TabletSchema& changelog_schema,
                                    uint32_t changelog_tso_cid, uint32_t changelog_lsn_cid,
                                    uint32_t changelog_op_cid, const std::vector<int64_t>& lsn_ids,
-                                   const std::vector<int64_t>& operators, size_t num_rows) {
+                                   const std::vector<ChangelogOp>& operators, size_t num_rows) {
     std::vector<uint32_t> changelog_cids = {changelog_tso_cid, changelog_lsn_cid, changelog_op_cid};
     Block changelog_system_block = changelog_schema.create_storage_block(changelog_cids);
     {
@@ -149,7 +144,7 @@ void fill_changelog_system_columns(Block& out, const TabletSchema& changelog_sch
                 << static_cast<int>(op_col_type);
         auto* op_int64_column = assert_cast<ColumnInt64*>(op_nested_column);
         for (size_t i = 0; i < num_rows; i++) {
-            op_int64_column->insert_value(operators[i]);
+            op_int64_column->insert_value(static_cast<int64_t>(operators[i]));
         }
 
         if (op_nullable_column != nullptr) {
@@ -264,7 +259,7 @@ std::optional<std::span<const Int8>> read_delete_signs(const Block* block, int32
 // it into `block`.
 Status emit_changelog_block(const ChangelogDeriveContext& c, const Block* after_src,
                             PrimaryKeyModelRowRetriever* retriever,
-                            const std::vector<int64_t>* plain_operators, Block* block) {
+                            const std::vector<ChangelogOp>* plain_operators, Block* block) {
     Block out = c.changelog_schema->create_storage_block();
     // every index below is a cid, so the block has to carry every schema column
     if (out.columns() != c.changelog_schema->num_columns()) {
@@ -276,9 +271,10 @@ Status emit_changelog_block(const ChangelogDeriveContext& c, const Block* after_
     for (size_t ordinal = 0; ordinal < c.normal_source_cids.size(); ++ordinal) {
         const uint32_t source_cid = c.normal_source_cids[ordinal];
         ColumnPtr after_column = after_src->get_by_position(source_cid).column;
-        // The changelog schema declares every AFTER value column nullable, so a NOT
-        // NULL source column has to be wrapped: the segment writer converts by
-        // the changelog schema. Keys keep their own nullability.
+        // The changelog schema declares every AFTER value column nullable and `out` keeps that
+        // type when a column is replaced, so a NOT NULL source column is wrapped to match it; a
+        // nullable ARRAY, MAP or STRUCT writer would refuse it otherwise. Keys keep their own
+        // nullability.
         if (!c.source_schema->column(source_cid).is_key()) {
             after_column = make_nullable(after_column);
         }
@@ -293,7 +289,7 @@ Status emit_changelog_block(const ChangelogDeriveContext& c, const Block* after_
     if (retriever != nullptr) {
         RETURN_IF_ERROR(retriever->revise_operators_by_old_delete_sign(c.num_rows));
     }
-    const std::vector<int64_t>& operators =
+    const std::vector<ChangelogOp>& operators =
             retriever != nullptr ? retriever->get_operators() : *plain_operators;
     fill_changelog_system_columns(out, *c.changelog_schema, c.changelog_tso_cid,
                                   c.changelog_lsn_cid, c.changelog_op_cid, *c.lsn_ids, operators,
@@ -331,11 +327,11 @@ Status PlainChangelogDeriveStage::derive(TransformExecContext& /*ctx*/, Block* b
     // tables have no delete-sign column, so every row is APPEND.
     std::optional<std::span<const Int8>> delete_signs =
             read_delete_signs(block, c.source_schema->delete_sign_idx(), c.num_rows);
-    std::vector<int64_t> operators;
+    std::vector<ChangelogOp> operators;
     operators.reserve(c.num_rows);
     for (size_t pos = 0; pos < c.num_rows; ++pos) {
         bool have_delete_sign = (delete_signs && (*delete_signs)[pos] != 0);
-        operators.emplace_back(have_delete_sign ? CHANGELOG_OP_DELETE : CHANGELOG_OP_APPEND);
+        operators.emplace_back(have_delete_sign ? ChangelogOp::DELETE : ChangelogOp::APPEND);
     }
     return emit_changelog_block(c, /*after_src=*/block, /*retriever=*/nullptr, &operators, block);
 }
@@ -409,12 +405,10 @@ Status MowChangelogDeriveStage::derive(TransformExecContext& ctx, Block* block,
     // probe history once: produces the AFTER-fill plan, the BEFORE-read plan,
     // and the exact op for each row (APPEND / UPDATE / DELETE). retrieve_historical_row
     // takes the raw delete-sign pointer (the codebase convention), so bridge here.
-    // declared first so it outlives the retriever: the lookup plan points into it
-    OlapBlockDataConvertor key_convertor;
     std::unique_ptr<PrimaryKeyModelRowRetriever> retriever;
     RETURN_IF_ERROR(setup_retriever_and_lookup(ctx, cfg, c.source_schema, block, seq_pos,
                                                delete_signs ? delete_signs->data() : nullptr,
-                                               c.num_rows, key_convertor, retriever));
+                                               c.num_rows, retriever));
 
     // Building AFTER: fixed partial update widens the narrow input and rebuilds
     // missing columns from history; upserts are already source-schema shaped.

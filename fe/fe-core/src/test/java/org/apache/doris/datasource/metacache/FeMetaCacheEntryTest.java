@@ -59,6 +59,16 @@ public class FeMetaCacheEntryTest {
             Assertions.assertEquals(1L, stats.getLoadSuccessCount());
             Assertions.assertTrue(stats.getRequestCount() >= 4L);
             Assertions.assertTrue(stats.getInvalidateCount() >= 1L);
+            // Without a weight limit the entry reports -1 for every weight figure.
+            Assertions.assertFalse(stats.isWeightBounded());
+            Assertions.assertEquals(-1L, stats.getMaxWeight());
+            Assertions.assertEquals(-1L, stats.getEstimatedWeight());
+            Assertions.assertEquals(-1L, stats.getEvictionWeight());
+            Assertions.assertEquals(-1L, stats.getWeightAdmissionRejectedCount());
+            Assertions.assertEquals(-1L, stats.getCatalogMaxWeight());
+            Assertions.assertEquals(-1L, stats.getCatalogEstimatedWeight());
+            Assertions.assertEquals(-1L, stats.getGlobalMaxWeight());
+            Assertions.assertEquals(-1L, stats.getGlobalEstimatedWeight());
         } finally {
             executor.shutdownNow();
         }
@@ -81,6 +91,12 @@ public class FeMetaCacheEntryTest {
 
             Assertions.assertSame(oversized, mutation.get(3L, TimeUnit.SECONDS));
             Assertions.assertNull(entry.getIfPresent("key"));
+            MetaCacheEntryStats stats = entry.stats();
+            Assertions.assertTrue(stats.isWeightBounded());
+            Assertions.assertEquals(1_024L, stats.getMaxWeight());
+            Assertions.assertEquals(1L, stats.getWeightAdmissionRejectedCount());
+            // The rejected mutation invalidated the old value; an invalidation is not an eviction.
+            Assertions.assertEquals(0L, stats.getEvictionWeight());
         } finally {
             worker.shutdownNow();
             refreshExecutor.shutdownNow();

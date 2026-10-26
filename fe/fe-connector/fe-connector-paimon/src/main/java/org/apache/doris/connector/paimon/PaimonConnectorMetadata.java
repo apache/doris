@@ -420,15 +420,11 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                 ? paimonHandle
                 : (PaimonTableHandle) applySnapshot(session, paimonHandle, snapshot);
         Map<String, String> scanOptions = pinned.getScanOptions();
-        if (PaimonScanParams.preservesBoundSchema(scanOptions)) {
+        if (PaimonScanParams.preservesBoundSchema(scanOptions) || PaimonScanParams.isOptionsPin(scanOptions)) {
             // Schema-derived wrappers must be built over the bound source before exposing their fields.
             return new PaimonScanPlanProvider(catalogProperties, catalogOps, context).resolveScanTable(pinned);
         }
-        Table table = resolveTable(pinned);
-        if (scanOptions != null && !scanOptions.isEmpty() && PaimonScanParams.isOptionsPin(scanOptions)) {
-            return PaimonScanParams.applyOptions(table, scanOptions);
-        }
-        return table;
+        return resolveTable(pinned);
     }
 
     /**
@@ -543,14 +539,8 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         // here instead would enter the authenticator a second time and would turn a missing base
         // table into a thrown RuntimeException rather than this method's Optional.empty() contract.
         //
-        // "Exactly the way the catalog builds it" includes building it over the UNDECORATED base:
-        // CatalogUtils#loadTable hands createSystemTable the raw FileStoreTableFactory#create
-        // result, and the decorator a catalog may add afterwards never reaches a system table,
-        // because it only wraps a FileStoreTable and no system table is one. That matters for $ro:
-        // ReadOptimizedTable#newScan builds its two-branch FallbackReadScan only when its immediate
-        // wrapped object is a FallbackReadFileStoreTable, so with a PrivilegedFileStoreTable in
-        // between it would plan the main branch alone through the pair's inherited
-        // newSnapshotReader() and silently drop every fallback-only partition.
+        // ReadOptimizedTable builds its two-branch FallbackReadScan only when its immediate
+        // wrapped object is the fallback pair. Keep that pair directly under the system wrapper.
         Table baseTable = base.getPaimonTable();
         FileStoreTable sysBase = baseTable instanceof FileStoreTable
                 ? PaimonTableDecorators.unwrapToFallbackOrBase((FileStoreTable) baseTable)
@@ -876,7 +866,8 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                     resolved = PaimonScanParams.pinOptionsToSnapshot(
                             spec.getOptions(), spec.getLatestSnapshotFence().getAsLong());
                 } else {
-                    resolved = PaimonScanParams.resolveOptions(table, spec.getOptions());
+                    resolved = PaimonScanParams.resolveOptions(table, spec.getOptions(),
+                            PaimonTableOptions.extractCompatible(catalogProperties.getRaw()));
                 }
                 String pinnedTag = resolved.get(CoreOptions.SCAN_TAG_NAME.key());
                 if (pinnedTag != null) {
@@ -1761,6 +1752,13 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
      * the partition columns and escapes path-special characters in the name via the Paimon SDK.
      */
     private List<ConnectorPartitionInfo> collectPartitions(PaimonTableHandle paimonHandle) {
+        if (paimonHandle.getScanOptions().isEmpty()) {
+            return collectPartitionsAuthenticated(paimonHandle);
+        }
+        return readMetadataAuthenticated(() -> collectPartitionsAuthenticated(paimonHandle));
+    }
+
+    private List<ConnectorPartitionInfo> collectPartitionsAuthenticated(PaimonTableHandle paimonHandle) {
         if (PaimonScanParams.isPinnedEmptyScan(paimonHandle.getScanOptions())) {
             // Do not reopen latest metadata after the statement fenced an empty table.
             return Collections.emptyList();
@@ -1773,7 +1771,8 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         }
 
         Table resolvedTable = resolveTable(paimonHandle);
-        Map<String, String> scanOptions = paimonHandle.getScanOptions();
+        Map<String, String> scanOptions = PaimonScanParams.withCatalogOptions(
+                paimonHandle.getScanOptions(), PaimonTableOptions.extractCompatible(catalogProperties.getRaw()));
         boolean optionsPin = PaimonScanParams.isOptionsPin(scanOptions);
         Table table;
         if (optionsPin) {
@@ -1784,8 +1783,9 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             // partitions so EXPLAIN and block-rule accounting describe the same version as the scan.
             Table partitionTable = snapshotId == null
                     ? resolvedTable
-                    : resolvedTable.copy(Collections.singletonMap(
-                            CoreOptions.SCAN_SNAPSHOT_ID.key(), snapshotId));
+                    : PaimonScanParams.copyWithHistoricalSchema(resolvedTable, PaimonScanParams.withCatalogOptions(
+                            Collections.singletonMap(CoreOptions.SCAN_SNAPSHOT_ID.key(), snapshotId),
+                            PaimonTableOptions.extractCompatible(catalogProperties.getRaw())));
             // Partition projection never opens a data reader, so reader-only settings must not
             // invalidate metadata that a later relation-scoped override can make safe.
             // Metadata planning can also touch Paimon's global manifest executor, so apply the
@@ -1955,6 +1955,11 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         if (snapshot == null) {
             return getTableStatistics(session, handle);
         }
+        return readMetadataAuthenticated(() -> getTableStatisticsAtSnapshot(session, handle, snapshot));
+    }
+
+    private Optional<ConnectorTableStatistics> getTableStatisticsAtSnapshot(
+            ConnectorSession session, ConnectorTableHandle handle, ConnectorMvccSnapshot snapshot) {
         long rowCount;
         try {
             PaimonTableHandle pinned = (PaimonTableHandle) applySnapshot(session, handle, snapshot);
@@ -1963,17 +1968,18 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                 // first commit even though execution is still required to scan zero rows.
                 return Optional.empty();
             }
-            Map<String, String> scanOptions = pinned.getScanOptions();
+            Map<String, String> scanOptions = PaimonScanParams.withCatalogOptions(
+                    pinned.getScanOptions(), PaimonTableOptions.extractCompatible(catalogProperties.getRaw()));
             // applyOptions removes this Doris-only marker, but execution still filters files by it.
             // This also covers scan.creation-time-millis when it resolves to a file-creation scan.
             if (PaimonScanParams.getPinnedFileCreationTime(scanOptions).isPresent()) {
                 return Optional.empty();
             }
             Table table = resolveTable(pinned);
-            if (scanOptions != null && !scanOptions.isEmpty()) {
+            if (scanOptions != null && !scanOptions.isEmpty() && !pinned.isSystemTable()) {
                 table = PaimonScanParams.isOptionsPin(scanOptions)
                         ? PaimonScanParams.applyOptions(table, scanOptions)
-                        : table.copy(scanOptions);
+                        : PaimonScanParams.copyWithHistoricalSchema(table, scanOptions);
             }
             table = PaimonReaderOptions.runtimeSafeTable(table);
             table = runtimeSafeSystemTable(pinned, table, scanOptions);

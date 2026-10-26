@@ -33,6 +33,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+from review_github_api import decode_json, run_gh
 from submit_review import RUN_FILE, RESULT_FILE, SUBMISSION_FILE, verify_completion, write_json
 
 # Six same-session capacity retries, each after a fixed five-minute wait.
@@ -78,11 +79,12 @@ class HeadWatchdog:
         # Include API time in the existing shared budget and polling interval.
         self.next_check = time.monotonic() + HEAD_POLL_SECONDS
         try:
-            response = subprocess.run(
-                ["gh", "api", f"repos/{self.args.repository}/pulls/{self.args.pr_number}"],
+            command = ["gh", "api", f"repos/{self.args.repository}/pulls/{self.args.pr_number}"]
+            response = run_gh(
+                command,
                 check=True, capture_output=True, text=True, timeout=timeout,
             )
-            check_head(json.loads(response.stdout), self.args.head_sha)
+            check_head(decode_json(response, command), self.args.head_sha)
         except (ValueError, OSError, subprocess.SubprocessError) as exc:
             # An unavailable API is not evidence of a new commit. Strict target
             # checks before resume/submission still apply independently.

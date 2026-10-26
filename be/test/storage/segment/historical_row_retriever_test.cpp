@@ -39,38 +39,6 @@ using segment_v2::PrimaryKeyModelRowRetriever;
 // changelog operator and, when needed, to read the old row.
 class HistoricalRowRetrieverTest : public MowTransformTestBase {
 protected:
-    // Keeps the converted key column accessors alive for as long as the retriever needs them.
-    class KeyAccessors {
-    public:
-        // `block` holds the key column, and the sequence column too when `with_seq` is set (the
-        // retriever then probes with a seq suffix).
-        KeyAccessors(const TabletSchemaSPtr& schema, Block* block, size_t num_rows,
-                     bool with_seq = false) {
-            _convertor.add_column_data_convertor(schema->column(0));
-            if (with_seq) {
-                _convertor.add_column_data_convertor(
-                        schema->column(static_cast<uint32_t>(schema->sequence_col_idx())));
-            }
-            _convertor.set_source_content(block, 0, num_rows);
-            auto [st, accessor] = _convertor.convert_column_data(0);
-            EXPECT_TRUE(st.ok()) << st;
-            _accessors.push_back(accessor);
-            if (with_seq) {
-                auto [seq_st, seq] = _convertor.convert_column_data(1);
-                EXPECT_TRUE(seq_st.ok()) << seq_st;
-                _seq_column = seq;
-            }
-        }
-
-        const std::vector<IOlapColumnDataAccessor*>& get() const { return _accessors; }
-        IOlapColumnDataAccessor* seq_column() const { return _seq_column; }
-
-    private:
-        OlapBlockDataConvertor _convertor;
-        std::vector<IOlapColumnDataAccessor*> _accessors;
-        IOlapColumnDataAccessor* _seq_column = nullptr;
-    };
-
     std::shared_ptr<PartialUpdateInfo> key_only_partial_update(const TabletSchemaSPtr& schema) {
         auto info = std::make_shared<PartialUpdateInfo>();
         EXPECT_TRUE(info->init(kTabletId, /*txn_id=*/1, *schema,
@@ -128,17 +96,17 @@ TEST_F(HistoricalRowRetrieverTest, UpdateReadsHistoryAndAppendTakesDefault) {
     fill_rowset_ctx(&rowset_ctx, schema, tablet, info, /*need_before=*/false);
 
     Block input = key_block(schema, {1, 99});
-    KeyAccessors keys {schema, &input, 2};
+    std::vector<const IColumn*> key_columns {input.get_by_position(0).column.get()};
 
     PrimaryKeyModelRowRetriever retriever;
     ASSERT_TRUE(retriever.init(rowset_ctx.make_historical_row_retriever_context()).ok());
-    ASSERT_TRUE(retriever.prepare_lookup_plan_from_source_columns(keys.get(), nullptr, mow).ok());
+    ASSERT_TRUE(retriever.prepare_lookup_plan_from_source_columns(key_columns, nullptr, mow).ok());
     auto st = retriever.retrieve_historical_row(/*delete_sign_column_data=*/nullptr, 0, 2);
     ASSERT_TRUE(st.ok()) << st;
 
     ASSERT_EQ(retriever.get_operators().size(), 2);
-    EXPECT_EQ(retriever.get_operators()[0], CHANGELOG_OP_UPDATE);
-    EXPECT_EQ(retriever.get_operators()[1], CHANGELOG_OP_APPEND);
+    EXPECT_EQ(retriever.get_operators()[0], ChangelogOp::UPDATE);
+    EXPECT_EQ(retriever.get_operators()[1], ChangelogOp::APPEND);
     // a read-only probe: the load's delete bitmap must stay untouched
     EXPECT_EQ(mow->delete_bitmap->cardinality(), 0U);
 
@@ -164,18 +132,18 @@ TEST_F(HistoricalRowRetrieverTest, DeleteReadsHistoryOnlyWhenBeforeImageIsWanted
         fill_rowset_ctx(&rowset_ctx, schema, tablet, info, need_before);
 
         Block input = key_block(schema, {1});
-        KeyAccessors keys {schema, &input, 1};
+        std::vector<const IColumn*> key_columns {input.get_by_position(0).column.get()};
         std::vector<Int8> delete_signs {1};
 
         PrimaryKeyModelRowRetriever retriever;
         ASSERT_TRUE(retriever.init(rowset_ctx.make_historical_row_retriever_context()).ok());
         ASSERT_TRUE(
-                retriever.prepare_lookup_plan_from_source_columns(keys.get(), nullptr, mow).ok());
+                retriever.prepare_lookup_plan_from_source_columns(key_columns, nullptr, mow).ok());
         auto st = retriever.retrieve_historical_row(delete_signs.data(), 0, 1);
         ASSERT_TRUE(st.ok()) << st;
 
         ASSERT_EQ(retriever.get_operators().size(), 1);
-        EXPECT_EQ(retriever.get_operators()[0], CHANGELOG_OP_DELETE);
+        EXPECT_EQ(retriever.get_operators()[0], ChangelogOp::DELETE);
 
         Block before_block = schema->create_storage_block({1});
         st = retriever.build_before_block(&before_block, {1}, 0, 1);
@@ -203,18 +171,18 @@ TEST_F(HistoricalRowRetrieverTest, RowLosingOnSequenceStillReadsTheStoredRow) {
 
     // incoming sequence 5 < stored 10
     Block input = key_seq_block(schema, /*key=*/1, /*seq=*/5);
-    KeyAccessors keys {schema, &input, 1, /*with_seq=*/true};
+    std::vector<const IColumn*> key_columns {input.get_by_position(0).column.get()};
+    const IColumn* seq_column = input.get_by_position(1).column.get();
 
     PrimaryKeyModelRowRetriever retriever;
     ASSERT_TRUE(retriever.init(rowset_ctx.make_historical_row_retriever_context()).ok());
     ASSERT_TRUE(
-            retriever.prepare_lookup_plan_from_source_columns(keys.get(), keys.seq_column(), mow)
-                    .ok());
+            retriever.prepare_lookup_plan_from_source_columns(key_columns, seq_column, mow).ok());
     auto st = retriever.retrieve_historical_row(nullptr, 0, 1);
     ASSERT_TRUE(st.ok()) << st;
 
     ASSERT_EQ(retriever.get_operators().size(), 1);
-    EXPECT_EQ(retriever.get_operators()[0], CHANGELOG_OP_UPDATE);
+    EXPECT_EQ(retriever.get_operators()[0], ChangelogOp::UPDATE);
     EXPECT_EQ(mow->delete_bitmap->cardinality(), 0U); // MarkDeleted::NONE: nothing is marked
 
     Block before_block = schema->create_storage_block({1});
@@ -243,12 +211,12 @@ TEST_F(HistoricalRowRetrieverTest, PerFlushRetrieverKeepsNoStateFromTheLastBlock
 
     Block first = key_block(schema, {1});
     {
-        KeyAccessors keys {schema, &first, 1};
+        std::vector<const IColumn*> key_columns {first.get_by_position(0).column.get()};
         ASSERT_TRUE(
-                retriever.prepare_lookup_plan_from_source_columns(keys.get(), nullptr, mow).ok());
+                retriever.prepare_lookup_plan_from_source_columns(key_columns, nullptr, mow).ok());
         ASSERT_TRUE(retriever.retrieve_historical_row(nullptr, 0, 1).ok());
         ASSERT_EQ(retriever.get_operators().size(), 1);
-        EXPECT_EQ(retriever.get_operators()[0], CHANGELOG_OP_UPDATE);
+        EXPECT_EQ(retriever.get_operators()[0], ChangelogOp::UPDATE);
 
         Block after_block = schema->create_storage_block();
         after_block.replace_by_position(0, first.get_by_position(0).column);
@@ -267,12 +235,12 @@ TEST_F(HistoricalRowRetrieverTest, PerFlushRetrieverKeepsNoStateFromTheLastBlock
 
     // key 99 is in no rowset, so nothing may be planned for it
     Block second = key_block(schema, {99});
-    KeyAccessors keys {schema, &second, 1};
+    std::vector<const IColumn*> key_columns {second.get_by_position(0).column.get()};
     ASSERT_TRUE(
-            next_retriever.prepare_lookup_plan_from_source_columns(keys.get(), nullptr, mow).ok());
+            next_retriever.prepare_lookup_plan_from_source_columns(key_columns, nullptr, mow).ok());
     ASSERT_TRUE(next_retriever.retrieve_historical_row(nullptr, 0, 1).ok());
     ASSERT_EQ(next_retriever.get_operators().size(), 1);
-    EXPECT_EQ(next_retriever.get_operators()[0], CHANGELOG_OP_APPEND);
+    EXPECT_EQ(next_retriever.get_operators()[0], ChangelogOp::APPEND);
 
     Block before_block = schema->create_storage_block({1});
     ASSERT_TRUE(next_retriever.build_before_block(&before_block, {1}, 0, 1).ok());
@@ -316,18 +284,18 @@ TEST_F(HistoricalRowRetrieverTest, ReviseOperatorWithOldDeleteSign) {
     ASSERT_TRUE(retriever._fill_old_delete_signs(old_value_block, read_index, 4).ok());
     ASSERT_EQ((std::vector<signed char> {1, 0, 0, 1}), retriever._old_delete_signs);
 
-    retriever._operators = {CHANGELOG_OP_UPDATE, CHANGELOG_OP_UPDATE, CHANGELOG_OP_UPDATE,
-                            CHANGELOG_OP_DELETE};
+    retriever._operators = {ChangelogOp::UPDATE, ChangelogOp::UPDATE, ChangelogOp::UPDATE,
+                            ChangelogOp::DELETE};
     // a planned read is what tells revise() that old rows were looked up at all
     RowsetId rowset_id;
     rowset_id.init(1);
     retriever._row_fetcher->plan_fixed_read(RowLocation(rowset_id, 0, 0), 0);
     ASSERT_TRUE(retriever.revise_operators_by_old_delete_sign(4).ok());
 
-    EXPECT_EQ(CHANGELOG_OP_APPEND, retriever._operators[0]);
-    EXPECT_EQ(CHANGELOG_OP_UPDATE, retriever._operators[1]);
-    EXPECT_EQ(CHANGELOG_OP_UPDATE, retriever._operators[2]);
-    EXPECT_EQ(CHANGELOG_OP_DELETE, retriever._operators[3]);
+    EXPECT_EQ(ChangelogOp::APPEND, retriever._operators[0]);
+    EXPECT_EQ(ChangelogOp::UPDATE, retriever._operators[1]);
+    EXPECT_EQ(ChangelogOp::UPDATE, retriever._operators[2]);
+    EXPECT_EQ(ChangelogOp::DELETE, retriever._operators[3]);
 }
 
 } // namespace doris

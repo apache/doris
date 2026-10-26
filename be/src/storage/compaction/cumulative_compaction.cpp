@@ -126,7 +126,7 @@ Status CumulativeCompaction::execute_compact() {
     TEST_SYNC_POINT_RETURN_WITH_VALUE(
             "cumulative_compaction::CumulativeCompaction::execute_compact", Status::OK());
 
-    DCHECK_EQ(_state, CompactionState::SUCCESS);
+    DCHECK(_state == CompactionState::SUCCESS);
 
     tablet()->cumulative_compaction_policy()->update_cumulative_point(
             tablet(), _input_rowsets, _output_rowset, _last_delete_version);
