@@ -332,9 +332,8 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         if (writeOperation == WriteOperation.DELETE || boundColumns.isEmpty()) {
             return;
         }
-        // A branch write is deliberately bound to the branch-head schema, which can lag the current main
-        // schema. The schema context separately fences branch evolution, so comparing with table.schema()
-        // rejects valid branch writes without adding concurrency protection.
+        // Compare with the schema the statement pinned, which is the table-current schema at pin time for main
+        // and branch writes alike. The schema context fences any later schema change before the commit.
         Schema writeSchema = schemaContext == null ? table.schema() : schemaContext.getSchema();
         List<NestedField> currentColumns = writeSchema.columns();
         boolean rowLevelWrite = writeOperation == WriteOperation.UPDATE || writeOperation == WriteOperation.MERGE;
@@ -650,6 +649,10 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
                 ? active.get().getSchema() : table.schema();
         List<ConnectorWritePartitionField> fields = new ArrayList<>();
         for (PartitionField field : spec.fields()) {
+            if (field.transform().isVoid()) {
+                // NULL for every row, and a v1 table may have dropped its source column.
+                continue;
+            }
             // Bind a nested source to its top-level slot. fe-core recovers child indexes from the stable Iceberg
             // field ids already carried by the Doris Column tree, so the public connector SPI stays unchanged.
             String sourceColumnName = findPartitionSourceColumnName(schema, field.sourceId());
@@ -693,6 +696,10 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         List<String> routeColumns = new ArrayList<>();
         List<String> transforms = new ArrayList<>();
         for (PartitionField field : spec.fields()) {
+            if (field.transform().isVoid()) {
+                // NULL for every row, and a v1 table may have dropped its source column.
+                continue;
+            }
             String sourceColumnName = findTopLevelColumnName(schema, field.sourceId());
             if (sourceColumnName == null) {
                 return null;

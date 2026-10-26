@@ -963,19 +963,19 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb, bool cloud_get_rowset_
     tablet_meta_pb->set_tablet_type(_tablet_type);
     tablet_meta_pb->set_ttl_seconds(_ttl_seconds);
     switch (tablet_state()) {
-    case TABLET_NOTREADY:
+    case TabletState::TABLET_NOTREADY:
         tablet_meta_pb->set_tablet_state(PB_NOTREADY);
         break;
-    case TABLET_RUNNING:
+    case TabletState::TABLET_RUNNING:
         tablet_meta_pb->set_tablet_state(PB_RUNNING);
         break;
-    case TABLET_TOMBSTONED:
+    case TabletState::TABLET_TOMBSTONED:
         tablet_meta_pb->set_tablet_state(PB_TOMBSTONED);
         break;
-    case TABLET_STOPPED:
+    case TabletState::TABLET_STOPPED:
         tablet_meta_pb->set_tablet_state(PB_STOPPED);
         break;
-    case TABLET_SHUTDOWN:
+    case TabletState::TABLET_SHUTDOWN:
         tablet_meta_pb->set_tablet_state(PB_SHUTDOWN);
         break;
     }
@@ -1920,23 +1920,23 @@ DeleteBitmap DeleteBitmap::diffset(const std::set<BitmapKey>& key_set) const {
 
 std::string tablet_state_name(TabletState state) {
     switch (state) {
-    case TABLET_NOTREADY:
+    case TabletState::TABLET_NOTREADY:
         return "TABLET_NOTREADY";
 
-    case TABLET_RUNNING:
+    case TabletState::TABLET_RUNNING:
         return "TABLET_RUNNING";
 
-    case TABLET_TOMBSTONED:
+    case TabletState::TABLET_TOMBSTONED:
         return "TABLET_TOMBSTONED";
 
-    case TABLET_STOPPED:
+    case TabletState::TABLET_STOPPED:
         return "TABLET_STOPPED";
 
-    case TABLET_SHUTDOWN:
+    case TabletState::TABLET_SHUTDOWN:
         return "TABLET_SHUTDOWN";
 
     default:
-        return "TabletState(" + std::to_string(state) + ")";
+        return "TabletState(" + std::to_string(static_cast<int>(state)) + ")";
     }
 }
 

@@ -97,6 +97,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -310,7 +311,6 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             return columns;
         }
         // get one BE address
-        columns = Lists.newArrayList();
         Backend be = getBackend();
         if (be == null) {
             String computeGroupHints = "";
@@ -336,17 +336,27 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
         TNetworkAddress address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
         try {
-            PFetchTableSchemaRequest request = getFetchTableStructureRequest();
+            if (getTFileType() == TFileType.FILE_STREAM) {
+                fileStatuses.add(new TBrokerFileStatus("", false, -1, true));
+            }
+            Iterator<TBrokerFileStatus> files = fileStatuses.iterator();
+            PFetchTableSchemaRequest request = getFetchTableStructureRequest(files);
             InternalService.PFetchTableSchemaResult result = null;
 
             // `request == null` means we don't need to get schemas from BE,
             // and we fill a dummy col for this table.
-            if (request != null) {
+            while (request != null) {
                 Future<InternalService.PFetchTableSchemaResult> future = BackendServiceProxy.getInstance()
                         .fetchTableStructureAsync(address, request);
 
                 result = future.get();
                 TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
+                if (code == TStatusCode.NOT_FOUND) {
+                    request = getFetchTableStructureRequest(files);
+                    if (request != null) {
+                        continue;
+                    }
+                }
                 String errMsg;
                 if (code != TStatusCode.OK) {
                     if (!result.getStatus().getErrorMsgsList().isEmpty()) {
@@ -358,7 +368,9 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                     }
                     throw new AnalysisException(errMsg);
                 }
+                break;
             }
+            columns = Lists.newArrayList();
             fillColumns(result);
         } catch (RpcException e) {
             throw new AnalysisException("fetchTableStructureResult rpc exception", e);
@@ -477,15 +489,18 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         }
         // add fetched file columns
         Set<String> columnLowerNames = new HashSet<>();
+        boolean preserveColumnCase = fileFormatProperties.getFileFormatType() == TFileFormatType.FORMAT_JSON;
         for (int idx = 0; idx < result.getColumnNums(); ++idx) {
             PTypeDesc type = result.getColumnTypes(idx);
-            String colName = result.getColumnNames(idx).toLowerCase();
+            String originalColName = result.getColumnNames(idx);
+            String colLowerName = originalColName.toLowerCase();
             // Since doris does not distinguish between upper and lower case columns when querying, in order to avoid
             // query ambiguity, two columns with the same name but different capitalization are not allowed.
-            if (columnLowerNames.contains(colName)) {
-                throw new NotSupportedException("Repeated lowercase column names: " + colName);
+            if (columnLowerNames.contains(colLowerName)) {
+                throw new NotSupportedException("Repeated lowercase column names: " + colLowerName);
             } else {
-                columnLowerNames.add(colName);
+                columnLowerNames.add(colLowerName);
+                String colName = preserveColumnCase ? originalColName : colLowerName;
                 columns.add(new Column(colName, getColumnType(type.getTypesList(), 0).key(), true));
             }
         }
@@ -503,7 +518,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         }
     }
 
-    private PFetchTableSchemaRequest getFetchTableStructureRequest() throws TException {
+    private PFetchTableSchemaRequest getFetchTableStructureRequest(Iterator<TBrokerFileStatus> files)
+            throws TException {
         // set TFileScanRangeParams
         TFileScanRangeParams fileScanRangeParams = new TFileScanRangeParams();
         fileScanRangeParams.setFormatType(fileFormatProperties.getFileFormatType());
@@ -524,7 +540,6 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         }
 
         if (getTFileType() == TFileType.FILE_STREAM) {
-            fileStatuses.add(new TBrokerFileStatus("", false, -1, true));
             fileScanRangeParams.setFileType(getTFileType());
         }
 
@@ -538,7 +553,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
         // get first file, used to parse table schema
         TBrokerFileStatus firstFile = null;
-        for (TBrokerFileStatus fileStatus : fileStatuses) {
+        while (files.hasNext()) {
+            TBrokerFileStatus fileStatus = files.next();
             if (isFileContentEmpty(fileStatus)) {
                 continue;
             }

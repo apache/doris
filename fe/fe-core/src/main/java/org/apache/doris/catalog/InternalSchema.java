@@ -183,6 +183,10 @@ public class InternalSchema {
                 ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
         AUDIT_SCHEMA.add(new ColumnDef("spill_read_bytes_from_local_storage",
                 ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA.add(new ColumnDef("spill_write_bytes_to_remote_storage",
+                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA.add(new ColumnDef("spill_read_bytes_from_remote_storage",
+                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
         AUDIT_SCHEMA.add(new ColumnDef("scan_bytes_from_local_storage",
                 ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
         AUDIT_SCHEMA.add(new ColumnDef("scan_bytes_from_remote_storage",

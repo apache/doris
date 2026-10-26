@@ -2351,7 +2351,8 @@ Status verify_changelog_partial_update_segment(const TabletSharedPtr& tablet,
     const auto key_base = static_cast<Int32>(segment_id * 10);
     for (size_t row_id = 0; row_id < block.rows(); ++row_id) {
         const auto key = key_base + static_cast<Int32>(row_id);
-        const auto operation = row_id < 2 ? CHANGELOG_OP_UPDATE : CHANGELOG_OP_APPEND;
+        const auto operation = row_id < 2 ? static_cast<int64_t>(ChangelogOp::UPDATE)
+                                          : static_cast<int64_t>(ChangelogOp::APPEND);
         RETURN_IF_ERROR(
                 verify_segment_field(block, "k1", row_id, Field::create_field<TYPE_INT>(key)));
         RETURN_IF_ERROR(verify_segment_field(
@@ -2445,7 +2446,8 @@ Status verify_changelog_before_segment(const TabletSharedPtr& tablet, uint32_t s
     const auto key_base = static_cast<Int32>(segment_id * 10);
     for (size_t row_id = 0; row_id < block.rows(); ++row_id) {
         const auto key = key_base + static_cast<Int32>(row_id);
-        const auto operation = row_id == 0 ? CHANGELOG_OP_UPDATE : CHANGELOG_OP_DELETE;
+        const auto operation = row_id == 0 ? static_cast<int64_t>(ChangelogOp::UPDATE)
+                                           : static_cast<int64_t>(ChangelogOp::DELETE);
         RETURN_IF_ERROR(
                 verify_segment_field(block, "k1", row_id, Field::create_field<TYPE_INT>(key)));
         RETURN_IF_ERROR(verify_segment_field(
@@ -2487,9 +2489,10 @@ Status verify_flexible_changelog_segment(const TabletSharedPtr& tablet,
     constexpr std::array<Int32, 6> keys {0, 1, 2, 3, 10, 11};
     constexpr std::array<Int32, 6> after_v1 {7000, 3001, 7002, 0, 3010, 0};
     constexpr std::array<Int64, 6> after_v2 {8000, 8001, 8002, 0, 4010, 8011};
-    constexpr std::array<Int64, 6> operations {CHANGELOG_OP_UPDATE, CHANGELOG_OP_UPDATE,
-                                               CHANGELOG_OP_APPEND, CHANGELOG_OP_APPEND,
-                                               CHANGELOG_OP_DELETE, CHANGELOG_OP_UPDATE};
+    constexpr std::array<Int64, 6> operations {
+            static_cast<int64_t>(ChangelogOp::UPDATE), static_cast<int64_t>(ChangelogOp::UPDATE),
+            static_cast<int64_t>(ChangelogOp::APPEND), static_cast<int64_t>(ChangelogOp::APPEND),
+            static_cast<int64_t>(ChangelogOp::DELETE), static_cast<int64_t>(ChangelogOp::UPDATE)};
     constexpr std::array<Int64, 6> lsns {1001, 1002, 1003, 1005, 1006, 1008};
     for (size_t row = 0; row < block.rows(); ++row) {
         RETURN_IF_ERROR(
@@ -3605,19 +3608,22 @@ TEST_F(SegmentFlusherTransformFormatTest,
                                      Field::create_field<TYPE_BIGINT>(Int64(1000)))
                         .ok());
     EXPECT_TRUE(verify_segment_field(*changelog_segment, CHANGELOG_OP_COL, 0,
-                                     Field::create_field<TYPE_BIGINT>(Int64(CHANGELOG_OP_UPDATE)))
+                                     Field::create_field<TYPE_BIGINT>(
+                                             Int64(static_cast<int64_t>(ChangelogOp::UPDATE))))
                         .ok());
     EXPECT_TRUE(verify_segment_field(*changelog_segment, CHANGELOG_LSN_COL, 1,
                                      Field::create_field<TYPE_BIGINT>(Int64(1001)))
                         .ok());
     EXPECT_TRUE(verify_segment_field(*changelog_segment, CHANGELOG_OP_COL, 1,
-                                     Field::create_field<TYPE_BIGINT>(Int64(CHANGELOG_OP_DELETE)))
+                                     Field::create_field<TYPE_BIGINT>(
+                                             Int64(static_cast<int64_t>(ChangelogOp::DELETE))))
                         .ok());
     EXPECT_TRUE(verify_segment_field(*changelog_segment, CHANGELOG_LSN_COL, 2,
                                      Field::create_field<TYPE_BIGINT>(Int64(1002)))
                         .ok());
     EXPECT_TRUE(verify_segment_field(*changelog_segment, CHANGELOG_OP_COL, 2,
-                                     Field::create_field<TYPE_BIGINT>(Int64(CHANGELOG_OP_APPEND)))
+                                     Field::create_field<TYPE_BIGINT>(
+                                             Int64(static_cast<int64_t>(ChangelogOp::APPEND))))
                         .ok());
 }
 

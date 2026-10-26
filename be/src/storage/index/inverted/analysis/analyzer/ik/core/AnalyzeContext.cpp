@@ -252,7 +252,7 @@ bool AnalyzeContext::getNextLexeme(Lexeme& lexeme) {
 
 void AnalyzeContext::outputToResult() {
     for (size_t index = 0; index <= cursor_;) {
-        if (typed_runes_[index].char_type == CharacterUtil::CHAR_USELESS) {
+        if (typed_runes_[index].char_type == CharacterUtil::CharType::USELESS) {
             index++;
             last_useless_char_num_++;
             continue;
@@ -284,10 +284,10 @@ void AnalyzeContext::outputToResult() {
 }
 
 void AnalyzeContext::outputSingleCJK(size_t index) {
-    if (typed_runes_[index].char_type == CharacterUtil::CHAR_CHINESE ||
-        typed_runes_[index].char_type == CharacterUtil::CHAR_OTHER_CJK) {
+    if (typed_runes_[index].char_type == CharacterUtil::CharType::CHINESE ||
+        typed_runes_[index].char_type == CharacterUtil::CharType::OTHER_CJK) {
         results_.emplace(buffer_offset_, typed_runes_[index].offset, typed_runes_[index].len,
-                         typed_runes_[index].char_type == CharacterUtil::CHAR_CHINESE
+                         typed_runes_[index].char_type == CharacterUtil::CharType::CHINESE
                                  ? Lexeme::Type::CNChar
                                  : Lexeme::Type::OtherCJK,
                          index, index);

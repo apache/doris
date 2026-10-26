@@ -62,7 +62,6 @@ void SmartGetWord::reset(const std::string& content) {
 void SmartGetWord::reset(const std::vector<Rune>& runes) {
     runes_ = runes;
     branch_ = forest_;
-    status_ = 0;
     root_ = 0;
     i_ = root_;
     is_back_ = false;
@@ -87,8 +86,8 @@ std::string SmartGetWord::frontWords() {
             }
 
             // Then check if current branch represents a word end
-            if (branch_->getStatus() == SmartForest::WORD_END ||
-                branch_->getStatus() == SmartForest::WORD_CONTINUE) {
+            if (branch_->getStatus() == SmartForest::Status::WORD_END ||
+                branch_->getStatus() == SmartForest::Status::WORD_CONTINUE) {
                 tempEndIndex = j + 1; // End position is exclusive, so j+1
                 temp_offe_ = i_;
                 param_ = branch_->getParam();

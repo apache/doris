@@ -200,7 +200,8 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
             RETURN_IF_CANCELLED(runtime_state);
         }
         auto tablet_state = tablet->tablet_state();
-        if (tablet_state != TABLET_RUNNING && tablet_state != TABLET_NOTREADY) {
+        if (tablet_state != TabletState::TABLET_RUNNING &&
+            tablet_state != TabletState::TABLET_NOTREADY) {
             tablet->clear_cache();
             return Status::Error<ErrorCode::INTERNAL_ERROR>("tablet {} is not used any more",
                                                             tablet->tablet_id());
@@ -414,7 +415,8 @@ Status Merger::vertical_compact_one_group(
             RETURN_IF_CANCELLED(runtime_state);
         }
         auto tablet_state = tablet->tablet_state();
-        if (tablet_state != TABLET_RUNNING && tablet_state != TABLET_NOTREADY) {
+        if (tablet_state != TabletState::TABLET_RUNNING &&
+            tablet_state != TabletState::TABLET_NOTREADY) {
             tablet->clear_cache();
             return Status::Error<ErrorCode::INTERNAL_ERROR>("tablet {} is not used any more",
                                                             tablet->tablet_id());

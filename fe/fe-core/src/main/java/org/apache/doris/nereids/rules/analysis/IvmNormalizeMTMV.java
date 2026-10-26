@@ -29,8 +29,8 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
+import org.apache.doris.nereids.trees.plans.logical.SupportChangelog;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 
 import com.google.common.base.Preconditions;
@@ -151,9 +151,9 @@ public class IvmNormalizeMTMV implements CustomRewriter {
         if (needsRowIdMaintenance) {
             return KeysType.UNIQUE_KEYS;
         }
-        List<LogicalOlapScan> scans = plan.collectToList(LogicalOlapScan.class::isInstance);
-        for (LogicalOlapScan scan : scans) {
-            if (scan.getTable().getKeysType() != KeysType.DUP_KEYS) {
+        List<SupportChangelog> scans = plan.collectToList(SupportChangelog.class::isInstance);
+        for (SupportChangelog scan : scans) {
+            if (!scan.isChangelogAppendOnly()) {
                 return KeysType.UNIQUE_KEYS;
             }
         }

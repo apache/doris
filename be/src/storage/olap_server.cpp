@@ -542,8 +542,9 @@ void StorageEngine::_tablet_path_check_callback() {
 
         LOG(INFO) << "start to check tablet path";
 
-        auto all_tablets = _tablet_manager->get_all_tablet(
-                [](Tablet* t) { return t->is_used() && t->tablet_state() == TABLET_RUNNING; });
+        auto all_tablets = _tablet_manager->get_all_tablet([](Tablet* t) {
+            return t->is_used() && t->tablet_state() == TabletState::TABLET_RUNNING;
+        });
 
         TabletQueue big_id_tablets;
         TabletQueue small_id_tablets;
@@ -797,7 +798,7 @@ void StorageEngine::_changelog_compaction_tasks_producer_callback() {
             for (const auto& tablet_compaction_context : tablet_compaction_contexts) {
                 const auto& tablet = tablet_compaction_context.tablet;
                 Status st = _submit_compaction_task(tablet, CompactionType::CHANGELOG_COMPACTION,
-                                                    false, 0);
+                                                    false, TriggerMethod::AUTO);
                 if (!st.ok()) {
                     LOG(WARNING) << "failed to submit changelog compaction task for tablet: "
                                  << tablet->tablet_id() << ", err: " << st;
@@ -1024,7 +1025,7 @@ void StorageEngine::_pop_tablet_from_submitted_compaction(TabletSharedPtr tablet
 
 Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                                               CompactionType compaction_type, bool force,
-                                              int trigger_method) {
+                                              TriggerMethod trigger_method) {
     bool already_exist = _compaction_submit_registry.insert(tablet, compaction_type);
     if (already_exist) {
         return Status::AlreadyExist<false>(
@@ -1071,10 +1072,10 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                 info.compaction_type = CompactionProfileType::CUMULATIVE;
                 break;
             default:
-                DCHECK(false) << "invalid compaction type: " << compaction_type;
+                DCHECK(false) << "invalid compaction type: " << static_cast<int>(compaction_type);
             }
             info.status = CompactionTaskStatus::PENDING;
-            info.trigger_method = static_cast<TriggerMethod>(trigger_method);
+            info.trigger_method = trigger_method;
             info.scheduled_time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                                              std::chrono::system_clock::now().time_since_epoch())
                                              .count();
@@ -1108,7 +1109,7 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
             compaction_type_name = "BASE";
             break;
         default:
-            DCHECK(false) << "invalid compaction type: " << compaction_type;
+            DCHECK(false) << "invalid compaction type: " << static_cast<int>(compaction_type);
         }
         VLOG_CRITICAL << "compaction thread pool. type: " << compaction_type_name
                       << ", num_threads: " << thread_pool->get()->num_threads()
@@ -1252,7 +1253,8 @@ void StorageEngine::_handle_compaction(TabletSharedPtr tablet,
     if (!tablet->can_do_compaction(tablet->data_dir()->path_hash(), compaction_type)) {
         LOG(INFO) << "Tablet state has been changed, no need to begin this compaction "
                      "task, tablet_id="
-                  << tablet->tablet_id() << ", tablet_state=" << tablet->tablet_state();
+                  << tablet->tablet_id()
+                  << ", tablet_state=" << static_cast<int>(tablet->tablet_state());
         return;
     }
     tablet->compaction_stage = CompactionStage::EXECUTING;
@@ -1270,7 +1272,7 @@ void StorageEngine::_handle_compaction(TabletSharedPtr tablet,
 }
 
 Status StorageEngine::submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
-                                             bool force, bool eager, int trigger_method) {
+                                             bool force, bool eager, TriggerMethod trigger_method) {
     if (!eager) {
         DCHECK(compaction_type == CompactionType::BASE_COMPACTION ||
                compaction_type == CompactionType::CUMULATIVE_COMPACTION);
@@ -1361,7 +1363,7 @@ void StorageEngine::_cooldown_tasks_producer_callback() {
                             cur_time](const TabletSharedPtr& tablet) -> bool {
             bool is_skip =
                     cur_time - tablet->last_failed_follow_cooldown_time() < skip_failed_interval ||
-                    TABLET_RUNNING != tablet->tablet_state();
+                    TabletState::TABLET_RUNNING != tablet->tablet_state();
             if (is_skip) {
                 return is_skip;
             }
@@ -1530,7 +1532,7 @@ static void confirm_and_remove_unused_remote_files(
 void StorageEngine::do_remove_unused_remote_files() {
     auto tablets = tablet_manager()->get_all_tablet([](Tablet* t) {
         return t->tablet_meta()->cooldown_meta_id().initialized() && t->is_used() &&
-               t->tablet_state() == TABLET_RUNNING &&
+               t->tablet_state() == TabletState::TABLET_RUNNING &&
                t->cooldown_conf_unlocked().cooldown_replica_id == t->replica_id();
     });
     TConfirmUnusedRemoteFilesRequest req;
@@ -1549,7 +1551,7 @@ void StorageEngine::do_remove_unused_remote_files() {
     for (auto& t : tablets) {
         if (t.use_count() <= 1 // this means tablet has been dropped
             || t->cooldown_conf_unlocked().cooldown_replica_id != t->replica_id() ||
-            t->tablet_state() != TABLET_RUNNING) {
+            t->tablet_state() != TabletState::TABLET_RUNNING) {
             continue;
         }
         collect_tablet_unused_remote_files(t.get(), req, buffer, num_files_in_buffer,
@@ -1589,7 +1591,7 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
         }
         auto tablets = _tablet_manager->get_all_tablet([&copied_tablet_submitted](Tablet* t) {
             return t->tablet_meta()->cooldown_meta_id().initialized() && t->is_used() &&
-                   t->tablet_state() == TABLET_RUNNING &&
+                   t->tablet_state() == TabletState::TABLET_RUNNING &&
                    !copied_tablet_submitted.contains(t->tablet_id()) &&
                    !t->tablet_meta()->disable_auto_compaction();
         });

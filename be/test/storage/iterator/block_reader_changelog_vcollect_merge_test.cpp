@@ -78,7 +78,7 @@ namespace {
 //   2: __DORIS_CHANGELOG_BEFORE_val__ (Int64, "before" value mirror)
 //   3: __DORIS_CHANGELOG_TSO__  (Int64, the merge sequence / order column)
 //   4: __DORIS_CHANGELOG_LSN__  (Int64)
-//   5: __DORIS_CHANGELOG_OP__   (Int64, CHANGELOG_OP_APPEND/UPDATE/DELETE)
+//   5: __DORIS_CHANGELOG_OP__   (Int64, ChangelogOp::APPEND/UPDATE/DELETE)
 constexpr int KEY_IDX = 0;
 constexpr int VAL_IDX = 1;
 constexpr int BEFORE_VAL_IDX = 2;
@@ -335,15 +335,16 @@ protected:
 // folds APPEND+UPDATE into a single INSERT carrying the most recent value.
 TEST_F(BlockReaderChangelogVCollectMergeTest, MinDeltaSameKeyAcrossRowsetsFoldsToInsert) {
     BlockReader reader;
-    configure_two_rowset_merge(
-            reader,
-            {{/*key=*/1, /*val=*/10, /*before=*/0, /*tso=*/1, /*lsn=*/1, CHANGELOG_OP_APPEND}},
-            {{/*key=*/1, /*val=*/20, /*before=*/10, /*tso=*/2, /*lsn=*/2, CHANGELOG_OP_UPDATE}},
-            /*batch_size=*/16);
+    configure_two_rowset_merge(reader,
+                               {{/*key=*/1, /*val=*/10, /*before=*/0, /*tso=*/1, /*lsn=*/1,
+                                 static_cast<int64_t>(ChangelogOp::APPEND)}},
+                               {{/*key=*/1, /*val=*/20, /*before=*/10, /*tso=*/2, /*lsn=*/2,
+                                 static_cast<int64_t>(ChangelogOp::UPDATE)}},
+                               /*batch_size=*/16);
 
     auto out = drain(reader, &BlockReader::_min_delta_next_block);
     ASSERT_EQ(out.size(), 1);
-    EXPECT_EQ(out[0].op, changelog::STREAM_CHANGE_INSERT);
+    EXPECT_EQ(out[0].op, static_cast<int64_t>(changelog::StreamChangeOp::INSERT));
     EXPECT_EQ(out[0].key, 1);
     EXPECT_EQ(out[0].val, 20); // most recent value, i.e. rowset1's later TSO
 }
@@ -354,8 +355,9 @@ TEST_F(BlockReaderChangelogVCollectMergeTest, MinDeltaSameKeyAcrossRowsetsFoldsT
 // would fold to a stray INSERT or DELETE instead of cancelling out.
 TEST_F(BlockReaderChangelogVCollectMergeTest, MinDeltaSameKeyAcrossRowsetsFoldsToSkip) {
     BlockReader reader;
-    configure_two_rowset_merge(reader, {{5, 100, 0, 1, 1, CHANGELOG_OP_APPEND}},
-                               {{5, 100, 100, 3, 3, CHANGELOG_OP_DELETE}}, 16);
+    configure_two_rowset_merge(
+            reader, {{5, 100, 0, 1, 1, static_cast<int64_t>(ChangelogOp::APPEND)}},
+            {{5, 100, 100, 3, 3, static_cast<int64_t>(ChangelogOp::DELETE)}}, 16);
 
     auto out = drain(reader, &BlockReader::_min_delta_next_block);
     EXPECT_TRUE(out.empty());
@@ -369,18 +371,21 @@ TEST_F(BlockReaderChangelogVCollectMergeTest, MinDeltaSameKeyAcrossRowsetsFoldsT
 // MIN_DELTA groups each key across the rowset boundary.
 TEST_F(BlockReaderChangelogVCollectMergeTest, MinDeltaInterleavedKeysAcrossRowsets) {
     BlockReader reader;
-    configure_two_rowset_merge(
-            reader, {{1, 10, 0, 1, 1, CHANGELOG_OP_APPEND}, {2, 20, 18, 2, 2, CHANGELOG_OP_UPDATE}},
-            {{1, 15, 10, 3, 3, CHANGELOG_OP_UPDATE}, {2, 25, 20, 4, 4, CHANGELOG_OP_DELETE}}, 16);
+    configure_two_rowset_merge(reader,
+                               {{1, 10, 0, 1, 1, static_cast<int64_t>(ChangelogOp::APPEND)},
+                                {2, 20, 18, 2, 2, static_cast<int64_t>(ChangelogOp::UPDATE)}},
+                               {{1, 15, 10, 3, 3, static_cast<int64_t>(ChangelogOp::UPDATE)},
+                                {2, 25, 20, 4, 4, static_cast<int64_t>(ChangelogOp::DELETE)}},
+                               16);
 
     auto out = drain(reader, &BlockReader::_min_delta_next_block);
     ASSERT_EQ(out.size(), 2);
     EXPECT_EQ(out[0].key, 1);
-    EXPECT_EQ(out[0].op, changelog::STREAM_CHANGE_INSERT);
+    EXPECT_EQ(out[0].op, static_cast<int64_t>(changelog::StreamChangeOp::INSERT));
     EXPECT_EQ(out[0].val, 15); // most recent value for key 1
     EXPECT_EQ(out[1].key, 2);
-    EXPECT_EQ(out[1].op, changelog::STREAM_CHANGE_DELETE);
-    EXPECT_EQ(out[1].val, 18); // delete uses the first op's BEFORE value
+    EXPECT_EQ(out[1].op, static_cast<int64_t>(changelog::StreamChangeOp::DELETE));
+    EXPECT_EQ(out[1].val, 18); // delete uses the first op's __BEFORE__ value
 }
 
 // DETAIL scan over the same two-rowset / same-key / different-TSO input emits every event
@@ -389,16 +394,17 @@ TEST_F(BlockReaderChangelogVCollectMergeTest, MinDeltaInterleavedKeysAcrossRowse
 // the UPDATE), leaving history incomplete.
 TEST_F(BlockReaderChangelogVCollectMergeTest, DetailSameKeyAcrossRowsetsOrderedByTso) {
     BlockReader reader;
-    configure_two_rowset_merge(reader, {{1, 10, 0, 1, 1, CHANGELOG_OP_APPEND}},
-                               {{1, 20, 10, 2, 2, CHANGELOG_OP_UPDATE}}, 16);
+    configure_two_rowset_merge(reader,
+                               {{1, 10, 0, 1, 1, static_cast<int64_t>(ChangelogOp::APPEND)}},
+                               {{1, 20, 10, 2, 2, static_cast<int64_t>(ChangelogOp::UPDATE)}}, 16);
 
     auto out = drain(reader, &BlockReader::_detail_change_next_block);
     ASSERT_EQ(out.size(), 3);
-    EXPECT_EQ(out[0].op, changelog::STREAM_CHANGE_INSERT);
+    EXPECT_EQ(out[0].op, static_cast<int64_t>(changelog::StreamChangeOp::INSERT));
     EXPECT_EQ(out[0].val, 10); // rowset0 APPEND (tso=1) first
-    EXPECT_EQ(out[1].op, changelog::STREAM_CHANGE_UPDATE_BEFORE);
+    EXPECT_EQ(out[1].op, static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_BEFORE));
     EXPECT_EQ(out[1].val, 10); // rowset1 UPDATE (tso=2) before value
-    EXPECT_EQ(out[2].op, changelog::STREAM_CHANGE_UPDATE_AFTER);
+    EXPECT_EQ(out[2].op, static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_AFTER));
     EXPECT_EQ(out[2].val, 20); // rowset1 UPDATE after value
 }
 

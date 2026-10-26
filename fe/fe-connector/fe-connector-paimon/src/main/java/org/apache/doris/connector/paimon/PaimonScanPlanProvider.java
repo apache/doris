@@ -361,10 +361,11 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     private <T> T withBoundSchemaAuthentication(PaimonTableHandle handle, Supplier<T> action) {
-        if (context == null || !PaimonScanParams.preservesBoundSchema(handle.getScanOptions())) {
+        if (context == null || (handle.getScanOptions().isEmpty()
+                && PaimonTableOptions.extractCompatible(catalogProps.getRaw()).isEmpty())) {
             return action.get();
         }
-        // Restoring a bound schema can read FileIO after table resolution has left the authenticated scope.
+        // Historical and statement schema restoration read FileIO after table resolution leaves its scope.
         try {
             return context.executeAuthenticated(action::get);
         } catch (RuntimeException e) {
@@ -376,20 +377,17 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
 
     private Map<String, String> effectiveScanOptions(PaimonTableHandle handle) {
         Map<String, String> options = handle.getScanOptions();
-        if (PaimonScanParams.preservesBoundSchema(options)) {
-            // Replayed catalogs already ignored legacy options during binding; scans must use the same policy.
-            return PaimonScanParams.withCatalogOptions(options,
-                    PaimonTableOptions.extractCompatible(catalogProps.getRaw()));
-        }
-        return options;
+        // An explicit catalog value may equal latest's value but differ from the historical schema.
+        return PaimonScanParams.withCatalogOptions(options,
+                PaimonTableOptions.extractCompatible(catalogProps.getRaw()));
     }
 
     private Table applyScanOptions(PaimonTableHandle paimonHandle, Table table) {
         Map<String, String> scanOptions = effectiveScanOptions(paimonHandle);
         Table finalTable = table;
-        if (scanOptions != null && !scanOptions.isEmpty()
-                && !(paimonHandle.isSystemTable() && PaimonScanParams.preservesBoundSchema(scanOptions))) {
-            // Statement-fenced system wrappers are rebuilt below from their schema-bound source.
+        if (scanOptions != null && !scanOptions.isEmpty() && !paimonHandle.isSystemTable()) {
+            // System wrappers are rebuilt below from their schema-bound source. Copying the wrapper
+            // first would time-travel inside the SDK before historical field options can be restored.
             if (table instanceof FileStoreTable
                     && PaimonScanParams.preservesBoundSchema(scanOptions)) {
                 // A statement fence owns data visibility, not schema time travel. Reusing Table.copy
@@ -406,7 +404,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 // scan.snapshot-id/scan.mode here (the single Table.copy chokepoint shared by both the
                 // native/JNI scan path and the JNI serialized-table path) so a stale persisted pin on the
                 // base table cannot hijack incremental-between. Non-incremental pins pass through unchanged.
-                finalTable = table.copy(PaimonIncrementalScanParams.applyResetsIfIncremental(scanOptions));
+                finalTable = PaimonScanParams.copyWithHistoricalSchema(table,
+                        PaimonIncrementalScanParams.applyResetsIfIncremental(scanOptions));
             }
         }
         finalTable = PaimonReaderOptions.runtimeSafeTable(finalTable);
@@ -1527,8 +1526,16 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     private Table prepareSystemSource(PaimonTableHandle handle, Table source) {
         // These later property transformations can reopen schema files on the retained source,
         // after tableForBackend has already left its authentication and plugin classloader scope.
-        return withBoundSchemaAuthentication(handle,
-                () -> PaimonReaderOptions.runtimeSafeSystemSource(source, effectiveScanOptions(handle)));
+        return withBoundSchemaAuthentication(handle, () -> {
+            Table prepared = source;
+            if (source instanceof FileStoreTable
+                    && PaimonScanParams.resolvesSnapshotOnBackend(handle.getSysTableName())) {
+                // JNI rebuilds the wrapper from this second payload, so it needs the same catalog
+                // visibility bound as the serialized table before either loader is removed.
+                prepared = pinCatalogSnapshot((FileStoreTable) source, (FileStoreTable) source);
+            }
+            return PaimonReaderOptions.runtimeSafeSystemSource(prepared, effectiveScanOptions(handle));
+        });
     }
 
     /**
@@ -1581,7 +1588,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         }
         String sysTableType = handle.getSysTableName();
         boolean resolvesOnBackend = PaimonScanParams.resolvesSnapshotOnBackend(sysTableType);
-        if (PAIMON_FILES_SYSTEM_TABLE.equalsIgnoreCase(sysTableType)) {
+        if (PAIMON_FILES_SYSTEM_TABLE.equalsIgnoreCase(sysTableType)
+                || "file_indexes".equalsIgnoreCase(sysTableType)) {
             authorizeDeferredScan(dataTable);
         }
         FileStoreTable preparedDataTable = dataTable;
@@ -1640,15 +1648,16 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /**
-     * {@code $files} plans only partition-level splits on the FE and re-plans the base table on the
-     * BE through {@code DataTableScan#plan()} ({@code FilesTable.FilesRead#createReader}). That
+     * {@code $files} and {@code $file_indexes} plan only partition-level splits on the FE and re-plan
+     * the base table on the BE through {@code DataTableScan#plan()}
+     * ({@code FilesTable.FilesRead#createReader}). That
      * deferred plan normally authorizes itself through the catalog loader
      * ({@code CatalogEnvironment#tableQueryAuth} -&gt; {@code Catalog#authTableQuery}); once the
      * loader is dropped it silently allows everything. So authorize here, while the loader is still
      * around. Paimon discards the predicates the call returns (row level access control is a TODO in
      * {@code AbstractDataTableScan#authQuery}), so running it on the FE loses nothing.
      *
-     * <p>Only {@code $files} may do this: {@code auth(null)} means "every column" to
+     * <p>Only {@code $files} and {@code $file_indexes} may do this: {@code auth(null)} means "every column" to
      * {@code Catalog#authTableQuery}, and the system tables that keep planning on the FE
      * ({@code $ro}, {@code $row_tracking}, {@code $audit_log}, {@code $binlog}) already authorize
      * themselves through {@code DataTableBatchScan} with the slot projection the query really reads.
@@ -1789,10 +1798,12 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     private static FileStoreTable rebuildWithoutCatalogLoader(FileStoreTable branch) {
-        // The factory evaluates scan.snapshot-id and can rewind a schema-only ALTER. Restore
-        // the already-bound schema after removing the loader so JNI reads the planned field ids.
+        // The factory invokes copy(Map) before returning, so selectors can rewind a schema-only
+        // ALTER and fail field-option validation before the bound schema can be restored.
+        Map<String, String> factoryOptions = new HashMap<>(branch.schema().options());
+        PaimonScanParams.inheritedReadStateKeys().forEach(factoryOptions::remove);
         return FileStoreTableFactory.createWithoutFallbackBranch(
-                branch.fileIO(), branch.location(), branch.schema(), new Options(),
+                branch.fileIO(), branch.location(), branch.schema().copy(factoryOptions), new Options(),
                 CatalogEnvironment.empty()).copy(branch.schema());
     }
 

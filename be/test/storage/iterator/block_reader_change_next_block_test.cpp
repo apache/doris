@@ -70,7 +70,7 @@ namespace {
 //   2: __DORIS_CHANGELOG_BEFORE_val__ (Int64, the "before" value mirror of `val`)
 //   3: __DORIS_CHANGELOG_TSO__ (Int64)
 //   4: __DORIS_CHANGELOG_LSN__ (Int64)
-//   5: __DORIS_CHANGELOG_OP__  (Int64, one of CHANGELOG_OP_APPEND/UPDATE/DELETE)
+//   5: __DORIS_CHANGELOG_OP__  (Int64, one of ChangelogOp::APPEND/UPDATE/DELETE)
 constexpr int KEY_IDX = 0;
 constexpr int VAL_IDX = 1;
 constexpr int OP_IDX = 5;
@@ -193,8 +193,8 @@ std::shared_ptr<Block> make_all_null_source_block() {
     tso_col->insert_value(2);
     lsn_col->insert_value(1);
     lsn_col->insert_value(2);
-    op_col->insert_value(CHANGELOG_OP_DELETE);
-    op_col->insert_value(CHANGELOG_OP_APPEND);
+    op_col->insert_value(static_cast<int64_t>(ChangelogOp::DELETE));
+    op_col->insert_value(static_cast<int64_t>(ChangelogOp::APPEND));
 
     block->insert({std::move(key_col), int_type, "key"});
     block->insert({std::move(val_col), nullable_int_type, "val"});
@@ -220,7 +220,7 @@ std::shared_ptr<Block> make_colliding_name_source_block(int64_t after_v, int64_t
              before_collision},
             {CHANGELOG_TSO_COL, 1},
             {CHANGELOG_LSN_COL, 1},
-            {CHANGELOG_OP_COL, CHANGELOG_OP_UPDATE},
+            {CHANGELOG_OP_COL, static_cast<int64_t>(ChangelogOp::UPDATE)},
     };
     for (const auto& [name, value] : values) {
         auto column = ColumnInt64::create();
@@ -246,7 +246,7 @@ std::shared_ptr<Block> make_signed_zero_source_block() {
     before_col->insert_value(+0.0F);
     tso_col->insert_value(1);
     lsn_col->insert_value(1);
-    op_col->insert_value(CHANGELOG_OP_UPDATE);
+    op_col->insert_value(static_cast<int64_t>(ChangelogOp::UPDATE));
 
     block->insert({std::move(key_col), int_type, "key"});
     block->insert({std::move(val_col), float_type, "val"});
@@ -276,7 +276,7 @@ std::shared_ptr<Block> make_unsupported_compare_source_block(
         before_col->insert_default();
         tso_col->insert_value(key);
         lsn_col->insert_value(key);
-        op_col->insert_value(CHANGELOG_OP_UPDATE);
+        op_col->insert_value(static_cast<int64_t>(ChangelogOp::UPDATE));
     }
 
     block->insert({std::move(key_col), int_type, "key"});
@@ -475,8 +475,10 @@ TEST_F(BlockReaderChangeNextBlockTest, ChangelogSchemaDoesNotRequireLsn) {
 // APPEND then DELETE within the window folds to SKIP: nothing is emitted.
 TEST_F(BlockReaderChangeNextBlockTest, MinDeltaSkip) {
     auto source = make_source_block({
-            {/*key=*/1, /*val=*/10, /*before=*/0, /*tso=*/1, /*lsn=*/1, CHANGELOG_OP_APPEND},
-            {/*key=*/1, /*val=*/10, /*before=*/10, /*tso=*/2, /*lsn=*/2, CHANGELOG_OP_DELETE},
+            {/*key=*/1, /*val=*/10, /*before=*/0, /*tso=*/1, /*lsn=*/1,
+             static_cast<int64_t>(ChangelogOp::APPEND)},
+            {/*key=*/1, /*val=*/10, /*before=*/10, /*tso=*/2, /*lsn=*/2,
+             static_cast<int64_t>(ChangelogOp::DELETE)},
     });
     BlockReader reader;
     configure_reader(reader, source, /*batch_size=*/16);
@@ -488,15 +490,15 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaSkip) {
 // APPEND (+ later UPDATE) folds to a single INSERT carrying the most recent value.
 TEST_F(BlockReaderChangeNextBlockTest, MinDeltaInsert) {
     auto source = make_source_block({
-            {1, 10, 0, 1, 1, CHANGELOG_OP_APPEND},
-            {1, 20, 10, 2, 2, CHANGELOG_OP_UPDATE},
+            {1, 10, 0, 1, 1, static_cast<int64_t>(ChangelogOp::APPEND)},
+            {1, 20, 10, 2, 2, static_cast<int64_t>(ChangelogOp::UPDATE)},
     });
     BlockReader reader;
     configure_reader(reader, source, 16);
 
     auto out = drain(reader, &BlockReader::_min_delta_next_block);
     ASSERT_EQ(out.size(), 1);
-    EXPECT_EQ(out[0].op, changelog::STREAM_CHANGE_INSERT);
+    EXPECT_EQ(out[0].op, static_cast<int64_t>(changelog::StreamChangeOp::INSERT));
     EXPECT_EQ(out[0].key, 1);
     EXPECT_EQ(out[0].val, 20); // most recent value
 }
@@ -504,15 +506,15 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaInsert) {
 // UPDATE then DELETE folds to a single DELETE carrying the first op's before value.
 TEST_F(BlockReaderChangeNextBlockTest, MinDeltaDelete) {
     auto source = make_source_block({
-            {1, 20, 10, 1, 1, CHANGELOG_OP_UPDATE},
-            {1, 20, 20, 2, 2, CHANGELOG_OP_DELETE},
+            {1, 20, 10, 1, 1, static_cast<int64_t>(ChangelogOp::UPDATE)},
+            {1, 20, 20, 2, 2, static_cast<int64_t>(ChangelogOp::DELETE)},
     });
     BlockReader reader;
     configure_reader(reader, source, 16);
 
     auto out = drain(reader, &BlockReader::_min_delta_next_block);
     ASSERT_EQ(out.size(), 1);
-    EXPECT_EQ(out[0].op, changelog::STREAM_CHANGE_DELETE);
+    EXPECT_EQ(out[0].op, static_cast<int64_t>(changelog::StreamChangeOp::DELETE));
     EXPECT_EQ(out[0].key, 1);
     // delete uses the first op's before value (val's before-image mirror of row 0).
     EXPECT_EQ(out[0].val, 10);
@@ -521,24 +523,24 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaDelete) {
 // UPDATE then UPDATE folds to a BEFORE + AFTER pair.
 TEST_F(BlockReaderChangeNextBlockTest, MinDeltaUpdateBeforeAfter) {
     auto source = make_source_block({
-            {1, 20, 10, 1, 1, CHANGELOG_OP_UPDATE},
-            {1, 30, 20, 2, 2, CHANGELOG_OP_UPDATE},
+            {1, 20, 10, 1, 1, static_cast<int64_t>(ChangelogOp::UPDATE)},
+            {1, 30, 20, 2, 2, static_cast<int64_t>(ChangelogOp::UPDATE)},
     });
     BlockReader reader;
     configure_reader(reader, source, 16);
 
     auto out = drain(reader, &BlockReader::_min_delta_next_block);
     ASSERT_EQ(out.size(), 2);
-    EXPECT_EQ(out[0].op, changelog::STREAM_CHANGE_UPDATE_BEFORE);
+    EXPECT_EQ(out[0].op, static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_BEFORE));
     EXPECT_EQ(out[0].val, 10); // before value from the first op
-    EXPECT_EQ(out[1].op, changelog::STREAM_CHANGE_UPDATE_AFTER);
+    EXPECT_EQ(out[1].op, static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_AFTER));
     EXPECT_EQ(out[1].val, 30); // after value from the last op
 }
 
 // A physical UPDATE whose complete BEFORE and AFTER row values are equal has no net delta.
 TEST_F(BlockReaderChangeNextBlockTest, MinDeltaNoOpUpdateIsSkipped) {
     auto source = make_source_block({
-            {1, 20, 20, 1, 1, CHANGELOG_OP_UPDATE},
+            {1, 20, 20, 1, 1, static_cast<int64_t>(ChangelogOp::UPDATE)},
     });
     BlockReader reader;
     configure_reader(reader, source, 16);
@@ -558,8 +560,10 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaAllNullBeforeImageIsRetained) {
     Block output = source->clone_empty();
     ASSERT_TRUE(reader._min_delta_next_block(&output, &eof).ok());
     ASSERT_EQ(output.rows(), 2);
-    EXPECT_EQ(out_i64(output, OP_IDX, 0), changelog::STREAM_CHANGE_UPDATE_BEFORE);
-    EXPECT_EQ(out_i64(output, OP_IDX, 1), changelog::STREAM_CHANGE_UPDATE_AFTER);
+    EXPECT_EQ(out_i64(output, OP_IDX, 0),
+              static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_BEFORE));
+    EXPECT_EQ(out_i64(output, OP_IDX, 1),
+              static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_AFTER));
     const auto& value_column =
             assert_cast<const ColumnNullable&>(*output.get_by_position(VAL_IDX).column);
     EXPECT_TRUE(value_column.is_null_at(0));
@@ -612,17 +616,21 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaUnsupportedCompareIsRetainedAndCa
     // Both equal-value updates must be retained. The second key uses the cached unsupported
     // capability, so the exception-based capability probe runs exactly once per reader.
     ASSERT_EQ(output.rows(), 4);
-    EXPECT_EQ(out_i64(output, OP_IDX, 0), changelog::STREAM_CHANGE_UPDATE_BEFORE);
-    EXPECT_EQ(out_i64(output, OP_IDX, 1), changelog::STREAM_CHANGE_UPDATE_AFTER);
-    EXPECT_EQ(out_i64(output, OP_IDX, 2), changelog::STREAM_CHANGE_UPDATE_BEFORE);
-    EXPECT_EQ(out_i64(output, OP_IDX, 3), changelog::STREAM_CHANGE_UPDATE_AFTER);
+    EXPECT_EQ(out_i64(output, OP_IDX, 0),
+              static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_BEFORE));
+    EXPECT_EQ(out_i64(output, OP_IDX, 1),
+              static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_AFTER));
+    EXPECT_EQ(out_i64(output, OP_IDX, 2),
+              static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_BEFORE));
+    EXPECT_EQ(out_i64(output, OP_IDX, 3),
+              static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_AFTER));
     EXPECT_EQ(*compare_calls, 1);
     EXPECT_TRUE(reader._min_delta_value_compare_unsupported);
     EXPECT_TRUE(eof);
 }
 
 TEST_F(BlockReaderChangeNextBlockTest, MinDeltaUnexpectedCompareExceptionIsNotSuppressed) {
-    auto source = make_source_block({{1, 20, 20, 1, 1, CHANGELOG_OP_UPDATE}});
+    auto source = make_source_block({{1, 20, 20, 1, 1, static_cast<int64_t>(ChangelogOp::UPDATE)}});
     auto throwing_type = std::make_shared<DataTypeNothing>();
     auto compare_calls = std::make_shared<size_t>(0);
     source->get_by_position(VAL_IDX).column =
@@ -653,8 +661,8 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaUnexpectedCompareExceptionIsNotSu
 // net delta even though neither individual changelog UPDATE is a no-op.
 TEST_F(BlockReaderChangeNextBlockTest, MinDeltaUpdatesReturningToOriginalAreSkipped) {
     auto source = make_source_block({
-            {1, 20, 10, 1, 1, CHANGELOG_OP_UPDATE},
-            {1, 10, 20, 2, 2, CHANGELOG_OP_UPDATE},
+            {1, 20, 10, 1, 1, static_cast<int64_t>(ChangelogOp::UPDATE)},
+            {1, 10, 20, 2, 2, static_cast<int64_t>(ChangelogOp::UPDATE)},
     });
     BlockReader reader;
     configure_reader(reader, source, 16);
@@ -676,13 +684,13 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaComplexOperationChains) {
             {
                     "insert_delete_reinsert_update_back_delete",
                     {
-                            {1, 1, 0, 1, 1, CHANGELOG_OP_APPEND},
-                            {1, 1, 1, 2, 2, CHANGELOG_OP_DELETE},
-                            {1, 1, 0, 3, 3, CHANGELOG_OP_APPEND},
-                            {1, 2, 1, 4, 4, CHANGELOG_OP_UPDATE},
-                            {1, 3, 2, 5, 5, CHANGELOG_OP_UPDATE},
-                            {1, 1, 3, 6, 6, CHANGELOG_OP_UPDATE},
-                            {1, 1, 1, 7, 7, CHANGELOG_OP_DELETE},
+                            {1, 1, 0, 1, 1, static_cast<int64_t>(ChangelogOp::APPEND)},
+                            {1, 1, 1, 2, 2, static_cast<int64_t>(ChangelogOp::DELETE)},
+                            {1, 1, 0, 3, 3, static_cast<int64_t>(ChangelogOp::APPEND)},
+                            {1, 2, 1, 4, 4, static_cast<int64_t>(ChangelogOp::UPDATE)},
+                            {1, 3, 2, 5, 5, static_cast<int64_t>(ChangelogOp::UPDATE)},
+                            {1, 1, 3, 6, 6, static_cast<int64_t>(ChangelogOp::UPDATE)},
+                            {1, 1, 1, 7, 7, static_cast<int64_t>(ChangelogOp::DELETE)},
                     },
                     {},
                     1,
@@ -690,11 +698,11 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaComplexOperationChains) {
             {
                     "existing_row_delete_reinsert_and_return_to_original",
                     {
-                            {1, 2, 1, 1, 1, CHANGELOG_OP_UPDATE},
-                            {1, 2, 2, 2, 2, CHANGELOG_OP_DELETE},
-                            {1, 2, 0, 3, 3, CHANGELOG_OP_APPEND},
-                            {1, 3, 2, 4, 4, CHANGELOG_OP_UPDATE},
-                            {1, 1, 3, 5, 5, CHANGELOG_OP_UPDATE},
+                            {1, 2, 1, 1, 1, static_cast<int64_t>(ChangelogOp::UPDATE)},
+                            {1, 2, 2, 2, 2, static_cast<int64_t>(ChangelogOp::DELETE)},
+                            {1, 2, 0, 3, 3, static_cast<int64_t>(ChangelogOp::APPEND)},
+                            {1, 3, 2, 4, 4, static_cast<int64_t>(ChangelogOp::UPDATE)},
+                            {1, 1, 3, 5, 5, static_cast<int64_t>(ChangelogOp::UPDATE)},
                     },
                     {},
                     2,
@@ -702,53 +710,53 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaComplexOperationChains) {
             {
                     "existing_row_delete_reinsert_and_finish_changed",
                     {
-                            {1, 2, 1, 1, 1, CHANGELOG_OP_UPDATE},
-                            {1, 2, 2, 2, 2, CHANGELOG_OP_DELETE},
-                            {1, 2, 0, 3, 3, CHANGELOG_OP_APPEND},
-                            {1, 3, 2, 4, 4, CHANGELOG_OP_UPDATE},
-                            {1, 4, 3, 5, 5, CHANGELOG_OP_UPDATE},
+                            {1, 2, 1, 1, 1, static_cast<int64_t>(ChangelogOp::UPDATE)},
+                            {1, 2, 2, 2, 2, static_cast<int64_t>(ChangelogOp::DELETE)},
+                            {1, 2, 0, 3, 3, static_cast<int64_t>(ChangelogOp::APPEND)},
+                            {1, 3, 2, 4, 4, static_cast<int64_t>(ChangelogOp::UPDATE)},
+                            {1, 4, 3, 5, 5, static_cast<int64_t>(ChangelogOp::UPDATE)},
                     },
                     {
-                            {1, 1, changelog::STREAM_CHANGE_UPDATE_BEFORE},
-                            {1, 4, changelog::STREAM_CHANGE_UPDATE_AFTER},
+                            {1, 1, static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_BEFORE)},
+                            {1, 4, static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_AFTER)},
                     },
                     1,
             },
             {
                     "new_row_temporarily_deleted_but_finishes_present",
                     {
-                            {1, 1, 0, 1, 1, CHANGELOG_OP_APPEND},
-                            {1, 2, 1, 2, 2, CHANGELOG_OP_UPDATE},
-                            {1, 2, 2, 3, 3, CHANGELOG_OP_DELETE},
-                            {1, 5, 0, 4, 4, CHANGELOG_OP_APPEND},
-                            {1, 6, 5, 5, 5, CHANGELOG_OP_UPDATE},
+                            {1, 1, 0, 1, 1, static_cast<int64_t>(ChangelogOp::APPEND)},
+                            {1, 2, 1, 2, 2, static_cast<int64_t>(ChangelogOp::UPDATE)},
+                            {1, 2, 2, 3, 3, static_cast<int64_t>(ChangelogOp::DELETE)},
+                            {1, 5, 0, 4, 4, static_cast<int64_t>(ChangelogOp::APPEND)},
+                            {1, 6, 5, 5, 5, static_cast<int64_t>(ChangelogOp::UPDATE)},
                     },
                     {
-                            {1, 6, changelog::STREAM_CHANGE_INSERT},
+                            {1, 6, static_cast<int64_t>(changelog::StreamChangeOp::INSERT)},
                     },
                     1,
             },
             {
                     "existing_row_temporarily_reinserted_but_finishes_deleted",
                     {
-                            {1, 2, 1, 1, 1, CHANGELOG_OP_UPDATE},
-                            {1, 2, 2, 2, 2, CHANGELOG_OP_DELETE},
-                            {1, 3, 0, 3, 3, CHANGELOG_OP_APPEND},
-                            {1, 4, 3, 4, 4, CHANGELOG_OP_UPDATE},
-                            {1, 4, 4, 5, 5, CHANGELOG_OP_DELETE},
+                            {1, 2, 1, 1, 1, static_cast<int64_t>(ChangelogOp::UPDATE)},
+                            {1, 2, 2, 2, 2, static_cast<int64_t>(ChangelogOp::DELETE)},
+                            {1, 3, 0, 3, 3, static_cast<int64_t>(ChangelogOp::APPEND)},
+                            {1, 4, 3, 4, 4, static_cast<int64_t>(ChangelogOp::UPDATE)},
+                            {1, 4, 4, 5, 5, static_cast<int64_t>(ChangelogOp::DELETE)},
                     },
                     {
-                            {1, 1, changelog::STREAM_CHANGE_DELETE},
+                            {1, 1, static_cast<int64_t>(changelog::StreamChangeOp::DELETE)},
                     },
                     1,
             },
             {
                     "delete_reinsert_update_and_return_to_original",
                     {
-                            {1, 1, 1, 1, 1, CHANGELOG_OP_DELETE},
-                            {1, 1, 0, 2, 2, CHANGELOG_OP_APPEND},
-                            {1, 2, 1, 3, 3, CHANGELOG_OP_UPDATE},
-                            {1, 1, 2, 4, 4, CHANGELOG_OP_UPDATE},
+                            {1, 1, 1, 1, 1, static_cast<int64_t>(ChangelogOp::DELETE)},
+                            {1, 1, 0, 2, 2, static_cast<int64_t>(ChangelogOp::APPEND)},
+                            {1, 2, 1, 3, 3, static_cast<int64_t>(ChangelogOp::UPDATE)},
+                            {1, 1, 2, 4, 4, static_cast<int64_t>(ChangelogOp::UPDATE)},
                     },
                     {},
                     1,
@@ -821,7 +829,7 @@ void configure_two_value_reader(BlockReader& reader, std::shared_ptr<Block> sour
 TEST_F(BlockReaderChangeNextBlockTest, MinDeltaNoOpUpdateComparesAllValueColumns) {
     auto source = make_two_value_source_block({
             {/*key=*/1, /*val1=*/20, /*val2=*/30, /*before_val1=*/20, /*before_val2=*/30,
-             /*tso=*/1, /*lsn=*/1, CHANGELOG_OP_UPDATE},
+             /*tso=*/1, /*lsn=*/1, static_cast<int64_t>(ChangelogOp::UPDATE)},
     });
     BlockReader reader;
     configure_two_value_reader(reader, source);
@@ -833,15 +841,15 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaNoOpUpdateComparesAllValueColumns
 TEST_F(BlockReaderChangeNextBlockTest, MinDeltaRetainsChangeInUnprojectedValueColumn) {
     auto source = make_two_value_source_block({
             {/*key=*/1, /*val1=*/20, /*val2=*/31, /*before_val1=*/20, /*before_val2=*/30,
-             /*tso=*/1, /*lsn=*/1, CHANGELOG_OP_UPDATE},
+             /*tso=*/1, /*lsn=*/1, static_cast<int64_t>(ChangelogOp::UPDATE)},
     });
     BlockReader reader;
     configure_two_value_reader(reader, source);
 
     auto out = drain(reader, &BlockReader::_min_delta_next_block);
     ASSERT_EQ(out.size(), 2);
-    EXPECT_EQ(out[0].op, changelog::STREAM_CHANGE_UPDATE_BEFORE);
-    EXPECT_EQ(out[1].op, changelog::STREAM_CHANGE_UPDATE_AFTER);
+    EXPECT_EQ(out[0].op, static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_BEFORE));
+    EXPECT_EQ(out[1].op, static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_AFTER));
     EXPECT_EQ(out[0].val, 20);
     EXPECT_EQ(out[1].val, 20);
 }
@@ -852,33 +860,34 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaRetainsChangeInUnprojectedValueCo
 // through the pending-row path after the skipped key.
 TEST_F(BlockReaderChangeNextBlockTest, MinDeltaComplexMultiColumnChains) {
     auto source = make_two_value_source_block({
-            {1, 11, 100, 10, 100, 1, 1, CHANGELOG_OP_UPDATE},
-            {1, 11, 101, 11, 100, 2, 2, CHANGELOG_OP_UPDATE},
-            {1, 10, 100, 11, 101, 3, 3, CHANGELOG_OP_UPDATE},
-            {2, 21, 200, 20, 200, 4, 4, CHANGELOG_OP_UPDATE},
-            {2, 20, 201, 21, 200, 5, 5, CHANGELOG_OP_UPDATE},
+            {1, 11, 100, 10, 100, 1, 1, static_cast<int64_t>(ChangelogOp::UPDATE)},
+            {1, 11, 101, 11, 100, 2, 2, static_cast<int64_t>(ChangelogOp::UPDATE)},
+            {1, 10, 100, 11, 101, 3, 3, static_cast<int64_t>(ChangelogOp::UPDATE)},
+            {2, 21, 200, 20, 200, 4, 4, static_cast<int64_t>(ChangelogOp::UPDATE)},
+            {2, 20, 201, 21, 200, 5, 5, static_cast<int64_t>(ChangelogOp::UPDATE)},
     });
     BlockReader reader;
     configure_two_value_reader(reader, source, /*batch_size=*/1);
 
     auto out = drain(reader, &BlockReader::_min_delta_next_block);
-    expect_out_rows(out, {
-                                 {2, 20, changelog::STREAM_CHANGE_UPDATE_BEFORE},
-                                 {2, 20, changelog::STREAM_CHANGE_UPDATE_AFTER},
-                         });
+    expect_out_rows(out,
+                    {
+                            {2, 20, static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_BEFORE)},
+                            {2, 20, static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_AFTER)},
+                    });
 }
 
 // Multiple distinct keys, each in its own group, are folded independently.
 TEST_F(BlockReaderChangeNextBlockTest, MinDeltaMultipleKeys) {
     auto source = make_source_block({
             // key 1: APPEND -> INSERT(val=10)
-            {1, 10, 0, 1, 1, CHANGELOG_OP_APPEND},
+            {1, 10, 0, 1, 1, static_cast<int64_t>(ChangelogOp::APPEND)},
             // key 2: APPEND + DELETE -> SKIP
-            {2, 20, 0, 2, 2, CHANGELOG_OP_APPEND},
-            {2, 20, 20, 3, 3, CHANGELOG_OP_DELETE},
+            {2, 20, 0, 2, 2, static_cast<int64_t>(ChangelogOp::APPEND)},
+            {2, 20, 20, 3, 3, static_cast<int64_t>(ChangelogOp::DELETE)},
             // key 3: UPDATE + DELETE -> DELETE(before=30)
-            {3, 40, 30, 4, 4, CHANGELOG_OP_UPDATE},
-            {3, 40, 40, 5, 5, CHANGELOG_OP_DELETE},
+            {3, 40, 30, 4, 4, static_cast<int64_t>(ChangelogOp::UPDATE)},
+            {3, 40, 40, 5, 5, static_cast<int64_t>(ChangelogOp::DELETE)},
     });
     BlockReader reader;
     configure_reader(reader, source, 16);
@@ -886,10 +895,10 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaMultipleKeys) {
     auto out = drain(reader, &BlockReader::_min_delta_next_block);
     ASSERT_EQ(out.size(), 2);
     EXPECT_EQ(out[0].key, 1);
-    EXPECT_EQ(out[0].op, changelog::STREAM_CHANGE_INSERT);
+    EXPECT_EQ(out[0].op, static_cast<int64_t>(changelog::StreamChangeOp::INSERT));
     EXPECT_EQ(out[0].val, 10);
     EXPECT_EQ(out[1].key, 3);
-    EXPECT_EQ(out[1].op, changelog::STREAM_CHANGE_DELETE);
+    EXPECT_EQ(out[1].op, static_cast<int64_t>(changelog::StreamChangeOp::DELETE));
     EXPECT_EQ(out[1].val, 30);
 }
 
@@ -898,11 +907,11 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaMultipleKeys) {
 TEST_F(BlockReaderChangeNextBlockTest, MinDeltaUpdatePendingRowAcrossBatch) {
     auto source = make_source_block({
             // key 1: single INSERT fills row 0 of the first batch.
-            {1, 10, 0, 1, 1, CHANGELOG_OP_APPEND},
+            {1, 10, 0, 1, 1, static_cast<int64_t>(ChangelogOp::APPEND)},
             // key 2: UPDATE+UPDATE -> BEFORE lands on row 1 (== batch_size), so
             // AFTER must be parked and flushed on the next call.
-            {2, 20, 15, 2, 2, CHANGELOG_OP_UPDATE},
-            {2, 30, 20, 3, 3, CHANGELOG_OP_UPDATE},
+            {2, 20, 15, 2, 2, static_cast<int64_t>(ChangelogOp::UPDATE)},
+            {2, 30, 20, 3, 3, static_cast<int64_t>(ChangelogOp::UPDATE)},
     });
     BlockReader reader;
     configure_reader(reader, source, /*batch_size=*/2);
@@ -911,8 +920,9 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaUpdatePendingRowAcrossBatch) {
     Block block1 = make_output_block();
     ASSERT_TRUE(reader._min_delta_next_block(&block1, &eof).ok());
     ASSERT_EQ(block1.rows(), 2);
-    EXPECT_EQ(out_i64(block1, OP_IDX, 0), changelog::STREAM_CHANGE_INSERT);
-    EXPECT_EQ(out_i64(block1, OP_IDX, 1), changelog::STREAM_CHANGE_UPDATE_BEFORE);
+    EXPECT_EQ(out_i64(block1, OP_IDX, 0), static_cast<int64_t>(changelog::StreamChangeOp::INSERT));
+    EXPECT_EQ(out_i64(block1, OP_IDX, 1),
+              static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_BEFORE));
     EXPECT_EQ(out_i64(block1, VAL_IDX, 1), 15); // before value
     EXPECT_FALSE(eof);
     EXPECT_TRUE(reader._has_pending_row);
@@ -920,7 +930,8 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaUpdatePendingRowAcrossBatch) {
     Block block2 = make_output_block();
     ASSERT_TRUE(reader._min_delta_next_block(&block2, &eof).ok());
     ASSERT_EQ(block2.rows(), 1);
-    EXPECT_EQ(out_i64(block2, OP_IDX, 0), changelog::STREAM_CHANGE_UPDATE_AFTER);
+    EXPECT_EQ(out_i64(block2, OP_IDX, 0),
+              static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_AFTER));
     EXPECT_EQ(out_i64(block2, VAL_IDX, 0), 30); // after value
     EXPECT_TRUE(eof);
 }
@@ -932,14 +943,14 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaUpdatePendingRowAcrossBatch) {
 // APPEND -> a single INSERT row with the row's value.
 TEST_F(BlockReaderChangeNextBlockTest, DetailInsert) {
     auto source = make_source_block({
-            {1, 10, 0, 1, 1, CHANGELOG_OP_APPEND},
+            {1, 10, 0, 1, 1, static_cast<int64_t>(ChangelogOp::APPEND)},
     });
     BlockReader reader;
     configure_reader(reader, source, 16);
 
     auto out = drain(reader, &BlockReader::_detail_change_next_block);
     ASSERT_EQ(out.size(), 1);
-    EXPECT_EQ(out[0].op, changelog::STREAM_CHANGE_INSERT);
+    EXPECT_EQ(out[0].op, static_cast<int64_t>(changelog::StreamChangeOp::INSERT));
     EXPECT_EQ(out[0].key, 1);
     EXPECT_EQ(out[0].val, 10);
 }
@@ -947,14 +958,14 @@ TEST_F(BlockReaderChangeNextBlockTest, DetailInsert) {
 // DELETE -> a single DELETE row that uses the before value.
 TEST_F(BlockReaderChangeNextBlockTest, DetailDelete) {
     auto source = make_source_block({
-            {1, 10, 99, 1, 1, CHANGELOG_OP_DELETE},
+            {1, 10, 99, 1, 1, static_cast<int64_t>(ChangelogOp::DELETE)},
     });
     BlockReader reader;
     configure_reader(reader, source, 16);
 
     auto out = drain(reader, &BlockReader::_detail_change_next_block);
     ASSERT_EQ(out.size(), 1);
-    EXPECT_EQ(out[0].op, changelog::STREAM_CHANGE_DELETE);
+    EXPECT_EQ(out[0].op, static_cast<int64_t>(changelog::StreamChangeOp::DELETE));
     EXPECT_EQ(out[0].key, 1);
     EXPECT_EQ(out[0].val, 99); // delete uses the before-image mirror
 }
@@ -962,16 +973,16 @@ TEST_F(BlockReaderChangeNextBlockTest, DetailDelete) {
 // UPDATE -> a BEFORE (before value) + AFTER (after value) pair.
 TEST_F(BlockReaderChangeNextBlockTest, DetailUpdatePair) {
     auto source = make_source_block({
-            {1, 20, 10, 1, 1, CHANGELOG_OP_UPDATE},
+            {1, 20, 10, 1, 1, static_cast<int64_t>(ChangelogOp::UPDATE)},
     });
     BlockReader reader;
     configure_reader(reader, source, 16);
 
     auto out = drain(reader, &BlockReader::_detail_change_next_block);
     ASSERT_EQ(out.size(), 2);
-    EXPECT_EQ(out[0].op, changelog::STREAM_CHANGE_UPDATE_BEFORE);
+    EXPECT_EQ(out[0].op, static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_BEFORE));
     EXPECT_EQ(out[0].val, 10); // before
-    EXPECT_EQ(out[1].op, changelog::STREAM_CHANGE_UPDATE_AFTER);
+    EXPECT_EQ(out[1].op, static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_AFTER));
     EXPECT_EQ(out[1].val, 20); // after
 }
 
@@ -990,30 +1001,32 @@ TEST_F(BlockReaderChangeNextBlockTest, DetailUsesOrdinalBeforePairWhenNamesColli
     ASSERT_EQ(output.rows(), 2);
     EXPECT_EQ(out_i64(output, /*v=*/1, 0), 10);
     EXPECT_EQ(out_i64(output, /*v=*/1, 1), 11);
-    EXPECT_EQ(out_i64(output, /*op=*/7, 0), changelog::STREAM_CHANGE_UPDATE_BEFORE);
-    EXPECT_EQ(out_i64(output, /*op=*/7, 1), changelog::STREAM_CHANGE_UPDATE_AFTER);
+    EXPECT_EQ(out_i64(output, /*op=*/7, 0),
+              static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_BEFORE));
+    EXPECT_EQ(out_i64(output, /*op=*/7, 1),
+              static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_AFTER));
     EXPECT_TRUE(eof);
 }
 
 // Mixed ops emitted verbatim in order.
 TEST_F(BlockReaderChangeNextBlockTest, DetailMixedOps) {
     auto source = make_source_block({
-            {1, 10, 0, 1, 1, CHANGELOG_OP_APPEND},
-            {2, 25, 20, 2, 2, CHANGELOG_OP_UPDATE},
-            {3, 30, 30, 3, 3, CHANGELOG_OP_DELETE},
+            {1, 10, 0, 1, 1, static_cast<int64_t>(ChangelogOp::APPEND)},
+            {2, 25, 20, 2, 2, static_cast<int64_t>(ChangelogOp::UPDATE)},
+            {3, 30, 30, 3, 3, static_cast<int64_t>(ChangelogOp::DELETE)},
     });
     BlockReader reader;
     configure_reader(reader, source, 16);
 
     auto out = drain(reader, &BlockReader::_detail_change_next_block);
     ASSERT_EQ(out.size(), 4); // INSERT + (BEFORE,AFTER) + DELETE
-    EXPECT_EQ(out[0].op, changelog::STREAM_CHANGE_INSERT);
+    EXPECT_EQ(out[0].op, static_cast<int64_t>(changelog::StreamChangeOp::INSERT));
     EXPECT_EQ(out[0].val, 10);
-    EXPECT_EQ(out[1].op, changelog::STREAM_CHANGE_UPDATE_BEFORE);
+    EXPECT_EQ(out[1].op, static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_BEFORE));
     EXPECT_EQ(out[1].val, 20);
-    EXPECT_EQ(out[2].op, changelog::STREAM_CHANGE_UPDATE_AFTER);
+    EXPECT_EQ(out[2].op, static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_AFTER));
     EXPECT_EQ(out[2].val, 25);
-    EXPECT_EQ(out[3].op, changelog::STREAM_CHANGE_DELETE);
+    EXPECT_EQ(out[3].op, static_cast<int64_t>(changelog::StreamChangeOp::DELETE));
     EXPECT_EQ(out[3].val, 30);
 }
 
@@ -1021,8 +1034,8 @@ TEST_F(BlockReaderChangeNextBlockTest, DetailMixedOps) {
 // and flushed at the start of the next call.
 TEST_F(BlockReaderChangeNextBlockTest, DetailUpdatePendingRowAcrossBatch) {
     auto source = make_source_block({
-            {1, 10, 0, 1, 1, CHANGELOG_OP_APPEND},
-            {2, 25, 20, 2, 2, CHANGELOG_OP_UPDATE},
+            {1, 10, 0, 1, 1, static_cast<int64_t>(ChangelogOp::APPEND)},
+            {2, 25, 20, 2, 2, static_cast<int64_t>(ChangelogOp::UPDATE)},
     });
     BlockReader reader;
     configure_reader(reader, source, /*batch_size=*/2);
@@ -1031,8 +1044,9 @@ TEST_F(BlockReaderChangeNextBlockTest, DetailUpdatePendingRowAcrossBatch) {
     Block block1 = make_output_block();
     ASSERT_TRUE(reader._detail_change_next_block(&block1, &eof).ok());
     ASSERT_EQ(block1.rows(), 2);
-    EXPECT_EQ(out_i64(block1, OP_IDX, 0), changelog::STREAM_CHANGE_INSERT);
-    EXPECT_EQ(out_i64(block1, OP_IDX, 1), changelog::STREAM_CHANGE_UPDATE_BEFORE);
+    EXPECT_EQ(out_i64(block1, OP_IDX, 0), static_cast<int64_t>(changelog::StreamChangeOp::INSERT));
+    EXPECT_EQ(out_i64(block1, OP_IDX, 1),
+              static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_BEFORE));
     EXPECT_EQ(out_i64(block1, VAL_IDX, 1), 20); // before
     EXPECT_FALSE(eof);
     EXPECT_TRUE(reader._has_pending_row);
@@ -1040,7 +1054,8 @@ TEST_F(BlockReaderChangeNextBlockTest, DetailUpdatePendingRowAcrossBatch) {
     Block block2 = make_output_block();
     ASSERT_TRUE(reader._detail_change_next_block(&block2, &eof).ok());
     ASSERT_EQ(block2.rows(), 1);
-    EXPECT_EQ(out_i64(block2, OP_IDX, 0), changelog::STREAM_CHANGE_UPDATE_AFTER);
+    EXPECT_EQ(out_i64(block2, OP_IDX, 0),
+              static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_AFTER));
     EXPECT_EQ(out_i64(block2, VAL_IDX, 0), 25); // after
     EXPECT_TRUE(eof);
 }
@@ -1048,7 +1063,7 @@ TEST_F(BlockReaderChangeNextBlockTest, DetailUpdatePendingRowAcrossBatch) {
 // Already-at-EOF with no pending row returns eof immediately with no output.
 TEST_F(BlockReaderChangeNextBlockTest, DetailEofImmediately) {
     auto source = make_source_block({
-            {1, 10, 0, 1, 1, CHANGELOG_OP_APPEND},
+            {1, 10, 0, 1, 1, static_cast<int64_t>(ChangelogOp::APPEND)},
     });
     BlockReader reader;
     configure_reader(reader, source, 16);

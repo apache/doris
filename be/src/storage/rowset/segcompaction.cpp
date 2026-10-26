@@ -314,7 +314,7 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
         }
 
         Merger::Statistics merger_stats;
-        RETURN_IF_ERROR(Merger::vertical_compact_one_group(
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(Merger::vertical_compact_one_group(
                 tablet->tablet_id(), ReaderType::READER_SEGMENT_COMPACTION, *schema, is_key,
                 &row_sources_buf, *reader, *writer, &merger_stats, &index_size, key_bounds,
                 _rowid_conversion.get()));
