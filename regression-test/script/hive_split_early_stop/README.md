@@ -206,3 +206,85 @@ Run the analyzer's negative tests with:
 "$split_test_output/venv/bin/python" -m unittest discover \
     -s regression-test/script/hive_split_early_stop -p 'test_*.py' -v
 ```
+
+For performance comparisons, build complete FE packages for the parent of the
+early-stop change and the changed revision using `build.sh`. Keep their connector
+and filesystem plugins with the corresponding FE; their public API versions
+differ. Run the packages sequentially against the same FE metadata and two local
+BE processes, with equal JVM settings and no Java agents. Keep BE versions,
+catalog properties, object-store resources and data fixed. Do not compile while
+sampling queries. The process sampler requires Linux `/proc` and local BE PIDs.
+
+Start the physical proxy in a separate performance output directory. Extend the
+generated regression config with these entries, giving every pass a unique run
+name, for example `after-a`, `before`, then `after-b`:
+
+```groovy
+hiveSplitPerfControlUrl = "http://127.0.0.1:39367"
+hiveSplitPerfRun = "after-a"
+hiveSplitPerfRepetitions = "3"
+hiveSplitPerfCacheTable = "hive_split_physical_cache.doris_split_physical.files_10000_partitions_100_files"
+```
+
+Copy the prepared physical benchmark's `hms-fixture.json` and verified
+`physical-manifest.json` into the performance output directory. The report binds
+these to the running proxy's `fixture.json` before publishing a comparison.
+
+Prepare the cache catalog with the same verified physical table and `--file-cache`.
+Verify the object-store endpoint after container restarts; dynamically published
+Docker ports can change. Check that a one-partition query returns count=100,sum=100
+before sampling. The benchmark resets proxy delays to zero, disables SQL result
+and BE file caches, and restores session settings afterward. It distinguishes
+refreshed catalog metadata from warm metadata. This does not flush the OS cache,
+BE footer caches or JIT compilation state.
+
+```bash
+"$split_test_output/venv/bin/python" regression-test/script/hive_split_early_stop/performance.py run \
+    --output "$split_test_output/performance" --label after-a \
+    --config "$split_test_output/performance/after-a/regression-conf.groovy" --generate
+```
+
+`--generate` uses the standard runner's `-forceGenOut` to regenerate this owned
+benchmark's expected results. Verify the generated counts, then run subsequent
+passes without it to compare results. After stopping one FE and starting the
+other, wait at least 30 seconds and check both BEs. Pass its package directory
+through `--fe-dir`; `--be-dir` and `--be2-dir` select the two local BE directories.
+
+The seven scenarios cover cold/warm LIMIT 10, SUM cancellation after a real BE
+read, a three-second SUM timeout, and complete SUM over 100 partitions / 10000
+files using batch, synchronous and completed-list-cache paths. Every early-stop
+case observes ten seconds after SQL returns, then waits for file requests to
+become idle before the next phase. Existing idle queues are left untouched.
+The timeout may fire during planning; cancellation explicitly waits for BE reads.
+
+```bash
+python3 regression-test/script/hive_split_early_stop/performance.py report \
+    --output "$split_test_output/performance" --before before --after after-b
+```
+
+The report checks complete scenarios, real listings, cache hits, BE activity and
+process-sample coverage. It records SQL elapsed time, requests after return,
+process CPU time and RSS, and reports medians and ranges. RSS is not retained
+Java heap. Counts until the next idle phase are also available for early-stop
+cases; complete-scan phase totals exclude the separate cache warmup. Use the
+initial changed-version pass to assess drift, and compare baseline with the
+changed-version repeat after both have exercised the same BE caches. Shared-host
+load and framework/proxy overhead limit conclusions about absolute throughput
+or small latency differences. No full million-file SUM completion is implied.
+
+To isolate cancellation before BE reads, prepare two more pass configs with
+unique run names and `hiveSplitPerfPlanningCancelOnly = "true"`. This mode
+refreshes catalog metadata before each repetition and cancels after at least
+eight real LIST requests, requiring that no BE GET has started. Run it once per
+FE version without regenerating the shared expected results. Include these
+passes using `--planning-before before-planning --planning-after after-planning`
+in the report command. Compare `return_after_signal_ms` for cancellation response
+latency; total SQL elapsed time also includes work before cancellation was sent.
+
+For a separate consecutive LIMIT check, set `hiveSplitPerfSteadyLimitOnly = "true"`
+in two additional pass configs. Both execute three untimed all-table LIMIT queries
+before three measured queries, without catalog refresh between them. Include
+these passes with `--steady-before before-steady --steady-after after-steady`.
+Keep this supplementary comparison separate from the main warm-metadata row;
+do not replace inconvenient samples or interpret a few overlapping ranges as
+proof of a throughput gain or regression.
