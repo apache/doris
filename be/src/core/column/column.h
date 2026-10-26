@@ -735,6 +735,13 @@ public:
 
     Status column_self_check() const;
 
+    /** Replace physical values selected by null_map with conspicuous debug-only values.
+      * A top-level call passes nullptr. Wrapper columns forward the applicable null map to their
+      * nested value column. The caller must own a recursively mutable column tree. Implementations
+      * must not change column sizes or structural metadata.
+      */
+    virtual void inject_debug_nullable_payload(const uint8_t* null_map = nullptr) {}
+
     // only used in agg value replace for column which is not variable length, eg.BlockReader::_copy_value_data
     // usage: self_column.replace_column_data(other_column, other_column's row index, self_column's row index)
     virtual void replace_column_data(const IColumn&, size_t row, size_t self_row = 0) = 0;
