@@ -98,7 +98,8 @@ public class AddColumnsOp extends AlterTableOp {
 
         columns = Lists.newArrayList();
         for (ColumnDefinition columnDef : columnDefs) {
-            Column col = columnDef.translateToCatalogStyleForSchemaChange();
+            Column col = columnDef.getType().isTimeStampTzType() || columnDef.getType().isTimeStampNsType()
+                    ? columnDef.translateToCatalogStyleForSchemaChange() : columnDef.translateToCatalogStyle();
             columns.add(col);
         }
     }
