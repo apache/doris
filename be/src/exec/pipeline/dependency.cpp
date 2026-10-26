@@ -286,7 +286,7 @@ Status BucketedAggSharedState::init_instances(int num_instances,
         for (int i = 0; i < num_instances; ++i) {
             per_instance_data.emplace_back(num_buckets);
         }
-        sink_finished = std::make_unique<std::atomic<bool>[]>(num_instances);
+        sink_finished = std::make_unique<std::atomic<bool>[]>(per_instance_data.size());
         for (int i = 0; i < num_instances; ++i) {
             sink_finished[i].store(false, std::memory_order_relaxed);
         }
