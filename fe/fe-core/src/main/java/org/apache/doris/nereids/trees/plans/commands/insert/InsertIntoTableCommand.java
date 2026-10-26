@@ -17,8 +17,10 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
+import org.apache.doris.alter.ChangelogColumnIdPreparer;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.StmtType;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -323,6 +325,10 @@ public class InsertIntoTableCommand extends Command
                         ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
                         targetDatabase.getFullName()
                                 + "." + Util.getTempTableDisplayName(targetTableIf.getName()));
+            }
+            if (Env.getCurrentEnv().isMaster() && targetTableIf instanceof OlapTable
+                    && targetDatabase instanceof Database) {
+                ChangelogColumnIdPreparer.ensureReady((Database) targetDatabase, (OlapTable) targetTableIf);
             }
             BuildInsertExecutorResult buildResult;
             try {

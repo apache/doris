@@ -1476,7 +1476,7 @@ public class SchemaChangeHandler extends AlterHandler {
                     modIndexSchema = entry.getValue();
                     boolean isBaseIdex = entry.getKey() == baseIndexId;
                     IntSupplier colUniqueIdSupplier = colUniqueIdSupplierMap.get(entry.getKey());
-                    int newColumnUniqueId = olapTable.getEnableLightSchemaChange() ? colUniqueIdSupplier.getAsInt()
+                    int newColumnUniqueId = olapTable.requiresColumnUniqueIds() ? colUniqueIdSupplier.getAsInt()
                             : Column.COLUMN_UNIQUE_ID_INIT_VALUE;
                     checkAndAddColumn(modIndexSchema, newColumn, columnPos, newColNameSet, isBaseIdex,
                             newColumnUniqueId);
@@ -1485,7 +1485,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 // 1. add to base table
                 modIndexSchema = indexSchemaMap.get(baseIndexId);
                 IntSupplier baseIndexColUniqueIdSupplier = colUniqueIdSupplierMap.get(baseIndexId);
-                int baseIndexNewColumnUniqueId = olapTable.getEnableLightSchemaChange()
+                int baseIndexNewColumnUniqueId = olapTable.requiresColumnUniqueIds()
                         ? baseIndexColUniqueIdSupplier.getAsInt() : Column.COLUMN_UNIQUE_ID_INIT_VALUE;
                 checkAndAddColumn(modIndexSchema, newColumn, columnPos, newColNameSet, true,
                         baseIndexNewColumnUniqueId);
@@ -1495,14 +1495,14 @@ public class SchemaChangeHandler extends AlterHandler {
                 // 2. add to rollup
                 modIndexSchema = indexSchemaMap.get(targetIndexId);
                 IntSupplier targetIndexColUniqueIdSupplier = colUniqueIdSupplierMap.get(targetIndexId);
-                int rollUpNewColumnUniqueId = olapTable.getEnableLightSchemaChange()
+                int rollUpNewColumnUniqueId = olapTable.requiresColumnUniqueIds()
                         ? targetIndexColUniqueIdSupplier.getAsInt() : Column.COLUMN_UNIQUE_ID_INIT_VALUE;
                 checkAndAddColumn(modIndexSchema, newColumn, columnPos, newColNameSet, false, rollUpNewColumnUniqueId);
             }
         } else if (KeysType.DUP_KEYS == olapTable.getKeysType()) {
             //get baseIndexColUniqueIdSupplier
             IntSupplier baseIndexColUniqueIdSupplier = colUniqueIdSupplierMap.get(baseIndexId);
-            int baseIndexNewColumnUniqueId = olapTable.getEnableLightSchemaChange()
+            int baseIndexNewColumnUniqueId = olapTable.requiresColumnUniqueIds()
                     ? baseIndexColUniqueIdSupplier.getAsInt() : Column.COLUMN_UNIQUE_ID_INIT_VALUE;
 
             if (targetIndexId == -1L) {
@@ -1516,7 +1516,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 // add to rollup index
                 List<Column> modIndexSchema = indexSchemaMap.get(targetIndexId);
                 IntSupplier targetIndexColUniqueIdSupplier = colUniqueIdSupplierMap.get(targetIndexId);
-                int rollUpNewColumnUniqueId = olapTable.getEnableLightSchemaChange()
+                int rollUpNewColumnUniqueId = olapTable.requiresColumnUniqueIds()
                         ? targetIndexColUniqueIdSupplier.getAsInt() : Column.COLUMN_UNIQUE_ID_INIT_VALUE;
                 checkAndAddColumn(modIndexSchema, newColumn, columnPos, newColNameSet, false, rollUpNewColumnUniqueId);
 
@@ -1538,7 +1538,7 @@ public class SchemaChangeHandler extends AlterHandler {
             // check if has default value. this should be done in Analyze phase
             // 1. add to base index first
             IntSupplier baseIndexColUniqueIdSupplier = colUniqueIdSupplierMap.get(baseIndexId);
-            int baseIndexNewColumnUniqueId = olapTable.getEnableLightSchemaChange()
+            int baseIndexNewColumnUniqueId = olapTable.requiresColumnUniqueIds()
                     ? baseIndexColUniqueIdSupplier.getAsInt() : Column.COLUMN_UNIQUE_ID_INIT_VALUE;
             List<Column> modIndexSchema = indexSchemaMap.get(baseIndexId);
             checkAndAddColumn(modIndexSchema, newColumn, columnPos, newColNameSet, true, baseIndexNewColumnUniqueId);
@@ -1550,7 +1550,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
             // 2. add to rollup index
             IntSupplier targetIndexColUniqueIdSupplier = colUniqueIdSupplierMap.get(targetIndexId);
-            int rollUpNewColumnUniqueId = olapTable.getEnableLightSchemaChange()
+            int rollUpNewColumnUniqueId = olapTable.requiresColumnUniqueIds()
                     ? targetIndexColUniqueIdSupplier.getAsInt() : Column.COLUMN_UNIQUE_ID_INIT_VALUE;
             modIndexSchema = indexSchemaMap.get(targetIndexId);
             checkAndAddColumn(modIndexSchema, newColumn, columnPos, newColNameSet, false, rollUpNewColumnUniqueId);
@@ -2353,7 +2353,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 indexSchemaMap.put(entry.getKey(), new LinkedList<>(entry.getValue()));
 
                 IntSupplier colUniqueIdSupplier = null;
-                if (olapTable.getEnableLightSchemaChange()) {
+                if (olapTable.requiresColumnUniqueIds()) {
                     colUniqueIdSupplier = new IntSupplier() {
                         public int pendingMaxColUniqueId = olapTable.getIndexMetaByIndexId(entry.getKey())
                                 .getMaxColUniqueId();

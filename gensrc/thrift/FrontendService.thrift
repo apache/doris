@@ -521,6 +521,8 @@ struct TLoadTxnBeginRequest {
     16: optional TCertBasedAuth cert_based_auth
     // If set to true: use table group_commit_mode property
     17: optional bool use_table_group_commit_mode
+    // Explicit transactional VALUES: validate this schema before preparing the writer snapshot.
+    18: optional map<i64, i32> txn_insert_schema_versions
 }
 
 struct TLoadTxnBeginResult {
@@ -1848,8 +1850,10 @@ struct TCommitRemoteTxnRequest {
     7: optional i64 txn_id
     8: optional list<Types.TTabletCommitInfo> commit_infos
     9: optional i64 insert_visible_timeout_ms
-    // Complete writer snapshot; new callers explicitly send an empty list without changelog.
+    // Reserved legacy changelog-only snapshot; unified writers use write_schemas.
     13: optional list<Descriptors.TChangelogIndexWriteSnapshot> changelog_column_mappings
+    // Complete schema identity for every table written by the remote transaction.
+    14: optional list<Descriptors.TTxnWriteSchemaSnapshot> write_schemas
 }
 
 struct TCommitRemoteTxnResult {

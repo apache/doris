@@ -104,7 +104,7 @@ public class AlterLightSchChangeHelper {
      *
      * @return beId -> set(indexId -> tabletIds)
      */
-    private Map<Long, PFetchColIdsRequest> initParams() {
+    Map<Long, PFetchColIdsRequest> initParams() {
         // params: indexId -> tabletIds
         Map<Long, Map<Long, Set<Long>>> beIdToRequestInfo = new HashMap<>();
         final Collection<Partition> partitions = olapTable.getAllPartitions();
@@ -153,7 +153,10 @@ public class AlterLightSchChangeHelper {
      */
     public AlterLightSchemaChangeInfo callForColumnsInfo()
             throws IllegalStateException {
-        Map<Long, PFetchColIdsRequest> beIdToRequest = initParams();
+        return callForColumnsInfo(initParams());
+    }
+
+    AlterLightSchemaChangeInfo callForColumnsInfo(Map<Long, PFetchColIdsRequest> beIdToRequest) {
         Map<Long, Future<PFetchColIdsResponse>> beIdToRespFuture = new HashMap<>();
         try {
             for (Long beId : beIdToRequest.keySet()) {
@@ -178,6 +181,7 @@ public class AlterLightSchChangeHelper {
                     throw new IllegalStateException(String.format("fail to get column info from be: %s, msg:%s",
                             entry.getKey(), response.getStatus().getErrorMsgs(0)));
                 }
+                validateCoverage(beIdToRequest.get(entry.getKey()), response);
                 resultList.add(response);
                 // refresh the timeout
                 final long now = System.currentTimeMillis();
@@ -191,22 +195,30 @@ public class AlterLightSchChangeHelper {
         } catch (TimeoutException e) {
             throw new IllegalStateException("fetch columnIds RPC result timeout", e);
         }
-        return compactToAlterLscInfo(resultList);
+        return new AlterLightSchemaChangeInfo(db.getId(), olapTable.getId(), compactToColumnInfo(resultList));
     }
 
     /**
      * Since the result collected from several BEs may contain repeated indexes in distributed storage scenarios,
      * we should do consistency check for the result for the same index, and get the unique result.
      */
-    private AlterLightSchemaChangeInfo compactToAlterLscInfo(List<PFetchColIdsResponse> resultList) {
-        final PFetchColIdsResponse.Builder builder = PFetchColIdsResponse.newBuilder();
+    static void validateCoverage(PFetchColIdsRequest request, PFetchColIdsResponse response) {
+        Set<Long> expected = new HashSet<>();
+        request.getParamsList().forEach(param -> expected.add(param.getIndexId()));
+        Set<Long> actual = new HashSet<>();
+        for (PFetchColIdsResultEntry entry : response.getEntriesList()) {
+            Preconditions.checkState(actual.add(entry.getIndexId()), "duplicate index in column ID response");
+        }
+        Preconditions.checkState(expected.equals(actual), "incomplete column ID response");
+    }
+
+    Map<Long, Map<String, Integer>> compactToColumnInfo(List<PFetchColIdsResponse> resultList) {
         Map<Long, Map<String, Integer>> indexIdToTabletInfo = new HashMap<>();
         resultList.forEach(response -> {
             for (PFetchColIdsResultEntry entry : response.getEntriesList()) {
                 final long indexId = entry.getIndexId();
                 if (!indexIdToTabletInfo.containsKey(indexId)) {
                     indexIdToTabletInfo.put(indexId, entry.getColNameToIdMap());
-                    builder.addEntries(entry);
                     continue;
                 }
                 // check tablet schema info consistency
@@ -215,7 +227,7 @@ public class AlterLightSchChangeHelper {
                         "index: " + indexId + "got inconsistent schema in storage");
             }
         });
-        return new AlterLightSchemaChangeInfo(db.getId(), olapTable.getId(), indexIdToTabletInfo);
+        return indexIdToTabletInfo;
     }
 
     public void updateTableMeta(AlterLightSchemaChangeInfo info) throws IllegalStateException {

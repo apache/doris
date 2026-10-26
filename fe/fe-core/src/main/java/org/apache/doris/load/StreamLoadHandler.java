@@ -17,6 +17,7 @@
 
 package org.apache.doris.load;
 
+import org.apache.doris.alter.ChangelogColumnIdPreparer;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.auth.certificate.CertificateAuthDecision;
 import org.apache.doris.auth.certificate.CertificateRuntimeAuthFactory;
@@ -52,7 +53,6 @@ import org.apache.doris.thrift.TOlapTableSink;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TStreamLoadPutResult;
-import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.base.Preconditions;
@@ -268,6 +268,7 @@ public class StreamLoadHandler {
     }
 
     public void generatePlan(OlapTable table) throws UserException {
+        ChangelogColumnIdPreparer.ensureReady(db, table);
         if (!table.tryReadLock(timeoutMs, TimeUnit.MILLISECONDS)) {
             throw new UserException(
                     "get table read lock timeout, database=" + request.getDb() + ",table=" + table.getName());
@@ -307,12 +308,7 @@ public class StreamLoadHandler {
                 if (txnState == null) {
                     throw new UserException("txn does not exist: " + request.getTxnId());
                 }
-                txnState.addTableIndexes(table);
-                TUniqueKeyUpdateMode uniqueKeyUpdateMode = request.getUniqueKeyUpdateMode();
-                if (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS
-                        || uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS) {
-                    txnState.setSchemaForPartialUpdate(table);
-                }
+                txnState.registerWriteSchema(request.getTxnId(), planner.getWriteSchemaSnapshot());
             }
         } finally {
             table.readUnlock();
