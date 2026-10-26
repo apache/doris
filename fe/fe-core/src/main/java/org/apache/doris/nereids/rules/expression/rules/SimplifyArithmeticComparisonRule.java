@@ -23,9 +23,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
-import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysSub;
@@ -38,7 +36,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksSub;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
@@ -53,17 +50,16 @@ import javax.annotation.Nullable;
 /**
  * Simplify arithmetic comparison rule.
  * a + 1 > 1 => a > 0
- * a / -2 > 1 => a < -2
  */
 public class SimplifyArithmeticComparisonRule implements ExpressionPatternRuleFactory {
     public static SimplifyArithmeticComparisonRule INSTANCE = new SimplifyArithmeticComparisonRule();
 
-    // don't rearrange multiplication because divide may loss precision
+    // Do not rearrange multiplication or division because their inverse operations can change
+    // rounding, overflow, NULL, and division-by-zero behavior.
     private static final Map<Class<? extends Expression>, Class<? extends Expression>> REARRANGEMENT_MAP = ImmutableMap
             .<Class<? extends Expression>, Class<? extends Expression>>builder()
             .put(Add.class, Subtract.class)
             .put(Subtract.class, Add.class)
-            .put(Divide.class, Multiply.class)
             // ATTN: YearsAdd, MonthsAdd can not reverse
             //       for example, months_add(date '2024-01-31', 1) = date '2024-02-29' can not reverse to
             //       date '2024-01-31' = months_sub(date '2024-02-29', 1)
@@ -132,10 +128,6 @@ public class SimplifyArithmeticComparisonRule implements ExpressionPatternRuleFa
         Expression newChild = oppositeOperator.getConstructor(Expression.class, Expression.class)
                 .newInstance(right, leftLiteral);
 
-        if (left instanceof Divide && leftLiteral.compareTo(new IntegerLiteral(0)) < 0) {
-            // Multiplying by a negative number will change the operator.
-            return Arrays.asList(newChild, leftExpr);
-        }
         return Arrays.asList(leftExpr, newChild);
     }
 

@@ -48,8 +48,8 @@ class SimplifyArithmeticComparisonRuleTest extends ExpressionRewriteTestHelper {
         assertRewriteAfterSimplify("-2 / TA > 1", "((-2 / TA) > 1)");
         assertRewriteAfterSimplify("TA * 2 > 1", "((TA * 2) > 1)");
         assertRewriteAfterSimplify("TA * (-2) > 1", "((TA * (-2)) > 1)");
-        assertRewriteAfterSimplify("TA / 2 > 1", "TA > (1 * 2)");
-        assertRewriteAfterSimplify("TA / -2 > 1", "(1 * -2) > TA");
+        assertDivisionPreservedAfterConstantFolding("TA / 2 > 1");
+        assertDivisionPreservedAfterConstantFolding("TA / -2 > 1");
 
         // test integer type
         assertRewriteAfterSimplify("IA + 2 > 1", "IA > cast((1 - 2) as INT)");
@@ -64,8 +64,8 @@ class SimplifyArithmeticComparisonRuleTest extends ExpressionRewriteTestHelper {
         assertRewriteAfterSimplify("-2 / IA > 1", "((-2 / IA) > 1)");
         assertRewriteAfterSimplify("IA * 2 > 1", "((IA * 2) > 1)");
         assertRewriteAfterSimplify("IA * (-2) > 1", "((IA * (-2)) > 1)");
-        assertRewriteAfterSimplify("IA / 2 > 1", "(IA > cast((1 * 2) as INT))");
-        assertRewriteAfterSimplify("IA / -2 > 1", "cast((1 * -2) as INT) > IA");
+        assertDivisionPreservedAfterConstantFolding("IA / 2 > 1");
+        assertDivisionPreservedAfterConstantFolding("IA / -2 > 1");
 
         // test integer type
         assertRewriteAfterSimplify("TA + 2 > 200", "cast(TA as SMALLINT) > (200 - 2)");
@@ -80,8 +80,8 @@ class SimplifyArithmeticComparisonRuleTest extends ExpressionRewriteTestHelper {
         assertRewriteAfterSimplify("-2 / TA > 200", "((-2 / TA) > 200)");
         assertRewriteAfterSimplify("TA * 2 > 200", "((TA * 2) > 200)");
         assertRewriteAfterSimplify("TA * (-2) > 200", "((TA * (-2)) > 200)");
-        assertRewriteAfterSimplify("TA / 2 > 200", "cast(TA as SMALLINT) > (200 * 2)");
-        assertRewriteAfterSimplify("TA / -2 > 200", "(200 * -2) > cast(TA as SMALLINT)");
+        assertDivisionPreservedAfterConstantFolding("TA / 2 > 200");
+        assertDivisionPreservedAfterConstantFolding("TA / -2 > 200");
 
         // test decimal type
         assertRewriteAfterSimplify("1.1 + IA > 2.22", "(cast(IA as DECIMALV3(12, 2)) > cast((2.22 - 1.1) as DECIMALV3(12, 2)))");
@@ -94,21 +94,55 @@ class SimplifyArithmeticComparisonRuleTest extends ExpressionRewriteTestHelper {
         assertRewriteAfterSimplify("-2.22 / IA > 1.1", "((-2.22 / IA) > 1.1)");
         assertRewriteAfterSimplify("IA * 2.22 > 1.1", "IA * 2.22 > 1.1");
         assertRewriteAfterSimplify("IA * (-2.22) > 1.1", "IA * (-2.22) > 1.1");
-        assertRewriteAfterSimplify("IA / 2.22 > 1.1", "(cast(IA as DECIMALV3(13, 3)) > cast((1.1 * 2.22) as DECIMALV3(13, 3)))");
-        assertRewriteAfterSimplify("IA / (-2.22) > 1.1", "(cast((1.1 * -2.22) as DECIMALV3(13, 3)) > cast(IA as DECIMALV3(13, 3)))");
+        assertDivisionPreservedAfterConstantFolding("IA / 2.22 > 1.1");
+        assertDivisionPreservedAfterConstantFolding("IA / (-2.22) > 1.1");
 
         // test (1 + IA) can be processed
         assertRewriteAfterSimplify("2 - (1 + IA) > 3", "(IA < cast(((2 - 3) - 1) as INT))");
-        assertRewriteAfterSimplify("(1 - IA) / 2 > 3", "(IA < cast((1 - 6) as INT))");
-        assertRewriteAfterSimplify("1 - IA / 2 > 3", "(IA < cast(((1 - 3) * 2) as INT))");
-        assertRewriteAfterSimplify("(1 - (IA + 4)) / 2 > 3", "(IA < cast(((1 - 6) - 4) as INT))");
+        assertDivisionPreservedAfterConstantFolding("(1 - IA) / 2 > 3");
+        assertRewriteAfterSimplify("1 - IA / 2 > 3", "((IA / 2) < cast((1 - 3) as DOUBLE))");
+        assertDivisionPreservedAfterConstantFolding("(1 - (IA + 4)) / 2 > 3");
         assertRewriteAfterSimplify("2 * (1 + IA) > 1", "(2 * (1 + IA)) > 1");
 
         // test (IA + IB) can be processed
         assertRewriteAfterSimplify("2 - (1 + (IA + IB)) > 3", "(IA + IB) < cast(((2 - 3) - 1) as INT)");
-        assertRewriteAfterSimplify("(1 - (IA + IB)) / 2 > 3", "(IA + IB) < cast((1 - 6) as INT)");
-        assertRewriteAfterSimplify("1 - (IA + IB) / 2 > 3", "(IA + IB) < cast(((1 - 3) * 2) as INT)");
+        assertDivisionPreservedAfterConstantFolding("(1 - (IA + IB)) / 2 > 3");
+        assertRewriteAfterSimplify("1 - (IA + IB) / 2 > 3",
+                "(((IA + IB) / 2) < cast((1 - 3) as DOUBLE))");
         assertRewriteAfterSimplify("2 * (1 + (IA + IB)) > 1", "(2 * (1 + (IA + IB))) > 1");
+    }
+
+    @Test
+    public void testDoNotRearrangeDivisionComparison() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                ExpressionRewrite.bottomUp(
+                        FoldConstantRule.INSTANCE,
+                        SimplifyArithmeticComparisonRule.INSTANCE)
+        ));
+
+        Assertions.assertAll(
+                // Division by any representation of zero must remain nullable.
+                () -> assertDivisionPreservedAfterConstantFolding("IA / 0 > 1"),
+                () -> assertDivisionPreservedAfterConstantFolding(
+                        "DA / cast('-0.0' as double) > 1.0"),
+                () -> assertDivisionPreservedAfterConstantFolding(
+                        "MA / cast('0.000' as decimal(10, 3)) > 1.0"),
+                () -> assertDivisionPreservedAfterConstantFolding("IA / (1 - 1) > 1"),
+
+                // NULL and non-finite divisors cannot participate in an ordered inverse rewrite.
+                () -> assertDivisionPreservedAfterConstantFolding(
+                        "DA / cast(null as double) > 1.0"),
+                () -> assertDivisionPreservedAfterConstantFolding(
+                        "DA / cast('NaN' as double) > 1.0"),
+                () -> assertDivisionPreservedAfterConstantFolding(
+                        "DA / cast('Infinity' as double) > 1.0"),
+
+                // Finite non-zero division is not generally invertible after numeric rounding.
+                () -> assertDivisionPreservedAfterConstantFolding("DA / 3.0 > 0.1"),
+                () -> assertDivisionPreservedAfterConstantFolding(
+                        "IA / 11 > cast(-9.090909090909092 as double)"),
+                () -> assertDivisionPreservedAfterConstantFolding("MA / 3 > 0.333333"),
+                () -> assertDivisionPreservedAfterConstantFolding("IA / -2 > 1"));
     }
 
     @Test
@@ -190,5 +224,15 @@ class SimplifyArithmeticComparisonRuleTest extends ExpressionRewriteTestHelper {
         Expression rewritten = executor.rewrite(needRewriteExpression, context);
         Expression expectedExpression = PARSER.parseExpression(expected);
         Assertions.assertEquals(expectedExpression.toSql(), rewritten.toSql());
+    }
+
+    private void assertDivisionPreservedAfterConstantFolding(String expression) {
+        Expression input = replaceUnboundSlot(PARSER.parseExpression(expression), Maps.newHashMap());
+        ExpressionRuleExecutor foldOnly = new ExpressionRuleExecutor(ImmutableList.of(
+                ExpressionRewrite.bottomUp(FoldConstantRule.INSTANCE)
+        ));
+        Expression expected = foldOnly.rewrite(input, context);
+        Expression rewritten = executor.rewrite(input, context);
+        Assertions.assertEquals(expected.toSql(), rewritten.toSql(), expression);
     }
 }
