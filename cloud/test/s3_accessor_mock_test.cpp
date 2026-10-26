@@ -191,9 +191,22 @@ TEST(S3AccessorLocationTest, location_includes_the_credential_identity) {
     // The secret key is not part of the location, it identifies no namespace of its own
     EXPECT_EQ(base->location(), accessor("ak1", "sk2", "")->location());
     EXPECT_EQ(base->location().find("sk1"), std::string::npos);
-    // The root only depends on where the objects are, without '/' around the prefix
+    // The root ignores the credentials
     EXPECT_EQ(base->root(), accessor("ak2", "sk2", "role")->root());
-    EXPECT_EQ(base->root(), (StorageRoot {.container = "endpoint\nbucket", .prefix = "a/b"}));
+    EXPECT_EQ(base->root(), (StorageRoot {.container = "bucket", .prefix = "a/b"}));
+}
+
+TEST(S3AccessorLocationTest, root_ignores_endpoint_aliases) {
+    auto accessor = [](std::string endpoint, std::string prefix) {
+        return std::make_unique<S3Accessor>(S3Conf {
+                .endpoint = std::move(endpoint), .bucket = "bucket", .prefix = std::move(prefix)});
+    };
+    // Different locations, which are listed separately, may be the same bucket: they share a root
+    auto http = accessor("http://s3.example.com", "a/b");
+    auto https = accessor("https://s3.example.com", "a//b/");
+    EXPECT_NE(http->location(), https->location());
+    EXPECT_EQ(http->root(), https->root());
+    EXPECT_NE(http->root(), accessor("http://s3.example.com", "a/c")->root());
 }
 
 } // namespace doris::cloud

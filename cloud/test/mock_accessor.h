@@ -204,6 +204,7 @@ inline int MockAccessor::list_directory(const std::string& dir_path,
         return -1;
     }
 
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("MockAccessor::list_directory", (int)0, this);
     std::vector<std::string> entries;
 
     {

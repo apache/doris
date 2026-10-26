@@ -353,17 +353,11 @@ std::string accessor_location(const HdfsVaultInfo& info) {
     return location;
 }
 
-StorageRoot accessor_root(const HdfsVaultInfo& info) {
-    std::string prefix = accessor_prefix(info);
-    strip_leading(prefix, "/");
-    strip_trailing(prefix, "/");
-    return {.container = info.build_conf().fs_name(), .prefix = std::move(prefix)};
-}
-
 } // namespace
 
 HdfsAccessor::HdfsAccessor(const HdfsVaultInfo& info)
-        : StorageVaultAccessor(AccessorType::HDFS, accessor_location(info), accessor_root(info)),
+        : StorageVaultAccessor(AccessorType::HDFS, accessor_location(info),
+                               storage_root("", accessor_prefix(info))),
           info_(info),
           prefix_(accessor_prefix(info)) {
     uri_ = info.build_conf().fs_name() + prefix_;

@@ -5324,6 +5324,33 @@ TEST_F(InvertedCheckTest, segment_in_another_vault_is_leak) {
     ASSERT_EQ(num_leaks(), 1);
 }
 
+TEST_F(InvertedCheckTest, list_error_does_not_stop_other_vaults) {
+    auto vault1 = add_vault("vault1");
+    auto vault2 = add_vault("vault2");
+    create_committed_rowset(txn_kv.get(), vault2.get(), "vault2", 10001, 0, 20002, 1, 0);
+    ASSERT_EQ(vault2->put_file(segment_path(10030, next_rowset_id(), 0), ""), 0);
+
+    auto sp = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            "MockAccessor::list_directory",
+            [&](auto&& args) {
+                if (try_any_cast<MockAccessor*>(args[0]) == vault1.get()) {
+                    *try_any_cast_ret<int>(args) = {-1, true};
+                }
+            },
+            &guard);
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->disable_processing();
+    };
+
+    // vault2 is checked whichever vault is listed first, its leak is the result
+    ASSERT_EQ(checker.do_inverted_check(), 1);
+    ASSERT_EQ(num_scanned(), 2);
+    ASSERT_EQ(num_leaks(), 1);
+}
+
 TEST_F(InvertedCheckTest, orphans_in_both_listing_orders) {
     auto accessor = add_vault("1");
     // Tablet 10001: a live rowset listed before two orphans ("zzz*" sort after the numeric test
@@ -5484,9 +5511,11 @@ TEST(HdfsAccessorLocationTest, location) {
     EXPECT_NE(accessor_a.location(), accessor_b.location());
     // The confs are kept in order, a different order may resolve differently and is listed again
     EXPECT_NE(accessor_a.location(), accessor_a_reordered.location());
-    // The root ignores the confs: the vaults address the same paths of the nameservice
+    // The root ignores the confs and fs_name, which has aliases (host, FQDN, IP, nameservice)
     EXPECT_EQ(accessor_a.root(), accessor_b.root());
-    EXPECT_EQ(accessor_a.root(), (StorageRoot {.container = "hdfs://ns", .prefix = "warehouse"}));
+    EXPECT_EQ(accessor_a.root(), (StorageRoot {.container = "", .prefix = "warehouse"}));
+    EXPECT_EQ(accessor1.root(), accessor3.root());
+    EXPECT_NE(accessor1.root(), accessor2.root());
 
     // fs_name and prefix do not merge: same uri, different directories
     auto info_split_1 = make_info("hdfs://ns/a", "b");

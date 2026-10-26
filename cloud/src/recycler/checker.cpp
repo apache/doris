@@ -1087,9 +1087,12 @@ int InstanceChecker::do_inverted_check() {
             }
         }
         std::unique_ptr<ListIterator> list_iter;
+        // A vault that fails to list does not stop the check of the others
         int ret = accessor->list_directory("data", &list_iter);
         if (ret != 0) {
-            return -1;
+            LOG(WARNING) << "failed to list data directory. uri=" << accessor->uri();
+            check_ret = -1;
+            continue;
         }
 
         for (auto file = list_iter->next(); file.has_value(); file = list_iter->next()) {
@@ -1131,7 +1134,7 @@ int InstanceChecker::do_inverted_check() {
 
         if (!list_iter->is_valid()) {
             LOG(WARNING) << "failed to list data directory. uri=" << accessor->uri();
-            return -1;
+            check_ret = -1;
         }
     }
     return num_file_leak > 0 ? 1 : check_ret;

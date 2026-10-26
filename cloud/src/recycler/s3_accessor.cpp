@@ -321,17 +321,11 @@ std::string s3_location(const S3Conf& conf) {
                        static_cast<int>(conf.cred_provider_type));
 }
 
-StorageRoot s3_root(const S3Conf& conf) {
-    std::string prefix = conf.prefix;
-    strip_leading(prefix, "/");
-    strip_trailing(prefix, "/");
-    return {.container = conf.endpoint + '\n' + conf.bucket, .prefix = std::move(prefix)};
-}
-
 } // namespace
 
 S3Accessor::S3Accessor(S3Conf conf)
-        : StorageVaultAccessor(AccessorType::S3, s3_location(conf), s3_root(conf)),
+        : StorageVaultAccessor(AccessorType::S3, s3_location(conf),
+                               storage_root(conf.bucket, conf.prefix)),
           conf_(std::move(conf)) {}
 
 S3Accessor::~S3Accessor() = default;

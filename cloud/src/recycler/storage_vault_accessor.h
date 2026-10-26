@@ -17,9 +17,11 @@
 
 #pragma once
 
+#include <algorithm>
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -49,15 +51,33 @@ public:
     virtual std::optional<FileMeta> next() = 0;
 };
 
-// Where the objects of an accessor live: `container` is the S3 endpoint and bucket or the HDFS
-// fs_name, `prefix` the directory in it without surrounding '/'. Credentials and client confs are
-// not part of it, vaults on one bucket and prefix with different credentials share a root.
+// Where the objects of an accessor live, as far as it can be known: different roots surely hold
+// different paths, equal roots may still be different storage. So `container` is only the S3
+// bucket, an endpoint has aliases (http/https, internal/public), and is empty for HDFS, whose
+// fs_name has aliases (host, FQDN, IP, nameservice). `prefix` is the directory without empty path
+// components.
 struct StorageRoot {
     std::string container;
     std::string prefix;
 
     bool operator==(const StorageRoot&) const = default;
 };
+
+// E.g. prefix "/a//b/" is "a/b"
+inline StorageRoot storage_root(std::string container, std::string_view prefix) {
+    StorageRoot root {.container = std::move(container)};
+    for (size_t begin = 0; begin < prefix.size();) {
+        size_t end = std::min(prefix.find('/', begin), prefix.size());
+        if (end > begin) {
+            if (!root.prefix.empty()) {
+                root.prefix += '/';
+            }
+            root.prefix.append(prefix.substr(begin, end - begin));
+        }
+        begin = end + 1;
+    }
+    return root;
+}
 
 class StorageVaultAccessor {
 public:
@@ -73,9 +93,9 @@ public:
 
     const std::string& uri() const { return uri_; }
 
-    // The storage this accessor lists: equal locations see the same objects. It keeps the whole
-    // configuration that may select a namespace, unnormalized, e.g. S3 credentials (a gateway may
-    // map one bucket name per tenant) and HDFS confs in order. A false difference only costs a
+    // The storage this accessor lists: equal locations surely see the same objects. It keeps the
+    // whole configuration that may select a namespace, unnormalized, e.g. S3 credentials (a gateway
+    // may map one bucket name per tenant) and HDFS confs in order. A false difference only costs a
     // second listing.
     const std::string& location() const { return location_; }
 
