@@ -55,7 +55,8 @@ struct StContainsState {
 
 #ifdef BE_TEST
 size_t geography_calculation_edges_for_test(const std::string& left, const std::string& right,
-                                            size_t* exact_proofs = nullptr);
+                                            size_t* exact_proofs = nullptr,
+                                            size_t* candidate_visits = nullptr);
 #endif
 
 Status validate_spatial_wkb_inputs(const Block& block, const ColumnNumbers& arguments);

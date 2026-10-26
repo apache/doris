@@ -840,6 +840,118 @@ TEST(VGeoFunctionsTest, GeographyUncertainCircleDoesNotBroadenStableCircleSearch
     }
 }
 
+TEST(VGeoFunctionsTest, GeographyDistinctNearAntipodalCirclesKeepCandidateWorkBounded) {
+    for (bool padding : {false, true}) {
+        for (const int count : {32, 64, 128}) {
+            std::ostringstream lines;
+            lines << std::setprecision(17) << "LINESTRING (0 0";
+            for (int i = 1; i <= count; ++i) {
+                lines << ",179.99999999999997 " << 1e-14 * i / (count + 1) << ",0 0";
+            }
+            // Unrelated meridian vertices must not disable skipping dense known
+            // longitudes. Counting only exact proofs would miss repeated visits.
+            if (padding) {
+                for (int i = 1; i <= count + 2; ++i) {
+                    lines << ",20 " << 30.0 + double(i) / (count + 3);
+                }
+            }
+            lines << ")";
+            const auto a = spatial_test_wkb(geography_test_hex(lines.str()));
+            const auto b = spatial_test_wkb(geography_test_hex("POINT (20 20)"));
+            size_t proofs = 0;
+            size_t visits = 0;
+            EXPECT_LE(geography_calculation_edges_for_test(a, b, &proofs, &visits), 12 * count);
+            EXPECT_LE(proofs, 16 * count);
+            EXPECT_LE(visits, 32 * count);
+            const auto suffix = std::to_string(count) + (padding ? "_padded" : "");
+            RecordProperty("uncertain_circle_proofs_" + suffix, std::to_string(proofs));
+            RecordProperty("uncertain_circle_visits_" + suffix, std::to_string(visits));
+        }
+    }
+}
+
+static void expect_near_antipodal_proximity(const Strings& arguments) {
+    const auto type = std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY);
+    Block distance;
+    ASSERT_TRUE(execute_geography_test("st_distance", arguments,
+                                       make_nullable(std::make_shared<DataTypeFloat64>()),
+                                       &distance)
+                        .ok());
+    const double metres = (*distance.get_by_position(2).column)[0].get<TYPE_DOUBLE>();
+    EXPECT_GT(metres, 0);
+    EXPECT_LT(metres, 0.112);
+    // The raw great circle is tilted by 45 degrees at its equatorial midpoint.
+    EXPECT_NEAR(metres, 0.0786268, 1e-6);
+    Block within;
+    for (const auto& hex : arguments) {
+        const auto wkb = spatial_test_wkb(hex);
+        auto column = type->create_column();
+        column->insert_data(wkb.data(), wkb.size());
+        within.insert({std::move(column), type, "shape"});
+    }
+    auto radius = ColumnFloat64::create();
+    radius->insert_value(1);
+    within.insert({std::move(radius), std::make_shared<DataTypeFloat64>(), "radius"});
+    const auto result_type = make_nullable(std::make_shared<DataTypeUInt8>());
+    const auto function = SimpleFunctionFactory::instance().get_function(
+            "st_dwithin", within.get_columns_with_type_and_name(), result_type);
+    ASSERT_NE(function, nullptr);
+    within.insert({nullptr, result_type, "result"});
+    ASSERT_TRUE(function->execute(nullptr, within, {0, 1, 2}, 3, 1).ok());
+    EXPECT_TRUE((*within.get_by_position(3).column)[0].get<TYPE_BOOLEAN>());
+}
+
+TEST(VGeoFunctionsTest, GeographyNearAntipodalDistanceIsIndependentOfSubdivision) {
+    const std::string raw = "LINESTRING (-44.99999999999997 -45,134.99999999999997 45)";
+    const std::string divided = "LINESTRING (-44.99999999999997 -45,45 0,134.99999999999997 45)";
+    for (const auto& line : {raw, divided}) {
+        for (bool reverse : {false, true}) {
+            const std::string point = "POINT (45 0.000001)";
+            expect_near_antipodal_proximity({geography_test_hex(reverse ? point : line),
+                                             geography_test_hex(reverse ? line : point)});
+        }
+    }
+}
+
+static void expect_distance_subdivision(const std::array<std::string, 3>& value, bool reverse) {
+    const auto result_type = make_nullable(std::make_shared<DataTypeFloat64>());
+    Block original;
+    Block divided;
+    ASSERT_TRUE(execute_geography_test("st_distance",
+                                       {geography_test_hex(reverse ? value[2] : value[0]),
+                                        geography_test_hex(reverse ? value[0] : value[2])},
+                                       result_type, &original)
+                        .ok());
+    ASSERT_TRUE(execute_geography_test("st_distance",
+                                       {geography_test_hex(reverse ? value[2] : value[1]),
+                                        geography_test_hex(reverse ? value[1] : value[2])},
+                                       result_type, &divided)
+                        .ok());
+    const auto actual = (*original.get_by_position(2).column)[0].get<TYPE_DOUBLE>();
+    const auto expected = (*divided.get_by_position(2).column)[0].get<TYPE_DOUBLE>();
+    EXPECT_GT(actual, 0);
+    EXPECT_LT(actual, 0.112);
+    EXPECT_NEAR(actual, expected, 1e-6);
+}
+
+TEST(VGeoFunctionsTest, GeographyStableArcDistancePreservesMeridiansAndDateLine) {
+    const std::vector<std::array<std::string, 3>> cases {
+            {"LINESTRING (10 -80,10 80)", "LINESTRING (10 -80,10 0,10 80)", "POINT (10.000001 0)"},
+            {"LINESTRING (10 80,-170 -70)", "LINESTRING (10 80,0 90,-170 10,-170 -70)",
+             "POINT (-169.999999 10)"},
+            {"LINESTRING (90.00000000000003 -45,-90.00000000000003 45)",
+             "LINESTRING (90.00000000000003 -45,180 0,-90.00000000000003 45)",
+             "POINT (-180 0.000001)"},
+            {"LINESTRING (-1e-300 -45,180 45)", "LINESTRING (-1e-300 -45,-90 0,180 45)",
+             "POINT (-90 0.000001)"}};
+    for (const auto& value : cases) {
+        SCOPED_TRACE(value[0]);
+        for (bool reverse : {false, true}) {
+            expect_distance_subdivision(value, reverse);
+        }
+    }
+}
+
 TEST(VGeoFunctionsTest, GeographyCircleCoveragePreservesGapsWrapAndOpenBoundaries) {
     const std::string circle = "LINESTRING (-170 0,-60 0,60 0,170 0,-170 0)";
     const std::string rotated = "LINESTRING (0 0,120 0,-120 0,0 0)";

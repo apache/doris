@@ -43,6 +43,7 @@
 #include <cstdint>
 #include <limits>
 #include <map>
+#include <numbers>
 #include <optional>
 #include <set>
 #include <utility>
@@ -155,8 +156,65 @@ static std::pair<double, double> geography_degree_sum(double a, double b) {
     return {high, (a - (high - offset)) + (b - offset)};
 }
 
+// Reduce the exact degree sum before converting to radians. In particular,
+// 180 + (-1e-300) must retain its small sine instead of becoming sin(pi).
+static std::pair<long double, long double> geography_degree_sincos(double a, double b = 0,
+                                                                   bool half = false) {
+    const auto [high, low] = geography_degree_sum(a, b);
+    int quadrant;
+    const long double reduced =
+            std::remquo(static_cast<long double>(high), half ? 180.0L : 90.0L, &quadrant) +
+            static_cast<long double>(low);
+    const auto radians = reduced * (std::numbers::pi_v<long double> / 180) / (half ? 2 : 1);
+    const auto sine = std::sin(radians);
+    const auto cosine = std::cos(radians);
+    switch ((quadrant % 4 + 4) % 4) {
+    case 0:
+        return {sine, cosine};
+    case 1:
+        return {cosine, -sine};
+    case 2:
+        return {-sine, -cosine};
+    default:
+        return {-cosine, sine};
+    }
+}
+
+// Unlike cross(ToPoint(a), ToPoint(b)), these product identities do not subtract
+// rounded nearly opposite vectors. Longitude-midpoint coordinates give
+// (-sin(dLon/2)*sin(latA+latB), cos(dLon/2)*sin(latA-latB),
+//  cos(latA)*cos(latB)*sin(dLon)) for the oriented normal.
+struct GeographyRawArc {
+    S2Point normal;
+    S2Point midpoint;
+
+    GeographyRawArc(const GeoCoordinate& a, const GeoCoordinate& b) {
+        // Wide exponents retain products of the smallest binary64 degree residuals.
+        static_assert(std::numeric_limits<long double>::digits >= 64 &&
+                      std::numeric_limits<long double>::min_exponent <= -4096);
+        const auto [sd, cd] = geography_degree_sincos(b.x, -a.x, true);
+        const auto [sm, cm] = geography_degree_sincos(a.x, b.x, true);
+        const auto rotate_unit = [&](long double x, long double y, long double z) {
+            const auto norm = std::sqrt(x * x + y * y + z * z);
+            DCHECK_GT(norm, 0);
+            return S2Point(static_cast<double>((cm * x - sm * y) / norm),
+                           static_cast<double>((sm * x + cm * y) / norm),
+                           static_cast<double>(z / norm));
+        };
+        normal = rotate_unit(-sd * geography_degree_sincos(a.y, b.y).first,
+                             cd * geography_degree_sincos(a.y, -b.y).first,
+                             geography_degree_sincos(a.y).second *
+                                     geography_degree_sincos(b.y).second *
+                                     geography_degree_sincos(b.x, -a.x).first);
+        const auto [sl, cl] = geography_degree_sincos(a.y, b.y, true);
+        const auto [st, ct] = geography_degree_sincos(b.y, -a.y, true);
+        midpoint = rotate_unit(cd * cl * ct, -sd * sl * st, sl * ct);
+    }
+};
+
 #ifdef BE_TEST
 static thread_local size_t geography_exact_proofs = 0;
+static thread_local size_t geography_candidate_visits = 0;
 #endif
 
 // Test coplanarity of the original degree ordinates, not independently rounded S2 vectors.
@@ -285,6 +343,7 @@ public:
         const auto right_status = WkbParse::xy_coordinates(right.data, right.size, &coordinates);
         DCHECK_EQ(left_status, GeoParseStatus::GEO_PARSE_OK);
         DCHECK_EQ(right_status, GeoParseStatus::GEO_PARSE_OK);
+        DorisMap<double, DorisVector<S2Point>> longitude_vertices;
         for (auto coordinate : coordinates.list) {
             if (coordinate.x == 180) {
                 coordinate.x = -180;
@@ -294,10 +353,23 @@ public:
             if (!_coordinates.emplace(point, coordinate).second) {
                 continue;
             }
-            _vertex_index.Add(point, 0);
+            longitude_vertices[coordinate.x].push_back(point);
             if (std::abs(coordinate.y) != 90) {
                 _meridians[meridian(coordinate.x)][coordinate.x < 0].push_back(
                         {coordinate.y, point});
+            }
+        }
+        // Keep dense longitude groups separately so a circle can skip its known
+        // endpoint longitudes before enumerating nearby points. At sqrt(N) points
+        // per group there are at most sqrt(N) extra indexes, even with unrelated
+        // vertices padding a near-antipodal spoke input.
+        const auto dense_size = std::max(
+                size_t {2}, static_cast<size_t>(std::ceil(std::sqrt(_coordinates.size()))));
+        for (const auto& [longitude, points] : longitude_vertices) {
+            auto& index =
+                    points.size() >= dense_size ? _dense_longitudes[longitude] : _vertex_index;
+            for (const auto& point : points) {
+                index.Add(point, 0);
             }
         }
         for (auto& entry : _meridians) {
@@ -370,31 +442,25 @@ public:
         const bool wraps = geography_degree_sum(std::max(a.x, b.x), -std::min(a.x, b.x)) >
                            std::pair {180.0, 0.0};
         const bool east = (a.x < b.x) != wraps;
-        S2ClosestPointQuery<int> query(&_vertex_index);
-        const double conversion_error = 8 * std::numeric_limits<double>::epsilon();
-        // Near antipodes, endpoint rounding rotates the edge plane by O(epsilon/sin(length)).
-        // Widen candidate search only; the exact raw-angle proof still decides membership.
-        // Every point on a minor arc is at most pi/2 from one endpoint, including when
-        // rounded antipodes make the computed normal vanish.
-        const double search_radius =
-                start.DotProd(end) >= 0
-                        ? conversion_error
-                        : std::min(M_PI_2 + conversion_error,
-                                   4 * conversion_error / start.CrossProd(end).Norm());
-        query.mutable_options()->set_conservative_max_distance(S1Angle::Radians(search_radius));
-        S2ClosestPointQuery<int>::EdgeTarget target(start, end);
+        // A near-antipodal rounded edge can miss true raw-coordinate nodes. Two
+        // stable half-arcs recall those nodes without a hemispherical search.
+        const auto midpoint = GeographyRawArc(a, b).midpoint;
         DorisVector<S2Point> on_edge;
-        for (const auto& candidate : query.FindClosestPoints(&target)) {
-            const auto& point = candidate.point();
-            const auto& c = _coordinates.at(point);
-            // Longitude is strictly monotone along every non-meridian minor arc.
-            // Check the original interval (including date-line wrap), not a distance
-            // tolerance that could append a point just beyond an endpoint.
-            const bool within = wraps ? (c.x < std::min(a.x, b.x) || c.x > std::max(a.x, b.x))
+        for (const auto& endpoint : {start, end}) {
+            visit_edge_candidates(
+                    endpoint, midpoint, [](double) { return false; },
+                    [&](const S2Point& point) {
+                        const auto& c = _coordinates.at(point);
+                        // Longitude is strictly monotone along every non-meridian minor arc.
+                        // Check the original interval (including date-line wrap), not a distance
+                        // tolerance that could append a point just beyond an endpoint.
+                        const bool within =
+                                wraps ? (c.x < std::min(a.x, b.x) || c.x > std::max(a.x, b.x))
                                       : (c.x > std::min(a.x, b.x) && c.x < std::max(a.x, b.x));
-            if (within && geography_common_great_circle(a, b, c)) {
-                on_edge.push_back(point);
-            }
+                        if (within && geography_common_great_circle(a, b, c)) {
+                            on_edge.push_back(point);
+                        }
+                    });
         }
         std::ranges::sort(on_edge, [&](const S2Point& x, const S2Point& y) {
             const double x_lon = _coordinates.at(x).x;
@@ -404,10 +470,28 @@ public:
             }
             return east ? x_lon < y_lon : x_lon > y_lon;
         });
+        on_edge.erase(std::ranges::unique(on_edge).begin(), on_edge.end());
         output->insert(output->end(), on_edge.begin(), on_edge.end());
     }
 
-    void add_line(const GeoLine& shape, MutableS2ShapeIndex* index) const {
+    // Calculation-only points never enter the raw-degree identity/noding map.
+    std::optional<S2Point> distance_midpoint(const S2Point& a, const S2Point& b) const {
+        // For (-45+e,-45)->(135-e,45), independently rounded endpoints rotate
+        // the plane. A raw midpoint makes both distance edges shorter than pi/2.
+        if (a.DotProd(b) < 0) {
+            const auto coordinate = [&](const S2Point& point) -> GeoCoordinate {
+                // Meridian noding can introduce a pole absent from the original WKB.
+                if (std::abs(point.z()) == 1 && point.x() == 0 && point.y() == 0) {
+                    return {.x = 0, .y = point.z() > 0 ? 90.0 : -90.0};
+                }
+                return _coordinates.at(point);
+            };
+            return GeographyRawArc(coordinate(a), coordinate(b)).midpoint;
+        }
+        return std::nullopt;
+    }
+
+    void add_line(const GeoLine& shape, MutableS2ShapeIndex* index, bool distance) const {
         using Edge = std::pair<S2Point, S2Point>;
         using EdgeSet = std::set<Edge, std::less<>, CustomStdAllocator<Edge>>;
         using Interval = std::pair<double, double>;
@@ -464,7 +548,13 @@ public:
         }
         std::set<S2Point, std::less<>, CustomStdAllocator<S2Point>> interior_vertices;
         for (const auto& [a, b] : edges) {
-            add(a, b);
+            const auto midpoint = distance ? distance_midpoint(a, b) : std::nullopt;
+            if (midpoint) {
+                add(a, *midpoint);
+                add(*midpoint, b);
+            } else {
+                add(a, b);
+            }
             interior_vertices.insert(a);
             interior_vertices.insert(b);
         }
@@ -484,7 +574,6 @@ private:
         S2Point a;
         S2Point b;
         S2Point normal;
-        double error;
         DorisVector<std::pair<double, double>> ranges;
         DorisMap<double, S2Point> vertices;
     };
@@ -492,47 +581,36 @@ private:
     template <typename Edges, typename AddEdge>
     void add_circle_edges(const Edges& edges, AddEdge&& add_edge) const {
         DorisVector<Circle> circles;
-        DorisMap<int, S2PointIndex<size_t>> normal_indexes;
-        const double rounding = 32 * std::numeric_limits<double>::epsilon();
+        S2PointIndex<size_t> normal_index;
+        const double rounding = 64 * std::numeric_limits<double>::epsilon();
         for (const auto& [a, b] : edges) {
-            const auto cross = a.CrossProd(b);
-            const double norm = cross.Norm();
-            // A rounded near-antipodal normal may be arbitrary: error then covers
-            // every unoriented plane. Normals are only candidate keys, never identity.
-            const auto normal = norm == 0 ? S2::Ortho(a) : cross / norm;
-            const double error = std::min(M_PI_2, rounding / norm);
+            const auto normal = GeographyRawArc(_coordinates.at(a), _coordinates.at(b)).normal;
             size_t group = circles.size();
-            // Isolate uncertainty by exponent: one near-antipodal representative must
-            // not widen every ordinary-circle search and recreate quadratic work.
-            for (const auto& [exponent, index] : normal_indexes) {
-                S2ClosestPointQuery<size_t> query(&index);
-                query.mutable_options()->set_conservative_max_distance(S1Angle::Radians(
-                        std::min(M_PI, error + std::ldexp(1.0, exponent) + rounding)));
-                S2ClosestPointQuery<size_t>::PointTarget target(normal);
-                for (const auto& candidate : query.FindClosestPoints(&target)) {
-                    const auto& circle = circles[candidate.data()];
-                    const auto& x = _coordinates.at(circle.a);
-                    const auto& y = _coordinates.at(circle.b);
-                    const auto on_circle = [&](const S2Point& point) {
-                        return point == circle.a || point == circle.b ||
-                               geography_common_great_circle(x, y, _coordinates.at(point));
-                    };
-                    if (on_circle(a) && on_circle(b)) {
-                        group = candidate.data();
-                        break;
-                    }
-                }
-                if (group != circles.size()) {
+            S2ClosestPointQuery<size_t> query(&normal_index);
+            // Raw trigonometric products avoid the epsilon/sin(length) error
+            // amplification. Normals only recall candidates; exact proof decides.
+            query.mutable_options()->set_conservative_max_distance(S1Angle::Radians(rounding));
+            S2ClosestPointQuery<size_t>::PointTarget target(normal);
+            for (const auto& candidate : query.FindClosestPoints(&target)) {
+#ifdef BE_TEST
+                ++geography_candidate_visits;
+#endif
+                const auto& circle = circles[candidate.data()];
+                const auto& x = _coordinates.at(circle.a);
+                const auto& y = _coordinates.at(circle.b);
+                const auto on_circle = [&](const S2Point& point) {
+                    return point == circle.a || point == circle.b ||
+                           geography_common_great_circle(x, y, _coordinates.at(point));
+                };
+                if (on_circle(a) && on_circle(b)) {
+                    group = candidate.data();
                     break;
                 }
             }
             if (group == circles.size()) {
-                int exponent;
-                std::frexp(error, &exponent);
-                auto& index = normal_indexes[exponent];
-                index.Add(normal, group);
-                index.Add(-normal, group);
-                circles.push_back({a, b, normal, error, {}, {}});
+                normal_index.Add(normal, group);
+                normal_index.Add(-normal, group);
+                circles.push_back({a, b, normal, {}, {}});
             }
             auto& circle = circles[group];
             const double lo = std::min(_coordinates.at(a).x, _coordinates.at(b).x);
@@ -556,29 +634,53 @@ private:
         }
     }
 
+    template <typename SkipLongitude, typename Visit>
+    void visit_edge_candidates(const S2Point& a, const S2Point& b, SkipLongitude&& skip_longitude,
+                               Visit&& visit) const {
+        const auto query_index = [&](const S2PointIndex<int>& index) {
+            S2ClosestPointQuery<int> query(&index);
+            query.mutable_options()->set_conservative_max_distance(
+                    S1Angle::Radians(64 * std::numeric_limits<double>::epsilon()));
+            S2ClosestPointQuery<int>::EdgeTarget target(a, b);
+            for (const auto& candidate : query.FindClosestPoints(&target)) {
+#ifdef BE_TEST
+                ++geography_candidate_visits;
+#endif
+                visit(candidate.point());
+            }
+        };
+        query_index(_vertex_index);
+        for (const auto& [longitude, index] : _dense_longitudes) {
+#ifdef BE_TEST
+            ++geography_candidate_visits;
+#endif
+            // A non-meridian circle has only one nonpolar point at each longitude.
+            // Dense endpoint groups must be skipped before the S2 query, including
+            // when unrelated vertices make them a minority of the complete input.
+            if (!skip_longitude(longitude)) {
+                query_index(index);
+            }
+        }
+    }
+
     void collect_circle_vertices(Circle& circle) const {
-        const double rounding = 32 * std::numeric_limits<double>::epsilon();
         // Query a whole circle once, using four non-antipodal quarter arcs.
-        // Carry the representative plane's error into candidate recall; e.g.
-        // an almost-antipodal representative cannot use the ordinary 8eps cap.
         const auto u = S2::Ortho(circle.normal);
         const auto v = circle.normal.CrossProd(u).Normalize();
         const std::array<S2Point, 4> quarter {u, v, -u, -v};
-        S2ClosestPointQuery<int> query(&_vertex_index);
-        query.mutable_options()->set_conservative_max_distance(
-                S1Angle::Radians(std::min(M_PI_2, circle.error + rounding)));
         std::set<S2Point, std::less<>, CustomStdAllocator<S2Point>> seen;
         for (size_t i = 0; i < quarter.size(); ++i) {
-            S2ClosestPointQuery<int>::EdgeTarget target(quarter[i], quarter[(i + 1) % 4]);
-            for (const auto& candidate : query.FindClosestPoints(&target)) {
-                const auto& point = candidate.point();
-                const auto& coordinate = _coordinates.at(point);
-                if (seen.insert(point).second && !circle.vertices.contains(coordinate.x) &&
-                    geography_common_great_circle(_coordinates.at(circle.a),
-                                                  _coordinates.at(circle.b), coordinate)) {
-                    circle.vertices.emplace(coordinate.x, point);
-                }
-            }
+            visit_edge_candidates(
+                    quarter[i], quarter[(i + 1) % 4],
+                    [&](double longitude) { return circle.vertices.contains(longitude); },
+                    [&](const S2Point& point) {
+                        const auto& coordinate = _coordinates.at(point);
+                        if (seen.insert(point).second && !circle.vertices.contains(coordinate.x) &&
+                            geography_common_great_circle(_coordinates.at(circle.a),
+                                                          _coordinates.at(circle.b), coordinate)) {
+                            circle.vertices.emplace(coordinate.x, point);
+                        }
+                    });
         }
     }
 
@@ -658,19 +760,20 @@ private:
         }
     }
     DorisMap<S2Point, GeoCoordinate> _coordinates;
+    DorisMap<double, S2PointIndex<int>> _dense_longitudes;
     S2PointIndex<int> _vertex_index;
     DorisMap<std::pair<double, double>, std::array<DorisVector<Vertex>, 2>> _meridians;
 };
 
 static void geography_shape_index(const GeoShape& shape, const GeographyEdgeNodes& nodes,
-                                  MutableS2ShapeIndex* index) {
+                                  MutableS2ShapeIndex* index, bool distance = false) {
     switch (shape.type()) {
     case GeoShapeType::GEO_SHAPE_POINT:
         index->Add(std::make_unique<S2PointVectorShape>(std::vector<S2Point> {
                 canonical_geography_point(*assert_cast<const GeoPoint&>(shape).point())}));
         break;
     case GeoShapeType::GEO_SHAPE_LINE_STRING:
-        nodes.add_line(assert_cast<const GeoLine&>(shape), index);
+        nodes.add_line(assert_cast<const GeoLine&>(shape), index, distance);
         break;
     case GeoShapeType::GEO_SHAPE_POLYGON: {
         const auto* polygon = assert_cast<const GeoPolygon&>(shape).polygon();
@@ -683,6 +786,17 @@ static void geography_shape_index(const GeoShape& shape, const GeographyEdgeNode
                 edge.clear();
                 nodes.append_edge(loop->oriented_vertex(j),
                                   loop->oriented_vertex((j + 1) % loop->num_vertices()), &edge);
+                if (distance) {
+                    edge.push_back(canonical_geography_point(
+                            loop->oriented_vertex((j + 1) % loop->num_vertices())));
+                    for (size_t k = 0; k + 1 < edge.size(); ++k) {
+                        vertices.push_back(edge[k]);
+                        if (const auto midpoint = nodes.distance_midpoint(edge[k], edge[k + 1])) {
+                            vertices.push_back(*midpoint);
+                        }
+                    }
+                    continue;
+                }
                 vertices.insert(vertices.end(), edge.begin(), edge.end());
             }
         }
@@ -696,8 +810,9 @@ static void geography_shape_index(const GeoShape& shape, const GeographyEdgeNode
 
 #ifdef BE_TEST
 size_t geography_calculation_edges_for_test(const std::string& left, const std::string& right,
-                                            size_t* exact_proofs) {
+                                            size_t* exact_proofs, size_t* candidate_visits) {
     geography_exact_proofs = 0;
+    geography_candidate_visits = 0;
     GeoParseStatus status;
     const auto a = GeoShape::from_wkb_bytes(left.data(), left.size(), status);
     const auto b = GeoShape::from_wkb_bytes(right.data(), right.size(), status);
@@ -715,6 +830,9 @@ size_t geography_calculation_edges_for_test(const std::string& left, const std::
     }
     if (exact_proofs != nullptr) {
         *exact_proofs = geography_exact_proofs;
+    }
+    if (candidate_visits != nullptr) {
+        *candidate_visits = geography_candidate_visits;
     }
     return edges;
 }
@@ -2115,8 +2233,8 @@ static double geography_distance(const GeoShape& left_shape, const GeoShape& rig
     const GeographyEdgeNodes nodes(left_wkb, right_wkb);
     MutableS2ShapeIndex left;
     MutableS2ShapeIndex right;
-    geography_shape_index(left_shape, nodes, &left);
-    geography_shape_index(right_shape, nodes, &right);
+    geography_shape_index(left_shape, nodes, &left, true);
+    geography_shape_index(right_shape, nodes, &right, true);
     S2ClosestEdgeQuery query(&left);
     S2ClosestEdgeQuery::ShapeIndexTarget target(&right);
     return S2Earth::ToMeters(query.GetDistance(&target).ToAngle());
