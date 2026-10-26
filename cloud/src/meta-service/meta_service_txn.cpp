@@ -2844,6 +2844,7 @@ void MetaServiceImpl::commit_txn_eventually(
         if (request->has_commit_attachment()) {
             txn_info.mutable_commit_attachment()->CopyFrom(request->commit_attachment());
         }
+        TEST_SYNC_POINT_RETURN_WITH_VOID("commit_txn_eventually::before_mark_committed", &code);
         DCHECK(txn_info.status() != TxnStatusPB::TXN_STATUS_COMMITTED);
         // set status TXN_STATUS_COMMITTED not TXN_STATUS_VISIBLE !!!
         // lazy commit task will advance txn to make txn visible
