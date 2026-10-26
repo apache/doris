@@ -311,6 +311,42 @@ String, convert inside `of()`, log a warning) explicitly.
 
 `fe-connector-adbc` is the reference implementation of both classes.
 
+## Snapshot Metadata and Partition Views
+
+The engine must pin a table read before binding columns or building scan ranges.
+Derived metadata caches must describe that same read, including the selected
+snapshot/ref, schema and partition-spec generation. Never obtain a newer table
+independently to build one part of an already pinned read.
+
+Connectors can supply `getPartitionViewVersion` as a cheap generation key for
+an immutable partition view and its engine pruning index. Derive this key from
+the pinned metadata; do not enumerate or hash every partition to calculate it.
+A metadata refresh invalidates the corresponding engine cache, while in-flight
+readers retain their existing view. Query-specific conversions must not mutate
+objects shared by the connector cache.
+
+A connector declaring `supportsNativePartitionPlanning` can defer the engine
+partition view until a consumer actually requires internal partition semantics.
+For Iceberg, `enable_iceberg_internal_partition_pruning` defaults to `false`:
+ordinary scans use native manifest/file pruning. Setting it to `true` enables
+Doris partition pruning. MV planning and partition metadata rules still request
+the full view; deferred metadata must never be treated as an empty table.
+
+`getSqlCacheVersion` supplies a lightweight result-cache version for a pinned
+read without loading its partitions. The version must distinguish table
+identity and all metadata that can change the query result or bound schema.
+The engine records each table reference separately, so reading the same table
+through current, historical and branch/tag references does not collapse their
+cache dependencies. Cache validation resolves those original references again:
+a moved or removed ref, changed schema, expired snapshot or recreated table
+must not reuse an incompatible cached answer.
+
+Within a statement, reuse the frozen table and its resource lease through
+`ConnectorStatementScope`. Its read-only lookup must not load metadata on a
+miss. Relation existence and name listing can reuse this metadata through the
+SPI without source-specific checks in fe-core. This does not extend cache TTLs
+or authorize cross-user reuse of metadata.
+
 ## Testing and Verification
 
 - **Unit tests** live in each module; build/test recipes are in `AGENTS.md`.

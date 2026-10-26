@@ -35,6 +35,7 @@ import org.apache.doris.connector.ConnectorStatementScopeImpl;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.handle.ConnectorTransaction;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.mvcc.MvccReadSelector;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
@@ -83,6 +84,7 @@ import com.google.common.base.Strings;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.base.Throwables;
+import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
@@ -337,9 +339,10 @@ public class StatementContext implements Closeable {
     // if greater than 0 means the duration has used
     private long materializedViewRewriteDuration = 0L;
 
-    // Record used table and it's used partitions
+    // Records are consumed by iteration/union, not membership lookup. List values avoid hashing every
+    // partition name inside Pair when recording a scan; repeated records do not change the union.
     private final Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap =
-            HashMultimap.create();
+            ArrayListMultimap.create();
     // Record query common table id to relation id mapping, this is used for mv rewrite
     private final Multimap<Integer, Integer> commonTableIdToRelationIdToMap = HashMultimap.create();
 
@@ -1456,40 +1459,7 @@ public class StatementContext implements Closeable {
      */
     private static String versionKeyOf(Optional<TableSnapshot> tableSnapshot,
             Optional<TableScanParams> scanParams) {
-        // Concatenate both selectors (rather than returning on the first) so the key stays injective even
-        // if a reference ever carried BOTH a snapshot and scan params. Today the two are mutually exclusive
-        // (e.g. IcebergUtils.getQuerySpecSnapshot rejects FOR-TIME together with @branch/@tag), so in every
-        // reachable case exactly one part is non-empty and the key is "v:...", "p:...", or "".
-        StringBuilder key = new StringBuilder();
-        if (tableSnapshot != null && tableSnapshot.isPresent()) {
-            TableSnapshot ts = tableSnapshot.get();
-            key.append('v');
-            appendVersionKeyPart(key, ts.getType());
-            appendVersionKeyPart(key, ts.getValue());
-        }
-        if (scanParams != null && scanParams.isPresent()) {
-            TableScanParams sp = scanParams.get();
-            key.append('p');
-            appendVersionKeyPart(key, sp.getParamType());
-            Map<String, String> sortedParams = new TreeMap<>(sp.getMapParams());
-            key.append('m').append(sortedParams.size()).append(':');
-            for (Map.Entry<String, String> entry : sortedParams.entrySet()) {
-                // Length prefixes preserve entry boundaries even when user values contain Map.toString()
-                // delimiters; sorting separately keeps semantically identical maps order-independent.
-                appendVersionKeyPart(key, entry.getKey());
-                appendVersionKeyPart(key, entry.getValue());
-            }
-            key.append('l').append(sp.getListParams().size()).append(':');
-            for (String value : sp.getListParams()) {
-                appendVersionKeyPart(key, value);
-            }
-        }
-        return key.toString();
-    }
-
-    private static void appendVersionKeyPart(StringBuilder key, Object value) {
-        String text = String.valueOf(value);
-        key.append(text.length()).append(':').append(text);
+        return MvccReadSelector.of(tableSnapshot, scanParams).getKey();
     }
 
     /**

@@ -589,6 +589,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ICEBERG_WRITE_TARGET_FILE_SIZE_BYTES = "iceberg_write_target_file_size_bytes";
     public static final String ENABLE_ICEBERG_MERGE_PARTITIONING = "enable_iceberg_merge_partitioning";
     public static final String ENABLE_PAIMON_WRITE_CHAR_PADDING = "enable_paimon_write_char_padding";
+    public static final String ENABLE_ICEBERG_INTERNAL_PARTITION_PRUNING =
+            "enable_iceberg_internal_partition_pruning";
 
     public static final String NUM_PARTITIONS_IN_BATCH_MODE = "num_partitions_in_batch_mode";
 
@@ -1042,6 +1044,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String MULTI_DISTINCT_STRATEGY = "multi_distinct_strategy";
     public static final String AGG_PHASE = "agg_phase";
     public static final String ENABLE_BUCKETED_HASH_AGG = "enable_bucketed_hash_agg";
+    public static final String BUCKETED_AGG_NUM_BUCKETS = "bucketed_agg_num_buckets";
     public static final String BUCKETED_AGG_MIN_INPUT_ROWS = "bucketed_agg_min_input_rows";
     public static final String BUCKETED_AGG_MAX_GROUP_KEYS = "bucketed_agg_max_group_keys";
     public static final String BUCKETED_AGG_HIGH_CARD_THRESHOLD = "bucketed_agg_high_card_threshold";
@@ -3111,9 +3114,16 @@ public class SessionVariable implements Serializable, Writable {
             + "and serialization/deserialization costs. Enabled by default.")
     public boolean enableBucketedHashAgg = true;
 
+    @VarAttrDef.VarAttr(name = BUCKETED_AGG_NUM_BUCKETS, needForward = true,
+            checker = "checkBucketedAggNumBuckets",
+            description = "Number of hash buckets used by bucketed aggregation. "
+            + "Must be 0 (automatic) or a power of two between 1 and 256. Automatic uses one bucket when both "
+            + "sink and source have one instance on a BE, and 256 buckets otherwise. Default 0.")
+    public int bucketedAggNumBuckets = 0;
+
     @VarAttrDef.VarAttr(name = BUCKETED_AGG_MIN_INPUT_ROWS, fuzzy = true, needForward = true, description = "Minimum "
             + "estimated input rows required for bucketed hash aggregation. When estimated input "
-            + "rows are below this threshold, the data volume is too small for the 256-bucket two-level "
+            + "rows are below this threshold, the data volume is too small for the bucketed "
             + "hash table overhead to be worthwhile. Set to 0 to disable this check. Default 100000.")
     public long bucketedAggMinInputRows = 100000;
 
@@ -3734,6 +3744,11 @@ public class SessionVariable implements Serializable, Writable {
             options = {ICEBERG_PARTITION_OVERWRITE_MODE_STATIC, ICEBERG_PARTITION_OVERWRITE_MODE_DYNAMIC})
     public String icebergPartitionOverwriteMode = ICEBERG_PARTITION_OVERWRITE_MODE_STATIC;
 
+    @VarAttrDef.VarAttr(name = ENABLE_ICEBERG_INTERNAL_PARTITION_PRUNING,
+            description = "Enable Doris FE partition pruning for Iceberg scans. When disabled, ordinary scans "
+                    + "defer the Doris partition view and rely on Iceberg native file pruning. Materialized view "
+                    + "planning and partition metadata rules still require the full partition view.")
+    public boolean enableIcebergInternalPartitionPruning = false;
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
 
@@ -6454,6 +6469,19 @@ public class SessionVariable implements Serializable, Writable {
         } catch (NumberFormatException e) {
             throw new InvalidParameterException(
                     SKEW_REWRITE_JOIN_SALT_EXPLODE_FACTOR + " must be a valid number between 0 and 65535");
+        }
+    }
+
+    public void checkBucketedAggNumBuckets(String numBucketsStr) {
+        try {
+            int numBuckets = Integer.parseInt(numBucketsStr);
+            if (numBuckets < 0 || numBuckets > 256 || (numBuckets & (numBuckets - 1)) != 0) {
+                throw new InvalidParameterException(
+                        BUCKETED_AGG_NUM_BUCKETS + " must be 0 or a power of two between 1 and 256");
+            }
+        } catch (NumberFormatException e) {
+            throw new InvalidParameterException(
+                    BUCKETED_AGG_NUM_BUCKETS + " must be 0 or a power of two between 1 and 256");
         }
     }
 

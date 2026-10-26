@@ -534,10 +534,10 @@ DEFINE_mDouble(compaction_promotion_ratio, "0.05");
 DEFINE_mInt64(compaction_promotion_min_size_mbytes, "128");
 
 // When output rowset of cumulative compaction total version count (end_version - start_version)
-// exceed this config count, the rowset will be moved to base compaction
-// NOTE: this config will work for unique key merge-on-write table only, to reduce version count
-// related cost on delete bitmap more effectively.
-DEFINE_mInt64(compaction_promotion_version_count, "1000");
+// exceed this config count, the rowset will be moved to base compaction.
+// NOTE: this config only works for unique key merge-on-write tables. The default maximum value
+// disables version-count-based promotion while retaining the option to enable it when needed.
+DEFINE_mInt64(compaction_promotion_version_count, "9223372036854775807");
 
 // The lower bound size to do cumulative compaction. When total disk size of candidate rowsets is less than
 // this size, size_based policy may not do to cumulative compaction. The unit is m byte.
@@ -1423,29 +1423,10 @@ DEFINE_mDouble(inverted_index_ram_buffer_size, "512");
 // -1 indicates not working.
 // Normally we should not change this, it's useful for testing.
 DEFINE_mInt32(inverted_index_max_buffered_docs, "-1");
-// G16-h: zstd levels for the SNII dict-block compression and the .prx window
-// auto mode. Level 9 (vs the historical 3) shrinks the two largest compressed
-// sections -- textbench: index -457 MB (0.918x -> 0.891x V3) -- for an import
-// CPU cost inside the run-to-run variance band; zstd decode speed does not
-// depend on the level, and warm/cold benches measured no query change.
-// Write side only; segments self-describe their compression.
-// Default 3 since the all-level-3 evaluation (2026-07-11, 4 corpora): vs
-// level 9 the settled index grows only +0.6%..+6.3% (whole table
-// +0.3%..+1.9%) while import index CPU drops 17-24% and full-compaction CPU
-// 8-24%; settled cold-query latency is unchanged (interleaved A/B). The
-// delta+varint-encoded payloads are high-entropy, so level 9's extra search
-// buys almost no ratio. Raise only for size-critical deployments.
+// Zstd levels for SNII DICT blocks and .prx windows. These affect writes; each segment records its compression mode.
 DEFINE_mInt32(snii_dict_block_zstd_level, "3");
 DEFINE_mInt32(snii_prx_zstd_level, "3");
-// Patch C prx tiering: zstd level for the prx region of DIRECT-LOAD segments
-// only (stream/broker load, see IndexColumnWriter::set_direct_load). Inert at
-// the defaults (both levels 3); it exists for size-critical deployments that
-// RAISE snii_prx_zstd_level (e.g. 9) and still want cheap loads: compaction
-// rewrites every segment at snii_prx_zstd_level, so SETTLED data (and the
-// cold-query path over it) is unaffected by the load tier -- measured -290s
-// (httplogs) / -204s (agentlogs) of import index CPU at 3 vs 9. Same clamp
-// [3, 19]. Read at index flush like snii_prx_zstd_level (a mid-load change
-// lands on in-flight segments); the direct-load BIT itself is captured once.
+// Zstd level for direct-load .prx regions. Compaction rewrites them using snii_prx_zstd_level.
 DEFINE_mInt32(snii_prx_zstd_level_direct_load, "3");
 // G16-d: target SNII dict block size in bytes; 0 uses the format default
 // (64 KiB). Larger blocks compress better under the per-block zstd (the dict
