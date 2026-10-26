@@ -361,7 +361,7 @@ public class InsertOverwriteTableCommand extends Command
                     // what would lose those rows against an advanced offset, while the swap below is what
                     // publishes them. The overwrite completes, and it is the outcome the statement reports.
                     LOG.info("insert overwrite is cancelled after its rows were committed, completing it,"
-                            + " queryId: {}", ctx.getQueryIdentifier());
+                            + " statement: {}", ctx.getQueryLogIdentifier());
                 }
                 failBetweenTheTwoHalvesOfAnOverwrite(targetTable);
                 // The publication below is a lambda, so the partitions it replaces need a name that is final:
@@ -371,8 +371,8 @@ public class InsertOverwriteTableCommand extends Command
                         () -> InsertOverwriteUtil.replacePartition(targetTable, replacedPartitionNames,
                                 tempPartitionNames, isForceDropPartition()));
                 if (isCancelled.get()) {
-                    LOG.info("insert overwrite is cancelled before taskSuccess, do nothing, queryId: {}",
-                            ctx.getQueryIdentifier());
+                    LOG.info("insert overwrite is cancelled before taskSuccess, do nothing, statement: {}",
+                            ctx.getQueryLogIdentifier());
                 }
                 insertOverwriteManager.taskSuccess(taskId);
             }

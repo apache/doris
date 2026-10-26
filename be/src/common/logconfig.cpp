@@ -29,6 +29,7 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/query_log_context.h"
 
 namespace doris {
 #include "common/compile_check_avoid_begin.h"
@@ -81,7 +82,9 @@ struct StdoutLogSink : google::LogSink {
         std::cout << " " << getpid();
 
         // 5. Filename and line number
-        std::cout << " " << base_filename << ":" << line << "] ";
+        std::cout << " " << base_filename << ":" << line << "]";
+        append_query_log_identity(std::cout);
+        std::cout << ' ';
 
         // 6. Log message
         std::cout.write(message, message_len);
@@ -145,6 +148,7 @@ void custom_prefix(std::ostream& s, const google::LogMessageInfo& l, void* arg) 
     s << l.thread_id << std::setfill('0');
     s << ' ';
     s << l.filename << ':' << l.line_number << "]";
+    append_query_log_identity(s);
 }
 
 bool init_glog(const char* basename) {
@@ -153,6 +157,8 @@ bool init_glog(const char* basename) {
     if (logging_initialized) {
         return true;
     }
+
+    init_query_log_context();
 
     bool log_to_console = (getenv("DORIS_LOG_TO_STDERR") != nullptr);
     if (log_to_console) {
@@ -261,6 +267,8 @@ bool init_glog(const char* basename) {
     } else {
         if (config::sys_log_enable_custom_date_time_format) {
             google::InitGoogleLogging(basename, &custom_prefix<false, true>);
+        } else if (config::sys_log_enable_query_id) {
+            google::InitGoogleLogging(basename, &custom_prefix<false, false>);
         } else {
             google::InitGoogleLogging(basename);
         }

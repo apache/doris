@@ -50,7 +50,7 @@ public class ReorderJoinBeforeEagerAgg implements CustomRewriter {
         if (LOG.isDebugEnabled()) {
             double elapsedMs = (System.nanoTime() - startNanos) / 1_000_000.0;
             LOG.debug("{} join reorder before eager aggregation [changed={}, elapsedMs={}]",
-                    connectContext.getQueryIdentifier(), reorderedPlan != plan, elapsedMs);
+                    connectContext.getQueryLogIdentifier(), reorderedPlan != plan, elapsedMs);
         }
         if (reorderedPlan == plan) {
             return plan;

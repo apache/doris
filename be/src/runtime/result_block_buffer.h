@@ -91,6 +91,7 @@ public:
     void cancel(const Status& reason) override;
 
     [[nodiscard]] const TUniqueId& buffer_id() const override { return _fragment_id; }
+    [[nodiscard]] const TUniqueId& query_id() const { return _query_id; }
     [[nodiscard]] std::shared_ptr<MemTrackerLimiter> mem_tracker() override { return _mem_tracker; }
     void set_dependency(const TUniqueId& id,
                         std::shared_ptr<Dependency> result_sink_dependency) override;
@@ -103,8 +104,10 @@ protected:
 
     using ResultQueue = std::list<std::shared_ptr<InBlockType>>;
 
-    // result's query id
+    // Buffer key: query ID or instance ID, depending on parallel result-sink mode.
     TUniqueId _fragment_id;
+    // Keep the actual query identity even after its execution context is destroyed.
+    const TUniqueId _query_id;
     bool _is_close;
     Status _status;
     // Producer. blocking queue for result batch waiting to sent to FE by _waiting_rpc.

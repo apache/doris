@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.QueryLogContext;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.ExecutionProfile;
@@ -181,6 +182,12 @@ public class NereidsCoordinator extends Coordinator {
 
     @Override
     public void cancel(Status cancelReason) {
+        try (QueryLogContext ignored = QueryLogContext.open(coordinatorContext.queryId)) {
+            cancelQuery(cancelReason);
+        }
+    }
+
+    private void cancelQuery(Status cancelReason) {
         if (cancelReason.ok()) {
             throw new RuntimeException("Should use correct cancel reason, but it is " + cancelReason);
         }
@@ -191,14 +198,14 @@ public class NereidsCoordinator extends Coordinator {
             if (!originQueryStatus.ok()) {
                 if (LOG.isDebugEnabled()) {
                     // Print an error stack here to know why send cancel again.
-                    LOG.warn("Query {} already in abnormal status {}, but received cancel again,"
+                    LOG.warn("Query{} already in abnormal status {}, but received cancel again,"
                                     + "so that send cancel to BE again",
-                            DebugUtil.printId(queryId), originQueryStatus.toString(),
+                            QueryLogContext.queryIdSuffix(queryId), originQueryStatus.toString(),
                             new Exception("cancel failed"));
                 }
             } else {
-                LOG.warn("Cancel execution of query {}, this is a outside invoke, cancelReason {}",
-                        DebugUtil.printId(queryId), cancelReason);
+                LOG.warn("Cancel execution of query{}, this is a outside invoke, cancelReason {}",
+                        QueryLogContext.queryIdSuffix(queryId), cancelReason);
             }
         } finally {
             // Publishing the status above can itself cancel a partially initialized processor. Start the
@@ -214,8 +221,8 @@ public class NereidsCoordinator extends Coordinator {
                     try {
                         scanNode.stop();
                     } catch (Throwable t) {
-                        LOG.error("error happens when scannode stop during cancel, query id: {}",
-                                DebugUtil.printId(queryId), t);
+                        LOG.error("error happens when scannode stop during cancel, query{}",
+                                QueryLogContext.queryIdSuffix(queryId), t);
                     }
                 }
             } finally {
@@ -482,6 +489,12 @@ public class NereidsCoordinator extends Coordinator {
 
     @Override
     public void close() {
+        try (QueryLogContext ignored = QueryLogContext.open(coordinatorContext.queryId)) {
+            closeQueryResources();
+        }
+    }
+
+    private void closeQueryResources() {
         // NOTE: all close method should be no exception
         if (coordinatorContext.getQueryQueue().isPresent() && coordinatorContext.getQueueToken().isPresent()) {
             try {
@@ -501,7 +514,10 @@ public class NereidsCoordinator extends Coordinator {
     }
 
     protected void cancelInternal(Status cancelReason) {
-        coordinatorContext.withLock(() -> coordinatorContext.getJobProcessor().cancel(cancelReason));
+        // Scheduling failures can enter here without going through cancel().
+        try (QueryLogContext ignored = QueryLogContext.open(coordinatorContext.queryId)) {
+            coordinatorContext.withLock(() -> coordinatorContext.getJobProcessor().cancel(cancelReason));
+        }
     }
 
     protected void processTopSink(
