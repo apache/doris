@@ -1205,10 +1205,14 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
     }
 
     private GlobListing globListDeterministicKeys(String bucket, String patternPrefix, String base,
-            List<String> keys) throws IOException {
+            List<String> keys, Pattern matcher) throws IOException {
         List<FileEntry> files = new ArrayList<>();
         String lastMatchedKey = "";
         for (String key : keys) {
+            // Prefix expansion can include keys excluded by character-class intersections.
+            if (!matcher.matcher(key).matches()) {
+                continue;
+            }
             RemoteObject obj = headObjectIfPresent(base + key);
             if (obj == null) {
                 continue;
@@ -1246,7 +1250,7 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
                         expandedKeyPattern, maxDeterministicHeadPaths);
                 if (deterministicKeys != null) {
                     return globListDeterministicKeys(bucket, longestNonGlobPrefix(keyPattern), base,
-                            deterministicKeys);
+                            deterministicKeys, matcher);
                 }
             } catch (IOException | RuntimeException e) {
                 // Discard partial HEAD results and retry the complete pattern through LIST.

@@ -60,7 +60,7 @@ public class ExternalFileTableValuedFunctionTest {
         // without their mtime ships every TVF range as mtime 0, so an object overwritten in place
         // would keep serving the blocks cached from its old content.
         FileSystem fs = Mockito.mock(FileSystem.class);
-        Mockito.when(fs.globListWithLimit(Mockito.any(Location.class), Mockito.anyString(),
+        Mockito.when(fs.globListWithLimit(Mockito.any(Location.class), Mockito.isNull(),
                         Mockito.anyLong(), Mockito.anyLong()))
                 .thenReturn(new GlobListing(Arrays.asList(
                         new FileEntry(Location.of("s3://bucket/dir/a.csv"), 10L, false, 1_700_000_000_123L, null),

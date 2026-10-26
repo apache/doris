@@ -17,9 +17,14 @@
 
 package org.apache.doris.tablefunction;
 
+import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.S3Util;
+import org.apache.doris.filesystem.FileEntry;
+import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.GlobListing;
+import org.apache.doris.filesystem.Location;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.expressions.Properties;
@@ -36,11 +41,15 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
@@ -87,6 +96,35 @@ public class S3TableValuedFunctionTest {
     public void testSchemaFailureDoesNotSkipFiles() throws Exception {
         assertSchemaFailure(TStatusCode.NOT_FOUND);
         assertSchemaFailure(TStatusCode.INTERNAL_ERROR);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"s3://bucket/logs/a.csv", "s3://bucket/logs/{a,b}.csv"})
+    public void testInitialListingUsesNullCursor(String path) throws Exception {
+        FeConstants.runningUnitTest = false;
+        Map<String, String> properties = new HashMap<>(PROPERTIES);
+        properties.put("uri", path);
+        FileSystem fs = Mockito.mock(FileSystem.class);
+        Mockito.when(fs.globListWithLimit(Mockito.any(Location.class), Mockito.isNull(),
+                        Mockito.eq(0L), Mockito.eq(0L)))
+                .thenReturn(new GlobListing(List.of(
+                        new FileEntry(Location.of("s3://bucket/logs/a.csv"), 10L, false, 123L, null)),
+                        "bucket", "logs/", "logs/a.csv"));
+        try (MockedStatic<S3Util> s3 = Mockito.mockStatic(S3Util.class);
+                MockedStatic<FileSystemFactory> filesystems = Mockito.mockStatic(FileSystemFactory.class)) {
+            filesystems.when(() -> FileSystemFactory.getFileSystem(Mockito.any(BrokerDesc.class)))
+                    .thenReturn(fs);
+
+            S3TableValuedFunction tvf = new S3TableValuedFunction(properties);
+
+            Assertions.assertEquals(1, tvf.getFileStatuses().size());
+            Assertions.assertEquals("s3://bucket/logs/a.csv", tvf.getFileStatuses().get(0).getPath());
+            Assertions.assertEquals(123L, tvf.getFileStatuses().get(0).getModificationTime());
+            Mockito.verify(fs).globListWithLimit(Mockito.argThat(location -> location.uri().equals(path)),
+                    Mockito.isNull(), Mockito.eq(0L), Mockito.eq(0L));
+            Mockito.verify(fs).close();
+            s3.verify(() -> S3Util.validateAndTestEndpoint("s3.us-west-2.amazonaws.com"));
+        }
     }
 
     @Test

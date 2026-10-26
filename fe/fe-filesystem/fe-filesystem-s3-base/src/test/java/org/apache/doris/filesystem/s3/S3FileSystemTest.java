@@ -953,6 +953,31 @@ class S3FileSystemTest {
     }
 
     @Test
+    void globListWithLimit_characterClassIntersectionFiltersBeforeHead() throws IOException {
+        S3FileSystem deterministicFs = newFileSystemWithDeterministicPathControls(true, 100, false);
+        Mockito.when(mockStorage.headObject("s3://bucket/dir/fileb.csv"))
+                .thenReturn(new RemoteObject("dir/fileb.csv", "fileb.csv", null, 3L, 4L));
+        mockSingleObjectListWithStartAfter("s3://bucket/dir/filea.csv", "dir/filea.csv", 1L);
+        mockSingleObjectListWithStartAfter("s3://bucket/dir/fileb.csv", "dir/fileb.csv", 3L);
+        mockSingleObjectListWithStartAfter("s3://bucket/dir/file&.csv", "dir/file&.csv", 5L);
+        mockSingleObjectListWithStartAfter("s3://bucket/dir/filec.csv", "dir/filec.csv", 7L);
+        Location path = Location.of("s3://bucket/dir/file[ab&&bc].csv");
+
+        GlobListing headListing = deterministicFs.globListWithLimit(path, null, 0L, 0L);
+
+        Assertions.assertEquals(List.of("s3://bucket/dir/fileb.csv"), headListing.getFiles().stream()
+                .map(entry -> entry.location().uri()).toList());
+        Assertions.assertEquals("dir/fileb.csv", headListing.getMaxFile());
+        Mockito.verify(mockStorage).headObject("s3://bucket/dir/fileb.csv");
+        Mockito.verify(mockStorage, Mockito.times(1)).headObject(ArgumentMatchers.anyString());
+        verifyNoListObjectsWithOptions();
+
+        GlobListing listListing = deterministicFs.globListWithLimit(path, "", 0L, 0L);
+        Assertions.assertEquals(headListing.getFiles().stream().map(entry -> entry.location().uri()).toList(),
+                listListing.getFiles().stream().map(entry -> entry.location().uri()).toList());
+    }
+
+    @Test
     void globListWithLimit_escapedWildcardLiteralUsesListObjects() throws IOException {
         S3FileSystem deterministicFs = newFileSystemWithDeterministicPathControls(true, 100, false);
         mockSingleObjectListWithStartAfter("s3://bucket/dir/file*.csv", "dir/file*.csv", 1L);

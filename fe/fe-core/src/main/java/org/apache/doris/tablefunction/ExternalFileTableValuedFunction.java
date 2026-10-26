@@ -187,7 +187,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 // "file.csv.bz2" when listing "file.csv"). Fall back to listFiles only
                 // when the filesystem does not support glob.
                 try {
-                    entries = fs.globListWithLimit(Location.of(path), "", 0, 0).getFiles();
+                    entries = fs.globListWithLimit(Location.of(path), null, 0, 0).getFiles();
                 } catch (UnsupportedOperationException ex) {
                     entries = fs.listFiles(Location.of(path));
                 }

@@ -40,6 +40,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.ServiceLoader;
+import java.util.SortedMap;
+import java.util.TreeMap;
 
 /**
  * Factory for filesystem instances.
@@ -131,7 +133,9 @@ public final class FileSystemFactory {
 
     static Map<String, String> withRuntimeFileSystemProperties(Map<String, String> properties,
             boolean s3SkipListForDeterministicPath, int s3HeadRequestMaxPaths) {
-        Map<String, String> effectiveProperties = new HashMap<>(StorageAdapter.withHadoopConfigDir(properties));
+        Map<String, String> effectiveProperties = properties instanceof SortedMap
+                ? new TreeMap<>(((SortedMap<String, String>) properties).comparator()) : new HashMap<>();
+        effectiveProperties.putAll(StorageAdapter.withHadoopConfigDir(properties));
         effectiveProperties.put(S3_SKIP_LIST_FOR_DETERMINISTIC_PATH,
                 String.valueOf(s3SkipListForDeterministicPath));
         effectiveProperties.put(S3_HEAD_REQUEST_MAX_PATHS, String.valueOf(s3HeadRequestMaxPaths));
@@ -198,8 +202,18 @@ public final class FileSystemFactory {
             if (provider.name().equalsIgnoreCase(providerName)) {
                 try {
                     // Rebind through the original provider so runtime controls do not change routing.
-                    FileSystemProperties effective = spiProperties instanceof S3CompatibleFileSystemProperties
-                            ? provider.bind(effectiveProperties) : spiProperties;
+                    FileSystemProperties effective = spiProperties;
+                    if (spiProperties instanceof S3CompatibleFileSystemProperties) {
+                        // rawProperties is a diagnostic snapshot and can lose case-insensitive lookup.
+                        // Restore the aliases consumed at bind time, then apply the runtime snapshot.
+                        Map<String, String> boundProperties = new HashMap<>(effectiveProperties);
+                        boundProperties.putAll(spiProperties.matchedProperties());
+                        boundProperties.put(S3_SKIP_LIST_FOR_DETERMINISTIC_PATH,
+                                effectiveProperties.get(S3_SKIP_LIST_FOR_DETERMINISTIC_PATH));
+                        boundProperties.put(S3_HEAD_REQUEST_MAX_PATHS,
+                                effectiveProperties.get(S3_HEAD_REQUEST_MAX_PATHS));
+                        effective = provider.bind(boundProperties);
+                    }
                     return provider.createUntyped(effective);
                 } catch (UnsupportedOperationException e) {
                     // Providers without typed creation (BROKER/LOCAL) keep the map entry point.
