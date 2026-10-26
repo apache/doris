@@ -61,22 +61,15 @@ public class BdbjeJournalDataProcNodeTest {
     }
 
     @Test
-    public void recordsOfRetiredOperationTypesArePrintable() throws Exception {
-        // The readers of retired operation types consume the payload without keeping it. Op 500 is the Lance
-        // index job of unreleased branch-4.x builds, written as Text-framed JSON; the PL/SQL operation types were
-        // retired the same way.
-        BDBDebugger.JournalEntityWrapper lanceIndexJob = record(7L, OperationType.OP_LANCE_INDEX_JOB_UPSERT,
-                "{\"jid\":7,\"rev\":2,\"cid\":10101,\"dbn\":\"db1\",\"tbn\":\"tbl1\",\"iid\":\"idx_v\","
-                        + "\"it\":\"IVF_PQ\",\"cn\":[\"v\"],\"rs\":\"RUNNING\"}");
+    public void recordOfARetiredOperationTypeIsPrintable() throws Exception {
+        // The readers of retired operation types consume the payload without keeping it, e.g. the PL/SQL ones
+        // that #58700 retired, whose records are Text-framed JSON.
         BDBDebugger.JournalEntityWrapper plsqlPackage = record(8L, OperationType.OP_DROP_PLSQL_PACKAGE,
                 "{\"name\":\"pkg1\",\"catalogId\":0,\"dbName\":\"db1\"}");
-        Assertions.assertNull(lanceIndexJob.entity.getData());
         Assertions.assertNull(plsqlPackage.entity.getData());
-        installDebugEnv(lanceIndexJob, plsqlPackage);
+        installDebugEnv(plsqlPackage);
 
-        // MUTATION: with getData().toString() both rows fail with a NullPointerException.
-        Assertions.assertEquals(Lists.newArrayList("7", "OP_LANCE_INDEX_JOB_UPSERT",
-                lanceIndexJob.size.toString(), "null"), fetchRow(7L));
+        // MUTATION: with getData().toString() the row fails with a NullPointerException.
         Assertions.assertEquals(Lists.newArrayList("8", "OP_DROP_PLSQL_PACKAGE",
                 plsqlPackage.size.toString(), "null"), fetchRow(8L));
     }

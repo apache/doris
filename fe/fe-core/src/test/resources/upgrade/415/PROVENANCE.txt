@@ -54,7 +54,3 @@ NOT HERE, ON PURPOSE
   Lance databases / tables  4.1.5 never persists an external database or table (only CatalogMgr.idToCatalog
                             is serialized), so no image or journal can carry those two labels; they are
                             covered by labels.{db,tbl}.txt.
-  OP_LANCE_INDEX_JOB_UPSERT (500) and the "lanceIndexJobManager" image module  no release ever wrote them:
-                            the durable Lance index job framework lived on branch-4.1 / branch-4.2 only until
-                            it was removed, and 4.1.5 itself carries just the tombstone. 4.1.5 bytecode cannot
-                            produce them; the tests build the op 500 frame from the old writer's wire format.

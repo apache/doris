@@ -427,12 +427,6 @@ public class OperationType {
 
     public static final short OP_TABLE_STREAM_CLEANUP = 498;
 
-    // Payload of the durable Lance index job framework that branch-4.1 / branch-4.2 builds carried for a
-    // while and then removed before any release (4.1.5 and 4.2 keep the same tombstone). Kept only so such
-    // journals stay parseable: JournalEntity consumes and ignores the record. The code must never be reused,
-    // because an edit log written by one of those builds carries it.
-    public static final short OP_LANCE_INDEX_JOB_UPSERT = 500;
-
     // For cloud.
     public static final short OP_UPDATE_CLOUD_REPLICA = 1000;
     @Deprecated

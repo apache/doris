@@ -1366,10 +1366,6 @@ public class EditLog {
                 case OperationType.OP_DROP_PLSQL_PACKAGE: {
                     break;
                 }
-                case OperationType.OP_LANCE_INDEX_JOB_UPSERT: {
-                    // Retired branch-4.x Lance index job record, consumed by JournalEntity: nothing to replay.
-                    break;
-                }
                 case OperationType.OP_ALTER_DATABASE_PROPERTY: {
                     AlterDatabasePropertyInfo alterDatabasePropertyInfo = (AlterDatabasePropertyInfo) journal.getData();
                     LOG.info("replay alter database property: {}", alterDatabasePropertyInfo);

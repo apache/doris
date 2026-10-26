@@ -913,12 +913,6 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
-            case OperationType.OP_LANCE_INDEX_JOB_UPSERT: {
-                // Text-framed JSON of the removed branch-4.x Lance index job framework; consumed and ignored.
-                Text.readString(in);
-                isRead = true;
-                break;
-            }
             case OperationType.OP_ALTER_DATABASE_PROPERTY: {
                 data = AlterDatabasePropertyInfo.read(in);
                 isRead = true;

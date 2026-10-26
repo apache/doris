@@ -52,10 +52,7 @@ public class PersistMetaModules {
 
     // Modules in this list is deprecated and will not be saved in meta file. (also should not be in MODULE_NAMES)
     public static final ImmutableList<String> DEPRECATED_MODULE_NAMES = ImmutableList.of(
-            "loadJob", "cooldownJob", "AnalysisMgr", "mtmvJobManager", "JobTaskManager", "syncJob",
-            // Written by the branch-4.x builds that carried the durable Lance index job framework (see
-            // OperationType.OP_LANCE_INDEX_JOB_UPSERT); images from them carry this (possibly empty) chunk.
-            "lanceIndexJobManager");
+            "loadJob", "cooldownJob", "AnalysisMgr", "mtmvJobManager", "JobTaskManager", "syncJob");
 
     static {
         MODULES_MAP = Maps.newHashMap();

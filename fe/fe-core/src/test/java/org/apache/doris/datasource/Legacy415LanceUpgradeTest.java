@@ -25,11 +25,8 @@ import org.apache.doris.datasource.log.CatalogLog;
 import org.apache.doris.datasource.log.InitCatalogLog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.upgrade.RecordingConnectorProvider;
-import org.apache.doris.journal.JournalEntity;
-import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.persist.meta.PersistMetaModules;
 
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
@@ -41,9 +38,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
-import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.HashSet;
 import java.util.Map;
@@ -58,9 +53,6 @@ import java.util.TreeMap;
  * emitted by real 4.1.5 bytecode (src/test/resources/upgrade/415/PROVENANCE.txt). What must hold: the image
  * loads and the FE starts, the catalog keeps everything the user configured, it fails only when used while the
  * plugin is missing, and a plugin that claims "lance" later is handed exactly the persisted properties.
- *
- * <p>Also here: the two pieces of metadata that only unreleased branch-4.x builds wrote (the durable Lance
- * index job framework's edit-log record and image module), which must stay readable as tombstones.
  *
  * <p>This class lives in {@code org.apache.doris.datasource} because {@link ExternalCatalog#logType} and
  * {@link ExternalCatalog#tableAutoAnalyzePolicy} are protected.
@@ -208,48 +200,6 @@ public class Legacy415LanceUpgradeTest {
             log.getProps().forEach((key, value) -> Assertions.assertEquals(value, delivered.get(key),
                     "property '" + key + "' did not survive the journey from the 4.1.5 journal to the connector"));
         }
-    }
-
-    @Test
-    public void retiredLanceIndexJobRecordIsConsumedAndIgnored() throws Exception {
-        // Only the branch-4.x builds that carried the durable Lance index job framework wrote op 500, so no
-        // release can produce this frame; it is built in the old writer's wire form instead (branch-4.2
-        // cabcf45c1af: LanceIndexJob.write = Text.writeString(out, GSON.toJson(job)), keyed by short names).
-        // A real 4.1.5 entry follows it in the same stream: the reader must consume exactly the retired payload,
-        // or every later entry of the journal is misread.
-        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-        try (DataOutputStream out = new DataOutputStream(bytes)) {
-            out.writeShort(OperationType.OP_LANCE_INDEX_JOB_UPSERT);
-            Text.writeString(out, "{\"jid\":7,\"rev\":2,\"cid\":10101,\"dbn\":\"db1\",\"tbn\":\"tbl1\","
-                    + "\"iid\":\"idx_v\",\"it\":\"IVF_PQ\",\"cn\":[\"v\"],\"rs\":\"RUNNING\"}");
-            out.write(Legacy415Fixtures.journalEntry("op320-create-g1_lance_s3.bin"));
-        }
-
-        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
-            JournalEntity retired = new JournalEntity();
-            // MUTATION: without the JournalEntity case this throws "UNKNOWN Operation Type 500".
-            retired.readFields(in);
-            Assertions.assertEquals(OperationType.OP_LANCE_INDEX_JOB_UPSERT, retired.getOpCode());
-            // There is nothing to replay, so it must not even need an Env. Without the EditLog case the
-            // IOException is turned into System.exit(-1) -- the same way it keeps a real FE from starting.
-            EditLog.loadJournal(null, 1L, retired);
-
-            JournalEntity next = new JournalEntity();
-            next.readFields(in);
-            Assertions.assertEquals(OperationType.OP_CREATE_CATALOG, next.getOpCode());
-            Assertions.assertEquals("g1_lance_s3", ((CatalogLog) next.getData()).getCatalogName());
-            Assertions.assertEquals(-1, in.read(), "both entries must be consumed exactly");
-        }
-    }
-
-    @Test
-    public void lanceIndexJobManagerImageModuleStaysDeprecated() {
-        // The same builds wrote an image module named "lanceIndexJobManager". MetaReader skips a module listed
-        // here by its byte range; without the entry an image from those builds fails with
-        // "Unknown meta module: lanceIndexJobManager" unless ignore_unknown_metadata_module is set.
-        Assertions.assertTrue(PersistMetaModules.DEPRECATED_MODULE_NAMES.contains("lanceIndexJobManager"));
-        Assertions.assertFalse(PersistMetaModules.MODULE_NAMES.contains("lanceIndexJobManager"),
-                "a deprecated module must not be written again");
     }
 
     /** The property map catalog {@code id} has on the wire, read straight out of the 4.1.5 module's JSON. */
