@@ -74,6 +74,21 @@ public interface ConnectorTableMetadataOps {
     }
 
     /**
+     * Resolves a handle for DDL after the caller has checked live table existence. Connectors whose read handles
+     * require scan-capable metadata may return an identifier-only handle here. Other connectors retain their
+     * existing handle resolution behavior.
+     */
+    default Optional<ConnectorTableHandle> getTableHandleForDdl(
+            ConnectorSession session, String dbName, String tableName) {
+        return getTableHandle(session, dbName, tableName);
+    }
+
+    /** Checks existence without requiring the caller to retain a planning handle or read metadata. */
+    default boolean tableExists(ConnectorSession session, String dbName, String tableName) {
+        return getTableHandle(session, dbName, tableName).isPresent();
+    }
+
+    /**
      * Lists the system-table names supported for the given base table
      * (e.g. ["snapshots", "schemas", "options", "audit_log", "binlog"]).
      *

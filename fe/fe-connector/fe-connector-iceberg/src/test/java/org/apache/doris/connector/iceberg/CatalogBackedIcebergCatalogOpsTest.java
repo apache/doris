@@ -226,6 +226,29 @@ public class CatalogBackedIcebergCatalogOpsTest {
                 "listViews must not be called when view filtering is disabled");
     }
 
+    @Test
+    public void relationListingLoadsEachRemoteListOnceAndDeduplicatesViews() {
+        FakeIcebergViewCatalog catalog = new FakeIcebergViewCatalog();
+        catalog.tablesByNs.put(Namespace.of("db1"), Arrays.asList("t1", "v1", "t2"));
+        catalog.viewsByNs.put(Namespace.of("db1"), Arrays.asList("v1", "v2"));
+        IcebergCatalogOps ops = ops(catalog, true, false, true, Optional.empty());
+        Assertions.assertEquals(Arrays.asList("t1", "v1", "t2", "v2"), ops.listRelationNames("db1"));
+        Assertions.assertEquals(1, Collections.frequency(catalog.log, "listTables:db1"));
+        Assertions.assertEquals(1, Collections.frequency(catalog.log, "listViews:db1"));
+        catalog.viewsByNs.put(Namespace.of("db1"), Collections.singletonList("v3"));
+        Assertions.assertEquals(Arrays.asList("t1", "v1", "t2", "v3"), ops.listRelationNames("db1"),
+                "the combined listing must not introduce a long-lived view-name cache");
+    }
+
+    @Test
+    public void relationListingDoesNotAccessDisabledRestViews() {
+        FakeIcebergViewCatalog catalog = new FakeIcebergViewCatalog();
+        catalog.tablesByNs.put(Namespace.of("db1"), Arrays.asList("t1", "v1"));
+        IcebergCatalogOps ops = ops(catalog, true, false, false, Optional.empty());
+        Assertions.assertEquals(Arrays.asList("t1", "v1"), ops.listRelationNames("db1"));
+        Assertions.assertFalse(catalog.log.contains("listViews:db1"));
+    }
+
     // ---------------------------------------------------------------------
     // listViewNames / viewExists — the inverse of listTableNames' view subtraction (B0 view SPI)
     // ---------------------------------------------------------------------

@@ -589,6 +589,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ICEBERG_WRITE_TARGET_FILE_SIZE_BYTES = "iceberg_write_target_file_size_bytes";
     public static final String ENABLE_ICEBERG_MERGE_PARTITIONING = "enable_iceberg_merge_partitioning";
     public static final String ENABLE_PAIMON_WRITE_CHAR_PADDING = "enable_paimon_write_char_padding";
+    public static final String ENABLE_ICEBERG_INTERNAL_PARTITION_PRUNING =
+            "enable_iceberg_internal_partition_pruning";
 
     public static final String NUM_PARTITIONS_IN_BATCH_MODE = "num_partitions_in_batch_mode";
 
@@ -3734,6 +3736,11 @@ public class SessionVariable implements Serializable, Writable {
             options = {ICEBERG_PARTITION_OVERWRITE_MODE_STATIC, ICEBERG_PARTITION_OVERWRITE_MODE_DYNAMIC})
     public String icebergPartitionOverwriteMode = ICEBERG_PARTITION_OVERWRITE_MODE_STATIC;
 
+    @VarAttrDef.VarAttr(name = ENABLE_ICEBERG_INTERNAL_PARTITION_PRUNING,
+            description = "Enable Doris FE partition pruning for Iceberg scans. When disabled, ordinary scans "
+                    + "defer the Doris partition view and rely on Iceberg native file pruning. Materialized view "
+                    + "planning and partition metadata rules still require the full partition view.")
+    public boolean enableIcebergInternalPartitionPruning = false;
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
 
