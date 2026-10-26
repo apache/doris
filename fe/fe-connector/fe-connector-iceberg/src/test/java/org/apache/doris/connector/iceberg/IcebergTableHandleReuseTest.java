@@ -332,6 +332,64 @@ class IcebergTableHandleReuseTest {
         }
     }
 
+    @Test
+    void warmSnapshotPinFollowsRawTableAfterCapacityEviction() {
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("eviction-pin", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db1"));
+        Table table = catalog.createTable(ID, SCHEMA);
+        append(table, "first.parquet");
+        long firstSnapshot = table.currentSnapshot().snapshotId();
+        TableIdentifier otherId = TableIdentifier.of("db1", "t2");
+        Table other = catalog.createTable(otherId, SCHEMA);
+        RecordingIcebergCatalogOps ops = ops();
+        ops.table = table;
+        IcebergTableCache cache = new IcebergTableCache(3600, 1);
+        IcebergLatestSnapshotCache snapshots = new IcebergLatestSnapshotCache(3600, 1);
+        IcebergConnectorMetadata metadata = new IcebergConnectorMetadata(ops,
+                IcebergCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext(), snapshots, cache);
+        try {
+            TestStatementScope coldScope = new TestStatementScope();
+            ConnectorSession cold = session("cold-a", coldScope);
+            ConnectorTableHandle coldHandle = metadata.getTableHandle(cold, "db1", "t1").orElseThrow();
+            Assertions.assertEquals(firstSnapshot,
+                    metadata.beginQuerySnapshot(cold, coldHandle).orElseThrow().getSnapshotId());
+            coldScope.closeAll();
+
+            TestStatementScope warmScope = new TestStatementScope();
+            ConnectorSession warm = session("warm-a", warmScope);
+            ConnectorTableHandle warmHandle = metadata.getTableHandle(warm, "db1", "t1").orElseThrow();
+            Assertions.assertEquals(firstSnapshot,
+                    metadata.beginQuerySnapshot(warm, warmHandle).orElseThrow().getSnapshotId());
+            warmScope.closeAll();
+
+            ops.table = other;
+            TestStatementScope otherScope = new TestStatementScope();
+            metadata.getTableHandle(session("cold-b", otherScope), "db1", "t2").orElseThrow();
+            otherScope.closeAll();
+            Assertions.assertFalse(cache.contains(ID));
+
+            append(table, "second.parquet");
+            long secondSnapshot = table.currentSnapshot().snapshotId();
+            ops.table = catalog.loadTable(ID);
+            TestStatementScope refreshedScope = new TestStatementScope();
+            ConnectorSession refreshed = session("cold-a-again", refreshedScope);
+            ConnectorTableHandle refreshedHandle = metadata.getTableHandle(refreshed, "db1", "t1").orElseThrow();
+            Assertions.assertEquals(secondSnapshot,
+                    metadata.beginQuerySnapshot(refreshed, refreshedHandle).orElseThrow().getSnapshotId());
+            refreshedScope.closeAll();
+
+            TestStatementScope repeatScope = new TestStatementScope();
+            ConnectorSession repeat = session("warm-a-again", repeatScope);
+            ConnectorTableHandle repeatHandle = metadata.getTableHandle(repeat, "db1", "t1").orElseThrow();
+            Assertions.assertEquals(secondSnapshot,
+                    metadata.beginQuerySnapshot(repeat, repeatHandle).orElseThrow().getSnapshotId());
+            repeatScope.closeAll();
+        } finally {
+            cache.close();
+        }
+    }
+
     private static void append(Table table, String path) {
         table.newAppend().appendFile(DataFiles.builder(table.spec()).withPath(path).withFormat("PARQUET")
                 .withFileSizeInBytes(10).withRecordCount(1).build()).commit();

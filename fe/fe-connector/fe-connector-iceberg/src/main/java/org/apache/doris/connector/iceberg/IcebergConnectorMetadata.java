@@ -2713,13 +2713,13 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      * snapshot id (or {@code -1} for an empty table — iceberg DOES support MVCC, so it still pins, mirroring
      * paimon), and the LATEST schema id (NOT {@code currentSnapshot().schemaId()} — a schema-only change without
      * a new snapshot advances the schema while the snapshot's id lags; legacy reads {@code table.schema()
-     * .schemaId()}). An already frozen statement read takes precedence over the shared pin. Otherwise T08
-     * serves this through the per-catalog {@link IcebergLatestSnapshotCache}: within the TTL
-     * a HIT returns the cached pin without re-loading the table (saves the load I/O and keeps the snapshot
-     * STABLE across queries — the legacy with-cache catalog). The cached value carries BOTH ids atomically so a
-     * schema-only ALTER between two queries cannot skew snapshotId vs schemaId. A disabled cache
-     * ({@code meta.cache.iceberg.table.enable=false}, {@code ttl-second <= 0} or {@code capacity=0}) reads live
-     * every call (the legacy no-cache catalog).
+     * .schemaId()}). An already frozen statement read takes precedence. With a raw table cache, the pin comes
+     * from that same table generation: its eviction and the separate latest-snapshot cache can occur at
+     * different times, so consulting both could pair a current table with an older snapshot. Catalogs without
+     * a raw table cache use the per-catalog {@link IcebergLatestSnapshotCache}, which keeps a stable pin within
+     * its TTL. The pin carries BOTH ids atomically so a schema-only ALTER cannot skew snapshotId vs schemaId.
+     * A disabled cache ({@code meta.cache.iceberg.table.enable=false}, {@code ttl-second <= 0} or
+     * {@code capacity=0}) reads live every call (the legacy no-cache catalog).
      */
     @Override
     public Optional<ConnectorMvccSnapshot> beginQuerySnapshot(
@@ -2736,6 +2736,10 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             // A newer shared pin must not point outside that frozen metadata, nor may this reader publish its
             // old pin over the refreshed cache entry.
             pin = latestSnapshotPin(loadTable(session, iceHandle));
+        } else if (tableCache != null) {
+            // The table cache owns this generation. Its capacity eviction must evict the latest pin as well;
+            // the independently sized latestSnapshotCache cannot establish that relationship.
+            pin = loadLatestSnapshotPin(session, iceHandle);
         } else {
             pin = latestSnapshotCache != null
                     ? latestSnapshotCache.getOrLoad(id, () -> loadLatestSnapshotPin(session, iceHandle))
