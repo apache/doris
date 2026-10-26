@@ -18,15 +18,20 @@
 package org.apache.doris.alter;
 
 import org.apache.doris.binlog.BinlogTestUtils;
+import org.apache.doris.catalog.CatalogRecycleBin;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.RangePartitionInfo;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.UserException;
 import org.apache.doris.journal.JournalEntity;
@@ -41,12 +46,14 @@ import org.apache.doris.proto.Types.PStatus;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.transaction.TxnWriteSchemaSnapshot;
 
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -303,4 +310,187 @@ public class ChangelogColumnIdPreparerTest {
         Assertions.assertEquals(4, table.getBaseSchema().get(0).getUniqueId());
         Assertions.assertEquals(9, table.getBaseSchema().get(1).getUniqueId());
     }
+
+    @Test
+    public void testEmptyLegacyCatalogBootstrapAndReplay() throws Exception {
+        exerciseEmptyBootstrap(false, false, false);
+    }
+
+    @Test
+    public void testEmptyCatalogWithRecycledPartitionDoesNotBootstrap() throws Exception {
+        exerciseEmptyBootstrap(true, false, false);
+    }
+
+    @Test
+    public void testPartitionAddedBeforeBootstrapRejectsPreparation() throws Exception {
+        exerciseEmptyBootstrap(false, true, false);
+    }
+
+    @Test
+    public void testEmptyBootstrapPreservesExistingIdentityAndMaximum() throws Exception {
+        exerciseEmptyBootstrap(false, false, true);
+    }
+
+    private void exerciseEmptyBootstrap(boolean recycledPartition, boolean concurrentPartition,
+            boolean existingIdentity) throws Exception {
+        OlapTable fixture = table();
+        OlapTable original = new OlapTable(10, "legacy", fixture.getBaseSchema(), KeysType.DUP_KEYS,
+                new RangePartitionInfo(true, null, Arrays.asList(fixture.getBaseSchema().get(0))), null);
+        original.setBaseIndexId(11);
+        original.setIndexMeta(11, "legacy", fixture.getBaseSchema(), 7, 17,
+                (short) 1, TStorageType.COLUMN, KeysType.DUP_KEYS);
+        original.setEnableLightSchemaChange(false);
+        original.setChangelogConfig(fixture.getChangelogConfig());
+        if (existingIdentity) {
+            original.getBaseSchema().get(0).setUniqueId(4);
+            original.getBaseIndexMeta().setMaxColUniqueId(9);
+        }
+        int expectedKey = existingIdentity ? 4 : 0;
+        int expectedValue = existingIdentity ? 10 : 1;
+        MaterializedIndexMeta companion = new MaterializedIndexMeta(12, original.generateTableChangelogSchema(),
+                1, 18, (short) 1, TStorageType.COLUMN, KeysType.DUP_KEYS, null);
+        companion.initSchemaColumnUniqueId();
+        original.setChangelogIndexMeta(companion, "changelog");
+        OlapTable restored = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(original), OlapTable.class);
+        OlapTable table = Mockito.spy(restored);
+        if (concurrentPartition) {
+            Mockito.doAnswer(invocation -> {
+                invocation.callRealMethod();
+                Partition partition = Mockito.mock(Partition.class);
+                Mockito.when(partition.getId()).thenReturn(30L);
+                Mockito.when(partition.getName()).thenReturn("concurrent");
+                table.addTempPartition(partition);
+                return null;
+            }).when(table).writeLockOrDdlException();
+        }
+        Database db = Mockito.mock(Database.class);
+        Mockito.when(db.getId()).thenReturn(1L);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.isMaster()).thenReturn(true);
+        CatalogRecycleBin recycleBin = new CatalogRecycleBin();
+        if (recycledPartition) {
+            Partition partition = Mockito.mock(Partition.class);
+            Mockito.when(partition.getId()).thenReturn(40L);
+            Mockito.when(partition.getName()).thenReturn("recycled");
+            recycleBin.recyclePartition(1L, table.getId(), table.getName(), partition,
+                    null, null, null, null, false, false);
+        }
+        EditLog editLog = Mockito.mock(EditLog.class);
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
+        EditLog.EditLogItem item = Mockito.mock(EditLog.EditLogItem.class);
+        Mockito.when(editLog.logChangelogColumnIdentity(Mockito.any())).thenReturn(item);
+        Mockito.when(item.await()).thenAnswer(invocation -> {
+            Assertions.assertFalse(table.isWriteLockHeldByCurrentThread());
+            return 1L;
+        });
+        try (MockedStatic<Env> envMock = Mockito.mockStatic(Env.class);
+                MockedStatic<BackendServiceProxy> proxyMock = Mockito.mockStatic(BackendServiceProxy.class)) {
+            envMock.when(Env::getCurrentEnv).thenReturn(env);
+            envMock.when(Env::getCurrentRecycleBin).thenReturn(recycleBin);
+            if (recycledPartition || concurrentPartition) {
+                UserException error = Assertions.assertThrows(UserException.class,
+                        () -> ChangelogColumnIdPreparer.ensureReady(db, table));
+                Assertions.assertTrue(error.getMessage().contains(recycledPartition
+                        ? "recycled partitions still exist" : "Table schema or replicas changed"));
+                Assertions.assertEquals(-1, table.getBaseSchema().get(1).getUniqueId());
+                Mockito.verifyNoInteractions(editLog);
+            } else {
+                ChangelogColumnIdPreparer.ensureReady(db, table);
+                ChangelogColumnIdPreparer.ensureReady(db, table);
+                Assertions.assertEquals(expectedKey, table.getBaseSchema().get(0).getUniqueId());
+                Assertions.assertEquals(expectedValue, table.getBaseSchema().get(1).getUniqueId());
+                Assertions.assertEquals(expectedValue, table.getBaseIndexMeta().getMaxColUniqueId());
+                Assertions.assertEquals(8, table.getBaseSchemaVersion());
+                Assertions.assertFalse(table.getEnableLightSchemaChange());
+                Assertions.assertEquals(companion.getSchema(true), table.getIndexMetaByIndexId(12).getSchema(true));
+                Assertions.assertEquals(1, table.getIndexMetaByIndexId(12).getSchemaVersion());
+                Assertions.assertFalse(TxnWriteSchemaSnapshot.capture(table, false).getChangelogMappings().isEmpty());
+                ArgumentCaptor<ChangelogColumnIdentityInfo> journal =
+                        ArgumentCaptor.forClass(ChangelogColumnIdentityInfo.class);
+                Mockito.verify(editLog).logChangelogColumnIdentity(journal.capture());
+                Mockito.verify(item).await();
+                ChangelogColumnIdentityInfo replay = GsonUtils.GSON.fromJson(
+                        GsonUtils.GSON.toJson(journal.getValue()), ChangelogColumnIdentityInfo.class);
+                replay.apply(original);
+                replay.apply(original);
+                Assertions.assertEquals(expectedValue, original.getBaseSchema().get(1).getUniqueId());
+                Assertions.assertEquals(8, original.getBaseSchemaVersion());
+            }
+            proxyMock.verifyNoInteractions();
+        }
+    }
+
+    @Test
+    public void testExistingTemporaryPartitionDoesNotBootstrapFromEmptyFetch() throws Exception {
+        OlapTable table = table();
+        Partition partition = Mockito.mock(Partition.class);
+        Mockito.when(partition.getId()).thenReturn(30L);
+        Mockito.when(partition.getName()).thenReturn("temporary");
+        table.addTempPartition(partition);
+        Database db = Mockito.mock(Database.class);
+        Mockito.when(db.getId()).thenReturn(1L);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.isMaster()).thenReturn(true);
+        EditLog log = Mockito.mock(EditLog.class);
+        Mockito.when(env.getEditLog()).thenReturn(log);
+        try (MockedStatic<Env> envMock = Mockito.mockStatic(Env.class)) {
+            envMock.when(Env::getCurrentEnv).thenReturn(env);
+            UserException error = Assertions.assertThrows(UserException.class,
+                    () -> ChangelogColumnIdPreparer.ensureReady(db, table));
+            Assertions.assertTrue(error.getMessage().contains("Incomplete index coverage"));
+            Assertions.assertEquals(-1, table.getBaseSchema().get(0).getUniqueId());
+            Assertions.assertEquals(7, table.getBaseSchemaVersion());
+            Mockito.verifyNoInteractions(log);
+        }
+    }
+
+    @Test
+    public void testTabletWithoutReadableReplicaDoesNotBootstrap() throws Exception {
+        OlapTable table = table();
+        Tablet tablet = Mockito.mock(Tablet.class);
+        Mockito.when(tablet.getId()).thenReturn(100L);
+        MaterializedIndex index = Mockito.mock(MaterializedIndex.class);
+        Mockito.when(index.getId()).thenReturn(11L);
+        Mockito.when(index.getTablets()).thenReturn(Arrays.asList(tablet));
+        Partition partition = Mockito.mock(Partition.class);
+        Mockito.when(partition.getId()).thenReturn(30L);
+        Mockito.when(partition.getName()).thenReturn("unreadable");
+        Mockito.when(partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL, true))
+                .thenReturn(Arrays.asList(index));
+        table.addPartition(partition);
+        Database db = Mockito.mock(Database.class);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.isMaster()).thenReturn(true);
+        EditLog log = Mockito.mock(EditLog.class);
+        Mockito.when(env.getEditLog()).thenReturn(log);
+        try (MockedStatic<Env> envMock = Mockito.mockStatic(Env.class);
+                MockedStatic<BackendServiceProxy> proxyMock = Mockito.mockStatic(BackendServiceProxy.class)) {
+            envMock.when(Env::getCurrentEnv).thenReturn(env);
+            UserException error = Assertions.assertThrows(UserException.class,
+                    () -> ChangelogColumnIdPreparer.ensureReady(db, table));
+            Assertions.assertTrue(error.getMessage().contains("No readable replica"));
+            Assertions.assertEquals(-1, table.getBaseSchema().get(0).getUniqueId());
+            Mockito.verifyNoInteractions(log);
+            proxyMock.verifyNoInteractions();
+        }
+    }
+
+    @Test
+    public void testRecycledPartitionLookupSurvivesImageReload() throws Exception {
+        OlapTable table = table();
+        Partition partition = new Partition(40, "recycled",
+                new MaterializedIndex(11, MaterializedIndex.IndexState.NORMAL),
+                new HashDistributionInfo(1, table.getBaseSchema()));
+        CatalogRecycleBin bin = new CatalogRecycleBin();
+        Assertions.assertTrue(bin.recyclePartition(1L, table.getId(), table.getName(), partition,
+                null, null, new DataProperty(TStorageMedium.HDD), new ReplicaAllocation((short) 1), false, true));
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        bin.write(new DataOutputStream(bytes));
+        CatalogRecycleBin restored = CatalogRecycleBin.read(
+                new DataInputStream(new ByteArrayInputStream(bytes.toByteArray())));
+        Assertions.assertTrue(restored.hasRecycledPartitions(1L, table.getId()));
+        Assertions.assertFalse(restored.hasRecycledPartitions(2L, table.getId()));
+        Assertions.assertFalse(restored.hasRecycledPartitions(1L, table.getId() + 1));
+    }
+
 }
