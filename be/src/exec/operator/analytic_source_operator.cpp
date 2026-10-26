@@ -28,6 +28,7 @@
 #include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
+#include "core/pod_array.h"
 #include "exec/operator/operator.h"
 #include "exec/spill/spill_file.h"
 #include "exec/spill/spill_file_reader.h"
@@ -253,6 +254,10 @@ size_t AnalyticLocalState::_next_output_reserve_bytes(RuntimeState* state) const
     if (cut_block) {
         rows = std::min(rows, cut_block->rows() - cut_start);
     }
+    // A byte-wide PaddedPODArray gives a conservative row capacity for the fixed-width scalar
+    // buffers, including nullable/struct children. Padding can cross a power-of-two boundary:
+    // 65535 UInt8 values require 131072 bytes, so even 2 * rows would under-reserve the null map.
+    const size_t padded_rows = PaddedPODArray<UInt8>::allocated_bytes_for_elements(rows);
     size_t bytes = 0;
     if (cut_block && (cut_start != 0 || rows != cut_block->rows())) {
         // A retained Block is cut into the next output slice. Count the actual rows rather
@@ -261,7 +266,7 @@ size_t AnalyticLocalState::_next_output_reserve_bytes(RuntimeState* state) const
             if (!is_column_const(*column.column) && column.type->have_maximum_size_of_value()) {
                 // A nullable cut copies both its null map and nested fixed-width values,
                 // including values whose serialized NULL representation omits the nested bytes.
-                bytes += 2 * rows * column.type->get_size_of_value_in_memory();
+                bytes += padded_rows * column.type->get_size_of_value_in_memory();
             } else {
                 for (size_t row = cut_start; row < cut_start + rows; ++row) {
                     bytes += 2 * column.column->serialize_size_at(row);
@@ -272,13 +277,13 @@ size_t AnalyticLocalState::_next_output_reserve_bytes(RuntimeState* state) const
     for (size_t i = 0; i < batch->result_types.size(); ++i) {
         const auto& type = batch->result_types[i];
         if (type->have_maximum_size_of_value()) {
-            bytes += rows * type->get_size_of_value_in_memory();
+            bytes += padded_rows * type->get_size_of_value_in_memory();
         } else if (batch->partition_results[i]) {
             // One partition result may be repeated for every output row.
             bytes += rows * batch->partition_results[i]->byte_size();
         }
         if (batch->change_to_nullable_flags[i]) {
-            bytes += rows;
+            bytes += padded_rows;
         }
     }
     return bytes;

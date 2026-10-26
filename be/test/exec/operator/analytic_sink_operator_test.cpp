@@ -581,8 +581,11 @@ TEST_F(AnalyticSinkOperatorTest, SpillAdmissionIncludesFirstInMemoryResultColumn
         LockGuard lock(sink_local_state->_shared_state->buffer_mutex);
         sink_local_state->_shared_state->spill_batches.push(batch);
     }
+    // Result columns reserve padded, power-of-two storage before filling any rows.
+    auto result = ColumnInt64::create();
+    result->reserve(state->batch_size());
     EXPECT_EQ(source->get_reserve_mem_size(state.get()),
-              state->minimum_operator_memory_required_bytes() + 32 * 65535 * sizeof(int64_t));
+              state->minimum_operator_memory_required_bytes() + 32 * result->allocated_bytes());
 }
 
 TEST_F(AnalyticSinkOperatorTest, SpillAdmissionIncludesFirstAndNextInMemoryCuts) {
@@ -639,14 +642,15 @@ TEST_F(AnalyticSinkOperatorTest, SpillAdmissionCountsNullableFixedWidthCutStorag
         batch->blocks.push_back(std::move(block));
         source_local_state->_current_batch = batch;
 
-        const size_t rows = state->batch_size();
-        const size_t budget = source_local_state->_next_output_reserve_bytes(state.get());
-        size_t cut_bytes = 0;
-        for (const auto& input : batch->blocks.front()) {
-            cut_bytes += input.column->cut(0, rows)->allocated_bytes();
+        for (size_t rows : {1, 15, 16, 17, 31, 32, 33, 4095, 4096, 4097, 65535}) {
+            state->_batch_size = static_cast<int>(rows);
+            const size_t budget = source_local_state->_next_output_reserve_bytes(state.get());
+            size_t cut_bytes = 0;
+            for (const auto& input : batch->blocks.front()) {
+                cut_bytes += input.column->cut(0, rows)->allocated_bytes();
+            }
+            EXPECT_GE(budget, cut_bytes) << "rows=" << rows << ", mixed_nulls=" << mixed_nulls;
         }
-        EXPECT_EQ(budget, 2 * rows * columns * nullable_type->get_size_of_value_in_memory());
-        EXPECT_GE(budget, cut_bytes);
     }
 
     // A constant NULL remains one stored value after cut, not 65,535 nested Int64 values.
@@ -1642,9 +1646,11 @@ TEST_F(AnalyticSinkOperatorTest, SpillAdmissionReservesFirstWriteAndDropsEmptyEo
     ASSERT_TRUE(status.ok()) << status.to_string();
     ASSERT_TRUE(sink_local_state->_batch_store->is_spilled());
 
-    // The second Block remains staged below the default 32 MiB threshold but is large enough
-    // for PipelineTask's 512 KiB revoke floor.
-    Block second = ColumnHelper::create_block<DataTypeInt64>(values);
+    // 100000 Int64 values round up to 1 MiB and are written directly. Use 50000 values so the
+    // second Block stays below the write buffer limit but reaches PipelineTask's 512 KiB floor.
+    Block second = ColumnHelper::create_block<DataTypeInt64>(std::vector<int64_t>(50000, 1));
+    ASSERT_GE(second.allocated_bytes(), SpillFile::MIN_SPILL_WRITE_BATCH_MEM);
+    ASSERT_LT(second.allocated_bytes(), state->spill_buffer_size_bytes());
     status = sink->sink(state.get(), &second, false);
     ASSERT_TRUE(status.ok()) << status.to_string();
     EXPECT_GE(sink->revocable_mem_size(state.get()), SpillFile::MIN_SPILL_WRITE_BATCH_MEM);
@@ -1992,11 +1998,13 @@ TEST_F(AnalyticSinkOperatorTest, SpillPathKeepsSealedBatchBelowSinkLimitInMemory
         EXPECT_GT(batch_bytes, state->spill_min_revocable_mem());
     }
     EXPECT_EQ(spill_write_block_count(sink_local_state), 0);
-    // Replaying the in-memory batch opens no spill file, but still allocates one result column.
+    // Replaying opens no spill file, but cuts both input columns and allocates a result column.
     EXPECT_EQ(source_local_state->_spill_replay_reserve_bytes(state.get()), 0);
-    EXPECT_EQ(source->get_reserve_mem_size(state.get()),
-              state->minimum_operator_memory_required_bytes() +
-                      static_cast<size_t>(state->batch_size()) * sizeof(int64_t));
+    auto output_column = ColumnInt64::create();
+    output_column->reserve(state->batch_size());
+    EXPECT_EQ(
+            source->get_reserve_mem_size(state.get()),
+            state->minimum_operator_memory_required_bytes() + 3 * output_column->allocated_bytes());
 }
 
 TEST_F(AnalyticSinkOperatorTest, SpillPathSpillsAtAnalyticSinkMemLimit) {
