@@ -13272,6 +13272,8 @@ TEST(MetaServiceTest, StaleCommitRowset) {
 
 TEST(MetaServiceTest, StaleDeletePredicateCommitRowset) {
     auto meta_service = get_meta_service();
+    ASSERT_NO_FATAL_FAILURE(put_compute_instance(meta_service.get(), mock_instance, mock_cluster_id,
+                                                 "test_cloud_unique_id"));
 
     const bool old_recycle_key_check = config::enable_recycle_delete_rowset_key_check;
     const bool old_load_txn_status_check = config::enable_load_txn_status_check;
