@@ -2392,8 +2392,14 @@ bool OrcReader::_seek_to_read_one_line() {
         if (_row_ids.empty()) {
             return false;
         }
-        DBUG_EXECUTE_IF("OrcReader::rowid_seek.inject_error",
-                        { throw orc::ParseError("injected ORC RowID seek failure"); });
+        DBUG_EXECUTE_IF("OrcReader::rowid_seek.inject_error", {
+            // Unit tests inject a specific seek exception through the callback. The SQL
+            // regression uses the point without a callback and keeps the default failure.
+            if (dp->callback.has_value()) {
+                DBUG_RUN_CALLBACK();
+            }
+            throw orc::ParseError("injected ORC RowID seek failure");
+        });
         _row_reader->seekToRow(_row_ids.front());
         _row_ids.pop_front();
     }

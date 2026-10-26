@@ -47,6 +47,7 @@
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "testutil/desc_tbl_builder.h"
+#include "util/debug_points.h"
 namespace doris {
 class OrcReaderTest : public testing::Test {
 public:
@@ -442,73 +443,47 @@ TEST_F(OrcReaderTest, deletion_vector_filters_rows_without_query_conjuncts) {
 
 namespace {
 
-// Fail only after the ORC footer and row reader have been initialized. This makes the
-// exception originate from seekToRow's actual I/O, rather than from opening the file.
-class RowIdSeekInputStream : public orc::InputStream {
-public:
-    explicit RowIdSeekInputStream(io::IOContext* io_ctx)
-            : _input(orc::readLocalFile("./be/test/exec/test_data/orc_scanner/orders.orc")),
-              _io_ctx(io_ctx) {}
-
-    uint64_t getLength() const override { return _input->getLength(); }
-    uint64_t getNaturalReadSize() const override { return _input->getNaturalReadSize(); }
-    const std::string& getName() const override { return _input->getName(); }
-
-    void read(void* buf, uint64_t length, uint64_t offset) override {
-        if (_failure) {
-            ++failed_reads;
-            _failure();
-        }
-        _input->read(buf, length, offset);
-    }
-
-    void fail_reads(std::string message, bool cancel_on_read = false) {
-        _failure = [this, message = std::move(message), cancel_on_read] {
-            if (cancel_on_read) {
-                _io_ctx->should_stop = true;
-            }
-            throw orc::ParseError(message);
-        };
-    }
-
-    void fail_with_doris_exception() {
-        _failure = [] { throw Exception(ErrorCode::MEM_ALLOC_FAILED, "injected memory limit"); };
-    }
-
-    size_t failed_reads = 0;
-
-private:
-    std::unique_ptr<orc::InputStream> _input;
-    io::IOContext* _io_ctx;
-    std::function<void()> _failure;
-};
-
 class OrcRowIdSeekTest : public testing::TestWithParam<bool> {
 protected:
     void SetUp() override {
+        debug_points_enabled = config::enable_debug_points;
         range.path = "./be/test/exec/test_data/orc_scanner/orders.orc";
         reader = std::make_unique<OrcReader>(&profile, nullptr, params, range, 1, "UTC", &io_ctx,
                                              nullptr, GetParam());
-        auto stream = std::make_unique<RowIdSeekInputStream>(&io_ctx);
-        input = stream.get();
-        reader->_reader = orc::createReader(std::move(stream), orc::ReaderOptions());
+        reader->_reader = orc::createReader(orc::readLocalFile(range.path), orc::ReaderOptions());
         reader->_row_reader = reader->_reader->createRowReader(orc::RowReaderOptions());
+        reader->_batch = reader->_row_reader->createRowBatch(1);
         reader->_read_by_rows = true;
         reader->_row_ids = {1, 2};
         reader->_lazy_read_ctx.can_lazy_read = GetParam();
+    }
+
+    void TearDown() override {
+        DebugPoints::instance()->remove("OrcReader::rowid_seek.inject_error");
+        config::enable_debug_points = debug_points_enabled;
+    }
+
+    void fail_seek(std::function<void()> failure) {
+        config::enable_debug_points = true;
+        DebugPoints::instance()->add_with_callback("OrcReader::rowid_seek.inject_error",
+                                                   std::function<void()>([this, failure] {
+                                                       ++failed_seeks;
+                                                       failure();
+                                                   }));
     }
 
     TFileScanRangeParams params;
     TFileRangeDesc range;
     io::IOContext io_ctx;
     RuntimeProfile profile {"OrcRowIdSeekTest"};
-    RowIdSeekInputStream* input = nullptr;
+    bool debug_points_enabled = false;
+    size_t failed_seeks = 0;
     std::unique_ptr<OrcReader> reader;
 };
 
 TEST_P(OrcRowIdSeekTest, SeekIoFailureReturnsError) {
     const std::string message = "[NOT_FOUND] missing ORC file";
-    input->fail_reads(message);
+    fail_seek([message] { throw orc::ParseError(message); });
     Block block;
     size_t read_rows = 0;
     bool eof = false;
@@ -520,11 +495,14 @@ TEST_P(OrcRowIdSeekTest, SeekIoFailureReturnsError) {
     EXPECT_NE(status.to_string().find(message), std::string::npos);
     EXPECT_FALSE(eof);
     EXPECT_EQ(reader->_row_ids, (std::list<int64_t> {1, 2}));
-    EXPECT_EQ(input->failed_reads, 1);
+    EXPECT_EQ(failed_seeks, 1);
 }
 
 TEST_P(OrcRowIdSeekTest, CancellationDuringSeekReturnsEof) {
-    input->fail_reads("stop", true);
+    fail_seek([this] {
+        io_ctx.should_stop = true;
+        throw orc::ParseError("stop");
+    });
     Block block;
     size_t read_rows = 99;
     bool eof = false;
@@ -534,11 +512,11 @@ TEST_P(OrcRowIdSeekTest, CancellationDuringSeekReturnsEof) {
     EXPECT_TRUE(io_ctx.should_stop);
     EXPECT_TRUE(eof);
     EXPECT_EQ(read_rows, 0);
-    EXPECT_EQ(input->failed_reads, 1);
+    EXPECT_EQ(failed_seeks, 1);
 }
 
 TEST_P(OrcRowIdSeekTest, DorisExceptionsKeepTheirErrorCode) {
-    input->fail_with_doris_exception();
+    fail_seek([] { throw Exception(ErrorCode::MEM_ALLOC_FAILED, "injected memory limit"); });
     Block block;
     size_t read_rows = 0;
     bool eof = false;
@@ -548,34 +526,37 @@ TEST_P(OrcRowIdSeekTest, DorisExceptionsKeepTheirErrorCode) {
     } catch (const Exception& e) {
         EXPECT_EQ(e.code(), ErrorCode::MEM_ALLOC_FAILED);
     }
-    EXPECT_EQ(input->failed_reads, 1);
+    EXPECT_EQ(failed_seeks, 1);
 }
 
 TEST_P(OrcRowIdSeekTest, StopWithoutCancellationReturnsError) {
-    input->fail_reads("stop");
+    fail_seek([] { throw orc::ParseError("stop"); });
     Block block;
     size_t read_rows = 0;
     bool eof = false;
     const auto status = reader->get_next_block(&block, &read_rows, &eof);
     EXPECT_FALSE(status.ok());
     EXPECT_FALSE(eof);
-    EXPECT_EQ(input->failed_reads, 1);
+    EXPECT_EQ(failed_seeks, 1);
 }
 
 TEST_P(OrcRowIdSeekTest, CancellationDoesNotHideAnIoFailure) {
-    input->fail_reads("ORC read I/O failure", true);
+    fail_seek([this] {
+        io_ctx.should_stop = true;
+        throw orc::ParseError("ORC read I/O failure");
+    });
     Block block;
     size_t read_rows = 0;
     bool eof = false;
     const auto status = reader->get_next_block(&block, &read_rows, &eof);
     EXPECT_FALSE(status.ok());
     EXPECT_FALSE(eof);
-    EXPECT_EQ(input->failed_reads, 1);
+    EXPECT_EQ(failed_seeks, 1);
 }
 
 TEST_P(OrcRowIdSeekTest, EmptyRowIdsReturnZeroRowsAndEof) {
     reader->_row_ids.clear();
-    input->fail_reads("must not read");
+    fail_seek([] { throw orc::ParseError("must not seek"); });
     Block block;
     size_t read_rows = 99;
     bool eof = false;
@@ -583,7 +564,7 @@ TEST_P(OrcRowIdSeekTest, EmptyRowIdsReturnZeroRowsAndEof) {
     EXPECT_TRUE(status.ok()) << status;
     EXPECT_TRUE(eof);
     EXPECT_EQ(read_rows, 0);
-    EXPECT_EQ(input->failed_reads, 0);
+    EXPECT_EQ(failed_seeks, 0);
 }
 
 TEST_P(OrcRowIdSeekTest, NormalSeekConsumesOnlyTheRequestedRowId) {
@@ -596,7 +577,7 @@ TEST_P(OrcRowIdSeekTest, NormalSeekConsumesOnlyTheRequestedRowId) {
 
 TEST_P(OrcRowIdSeekTest, AlreadyCancelledDoesNotSeek) {
     io_ctx.should_stop = true;
-    input->fail_reads("must not read");
+    fail_seek([] { throw orc::ParseError("must not seek"); });
     Block block;
     size_t read_rows = 99;
     bool eof = false;
@@ -604,7 +585,7 @@ TEST_P(OrcRowIdSeekTest, AlreadyCancelledDoesNotSeek) {
     EXPECT_TRUE(status.ok()) << status;
     EXPECT_TRUE(eof);
     EXPECT_EQ(read_rows, 0);
-    EXPECT_EQ(input->failed_reads, 0);
+    EXPECT_EQ(failed_seeks, 0);
 }
 
 INSTANTIATE_TEST_SUITE_P(LazyAndNonLazy, OrcRowIdSeekTest, testing::Bool());
