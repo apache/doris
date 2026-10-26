@@ -63,24 +63,6 @@ public abstract class AbstractDelegatingS3Properties
             description = "The root path prefix inside the bucket.")
     protected String rootPath = "";
 
-    @ConnectorProperty(names = {SKIP_LIST_FOR_DETERMINISTIC_PATH}, required = false,
-            description = "Use HEAD requests for deterministic object paths.")
-    private String skipListForDeterministicPath = "true";
-
-    @ConnectorProperty(names = {HEAD_REQUEST_MAX_PATHS}, required = false,
-            description = "Maximum number of object keys to resolve with HEAD requests.")
-    private int headRequestMaxPaths = DEFAULT_HEAD_REQUEST_MAX_PATHS;
-
-    @Override
-    public String getSkipListForDeterministicPath() {
-        return skipListForDeterministicPath;
-    }
-
-    @Override
-    public int getHeadRequestMaxPaths() {
-        return headRequestMaxPaths;
-    }
-
     private final Map<String, String> rawProperties;
     private Map<String, String> matchedProperties = Collections.emptyMap();
 
@@ -129,9 +111,6 @@ public abstract class AbstractDelegatingS3Properties
                         "Property " + aliasPrefix + ".endpoint is required.")
                 .check(this::hasInvalidUsePathStyle,
                         "use_path_style must be true or false, got: '" + getUsePathStyle() + "'")
-                .check(this::hasInvalidSkipListForDeterministicPath,
-                        SKIP_LIST_FOR_DETERMINISTIC_PATH + " must be true or false")
-                .check(() -> headRequestMaxPaths < 0, HEAD_REQUEST_MAX_PATHS + " must be non-negative")
                 .check(() -> S3CompatSignals.hasAwsOnlyCredentialOptions(credentialProperties()),
                         displayName + " supports only HMAC access_key/secret_key credentials; "
                                 + "role_arn/instance-profile style options are not supported")
@@ -209,8 +188,6 @@ public abstract class AbstractDelegatingS3Properties
             String requested = S3CompatSignals.requestedCredentialsProviderType(credentialProperties());
             kv.put("AWS_CREDENTIALS_PROVIDER_TYPE", requested != null ? requested : "ANONYMOUS");
         }
-        kv.put(SKIP_LIST_FOR_DETERMINISTIC_PATH, getSkipListForDeterministicPath());
-        kv.put(HEAD_REQUEST_MAX_PATHS, String.valueOf(getHeadRequestMaxPaths()));
         customizeS3CompatibleKv(kv);
         return Collections.unmodifiableMap(kv);
     }

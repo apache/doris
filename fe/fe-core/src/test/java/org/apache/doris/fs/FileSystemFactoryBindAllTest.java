@@ -20,11 +20,16 @@ package org.apache.doris.fs;
 import org.apache.doris.common.Config;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.FileSystemType;
+import org.apache.doris.filesystem.Location;
 import org.apache.doris.filesystem.properties.FileSystemProperties;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.filesystem.properties.StorageKind;
 import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
+import org.apache.doris.filesystem.spi.ObjStorage;
+import org.apache.doris.filesystem.spi.RemoteObject;
+import org.apache.doris.filesystem.spi.RemoteObjects;
+import org.apache.doris.filesystem.spi.S3CompatibleFileSystem;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -33,12 +38,13 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.Mockito;
 
-import java.io.IOException;
+import java.lang.reflect.Field;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.TreeMap;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class FileSystemFactoryBindAllTest {
 
@@ -76,85 +82,80 @@ public class FileSystemFactoryBindAllTest {
 
     @ParameterizedTest
     @CsvSource({"true, true", "true, false", "false, true", "false, false"})
-    public void typedCreationPreservesProviderBoundAliasesAndRuntimeSnapshot(boolean cached, boolean skipList)
-            throws IOException {
-        S3CompatibleFileSystemProperties original = Mockito.mock(S3CompatibleFileSystemProperties.class);
-        S3CompatibleFileSystemProperties rebound = Mockito.mock(S3CompatibleFileSystemProperties.class);
-        Mockito.when(original.providerName()).thenReturn("CUSTOM_S3");
-        Map<String, String> raw = Map.of("s3.endpoint", "https://objects.example.com",
-                "S3.REGION", "us-east-1");
-        // The initial case-insensitive binding consumes the declared alias, while rawProperties
-        // retains the user's spelling in a plain map, as the real S3 property model does.
-        Mockito.when(original.rawProperties()).thenReturn(raw);
-        Mockito.when(original.matchedProperties()).thenReturn(Map.of(
-                "s3.region", "us-east-1", "s3_skip_list_for_deterministic_path", "true",
-                "s3_head_request_max_paths", "100"));
-        FileSystem expected = Mockito.mock(FileSystem.class);
-        Map<String, String> snapshot = FileSystemFactory.withRuntimeFileSystemProperties(
-                raw, skipList, 7);
-        FileSystemPluginManager manager = new FileSystemPluginManager();
-        manager.registerProvider(new FileSystemProvider<S3CompatibleFileSystemProperties>() {
-            @Override
-            public String name() {
-                return "CUSTOM_S3";
-            }
+    public void creationKeepsBindingAndReadsRuntimePolicyWithoutRecreatingStorage(boolean typed, boolean liveManager)
+            throws Exception {
+        S3CompatibleFileSystemProperties bound = Mockito.mock(S3CompatibleFileSystemProperties.class);
+        Mockito.when(bound.providerName()).thenReturn("CUSTOM_S3");
+        ObjStorage<?> storage = Mockito.mock(ObjStorage.class);
+        RemoteObject object = new RemoteObject("file.csv", "file.csv", null, 7L, 123L);
+        Mockito.when(storage.headObject("s3://bucket/file.csv")).thenReturn(object);
+        Mockito.when(storage.listObjectsWithOptions(Mockito.anyString(), Mockito.any()))
+                .thenReturn(new RemoteObjects(List.of(object), false, null));
+        S3CompatibleFileSystem expected = new S3CompatibleFileSystem(storage, false, Set.of("s3")) {};
+        AtomicInteger creates = new AtomicInteger();
+        FileSystemProvider<S3CompatibleFileSystemProperties> provider =
+                new FileSystemProvider<S3CompatibleFileSystemProperties>() {
+                    @Override
+                    public String name() {
+                        return "CUSTOM_S3";
+                    }
 
-            @Override
-            public boolean supports(Map<String, String> properties) {
-                Assertions.fail("An already-bound provider must not be reselected");
-                return false;
-            }
+                    @Override
+                    public boolean supports(Map<String, String> properties) {
+                        Assertions.assertFalse(typed, "Typed bindings must not trigger provider reselection");
+                        return true;
+                    }
 
-            @Override
-            public S3CompatibleFileSystemProperties bind(Map<String, String> properties) {
-                Assertions.assertEquals("us-east-1", properties.get("s3.region"));
-                Assertions.assertEquals("us-east-1", properties.get("S3.REGION"));
-                Assertions.assertEquals(String.valueOf(skipList), properties.get("s3_skip_list_for_deterministic_path"));
-                Assertions.assertEquals("7", properties.get("s3_head_request_max_paths"));
-                return rebound;
-            }
+                    @Override
+                    public S3CompatibleFileSystemProperties bind(Map<String, String> properties) {
+                        throw new AssertionError("The original typed binding must not be reparsed");
+                    }
 
-            @Override
-            public FileSystem create(S3CompatibleFileSystemProperties properties) {
-                Assertions.assertSame(rebound, properties);
-                return expected;
-            }
+                    @Override
+                    public FileSystem create(S3CompatibleFileSystemProperties properties) {
+                        Assertions.assertSame(bound, properties);
+                        creates.incrementAndGet();
+                        return expected;
+                    }
 
-            @Override
-            public FileSystem create(Map<String, String> properties) {
-                throw new AssertionError("Typed creation must preserve the original provider");
-            }
-        });
-        FileSystemFactory.initPluginManager(manager);
+                    @Override
+                    public FileSystem create(Map<String, String> properties) {
+                        Assertions.assertFalse(properties.containsKey("s3_head_request_max_paths"));
+                        creates.incrementAndGet();
+                        return expected;
+                    }
+                };
+        if (liveManager) {
+            FileSystemPluginManager manager = new FileSystemPluginManager();
+            manager.registerProvider(provider);
+            FileSystemFactory.initPluginManager(manager);
+        } else {
+            Field providers = FileSystemFactory.class.getDeclaredField("cachedProviders");
+            providers.setAccessible(true);
+            providers.set(null, List.of(provider));
+        }
         boolean oldSkipList = Config.s3_skip_list_for_deterministic_path;
         int oldMaxPaths = Config.s3_head_request_max_paths;
-        try {
-            Config.s3_skip_list_for_deterministic_path = cached ? !skipList : skipList;
-            Config.s3_head_request_max_paths = cached ? 100 : 7;
-            Assertions.assertSame(expected,
-                    cached ? FileSystemFactory.getFileSystemWithEffectiveProperties(original, snapshot)
-                            : FileSystemFactory.getFileSystem(original));
-            Assertions.assertFalse(snapshot.containsKey("s3.region"), "Rebinding must not mutate the cache snapshot");
+        try (FileSystem fs = typed ? FileSystemFactory.getFileSystem(bound)
+                : FileSystemFactory.getFileSystem(Map.of())) {
+            Assertions.assertSame(expected, fs);
+            Config.s3_skip_list_for_deterministic_path = true;
+            for (int boundValue : new int[] {100, 0, -1, 200}) {
+                Config.s3_head_request_max_paths = boundValue;
+                Assertions.assertEquals(123L, fs.globListWithLimit(
+                        Location.of("s3://bucket/file.csv"), null, 0, 0).getFiles().get(0).modificationTime());
+            }
+            Config.s3_skip_list_for_deterministic_path = false;
+            fs.globListWithLimit(Location.of("s3://bucket/file.csv"), null, 0, 0);
+            Assertions.assertEquals(1, creates.get());
+            Mockito.verify(storage, Mockito.times(2)).headObject("s3://bucket/file.csv");
+            Mockito.verify(storage, Mockito.times(3)).listObjectsWithOptions(Mockito.anyString(), Mockito.any());
+            Mockito.verify(storage, Mockito.never()).close();
         } finally {
             Config.s3_skip_list_for_deterministic_path = oldSkipList;
             Config.s3_head_request_max_paths = oldMaxPaths;
         }
-    }
-
-    @Test
-    public void runtimeOverlayPreservesCaseInsensitiveLookup() {
-        Map<String, String> raw = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
-        raw.put("S3.REGION", "us-east-1");
-        raw.put("S3_SKIP_LIST_FOR_DETERMINISTIC_PATH", "true");
-        raw.put("S3_HEAD_REQUEST_MAX_PATHS", "100");
-
-        Map<String, String> effective = FileSystemFactory.withRuntimeFileSystemProperties(raw, false, 7);
-
-        Assertions.assertEquals("us-east-1", effective.get("s3.region"));
-        Assertions.assertEquals("false", effective.get("S3_SKIP_LIST_FOR_DETERMINISTIC_PATH"));
-        Assertions.assertEquals("7", effective.get("S3_HEAD_REQUEST_MAX_PATHS"));
-        Assertions.assertEquals("true", raw.get("s3_skip_list_for_deterministic_path"));
-        Assertions.assertEquals("100", raw.get("s3_head_request_max_paths"));
+        Mockito.verify(storage).close();
     }
 
     private static FileSystemProvider<FileSystemProperties> supportingProvider(FileSystemProperties bound) {

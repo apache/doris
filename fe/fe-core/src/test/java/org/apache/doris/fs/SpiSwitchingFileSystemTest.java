@@ -38,11 +38,11 @@ import org.mockito.Mockito;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -56,8 +56,7 @@ public class SpiSwitchingFileSystemTest {
     private final FileSystem mockDelegate = Mockito.mock(FileSystem.class);
 
     /**
-     * H2: When {@link FileSystemFactory#getFileSystemWithEffectiveProperties(FileSystemProperties, Map)} throws
-     * {@link IOException},
+     * H2: When {@link FileSystemFactory#getFileSystem(FileSystemProperties)} throws {@link IOException},
      * {@link SpiSwitchingFileSystem#forPath(String)} must rethrow it as {@link IOException},
      * not as {@link RuntimeException}.
      *
@@ -75,8 +74,6 @@ public class SpiSwitchingFileSystemTest {
         try (MockedStatic<LocationPath> mockedLocationPath = Mockito.mockStatic(LocationPath.class, Mockito.CALLS_REAL_METHODS);
                 MockedStatic<FileSystemFactory> mockedFactory =
                         Mockito.mockStatic(FileSystemFactory.class)) {
-            mockedFactory.when(() -> FileSystemFactory.withRuntimeFileSystemProperties(
-                    Mockito.anyMap(), Mockito.anyBoolean(), Mockito.anyInt())).thenCallRealMethod();
             // Mock LocationPath.ofAdapters() so it returns a LocationPath with a non-null
             // StorageAdapter, allowing execution to reach FileSystemFactory.getFileSystem().
             mockedLocationPath.when(() -> LocationPath.ofAdapters(Mockito.anyString(), Mockito.anyMap()))
@@ -86,8 +83,8 @@ public class SpiSwitchingFileSystemTest {
                     });
 
             // Mock FileSystemFactory to throw IOException — this is the scenario under test.
-            mockedFactory.when(() -> FileSystemFactory.getFileSystemWithEffectiveProperties(
-                            Mockito.any(FileSystemProperties.class), Mockito.anyMap()))
+            mockedFactory.when(() -> FileSystemFactory.getFileSystem(
+                            Mockito.any(FileSystemProperties.class)))
                     .thenThrow(rootCause);
 
             SpiSwitchingFileSystem spiFs = new SpiSwitchingFileSystem(Collections.emptyMap());
@@ -113,6 +110,34 @@ public class SpiSwitchingFileSystemTest {
         SpiSwitchingFileSystem spiFs = new SpiSwitchingFileSystem(mockDelegate);
         FileSystem result = spiFs.forPath("s3://bucket/key");
         Assertions.assertSame(mockDelegate, result, "Test-delegate constructor must return the injected delegate");
+    }
+
+    @Test
+    public void testHeadPolicyChangesReuseOneDelegateAndCloseItOnce() throws IOException {
+        StorageAdapter adapter = Mockito.mock(StorageAdapter.class);
+        FileSystemProperties properties = Mockito.mock(S3CompatibleFileSystemProperties.class);
+        Mockito.when(adapter.getSpiProperties()).thenReturn(properties);
+        boolean oldSkipList = Config.s3_skip_list_for_deterministic_path;
+        int oldMaxPaths = Config.s3_head_request_max_paths;
+        try (MockedStatic<LocationPath> paths = Mockito.mockStatic(LocationPath.class, Mockito.CALLS_REAL_METHODS);
+                MockedStatic<FileSystemFactory> factory = Mockito.mockStatic(FileSystemFactory.class)) {
+            paths.when(() -> LocationPath.ofAdapters(Mockito.anyString(), Mockito.anyMap()))
+                    .thenAnswer(inv -> LocationPath.ofDirect(inv.getArgument(0), "s3", "s3://bucket", adapter));
+            factory.when(() -> FileSystemFactory.getFileSystem(properties)).thenReturn(mockDelegate);
+            try (SpiSwitchingFileSystem fs = new SpiSwitchingFileSystem(Collections.emptyMap())) {
+                for (int maxPaths : new int[] {100, 200, 0, -1}) {
+                    Config.s3_skip_list_for_deterministic_path = maxPaths > 0;
+                    Config.s3_head_request_max_paths = maxPaths;
+                    Assertions.assertSame(mockDelegate, fs.forPath("s3://bucket/file.csv"));
+                }
+                factory.verify(() -> FileSystemFactory.getFileSystem(properties), Mockito.times(1));
+                Mockito.verify(mockDelegate, Mockito.never()).close();
+            }
+            Mockito.verify(mockDelegate).close();
+        } finally {
+            Config.s3_skip_list_for_deterministic_path = oldSkipList;
+            Config.s3_head_request_max_paths = oldMaxPaths;
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -145,8 +170,8 @@ public class SpiSwitchingFileSystemTest {
         };
 
         // Two distinct adapter instances — the cache is identity-keyed per configured storage.
-        injectIntoCache(spiFs, mockStorageAdapter(), countingFs);
-        injectIntoCache(spiFs, mockStorageAdapter(), countingFs);
+        injectIntoCache(spiFs, Mockito.mock(StorageAdapter.class), countingFs);
+        injectIntoCache(spiFs, Mockito.mock(StorageAdapter.class), countingFs);
 
         spiFs.close();
 
@@ -168,7 +193,7 @@ public class SpiSwitchingFileSystemTest {
             }
         };
 
-        injectIntoCache(spiFs, mockStorageAdapter(), countingFs);
+        injectIntoCache(spiFs, Mockito.mock(StorageAdapter.class), countingFs);
 
         spiFs.close(); // first close — should close the cached FS
         spiFs.close(); // second close — must be a no-op
@@ -201,8 +226,8 @@ public class SpiSwitchingFileSystemTest {
         };
 
         // Two distinct adapter instances — the cache is identity-keyed per configured storage.
-        injectIntoCache(spiFs, mockStorageAdapter(), failingFs1);
-        injectIntoCache(spiFs, mockStorageAdapter(), failingFs2);
+        injectIntoCache(spiFs, Mockito.mock(StorageAdapter.class), failingFs1);
+        injectIntoCache(spiFs, Mockito.mock(StorageAdapter.class), failingFs2);
 
         try {
             spiFs.close();
@@ -219,44 +244,6 @@ public class SpiSwitchingFileSystemTest {
             } else {
                 Assertions.assertSame(ex1, suppressed, "First exception must be suppressed");
             }
-        }
-    }
-
-    @Test
-    public void testS3CompatibleCacheKeyIncludesRuntimeConfigSnapshot() {
-        boolean oldSkipList = Config.s3_skip_list_for_deterministic_path;
-        int oldHeadRequestMaxPaths = Config.s3_head_request_max_paths;
-        try {
-            StorageAdapter s3Properties = s3Properties();
-            Config.s3_skip_list_for_deterministic_path = true;
-            Config.s3_head_request_max_paths = 100;
-            SpiSwitchingFileSystem.SwitchingFileSystemCacheKey first =
-                    new SpiSwitchingFileSystem.SwitchingFileSystemCacheKey(s3Properties);
-
-            Config.s3_skip_list_for_deterministic_path = false;
-            Config.s3_head_request_max_paths = 0;
-            SpiSwitchingFileSystem.SwitchingFileSystemCacheKey second =
-                    new SpiSwitchingFileSystem.SwitchingFileSystemCacheKey(s3Properties);
-
-            Assertions.assertNotEquals(first, second);
-            Assertions.assertEquals("true",
-                    first.getEffectiveProperties().get("s3_skip_list_for_deterministic_path"));
-            Assertions.assertEquals("100",
-                    first.getEffectiveProperties().get("s3_head_request_max_paths"));
-            Assertions.assertEquals("false",
-                    second.getEffectiveProperties().get("s3_skip_list_for_deterministic_path"));
-            Assertions.assertEquals("0",
-                    second.getEffectiveProperties().get("s3_head_request_max_paths"));
-
-            Config.s3_skip_list_for_deterministic_path = true;
-            Config.s3_head_request_max_paths = 5;
-            Assertions.assertEquals("false",
-                    second.getEffectiveProperties().get("s3_skip_list_for_deterministic_path"));
-            Assertions.assertEquals("0",
-                    second.getEffectiveProperties().get("s3_head_request_max_paths"));
-        } finally {
-            Config.s3_skip_list_for_deterministic_path = oldSkipList;
-            Config.s3_head_request_max_paths = oldHeadRequestMaxPaths;
         }
     }
 
@@ -282,8 +269,6 @@ public class SpiSwitchingFileSystemTest {
                 Mockito.mockStatic(LocationPath.class, Mockito.CALLS_REAL_METHODS);
                 MockedStatic<FileSystemFactory> mockedFactory =
                         Mockito.mockStatic(FileSystemFactory.class)) {
-            mockedFactory.when(() -> FileSystemFactory.withRuntimeFileSystemProperties(
-                    Mockito.anyMap(), Mockito.anyBoolean(), Mockito.anyInt())).thenCallRealMethod();
             // Simulate the fallback: cos:// path served by an S3-typed storage whose
             // validateAndNormalizeUri rewrote the scheme prefix to s3://.
             mockedLocationPath.when(() -> LocationPath.ofAdapters(Mockito.anyString(), Mockito.anyMap()))
@@ -292,8 +277,8 @@ public class SpiSwitchingFileSystemTest {
                         String normalized = "s3://" + location.substring("cos://".length());
                         return LocationPath.ofDirect(normalized, "cos", "s3://bucket", s3Props);
                     });
-            mockedFactory.when(() -> FileSystemFactory.getFileSystemWithEffectiveProperties(
-                            Mockito.any(FileSystemProperties.class), Mockito.anyMap()))
+            mockedFactory.when(() -> FileSystemFactory.getFileSystem(
+                            Mockito.any(FileSystemProperties.class)))
                     .thenReturn(fake);
 
             SpiSwitchingFileSystem spiFs = new SpiSwitchingFileSystem(Collections.emptyMap());
@@ -343,16 +328,14 @@ public class SpiSwitchingFileSystemTest {
                 Mockito.mockStatic(LocationPath.class, Mockito.CALLS_REAL_METHODS);
                 MockedStatic<FileSystemFactory> mockedFactory =
                         Mockito.mockStatic(FileSystemFactory.class)) {
-            mockedFactory.when(() -> FileSystemFactory.withRuntimeFileSystemProperties(
-                    Mockito.anyMap(), Mockito.anyBoolean(), Mockito.anyInt())).thenCallRealMethod();
             mockedLocationPath.when(() -> LocationPath.ofAdapters(Mockito.anyString(), Mockito.anyMap()))
                     .thenAnswer(inv -> {
                         String location = inv.getArgument(0);
                         String normalized = "s3://" + location.substring("cos://".length());
                         return LocationPath.ofDirect(normalized, "cos", "s3://bucket", cosProps);
                     });
-            mockedFactory.when(() -> FileSystemFactory.getFileSystemWithEffectiveProperties(
-                            Mockito.any(FileSystemProperties.class), Mockito.anyMap()))
+            mockedFactory.when(() -> FileSystemFactory.getFileSystem(
+                            Mockito.any(FileSystemProperties.class)))
                     .thenReturn(fake);
 
             SpiSwitchingFileSystem spiFs = new SpiSwitchingFileSystem(Collections.emptyMap());
@@ -376,15 +359,13 @@ public class SpiSwitchingFileSystemTest {
                 Mockito.mockStatic(LocationPath.class, Mockito.CALLS_REAL_METHODS);
                 MockedStatic<FileSystemFactory> mockedFactory =
                         Mockito.mockStatic(FileSystemFactory.class)) {
-            mockedFactory.when(() -> FileSystemFactory.withRuntimeFileSystemProperties(
-                    Mockito.anyMap(), Mockito.anyBoolean(), Mockito.anyInt())).thenCallRealMethod();
             mockedLocationPath.when(() -> LocationPath.ofAdapters(Mockito.anyString(), Mockito.anyMap()))
                     .thenAnswer(inv -> {
                         String location = inv.getArgument(0);
                         return LocationPath.ofDirect(location, "s3", "s3://bucket", minioProps);
                     });
-            mockedFactory.when(() -> FileSystemFactory.getFileSystemWithEffectiveProperties(
-                            Mockito.any(FileSystemProperties.class), Mockito.anyMap()))
+            mockedFactory.when(() -> FileSystemFactory.getFileSystem(
+                            Mockito.any(FileSystemProperties.class)))
                     .thenReturn(fake);
 
             SpiSwitchingFileSystem spiFs = new SpiSwitchingFileSystem(Collections.emptyMap());
@@ -406,28 +387,9 @@ public class SpiSwitchingFileSystemTest {
             StorageAdapter key, FileSystem value) throws Exception {
         Field cacheField = SpiSwitchingFileSystem.class.getDeclaredField("cache");
         cacheField.setAccessible(true);
-        Map<SpiSwitchingFileSystem.SwitchingFileSystemCacheKey, FileSystem> cache =
-                (Map<SpiSwitchingFileSystem.SwitchingFileSystemCacheKey, FileSystem>) cacheField.get(spiFs);
-        cache.put(new SpiSwitchingFileSystem.SwitchingFileSystemCacheKey(key), value);
-    }
-
-    private static StorageAdapter mockStorageAdapter() {
-        StorageAdapter adapter = Mockito.mock(StorageAdapter.class);
-        Mockito.when(adapter.getOrigProps()).thenReturn(Map.of());
-        return adapter;
-    }
-
-    private static StorageAdapter s3Properties() {
-        Map<String, String> raw = new HashMap<>();
-        raw.put("fs.s3.support", "true");
-        raw.put("s3.endpoint", "https://minio.local");
-        raw.put("s3.region", "us-west-2");
-        raw.put("s3.access_key", "ak");
-        raw.put("s3.secret_key", "sk");
-        StorageAdapter adapter = Mockito.mock(StorageAdapter.class);
-        Mockito.when(adapter.getOrigProps()).thenReturn(raw);
-        Mockito.when(adapter.getSpiProperties()).thenReturn(Mockito.mock(S3CompatibleFileSystemProperties.class));
-        return adapter;
+        Map<StorageAdapter, FileSystem> cache =
+                (ConcurrentHashMap<StorageAdapter, FileSystem>) cacheField.get(spiFs);
+        cache.put(key, value);
     }
 
     /**

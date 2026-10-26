@@ -22,8 +22,10 @@ suite("test_s3_tvf_skip_list_for_deterministic_path", "p0,external") {
     String region = getS3Region()
     String bucket = context.config.otherConfigs.get("s3BucketName")
 
+    // Missing keys can return HEAD 403 when ListBucket is denied. Keep this fixture focused on
+    // reading an existing exact path; unit tests cover missing keys and HEAD failure fallback.
     order_qt_select """ select * from S3 (
-                "uri" = "s3://${bucket}/dir_deny_list_objects/{test_s3_tvf_skip_list_for_exact_path.csv,missing.csv}",
+                "uri" = "s3://${bucket}/dir_deny_list_objects/test_s3_tvf_skip_list_for_exact_path.csv",
                 "format" = "csv",
                 "column_separator" = ",",
                 "csv_schema" = "k1:int;k2:string",

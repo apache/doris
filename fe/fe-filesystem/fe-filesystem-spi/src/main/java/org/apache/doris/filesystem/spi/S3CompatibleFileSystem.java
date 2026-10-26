@@ -24,7 +24,6 @@ import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileIterator;
 import org.apache.doris.filesystem.GlobListing;
 import org.apache.doris.filesystem.Location;
-import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -37,7 +36,9 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 
 /**
@@ -59,29 +60,32 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
     // Object stores do not have real directories; use a zero-byte marker with trailing slash.
     private static final String DIR_MARKER_SUFFIX = "/";
 
-    private final boolean skipListForDeterministicPath;
-    private final int maxDeterministicHeadPaths;
+    /** Per-call HEAD policy; non-positive bounds disable the optimization, as in legacy S3. */
+    public record DeterministicPathOptions(boolean enabled, int maxPaths) {
+    }
+
+    private static final DeterministicPathOptions DEFAULT_DETERMINISTIC_PATH_OPTIONS =
+            new DeterministicPathOptions(true, 100);
+    private volatile Supplier<DeterministicPathOptions> deterministicPathOptions =
+            () -> DEFAULT_DETERMINISTIC_PATH_OPTIONS;
 
     private final boolean usePathStyle;
     private final Set<String> supportedSchemes;
 
     protected S3CompatibleFileSystem(ObjStorage<?> objStorage, boolean usePathStyle,
             Set<String> supportedSchemes) {
-        this(objStorage, usePathStyle, supportedSchemes, true,
-                S3CompatibleFileSystemProperties.DEFAULT_HEAD_REQUEST_MAX_PATHS);
-    }
-
-    protected S3CompatibleFileSystem(ObjStorage<?> objStorage, boolean usePathStyle,
-            Set<String> supportedSchemes, boolean skipListForDeterministicPath, int maxDeterministicHeadPaths) {
         super(objStorage);
-        if (maxDeterministicHeadPaths < 0) {
-            throw new IllegalArgumentException(
-                    "maxDeterministicHeadPaths must be greater than or equal to 0");
-        }
         this.usePathStyle = usePathStyle;
         this.supportedSchemes = supportedSchemes;
-        this.skipListForDeterministicPath = skipListForDeterministicPath;
-        this.maxDeterministicHeadPaths = maxDeterministicHeadPaths;
+    }
+
+    /**
+     * Supplies mutable host settings without rebuilding cached storage clients or rebinding
+     * provider properties. The supplier must be thread-safe and perform no I/O; each glob call
+     * reads it once so its entire listing uses the same policy.
+     */
+    public void setDeterministicPathOptionsSupplier(Supplier<DeterministicPathOptions> supplier) {
+        deterministicPathOptions = Objects.requireNonNull(supplier, "supplier");
     }
 
     @Override
@@ -889,7 +893,10 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
             return null;
         }
         List<String> expanded = ObjectStorageGlob.expandGlobKeys(pattern, maxPaths);
-        if (expanded == null || expanded.stream().anyMatch(key -> key.isEmpty() || key.endsWith(DIR_MARKER_SUFFIX))) {
+        // ObjectStorageUri strips leading key slashes. Such expansions must use LIST, otherwise
+        // a HEAD for "/foo.csv" would select the different object "foo.csv".
+        if (expanded == null || expanded.stream().anyMatch(key -> key.isEmpty()
+                || key.startsWith(DIR_MARKER_SUFFIX) || key.endsWith(DIR_MARKER_SUFFIX))) {
             return null;
         }
         List<String> keys = new ArrayList<>(new LinkedHashSet<>(expanded));
@@ -945,15 +952,17 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
 
         String expandedKeyPattern = ObjectStorageGlob.expandNumericRanges(keyPattern);
         Pattern matcher = Pattern.compile(globToRegex(expandedKeyPattern));
+        String listPrefix = globListPrefix(expandedKeyPattern);
         // Preserve #60414's eligibility: path-style addressing and incremental/limited reads
         // must keep LIST semantics. Even an empty, non-null cursor selects the LIST path.
-        if (skipListForDeterministicPath && !usePathStyle
+        DeterministicPathOptions options = deterministicPathOptions.get();
+        if (options.enabled() && !usePathStyle
                 && maxBytes <= 0 && maxFiles <= 0 && startAfter == null) {
             try {
                 List<String> deterministicKeys = expandDeterministicKeyPattern(
-                        keyPattern, maxDeterministicHeadPaths);
+                        keyPattern, options.maxPaths());
                 if (deterministicKeys != null) {
-                    return globListDeterministicKeys(bucket, longestNonGlobPrefix(keyPattern), base,
+                    return globListDeterministicKeys(bucket, listPrefix, base,
                             deterministicKeys, matcher);
                 }
             } catch (IOException | RuntimeException e) {
@@ -966,7 +975,6 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
         // route through java.nio.file.Paths because (a) on Windows the filesystem
         // separator is '\' which would corrupt object storage keys, and (b) Paths.get rejects keys
         // containing characters illegal in the host OS path syntax (':', '\', etc.).
-        String listPrefix = globListPrefix(expandedKeyPattern);
         List<String> listPrefixes = globListPrefixes(expandedKeyPattern, listPrefix);
 
         List<FileEntry> files = new ArrayList<>();

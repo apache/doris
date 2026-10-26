@@ -3426,7 +3426,7 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, description = "Maximum number of deterministic S3 keys to resolve with HEAD "
             + "requests instead of ListObjects. "
             + "If expanding a deterministic path pattern exceeds this value, fall back to ListObjects. "
-            + "Set to 0 to disable the HEAD fast path.")
+            + "Set to a non-positive value to disable the HEAD fast path.")
     public static int s3_head_request_max_paths = 100;
     @ConfField(mutable = true, description = "The host suffix whitelist for Azure endpoints (both blob and dfs), "
             + "separated by commas. The default value is "
