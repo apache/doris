@@ -395,6 +395,13 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      */
     public void setSelectedPartitions(SelectedPartitions selectedPartitions) {
         this.selectedPartitions = selectedPartitions;
+        // Streaming starts before getSplits(); publish both exact and unknown counts at this common
+        // injection boundary, including the eager fallback used by partition-aware SQL block rules.
+        long[] partitionCounts = displayPartitionCounts(selectedPartitions);
+        if (partitionCounts != null) {
+            this.selectedPartitionNum = partitionCounts[0];
+            this.totalPartitionNum = partitionCounts[1];
+        }
     }
 
     /**
@@ -488,6 +495,9 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     static long[] displayPartitionCounts(SelectedPartitions selectedPartitions) {
         if (selectedPartitions == null || selectedPartitions == SelectedPartitions.NOT_PRUNED) {
             return null;
+        }
+        if (selectedPartitions.isNativePlanning()) {
+            return new long[] {-1, -1};
         }
         return new long[] {
                 selectedPartitions.selectedPartitions.size(), selectedPartitions.totalPartitionNum};
@@ -687,8 +697,12 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             // parent's body wholesale (custom TABLE/QUERY/PREDICATES format), so it must re-emit the
             // line itself; the counts are populated from the Nereids pruning result in
             // getSplits()/startSplit() (see setSelectedPartitions).
-            output.append(prefix).append("partition=").append(selectedPartitionNum)
-                    .append("/").append(totalPartitionNum).append("\n");
+            if (totalPartitionNum < 0) {
+                output.append(prefix).append("partition=unknown (native planning)\n");
+            } else {
+                output.append(prefix).append("partition=").append(selectedPartitionNum)
+                        .append("/").append(totalPartitionNum).append("\n");
+            }
             // FIX-E / FIX-R3-RESIDUAL (explain gap): the VERBOSE per-backend block (the backends: list,
             // per-file "path start/length" lines, and dataFileNum/deleteFileNum/deleteSplitNum) lives in
             // the parent FileScanNode but this override does not call super, so re-emit it under the SAME
@@ -1991,6 +2005,11 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             long estimate = onPluginClassLoader(scanProvider, () -> scanProvider.streamingSplitEstimate(
                     connectorSession, currentHandle, buildRemainingFilter(), countPushdown));
             if (estimate >= 0) {
+                // Streaming does not know the final scanned-partition count before dispatch. Partition
+                // rules need that count now; use synchronous planning, which publishes the connector count.
+                if (org.apache.doris.catalog.Env.getCurrentEnv().getSqlBlockRuleMgr().hasPartitionMetadataRules()) {
+                    return false;
+                }
                 streamingSplitEstimate = estimate;
                 streamingBatch = true;
                 return true;

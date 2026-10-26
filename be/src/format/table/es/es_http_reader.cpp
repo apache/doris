@@ -19,9 +19,7 @@
 
 #include <gen_cpp/PlanNodes_types.h>
 
-#include <algorithm>
-#include <cctype>
-#include <sstream>
+#include <utility>
 
 #include "format/table/es/es_scan_reader.h"
 #include "format/table/es/es_scroll_parser.h"
@@ -29,7 +27,6 @@
 #include "runtime/descriptors.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
-#include "service/backend_options.h"
 
 namespace doris {
 
@@ -65,29 +62,7 @@ void EsHttpReader::_init_profile() {
 }
 
 std::string EsHttpReader::_extract_hostname(std::string host) {
-    auto scheme_end = host.find("://");
-    if (scheme_end != std::string::npos) {
-        host = host.substr(scheme_end + 3);
-    }
-
-    if (!host.empty() && host.front() == '[') {
-        auto bracket_end = host.find(']');
-        if (bracket_end != std::string::npos) {
-            return host.substr(1, bracket_end - 1);
-        }
-        return host;
-    }
-
-    auto colon = host.rfind(':');
-    if (colon == std::string::npos) {
-        return host;
-    }
-    std::string port = host.substr(colon + 1);
-    if (!port.empty() && std::all_of(port.begin(), port.end(),
-                                     [](unsigned char ch) { return std::isdigit(ch) != 0; })) {
-        return host.substr(0, colon);
-    }
-    return host;
+    return ESScanReader::extract_hostname(std::move(host));
 }
 
 Status EsHttpReader::init_reader() {
@@ -225,32 +200,7 @@ Status EsHttpReader::_get_columns_impl(std::unordered_map<std::string, DataTypeP
 }
 
 std::string EsHttpReader::_select_host(const std::map<std::string, std::string>& properties) const {
-    // If es_hosts contains multiple hosts, prefer localhost for locality
-    auto it = properties.find(KEY_ES_HOSTS);
-    if (it != properties.end() && !it->second.empty()) {
-        std::string localhost = BackendOptions::get_localhost();
-        std::string best;
-        std::istringstream stream(it->second);
-        std::string host;
-        while (std::getline(stream, host, ',')) {
-            if (best.empty()) {
-                best = host;
-            }
-            std::string hostname = _extract_hostname(host);
-            if (hostname == localhost) {
-                return host;
-            }
-        }
-        if (!best.empty()) {
-            return best;
-        }
-    }
-    // Fallback to host_port
-    auto hp = properties.find(ESScanReader::KEY_HOST_PORT);
-    if (hp != properties.end()) {
-        return hp->second;
-    }
-    return "";
+    return ESScanReader::select_host(properties);
 }
 
 } // namespace doris

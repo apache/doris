@@ -224,7 +224,6 @@ bool FileScanLocalState::should_use_file_scanner_v2(const TQueryOptions& query_o
     // after scanner construction. Keep versioned Iceberg scans on V2 without eagerly listing
     // every file.
     return scanner_v2_requested && !is_load &&
-           scan_params.format_type != TFileFormatType::FORMAT_ES_HTTP &&
            scan_params.format_type != TFileFormatType::FORMAT_LANCE && !is_transactional_hive;
 }
 
