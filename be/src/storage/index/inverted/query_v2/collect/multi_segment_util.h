@@ -179,6 +179,12 @@ inline QueryExecutionContext create_segment_context(const QueryExecutionContext&
 template <typename SegmentCallback>
 void for_each_index_segment(const QueryExecutionContext& context, const std::string& binding_key,
                             SegmentCallback&& callback) {
+    if (context.preserve_doc_ids) {
+        if (context.segment_num_rows > 0) {
+            callback(context, 0);
+        }
+        return;
+    }
     auto segmented_reader = find_segmented_reader(context, binding_key);
     if (!segmented_reader) {
         // No reader available (e.g., AllQuery/MatchAllDocsQuery which doesn't resolve fields).

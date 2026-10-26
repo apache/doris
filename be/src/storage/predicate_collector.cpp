@@ -111,6 +111,56 @@ Result<const TabletIndex*> select_index_meta(const std::vector<const TabletIndex
     return index_metas[*selection];
 }
 
+std::vector<const TabletIndex*> resolve_scoring_indexes(
+        const TabletSchemaSPtr& tablet_schema, const TabletColumn& column,
+        std::vector<std::shared_ptr<const TabletIndex>>* owned_index_metas,
+        std::string* index_suffix_path) {
+    auto index_metas = tablet_schema->inverted_indexs(column);
+    *index_suffix_path = column.suffix_path();
+
+    // Schema-only fallback for variant sub-columns. Collector runs at tablet
+    // level without segment context, so we cannot do nested-group inference
+    // or inherit_index runtime-type dispatch. Two paths cover what is
+    // resolvable from schema alone:
+    //   1. field_pattern templates (MATCH_NAME / MATCH_NAME_GLOB) via
+    //      generate_sub_column_info.
+    //   2. Plain parent inverted index when the schema column is the dynamic
+    //      path's VARIANT placeholder produced by _init_variant_columns. In
+    //      that state inverted_indexs(column) misses because
+    //      _path_set_info_map.subcolumn_indexes is only populated for typed
+    //      paths / field_pattern outputs, not for plain parent indexes added
+    //      by ALTER. Clone the parent's non-field-pattern indexes with the
+    //      variant path as suffix so segment-side BM25 statistics can be
+    //      collected.
+    if (index_metas.empty() && column.is_extracted_column()) {
+        TabletSchema::SubColumnInfo sub_column_info;
+        const std::string relative_path = column.path_info_ptr()->copy_pop_front().get_path();
+        if (variant_util::generate_sub_column_info(*tablet_schema, column.parent_unique_id(),
+                                                   relative_path, &sub_column_info) &&
+            !sub_column_info.indexes.empty()) {
+            *index_suffix_path = sub_column_info.column.suffix_path();
+            for (auto& idx : sub_column_info.indexes) {
+                index_metas.push_back(idx.get());
+                owned_index_metas->emplace_back(std::move(idx));
+            }
+        } else if (column.is_variant_type()) {
+            const auto parent_indexes = tablet_schema->inverted_indexs(column.parent_unique_id());
+            for (const auto* index : parent_indexes) {
+                if (!index->field_pattern().empty()) {
+                    continue;
+                }
+                auto index_ptr = std::make_shared<TabletIndex>(*index);
+                index_ptr->set_escaped_escaped_index_suffix_path(
+                        column.path_info_ptr()->get_path());
+                index_metas.push_back(index_ptr.get());
+                owned_index_metas->emplace_back(std::move(index_ptr));
+            }
+        }
+    }
+
+    return index_metas;
+}
+
 } // namespace
 
 Result<InvertedIndexAnalyzerCtx> analyzer_context_from_properties(
@@ -214,49 +264,10 @@ Status MatchPredicateCollector::collect(RuntimeState* state, const TabletSchemaS
     }
 
     const auto& column = tablet_schema->column(col_idx);
-    auto index_metas = tablet_schema->inverted_indexs(column);
     std::vector<std::shared_ptr<const TabletIndex>> owned_index_metas;
-    std::string index_suffix_path = column.suffix_path();
-
-    // Schema-only fallback for variant sub-columns. Collector runs at tablet
-    // level without segment context, so we cannot do nested-group inference
-    // or inherit_index runtime-type dispatch. Two paths cover what is
-    // resolvable from schema alone:
-    //   1. field_pattern templates (MATCH_NAME / MATCH_NAME_GLOB) via
-    //      generate_sub_column_info.
-    //   2. Plain parent inverted index when the schema column is the dynamic
-    //      path's VARIANT placeholder produced by _init_variant_columns. In
-    //      that state inverted_indexs(column) misses because
-    //      _path_set_info_map.subcolumn_indexes is only populated for typed
-    //      paths / field_pattern outputs, not for plain parent indexes added
-    //      by ALTER. Clone the parent's non-field-pattern indexes with the
-    //      variant path as suffix so segment-side BM25 statistics can be
-    //      collected.
-    if (index_metas.empty() && column.is_extracted_column()) {
-        TabletSchema::SubColumnInfo sub_column_info;
-        const std::string relative_path = column.path_info_ptr()->copy_pop_front().get_path();
-        if (variant_util::generate_sub_column_info(*tablet_schema, column.parent_unique_id(),
-                                                   relative_path, &sub_column_info) &&
-            !sub_column_info.indexes.empty()) {
-            index_suffix_path = sub_column_info.column.suffix_path();
-            for (auto& idx : sub_column_info.indexes) {
-                index_metas.push_back(idx.get());
-                owned_index_metas.emplace_back(std::move(idx));
-            }
-        } else if (column.is_variant_type()) {
-            const auto parent_indexes = tablet_schema->inverted_indexs(column.parent_unique_id());
-            for (const auto* index : parent_indexes) {
-                if (!index->field_pattern().empty()) {
-                    continue;
-                }
-                auto index_ptr = std::make_shared<TabletIndex>(*index);
-                index_ptr->set_escaped_escaped_index_suffix_path(
-                        column.path_info_ptr()->get_path());
-                index_metas.push_back(index_ptr.get());
-                owned_index_metas.emplace_back(std::move(index_ptr));
-            }
-        }
-    }
+    std::string index_suffix_path;
+    auto index_metas =
+            resolve_scoring_indexes(tablet_schema, column, &owned_index_metas, &index_suffix_path);
 
 #ifndef BE_TEST
     if (index_metas.empty()) {
@@ -340,6 +351,11 @@ Status SearchPredicateCollector::collect_from_clause(const TSearchClause& clause
                                                      const TabletSchemaSPtr& tablet_schema,
                                                      CollectInfoMap* collect_infos) {
     const std::string& clause_type = clause.clause_type;
+    // Lucene pure NOT injects a fieldless constant-score match-all child.
+    if (clause_type == "MATCH_ALL_DOCS") {
+        return Status::OK();
+    }
+
     ClauseTypeCategory category = get_clause_type_category(clause_type);
 
     if (category == ClauseTypeCategory::COMPOUND) {
@@ -377,7 +393,10 @@ Status SearchPredicateCollector::collect_from_leaf(const TSearchClause& clause, 
 
     const auto& column = tablet_schema->column(col_idx);
 
-    auto index_metas = tablet_schema->inverted_indexs(column.unique_id(), column.suffix_path());
+    std::vector<std::shared_ptr<const TabletIndex>> owned_index_metas;
+    std::string index_suffix_path;
+    auto index_metas =
+            resolve_scoring_indexes(tablet_schema, column, &owned_index_metas, &index_suffix_path);
     if (index_metas.empty()) {
         return Status::OK();
     }
@@ -419,7 +438,7 @@ Status SearchPredicateCollector::collect_from_leaf(const TSearchClause& clause, 
         }
 
         std::string lucene_field_name =
-                build_field_name(index_meta->col_unique_ids()[0], column.suffix_path());
+                build_field_name(index_meta->col_unique_ids()[0], index_suffix_path);
         std::wstring ws_field_name = StringHelper::to_wstring(lucene_field_name);
 
         auto iter = collect_infos->find(ws_field_name);
@@ -427,6 +446,12 @@ Status SearchPredicateCollector::collect_from_leaf(const TSearchClause& clause, 
             CollectInfo collect_info;
             collect_info.term_infos = std::move(term_infos);
             collect_info.index_meta = index_meta;
+            for (const auto& owned : owned_index_metas) {
+                if (owned.get() == index_meta) {
+                    collect_info.owned_index_meta = owned;
+                    break;
+                }
+            }
             (*collect_infos)[ws_field_name] = std::move(collect_info);
         } else {
             iter->second.term_infos.insert(term_infos.begin(), term_infos.end());

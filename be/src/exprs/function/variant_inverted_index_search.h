@@ -146,6 +146,13 @@ public:
         return _leaf_query_mapper(field_name, query);
     }
 
+    void set_leaf_num_rows_resolver(std::function<Status(const std::string&, uint32_t*)> resolver) {
+        _leaf_num_rows_resolver = std::move(resolver);
+    }
+    Status leaf_num_rows(const std::string& field, uint32_t* num_rows) const {
+        return _leaf_num_rows_resolver ? _leaf_num_rows_resolver(field, num_rows) : Status::OK();
+    }
+
 private:
     std::string binding_key_for(const std::string& stored_field_name,
                                 InvertedIndexQueryType query_type) const {
@@ -164,18 +171,16 @@ private:
     std::unordered_map<std::wstring, std::shared_ptr<lucene::index::IndexReader>> _field_readers;
     std::vector<segment_v2::InvertedIndexCacheHandle> _searcher_cache_handles;
     SearchLeafQueryMapper _leaf_query_mapper;
+    std::function<Status(const std::string&, uint32_t*)> _leaf_num_rows_resolver;
 };
 
-class VariantSearchNullBitmapAdapter final : public inverted_index::query_v2::NullBitmapResolver {
+// SEARCH leaves own NULL filtering; Boolean scorers must see no UNKNOWN rows.
+class SearchNullBitmapResolver final : public inverted_index::query_v2::NullBitmapResolver {
 public:
-    explicit VariantSearchNullBitmapAdapter(const FieldReaderResolver& resolver)
-            : _resolver(resolver) {}
-
-    segment_v2::IndexIterator* iterator_for(const inverted_index::query_v2::Scorer& scorer,
-                                            const std::string& logical_field) const override;
-
-private:
-    const FieldReaderResolver& _resolver;
+    IndexIterator* iterator_for(const inverted_index::query_v2::Scorer&,
+                                const std::string&) const override {
+        return nullptr;
+    }
 };
 
 void populate_variant_search_binding_context(

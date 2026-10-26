@@ -45,6 +45,8 @@ struct FieldBindingContext {
 
 struct QueryExecutionContext {
     uint32_t segment_num_rows = 0;
+    // SEARCH bitmaps and each bound reader already use the Doris segment's row IDs.
+    bool preserve_doc_ids = false;
     std::vector<std::shared_ptr<lucene::index::IndexReader>> readers;
     std::unordered_map<std::string, std::shared_ptr<lucene::index::IndexReader>> reader_bindings;
     std::unordered_map<std::wstring, std::shared_ptr<lucene::index::IndexReader>>
