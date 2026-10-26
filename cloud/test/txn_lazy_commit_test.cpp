@@ -102,14 +102,11 @@ int main(int argc, char** argv) {
 
     auto s3_producer_pool = std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
     s3_producer_pool->start();
-    auto recycle_tablet_pool = std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
-    recycle_tablet_pool->start();
     auto group_recycle_function_pool =
             std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
     group_recycle_function_pool->start();
-    thread_group =
-            RecyclerThreadPoolGroup(std::move(s3_producer_pool), std::move(recycle_tablet_pool),
-                                    std::move(group_recycle_function_pool));
+    thread_group = RecyclerThreadPoolGroup(std::move(s3_producer_pool),
+                                           std::move(group_recycle_function_pool));
 
     int ret = RUN_ALL_TESTS();
     thread_group = RecyclerThreadPoolGroup();

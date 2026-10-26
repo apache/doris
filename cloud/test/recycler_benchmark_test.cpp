@@ -487,16 +487,13 @@ protected:
 
         s3_producer_pool_ = std::make_shared<SimpleThreadPool>(
                 config::recycle_pool_parallelism, "recycler_benchmark_s3_producer_pool");
-        recycle_tablet_pool_ = std::make_shared<SimpleThreadPool>(
-                config::recycle_pool_parallelism, "recycler_benchmark_recycle_tablet_pool");
         group_recycle_function_pool_ = std::make_shared<SimpleThreadPool>(
                 config::recycle_pool_parallelism, "recycler_benchmark_group_recycle_function_pool");
         ASSERT_EQ(s3_producer_pool_->start(), 0);
-        ASSERT_EQ(recycle_tablet_pool_->start(), 0);
         ASSERT_EQ(group_recycle_function_pool_->start(), 0);
 
-        thread_pool_group_ = RecyclerThreadPoolGroup(s3_producer_pool_, recycle_tablet_pool_,
-                                                     group_recycle_function_pool_);
+        thread_pool_group_ =
+                RecyclerThreadPoolGroup(s3_producer_pool_, group_recycle_function_pool_);
         ASSERT_NO_FATAL_FAILURE(init_recycler());
     }
 
@@ -630,14 +627,10 @@ protected:
         if (group_recycle_function_pool_) {
             ASSERT_EQ(group_recycle_function_pool_->stop(), 0);
         }
-        if (recycle_tablet_pool_) {
-            ASSERT_EQ(recycle_tablet_pool_->stop(), 0);
-        }
         if (s3_producer_pool_) {
             ASSERT_EQ(s3_producer_pool_->stop(), 0);
         }
         group_recycle_function_pool_.reset();
-        recycle_tablet_pool_.reset();
         s3_producer_pool_.reset();
         txn_kv_.reset();
 
@@ -756,7 +749,6 @@ protected:
     InstanceInfoPB instance_;
     RecyclerThreadPoolGroup thread_pool_group_;
     std::shared_ptr<SimpleThreadPool> s3_producer_pool_;
-    std::shared_ptr<SimpleThreadPool> recycle_tablet_pool_;
     std::shared_ptr<SimpleThreadPool> group_recycle_function_pool_;
     std::shared_ptr<TxnLazyCommitter> txn_lazy_committer_;
     std::unique_ptr<InstanceRecycler> recycler_;
