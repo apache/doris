@@ -260,6 +260,10 @@ TEST_F(ObjClientFactoryTest, AzureProviderCachesByContainer) {
     EXPECT_EQ(_s3_builds, 0);
 }
 
+const std::string& secret_key_of(const ObjClientConfig& config) {
+    return std::get<S3ClientConfig>(config.backend).auth.secret_key;
+}
+
 TEST_F(ObjClientFactoryTest, HolderPublishesConfigAndClientTogether) {
     auto param = make_s3_param("holder-state.example.com");
     auto config = resolve(param);
