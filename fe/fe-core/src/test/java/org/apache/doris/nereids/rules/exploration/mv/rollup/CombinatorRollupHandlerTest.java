@@ -24,8 +24,12 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.CombineCombinator;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.UnionCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
+import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 
@@ -66,6 +70,31 @@ class CombinatorRollupHandlerTest {
                 ImmutableMap.of(view, mvSlot));
         Assertions.assertEquals(name, result.getName());
         Assertions.assertEquals(ImmutableList.of(mvSlot), result.getArguments());
+    }
+
+    @Test
+    void testBitmapIntersectRollupRetainsStateVersion() {
+        SlotReference bitmap = new SlotReference("bitmap", BitmapType.INSTANCE, true);
+        for (String version : ImmutableList.of("v1", "v2")) {
+            String name = "bitmap_intersect_" + version;
+            String canonicalName = version.equals("v1") ? "bitmap_intersect" : name;
+            StateCombinator state = (StateCombinator) build(name + "_state", bitmap);
+            SlotReference mvState = SlotReference.of("mv_state", state.getDataType());
+            UnionCombinator union = (UnionCombinator) state.constructRollUp(mvState);
+            Assertions.assertEquals(canonicalName + "_union", union.getName());
+            Assertions.assertEquals(state.getDataType(), union.getDataType());
+            Function rolledUpUnion = union.constructRollUp(mvState);
+            Assertions.assertEquals(union.getName(), rolledUpUnion.getName());
+            Assertions.assertEquals(state.getDataType(), rolledUpUnion.getDataType());
+
+            CombineCombinator combine = (CombineCombinator) build(name + "_combine", bitmap);
+            Function rolledUpCombine = combine.constructRollUp(mvState);
+            Assertions.assertEquals(union.getName(), rolledUpCombine.getName());
+            Assertions.assertEquals(state.getDataType(), rolledUpCombine.getDataType());
+
+            MergeCombinator merge = (MergeCombinator) build(name + "_merge", mvState);
+            Assertions.assertEquals(canonicalName + "_merge", merge.constructRollUp(mvState).getName());
+        }
     }
 
     @Test
