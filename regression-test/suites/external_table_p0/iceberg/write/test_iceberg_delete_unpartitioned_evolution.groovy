@@ -109,8 +109,13 @@ suite("test_iceberg_delete_unpartitioned_evolution",
     """
     sql """delete from mixed_partition_specs where record_key in (1, 3)"""
     checkRows("mixed_partition_specs", expectedAfterMixedDelete)
+    // `record_key in (1, 3)` covers whole data files in this fixture, so Doris commits it as a metadata
+    // delete: no delete files are written and the surviving rows keep both historical spec ids.
+    assertEquals(0, sql("""
+        select count(*) from mixed_partition_specs\$delete_files
+    """)[0][0].toString().toLong())
     assertEquals(mixedSpecs, sql("""
-        select distinct spec_id from mixed_partition_specs\$delete_files order by spec_id
+        select distinct spec_id from mixed_partition_specs\$data_files order by spec_id
     """))
     def expectedAfterUpdate = spark_iceberg """
         select record_key, metric + 100 from demo.${dbName}.mixed_partition_specs order by record_key

@@ -182,6 +182,13 @@ public:
     Status lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
                            RowsetSharedPtr rowset, OlapReaderStatistics& stats, std::string& values,
                            bool write_to_cache = false, const io::IOContext* io_ctx = nullptr);
+
+    // Reuse the segment returned by lookup_row_key. The caller must keep the segment and
+    // its acquired rowset alive until this method returns.
+    Status lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
+                           const segment_v2::SegmentSharedPtr& segment, RowsetSharedPtr rowset,
+                           OlapReaderStatistics& stats, std::string& values,
+                           bool write_to_cache = false, const io::IOContext* io_ctx = nullptr);
     // Lookup the row location of `encoded_key`, the function sets `row_location` on success.
     // NOTE: the method only works in unique key model with primary key index, you will got a
     //       not supported error in other data model.
@@ -193,7 +200,8 @@ public:
                           std::string* encoded_seq_value = nullptr,
                           OlapReaderStatistics* stats = nullptr,
                           DeleteBitmapPtr tablet_delete_bitmap = nullptr,
-                          const io::IOContext* io_ctx = nullptr);
+                          const io::IOContext* io_ctx = nullptr,
+                          segment_v2::SegmentSharedPtr* segment = nullptr);
 
     // calc delete bitmap when flush memtable, use a fake version to calc
     // For example, cur max version is 5, and we use version 6 to calc but
@@ -371,6 +379,11 @@ public:
                                                                const CaptureRowsetOps& options);
 
 protected:
+    Status _lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
+                            const segment_v2::SegmentSharedPtr* segment, RowsetSharedPtr rowset,
+                            OlapReaderStatistics& stats, std::string& values, bool write_to_cache,
+                            const io::IOContext* io_ctx) const;
+
     // Protected by the tablet header lock; discovery resumes after this version.
     Version _changelog_ttl_scan_cursor {-1, -1};
 

@@ -294,6 +294,7 @@ protected:
 
     // Called after reading a block: apply equality delete filter + shrink block
     Status on_after_read_block(Block* block, size_t* read_rows) override {
+        RETURN_IF_ERROR(_materialize_missing_equality_delete_columns(block, block->rows()));
         RETURN_IF_ERROR(_materialize_nested_equality_delete_columns(block));
         if (!_equality_delete_impls.empty()) {
             std::unique_ptr<IColumn::Filter> filter =
@@ -336,6 +337,7 @@ protected:
                                                  ColumnPtr* const value) const;
     Status _register_missing_equality_delete_column(int32_t field_id, const std::string& name,
                                                     const DataTypePtr& delete_key_type);
+    bool _is_derived_equality_delete_column(const std::string& name) const;
     Status _materialize_missing_equality_delete_column(Block* block, const std::string& name,
                                                        const ColumnPtr& value, size_t rows);
     Status _materialize_missing_equality_delete_columns(Block* block, size_t rows);
@@ -363,6 +365,9 @@ protected:
         DataTypePtr leaf_type;
         std::vector<size_t> child_indexes;
         ColumnPtr missing_value;
+        // Block column holding the key's root struct. Empty when the key's own column reads the
+        // root; otherwise the projected root, or the carrier that reads a shared physical root.
+        std::string source_block_name {};
     };
     struct EqualityDeleteReadSpec {
         NestedEqualityDeleteColumn nested_field;
@@ -919,9 +924,10 @@ Status IcebergReaderMixin<BaseReader>::_expand_block_if_need(Block* block) {
     auto block_names = block->get_names();
     names.insert(block_names.begin(), block_names.end());
     for (auto& col : _expand_columns) {
-        if (_missing_equality_delete_values.contains(col.name)) {
-            // Missing equality keys are logical columns, not physical file columns. Add them only
-            // after the base reader has established the batch row count.
+        if (_missing_equality_delete_values.contains(col.name) ||
+            _is_derived_equality_delete_column(col.name)) {
+            // The reader has no column for a key that is missing from the file or extracted from
+            // another column; on_after_read_block appends it at the batch's final row count.
             continue;
         }
         if (names.contains(col.name)) {
@@ -1132,15 +1138,40 @@ Status IcebergReaderMixin<BaseReader>::_extract_nested_equality_delete_column(
 template <typename BaseReader>
 Status IcebergReaderMixin<BaseReader>::_materialize_nested_equality_delete_columns(Block* block) {
     DORIS_CHECK(block != nullptr);
+    // A carrier may be the source of other keys under the same physical root, so extract every
+    // leaf before replacing any carrier column with its own leaf.
+    std::vector<ColumnPtr> leaves;
+    leaves.reserve(_nested_equality_delete_columns.size());
     for (const auto& nested_field : _nested_equality_delete_columns) {
-        const auto position = this->col_name_to_block_idx_ref()->find(nested_field.block_name);
-        DORIS_CHECK(position != this->col_name_to_block_idx_ref()->end());
-        DORIS_CHECK(position->second < block->columns());
-        auto& column = block->get_by_position(position->second);
+        const auto& source_name = nested_field.source_block_name.empty()
+                                          ? nested_field.block_name
+                                          : nested_field.source_block_name;
+        const auto source = this->col_name_to_block_idx_ref()->find(source_name);
+        DORIS_CHECK(source != this->col_name_to_block_idx_ref()->end());
+        DORIS_CHECK(source->second < block->columns());
         ColumnPtr leaf;
-        RETURN_IF_ERROR(_extract_nested_equality_delete_column(column.column, nested_field, &leaf));
-        column.column = std::move(leaf);
-        column.type = make_nullable(nested_field.leaf_type);
+        RETURN_IF_ERROR(_extract_nested_equality_delete_column(
+                block->get_by_position(source->second).column, nested_field, &leaf));
+        leaves.push_back(std::move(leaf));
+    }
+    for (size_t index = 0; index < leaves.size(); ++index) {
+        const auto& nested_field = _nested_equality_delete_columns[index];
+        const auto type = make_nullable(nested_field.leaf_type);
+        auto& positions = *this->col_name_to_block_idx_ref();
+        if (!nested_field.source_block_name.empty()) {
+            // A key extracted from a projected root or another key's carrier is not read, so the
+            // block gets its column only now.
+            DORIS_CHECK(!positions.contains(nested_field.block_name));
+            positions[nested_field.block_name] = block->columns();
+            block->insert({std::move(leaves[index]), type, nested_field.block_name});
+            continue;
+        }
+        const auto target = positions.find(nested_field.block_name);
+        DORIS_CHECK(target != positions.end());
+        DORIS_CHECK(target->second < block->columns());
+        auto& column = block->get_by_position(target->second);
+        column.column = std::move(leaves[index]);
+        column.type = type;
     }
     return Status::OK();
 }
@@ -1214,25 +1245,31 @@ Status IcebergReaderMixin<BaseReader>::_register_missing_equality_delete_column(
     ColumnPtr default_column;
     RETURN_IF_ERROR(
             _create_missing_equality_delete_value(field_id, delete_key_type, 0, &default_column));
+    // The key is appended after the read (on_after_read_block), not by a synthesized-column
+    // handler: the reader filters only the columns its block had before the read, and Parquet's
+    // lazy read also looks up a tuple slot for every synthesized column, which this hidden key
+    // does not have.
     const bool inserted =
             _missing_equality_delete_values.emplace(name, std::move(default_column)).second;
     DORIS_CHECK(inserted);
-    this->register_synthesized_column_handler(
-            name, [this, name](Block* block, size_t rows) -> Status {
-                DORIS_CHECK(_missing_equality_delete_values.contains(name));
-                return _materialize_missing_equality_delete_column(
-                        block, name, _missing_equality_delete_values.at(name), rows);
-            });
     return Status::OK();
+}
+
+template <typename BaseReader>
+bool IcebergReaderMixin<BaseReader>::_is_derived_equality_delete_column(
+        const std::string& name) const {
+    return std::ranges::any_of(_nested_equality_delete_columns, [&](const auto& nested_field) {
+        return nested_field.block_name == name && !nested_field.source_block_name.empty();
+    });
 }
 
 template <typename BaseReader>
 Status IcebergReaderMixin<BaseReader>::_materialize_missing_equality_delete_column(
         Block* block, const std::string& name, const ColumnPtr& value, size_t rows) {
     if (!this->col_name_to_block_idx_ref()->contains(name)) {
-        // ORC must not register a key that is absent from the file as a physical child. In that
-        // case the reader block has no slot for the synthesized key, so append one here before
-        // equality-delete filtering. MultiEqualityDelete requires a full, batch-sized column.
+        // A key that is absent from the file is not a physical child of the reader, so the block
+        // has no column for it: append one before equality-delete filtering. MultiEqualityDelete
+        // requires a full, batch-sized column.
         const auto expand_col = std::ranges::find_if(
                 _expand_columns,
                 [&](const ColumnWithTypeAndName& col) { return col.name == name; });

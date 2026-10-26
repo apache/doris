@@ -17,6 +17,8 @@
 
 package org.apache.doris.filesystem.s3;
 
+import org.apache.doris.filesystem.gcs.auth.GcsAuthResolver;
+
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.Arrays;
@@ -47,7 +49,6 @@ public final class S3CompatSignals {
     /** Legacy alias for {@code fs.oss-hdfs.support}, honored by StorageProperties.hasAnyExplicitFsSupport. */
     private static final String DEPRECATED_OSS_HDFS_SUPPORT = "oss.hdfs.enabled";
 
-    private static final String GCS_ENDPOINT_KEY = "gs.endpoint";
     private static final String GCS_ENDPOINT_SUFFIX = "storage.googleapis.com";
     private static final String AWS_ENDPOINT_INFIX = "amazonaws.com";
 
@@ -172,19 +173,26 @@ public final class S3CompatSignals {
     }
 
     /**
-     * Port of {@code GCSProperties.guessIsMe}: a non-blank {@code gs.endpoint}, or any endpoint alias
-     * whose value ends with {@code storage.googleapis.com}.
+     * Recognize GCS provider, native credentials, locations and endpoints using the GCS rules,
+     * while preserving the legacy endpoint aliases used by raw S3-compatible routing.
      *
      * <p>Deviation: legacy compares {@code key.toLowerCase()} against a set holding the un-lowercased
      * {@code "AWS_ENDPOINT"}/{@code "ENDPOINT"}, so those two aliases can never match there. Here the
      * key comparison is genuinely case-insensitive, which is what legacy clearly intended.
      */
     public static boolean guessIsGcs(Map<String, String> properties) {
-        if (StringUtils.isNotBlank(properties.get(GCS_ENDPOINT_KEY))) {
+        if (GcsAuthResolver.guessIsGcs(properties)) {
             return true;
         }
         String endpoint = endpointForGuessing(properties);
         return endpoint != null && endpoint.toLowerCase(Locale.ROOT).endsWith(GCS_ENDPOINT_SUFFIX);
+    }
+
+    /** Native GCP credentials must never fall through to an AWS/HMAC credential chain. */
+    public static void rejectNativeGcpCredentials(Map<String, String> properties) {
+        if (GcsAuthResolver.hasNativeCredentialProperties(properties)) {
+            throw new IllegalArgumentException("Native GCP authentication requires the GCS filesystem provider");
+        }
     }
 
     /**

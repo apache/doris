@@ -385,14 +385,16 @@ public:
                        get_appended_null_map_start(src_physical_col, src_new_rows));
 
         dst_logical_col = IColumn::mutate(std::move(dst_logical_col));
-        const size_t dst_old_rows = get_mutable_inner_column_size(dst_logical_col);
         const size_t dst_old_null_map_size =
                 get_null_map_size_or_inner_column_size(dst_logical_col);
+        const size_t rows_to_convert = get_mutable_inner_column_size(src_logical_column);
+        // Logical converters append all source rows and may mark failed casts as NULL (e.g.
+        // "xx" -> BIGINT). Copy source nulls first so those writes have allocated entries and
+        // are not overwritten after conversion. Keep any existing destination prefix intact.
+        align_null_map(src_logical_column, dst_logical_col, dst_old_null_map_size, rows_to_convert,
+                       get_appended_null_map_start(src_logical_column, rows_to_convert));
         auto converted_column = dst_logical_col->assert_mutable();
         RETURN_IF_ERROR(_logical_converter->convert(src_logical_column, converted_column));
-        const size_t dst_new_rows = get_mutable_inner_column_size(dst_logical_col) - dst_old_rows;
-        align_null_map(src_logical_column, dst_logical_col, dst_old_null_map_size, dst_new_rows,
-                       get_appended_null_map_start(src_logical_column, dst_new_rows));
         return Status::OK();
     }
 

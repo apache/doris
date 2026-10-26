@@ -109,6 +109,8 @@ std::string file_format_to_string(FileFormat format) {
         return "JNI";
     case FileFormat::ARROW:
         return "ARROW";
+    case FileFormat::ES_HTTP:
+        return "ES_HTTP";
     case FileFormat::WAL:
         return "WAL";
     }

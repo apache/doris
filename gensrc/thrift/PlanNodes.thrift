@@ -362,6 +362,9 @@ struct TIcebergFileDesc {
     // Only for format_version >= 3, the sequence number which last updated this file.
     11: optional i64 last_updated_sequence_number;
     12: optional string serialized_split;
+    // Reserved for branch-4.1 / branch-4.2 field `13: optional ExternalTableSchema.TSchema
+    // equality_delete_schema` (the split-local schema of dropped equality-delete keys). Master
+    // carries those schemas in TFileScanRangeParams.history_schema_info. Do not reuse this id.
 }
 
 struct TPaimonDeletionFileDesc {
@@ -1319,6 +1322,9 @@ struct TBucketedAggregationNode {
   // so intermediate and output tuples are always identical.
   3: optional Types.TTupleId tuple_id
   5: optional bool need_finalize
+  // 0 selects one bucket when both sink and source have one instance, otherwise 256 buckets.
+  // Positive values must be powers of two in [1, 256]. Missing retains 256 buckets.
+  6: optional i32 num_buckets
 }
 
 struct TRepeatNode {

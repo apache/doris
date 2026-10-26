@@ -92,6 +92,21 @@ public class MaxComputePartitionCacheTest {
     }
 
     @Test
+    public void submittedMetaCacheKeysMustNameAKnownOption() {
+        MaxComputeConnectorProvider provider = new MaxComputeConnectorProvider();
+        Map<String, String> current = MCTestProperties.minimalMap();
+        IllegalArgumentException misspelled = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> provider.validatePropertiesForUpdate(
+                        current, Map.of("meta.cache.max_compute.partition.max-weigth", "1MB")));
+        Assertions.assertEquals("Unknown external meta cache property: meta.cache.max_compute.partition.max-weigth",
+                misspelled.getMessage());
+        Assertions.assertThrows(IllegalArgumentException.class, () -> provider.validatePropertiesForUpdate(
+                current, Map.of("meta.cache.max_compute.partition.enable", "1")));
+        current.put("meta.cache.max_compute.partition.max-weigth", "1MB");
+        Assertions.assertDoesNotThrow(() -> provider.validatePropertiesForUpdate(current, Map.of("comment", "new")));
+    }
+
+    @Test
     public void managedCacheRetainsOnlySpecsAndHonorsBothLimits() throws Exception {
         Odps odps = new Odps(new AliyunAccount("ak", "sk"));
         PartitionSpec spec = new PartitionSpec("ds='2026-09-11'");
@@ -124,6 +139,38 @@ public class MaxComputePartitionCacheTest {
                 Assertions.assertTrue(MetaCacheGovernance.catalogCaches(91004L).isEmpty());
                 Assertions.assertEquals(baseline, MetaCacheGovernance.globalEstimatedWeight());
             }
+        }
+    }
+
+    @Test
+    public void longPartitionListIsCachedUnderAWeightLimit() throws Exception {
+        // A walk of the whole list ran out of the 10,000-visit budget at about 1,250 three-level partitions, so a
+        // longer listing was fetched from ODPS on every statement once a weight limit was set. MUTATION: estimating
+        // the list as one graph -> two loads and a rejected admission -> red.
+        Odps odps = new Odps(new AliyunAccount("ak", "sk"));
+        Constructor<Partition> constructor = Partition.class.getDeclaredConstructor(
+                PartitionSpec.class, String.class, String.class, String.class, Odps.class);
+        constructor.setAccessible(true);
+        List<Partition> partitions = new ArrayList<>();
+        for (int i = 0; i < 10_000; i++) {
+            PartitionSpec spec = new PartitionSpec(
+                    "ds='2026-09-" + (i % 30) + "',hr='" + (i % 24) + "',id='" + i + "'");
+            partitions.add(constructor.newInstance(spec, "project", null, "table", odps));
+        }
+        Map<String, String> props = Map.of("meta.cache.max-weight", "64MB");
+        AtomicInteger loads = new AtomicInteger();
+        try (CatalogMetaCache owner = CatalogMetaCache.managed(91091L, "max_compute", props)) {
+            MaxComputePartitionCache cache = new MaxComputePartitionCache(owner, props, (db, table) -> {
+                loads.incrementAndGet();
+                return partitions;
+            });
+            for (int i = 0; i < 2; i++) {
+                Assertions.assertEquals(10_000, cache.getPartitions("db", "t").size());
+            }
+
+            Assertions.assertEquals(1, loads.get());
+            Assertions.assertEquals(0L,
+                    owner.entries().get("max-compute-partition").metrics().getWeightRejectCount());
         }
     }
 

@@ -136,4 +136,19 @@ suite("test_using_join_merge_key", "query_p0") {
         FROM l FULL OUTER JOIN r USING(pk) FULL OUTER JOIN n USING(ak)
         ORDER BY l.pk NULLS LAST, r.pk NULLS LAST, n.ak NULLS LAST;
     """
+
+    // Qualified and unqualified references to a forwarded USING key must bind to the same slot.
+    sql """
+        EXPLAIN
+        WITH l AS (
+            SELECT 1 AS k, 10 AS v UNION ALL SELECT 2, 20
+        ), r AS (
+            SELECT 1 AS k UNION ALL SELECT 3
+        )
+        SELECT l.k, SUM(l.v)
+        FROM l LEFT JOIN r USING(k)
+        GROUP BY k
+        HAVING l.k > 0
+        ORDER BY l.k
+    """
 }

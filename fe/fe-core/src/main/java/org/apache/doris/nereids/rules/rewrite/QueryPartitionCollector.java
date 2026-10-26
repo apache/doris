@@ -61,8 +61,8 @@ public class QueryPartitionCollector extends DefaultPlanVisitor<Void, CascadesCo
         // Collect table used partition mapping
         Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap = statementContext
                 .getTableUsedPartitionNameMap();
-        Set<String> tablePartitions = new HashSet<>();
         if (catalogRelation instanceof LogicalOlapScan) {
+            Set<String> tablePartitions = new HashSet<>();
             // Handle olap table
             LogicalOlapScan logicalOlapScan = (LogicalOlapScan) catalogRelation;
             for (Long partitionId : logicalOlapScan.getSelectedPartitionIds()) {
@@ -72,12 +72,18 @@ public class QueryPartitionCollector extends DefaultPlanVisitor<Void, CascadesCo
                     Pair.of(catalogRelation.getRelationId(), tablePartitions));
         } else if (catalogRelation instanceof LogicalFileScan
                 && catalogRelation.getTable() != null
-                && ((ExternalTable) catalogRelation.getTable()).supportInternalPartitionPruned()) {
+                && (((LogicalFileScan) catalogRelation).getSelectedPartitions().isNativePlanning()
+                    || ((ExternalTable) catalogRelation.getTable()).supportInternalPartitionPruned())) {
             LogicalFileScan logicalFileScan = (LogicalFileScan) catalogRelation;
             SelectedPartitions selectedPartitions = logicalFileScan.getSelectedPartitions();
-            tablePartitions.addAll(selectedPartitions.selectedPartitions.keySet());
+            if (selectedPartitions.isNativePlanning()) {
+                tableUsedPartitionNameMap.put(table.getFullQualifiers(), PartitionCompensator.ALL_PARTITIONS);
+                return null;
+            }
+            // SelectedPartitions owns an immutable map. Keep its key view rather than copying every
+            // partition name; compensation builds its own mutable union when it is actually needed.
             tableUsedPartitionNameMap.put(table.getFullQualifiers(),
-                    Pair.of(catalogRelation.getRelationId(), tablePartitions));
+                    Pair.of(catalogRelation.getRelationId(), selectedPartitions.selectedPartitions.keySet()));
         } else {
             // not support get partition scene, we consider query all partitions from table
             tableUsedPartitionNameMap.put(table.getFullQualifiers(), PartitionCompensator.ALL_PARTITIONS);

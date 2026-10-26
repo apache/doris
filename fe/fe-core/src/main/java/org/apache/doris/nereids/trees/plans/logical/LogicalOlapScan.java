@@ -23,6 +23,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.catalog.stream.StreamReadMode;
@@ -84,7 +85,8 @@ import java.util.stream.Collectors;
 /**
  * Logical OlapScan.
  */
-public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan, SupportPruneNestedColumn {
+public class LogicalOlapScan extends LogicalCatalogRelation
+        implements OlapScan, SupportPruneNestedColumn, SupportChangelog {
 
     private static final Logger LOG = LogManager.getLogger(LogicalOlapScan.class);
 
@@ -961,10 +963,25 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
         return scoreRangeInfo;
     }
 
-    /** Build a pre-refresh snapshot as a stream scan in snapshot mode. */
-    public LogicalPlan withPreSnapshot(Optional<OlapTableStream> stream) {
+    @Override
+    public boolean isChangelogEnabled() {
+        return getTable().hasChangelog();
+    }
+
+    @Override
+    public boolean isChangelogAppendOnly() {
+        return getTable().getKeysType() == KeysType.DUP_KEYS;
+    }
+
+    @Override
+    public LogicalPlan withSnapshot(boolean preSnapshot, BaseTableStream stream) {
+        if (!preSnapshot) {
+            return LogicalPlanDeepCopier.INSTANCE.deepCopy(
+                    (LogicalPlan) this, new DeepCopierContext());
+        }
+        OlapTableStream olapStream = (OlapTableStream) stream;
         OlapTableStreamWrapper streamWrapper = new OlapTableStreamWrapper(
-                stream.get(), getTable(), selectedPartitionIds);
+                olapStream, getTable(), selectedPartitionIds);
         return new LogicalOlapTableStreamScan(
                 StatementScopeIdGenerator.newRelationId(),
                 streamWrapper,
@@ -975,12 +992,6 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 tableSample,
                 operativeSlots
         ).withReadMode(StreamReadMode.SNAPSHOT);
-    }
-
-    /** Build a post-refresh snapshot as a regular olap scan. */
-    public LogicalPlan withPostSnapshot() {
-        return LogicalPlanDeepCopier.INSTANCE.deepCopy(
-                (LogicalPlan) this, new DeepCopierContext());
     }
 
     protected List<SlotReference> createSlotsVectorized(List<Column> columns) {
