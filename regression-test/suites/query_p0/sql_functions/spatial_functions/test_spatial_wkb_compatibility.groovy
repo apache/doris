@@ -306,4 +306,21 @@ suite("test_spatial_wkb_compatibility") {
             ST_GeogFromWKB('01020000000200000000000000008046408dedb5a0f7c6b03e00000000008046408dedb5a0f7c6c03e') l,
             ST_GeogFromWKB('01030000000100000004000000fcffffffff7f46c000000000008046c0ffffffffffdf6040000000000080464000000000008046408dedb5a0f7c6b03efcffffffff7f46c000000000008046c0') t,
             ST_GeogFromWKB('010100000000000000008046408dedb5a0f7c6a03e') s) shapes"""
+
+    // Area uses the same minor arcs whether the near-antipodal edge is subdivided or reversed.
+    order_qt_geography_stable_polygon_area """select
+        abs(ST_Area_Square_Meters(a) / ST_Area_Square_Meters(b) - 1) < 1e-12,
+        abs(ST_Area_Square_Km(a) / ST_Area_Square_Km(b) - 1) < 1e-12,
+        abs(ST_Area_Square_Meters(a) / ST_Area_Square_Meters(c) - 1) < 1e-12,
+        abs(ST_Area_Square_Meters(a) / (ST_Area_Square_Km(a) * 1000000) - 1) < 1e-12
+        from (select ST_GeogFromWKB('01030000000100000004000000fcffffffff7f46c000000000008046c0ffffffffffdf6040000000000080464000000000008046400000000000804640fcffffffff7f46c000000000008046c0') a,
+            ST_GeogFromWKB('01030000000100000005000000fcffffffff7f46c000000000008046c000000000008046400000000000000000ffffffffffdf6040000000000080464000000000008046400000000000804640fcffffffff7f46c000000000008046c0') b,
+            ST_GeogFromWKB('01030000000100000004000000fcffffffff7f46c000000000008046c000000000008046400000000000804640ffffffffffdf60400000000000804640fcffffffff7f46c000000000008046c0') c) shapes"""
+    order_qt_geography_near_antipodal_bearing """select ST_Azimuth(a, b) = 0,
+        ST_Azimuth(b, a) = 0, abs(ST_Azimuth(a, c) - pi()) < 1e-14,
+        ST_Angle(n, a, b) = 0, abs(ST_Angle(n, a, c) - pi()) < 1e-14
+        from (select ST_GeogFromWKB('010100000000000000000000000000000000804640') a,
+            ST_GeogFromWKB('01010000000000000000806640ffffffffff7f46c0') b,
+            ST_GeogFromWKB('010100000000000000008066c001000000008046c0') c,
+            ST_GeogFromWKB('010100000000000000000000000000000000004740') n) shapes"""
 }

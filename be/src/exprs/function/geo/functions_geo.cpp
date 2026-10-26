@@ -35,6 +35,7 @@
 #include <s2/s2polygon.h>
 #include <s2/s2polyline.h>
 #include <s2/s2predicates.h>
+#include <s2/s2shape_measures.h>
 
 #include <algorithm>
 #include <array>
@@ -1032,15 +1033,26 @@ static bool geography_bearing(StringRef from, StringRef to, double* bearing) {
     const auto end = geography_point_coordinate(to);
     // Coincident or antipodal positions have no unique initial bearing. Compare original degrees:
     // haversine distance rounds (0, 0) -> (179.999999, 0) to pi despite its unique east bearing.
+    // Likewise retain the nonzero longitude residual in (1e-300, 0) -> (-180, 0).
     const bool antipodal =
             start.second == -end.second &&
-            (std::abs(start.second) == 90 || std::abs(start.first - end.first) == 180);
+            (std::abs(start.second) == 90 ||
+             geography_degree_sum(std::max(start.first, end.first),
+                                  -std::min(start.first, end.first)) == std::pair {180.0, 0.0});
     if (start == end || antipodal) {
         return false;
     }
-    *bearing = S2Earth::GetInitialBearing(S2LatLng::FromDegrees(start.second, start.first),
-                                          S2LatLng::FromDegrees(end.second, end.first))
-                       .radians();
+    // Half-angle form avoids cancellation between nearly opposite latitude terms.
+    // Reduce the original degrees before converting to radians so an exact 180-degree
+    // longitude difference has zero east component even next to an antipode.
+    // For example, (0, 45) -> (180, nextafter(-45, +inf)) starts due north, not west.
+    const auto [sin_half, cos_half] = geography_degree_sincos(end.first, -start.first, true);
+    const long double east = geography_degree_sincos(end.second).second *
+                             geography_degree_sincos(end.first, -start.first).first;
+    const long double north =
+            geography_degree_sincos(end.second, -start.second).first * cos_half * cos_half +
+            geography_degree_sincos(end.second, start.second).first * sin_half * sin_half;
+    *bearing = std::atan2(east, north);
     *bearing = std::fmod(*bearing + 2 * M_PI, 2 * M_PI);
     return true;
 }
@@ -1604,6 +1616,23 @@ struct StAzimuth {
     }
 };
 
+static bool compute_geo_area(GeoShape& shape, StringRef wkb, const DataTypePtr& input_type,
+                             double* area, const std::string& unit) {
+    if (is_spatial_type(input_type) && shape.type() == GeoShapeType::GEO_SHAPE_POLYGON) {
+        // Use the same stable raw-coordinate edges as typed relations and distance.
+        // Measuring the independently rounded GeoPolygon changes near-antipodal arcs.
+        // (-45+e, -45) -> (135-e, 45) must retain its area when subdivided at (45, 0).
+        GeographyEdgeNodes nodes(wkb, wkb);
+        MutableS2ShapeIndex index;
+        geography_shape_index(shape, nodes, &index);
+        const double steradians = S2::GetArea(*index.shape(0));
+        *area = unit == "square_meters" ? S2Earth::SteradiansToSquareMeters(steradians)
+                                        : S2Earth::SteradiansToSquareKm(steradians);
+        return true;
+    }
+    return GeoShape::ComputeArea(&shape, area, unit);
+}
+
 struct StAreaSquareMeters {
     static constexpr auto NAME = "st_area_square_meters";
     static const size_t NUM_ARGS = 1;
@@ -1639,7 +1668,7 @@ struct StAreaSquareMeters {
             }
 
             double area = 0;
-            if (!GeoShape::ComputeArea(shape.get(), &area, "square_meters")) {
+            if (!compute_geo_area(*shape, shape_value, input_type, &area, "square_meters")) {
                 null_map_data[row] = 1;
                 res->insert_default();
                 continue;
@@ -1689,7 +1718,7 @@ struct StAreaSquareKm {
             }
 
             double area = 0;
-            if (!GeoShape::ComputeArea(shape.get(), &area, "square_km")) {
+            if (!compute_geo_area(*shape, shape_value, input_type, &area, "square_km")) {
                 null_map_data[row] = 1;
                 res->insert_default();
                 ;

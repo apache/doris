@@ -175,3 +175,9 @@ true	true	true	true	true	true	true	false	false
 -- !geography_stable_polygon_interior --
 true	true	true	true	true	true	false	false	false	false	false	true	true	true	true	false	true	false
 
+-- !geography_stable_polygon_area --
+true	true	true	true
+
+-- !geography_near_antipodal_bearing --
+true	true	true	true	true
+

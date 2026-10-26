@@ -751,7 +751,7 @@ public class CreateIcebergSpatialV3Table {
     test {
         sql """explain insert into geometry_values
             select id, cast(geom as geometry), NULL from projected_values"""
-        exception "cannot cast GEOMETRY"
+        exception "CRS mismatch"
     }
     for (def branch : [
             ["case when id = 1 then ST_GeometryFromWKBTyped('0101000000000000000000F03F0000000000000040') else geom end",
@@ -1376,5 +1376,40 @@ public class CreateIcebergSpatialV3Table {
         "qt_spatial_plain_lists_${column}"("""select size(array_agg(${column})),
             size(collect_list(${column})), size(collect_list(${column}, 2))
             from geometry_values where id in (101, 102, 103)""")
+    }
+
+    // SELECT is bound before constant folding; preserve NULL identity through projects and CTEs.
+    sql """insert into geometry_values select 201,
+        cast(null as geometry('EPSG:3857')), cast(null as int)"""
+    sql """insert into geometry_values select 202, g, gg from
+        (select cast(null as int) g, cast(null as geography('OGC:CRS84', 'vincenty')) gg) source"""
+    sql """insert into geometry_values with source as
+        (select cast(null as geography) g, cast(null as geometry('EPSG:3857')) gg)
+        select 203, g, gg from source"""
+    sql """insert into geometry_values (id, geom) with outer_source as
+        (with inner_source as (select cast(null as geometry('EPSG:3857')) g)
+         select g from inner_source) select 204, g from outer_source"""
+    sql """refresh table geometry_values"""
+    order_qt_spatial_select_typed_nulls """select id, geom is null, geog is null
+        from geometry_values where id in (201,202,203,204)"""
+    sql """insert into spatial_nested_copy (id, g_array, gg_map, g_struct)
+        with source as (select array(cast(null as geometry('EPSG:3857'))) a,
+            map('shape', cast(null as int)) m,
+            named_struct('shape', cast(null as int), 'label', 'retained') s)
+        select 201, a, m, s from source"""
+    sql """refresh table spatial_nested_copy"""
+    order_qt_spatial_select_nested_nulls """select id, g_array is null, size(g_array), g_array[1] is null,
+        gg_map is null, size(gg_map), gg_map['shape'] is null,
+        struct_element(g_struct, 'shape') is null, struct_element(g_struct, 'label')
+        from spatial_nested_copy where id = 201"""
+    test {
+        sql """insert into geometry_values (id, geom) with source as
+            (select id, cast(geom as geometry) g from projected_values) select id + 300, g from source"""
+        exception "CRS mismatch"
+    }
+    test {
+        sql """insert into geometry_values (id, geom) select id + 300, g from
+            (select id, cast(geog as geometry) g from geometry_values where id = 101) source"""
+        exception "type mismatch"
     }
 }

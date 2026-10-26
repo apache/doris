@@ -905,6 +905,77 @@ TEST(VGeoFunctionsTest, GeographySyntheticMidpointRemainsLineInterior) {
     }
 }
 
+static void geography_measurement(const std::string& name, const Strings& wkts, double* result) {
+    Strings arguments;
+    for (const auto& wkt : wkts) {
+        arguments.push_back(geography_test_hex(wkt));
+    }
+    Block block;
+    ASSERT_TRUE(execute_geography_test(name, arguments,
+                                       make_nullable(std::make_shared<DataTypeFloat64>()), &block)
+                        .ok());
+    ASSERT_FALSE(block.get_by_position(arguments.size()).column->is_null_at(0));
+    const auto value = (*block.get_by_position(arguments.size()).column)[0];
+    *result = value.get<TYPE_DOUBLE>();
+}
+
+TEST(VGeoFunctionsTest, GeographyAreaUsesStableRingsInBothUnits) {
+    const Strings rings {
+            "(-44.99999999999997 -45,134.99999999999997 45,45 45,-44.99999999999997 -45)",
+            "(-44.99999999999997 -45,45 0,134.99999999999997 45,45 45,-44.99999999999997 -45)",
+            "(-44.99999999999997 -45,45 45,134.99999999999997 45,-44.99999999999997 -45)"};
+    const std::string hole = "(44 20,46 20,46 22,44 22,44 20)";
+    double reference_meters = 0;
+    for (const auto* name : {"st_area_square_meters", "st_area_square_km"}) {
+        double reference = 0;
+        double hole_area = 0;
+        geography_measurement(name, {"POLYGON (" + rings[1] + ")"}, &reference);
+        geography_measurement(name, {"POLYGON (" + hole + ")"}, &hole_area);
+        EXPECT_GT(reference, 1e7);
+        for (const auto& ring : rings) {
+            double area = 0;
+            geography_measurement(name, {"POLYGON (" + ring + ")"}, &area);
+            EXPECT_NEAR(area, reference, reference * 1e-12);
+            geography_measurement(name, {"POLYGON (" + ring + "," + hole + ")"}, &area);
+            EXPECT_NEAR(area, reference - hole_area, reference * 1e-12);
+        }
+        if (std::string_view(name) == "st_area_square_meters") {
+            reference_meters = reference;
+        } else {
+            EXPECT_NEAR(reference * 1e6, reference_meters, reference_meters * 1e-12);
+        }
+        for (const auto* zero : {"POINT (0 45)", "LINESTRING (0 0,180 0)"}) {
+            double area = -1;
+            geography_measurement(name, {zero}, &area);
+            EXPECT_EQ(area, 0);
+        }
+    }
+}
+
+TEST(VGeoFunctionsTest, GeographyBearingUsesOriginalNearAntipodalDirections) {
+    struct Case {
+        std::string from;
+        std::string to;
+        std::string north;
+        double bearing;
+    };
+    const std::vector<Case> cases {
+            {"POINT (0 45)", "POINT (180 -44.99999999999999)", "POINT (0 46)", 0},
+            {"POINT (0 45)", "POINT (180 -45.00000000000001)", "POINT (0 46)", M_PI},
+            {"POINT (0 -45)", "POINT (180 45.00000000000001)", "POINT (0 -44)", 0},
+            {"POINT (0 -45)", "POINT (180 44.99999999999999)", "POINT (0 -44)", M_PI},
+            {"POINT (10 45)", "POINT (-170 -44.99999999999999)", "POINT (10 46)", 0},
+            {"POINT (1e-300 0)", "POINT (-180 0)", "POINT (1e-300 1)", M_PI_2}};
+    for (const auto& value : cases) {
+        SCOPED_TRACE(value.to);
+        double result = -1;
+        geography_measurement("st_azimuth", {value.from, value.to}, &result);
+        EXPECT_NEAR(result, value.bearing, 1e-14);
+        geography_measurement("st_angle", {value.north, value.from, value.to}, &result);
+        EXPECT_NEAR(result, value.bearing, 1e-14);
+    }
+}
+
 TEST(VGeoFunctionsTest, GeographyUncertainCircleDoesNotBroadenStableCircleSearches) {
     for (const int count : {32, 64, 128}) {
         std::ostringstream lines;

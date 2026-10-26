@@ -1,0 +1,267 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.datasource.connector.converter;
+
+import org.apache.doris.catalog.Column;
+import org.apache.doris.nereids.CTEContext;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.CTEId;
+import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateNamedStruct;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateStruct;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
+import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.GeographyType;
+import org.apache.doris.nereids.types.GeometryType;
+import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.StructType;
+
+import com.google.common.collect.ImmutableList;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.IdentityHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.stream.IntStream;
+
+/** Restores proven NULL producer values before spatial sink coercion. */
+public final class ConnectorSpatialWriteNormalizer {
+    private ConnectorSpatialWriteNormalizer() {
+    }
+
+    public static LogicalPlan normalize(List<Column> targets, LogicalPlan source, CTEContext cteContext) {
+        if (targets.stream().noneMatch(column -> column.getType().typeContainsSpatialType())) {
+            return source;
+        }
+        Resolver resolver = new Resolver(source, cteContext);
+        List<NamedExpression> outputs = new ArrayList<>(source.getOutput());
+        boolean changed = false;
+        for (int i = 0; i < targets.size(); i++) {
+            Column target = targets.get(i);
+            if (!target.getType().typeContainsSpatialType()) {
+                continue;
+            }
+            Slot slot = source.getOutput().get(i);
+            Expression value = resolver.resolve(slot, source);
+            ConnectorSpatialWriteValidator.validate(target, value);
+            // Never lift arbitrary producer expressions above their input scope, or
+            // replace outer-join NULL padding with a non-NULL container constant.
+            if (isLiteralConstruction(value)) {
+                Expression normalized = normalizeSpatialNulls(value, DataType.fromCatalogType(target.getType()));
+                if (!normalized.getDataType().equals(slot.getDataType())) {
+                    outputs.set(i, new Alias(slot.getExprId(), normalized, slot.getName()));
+                    changed = true;
+                }
+            }
+        }
+        return changed ? new LogicalProject<>(outputs, source) : source;
+    }
+
+    private static boolean isLiteralConstruction(Expression value) {
+        return value instanceof Literal || ((value instanceof Array || value instanceof CreateMap
+                || value instanceof CreateStruct || value instanceof CreateNamedStruct)
+                && value.children().stream().allMatch(ConnectorSpatialWriteNormalizer::isLiteralConstruction));
+    }
+
+    private static final class Resolver {
+        private final CTEContext context;
+        private final Map<CTEId, Plan> producers = new HashMap<>();
+        private final Set<CTEId> activeCtes = new HashSet<>();
+        private final Map<Plan, Map<ExprId, Expression>> resolvedSlots = new IdentityHashMap<>();
+
+        private Resolver(Plan source, CTEContext context) {
+            this.context = context;
+            collectProducers(source);
+        }
+
+        private void collectProducers(Plan source) {
+            if (source instanceof LogicalCTEProducer) {
+                LogicalCTEProducer<?> producer = (LogicalCTEProducer<?>) source;
+                producers.put(producer.getCteId(), producer.child());
+            }
+            source.children().forEach(this::collectProducers);
+        }
+
+        private Expression resolve(Expression value, Plan source) {
+            if (value instanceof Alias) {
+                return resolve(value.child(0), source);
+            }
+            if (value instanceof Slot) {
+                return resolveSlot((Slot) value, source);
+            }
+            // Only restore constant NULL construction. Expanding arbitrary IF(g, g)
+            // producer chains duplicates shared CTE lineage exponentially.
+            if (!(value instanceof Cast || value instanceof Array || value instanceof CreateMap
+                    || value instanceof CreateStruct || value instanceof CreateNamedStruct)) {
+                return value;
+            }
+            List<Expression> children = value.children().stream()
+                    .map(child -> resolve(child, source))
+                    .collect(ImmutableList.toImmutableList());
+            // SELECT reaches sink binding before constant folding: CAST(NULL AS INT)
+            // and CAST(NULL AS GEOMETRY('EPSG:3857')) are still value-independent NULLs.
+            if (value instanceof Cast && children.get(0).isNullLiteral()) {
+                return new NullLiteral(value.getDataType());
+            }
+            return children.equals(value.children()) ? value : value.withChildren(children);
+        }
+
+        private Expression resolveSlot(Slot slot, Plan source) {
+            Map<ExprId, Expression> cached = resolvedSlots.computeIfAbsent(source, ignored -> new HashMap<>());
+            Expression result = cached.get(slot.getExprId());
+            if (result == null) {
+                result = traceSlot(slot, source);
+                cached.put(slot.getExprId(), result);
+            }
+            return result;
+        }
+
+        private Expression traceSlot(Slot slot, Plan source) {
+            if (source instanceof LogicalProject || source instanceof LogicalOneRowRelation) {
+                List<NamedExpression> projects = source instanceof LogicalProject
+                        ? ((LogicalProject<?>) source).getProjects() : ((LogicalOneRowRelation) source).getProjects();
+                for (NamedExpression project : projects) {
+                    if (project.getExprId().equals(slot.getExprId())) {
+                        Plan input = source instanceof LogicalProject ? source.child(0) : source;
+                        // A one-row correlated slot has no producer definition here.
+                        return project instanceof Slot && input == source
+                                ? slot : resolve(project, input);
+                    }
+                }
+            } else if (source instanceof LogicalCTEConsumer) {
+                LogicalCTEConsumer consumer = (LogicalCTEConsumer) source;
+                Optional<Plan> producer = Optional.ofNullable(producers.get(consumer.getCteId()));
+                if (!producer.isPresent()) {
+                    producer = context.findCTEContext(consumer.getName())
+                            .filter(cte -> cte.getCteId().equals(consumer.getCteId()))
+                            .flatMap(cte -> cte.getAnalyzedCTEPlan(consumer.getName())).map(Plan.class::cast);
+                }
+                // Recursive CTEs do not prove constant provenance through their cycle.
+                if (producer.isPresent() && activeCtes.add(consumer.getCteId())) {
+                    try {
+                        // An analyzed outer CTE can own an inner WITH whose producers
+                        // are absent from the sink's context and initial source tree.
+                        collectProducers(producer.get());
+                        return resolve(consumer.getProducerSlot(slot), producer.get());
+                    } finally {
+                        activeCtes.remove(consumer.getCteId());
+                    }
+                }
+            } else if (source instanceof LogicalCTEAnchor) {
+                return resolveSlot(slot, source.child(1));
+            } else if (source instanceof LogicalSubQueryAlias || source instanceof LogicalFilter
+                    || source instanceof LogicalLimit || source instanceof LogicalSort
+                    || source instanceof LogicalCTE) {
+                return resolveSlot(slot, source.child(0));
+            }
+            // Joins, grouping sets and set operations may add NULLs or combine values;
+            // their output type alone is not evidence of a constant value.
+            return slot;
+        }
+    }
+
+    public static Expression normalizeSpatialNulls(Expression input, DataType target) {
+        if (!target.toCatalogDataType().typeContainsSpatialType()) {
+            return input;
+        }
+        if (input.isNullLiteral()) {
+            return new NullLiteral(target);
+        }
+        if (input instanceof Literal) {
+            // Preserve ordinary types and source field nullability for the subsequent normal CAST.
+            return ((Literal) input).checkedCastTo(spatialLiteralType(input.getDataType(), target));
+        }
+        // Binding folds CAST(NULL), but does not fold every container constructor to a literal.
+        // Rebuild just these constructors after identity validation, retaining names and ordinary siblings.
+        if (input instanceof Array && target instanceof ArrayType) {
+            return new Array(input.children().stream()
+                    .map(child -> normalizeSpatialNulls(child, ((ArrayType) target).getItemType()))
+                    .collect(ImmutableList.toImmutableList()));
+        }
+        if (input instanceof CreateMap && target instanceof MapType) {
+            MapType map = (MapType) target;
+            return new CreateMap(IntStream.range(0, input.arity()).mapToObj(i -> normalizeSpatialNulls(
+                    input.child(i), i % 2 == 0 ? map.getKeyType() : map.getValueType()))
+                    .toArray(Expression[]::new));
+        }
+        if ((input instanceof CreateStruct || input instanceof CreateNamedStruct) && target instanceof StructType) {
+            StructType struct = (StructType) target;
+            int step = input instanceof CreateNamedStruct ? 2 : 1;
+            Expression[] children = IntStream.range(0, input.arity())
+                    .mapToObj(i -> step == 2 && i % 2 == 0 ? input.child(i)
+                            : normalizeSpatialNulls(input.child(i), struct.getFields().get(i / step).getDataType()))
+                    .toArray(Expression[]::new);
+            return step == 2 ? new CreateNamedStruct(children) : new CreateStruct(children);
+        }
+        return input;
+    }
+
+    private static DataType spatialLiteralType(DataType source, DataType target) {
+        // Ordinary sibling structs may have incompatible shapes; leave them to normal CAST validation.
+        if (!target.toCatalogDataType().typeContainsSpatialType()) {
+            return source;
+        }
+        if (target instanceof GeometryType || target instanceof GeographyType) {
+            return target;
+        } else if (source instanceof ArrayType && target instanceof ArrayType) {
+            return ArrayType.of(spatialLiteralType(((ArrayType) source).getItemType(),
+                    ((ArrayType) target).getItemType()));
+        } else if (source instanceof MapType && target instanceof MapType) {
+            return MapType.of(spatialLiteralType(((MapType) source).getKeyType(), ((MapType) target).getKeyType()),
+                    spatialLiteralType(((MapType) source).getValueType(), ((MapType) target).getValueType()));
+        } else if (source instanceof StructType && target instanceof StructType) {
+            StructType sourceStruct = (StructType) source;
+            StructType targetStruct = (StructType) target;
+            // A typed NULL element may carry a different struct shape; retain its type for CAST.
+            if (sourceStruct.getFields().size() != targetStruct.getFields().size()) {
+                return source;
+            }
+            return new StructType(IntStream.range(0, sourceStruct.getFields().size())
+                    .mapToObj(i -> sourceStruct.getFields().get(i).withDataType(spatialLiteralType(
+                            sourceStruct.getFields().get(i).getDataType(),
+                            targetStruct.getFields().get(i).getDataType())))
+                    .collect(ImmutableList.toImmutableList()));
+        }
+        return source;
+    }
+
+}
