@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.Config;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -31,50 +30,21 @@ import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.ConnectContext;
 
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
-class LocalTvfSinkEnableTest {
-    private boolean originalEnableLocalTvf;
-
-    @BeforeEach
-    void setUp() {
-        originalEnableLocalTvf = Config.enable_local_tvf;
-        Config.enable_local_tvf = false;
-    }
-
-    @AfterEach
-    void tearDown() {
-        Config.enable_local_tvf = originalEnableLocalTvf;
-    }
-
+class LocalTvfSinkDisabledTest {
     @Test
     void disabledLocalRejectsInsertAndExplainBeforeProperties() {
-        for (String prefix : new String[] {"", "EXPLAIN "}) {
-            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
-                    () -> analyzeInsert(prefix + "INSERT INTO local('format'='csv') SELECT 1", true));
-            Assertions.assertTrue(exception.getMessage().contains("LOCAL TVF is disabled"));
+        for (boolean authorized : new boolean[] {false, true}) {
+            for (String prefix : new String[] {"", "EXPLAIN "}) {
+                AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                        () -> analyzeInsert(prefix + "INSERT INTO local('format'='csv') SELECT 1", authorized));
+                Assertions.assertTrue(exception.getMessage().contains("LOCAL TVF is disabled"));
+            }
         }
-    }
-
-    @Test
-    void enabledLocalKeepsPropertyValidation() {
-        Config.enable_local_tvf = true;
-        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
-                () -> analyzeInsert("INSERT INTO local('format'='csv') SELECT 1", true));
-        Assertions.assertTrue(exception.getMessage().contains("requires 'file_path'"));
-    }
-
-    @Test
-    void enabledLocalChecksPrivilegesBeforeProperties() {
-        Config.enable_local_tvf = true;
-        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
-                () -> analyzeInsert("INSERT INTO local('format'='csv') SELECT 1", false));
-        Assertions.assertTrue(exception.getMessage().contains("ADMIN/OPERATOR"));
     }
 
     @Test

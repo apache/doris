@@ -17,17 +17,6 @@
 
 suite("map_uniq_with_local_tvf", "p0") {
     def table_name = "map_uniq"
-    List<List<Object>> backends = sql """ show backends """
-    def dataFilePath = context.config.dataPath + "/types/complex_types/"
-    assertTrue(backends.size() > 0)
-    def be_id = backends[0][0]
-    // cluster mode need to make sure all be has this data
-    def outFilePath="/"
-    def transFile01="${dataFilePath}/mm.orc"
-    for (List<Object> backend : backends) {
-         def be_host = backend[1]
-         scpFiles ("root", be_host, transFile01, outFilePath, false);
-    }
     sql "DROP TABLE IF EXISTS ${table_name};"
     sql """
             CREATE TABLE ${table_name} (
@@ -45,11 +34,13 @@ suite("map_uniq_with_local_tvf", "p0") {
             "disable_auto_compaction" = "false"
             ); """
 
-    qt_sql """
-           insert into ${table_name} select * from local(
-                       "file_path" = "${outFilePath}/mm.orc",
-                       "backend_id" = "${be_id}",
-                       "format" = "orc");"""
+    streamLoad {
+        table "${table_name}"
+        set 'format', 'orc'
+        file "${context.config.dataPath}/types/complex_types/mm.orc"
+    }
+    sql "sync"
+    qt_sql "SELECT COUNT(*) FROM ${table_name}"
     qt_sql  """ select count(m) from ${table_name}; """
     qt_sql  """ select count(m) from ${table_name} where map_size(m) > 0;"""
 

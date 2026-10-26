@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_local_tvf_enable", "p0") {
-    def enabled = (sql "ADMIN SHOW FRONTEND CONFIG LIKE 'enable_local_tvf'")[0][1].toBoolean()
+suite("test_local_tvf_disabled", "p0") {
     for (def functionName : ["LOCAL", "FILE"]) {
         for (def prefix : ["", "EXPLAIN "]) {
             test {
@@ -25,8 +24,7 @@ suite("test_local_tvf_enable", "p0") {
                     "backend_id" = "-1",
                     "format" = "csv"
                 )"""
-                // With opt-in enabled, the existing backend validation must be reached.
-                exception (enabled ? "'backend_id' is required" : "LOCAL TVF is disabled")
+                exception "LOCAL TVF is disabled"
             }
         }
     }
