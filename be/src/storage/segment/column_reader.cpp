@@ -2924,6 +2924,60 @@ Status FileColumnIterator::next_batch_of_zone_map(size_t* n, MutableColumnPtr& d
     return _reader->next_batch_of_zone_map(n, dst);
 }
 
+namespace {
+
+// The column the page decoders append values to. As ScalarColumnWriter::append peels the Nullable
+// off before the values reach a page, the iterator peels it here: the decoders append to the
+// nested column and the iterator fills the null map. A dictionary page decoder may replace the
+// column it appends to, so the nested column goes back into dst on destruction.
+class PeeledNullable {
+public:
+    explicit PeeledNullable(MutableColumnPtr& dst) : _dst(dst) {
+        if (is_column_nullable(*dst)) {
+            _nullable = &assert_cast<ColumnNullable&>(*dst);
+            _nested = _nullable->get_nested_column_ptr();
+        }
+    }
+
+    ~PeeledNullable() {
+        if (_nullable != nullptr) {
+            ColumnPtr nested = std::move(_nested);
+            _nullable->change_nested_column(nested);
+        }
+    }
+
+    PeeledNullable(const PeeledNullable&) = delete;
+    PeeledNullable& operator=(const PeeledNullable&) = delete;
+    PeeledNullable(PeeledNullable&&) = delete;
+    PeeledNullable& operator=(PeeledNullable&&) = delete;
+
+    MutableColumnPtr& values() { return _nullable != nullptr ? _nested : _dst; }
+
+    // Marks not NULL the n rows a decoder has just appended to values().
+    void mark_not_null(size_t n) {
+        if (_nullable != nullptr) {
+            _nullable->push_false_to_nullmap(n);
+        }
+    }
+
+    Status append_nulls(size_t n) {
+        if (_nullable == nullptr) {
+            return Status::InternalError("unexpected column type in column reader");
+        }
+        _nested->insert_many_defaults(n);
+        auto& null_map = _nullable->get_null_map_data();
+        null_map.resize_fill(null_map.size() + n, 1);
+        return Status::OK();
+    }
+
+private:
+    MutableColumnPtr& _dst;
+    ColumnNullable* _nullable = nullptr;
+    MutableColumnPtr _nested;
+};
+
+} // namespace
+
 Status FileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) {
     if (!need_to_read()) {
         DLOG(INFO) << "File column iterator column " << _column_name << " skip reading.";
@@ -2985,49 +3039,50 @@ Status FileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool* ha
     dst->reserve(*n);
     size_t remaining = *n;
     *has_null = false;
-    while (remaining > 0) {
-        if (!_page.has_remaining()) {
-            bool eos = false;
-            RETURN_IF_ERROR(_load_next_page(&eos));
-            if (eos) {
-                break;
-            }
-        }
-
-        // number of rows to be read from this page
-        size_t nrows_in_page = std::min(remaining, _page.remaining());
-        size_t nrows_to_read = nrows_in_page;
-        if (_page.has_null) {
-            while (nrows_to_read > 0) {
-                bool is_null = false;
-                size_t this_run = _page.null_decoder.GetNextRun(&is_null, nrows_to_read);
-                // we use num_rows only for CHECK
-                size_t num_rows = this_run;
-                if (!is_null) {
-                    RETURN_IF_ERROR(_page.data_decoder->next_batch(&num_rows, dst));
-                    DCHECK_EQ(this_run, num_rows);
-                } else {
-                    *has_null = true;
-                    auto* null_col = check_and_get_column<ColumnNullable>(dst.get());
-                    if (null_col != nullptr) {
-                        null_col->insert_many_defaults(this_run);
-                    } else {
-                        return Status::InternalError("unexpected column type in column reader");
-                    }
+    {
+        // Ends before dst is measured below, so that dst holds its nested column again.
+        PeeledNullable peeled(dst);
+        while (remaining > 0) {
+            if (!_page.has_remaining()) {
+                bool eos = false;
+                RETURN_IF_ERROR(_load_next_page(&eos));
+                if (eos) {
+                    break;
                 }
-
-                nrows_to_read -= this_run;
-                _page.offset_in_page += this_run;
-                _current_ordinal += this_run;
             }
-        } else {
-            RETURN_IF_ERROR(_page.data_decoder->next_batch(&nrows_to_read, dst));
-            DCHECK_EQ(nrows_to_read, nrows_in_page);
 
-            _page.offset_in_page += nrows_to_read;
-            _current_ordinal += nrows_to_read;
+            // number of rows to be read from this page
+            size_t nrows_in_page = std::min(remaining, _page.remaining());
+            size_t nrows_to_read = nrows_in_page;
+            if (_page.has_null) {
+                while (nrows_to_read > 0) {
+                    bool is_null = false;
+                    size_t this_run = _page.null_decoder.GetNextRun(&is_null, nrows_to_read);
+                    // we use num_rows only for CHECK
+                    size_t num_rows = this_run;
+                    if (!is_null) {
+                        RETURN_IF_ERROR(_page.data_decoder->next_batch(&num_rows, peeled.values()));
+                        DCHECK_EQ(this_run, num_rows);
+                        peeled.mark_not_null(num_rows);
+                    } else {
+                        *has_null = true;
+                        RETURN_IF_ERROR(peeled.append_nulls(this_run));
+                    }
+
+                    nrows_to_read -= this_run;
+                    _page.offset_in_page += this_run;
+                    _current_ordinal += this_run;
+                }
+            } else {
+                RETURN_IF_ERROR(_page.data_decoder->next_batch(&nrows_to_read, peeled.values()));
+                DCHECK_EQ(nrows_to_read, nrows_in_page);
+                peeled.mark_not_null(nrows_to_read);
+
+                _page.offset_in_page += nrows_to_read;
+                _current_ordinal += nrows_to_read;
+            }
+            remaining -= nrows_in_page;
         }
-        remaining -= nrows_in_page;
     }
     *n -= remaining;
     _opts.stats->bytes_read += (dst->byte_size() - curr_size) + BitmapSize(*n);
@@ -3123,6 +3178,7 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
         return Status::OK();
     }
 
+    PeeledNullable peeled(dst);
     size_t remaining = count;
     size_t total_read_count = 0;
     size_t nrows_to_read = 0;
@@ -3155,12 +3211,7 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
                 auto origin_index = _page.data_decoder->current_index();
                 if (this_read_count > 0) {
                     if (is_null) {
-                        auto* null_col = check_and_get_column<ColumnNullable>(dst.get());
-                        if (UNLIKELY(null_col == nullptr)) {
-                            return Status::InternalError("unexpected column type in column reader");
-                        }
-
-                        null_col->insert_many_defaults(this_read_count);
+                        RETURN_IF_ERROR(peeled.append_nulls(this_read_count));
                     } else {
                         size_t read_count = this_read_count;
 
@@ -3169,8 +3220,10 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
                         size_t page_start_off_in_decoder =
                                 _page.first_ordinal + _page.offset_in_page - origin_index;
                         RETURN_IF_ERROR(_page.data_decoder->read_by_rowids(
-                                &rowids[offset], page_start_off_in_decoder, &read_count, dst));
+                                &rowids[offset], page_start_off_in_decoder, &read_count,
+                                peeled.values()));
                         DCHECK_EQ(read_count, this_read_count);
+                        peeled.mark_not_null(read_count);
                     }
                 }
 
@@ -3188,8 +3241,10 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
             total_read_count += nrows_to_read;
             remaining -= nrows_to_read;
         } else {
-            RETURN_IF_ERROR(_page.data_decoder->read_by_rowids(
-                    &rowids[total_read_count], _page.first_ordinal, &nrows_to_read, dst));
+            RETURN_IF_ERROR(_page.data_decoder->read_by_rowids(&rowids[total_read_count],
+                                                               _page.first_ordinal, &nrows_to_read,
+                                                               peeled.values()));
+            peeled.mark_not_null(nrows_to_read);
             total_read_count += nrows_to_read;
             remaining -= nrows_to_read;
         }
