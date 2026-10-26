@@ -980,7 +980,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             return doPlanPositionDeletesSystemTableScan(handle, metadataTable, columns, filter, session);
         }
         TableScan scan = buildScan(metadataTable, handle, filter, session);
-        // Project the metadata-table scan to ONLY the requested columns, in the SAME order BE lists them in
+        // Project the metadata-table scan to the requested columns first, in the SAME order BE lists them in
         // required_fields (== the scan slot order: buildColumnHandles iterates desc.getSlots(), BE builds
         // required_fields from the matching file_slot_descs). This mirrors legacy IcebergScanNode
         // .getSystemTableProjectedSchema() + scan.project(...). Two reasons the projection is mandatory AND must
@@ -1008,6 +1008,13 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 if (seenFieldIds.add(field.fieldId())) {
                     projectedFields.add(field);
                 }
+            }
+            // Iceberg returns split_offsets only when the last offset is smaller than file_size_in_bytes.
+            // Without that dependency, even valid offsets such as [4, 2048] are hidden as null. Append it
+            // after the requested columns so BE's positional reads keep their original order.
+            if (seenFieldIds.contains(DataFile.SPLIT_OFFSETS.fieldId())
+                    && seenFieldIds.add(DataFile.FILE_SIZE.fieldId())) {
+                projectedFields.add(metadataSchema.findField(DataFile.FILE_SIZE.fieldId()));
             }
             scan = scan.project(new Schema(projectedFields));
         }
