@@ -34,7 +34,10 @@ public class HiveConnectorProviderSecuritySurfaceTest {
     @Test
     public void declaresMetastoreUriAsSsrfEndpoint() {
         ConnectorSecuritySurface surface = new HiveConnectorProvider().securitySurface();
-        Assertions.assertEquals(Arrays.asList("hive.metastore.uris", "uri"), surface.ssrfEndpointKeys());
+        // metastore.thrift.uris wins over hive.metastore.uris in Hive 3's MetastoreConf.getVar, so dropping it
+        // would let an ALTER of only that key repoint the client unprobed.
+        Assertions.assertEquals(Arrays.asList("hive.metastore.uris", "uri", "metastore.thrift.uris"),
+                surface.ssrfEndpointKeys());
         // An HMS catalog loads no driver jar.
         Assertions.assertTrue(surface.jdbcDriverUrlKeys().isEmpty());
         Assertions.assertNull(surface.jdbcDriverUrlFlavorKey());

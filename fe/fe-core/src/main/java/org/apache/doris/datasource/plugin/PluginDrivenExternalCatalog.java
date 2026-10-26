@@ -381,6 +381,11 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
      *
      * <p>A connector whose property names a host to connect to declares it in its
      * {@code securitySurface()} and nowhere else.
+     *
+     * <p>An endpoint must be given literally. A client built on Hadoop's {@code Configuration} expands a
+     * {@code ${...}} placeholder (another property, {@code ${env.X}}, a JVM system property) before it
+     * parses the endpoint, so the probe would judge a different destination than the one the client
+     * connects to.
      */
     private void checkEndpointsAgainstSsrf(Map<String, String> candidate, Map<String, String> updatedProperties)
             throws DdlException {
@@ -392,8 +397,18 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         if (endpointKeys.isEmpty()) {
             return;
         }
-        // Only an ALTER that touches an endpoint key can repoint the catalog at a new host; a stored value
-        // was gated at its own CREATE/ALTER time. On CREATE the full property map is passed as both
+        // Checked before the touched guard below: a placeholder value was never probed, and an ALTER that
+        // changes only the property it refers to repoints the catalog without touching an endpoint key.
+        for (String key : endpointKeys) {
+            String rawValue = candidate.get(key);
+            if (rawValue != null && rawValue.contains("${")) {
+                throw new DdlException("Property '" + key + "' of catalog '" + name + "' must give its endpoint"
+                        + " literally while an SSRF checker is configured: a ${...} placeholder is expanded"
+                        + " after this check, so its destination cannot be validated");
+            }
+        }
+        // Only an ALTER that touches an endpoint key can repoint the catalog at a new host; a stored literal
+        // value was gated at its own CREATE/ALTER time. On CREATE the full property map is passed as both
         // arguments, so every supplied endpoint counts as touched and is checked.
         boolean touched = endpointKeys.stream().anyMatch(updatedProperties::containsKey);
         if (!touched) {

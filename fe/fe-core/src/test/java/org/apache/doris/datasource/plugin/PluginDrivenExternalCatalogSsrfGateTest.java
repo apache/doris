@@ -75,7 +75,8 @@ public class PluginDrivenExternalCatalogSsrfGateTest {
 
             @Override
             public ConnectorSecuritySurface securitySurface() {
-                return ConnectorSecuritySurface.ofSsrfEndpoints("hive.metastore.uris", "uri");
+                // Mirrors HiveConnectorProvider.securitySurface().
+                return ConnectorSecuritySurface.ofSsrfEndpoints("hive.metastore.uris", "uri", "metastore.thrift.uris");
             }
         });
         ConnectorFactory.initPluginManager(manager);
@@ -182,6 +183,62 @@ public class PluginDrivenExternalCatalogSsrfGateTest {
     }
 
     @Test
+    public void alterTouchingOnlyModernMetastoreKeyIsProbed() {
+        // Hive 3's client reads metastore.thrift.uris before hive.metastore.uris, so this ALTER alone repoints
+        // the catalog while the stored legacy uri stays public.
+        checker.intranetHost = "127.0.0.1";
+        TestCatalog catalog = new TestCatalog(hms("thrift://hms.public.example.com:9083"));
+
+        Assertions.assertThrows(DdlException.class,
+                () -> catalog.validatePropertiesBeforeUpdate(catalog.getProperties(),
+                        Collections.singletonMap("metastore.thrift.uris", "thrift://127.0.0.1:9083")));
+        // A touched endpoint key probes every declared endpoint of the candidate, the stored legacy uri included.
+        Assertions.assertTrue(checker.probed.contains("127.0.0.1:9083"), checker.probed.toString());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"hive.metastore.uris", "metastore.thrift.uris"})
+    public void alterRejectsPlaceholderEndpointWithoutProbing(String key) {
+        // MUTATION: drop the placeholder check -> URI parsing fails, the endpoint is skipped and the ALTER is
+        // accepted although the client expands it to 127.0.0.1 -> red.
+        TestCatalog catalog = new TestCatalog(hms("thrift://hms.public.example.com:9083"));
+        Map<String, String> update = new HashMap<>();
+        update.put(key, "thrift://${hms.target}:9083");
+        update.put("hms.target", "127.0.0.1");
+
+        DdlException e = Assertions.assertThrows(DdlException.class,
+                () -> catalog.validatePropertiesBeforeUpdate(catalog.getProperties(), update));
+        Assertions.assertTrue(e.getMessage().contains("placeholder"), e.getMessage());
+        Assertions.assertTrue(checker.probed.isEmpty(), checker.probed.toString());
+    }
+
+    @Test
+    public void alterOfThePropertyAStoredPlaceholderRefersToIsRejected() {
+        // A catalog stored before a checker was configured can carry a placeholder; changing only the property
+        // it refers to repoints the client without touching an endpoint key.
+        // MUTATION: move the placeholder check after the touched guard -> the ALTER is accepted -> red.
+        Map<String, String> stored = hms("thrift://${hms.target}:9083");
+        stored.put("hms.target", "hms.public.example.com");
+        TestCatalog catalog = new TestCatalog(stored);
+
+        Assertions.assertThrows(DdlException.class,
+                () -> catalog.validatePropertiesBeforeUpdate(catalog.getProperties(),
+                        Collections.singletonMap("hms.target", "127.0.0.1")));
+        Assertions.assertTrue(checker.probed.isEmpty(), checker.probed.toString());
+    }
+
+    @Test
+    public void alterAcceptsPlaceholderWhenNoCheckerInstalled() throws Exception {
+        // MUTATION: run the placeholder check before the isEnabled() guard -> rejected -> red.
+        checker.enabled = false;
+        TestCatalog catalog = new TestCatalog(hms("thrift://hms.public.example.com:9083"));
+
+        catalog.validatePropertiesBeforeUpdate(catalog.getProperties(),
+                Collections.singletonMap("hive.metastore.uris", "thrift://${hms.target}:9083"));
+        Assertions.assertTrue(checker.probed.isEmpty(), checker.probed.toString());
+    }
+
+    @Test
     public void alterNotTouchingMetastoreUriSkipsTheGate() throws Exception {
         // A stored uri was gated at its own CREATE/ALTER time; an unrelated ALTER must not re-probe it.
         // MUTATION: drop the touched-keys guard -> the stored intranet uri is probed and rejected -> red.
@@ -228,6 +285,35 @@ public class PluginDrivenExternalCatalogSsrfGateTest {
 
         Assertions.assertThrows(DdlException.class, catalog::checkWhenCreating);
         Assertions.assertEquals(Collections.singletonList("127.0.0.1:9083"), checker.probed);
+    }
+
+    @Test
+    public void createProbesModernMetastoreKeyBesideLegacyKey() {
+        // The client connects to metastore.thrift.uris when both keys are set, so a public legacy uri must not
+        // be the only value probed.
+        checker.intranetHost = "127.0.0.1";
+        Map<String, String> properties = hms("thrift://hms.public.example.com:9083");
+        properties.put("metastore.thrift.uris", "thrift://127.0.0.1:9083");
+        properties.put("test_connection", "false");
+        TestCatalog catalog = new TestCatalog(properties);
+
+        Assertions.assertThrows(DdlException.class, catalog::checkWhenCreating);
+        Assertions.assertTrue(checker.probed.contains("127.0.0.1:9083"), checker.probed.toString());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"thrift://${hms.target}:9083", "${hms.target}:9083", "${hms.target}",
+            "thrift://${env.HOSTNAME}:9083"})
+    public void createRejectsPlaceholderEndpointWithConnectionTestDisabled(String endpoint) {
+        // Without the placeholder check the schemed forms fail URI parsing and are skipped, and
+        // "${hms.target}:9083" probes a host literally named "${hms.target}", whose DNS failure is ignored.
+        Map<String, String> properties = hms(endpoint);
+        properties.put("hms.target", "127.0.0.1");
+        properties.put("test_connection", "false");
+        TestCatalog catalog = new TestCatalog(properties);
+
+        Assertions.assertThrows(DdlException.class, catalog::checkWhenCreating);
+        Assertions.assertTrue(checker.probed.isEmpty(), checker.probed.toString());
     }
 
     private static Map<String, String> hms(String metastoreUris) {

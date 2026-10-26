@@ -84,8 +84,10 @@ public class HiveConnectorProvider implements ConnectorProvider {
 
     @Override
     public ConnectorSecuritySurface securitySurface() {
-        // hive.metastore.uris (documented alias: uri) is the user-supplied thrift endpoint the FE connects
-        // to; the engine's SSRF gate rejects an intranet target there at CREATE / ALTER CATALOG.
-        return ConnectorSecuritySurface.ofSsrfEndpoints(HiveCatalogProperties.HIVE_METASTORE_URIS, "uri");
+        // Every key the HMS client may take its thrift endpoint from: hive.metastore.uris, its documented alias
+        // uri, and Hive 3's metastore.thrift.uris, which the client reads first. The engine's SSRF gate rejects
+        // an intranet target there at CREATE / ALTER CATALOG.
+        return ConnectorSecuritySurface.ofSsrfEndpoints(HiveCatalogProperties.HIVE_METASTORE_URIS,
+                HiveCatalogProperties.URI, HiveCatalogProperties.METASTORE_THRIFT_URIS);
     }
 }

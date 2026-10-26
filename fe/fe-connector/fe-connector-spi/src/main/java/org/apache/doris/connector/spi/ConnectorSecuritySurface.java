@@ -52,6 +52,11 @@ public final class ConnectorSecuritySurface {
      * Declares the user-supplied property keys whose value names a {@code host:port} (optionally
      * scheme-prefixed, comma-separated for HA) the FE connects to, so the engine can reject an intranet
      * target at CREATE / ALTER CATALOG.
+     *
+     * <p>Declare every key the connector's client may read that destination from, including a spelling
+     * the client prefers over the documented one: an undeclared key is never probed. The engine probes the
+     * values as written and, while an SSRF checker is configured, refuses one that carries a {@code ${...}}
+     * placeholder.
      */
     public static ConnectorSecuritySurface ofSsrfEndpoints(String... keys) {
         return new ConnectorSecuritySurface(Arrays.asList(keys), Collections.emptyList(), null);
