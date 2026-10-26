@@ -11955,12 +11955,13 @@ TEST(MetaServiceTest, CreateS3VaultRejectsMixedPathVersionOnSameRoot) {
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 
     auto add_s3_vault = [&](const std::string& name, const std::string& prefix,
-                            const std::string& ak, int64_t path_version) {
+                            const std::string& ak, int64_t path_version,
+                            const std::string& endpoint = "s3.us-east-1.amazonaws.com") {
         AlterObjStoreInfoRequest req;
         req.set_cloud_unique_id("test_cloud_unique_id");
         req.set_op(AlterObjStoreInfoRequest::ADD_S3_VAULT);
         StorageVaultPB vault;
-        vault.mutable_obj_info()->set_endpoint("s3.us-east-1.amazonaws.com");
+        vault.mutable_obj_info()->set_endpoint(endpoint);
         vault.mutable_obj_info()->set_region("us-east-1");
         vault.mutable_obj_info()->set_bucket("test_bucket");
         vault.mutable_obj_info()->set_prefix(prefix);
@@ -11989,6 +11990,13 @@ TEST(MetaServiceTest, CreateS3VaultRejectsMixedPathVersionOnSameRoot) {
     ASSERT_EQ(add_s3_vault("v1_shared_slash", "shared/", "ak2", 1).code(),
               MetaServiceCode::INVALID_ARGUMENT);
     ASSERT_EQ(add_s3_vault("v1_shared_leading", "/shared", "ak2", 1).code(),
+              MetaServiceCode::INVALID_ARGUMENT);
+    // Another name of the same endpoint reaches the same bucket
+    ASSERT_EQ(add_s3_vault("v1_shared_https", "shared", "ak2", 1,
+                           "https://s3.us-east-1.amazonaws.com")
+                      .code(),
+              MetaServiceCode::INVALID_ARGUMENT);
+    ASSERT_EQ(add_s3_vault("v1_shared_global", "shared", "ak2", 1, "s3.amazonaws.com").code(),
               MetaServiceCode::INVALID_ARGUMENT);
     // A vault added through add_vault_into_instance (here ADD_HDFS_INFO carrying an obj info) is
     // checked too

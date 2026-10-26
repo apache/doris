@@ -727,30 +727,31 @@ static bool validate_path_format(const StorageVaultPB& vault, MetaServiceCode& c
     return true;
 }
 
-// An S3 root (endpoint, bucket and prefix) must hold a single path_version. A path_version 0 tablet
+// An S3 root (bucket and prefix) must hold a single path_version. A path_version 0 tablet
 // directory data/{tablet_id}/ and a path_version 1 shard directory data/{shard}/ share a
 // namespace: tablet 10005 of a v0 vault and shard 10005 of a v1 vault (shard_num > 10005) are the
 // same directory, and recycling the tablet deletes data/10005/ with the other vault's objects.
 // Vaults with the same path_version never collide: tablet ids are unique, and a v1 vault deletes
-// data/{shard}/{tablet_id}/ only.
+// data/{shard}/{tablet_id}/ only. The endpoint is not compared: one bucket has several endpoint
+// names (http/https, regional/global, internal/public), and missing a shared root loses data.
 static bool check_s3_root_path_version(Transaction* txn, const InstanceInfoPB& instance,
-                                       const std::string& endpoint, const std::string& bucket,
-                                       std::string prefix, int64_t path_version,
-                                       MetaServiceCode& code, std::string& msg) {
+                                       const std::string& bucket, std::string prefix,
+                                       int64_t path_version, MetaServiceCode& code,
+                                       std::string& msg) {
     // Prefixes are stored trimmed, e.g. a request prefix "/shared/" is stored as "shared", so
     // compare them trimmed, otherwise "shared/" would pass next to a vault on "shared"
     trim(prefix);
     auto same_root = [&](const ObjectStoreInfoPB& obj) {
         std::string obj_prefix = obj.prefix();
         trim(obj_prefix);
-        return obj.endpoint() == endpoint && obj.bucket() == bucket && obj_prefix == prefix;
+        return obj.bucket() == bucket && obj_prefix == prefix;
     };
     auto reject = [&](std::string_view name, int64_t existing_path_version) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = fmt::format(
-                "storage {} already uses endpoint={} bucket={} prefix={} with path_version={}, a "
-                "vault with path_version={} must use a different bucket or prefix",
-                name, endpoint, bucket, prefix, existing_path_version, path_version);
+                "storage {} already uses bucket={} prefix={} with path_version={}, a vault with "
+                "path_version={} must use a different bucket or prefix",
+                name, bucket, prefix, existing_path_version, path_version);
         return false;
     };
     // Legacy obj infos have no path format, they use path_version 0
@@ -935,7 +936,7 @@ static int add_vault_into_instance(InstanceInfoPB& instance, Transaction* txn,
 
     // The built-in vault (create_instance, ADD_BUILT_IN_VAULT) is also an S3 root
     const auto& obj = vault_param.obj_info();
-    if (!check_s3_root_path_version(txn, instance, obj.endpoint(), obj.bucket(), obj.prefix(),
+    if (!check_s3_root_path_version(txn, instance, obj.bucket(), obj.prefix(),
                                     vault_param.path_format().path_version(), code, msg)) {
         return -1;
     }
@@ -1617,7 +1618,7 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
                 return;
             }
         }
-        if (!check_s3_root_path_version(txn.get(), instance, endpoint, bucket, prefix,
+        if (!check_s3_root_path_version(txn.get(), instance, bucket, prefix,
                                         request->vault().path_format().path_version(), code, msg)) {
             return;
         }
