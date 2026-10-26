@@ -59,6 +59,7 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 public class TransactionState implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(TransactionState.class);
@@ -303,18 +304,20 @@ public class TransactionState implements Writable, GsonPostProcessable {
         public int schemaVersion;
 
         public SchemaInfo(OlapTable olapTable) {
-            Map<Long, MaterializedIndexMeta> indexIdToMeta = olapTable.getIndexIdToMeta();
-            for (MaterializedIndexMeta indexMeta : indexIdToMeta.values()) {
-                schema = indexMeta.getSchema();
-                schemaVersion = indexMeta.getSchemaVersion();
-                break;
-            }
+            MaterializedIndexMeta base = olapTable.getIndexMetaByIndexId(olapTable.getBaseIndexId());
+            schema = base.getSchema().stream().map(TxnWriteSchemaSnapshot::copyColumn).collect(Collectors.toList());
+            schemaVersion = base.getSchemaVersion();
+        }
+
+        private SchemaInfo(List<Column> schema, int schemaVersion) {
+            this.schema = schema;
+            this.schemaVersion = schemaVersion;
         }
     }
 
     private boolean isPartialUpdate = false;
     // table id -> schema info
-    private Map<Long, SchemaInfo> txnSchemas = new HashMap<>();
+    private transient Map<Long, SchemaInfo> txnSchemas = new HashMap<>();
 
     @Getter
     @SerializedName(value = "sti")
@@ -338,74 +341,112 @@ public class TransactionState implements Writable, GsonPostProcessable {
     @SerializedName(value = "sui")
     private List<TableStreamUpdateInfo> streamUpdateInfos;
 
-    // Actual write transaction id (including subtransactions) -> source index -> write-time snapshot.
-    @SerializedName("changelogWriteMappings")
-    private volatile Map<Long, Map<Long, ChangelogWriteMapping>> changelogWriteMappings = ImmutableMap.of();
-    @SerializedName("remoteChangelogMappingsInstalled")
-    private boolean remoteChangelogMappingsInstalled;
+    // Actual write transaction id (including subtransactions) -> table -> prepared schema.
+    @SerializedName("writeSchemas")
+    private volatile Map<Long, Map<Long, TxnWriteSchemaSnapshot>> writeSchemas = ImmutableMap.of();
+    @SerializedName("remoteWriteSchemasInstalled")
+    private boolean remoteWriteSchemasInstalled;
 
     public boolean hasChangelogWriteMappings() {
-        return changelogWriteMappings.values().stream().anyMatch(mappings -> !mappings.isEmpty());
+        return writeSchemas.values().stream().flatMap(tables -> tables.values().stream())
+                .anyMatch(snapshot -> !snapshot.getChangelogMappings().isEmpty());
+    }
+
+    public synchronized TxnWriteSchemaSnapshot getWriteSchema(long writeTxnId, long tableId) {
+        return writeSchemas.getOrDefault(writeTxnId, ImmutableMap.of()).get(tableId);
     }
 
     public synchronized Map<Long, ChangelogWriteMapping> getChangelogWriteMappings(long writeTxnId) {
-        return changelogWriteMappings.getOrDefault(writeTxnId, ImmutableMap.of());
+        Map<Long, ChangelogWriteMapping> mappings = new TreeMap<>();
+        writeSchemas.getOrDefault(writeTxnId, ImmutableMap.of()).values()
+                .forEach(snapshot -> mappings.putAll(snapshot.getChangelogMappings()));
+        return ImmutableMap.copyOf(mappings);
     }
 
-    public synchronized void registerChangelogWriteMappings(long writeTxnId,
-            Map<Long, ChangelogWriteMapping> mappings) {
-        checkChangelogRegistrationStatus();
-        Map<Long, ChangelogWriteMapping> existing = getChangelogWriteMappings(writeTxnId);
-        Map<Long, ChangelogWriteMapping> updated = new TreeMap<>(existing);
-        for (Map.Entry<Long, ChangelogWriteMapping> entry : mappings.entrySet()) {
-            ChangelogWriteMapping previous = existing.get(entry.getKey());
-            if (previous != null) {
-                Preconditions.checkState(previous.equals(entry.getValue()),
-                        "Changelog mapping changed for transaction %s, source index %s", writeTxnId, entry.getKey());
-            } else {
-                Preconditions.checkState(transactionStatus == TransactionStatus.PREPARE
-                                && !remoteChangelogMappingsInstalled,
-                        "Changelog snapshots frozen for transaction %s (%s)", writeTxnId, transactionStatus);
-                updated.put(entry.getKey(), entry.getValue());
-            }
-        }
-        if (!updated.equals(existing)) {
-            Map<Long, Map<Long, ChangelogWriteMapping>> all = new TreeMap<>(changelogWriteMappings);
-            all.put(writeTxnId, ImmutableMap.copyOf(updated));
-            changelogWriteMappings = ImmutableMap.copyOf(all);
-        }
-    }
-
-    public synchronized void installRemoteChangelogWriteMappings(Map<Long, ChangelogWriteMapping> mappings) {
-        checkChangelogRegistrationStatus();
-        Map<Long, ChangelogWriteMapping> snapshot = ImmutableMap.copyOf(mappings);
-        if (remoteChangelogMappingsInstalled) {
-            Preconditions.checkState(getChangelogWriteMappings(transactionId).equals(snapshot),
-                    "Remote changelog snapshot changed for transaction %s", transactionId);
+    public synchronized void registerWriteSchema(long writeTxnId, TxnWriteSchemaSnapshot snapshot) {
+        checkWriteSchemaRegistrationStatus();
+        TxnWriteSchemaSnapshot previous = getWriteSchema(writeTxnId, snapshot.getTableId());
+        if (previous != null) {
+            Preconditions.checkState(previous.equals(snapshot),
+                    "Write schema changed for transaction %s, table %s", writeTxnId, snapshot.getTableId());
             return;
         }
-        Preconditions.checkState(transactionStatus == TransactionStatus.PREPARE,
-                "Cannot install remote changelog snapshot for frozen transaction %s (%s)",
-                transactionId, transactionStatus);
-        Preconditions.checkState(changelogWriteMappings.isEmpty(),
-                "Remote transaction %s already has local changelog snapshots", transactionId);
-        changelogWriteMappings = ImmutableMap.of(transactionId, snapshot);
-        remoteChangelogMappingsInstalled = true;
+        Preconditions.checkState(transactionStatus == TransactionStatus.PREPARE && !remoteWriteSchemasInstalled,
+                "Write schemas frozen for transaction %s (%s)", writeTxnId, transactionStatus);
+        Map<Long, TxnWriteSchemaSnapshot> tables = new TreeMap<>(
+                writeSchemas.getOrDefault(writeTxnId, ImmutableMap.of()));
+        tables.put(snapshot.getTableId(), snapshot.persistentIdentity());
+        Map<Long, Map<Long, TxnWriteSchemaSnapshot>> all = new TreeMap<>(writeSchemas);
+        all.put(writeTxnId, ImmutableMap.copyOf(tables));
+        Map<Long, Map<Long, TxnWriteSchemaSnapshot>> updated = ImmutableMap.copyOf(all);
+        Set<Long> indexes = Sets.newHashSet(snapshot.getIndexIds());
+        SchemaInfo partialSchema = partialSchemaOf(snapshot);
+        writeSchemas = updated;
+        installCommitSchema(snapshot, indexes, partialSchema);
     }
 
-    private void checkChangelogRegistrationStatus() {
+    private SchemaInfo partialSchemaOf(TxnWriteSchemaSnapshot snapshot) {
+        List<Column> schema = snapshot.getPartialSchema();
+        return schema == null ? null : new SchemaInfo(schema, snapshot.getPartialSchemaVersion());
+    }
+
+    private void installCommitSchema(TxnWriteSchemaSnapshot snapshot, Set<Long> indexes, SchemaInfo partialSchema) {
+        loadedTblIndexes.putIfAbsent(snapshot.getTableId(), indexes);
+        if (snapshot.isPartialUpdate()) {
+            isPartialUpdate = true;
+            // Remote/replayed snapshots intentionally contain no full column schema.
+            if (partialSchema != null) {
+                txnSchemas.put(snapshot.getTableId(), partialSchema);
+            }
+        }
+    }
+
+    public synchronized void installRemoteWriteSchemas(List<TxnWriteSchemaSnapshot> snapshots) {
+        checkWriteSchemaRegistrationStatus();
+        Map<Long, TxnWriteSchemaSnapshot> tables = new TreeMap<>();
+        Set<Long> indexIds = Sets.newHashSet();
+        for (TxnWriteSchemaSnapshot snapshot : snapshots) {
+            Preconditions.checkArgument(tables.put(snapshot.getTableId(), snapshot) == null,
+                    "Duplicate remote table schema: %s", snapshot.getTableId());
+            for (long indexId : snapshot.getIndexIds()) {
+                Preconditions.checkArgument(indexIds.add(indexId), "Duplicate remote index schema: %s", indexId);
+            }
+        }
+        if (remoteWriteSchemasInstalled) {
+            Preconditions.checkState(writeSchemas.get(transactionId).equals(tables),
+                    "Remote write schemas changed for transaction %s", transactionId);
+            return;
+        }
+        Preconditions.checkState(transactionStatus == TransactionStatus.PREPARE && writeSchemas.isEmpty(),
+                "Cannot install remote write schemas for transaction %s (%s)", transactionId, transactionStatus);
+        Map<Long, TxnWriteSchemaSnapshot> identities = new TreeMap<>();
+        tables.forEach((id, snapshot) -> identities.put(id, snapshot.persistentIdentity()));
+        Map<Long, Map<Long, TxnWriteSchemaSnapshot>> updated =
+                ImmutableMap.of(transactionId, ImmutableMap.copyOf(identities));
+        Map<Long, Set<Long>> indexes = new HashMap<>();
+        Map<Long, SchemaInfo> partialSchemas = new HashMap<>();
+        tables.forEach((id, snapshot) -> {
+            indexes.put(id, Sets.newHashSet(snapshot.getIndexIds()));
+            partialSchemas.put(id, partialSchemaOf(snapshot));
+        });
+        writeSchemas = updated;
+        tables.forEach((id, snapshot) -> installCommitSchema(snapshot, indexes.get(id), partialSchemas.get(id)));
+        remoteWriteSchemasInstalled = true;
+    }
+
+    private void checkWriteSchemaRegistrationStatus() {
         Preconditions.checkState(transactionStatus == TransactionStatus.PREPARE
                         || transactionStatus == TransactionStatus.PRECOMMITTED
                         || transactionStatus == TransactionStatus.COMMITTED
                         || transactionStatus == TransactionStatus.VISIBLE,
-                "Cannot register changelog mappings for transaction %s (%s)", transactionId, transactionStatus);
+                "Cannot register write schemas for transaction %s (%s)", transactionId, transactionStatus);
     }
 
     @Override
     public void gsonPostProcess() throws IOException {
-        Map<Long, Map<Long, ChangelogWriteMapping>> snapshots = new TreeMap<>();
-        changelogWriteMappings.forEach((txnId, mappings) -> snapshots.put(txnId, ImmutableMap.copyOf(mappings)));
-        changelogWriteMappings = ImmutableMap.copyOf(snapshots);
+        Map<Long, Map<Long, TxnWriteSchemaSnapshot>> snapshots = new TreeMap<>();
+        writeSchemas.forEach((txnId, tables) -> snapshots.put(txnId, ImmutableMap.copyOf(tables)));
+        writeSchemas = ImmutableMap.copyOf(snapshots);
     }
 
     public TransactionState() {
@@ -776,7 +817,7 @@ public class TransactionState implements Writable, GsonPostProcessable {
                 && currentMillis - preCommitTime > preCommittedTimeoutMs);
     }
 
-    public synchronized void addTableIndexes(OlapTable table) {
+    public synchronized void refreshLoadedTableIndexesAfterVisible(OlapTable table) {
         Set<Long> indexIds = loadedTblIndexes.computeIfAbsent(table.getId(), k -> Sets.newHashSet());
         // always equal the index ids
         indexIds.clear();
@@ -883,12 +924,7 @@ public class TransactionState implements Writable, GsonPostProcessable {
         publishVersionTasks.clear();
         tableIdToTabletDeltaRows.clear();
         involvedBackends.clear();
-    }
-
-    public void setSchemaForPartialUpdate(OlapTable olapTable) {
-        // the caller should hold the read lock of the table
-        isPartialUpdate = true;
-        txnSchemas.put(olapTable.getId(), new SchemaInfo(olapTable));
+        txnSchemas.clear();
     }
 
     public boolean isPartialUpdate() {

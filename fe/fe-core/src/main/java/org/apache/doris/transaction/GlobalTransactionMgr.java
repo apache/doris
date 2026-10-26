@@ -17,9 +17,11 @@
 
 package org.apache.doris.transaction;
 
+import org.apache.doris.alter.ChangelogColumnIdPreparer;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cloud.proto.Cloud.CommitTxnResponse;
@@ -165,6 +167,15 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
             TxnCoordinator coordinator, LoadJobSourceType sourceType, long listenerId, long timeoutSecond)
             throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException, DuplicatedRequestException,
             QuotaExceedException, MetaNotFoundException {
+        return beginTransaction(dbId, tableIdList, label, requestId, coordinator, sourceType,
+                listenerId, timeoutSecond, null);
+    }
+
+    private long beginTransaction(long dbId, List<Long> tableIdList, String label, TUniqueId requestId,
+            TxnCoordinator coordinator, LoadJobSourceType sourceType, long listenerId, long timeoutSecond,
+            TxnWriteSchemaSnapshot preparedWriteSchema)
+            throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException, DuplicatedRequestException,
+            QuotaExceedException, MetaNotFoundException {
         try {
             if (Config.disable_load_job) {
                 throw new AnalysisException("disable_load_job is set to true, all load jobs are prevented");
@@ -182,7 +193,7 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
 
             DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
             return dbTransactionMgr.beginTransaction(tableIdList, label, requestId,
-                    coordinator, sourceType, listenerId, timeoutSecond);
+                    coordinator, sourceType, listenerId, timeoutSecond, preparedWriteSchema);
         } catch (DuplicatedRequestException e) {
             throw e;
         } catch (Exception e) {
@@ -190,6 +201,26 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
                 MetricRepo.COUNTER_TXN_REJECT.increase(1L);
             }
             throw e;
+        }
+    }
+
+    @Override
+    public long beginTransactionForValues(long dbId, long tableId, String label, TUniqueId requestId,
+            TxnCoordinator coordinator, LoadJobSourceType sourceType, long timeoutSecond,
+            Map<Long, Integer> schemaVersions) throws UserException {
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
+        OlapTable table = (OlapTable) db.getTableOrMetaException(tableId, Table.TableType.OLAP);
+        ChangelogColumnIdPreparer.ensureReady(db, table);
+        table.readLock();
+        try {
+            if (!TxnWriteSchemaSnapshot.schemaVersions(table).equals(schemaVersions)) {
+                throw new AnalysisException("Table schema changed before transaction begin; retry the transaction");
+            }
+            TxnWriteSchemaSnapshot snapshot = TxnWriteSchemaSnapshot.capture(table, false);
+            return beginTransaction(dbId, Collections.singletonList(tableId), label, requestId,
+                    coordinator, sourceType, -1, timeoutSecond, snapshot);
+        } finally {
+            table.readUnlock();
         }
     }
 

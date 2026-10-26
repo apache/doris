@@ -59,6 +59,16 @@ class ChangelogWriteMappingTest {
                 .setNeedHistoricalValue(historical).setEntries(Arrays.asList(entries)));
     }
 
+    private TxnWriteSchemaSnapshot snapshot(Map<Long, ChangelogWriteMapping> mappings) {
+        Map<Long, Integer> versions = new HashMap<>();
+        mappings.keySet().forEach(id -> versions.put(id, 1));
+        return new TxnWriteSchemaSnapshot(20, versions, mappings, false);
+    }
+
+    private TxnWriteSchemaSnapshot ordinarySnapshot() {
+        return new TxnWriteSchemaSnapshot(20, ImmutableMap.of(5L, 1), Collections.emptyMap(), false);
+    }
+
     @Test
     void columnRelationshipsUseUidsDespiteReorderedTargets() {
         Column key = new Column("key", PrimitiveType.INT);
@@ -102,8 +112,8 @@ class ChangelogWriteMappingTest {
     @Test
     void publishKeepsActualChildSnapshotAfterReplayAndReportCapture() {
         TransactionState state = new TransactionState();
-        state.registerChangelogWriteMappings(101, ImmutableMap.of(5L, mapping(true, entry(1, 11))));
-        state.registerChangelogWriteMappings(102, ImmutableMap.of(5L, mapping(false, entry(1, 21))));
+        state.registerWriteSchema(101, snapshot(ImmutableMap.of(5L, mapping(true, entry(1, 11)))));
+        state.registerWriteSchema(102, snapshot(ImmutableMap.of(5L, mapping(false, entry(1, 21)))));
         state.setTransactionStatus(TransactionStatus.VISIBLE);
         TransactionState replay = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(state), TransactionState.class);
         PublishVersionTask.RepublishInfo report = new PublishVersionTask.RepublishInfo(
@@ -125,8 +135,8 @@ class ChangelogWriteMappingTest {
     void tabletReportRepublishCapturesChildMappingAndPartitionTogether() {
         TransactionState state = new TransactionState();
         state.setSubTxnIds(Arrays.asList(101L, 102L));
-        state.registerChangelogWriteMappings(101, ImmutableMap.of(5L, mapping(true, entry(1, 11))));
-        state.registerChangelogWriteMappings(102, ImmutableMap.of(5L, mapping(false, entry(1, 21))));
+        state.registerWriteSchema(101, snapshot(ImmutableMap.of(5L, mapping(true, entry(1, 11)))));
+        state.registerWriteSchema(102, snapshot(ImmutableMap.of(5L, mapping(false, entry(1, 21)))));
         TableCommitInfo commit = new TableCommitInfo(20);
         commit.addPartitionCommitInfo(new PartitionCommitInfo(30, "", 40, 0, false));
         state.getSubTxnIdToTableCommitInfo().put(102L, commit);
@@ -151,14 +161,15 @@ class ChangelogWriteMappingTest {
     void registrationBoundaryRejectsMissingAndAbortedTransactions() throws Exception {
         GlobalTransactionMgrIface manager = Mockito.mock(GlobalTransactionMgrIface.class, Mockito.CALLS_REAL_METHODS);
         Map<Long, ChangelogWriteMapping> snapshots = ImmutableMap.of(5L, mapping(false, entry(1, 10)));
-        Assertions.assertThrows(UserException.class, () -> manager.registerChangelogWriteMappings(1, 100, snapshots));
+        Assertions.assertThrows(UserException.class, () -> manager.registerWriteSchema(1, 100, snapshot(snapshots)));
         TransactionState state = new TransactionState();
         Mockito.when(manager.getTransactionState(1, 100)).thenReturn(state);
-        manager.registerChangelogWriteMappings(1, 100, snapshots);
+        manager.registerWriteSchema(1, 100, snapshot(snapshots));
         Assertions.assertEquals(snapshots, state.getChangelogWriteMappings(100));
         state.setTransactionStatus(TransactionStatus.ABORTED);
-        Assertions.assertThrows(UserException.class, () -> manager.registerChangelogWriteMappings(1, 100, snapshots));
-        Assertions.assertDoesNotThrow(() -> manager.registerChangelogWriteMappings(1, 999, Collections.emptyMap()));
+        Assertions.assertThrows(UserException.class, () -> manager.registerWriteSchema(1, 100, snapshot(snapshots)));
+        Assertions.assertThrows(UserException.class,
+                () -> manager.registerWriteSchema(1, 999, ordinarySnapshot()));
     }
 
     @Test
@@ -166,7 +177,7 @@ class ChangelogWriteMappingTest {
         Map<Long, ChangelogWriteMapping> input = new HashMap<>();
         input.put(5L, mapping(false, entry(1, 10)));
         TransactionState state = new TransactionState();
-        state.registerChangelogWriteMappings(100, input);
+        state.registerWriteSchema(100, snapshot(input));
         input.clear();
         Assertions.assertEquals(Collections.singleton(5L), state.getChangelogWriteMappings(100).keySet());
     }
@@ -201,15 +212,15 @@ class ChangelogWriteMappingTest {
     void precommitFreezesAtomicSnapshotsAndReplayPreservesThem() throws Exception {
         TransactionState state = new TransactionState();
         ChangelogWriteMapping mapping = mapping(true, entry(1, 10));
-        state.registerChangelogWriteMappings(100, ImmutableMap.of(5L, mapping));
-        Assertions.assertThrows(IllegalStateException.class, () -> state.registerChangelogWriteMappings(100,
-                ImmutableMap.of(6L, mapping, 5L, mapping(false, entry(1, 10)))));
+        state.registerWriteSchema(100, snapshot(ImmutableMap.of(5L, mapping)));
+        Assertions.assertThrows(IllegalStateException.class, () -> state.registerWriteSchema(100,
+                snapshot(ImmutableMap.of(6L, mapping, 5L, mapping(false, entry(1, 10))))));
         Assertions.assertEquals(Collections.singleton(5L), state.getChangelogWriteMappings(100).keySet());
         state.setTransactionStatus(TransactionStatus.PRECOMMITTED);
         TransactionState replay = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(state), TransactionState.class);
-        replay.registerChangelogWriteMappings(100, ImmutableMap.of(5L, mapping));
+        replay.registerWriteSchema(100, snapshot(ImmutableMap.of(5L, mapping)));
         Assertions.assertThrows(IllegalStateException.class,
-                () -> replay.registerChangelogWriteMappings(100, ImmutableMap.of(6L, mapping)));
+                () -> replay.registerWriteSchema(100, snapshot(ImmutableMap.of(6L, mapping))));
         Assertions.assertThrows(UnsupportedOperationException.class,
                 () -> replay.getChangelogWriteMappings(100).clear());
         Assertions.assertEquals(mapping, replay.getChangelogWriteMappings(100).get(5L));
@@ -218,22 +229,22 @@ class ChangelogWriteMappingTest {
     @Test
     void remoteEmptyIsCompleteAndCannotBeInstalledAfterFreeze() {
         TransactionState state = new TransactionState();
-        state.installRemoteChangelogWriteMappings(Collections.emptyMap());
+        state.installRemoteWriteSchemas(Collections.emptyList());
         state.setTransactionStatus(TransactionStatus.COMMITTED);
-        state.installRemoteChangelogWriteMappings(Collections.emptyMap());
+        state.installRemoteWriteSchemas(Collections.emptyList());
         TransactionState replay = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(state), TransactionState.class);
-        replay.installRemoteChangelogWriteMappings(Collections.emptyMap());
-        Assertions.assertThrows(IllegalStateException.class, () -> state.installRemoteChangelogWriteMappings(
-                ImmutableMap.of(5L, mapping(false, entry(1, 10)))));
+        replay.installRemoteWriteSchemas(Collections.emptyList());
+        Assertions.assertThrows(IllegalStateException.class, () -> state.installRemoteWriteSchemas(
+                Collections.singletonList(snapshot(ImmutableMap.of(5L, mapping(false, entry(1, 10)))))));
         TransactionState frozen = new TransactionState();
         frozen.setTransactionStatus(TransactionStatus.PRECOMMITTED);
         Assertions.assertThrows(IllegalStateException.class,
-                () -> frozen.installRemoteChangelogWriteMappings(Collections.emptyMap()));
+                () -> frozen.installRemoteWriteSchemas(Collections.emptyList()));
         frozen.setTransactionStatus(TransactionStatus.UNKNOWN);
         Assertions.assertThrows(IllegalStateException.class,
-                () -> frozen.registerChangelogWriteMappings(100, Collections.emptyMap()));
+                () -> frozen.registerWriteSchema(100, ordinarySnapshot()));
         frozen.setTransactionStatus(TransactionStatus.ABORTED);
         Assertions.assertThrows(IllegalStateException.class,
-                () -> frozen.registerChangelogWriteMappings(100, Collections.emptyMap()));
+                () -> frozen.registerWriteSchema(100, ordinarySnapshot()));
     }
 }

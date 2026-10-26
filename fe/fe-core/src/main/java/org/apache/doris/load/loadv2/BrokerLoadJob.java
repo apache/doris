@@ -17,6 +17,7 @@
 
 package org.apache.doris.load.loadv2;
 
+import org.apache.doris.alter.ChangelogColumnIdPreparer;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.UserIdentity;
@@ -353,6 +354,9 @@ public class BrokerLoadJob extends BulkLoadJob {
         }
         ProgressManager progressManager = Env.getCurrentProgressManager();
         progressManager.registerProgressSimple(String.valueOf(id));
+        for (Table table : tableList) {
+            ChangelogColumnIdPreparer.ensureReady(db, (OlapTable) table);
+        }
         MetaLockUtils.readLockTables(tableList);
         try {
             for (Map.Entry<FileGroupAggKey, List<BrokerFileGroup>> entry
@@ -397,10 +401,7 @@ public class BrokerLoadJob extends BulkLoadJob {
                 if (txnState == null) {
                     throw new UserException("txn does not exist: " + transactionId);
                 }
-                txnState.addTableIndexes(table);
-                if (isPartialUpdate()) {
-                    txnState.setSchemaForPartialUpdate(table);
-                }
+                txnState.registerWriteSchema(transactionId, task.getWriteSchemaSnapshot());
             }
         } finally {
             MetaLockUtils.readUnlockTables(tableList);

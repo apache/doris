@@ -427,6 +427,8 @@ public class OperationType {
 
     public static final short OP_TABLE_STREAM_CLEANUP = 498;
 
+    public static final short OP_CHANGELOG_COLUMN_IDENTITY = 499;
+
     // For cloud.
     public static final short OP_UPDATE_CLOUD_REPLICA = 1000;
     @Deprecated

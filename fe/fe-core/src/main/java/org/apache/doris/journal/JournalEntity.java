@@ -81,6 +81,7 @@ import org.apache.doris.persist.BatchModifyPartitionsInfo;
 import org.apache.doris.persist.BatchRemoveTransactionsOperation;
 import org.apache.doris.persist.BatchRemoveTransactionsOperationV2;
 import org.apache.doris.persist.BinlogGcInfo;
+import org.apache.doris.persist.ChangelogColumnIdentityInfo;
 import org.apache.doris.persist.CleanLabelOperationLog;
 import org.apache.doris.persist.CleanQueryStatsInfo;
 import org.apache.doris.persist.ColocatePersistInfo;
@@ -855,6 +856,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_DROP_WORKLOAD_SCHED_POLICY: {
                 data = DropWorkloadSchedPolicyOperatorLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_CHANGELOG_COLUMN_IDENTITY: {
+                data = ChangelogColumnIdentityInfo.read(in);
                 isRead = true;
                 break;
             }
