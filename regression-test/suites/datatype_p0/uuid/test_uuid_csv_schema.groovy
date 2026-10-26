@@ -16,19 +16,40 @@
 // under the License.
 
 // External checklist: T04, R02, R09, Q01-Q03, W06, V01-V02.
+import com.azure.storage.blob.BlobClientBuilder
+import com.azure.storage.common.StorageSharedKeyCredential
+
 suite("test_uuid_csv_schema", "p0,external") {
     sql "SET enable_sql_cache = false"
     sql "SET enable_query_cache = false"
+    String provider = getS3Provider()
+    String endpoint = getS3Endpoint()
+    if (provider.equalsIgnoreCase("AZURE")) {
+        if (endpoint == "azure-endpoint") {
+            endpoint = "https://${getS3AK()}.blob.core.windows.net"
+        } else if (!endpoint.contains("://")) {
+            endpoint = "https://${endpoint}"
+        }
+    }
     String token = UUID.randomUUID().toString()
     def sources = [:]
     for (String kind : ['values', 'invalid']) {
         File fixture = new File(context.dataPath, "test_data/uuid_external_${kind}.csv")
         String bucket = context.config.otherConfigs.get('s3BucketName')
         String key = "uuid_csv_schema/${token}/${kind}.csv"
-        getS3Client().putObject(bucket, key, fixture)
+        if (provider.equalsIgnoreCase("AZURE")) {
+            new BlobClientBuilder()
+                    .endpoint(endpoint)
+                    .containerName(bucket)
+                    .blobName(key)
+                    .credential(new StorageSharedKeyCredential(getS3AK(), getS3SK()))
+                    .buildClient().uploadFromFile(fixture.absolutePath)
+        } else {
+            getS3Client().putObject(bucket, key, fixture)
+        }
         sources[kind] = """S3('uri'='s3://${bucket}/${key}','format'='csv',
                 'column_separator'=',','csv_schema'='id:int;u:uuid',
-                's3.endpoint'='${getS3Endpoint()}','s3.region'='${getS3Region()}',
+                'provider'='${provider}','s3.endpoint'='${endpoint}','s3.region'='${getS3Region()}',
                 's3.access_key'='${getS3AK()}','s3.secret_key'='${getS3SK()}')"""
     }
     for (boolean scannerV2 : [false, true]) {
