@@ -54,6 +54,10 @@ suite("test_paimon_hms_catalog", "p2,external") {
         sql """SELECT * FROM external_test_table FOR VERSION AS OF 1;"""
         // branch/tag
         // TODO(zgx): add branch/tag
+        // REFRESH must reload snapshots with the catalog identity, even after a warm query.
+        def beforeRefresh = sql """SELECT * FROM external_test_table ORDER BY 1, 2"""
+        sql """REFRESH TABLE external_test_table"""
+        assertEquals(beforeRefresh, sql("""SELECT * FROM external_test_table ORDER BY 1, 2"""))
         // system table
         sql """SELECT * FROM external_test_table\$snapshots;"""
     }
@@ -220,8 +224,9 @@ suite("test_paimon_hms_catalog", "p2,external") {
     String paimon_fs_s3_support = """
         'fs.s3.support' = 'true',
     """
+    // An explicit filesystem flag disables endpoint inference, so it must use the provider name.
     String paimon_fs_gcs_support = """
-        'fs.gs.support' = 'true',
+        'fs.gcs.support' = 'true',
     """
     testQuery(paimon_hms_catalog_properties + paimon_fs_hdfs_support + hdfs_warehouse_properties + hdfs_storage_properties, "support_hdfs", "hdfs_db")
     testQuery(paimon_hms_type_prop + paimon_fs_hdfs_support + hdfs_warehouse_properties + hms_kerberos_new_prop + hdfs_kerberos_properties, "support_hdfs_kerberos", "hdfs_db")

@@ -335,6 +335,11 @@ RuntimeState::~RuntimeState() {
     if (_error_log_file != nullptr && _error_log_file->is_open()) {
         _error_log_file->close();
     }
+    // Local states use profiles and other objects allocated in _obj_pool, also in their
+    // destructors (e.g. a spill writer closing its last part): release them first, in the order
+    // the members would be destroyed.
+    _sink_local_state.reset();
+    _op_id_to_local_state.clear();
     _obj_pool->clear();
 }
 
@@ -594,6 +599,11 @@ std::string RuntimeState::get_error_log_file_path() {
     auto presigned_url =
             s3_error_fs->generate_presigned_url(remote_error_log_file_path, EXPIRATION_SECONDS,
                                                 config::use_public_endpoint_for_error_log);
+    if (presigned_url.empty()) {
+        LOG(WARNING) << "Fail to generate presigned URL for S3 error log; retain local path "
+                     << local_error_log_file_path;
+        return local_error_log_file_path;
+    }
     std::lock_guard<std::mutex> load_lock(_load_error_log_lock);
     _error_log_file_path = std::move(presigned_url);
     return _error_log_file_path;

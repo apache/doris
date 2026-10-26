@@ -7926,39 +7926,38 @@ TEST(RecyclerTest, delete_versioned_delete_bitmap_kvs_only_deletes_mow_tablet) {
     check_delete_bitmap_keys_size(txn_kv.get(), non_mow_tablet_id, 1);
 }
 
-TEST(RecyclerTest, delete_versioned_delete_bitmap_kvs_cleans_row_binlog_without_caching_false) {
+TEST(RecyclerTest, delete_versioned_delete_bitmap_kvs_cleans_changelog_without_caching_false) {
     auto txn_kv = std::make_shared<MemTxnKv>();
     ASSERT_EQ(txn_kv->init(), 0);
 
     constexpr int64_t table_id = 30201;
     constexpr int64_t data_index_id = 30202;
-    constexpr int64_t row_binlog_index_id = 30203;
+    constexpr int64_t changelog_index_id = 30203;
     constexpr int64_t partition_id = 30204;
     constexpr int64_t data_tablet_id = 30205;
-    constexpr int64_t row_binlog_tablet_id = 30206;
-    InstanceRecycler recycler(txn_kv, create_recycler_test_instance("versioned_dbm_row_binlog"),
+    constexpr int64_t changelog_tablet_id = 30206;
+    InstanceRecycler recycler(txn_kv, create_recycler_test_instance("versioned_dbm_changelog"),
                               thread_group, std::make_shared<TxnLazyCommitter>(txn_kv));
     ASSERT_EQ(recycler.init(), 0);
     auto accessor = recycler.accessor_map_.begin()->second;
-    ASSERT_EQ(
-            create_tablet(txn_kv.get(), table_id, row_binlog_index_id, partition_id,
-                          row_binlog_tablet_id, false, false, TabletRolePB::TABLET_ROLE_ROW_BINLOG),
-            0);
+    ASSERT_EQ(create_tablet(txn_kv.get(), table_id, changelog_index_id, partition_id,
+                            changelog_tablet_id, false, false, TabletRolePB::TABLET_ROLE_CHANGELOG),
+              0);
     ASSERT_EQ(create_tablet(txn_kv.get(), table_id, data_index_id, partition_id, data_tablet_id,
                             true),
               0);
-    ASSERT_EQ(create_delete_bitmaps_v2(txn_kv.get(), accessor.get(), row_binlog_tablet_id,
-                                       "row_binlog_rowset"),
+    ASSERT_EQ(create_delete_bitmaps_v2(txn_kv.get(), accessor.get(), changelog_tablet_id,
+                                       "changelog_rowset"),
               0);
     ASSERT_EQ(create_delete_bitmaps_v2(txn_kv.get(), accessor.get(), data_tablet_id, "data_rowset"),
               0);
 
-    const int64_t get_count_before_row_binlog = txn_kv->get_count_;
-    ASSERT_EQ(recycler.delete_versioned_delete_bitmap_kvs(partition_id, row_binlog_tablet_id,
-                                                          "row_binlog_rowset"),
+    const int64_t get_count_before_changelog = txn_kv->get_count_;
+    ASSERT_EQ(recycler.delete_versioned_delete_bitmap_kvs(partition_id, changelog_tablet_id,
+                                                          "changelog_rowset"),
               0);
-    EXPECT_EQ(txn_kv->get_count_, get_count_before_row_binlog + 2);
-    check_delete_bitmap_keys_size(txn_kv.get(), row_binlog_tablet_id, 0);
+    EXPECT_EQ(txn_kv->get_count_, get_count_before_changelog + 2);
+    check_delete_bitmap_keys_size(txn_kv.get(), changelog_tablet_id, 0);
 
     const int64_t get_count_before_data = txn_kv->get_count_;
     ASSERT_EQ(recycler.delete_versioned_delete_bitmap_kvs(partition_id, data_tablet_id,

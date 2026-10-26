@@ -154,6 +154,8 @@ const char* file_format_name(FileFormat format) {
         return "JNI";
     case FileFormat::ARROW:
         return "ARROW";
+    case FileFormat::ES_HTTP:
+        return "ES_HTTP";
     case FileFormat::WAL:
         return "WAL";
     }
@@ -616,7 +618,8 @@ static Status build_v2_initial_default_field(const format::ColumnDefinition& fie
     }
     if (is_complex_type(primitive_type)) {
         rapidjson::Document document;
-        document.Parse(field.initial_default_value->data(), field.initial_default_value->size());
+        document.Parse<rapidjson::kParseFullPrecisionFlag>(field.initial_default_value->data(),
+                                                           field.initial_default_value->size());
         if (document.HasParseError()) {
             return Status::InvalidArgument("Invalid Iceberg JSON initial default for field '{}'",
                                            field.name);
@@ -1666,7 +1669,8 @@ Status IcebergTableReader::_create_delete_file_reader(const TIcebergDeleteFileDe
         // Delete and data files must parse raw binary fields with the same scan-level mapping.
         *reader = std::make_unique<format::parquet::ParquetReader>(
                 system_properties, file_description, io_ctx, _scanner_profile, std::nullopt,
-                enable_mapping_timestamp_tz, enable_mapping_varbinary, "", preserve_binary_uuid());
+                enable_mapping_timestamp_tz, enable_mapping_varbinary, "", preserve_binary_uuid(),
+                _parquet_profile_cache);
     } else {
         *reader = std::make_unique<format::orc::OrcReader>(
                 system_properties, file_description, io_ctx, _scanner_profile, std::nullopt,

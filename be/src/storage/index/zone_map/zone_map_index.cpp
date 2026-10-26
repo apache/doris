@@ -210,7 +210,7 @@ void TypedZoneMapIndexWriter<Type>::_materialize_page_minmax() {
 }
 
 template <PrimitiveType Type>
-void TypedZoneMapIndexWriter<Type>::add_values(const void* values, size_t count) {
+void TypedZoneMapIndexWriter<Type>::add_values(const uint8_t* values, size_t count) {
     if (count == 0) {
         return;
     }
@@ -347,7 +347,7 @@ Status TypedZoneMapIndexWriter<Type>::finish(io::FileWriter* file_writer,
 
     for (auto& value : _values) {
         Slice value_slice(value);
-        RETURN_IF_ERROR(writer.add(&value_slice));
+        RETURN_IF_ERROR(writer.add(reinterpret_cast<const uint8_t*>(&value_slice)));
     }
     return writer.finish(meta->mutable_page_zone_maps());
 }

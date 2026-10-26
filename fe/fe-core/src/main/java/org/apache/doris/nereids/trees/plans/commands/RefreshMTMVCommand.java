@@ -150,7 +150,7 @@ public class RefreshMTMVCommand extends Command implements Forward, Explainable 
         StatementContext stmtCtx = new StatementContext(
                 internalCtx, new OriginStatement(mtmv.getQuerySql(), 0));
         stmtCtx.setIvmRewriteContext(Optional.of(IvmRewriteContext.incrementalDryRun(mtmv, dryRunLimit)));
-        // Excluded trigger tables must not be validated for binlog / key-type support.
+        // Excluded trigger tables must not be validated for changelog / key-type support.
         stmtCtx.setExcludedTriggerTables(mtmv.getExcludedTriggerTables());
         // The MV query is parsed before the internal executor is created. SET_VAR hints
         // need this context already installed on the internal session during parsing.
@@ -190,7 +190,7 @@ public class RefreshMTMVCommand extends Command implements Forward, Explainable 
                 }
                 statementContext.setIvmRewriteContext(Optional.of(
                         IvmRewriteContext.incrementalExplain(mtmv, includeExhaustedStreams)));
-                // Excluded trigger tables must not be validated for binlog / key-type support.
+                // Excluded trigger tables must not be validated for changelog / key-type support.
                 statementContext.setExcludedTriggerTables(mtmv.getExcludedTriggerTables());
                 return createIvmIncrRefreshManager().buildInsertCommand(mtmv);
             case COMPLETE:

@@ -24,8 +24,9 @@ suite("paimon_timestamp_types", "p0,external") {
     }
 
     def originalTimeZone = sql("SELECT @@time_zone")[0][0]
-    def originalScannerV2 = sql("SHOW VARIABLES LIKE 'enable_file_scanner_v2'")[0][1]
-    def originalForceJni = sql("SHOW VARIABLES LIKE 'force_jni_scanner'")[0][1]
+    def originalSettings = ["enable_file_scanner_v2", "force_jni_scanner"].collectEntries { name ->
+        [(name): sql("show variables like '${name}'")[0][1]]
+    }
     try {
         String catalog_name = "paimon_timestamp_types"
         String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
@@ -145,6 +146,146 @@ suite("paimon_timestamp_types", "p0,external") {
 
         }
 
+        def precisionEvolutionQuery = { table ->
+            return """
+                select id, cast(ts as string), microsecond(ts)
+                from ${table}
+                order by id
+            """
+        }
+
+        def precisionEvolutionPredicateQuery = { table ->
+            return """
+                select id, cast(ts as string), microsecond(ts)
+                from ${table}
+                where ts = '2025-01-01 00:00:01'
+                order by id
+            """
+        }
+
+        sql """set enable_file_scanner_v2=true"""
+        // Historical ORC p9 fractions must be truncated before native microsecond rounding.
+        // The FE routes only these affected files to JNI, including filter-only timestamps.
+        def nanosecondEvolutionQuery = """
+            select id, cast(ts as string), cast(ltz as string), microsecond(ts), microsecond(ltz)
+            from timestamp_nanosecond_evolution_orc order by id
+        """
+        def nanosecondEvolutionPredicate = """
+            select id from timestamp_nanosecond_evolution_orc
+            where ts = '2025-01-01 00:00:01' order by id
+        """
+        sql """set force_jni_scanner=false"""
+        order_qt_nanosecond_evolution_v2 nanosecondEvolutionQuery
+        order_qt_nanosecond_evolution_v2_predicate nanosecondEvolutionPredicate
+        order_qt_nanosecond_evolution_ltz_predicate """
+            select id from timestamp_nanosecond_evolution_orc
+            where ltz = '2025-01-01 08:00:01' order by id
+        """
+        sql """set enable_file_scanner_v2=false"""
+        order_qt_nanosecond_evolution_v1 nanosecondEvolutionQuery
+        order_qt_nanosecond_evolution_v1_predicate nanosecondEvolutionPredicate
+        sql """set force_jni_scanner=true"""
+        order_qt_nanosecond_evolution_jni nanosecondEvolutionQuery
+        order_qt_nanosecond_evolution_jni_predicate nanosecondEvolutionPredicate
+        sql """set force_jni_scanner=false"""
+        sql """set enable_file_scanner_v2=true"""
+        order_qt_precision_evolution_v2_parquet precisionEvolutionQuery(
+                "timestamp_precision_evolution_parquet")
+        order_qt_precision_evolution_v2_orc precisionEvolutionQuery(
+                "timestamp_precision_evolution_orc")
+        // These fixtures evolve from TIMESTAMP(6) to TIMESTAMP(0). Keep a native-reader
+        // predicate case to verify both filtering and projection use the SDK-truncated value.
+        order_qt_precision_evolution_v2_parquet_predicate precisionEvolutionPredicateQuery(
+                "timestamp_precision_evolution_parquet")
+        order_qt_precision_evolution_v2_orc_predicate precisionEvolutionPredicateQuery(
+                "timestamp_precision_evolution_orc")
+
+        sql """set force_jni_scanner=true"""
+        order_qt_precision_evolution_jni_parquet precisionEvolutionQuery(
+                "timestamp_precision_evolution_parquet")
+        order_qt_precision_evolution_jni_orc precisionEvolutionQuery(
+                "timestamp_precision_evolution_orc")
+        order_qt_precision_evolution_jni_parquet_predicate precisionEvolutionPredicateQuery(
+                "timestamp_precision_evolution_parquet")
+        order_qt_precision_evolution_jni_orc_predicate precisionEvolutionPredicateQuery(
+                "timestamp_precision_evolution_orc")
+        // Each fixture has one historical p6 value at .000001 and a current p4 schema.
+        // Equality at the p4 value ensures Paimon does not prune the split from p6 stats.
+        order_qt_leading_zero_p4_jni_parquet """
+            select id, cast(ts as string), microsecond(ts)
+            from doris_29023_timestamp_leading_zero_parquet
+            where ts = '2025-01-01 00:00:01.0000'
+            order by id
+        """
+        order_qt_leading_zero_p4_jni_orc """
+            select id, cast(ts as string), microsecond(ts)
+            from doris_29023_timestamp_leading_zero_orc
+            where ts = '2025-01-01 00:00:01.0000'
+            order by id
+        """
+        // The p4 trigger column activates repair; projecting only the p6 timestamp-key map
+        // verifies that JNI can build the reader without widening the map key type.
+        order_qt_timestamp_map_key_jni_reader """
+            select id, cmap
+            from doris_29023_timestamp_map_key_parquet
+            order by id
+        """
+        order_qt_timestamp_map_key_jni_lookup """
+            select cmap['2025-01-01 00:00:01.000001']
+            from doris_29023_timestamp_map_key_parquet
+            order by id
+        """
+        // Both nested fields evolved from p6 to p4. Only those fields are projected, and the
+        // negative-epoch fractional values exercise recursive JNI repair and its residual filter.
+        order_qt_timestamp_nested_jni_projection """
+            select nested_array, nested_row
+            from doris_29023_timestamp_nested_parquet
+            order by nested_array[1]
+        """
+        order_qt_timestamp_nested_jni_predicate """
+            select nested_array[1], element_at(nested_row, 'nested_ts')
+            from doris_29023_timestamp_nested_parquet
+            where nested_array[1] = '1969-12-31 23:59:59.0000'
+            order by nested_array[1]
+        """
+
+        // Historical Parquet p6 values evolve across timestamp families to p0 in both
+        // directions. Control columns make the same family change at p6, preserving the
+        // SDK's JVM-zone conversion without precision loss. Compare against these controls
+        // so expected results do not depend on the community worker's default JVM timezone.
+        sql """set force_jni_scanner=true"""
+        for (def zone : ["UTC", "Asia/Shanghai"]) {
+            sql "set time_zone = '${zone}'"
+            def zoneTag = zone.replace('/', '_')
+            for (def forceJni : [true, false]) {
+                sql "set force_jni_scanner = ${forceJni}"
+                def modeTag = forceJni ? "" : "_automatic"
+                "order_qt_cross_family_${zoneTag}${modeTag}_projection" """
+                    select id,
+                        ntz_to_ltz = date_trunc(ntz_to_ltz_control, 'second'),
+                        ltz_to_ntz = date_trunc(ltz_to_ntz_control, 'second'),
+                        microsecond(ntz_to_ltz), microsecond(ltz_to_ntz)
+                    from timestamp_cross_family_evolution_parquet order by id
+                """
+                for (def direction : ["ntz_to_ltz", "ltz_to_ntz"]) {
+                    // Use SDK-converted controls for literals even when automatic routing is tested;
+                    // unchanged cross-family native casts have their own session-zone semantics.
+                    sql "set force_jni_scanner = true"
+                    def literals = sql """select id,
+                        cast(date_trunc(${direction}_control, 'second') as string)
+                        from timestamp_cross_family_evolution_parquet order by id
+                    """
+                    sql "set force_jni_scanner = ${forceJni}"
+                    for (def row : literals) {
+                        "order_qt_cross_family_${zoneTag}${modeTag}_${direction}_eq_${row[0]}" """
+                            select id from timestamp_cross_family_evolution_parquet
+                            where ${direction} = '${row[1]}' order by id
+                        """
+                    }
+                }
+            }
+        }
+        sql """set time_zone = 'Asia/Shanghai'"""
         sql """set force_jni_scanner=true"""
         test_scale()
         // test_ltz_ntz("test_timestamp_ntz_ltz_orc")
@@ -194,8 +335,8 @@ suite("paimon_timestamp_types", "p0,external") {
             }
         }
     } finally {
-        sql """set force_jni_scanner=${originalForceJni}"""
-        sql """set enable_file_scanner_v2=${originalScannerV2}"""
+        sql """set enable_file_scanner_v2=${originalSettings.enable_file_scanner_v2}"""
+        sql """set force_jni_scanner=${originalSettings.force_jni_scanner}"""
         sql """set time_zone = '${originalTimeZone}'"""
     }
 

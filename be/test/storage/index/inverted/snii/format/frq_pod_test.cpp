@@ -354,14 +354,8 @@ TEST(SniiFrqPod, UncompLenCapRejected) {
     EXPECT_TRUE(s.is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>());
 }
 
-// ===========================================================================
-// T22 -- emit_region single-copy (raw branch writes the plaintext view straight
-// to `out` with no temp `disk` vector). The raw region's on-disk bytes must equal
-// the plaintext EXACTLY (regions carry no header / no trailing crc), and the meta
-// (disk_len / crc / zstd / uncomp_len) must be unchanged. The zstd branch keeps
-// its own buffer and stays byte-identical. All bytes MUST match the pre-refactor
-// output.
-// ===========================================================================
+// Raw regions must match the plaintext bytes and preserve their metadata;
+// compressed regions must preserve their wire bytes.
 
 namespace {
 

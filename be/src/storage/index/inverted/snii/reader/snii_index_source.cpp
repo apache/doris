@@ -217,6 +217,24 @@ Status SniiIndexSource::scoring_doc_freq(std::string_view term, uint64_t* out) {
     return Status::OK();
 }
 
+// Reads the term as scoring_doc_freq does, so terms of a reserved namespace resolve too.
+Status SniiIndexSource::scoring_doc_freq_among(std::string_view term,
+                                               std::span<const uint32_t> docs, uint64_t* out) {
+    *out = 0;
+    if (docs.empty()) {
+        return Status::OK();
+    }
+    Term* resolved = nullptr;
+    RETURN_IF_ERROR(_resolve(term, &resolved, &_scoring_dict_cache));
+    if (!resolved->hit.found) {
+        return Status::OK();
+    }
+    std::unique_ptr<SniiPostingsCursor> cursor;
+    RETURN_IF_ERROR(
+            _cursor(*resolved, /*positions=*/false, /*scoring=*/false, /*wave=*/nullptr, &cursor));
+    return index_query::count_listed_docs(*cursor, docs, out);
+}
+
 // The norms section is read once, when a document's norm is first asked.
 Status SniiIndexSource::encoded_norms(std::span<const uint32_t> docs, std::vector<uint32_t>* out) {
     out->assign(docs.size(), 1);
@@ -247,15 +265,17 @@ Status SniiIndexSource::expand_terms(index_query::TermPattern& pattern, int32_t 
     }
     RETURN_IF_ERROR(_check_enumeration(pattern.enumeration_prefix()));
     const std::string& required = pattern.required_text();
+    // The term test is key-only, so it runs before a dictionary entry body is decoded: a regexp or
+    // wildcard expansion enumerates the whole dictionary and keeps almost none of it.
+    const auto accept_key = [&](std::string_view term) {
+        if (!required.empty() && term.find(required) == std::string_view::npos) {
+            return false;
+        }
+        return pattern.matches(term);
+    };
     return _idx.visit_prefix_terms(
             pattern.enumeration_prefix(),
             [&](LogicalIndexReader::PrefixHit&& hit, bool* stop) -> Status {
-                if (!required.empty() && hit.term.find(required) == std::string::npos) {
-                    return Status::OK();
-                }
-                if (!pattern.matches(hit.term)) {
-                    return Status::OK();
-                }
                 // The dictionary answered the term here, so its open needs no lookup.
                 _terms[hit.term] = {.hit = {.found = true,
                                             .entry = std::move(hit.entry),
@@ -265,7 +285,8 @@ Status SniiIndexSource::expand_terms(index_query::TermPattern& pattern, int32_t 
                 out->push_back(std::move(hit.term));
                 *stop = max_expansions > 0 && out->size() == static_cast<size_t>(max_expansions);
                 return Status::OK();
-            });
+            },
+            /*cache=*/nullptr, accept_key);
 }
 
 // A prefix reaching the marker enumerates internal terms; an empty one does when the dictionary

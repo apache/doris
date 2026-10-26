@@ -51,8 +51,6 @@ struct TTabletInfo {
     23: optional i64 local_segment_size = 0    // .dat
     24: optional i64 remote_index_size = 0     // .idx
     25: optional i64 remote_segment_size = 0   // .dat
-    // 26: deprecated binlog_size
-    // 27: deprecated binlog_file_num
     
     // For cloud
     1000: optional bool is_persistent
@@ -125,6 +123,9 @@ struct TReportRequest {
     15: optional list<AgentService.TIndexPolicy> index_policy
     // Running query/loading tasks
     16: optional i64 running_tasks
+    // Bytes of query spill the BE currently holds in object storage (cloud mode,
+    // spill_storage_type=s3), sent with the disk report and kept by the master FE for SHOW DATA.
+    17: optional i64 remote_spill_bytes
 }
 
 struct TMasterResult {

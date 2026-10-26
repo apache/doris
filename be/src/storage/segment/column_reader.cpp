@@ -543,7 +543,7 @@ ColumnReader::ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& 
           _opts(opts),
           _num_rows(num_rows),
           _file_reader(std::move(file_reader)),
-          _dict_encoding_type(UNKNOWN_DICT_ENCODING) {
+          _dict_encoding_type(DictEncodingType::UNKNOWN_DICT_ENCODING) {
     _meta_length = meta.length();
     _meta_type = (FieldType)meta.type();
     if (_meta_type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
@@ -2736,7 +2736,7 @@ Status StringFileColumnIterator::set_access_paths(
     RETURN_IF_ERROR(FileColumnIterator::set_access_paths(all_access_paths, predicate_access_paths));
     // OFFSET_ONLY mode is fundamentally incompatible with CHAR columns:
     // CHAR is stored padded to its declared length (see
-    // OlapColumnDataConvertorChar::clone_and_padding), so the per-row length
+    // StorageLayout<CHAR>::column_to_storage), so the per-row length
     // recorded in dict word info / page headers is always the padded length
     // (e.g. 25 for CHAR(25)) — never the logical length expected by length().
     // Recovering the logical length requires scanning the chars buffer with
@@ -2837,14 +2837,16 @@ Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {
         // because it will load the column's ordinal index and zonemap index and maybe other indices.
         // it has bad impact on primary key query. For example, select * from table where pk = 1, and
         // the table has 2000 columns.
-        if (dict_encoding_type == ColumnReader::UNKNOWN_DICT_ENCODING && opts.is_predicate_column) {
+        if (dict_encoding_type == ColumnReader::DictEncodingType::UNKNOWN_DICT_ENCODING &&
+            opts.is_predicate_column) {
             RETURN_IF_ERROR(seek_to_ordinal(_reader->num_rows() - 1));
             _is_all_dict_encoding = _page.is_dict_encoding;
-            _reader->set_dict_encoding_type(_is_all_dict_encoding
-                                                    ? ColumnReader::ALL_DICT_ENCODING
-                                                    : ColumnReader::PARTIAL_DICT_ENCODING);
+            _reader->set_dict_encoding_type(
+                    _is_all_dict_encoding ? ColumnReader::DictEncodingType::ALL_DICT_ENCODING
+                                          : ColumnReader::DictEncodingType::PARTIAL_DICT_ENCODING);
         } else {
-            _is_all_dict_encoding = dict_encoding_type == ColumnReader::ALL_DICT_ENCODING;
+            _is_all_dict_encoding =
+                    dict_encoding_type == ColumnReader::DictEncodingType::ALL_DICT_ENCODING;
         }
     }
     return Status::OK();

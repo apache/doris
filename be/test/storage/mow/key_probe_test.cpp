@@ -257,7 +257,7 @@ TEST_F(KeyProbeTest, FoundNewerMarksTheIncomingRow) {
     EXPECT_EQ(mow->delete_bitmap->cardinality(), 1U);
 }
 
-// Same losing row, but with use_defaults_for_seq_loser off (the row binlog policy): the surviving
+// Same losing row, but with use_defaults_for_seq_loser off (the changelog policy): the surviving
 // old row still has to be read, so its rowset comes back.
 TEST_F(KeyProbeTest, FoundNewerReadsOldRowWhenDefaultsForSeqLoserIsOff) {
     auto schema = create_mow_schema(/*has_seq=*/true);
@@ -310,8 +310,8 @@ TEST_F(KeyProbeTest, DeleteSignTakesDefaultsOnlyWithoutSequenceColumn) {
     }
 }
 
-// The row binlog retriever keeps the old values of a delete-signed row so it can emit the
-// __BEFORE__ image: use_defaults_for_delete_signed off flips that same case.
+// The changelog retriever keeps the old values of a delete-signed row so it can emit the
+// before image: use_defaults_for_delete_signed off flips that same case.
 TEST_F(KeyProbeTest, DeleteSignReadsHistoryWhenDefaultsForDeleteSignedIsOff) {
     auto schema = create_mow_schema(/*has_seq=*/false);
     TabletSharedPtr tablet;
@@ -346,9 +346,9 @@ TEST_F(KeyProbeTest, MarkNoneLeavesTheDeleteBitmapAlone) {
     std::vector<RowsetSharedPtr> rowsets {rowset};
     std::vector<std::unique_ptr<SegmentCacheHandle>> caches(rowsets.size());
     PartialUpdateStats stats;
-    // through the factory the row binlog retriever calls, so its MarkDeleted::NONE is pinned here
-    auto probe = MowKeyProbe::for_row_binlog(tablet.get(), schema.get(), schema->has_sequence_col(),
-                                             mow, /*write_before=*/true);
+    // through the factory the changelog retriever calls, so its MarkDeleted::NONE is pinned here
+    auto probe = MowKeyProbe::for_changelog(tablet.get(), schema.get(), schema->has_sequence_col(),
+                                            mow, /*write_before=*/true);
 
     // a replaced row ...
     auto found = probe.probe(encode_key_with_seq(schema, encoder, 1, 20), /*segment_pos=*/0,
@@ -496,8 +496,7 @@ protected:
         RowCache::instance()->insert({tablet_id, Slice {key}}, Slice {"row"});
     }
 
-    // encode_mow_key_invalidate_cache the way the fill loops call it: the column accessors must
-    // outlive the call, so the convertor stays alive here.
+    // encode_mow_key_invalidate_cache the way the fill loops call it.
     std::string encode_and_invalidate(const TabletSchemaSPtr& schema, const RowKeyEncoder& encoder,
                                       int32_t k, bool row_has_seq, int32_t seq,
                                       DataWriteType write_type) {
@@ -506,25 +505,15 @@ protected:
                                   : schema->create_storage_block({0});
         block.get_by_position(0).column->assert_mutable()->insert_data(
                 reinterpret_cast<const char*>(&k), sizeof(int32_t));
-        OlapBlockDataConvertor convertor;
-        convertor.add_column_data_convertor(schema->column(0));
+        const IColumn* seq_column = nullptr;
         if (row_has_seq) {
             block.get_by_position(1).column->assert_mutable()->insert_data(
                     reinterpret_cast<const char*>(&seq), sizeof(int32_t));
-            convertor.add_column_data_convertor(schema->column(seq_idx));
+            seq_column = block.get_by_position(1).column.get();
         }
-        convertor.set_source_content(&block, 0, 1);
-        auto [key_st, key_accessor] = convertor.convert_column_data(0);
-        EXPECT_TRUE(key_st.ok()) << key_st;
-        IOlapColumnDataAccessor* seq_accessor = nullptr;
-        if (row_has_seq) {
-            auto [seq_st, accessor] = convertor.convert_column_data(1);
-            EXPECT_TRUE(seq_st.ok()) << seq_st;
-            seq_accessor = accessor;
-        }
-        std::vector<IOlapColumnDataAccessor*> key_columns {key_accessor};
+        std::vector<const IColumn*> key_columns {block.get_by_position(0).column.get()};
         return segment_v2::encode_mow_key_invalidate_cache(
-                encoder, key_columns, seq_accessor, 0, row_has_seq, kTabletId, *schema, write_type);
+                encoder, key_columns, seq_column, 0, row_has_seq, kTabletId, *schema, write_type);
     }
 
     RowCache* _cache = nullptr;

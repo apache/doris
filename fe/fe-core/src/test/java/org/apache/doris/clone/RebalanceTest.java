@@ -196,8 +196,16 @@ public class RebalanceTest {
             for (int i = 0; i < 3; i++) {
                 backends.add(RebalancerTestUtil.createBackend(10086 + i, 2048, 0));
             }
-            rebalancer.addPrioBackends(backends, 1000);
+            long beforeMs = System.currentTimeMillis();
+            rebalancer.addPrioBackends(backends, 86400L);
+            long afterMs = System.currentTimeMillis();
+
             Assertions.assertTrue(rebalancer.hasPrioBackends());
+            for (Backend backend : backends) {
+                long expireTimeMs = rebalancer.prioBackends.get(backend.getId());
+                Assertions.assertTrue(expireTimeMs >= beforeMs + 86400000L);
+                Assertions.assertTrue(expireTimeMs <= afterMs + 86400000L);
+            }
         } // CHECKSTYLE IGNORE THIS LINE
 
         // remove
@@ -210,6 +218,29 @@ public class RebalanceTest {
                 Assertions.assertTrue(rebalancer.hasPrioBackends());
             }
         }
+    }
+
+    @Test
+    public void testFilterByPrioBackends() {
+        DiskRebalancer rebalancer = new DiskRebalancer(systemInfoService, invertedIndex, null);
+        Backend priorityBackend = RebalancerTestUtil.createBackend(10086L, 2048, 0);
+        Backend expiredBackend = RebalancerTestUtil.createBackend(10087L, 2048, 0);
+        rebalancer.addPrioBackends(Lists.newArrayList(priorityBackend, expiredBackend), 86400L);
+
+        long priorityExpireTimeMs = rebalancer.prioBackends.get(priorityBackend.getId());
+        rebalancer.prioBackends.put(expiredBackend.getId(), System.currentTimeMillis() - 86400000L);
+
+        BackendLoadStatistic priority = new BackendLoadStatistic(
+                priorityBackend.getId(), Tag.DEFAULT_BACKEND_TAG, systemInfoService, invertedIndex);
+        BackendLoadStatistic expired = new BackendLoadStatistic(
+                expiredBackend.getId(), Tag.DEFAULT_BACKEND_TAG, systemInfoService, invertedIndex);
+        BackendLoadStatistic ordinary = new BackendLoadStatistic(
+                10088L, Tag.DEFAULT_BACKEND_TAG, systemInfoService, invertedIndex);
+
+        Assertions.assertEquals(Collections.singletonList(priority),
+                rebalancer.filterByPrioBackends(Lists.newArrayList(ordinary, expired, priority)));
+        Assertions.assertEquals(Collections.singletonMap(priorityBackend.getId(), priorityExpireTimeMs),
+                rebalancer.prioBackends);
     }
 
     @Test

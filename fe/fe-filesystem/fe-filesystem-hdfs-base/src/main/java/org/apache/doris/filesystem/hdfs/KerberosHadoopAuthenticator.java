@@ -23,11 +23,10 @@ package org.apache.doris.filesystem.hdfs;
 
 import org.apache.doris.foundation.security.ExecutionAuthenticator;
 import org.apache.doris.foundation.security.KerberosTicketUtils;
+import org.apache.doris.kerberos.HadoopKerberosAuthenticator;
 
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.security.SecurityUtil;
 import org.apache.hadoop.security.UserGroupInformation;
-import org.apache.hadoop.security.UserGroupInformation.AuthenticationMethod;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -58,20 +57,13 @@ import javax.security.auth.login.LoginException;
  * SASL/GSS layer falls back to the JVM-default interactive JAAS login and fails with
  * "LoginException: Cannot read from System.in".
  *
- * <p>Note: {@link UserGroupInformation#setConfiguration(Configuration)} mutates
- * JVM-global state — all UGI instances in the process share the same authentication
- * mode. Multiple HDFS catalogs with differing {@code hadoop.security.authentication}
- * values therefore cannot truly coexist: the first writer wins. We serialise the
- * setup via {@link #UGI_INIT_LOCK} and skip the {@code setConfiguration} call when
- * the existing auth method already matches, so concurrent Kerberos catalogs don't
- * stomp on each other. When modes disagree a WARN is logged so operators notice.
+ * <p>UGI authentication and auth_to_local rules are shared with connector plugins.
+ * {@link HadoopKerberosAuthenticator#getUGIFromSubject(Configuration, Subject)} initializes
+ * that state and retains later catalogs' rules only after successful principal mapping.
  */
 public class KerberosHadoopAuthenticator implements ExecutionAuthenticator {
 
     private static final Logger LOG = LogManager.getLogger(KerberosHadoopAuthenticator.class);
-
-    /** Process-wide lock for serialising UGI static setup. */
-    private static final Object UGI_INIT_LOCK = new Object();
 
     private final String principal;
     private final String keytab;
@@ -88,15 +80,9 @@ public class KerberosHadoopAuthenticator implements ExecutionAuthenticator {
         this.principal = principal;
         this.keytab = keytab;
         try {
-            synchronized (UGI_INIT_LOCK) {
-                AuthenticationMethod desired = SecurityUtil.getAuthenticationMethod(conf);
-                if (!shouldSkipSetConfiguration(desired)) {
-                    UserGroupInformation.setConfiguration(conf);
-                }
-                this.subject = loginSubject();
-                this.ugi = Objects.requireNonNull(UserGroupInformation.getUGIFromSubject(subject),
-                        "getUGIFromSubject returned null");
-            }
+            this.subject = loginSubject();
+            this.ugi = Objects.requireNonNull(HadoopKerberosAuthenticator.getUGIFromSubject(conf, subject),
+                    "getUGIFromSubject returned null");
             this.nextRefreshTime = KerberosTicketUtils.getRefreshTime(
                     KerberosTicketUtils.getTicketGrantingTicket(subject));
             LOG.info("Kerberos login succeeded for principal={}", principal);
@@ -104,31 +90,6 @@ public class KerberosHadoopAuthenticator implements ExecutionAuthenticator {
             throw new RuntimeException("Failed to login with Kerberos principal=" + principal
                     + ", keytab=" + keytab, e);
         }
-    }
-
-    /**
-     * Returns true when the JVM-global UGI configuration already matches what this
-     * authenticator needs, so we can safely skip the {@code setConfiguration} call.
-     * If security is on but the existing auth mode differs, a WARN is logged and
-     * we still skip to preserve first-writer-wins semantics — the operator is then
-     * responsible for aligning catalog configs.
-     */
-    private boolean shouldSkipSetConfiguration(AuthenticationMethod desired) {
-        if (!UserGroupInformation.isSecurityEnabled()) {
-            return false;
-        }
-        AuthenticationMethod current;
-        try {
-            current = UserGroupInformation.getLoginUser().getAuthenticationMethod();
-        } catch (IOException e) {
-            return false;
-        }
-        if (current == desired) {
-            return true;
-        }
-        LOG.warn("UGI already configured with authentication={} but this catalog requests {}; "
-                + "keeping existing JVM-global setting (first-writer-wins).", current, desired);
-        return true;
     }
 
     @Override
@@ -161,8 +122,10 @@ public class KerberosHadoopAuthenticator implements ExecutionAuthenticator {
     private synchronized UserGroupInformation getUGI() throws IOException {
         if (nextRefreshTime < System.currentTimeMillis()) {
             Subject newSubject = loginSubject();
-            Objects.requireNonNull(UserGroupInformation.getUGIFromSubject(newSubject),
-                    "getUGIFromSubject returned null");
+            synchronized (UserGroupInformation.class) {
+                Objects.requireNonNull(UserGroupInformation.getUGIFromSubject(newSubject),
+                        "getUGIFromSubject returned null");
+            }
             // We modify the existing UGI's credentials in-place instead of returning a new UGI
             // because some parts of Hadoop code reuse UGI (e.g. DFSClient).
             // We also need to clear the old credentials because the JDK assumes that the first

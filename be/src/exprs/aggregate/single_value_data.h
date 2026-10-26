@@ -137,6 +137,10 @@ public:
         return Compare::equal(_value_at(column, row_num), value);
     }
 
+    bool is_equal_to(const Self& to) const {
+        return has() && to.has() && Compare::equal(value, to.value);
+    }
+
     bool set_if_greater(const Self& to, Arena& arena) {
         if (to.has() && (!has() || Compare::greater(to.value, value))) {
             set(to, arena);
@@ -301,6 +305,8 @@ public:
         }
         return _value_at(column, row_num) == _value();
     }
+
+    bool is_equal_to(const Self& to) const { return has() && to.has() && _value() == to._value(); }
 };
 
 static_assert(sizeof(SingleValueDataString) == SingleValueDataString::AUTOMATIC_STORAGE_SIZE);
@@ -411,6 +417,10 @@ public:
 
     bool is_equal_to(const IColumn& column, size_t row_num) const {
         return has() && column.compare_at(row_num, 0, *_value, 1) == 0;
+    }
+
+    bool is_equal_to(const Self& to) const {
+        return has() && to.has() && _value->compare_at(0, 0, *to._value, 1) == 0;
     }
 };
 

@@ -501,6 +501,9 @@ ObjStorageResponse S3ObjStorageClient::delete_object(const ObjStoragePath& opts)
 
 std::string S3ObjStorageClient::generate_presigned_url(const ObjStoragePath& opts,
                                                        int64_t expiration_secs) {
+    if (_signed_url_generator) {
+        return _signed_url_generator(opts, expiration_secs);
+    }
     return _client->GeneratePresignedUrl(opts.bucket, opts.key, Aws::Http::HttpMethod::HTTP_GET,
                                          expiration_secs);
 }

@@ -81,7 +81,8 @@ struct TKeyRange {
 // - T<subclass>: all other operational parameters that are the same across
 //   all plan fragments
 
-enum TBinlogScanType {
+// ATTN(changelog-rename): formerly "TBinlogScanType"
+enum TChangelogScanType {
   NONE = 0,
   APPEND_ONLY = 1,
   MIN_DELTA = 2,
@@ -101,7 +102,8 @@ struct TPaloScanRange {
   9: optional string table_name
   10: optional i64 start_tso
   11: optional i64 end_tso
-  12: optional TBinlogScanType binlog_scan_type
+  // ATTN(changelog-rename): formerly "binlog_scan_type"
+  12: optional TChangelogScanType changelog_scan_type
   // Full distribution bucket ordinal/count for runtime-filter bucket pruning
   // and exact scan-key bucket pruning. The count is not the selected tablet count.
   13: optional i32 bucket_seq
@@ -360,6 +362,9 @@ struct TIcebergFileDesc {
     // Only for format_version >= 3, the sequence number which last updated this file.
     11: optional i64 last_updated_sequence_number;
     12: optional string serialized_split;
+    // Reserved for branch-4.1 / branch-4.2 field `13: optional ExternalTableSchema.TSchema
+    // equality_delete_schema` (the split-local schema of dropped equality-delete keys). Master
+    // carries those schemas in TFileScanRangeParams.history_schema_info. Do not reuse this id.
 }
 
 struct TPaimonDeletionFileDesc {
@@ -839,6 +844,29 @@ struct TLanceIndexMetadataParams {
   3: optional string table
 }
 
+// A tablet to inspect and the partition visible version to read.
+struct TIndexDiskUsageTablet {
+  1: optional i64 tablet_id
+  2: optional i64 partition_id
+  3: optional i64 version
+  // The base or rollup index that the tablet belongs to.
+  4: optional i64 materialized_index_id
+}
+
+// Parameters of the index_disk_usage table function.
+struct TIndexDiskUsageMetadataParams {
+  // "tablet", "rowset" or "segment".
+  1: optional string level
+  // Scan SNII dictionary regions to split positions out of postings.
+  2: optional bool position_detail
+  // Empty means all indexes.
+  3: optional list<i64> index_ids
+  4: optional map<i64, string> partition_names
+  5: optional list<TIndexDiskUsageTablet> tablets
+  // Names of the base and rollup indexes, keyed by materialized index id.
+  6: optional map<i64, string> materialized_index_names
+}
+
 struct TMetaScanRange {
   1: optional Types.TMetadataType metadata_type
   2: optional TIcebergMetadataParams iceberg_params // deprecated
@@ -860,6 +888,7 @@ struct TMetaScanRange {
   16: optional list<string> serialized_splits;
   17: optional TParquetMetadataParams parquet_params;
   18: optional TLanceIndexMetadataParams lance_index_params;
+  19: optional TIndexDiskUsageMetadataParams index_disk_usage_params;
 }
 
 // Specification of an individual data range which is held in its entirety
@@ -1094,8 +1123,9 @@ struct TOlapScanNode {
   24: optional bool enable_mor_value_predicate_pushdown
   // Read MOR table as DUP table: skip merge, skip delete sign
   25: optional bool read_mor_as_dup
-  // Read row binlog index instead of base index
-  26: optional bool read_row_binlog
+  // Read changelog index instead of base index
+  // ATTN(changelog-rename): formerly "read_row_binlog"
+  26: optional bool read_changelog
   // Partition boundary descriptors for BE-side runtime filter partition pruning.
   // Only partitions that are candidates for pruning are included; partitions FE
   // does not want pruned (e.g. default catch-all) are omitted from this list.

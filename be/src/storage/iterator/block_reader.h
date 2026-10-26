@@ -31,10 +31,10 @@
 #include "core/column/column.h"
 #include "core/data_type/data_type.h"
 #include "exprs/aggregate/aggregate_function.h"
+#include "storage/changelog_types.h"
 #include "storage/iterator/vcollect_iterator.h"
 #include "storage/rowset/rowset_reader.h"
 #include "storage/tablet/tablet_reader.h"
-#include "storage/utils.h"
 
 namespace doris {
 class ColumnPredicate;
@@ -48,8 +48,6 @@ public:
     Status init(const ReaderParams& read_params) override;
 
     Status next_block_with_aggregation(Block* block, bool* eof) override;
-
-    std::vector<RowLocation> current_block_row_locations() { return _block_row_locations; }
 
     void update_profile(RuntimeProfile* profile) override {
         return _vcollect_iter.update_profile(profile);
@@ -75,9 +73,9 @@ private:
 
     Status _detail_change_next_block(Block* block, bool* eof);
 
-    int64_t _read_binlog_op(const IColumn& col, size_t row) const;
+    ChangelogOp _read_changelog_op(const IColumn& col, size_t row) const;
 
-    Status _write_binlog_op(IColumn& col, int64_t op) const;
+    Status _write_changelog_op(IColumn& col, changelog::StreamChangeOp op) const;
 
     uint32_t _resolve_source_column_ordinal(uint32_t ordinal, bool use_before) const;
 
@@ -110,7 +108,7 @@ private:
     void _update_agg_value(MutableColumns& columns, int begin, int end, bool is_close = true);
 
     Status _append_change_row(MutableColumns& target_columns, const Block& src_block,
-                              size_t row_pos, int64_t output_op, bool use_before);
+                              size_t row_pos, changelog::StreamChangeOp output_op, bool use_before);
 
     // return false if keys of rowsets are mono ascending and disjoint
     bool _rowsets_not_mono_asc_disjoint(const ReaderParams& read_params);
@@ -148,8 +146,6 @@ private:
     bool _eof = false;
 
     Status (BlockReader::*_next_block_func)(Block* block, bool* eof) = nullptr;
-
-    std::vector<RowLocation> _block_row_locations;
 
     ColumnPtr _delete_filter_column;
 

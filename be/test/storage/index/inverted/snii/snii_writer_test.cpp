@@ -468,7 +468,7 @@ TEST(SniiSegmentReaderTest, DictBlockAnchorHeapBytesCountsLongAnchor) {
 
 // ==================== null-docids growth-policy regression pins ====================
 //
-// append_nullable feeds add_nulls once per NULL RUN -- millions of calls on a
+// ScalarColumnWriter::append feeds add_nulls once per NULL RUN -- millions of calls on a
 // large interleaved-null compaction segment. An exact reserve(size()+count)
 // inside add_nulls capped capacity at "just enough", so EVERY subsequent call
 // reallocated + memcpy'd the whole array: O(runs x N) total memcpy (the
@@ -518,7 +518,7 @@ TEST(SniiWriterFailureLatch, AnalyzerFailureDiscardsStateAndBlocksFinish) {
             create_failure_analyzer());
 
     const doris::Slice value = malformed_value_after_valid_token();
-    auto add_status = writer.add_values("", &value, 1);
+    auto add_status = writer.add_values(reinterpret_cast<const uint8_t*>(&value), 1);
     ASSERT_EQ(add_status.code(), doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR);
     EXPECT_EQ(writer.term_buffer_for_test(), nullptr);
     EXPECT_EQ(writer.memory_reporter_for_test(), nullptr);
@@ -585,7 +585,7 @@ TEST(SniiWriterTest, SplitNormalizerRetainsPhrasePositions) {
     ASSERT_EQ(writer.config_for_test(), IndexConfig::kDocsPositions);
 
     const doris::Slice value("foo-bar");
-    ASSERT_OK(writer.add_values("content", &value, 1));
+    ASSERT_OK(writer.add_values(reinterpret_cast<const uint8_t*>(&value), 1));
     auto postings = writer.term_buffer_for_test()->finalize_sorted();
     bool saw_foo = false;
     bool saw_bar = false;
@@ -625,7 +625,7 @@ TEST(SniiWriterTest, GramTokenizerForcesDocsOnlyAndIsRecognised) {
 
     const std::vector<doris::Slice> values {doris::Slice("rpc error: code = Unavailable"),
                                             doris::Slice("手机微博")};
-    ASSERT_OK(writer.add_values("c", values.data(), values.size()));
+    ASSERT_OK(writer.add_values(reinterpret_cast<const uint8_t*>(values.data()), values.size()));
     auto postings = writer.term_buffer_for_test()->finalize_sorted();
     std::vector<std::string> terms;
     terms.reserve(postings.size());
@@ -663,7 +663,7 @@ TEST(SniiWriterTest, GramRowsStayIndependentAcrossTheReusedTokenStream) {
     const std::vector<doris::Slice> values {
             doris::Slice("rpc error: code = Unavailable desc = transport is closing"),
             doris::Slice("手机微博"), doris::Slice("SELECT COUNT(*) FROM tbl WHERE k = 42")};
-    ASSERT_OK(writer.add_values("c", values.data(), values.size()));
+    ASSERT_OK(writer.add_values(reinterpret_cast<const uint8_t*>(values.data()), values.size()));
 
     // Ground truth: the same extractor the writer used, driven one row at a time.
     gram::GramExtractor extractor(*writer.gram_scheme_for_test());
@@ -709,7 +709,7 @@ TEST(SniiWriterTest, GramTokenizerBuffersReachTheMemoryReporter) {
         row += "2026-09-06 INFO rpc request completed service=Frontend latency_ms=17 ";
     }
     const doris::Slice value(row.data(), row.size());
-    ASSERT_OK(writer.add_values("c", &value, 1));
+    ASSERT_OK(writer.add_values(reinterpret_cast<const uint8_t*>(&value), 1));
 
     // Ground truth: the same tokenizer on the same row, driven standalone. reset() is what fills
     // the buffers, so their capacity is settled by the time it returns.

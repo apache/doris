@@ -27,7 +27,10 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.Pair;
+import org.apache.doris.connector.spi.mvcc.ConnectorSqlCacheVersion;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.mvcc.MvccReadSelector;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mysql.FieldInfo;
 import org.apache.doris.mysql.privilege.Auth;
@@ -40,6 +43,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ResultSet;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.cache.CacheProxy;
+import org.apache.doris.qe.cache.SqlCacheVersionProvider;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.ImmutableList;
@@ -74,7 +78,7 @@ public class SqlCacheContext {
     private volatile long latestPartitionVersion = -1;
     private volatile long sumOfPartitionNum = -1;
     // value: version of table
-    private final Map<FullTableName, TableVersion> usedTables = Maps.newLinkedHashMap();
+    private final Map<TableReference, TableVersion> usedTables = Maps.newLinkedHashMap();
     // value: ddl sql
     private final Map<FullTableName, String> usedViews = Maps.newLinkedHashMap();
     // value: usedColumns
@@ -172,6 +176,17 @@ public class SqlCacheContext {
 
     /** addUsedTable */
     public synchronized void addUsedTable(TableIf tableIf) {
+        addUsedTable(tableIf, Optional.empty());
+    }
+
+    /** Record the exact MVCC generation consumed by this relation. */
+    public synchronized void addUsedTable(TableIf tableIf, Optional<MvccSnapshot> snapshot) {
+        addUsedTable(tableIf, snapshot, MvccReadSelector.LATEST);
+    }
+
+    /** Record one table reference independently of other versions of the same table. */
+    public synchronized void addUsedTable(TableIf tableIf, Optional<MvccSnapshot> snapshot,
+            MvccReadSelector selector) {
         if (tableIf == null) {
             return;
         }
@@ -190,10 +205,19 @@ public class SqlCacheContext {
         }
 
         long version = 0;
+        ConnectorSqlCacheVersion sqlCacheVersion = null;
         try {
+            if (tableIf instanceof SqlCacheVersionProvider) {
+                sqlCacheVersion = ((SqlCacheVersionProvider) tableIf).getSqlCacheVersion(snapshot).orElse(null);
+            }
+            if (!selector.isLatest() && sqlCacheVersion == null) {
+                // Legacy freshness is table-wide, so it cannot validate a historical/branch dependency.
+                setHasUnsupportedTables(true);
+                return;
+            }
             if (tableIf instanceof OlapTable) {
                 version = ((OlapTable) tableIf).getVisibleVersion();
-            } else if (tableIf instanceof MTMVRelatedTableIf) {
+            } else if (sqlCacheVersion == null && tableIf instanceof MTMVRelatedTableIf) {
                 // Connector-agnostic data-version token (hive: max transient_lastDdlTime; iceberg/paimon:
                 // monotonic snapshot version). OlapTable is handled above; MTMV is an OlapTable too, so this
                 // arm only catches external MVCC tables (flipped hive/iceberg/paimon/hudi).
@@ -212,11 +236,12 @@ public class SqlCacheContext {
         }
 
         usedTables.put(
-                new FullTableName(database.getCatalog().getName(), database.getFullName(), tableIf.getName()),
+                new TableReference(new FullTableName(database.getCatalog().getName(),
+                        database.getFullName(), tableIf.getName()), selector),
                 new TableVersion(
                         tableIf.getId(),
                         version,
-                        tableIf.getType()
+                        tableIf.getType(), sqlCacheVersion
                 )
         );
     }
@@ -362,7 +387,7 @@ public class SqlCacheContext {
         this.cacheProxy = cacheProxy;
     }
 
-    public Map<FullTableName, TableVersion> getUsedTables() {
+    public Map<TableReference, TableVersion> getUsedTables() {
         return Collections.unmodifiableMap(usedTables);
     }
 
@@ -446,15 +471,18 @@ public class SqlCacheContext {
     public synchronized PUniqueId doComputeCacheKeyMd5(
             Set<Variable> usedVariables, SessionVariable sessionVariable) {
         StringBuilder cacheKey = new StringBuilder(NereidsParser.removeCommentAndTrimBlank(originSql.trim()));
-        for (Entry<FullTableName, TableVersion> entry : usedTables.entrySet()) {
+        for (Entry<TableReference, TableVersion> entry : usedTables.entrySet()) {
             TableVersion tableVersion = entry.getValue();
-            FullTableName tableName = entry.getKey();
+            TableReference reference = entry.getKey();
+            String selectorKey = reference.selector.getKey();
             cacheKey.append("|")
-                    .append(tableName)
+                    .append(reference.tableName)
+                    .append("#").append(selectorKey.length()).append(":").append(selectorKey)
                     .append("=")
                     .append(tableVersion.id)
                     .append("@")
-                    .append(tableVersion.version);
+                    .append(tableVersion.sqlCacheVersion == null ? Long.toString(tableVersion.version)
+                            : "sql-cache:" + tableVersion.sqlCacheVersion.getVersion());
         }
         for (Entry<FullTableName, String> entry : usedViews.entrySet()) {
             cacheKey.append("|")
@@ -590,6 +618,14 @@ public class SqlCacheContext {
         }
     }
 
+    /** A table dependency identified by the original read selector, not by an alias or resolved snapshot. */
+    @lombok.Data
+    @lombok.AllArgsConstructor
+    public static class TableReference {
+        public final FullTableName tableName;
+        public final MvccReadSelector selector;
+    }
+
     /** TableVersion */
     @lombok.Data
     @lombok.AllArgsConstructor
@@ -597,6 +633,11 @@ public class SqlCacheContext {
         public final long id;
         public final long version;
         public final TableType type;
+        public final ConnectorSqlCacheVersion sqlCacheVersion;
+
+        public TableVersion(long id, long version, TableType type) {
+            this(id, version, type, null);
+        }
     }
 
     /** CacheKeyType */

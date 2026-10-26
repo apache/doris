@@ -143,6 +143,24 @@ TEST_F(ArrowBlockConvertorTest, PythonBuildsSchemaAndConvertsSlicesInternally) {
     EXPECT_EQ(2, output.rows());
 }
 
+TEST_F(ArrowBlockConvertorTest, RejectsColumnsWithDifferentRowCounts) {
+    auto type = std::make_shared<DataTypeInt32>();
+    auto first = ColumnInt32::create();
+    first->get_data().assign({1, 2});
+    auto second = ColumnInt32::create();
+    second->get_data().push_back(3);
+    Block block;
+    block.insert({std::move(first), type, "first"});
+    block.insert({std::move(second), type, "second"});
+
+    auto schema = arrow::schema(
+            {arrow::field("first", arrow::int32()), arrow::field("second", arrow::int32())});
+    ArrowFlightArrowBlockConvertor converter(schema, cctz::utc_time_zone());
+    std::shared_ptr<arrow::RecordBatch> batch;
+    EXPECT_FALSE(converter.convert_to_arrow(block, arrow::default_memory_pool(), &batch).ok());
+    EXPECT_EQ(nullptr, batch);
+}
+
 TEST_F(ArrowBlockConvertorTest, PaimonSerializedSchemaKeepsTimestampBindingsPerInstance) {
     cctz::time_zone shanghai;
     ASSERT_TRUE(cctz::load_time_zone("Asia/Shanghai", &shanghai));

@@ -30,6 +30,7 @@
 #include "common/cast_set.h"
 #include "common/config.h"
 #include "common/consts.h"
+#include "common/logging.h"
 #include "common/metrics/doris_metrics.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
@@ -59,11 +60,13 @@
 #include "format_v2/jni/max_compute_jni_reader.h"
 #include "format_v2/jni/trino_connector_jni_reader.h"
 #include "format_v2/table/adbc_reader.h"
+#include "format_v2/table/es_reader.h"
 #include "format_v2/table/fluss_hybrid_reader.h"
 #include "format_v2/table/hive_reader.h"
 #include "format_v2/table/hudi_reader.h"
 #include "format_v2/table/iceberg_position_delete_sys_table_reader.h"
 #include "format_v2/table/iceberg_reader.h"
+#include "format_v2/table/load_reader.h"
 #include "format_v2/table/paimon_reader.h"
 #include "format_v2/table/remote_doris_reader.h"
 #include "format_v2/table_reader.h"
@@ -354,6 +357,8 @@ bool FileScannerV2::is_supported(const TFileScanRangeParams& params, const TFile
     if (format_type == TFileFormatType::FORMAT_PARQUET ||
         format_type == TFileFormatType::FORMAT_ORC) {
         return is_supported_table_format(range);
+    } else if (format_type == TFileFormatType::FORMAT_ES_HTTP) {
+        return table_format_name(range) == "es";
     } else if (format_type == TFileFormatType::FORMAT_ARROW) {
         return is_supported_arrow_table_format(range);
     } else if (format_type == TFileFormatType::FORMAT_JNI) {
@@ -400,7 +405,8 @@ FileScannerV2::FileScannerV2(RuntimeState* state, FileScanLocalState* local_stat
                              const std::unordered_map<std::string, int>* colname_to_slot_id)
         : Scanner(state, local_state, limit, profile),
           _split_source(std::move(split_source)),
-          _kv_cache(kv_cache) {
+          _kv_cache(kv_cache),
+          _parquet_profile_cache(local_state->_parquet_profile_cache.get()) {
     (void)colname_to_slot_id;
     if (state->get_query_ctx() != nullptr &&
         state->get_query_ctx()->file_scan_range_params_map.count(local_state->parent_id()) > 0) {
@@ -412,6 +418,7 @@ FileScannerV2::FileScannerV2(RuntimeState* state, FileScanLocalState* local_stat
 
 Status FileScannerV2::init(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
     RETURN_IF_ERROR(Scanner::init(state, conjuncts));
+    _is_load = state->desc_tbl().get_tuple_descriptor(_params->src_tuple_id) != nullptr;
     auto* profile = _local_state->scanner_profile();
     const auto hierarchy = file_scan_profile::ensure_hierarchy(profile);
     _scanner_total_timer = hierarchy.scanner;
@@ -464,7 +471,13 @@ Status FileScannerV2::_open_impl(RuntimeState* state) {
     RETURN_IF_ERROR(Scanner::_open_impl(state));
     RETURN_IF_ERROR(_get_next_scan_range(&_first_scan_range));
     if (_first_scan_range) {
-        RETURN_IF_ERROR(_create_table_reader_for_format(_current_range, &_table_reader));
+        if (_is_load) {
+            _table_reader = std::make_unique<format::LoadTableReader>(
+                    state->desc_tbl().get_tuple_descriptor(_params->src_tuple_id),
+                    _output_tuple_desc);
+        } else {
+            RETURN_IF_ERROR(_create_table_reader_for_format(_current_range, &_table_reader));
+        }
         DORIS_CHECK(_table_reader != nullptr);
         RETURN_IF_ERROR(_init_expr_ctxes());
         RETURN_IF_ERROR(_init_table_reader(_current_range));
@@ -511,6 +524,8 @@ Status FileScannerV2::_get_block_impl(RuntimeState* state, Block* block, bool* e
                                 _current_range, config::ignore_not_found_file_in_external_table))) {
                 RETURN_IF_ERROR(_table_reader->abort_split());
                 COUNTER_UPDATE(_not_found_file_counter, 1);
+                LOG(INFO) << "Skip missing file: query_id=" << print_id(_state->query_id())
+                          << ", path=" << _current_range.path << ", reason=NOT_FOUND";
                 _state->update_num_finished_scan_range(1);
                 _has_prepared_split = false;
                 block->clear_column_data(cast_set<int64_t>(_projected_columns.size()));
@@ -600,6 +615,8 @@ Status FileScannerV2::_prepare_next_split(bool* eos) {
                                               config::ignore_not_found_file_in_external_table))) {
             RETURN_IF_ERROR(_table_reader->abort_split());
             COUNTER_UPDATE(_not_found_file_counter, 1);
+            LOG(INFO) << "Skip missing file: query_id=" << print_id(_state->query_id())
+                      << ", path=" << _current_range.path << ", reason=NOT_FOUND";
             _state->update_num_finished_scan_range(1);
             continue;
         }
@@ -660,6 +677,7 @@ Status FileScannerV2::_init_table_reader(const TFileRangeDesc& range) {
             .io_ctx = _io_ctx,
             .runtime_state = _state,
             .scanner_profile = _local_state != nullptr ? _local_state->scanner_profile() : _profile,
+            .parquet_profile_cache = _parquet_profile_cache,
             .file_slot_descs = &_file_slot_descs,
             .push_down_agg_type = _local_state != nullptr ? _local_state->get_push_down_agg_type()
                                                           : TPushAggOp::type::NONE,
@@ -786,6 +804,8 @@ Status FileScannerV2::_create_table_reader_for_format(
         *reader = std::make_unique<format::max_compute::MaxComputeJniReader>(mc_desc);
     } else if (table_format == "trino_connector") {
         *reader = std::make_unique<format::trino_connector::TrinoConnectorJniReader>();
+    } else if (table_format == "es") {
+        *reader = std::make_unique<format::es::EsReader>();
     } else if (table_format == "remote_doris") {
         *reader = std::make_unique<format::remote_doris::RemoteDorisReader>();
     } else if (table_format == "adbc") {
@@ -920,7 +940,18 @@ Status FileScannerV2::_init_expr_ctxes() {
         _slot_id_to_desc.emplace(slot_desc->id(), slot_desc);
     }
     DORIS_CHECK(_table_reader != nullptr);
-    RETURN_IF_ERROR(_build_projected_columns(*_table_reader));
+    if (_is_load) {
+        // Load required_slots describe the source tuple, not this destination tuple.
+        // LoadTableReader owns source projection, defaults and partition materialization.
+        _projected_columns.clear();
+        for (size_t i = 0; i < _output_tuple_desc->slots().size(); ++i) {
+            const auto* slot = _output_tuple_desc->slots()[i];
+            _projected_columns.push_back(_build_table_column(slot));
+            _slot_id_to_global_index.emplace(slot->id(), format::GlobalIndex(i));
+        }
+    } else {
+        RETURN_IF_ERROR(_build_projected_columns(*_table_reader));
+    }
     return Status::OK();
 }
 
@@ -1016,6 +1047,9 @@ format::ColumnDefinition FileScannerV2::_build_table_column(const SlotDescriptor
 Status FileScannerV2::_build_table_conjuncts(VExprContextSPtrs* conjuncts) const {
     DORIS_CHECK(conjuncts != nullptr);
     conjuncts->clear();
+    if (_is_load) {
+        return Status::OK();
+    }
     conjuncts->reserve(_conjuncts.size());
     for (const auto& conjunct : _conjuncts) {
         VExprSPtr root;
@@ -1062,6 +1096,9 @@ Status FileScannerV2::_to_file_format(TFileFormatType::type format_type,
         return Status::OK();
     case TFileFormatType::FORMAT_ARROW:
         *file_format = format::FileFormat::ARROW;
+        return Status::OK();
+    case TFileFormatType::FORMAT_ES_HTTP:
+        *file_format = format::FileFormat::ES_HTTP;
         return Status::OK();
     case TFileFormatType::FORMAT_WAL:
         *file_format = format::FileFormat::WAL;
@@ -1357,6 +1394,13 @@ bool FileScannerV2::_should_update_load_counters() const {
 }
 
 void FileScannerV2::_report_file_reader_predicate_filtered_rows() {
+    if (_io_ctx != nullptr && _is_load) {
+        _counter.num_rows_filtered += _io_ctx->load_filtered_rows - _reported_load_filtered_rows;
+        _counter.num_rows_unselected +=
+                _io_ctx->load_unselected_rows - _reported_load_unselected_rows;
+        _reported_load_filtered_rows = _io_ctx->load_filtered_rows;
+        _reported_load_unselected_rows = _io_ctx->load_unselected_rows;
+    }
     const int64_t filtered_rows = _io_ctx != nullptr ? _io_ctx->predicate_filtered_rows : 0;
     const int64_t filtered_delta = filtered_rows - _reported_predicate_filtered_rows;
     if (filtered_delta > 0) {

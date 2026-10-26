@@ -164,12 +164,13 @@ public class IcebergPartitionUtilsTest {
         UUID value = UUID.fromString("00112233-4455-6677-8899-aabbccddeeff");
         data.set(0, value);
         Assertions.assertEquals("00112233-4455-6677-8899-aabbccddeeff",
-                IcebergPartitionUtils.getIdentityPartitionInfoMap(data, spec, table, ZoneOffset.UTC).get("key"));
+                IcebergPartitionUtils.getIdentityPartitionInfoMap(
+                        data, spec, table.schema(), ZoneOffset.UTC).get("key"));
         Assertions.assertEquals(value.toString(),
                 IcebergPartitionUtils.serializePartitionValue(Types.UUIDType.get(), value, ZoneOffset.UTC));
         data.set(0, null);
-        Assertions.assertNull(
-                IcebergPartitionUtils.getIdentityPartitionInfoMap(data, spec, table, ZoneOffset.UTC).get("key"));
+        Assertions.assertNull(IcebergPartitionUtils.getIdentityPartitionInfoMap(
+                data, spec, table.schema(), ZoneOffset.UTC).get("key"));
     }
 
     @Test
@@ -258,7 +259,8 @@ public class IcebergPartitionUtilsTest {
                 .build();
         Table table = tableWith(schema, spec);
 
-        List<String> cols = IcebergPartitionUtils.getIdentityPartitionColumns(table);
+        List<String> cols =
+                IcebergPartitionUtils.getIdentityPartitionColumns(table, table.schema());
 
         // Only the two identity columns, CASE-PRESERVED (#65094 read-path alignment), in spec order; the
         // bucket(id) transform is excluded. MUTATION: including non-identity transforms -> "id_bucket"/"id"
@@ -284,11 +286,99 @@ public class IcebergPartitionUtilsTest {
         table.updateSpec().removeField("payload").addField("int_col").commit();
         Assertions.assertEquals(2, table.specs().size());
 
-        List<String> cols = IcebergPartitionUtils.getIdentityPartitionColumns(table);
+        List<String> cols =
+                IcebergPartitionUtils.getIdentityPartitionColumns(table, table.schema());
 
         // Both specs contribute, in first-seen (spec id) order. MUTATION: iterating table.spec() instead of
         // table.specs() -> ["int_col"] -> red. MUTATION: dropping the LinkedHashSet dedup -> duplicates -> red.
         Assertions.assertEquals(Arrays.asList("payload", "int_col"), cols);
+    }
+
+    @Test
+    public void identityPartitionColumnsUseAuthoritativeScanSchemaAfterCaseRename() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "P", Types.IntegerType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("P").build();
+        Table table = tableWith(schema, spec);
+        Schema pinnedSchema = table.schema();
+
+        table.updateSchema().renameColumn("P", "p").commit();
+
+        Assertions.assertEquals(Collections.singletonList("P"),
+                IcebergPartitionUtils.getIdentityPartitionColumns(table, pinnedSchema));
+        Assertions.assertEquals(Collections.singletonList("p"),
+                IcebergPartitionUtils.getIdentityPartitionColumns(table, table.schema()));
+    }
+
+    // ---- toPartitionFieldKeys ----
+
+    @Test
+    public void staticPartitionKeysResolveTheSourceColumnToThePartitionField() {
+        // ADD PARTITION KEY id AS id_identity: the engine's PARTITION clause names the SOURCE column "id", while
+        // the BE sink matches static_partition_values against the partition FIELD name and the commit row filter
+        // resolves that field to its source column. Both consumers therefore need the field-keyed spec.
+        // MUTATION: passing the engine's spelling through -> BE sees no static column (write silently becomes
+        // dynamic) and the commit filter stops matching -> red.
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.LongType.get()),
+                Types.NestedField.optional(2, "region", Types.StringType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema)
+                .identity("id", "id_identity")
+                .identity("region")
+                .build();
+
+        Map<String, String> canonical = IcebergPartitionUtils.toPartitionFieldKeys(
+                new HashMap<>(Collections.singletonMap("id", "7")), schema, spec);
+        Assertions.assertEquals(Collections.singletonMap("id_identity", "7"), canonical);
+
+        // A field name (the un-renamed spelling, and the bucket-style field name a caller may already hold) is
+        // canonicalized to itself, and the lookup folds case like every Doris identifier.
+        Map<String, String> mixed = new HashMap<>();
+        mixed.put("REGION", "us");
+        mixed.put("ID_IDENTITY", "8");
+        Map<String, String> expected = new HashMap<>();
+        expected.put("region", "us");
+        expected.put("id_identity", "8");
+        Assertions.assertEquals(expected, IcebergPartitionUtils.toPartitionFieldKeys(mixed, schema, spec));
+
+        // A name the current spec does not know is kept verbatim: the callers own the fail-loud guard for it.
+        Map<String, String> unknown = IcebergPartitionUtils.toPartitionFieldKeys(
+                new HashMap<>(Collections.singletonMap("ghost", "1")), schema, spec);
+        Assertions.assertEquals(Collections.singletonMap("ghost", "1"), unknown);
+    }
+
+    @Test
+    public void staticPartitionKeysPreferTheIdentitySourceOverACaseFoldedFieldAlias() {
+        // A partition field may carry a name that collides with another column's name in a different case
+        // (`identity(other, "ID")` beside `identity(id, "id_identity")`), because the spec builder checks names
+        // case-SENSITIVELY. The engine's PARTITION name is the SOURCE column, so the key must follow the identity
+        // field over that source rather than the earlier alias.
+        // MUTATION: matching field names first -> the key becomes "ID" (source "other") -> BE stamps and the commit
+        // filters the WRONG partition -> red.
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "other", Types.IntegerType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema)
+                .identity("other", "ID")
+                .identity("id", "id_identity")
+                .build();
+
+        Assertions.assertEquals(Collections.singletonMap("id_identity", "7"),
+                IcebergPartitionUtils.toPartitionFieldKeys(
+                        new HashMap<>(Collections.singletonMap("id", "7")), schema, spec));
+    }
+
+    @Test
+    public void staticPartitionKeysFindTheIdentityFieldRegardlessOfFieldOrder() {
+        // bucket(8, id) may be declared before identity(id); the static target is still the identity field.
+        // MUTATION: taking the first source match -> the bucket field's name is returned -> red.
+        Schema schema = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).bucket("id", 8).identity("id").build();
+
+        Assertions.assertEquals(Collections.singletonMap("id", "7"),
+                IcebergPartitionUtils.toPartitionFieldKeys(
+                        new HashMap<>(Collections.singletonMap("id", "7")), schema, spec));
     }
 
     // ---- getIdentityPartitionInfoMap ----
@@ -308,7 +398,8 @@ public class IcebergPartitionUtilsTest {
         pd.set(1, 2);          // id_bucket = 2 (non-identity -> skipped)
 
         Map<String, String> info =
-                IcebergPartitionUtils.getIdentityPartitionInfoMap(pd, spec, table, ZoneOffset.UTC);
+                IcebergPartitionUtils.getIdentityPartitionInfoMap(
+                        pd, spec, table.schema(), ZoneOffset.UTC);
 
         // Only the identity column survives, key CASE-PRESERVED (#65094 read-path alignment). MUTATION:
         // emitting id_bucket -> size 2 -> red. MUTATION: re-lowercasing the key -> "p" != "P" -> red.
@@ -326,10 +417,32 @@ public class IcebergPartitionUtilsTest {
         pd.set(0, null);       // genuine null partition value
 
         Map<String, String> info =
-                IcebergPartitionUtils.getIdentityPartitionInfoMap(pd, spec, table, ZoneOffset.UTC);
+                IcebergPartitionUtils.getIdentityPartitionInfoMap(
+                        pd, spec, table.schema(), ZoneOffset.UTC);
 
         Assertions.assertTrue(info.containsKey("p"));
         Assertions.assertNull(info.get("p"));
+    }
+
+    @Test
+    public void identityPartitionInfoMapUsesAuthoritativeScanSchemaAfterCaseRename() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "P", Types.IntegerType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("P").build();
+        Table table = tableWith(schema, spec);
+        Schema pinnedSchema = table.schema();
+
+        table.updateSchema().renameColumn("P", "p").commit();
+
+        PartitionData pd = new PartitionData(spec.partitionType());
+        pd.set(0, 7);
+        Assertions.assertEquals(Collections.singletonMap("P", "7"),
+                IcebergPartitionUtils.getIdentityPartitionInfoMap(
+                        pd, spec, pinnedSchema, ZoneOffset.UTC));
+        Assertions.assertEquals(Collections.singletonMap("p", "7"),
+                IcebergPartitionUtils.getIdentityPartitionInfoMap(
+                        pd, spec, table.schema(), ZoneOffset.UTC));
     }
 
     // ---- getPartitionDataJson ----

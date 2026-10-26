@@ -124,6 +124,7 @@
 #include "exec/runtime_filter/runtime_filter_mgr.h"
 #include "exec/sort/topn_sorter.h"
 #include "exec/spill/spill_file.h"
+#include "exprs/function/ai/ai_request_executor.h"
 #include "io/fs/stream_load_pipe.h"
 #include "load/stream_load/new_load_stream_mgr.h"
 #include "runtime/cluster_info.h"
@@ -1310,7 +1311,7 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
         int child_node_id = pipeline->operators().back()->node_id();
         if (state->query_options().enable_memtable_on_sink_node &&
             !_has_inverted_index_v1_or_partial_update(thrift_sink.olap_table_sink) &&
-            !_has_row_binlog(thrift_sink.olap_table_sink) && !config::is_cloud_mode()) {
+            !_has_changelog(thrift_sink.olap_table_sink) && !config::is_cloud_mode()) {
             _sink = std::make_shared<OlapTableSinkV2OperatorX>(
                     pool, next_sink_operator_id(), child_node_id + 1, row_desc, output_exprs);
         } else {
@@ -1541,11 +1542,11 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
                         "cache node_id={}",
                         tnode.node_id, _params.fragment.query_cache_param.node_id);
             }
-            if (tnode.olap_scan_node.__isset.read_row_binlog &&
-                tnode.olap_scan_node.read_row_binlog) {
-                // Row-binlog scans read a different data stream: they must
+            if (tnode.olap_scan_node.__isset.read_changelog &&
+                tnode.olap_scan_node.read_changelog) {
+                // Changelog scans read a different data stream: they must
                 // neither serve nor fill the query cache.
-                _query_cache_runtime->disable_for_binlog_scan();
+                _query_cache_runtime->disable_for_changelog_scan();
             }
         }
         op = std::make_shared<OlapScanOperatorX>(
@@ -2770,6 +2771,11 @@ PipelineFragmentContext::collect_realtime_profile() const {
     // Make sure first profile is fragment level profile
     auto fragment_profile = std::make_shared<TRuntimeProfileTree>();
     _fragment_level_profile->to_thrift(fragment_profile.get(), _runtime_state->profile_level());
+    if (auto statistics = _query_ctx->find_ai_statistics(_fragment_id)) {
+        // Copy into the fragment snapshot exactly once. Tasks never register the shared
+        // profile as a child, and the snapshot retains no pointers into QueryContext.
+        statistics->update_profile_snapshot(*fragment_profile, _runtime_state->profile_level());
+    }
     res.push_back(fragment_profile);
 
     // pipeline_id_to_profile is initialized in prepare stage

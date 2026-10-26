@@ -52,11 +52,13 @@ org.apache.doris.connector.spi.ConnectorColumn#isKey():boolean
 org.apache.doris.connector.spi.ConnectorColumn#isNullable():boolean
 org.apache.doris.connector.spi.ConnectorColumn#isNullableSpecified():boolean
 org.apache.doris.connector.spi.ConnectorColumn#isReservedPassthrough():boolean
+org.apache.doris.connector.spi.ConnectorColumn#isSourceNullable():boolean
 org.apache.doris.connector.spi.ConnectorColumn#isVisible():boolean
 org.apache.doris.connector.spi.ConnectorColumn#isWithTimeZone():boolean
 org.apache.doris.connector.spi.ConnectorColumn#reservedPassthrough():org.apache.doris.connector.spi.ConnectorColumn
 org.apache.doris.connector.spi.ConnectorColumn#toString():java.lang.String
 org.apache.doris.connector.spi.ConnectorColumn#withDefaultValueSql(java.lang.String):org.apache.doris.connector.spi.ConnectorColumn
+org.apache.doris.connector.spi.ConnectorColumn#withSourceNullable(boolean):org.apache.doris.connector.spi.ConnectorColumn
 org.apache.doris.connector.spi.ConnectorColumn#withSpecified(boolean,boolean):org.apache.doris.connector.spi.ConnectorColumn
 org.apache.doris.connector.spi.ConnectorColumn#withStringWriteType(org.apache.doris.connector.spi.ConnectorType):org.apache.doris.connector.spi.ConnectorColumn
 org.apache.doris.connector.spi.ConnectorColumn#withTimeZone():org.apache.doris.connector.spi.ConnectorColumn
@@ -103,6 +105,14 @@ org.apache.doris.connector.spi.ConnectorSession#getTimeZone():java.lang.String
 org.apache.doris.connector.spi.ConnectorSession#getUser():java.lang.String
 org.apache.doris.connector.spi.ConnectorSession#isExternalScanTaskReuseEnabled():boolean
 org.apache.doris.connector.spi.ConnectorSession#setCurrentTransaction(org.apache.doris.connector.spi.handle.ConnectorTransaction):void
+org.apache.doris.connector.spi.ConnectorStatementScope#closeAll():void
+org.apache.doris.connector.spi.ConnectorStatementScope#computeIfAbsent(java.lang.String,java.util.function.Supplier):java.lang.Object
+org.apache.doris.connector.spi.ConnectorStatementScope#computeIfAbsentForPlanning(java.lang.String,java.util.function.Supplier):java.lang.Object
+org.apache.doris.connector.spi.ConnectorStatementScope#endPlanning():void
+org.apache.doris.connector.spi.ConnectorStatementScope#getIfPresent(java.lang.String):java.lang.Object
+org.apache.doris.connector.spi.ConnectorStatementScope#getOrCreateMetadata(java.lang.String,java.util.function.Supplier):org.apache.doris.connector.spi.ConnectorMetadata
+org.apache.doris.connector.spi.ConnectorStatementScopes#getIfPresent(org.apache.doris.connector.spi.ConnectorSession,java.lang.String,java.lang.String,java.lang.String):java.lang.Object
+org.apache.doris.connector.spi.ConnectorStatementScopes#resolveInStatement(org.apache.doris.connector.spi.ConnectorSession,java.lang.String,java.lang.String,java.lang.String,java.util.function.Supplier):java.lang.Object
 org.apache.doris.connector.spi.ConnectorTableSchema#equals(java.lang.Object):boolean
 org.apache.doris.connector.spi.ConnectorTableSchema#getColumns():java.util.List
 org.apache.doris.connector.spi.ConnectorTableSchema#getProperties():java.util.Map
@@ -147,6 +157,8 @@ org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot$Builder#property(java.
 org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot$Builder#retainSchema(boolean):org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot$Builder
 org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot$Builder#schemaId(long):org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot$Builder
 org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot$Builder#snapshotId(long):org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot$Builder
+org.apache.doris.connector.spi.mvcc.ConnectorSqlCacheVersion#getUpdateTimeMillis():long
+org.apache.doris.connector.spi.mvcc.ConnectorSqlCacheVersion#getVersion():java.lang.String
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#adjustFileCompressType(org.apache.doris.thrift.TFileCompressType):org.apache.doris.thrift.TFileCompressType
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#appendExplainInfo(java.lang.StringBuilder,java.lang.String,java.util.Map):void
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#applyColumnDefaultsOnRead():boolean

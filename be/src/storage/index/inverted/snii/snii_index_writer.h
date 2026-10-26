@@ -57,9 +57,9 @@ public:
 
     Status init() override;
     void set_direct_load(bool is_direct_load) override;
-    Status add_values(const std::string name, const void* values, size_t count) override;
-    Status add_array_values(size_t field_size, const void* value_ptr,
-                            const uint8_t* nested_null_map, const uint8_t* offsets_ptr,
+    Status add_values(const uint8_t* values, size_t count) override;
+    Status add_array_values(size_t field_size, const uint8_t* value_ptr,
+                            const uint8_t* nested_null_map, const uint64_t* offsets_ptr,
                             size_t count) override;
     Status add_nulls(uint32_t count) override;
     Status add_array_nulls(const uint8_t* null_map, size_t num_rows) override;
@@ -194,7 +194,7 @@ private:
     // (and through it the SNII index-build observation tracker). Re-charged on
     // growth in add_nulls / add_array_nulls, released in finish() / close_on_error() --
     // without it a large interleaved-null segment accumulates untracked RSS the
-    // G09 limiter cannot see.
+    // Limiter cannot see.
     int64_t _null_docids_charged_bytes = 0;
     int64_t _encoded_norms_charged_bytes = 0;
     int64_t _gram_buffers_charged_bytes = 0;

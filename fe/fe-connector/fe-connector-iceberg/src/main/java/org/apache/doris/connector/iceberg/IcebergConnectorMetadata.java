@@ -25,6 +25,7 @@ import org.apache.doris.connector.spi.ConnectorDatabaseMetadata;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.connector.spi.ConnectorTableSchema;
 import org.apache.doris.connector.spi.ConnectorTableStatistics;
@@ -45,8 +46,16 @@ import org.apache.doris.connector.spi.handle.ConnectorTransaction;
 import org.apache.doris.connector.spi.handle.WriteOperation;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartitionView;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.spi.mvcc.ConnectorSqlCacheVersion;
 import org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec;
+import org.apache.doris.connector.spi.pushdown.ConnectorAnd;
+import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.pushdown.ConnectorIn;
+import org.apache.doris.connector.spi.pushdown.ConnectorIsNull;
+import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
+import org.apache.doris.connector.spi.pushdown.ConnectorNot;
+import org.apache.doris.kerberos.HadoopAuthenticator;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TIcebergTable;
 import org.apache.doris.thrift.TTableDescriptor;
@@ -54,6 +63,13 @@ import org.apache.doris.thrift.TTableType;
 
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.iceberg.BaseTable;
+import org.apache.iceberg.DataFile;
+import org.apache.iceberg.DeleteFile;
+import org.apache.iceberg.DeleteFiles;
+import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.ManifestFile;
+import org.apache.iceberg.ManifestFiles;
+import org.apache.iceberg.ManifestReader;
 import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.MetadataTableUtils;
 import org.apache.iceberg.PartitionField;
@@ -62,12 +78,25 @@ import org.apache.iceberg.RowLevelOperationMode;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
+import org.apache.iceberg.SnapshotSummary;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableMetadata;
+import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableProperties;
+import org.apache.iceberg.TableScan;
+import org.apache.iceberg.Transaction;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.NoSuchNamespaceException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
+import org.apache.iceberg.exceptions.ValidationException;
+import org.apache.iceberg.expressions.Evaluator;
+import org.apache.iceberg.expressions.Expression;
+import org.apache.iceberg.expressions.ExpressionUtil;
+import org.apache.iceberg.expressions.Expressions;
+import org.apache.iceberg.expressions.Projections;
+import org.apache.iceberg.expressions.StrictMetricsEvaluator;
+import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.SnapshotUtil;
@@ -77,6 +106,9 @@ import org.apache.iceberg.view.ViewVersion;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -86,10 +118,12 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.concurrent.Callable;
+import java.util.function.BooleanSupplier;
 import java.util.function.Predicate;
 
 /**
@@ -312,6 +346,17 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     }
 
     @Override
+    public List<String> listRelationNames(ConnectorSession session, String dbName) {
+        try {
+            return executeAuthenticated(() -> catalogOps.listRelationNames(dbName));
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to list relation names, error message is: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
     public List<String> listViewNames(ConnectorSession session, String dbName) {
         // Mirror legacy IcebergMetadataOps.listViewNames: wrap in the auth context; a RuntimeException
         // (e.g. NoSuchNamespaceException) is rethrown verbatim, other failures are wrapped.
@@ -424,8 +469,44 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     @Override
     public Optional<ConnectorTableHandle> getTableHandle(
             ConnectorSession session, String dbName, String tableName) {
+        IcebergTableHandle handle = new IcebergTableHandle(dbName, tableName);
+        if (IcebergStatementScope.hasReadTable(session, dbName, tableName)
+                || (tableCache != null && tableCache.contains(TableIdentifier.of(dbName, tableName)))) {
+            return Optional.of(handle);
+        }
+        // Offline callers cannot retain a cache lease. Pure existence checks use tableExists instead.
+        if (session == null || session.getStatementScope() == ConnectorStatementScope.NONE) {
+            return tableExists(session, dbName, tableName) ? Optional.of(handle) : Optional.empty();
+        }
+        try {
+            // Loading proves existence and pins the same metadata used by schema/snapshot/scan planning.
+            // Borrow through the existing generation-aware cache so concurrent cold readers share one load.
+            executeAuthenticated(() -> resolveTableForRead(session, handle));
+            return Optional.of(handle);
+        } catch (Exception e) {
+            if (ExceptionUtils.getThrowableList(e).stream().anyMatch(NoSuchTableException.class::isInstance)) {
+                return Optional.empty();
+            }
+            throw IcebergExceptionUtils.wrapTableLoadFailure(handle, e,
+                    "Failed to load table, error message is:");
+        }
+    }
+
+    @Override
+    public Optional<ConnectorTableHandle> getTableHandleForDdl(
+            ConnectorSession session, String dbName, String tableName) {
+        return tableExists(session, dbName, tableName)
+                ? Optional.of(new IcebergTableHandle(dbName, tableName)) : Optional.empty();
+    }
+
+    @Override
+    public boolean tableExists(
+            ConnectorSession session, String dbName, String tableName) {
+        // Existence checks are used by DDL and must observe out-of-band drops even while a
+        // read-table cache entry or an in-flight reader still owns the previous metadata.
+        // Query planning reuses pinned/cached metadata through getTableHandle instead.
         // Mirror legacy IcebergMetadataOps.tableExist: wrap the remote existence check in the auth context
-        // (the handle build below is pure — no remote call).
+        // without loading and pinning a table merely to answer a DDL existence check.
         boolean exists;
         try {
             exists = executeAuthenticated(() -> catalogOps.tableExists(dbName, tableName));
@@ -433,17 +514,14 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             // Preserve Optional.empty even when an auth/catalog layer wraps NoSuchTableException.
             if (ExceptionUtils.getThrowableList(e).stream()
                     .anyMatch(NoSuchTableException.class::isInstance)) {
-                return Optional.empty();
+                return false;
             }
             // Existence checks in several catalogs load metadata internally, so normalize them at the shared
             // handle boundary just like explicit table loads.
             throw IcebergExceptionUtils.wrapTableLoadFailure(new IcebergTableHandle(dbName, tableName), e,
                     "Failed to check table exist, error message is:");
         }
-        if (!exists) {
-            return Optional.empty();
-        }
-        return Optional.of(new IcebergTableHandle(dbName, tableName));
+        return exists;
     }
 
     @Override
@@ -1392,20 +1470,21 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         try {
             icebergType = IcebergSchemaBuilder.buildColumnType(column.getType());
         } catch (DorisConnectorException buildError) {
-            // A nested narrowing to an iceberg-unrepresentable type (e.g. ARRAY<INT> -> ARRAY<SMALLINT>) throws a
-            // generic "Unsupported type for Iceberg: SMALLINT" here. Restore the legacy parity message ("Cannot
-            // change int to smallint in nested types") by validating the requested nested type against the
-            // CURRENT type — legacy validated in Doris type space, where the narrow target still exists.
-            throw upgradeNestedModifyError(iceHandle, ConnectorColumnPath.of(column.getName()), column, buildError);
+            // VARBINARY, how iceberg BINARY / FIXED is read, has no iceberg type of its own, and a nested narrowing
+            // to an iceberg-unrepresentable type (e.g. ARRAY<INT> -> ARRAY<SMALLINT>) throws a generic
+            // "Unsupported type for Iceberg: SMALLINT" here. Both are resolved against the CURRENT type.
+            icebergType = keepRestatedBinaryType(iceHandle, ConnectorColumnPath.of(column.getName()), column,
+                    buildError);
         }
         // Carry the neutral source type so a complex-type diff can read each STRUCT field's commentSpecified.
         IcebergColumnChange change = new IcebergColumnChange(column.getName(), icebergType,
                 column.getComment(), null, column.isNullable(), column.getType());
+        boolean nullableSpecified = column.isNullableSpecified();
         boolean commentSpecified = column.isCommentSpecified();
         try {
             executeAuthenticated(() -> {
                 catalogOps.modifyColumn(iceHandle.getDbName(), iceHandle.getTableName(), change,
-                        commentSpecified, position);
+                        nullableSpecified, commentSpecified, position);
                 return null;
             });
         } catch (Exception e) {
@@ -1413,6 +1492,25 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                     + " in Iceberg table " + iceHandle.getDbName() + "." + iceHandle.getTableName()
                     + ": " + ExceptionUtils.getRootCauseMessage(e), e);
         }
+    }
+
+    /**
+     * Keeps the CURRENT iceberg type of a {@code MODIFY COLUMN} target that the requested VARBINARY restates. Doris
+     * reads iceberg BINARY and FIXED(n) as VARBINARY and VARBINARY(n), which have no iceberg type of their own, so
+     * restating how such a column or field is read is the only way to change its nullability, comment or
+     * position (branch-4.x {@code IcebergMetadataOps.resolvePrimitiveTypeForModify} keeps the iceberg type the same
+     * way). Any other requested type that did not build gets {@link #upgradeNestedModifyError}.
+     */
+    private Type keepRestatedBinaryType(IcebergTableHandle handle, ConnectorColumnPath path,
+            ConnectorColumn column, DorisConnectorException buildError) {
+        if ("VARBINARY".equals(column.getType().getTypeName().toUpperCase(Locale.ROOT))) {
+            Types.NestedField current = loadModifyTarget(handle, path);
+            if (current != null && current.type().isPrimitiveType()
+                    && IcebergTypeMapping.isReadAs(current.type().asPrimitiveType(), column.getType())) {
+                return current.type();
+            }
+        }
+        throw upgradeNestedModifyError(handle, path, column, buildError);
     }
 
     /**
@@ -1426,19 +1524,29 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         if (!isComplexType(column.getType())) {
             return buildError;
         }
-        try {
-            Types.NestedField current = executeAuthenticated(() ->
-                    catalogOps.withTable(handle.getDbName(), handle.getTableName(),
-                            table -> IcebergNestedColumnEvolution.findFieldForErrorUpgrade(table.schema(), path)));
-            if (current != null && !current.type().isPrimitiveType()) {
+        Types.NestedField current = loadModifyTarget(handle, path);
+        if (current != null && !current.type().isPrimitiveType()) {
+            try {
                 IcebergComplexTypeDiff.validateNestedModifyRepresentable(current.type(), column.getType());
+            } catch (DorisConnectorException parityError) {
+                return parityError;
             }
-        } catch (DorisConnectorException parityError) {
-            return parityError;
-        } catch (Exception ignored) {
-            // load failed / column missing -> keep the original build error
         }
         return buildError;
+    }
+
+    /**
+     * The current field at {@code path}, read only to resolve a requested type that did not build: null when the
+     * table does not load or has no such field, which keeps the original build error.
+     */
+    private Types.NestedField loadModifyTarget(IcebergTableHandle handle, ConnectorColumnPath path) {
+        try {
+            return executeAuthenticated(() -> catalogOps.withTable(handle.getDbName(), handle.getTableName(),
+                    table -> IcebergNestedColumnEvolution.findModifyTarget(table.schema(), path)));
+        } catch (Exception ignored) {
+            // load failed -> keep the original build error
+            return null;
+        }
     }
 
     /** Reorders columns, mirroring legacy {@code IcebergMetadataOps.reorderColumns}. */
@@ -1580,8 +1688,9 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         try {
             icebergType = IcebergSchemaBuilder.buildNestedFieldType(column.getType());
         } catch (DorisConnectorException buildError) {
-            // Preserve the complete target identity so error parity cannot bind a same-named top-level field.
-            throw upgradeNestedModifyError(iceHandle, path, column, buildError);
+            // Preserve the complete target identity so the current type cannot be read from a same-named
+            // top-level field.
+            icebergType = keepRestatedBinaryType(iceHandle, path, column, buildError);
         }
         // Carry the neutral source type so the nested complex-type diff can read each STRUCT field's
         // commentSpecified (an omitted COMMENT on a sub-field must keep its current doc, not clear it).
@@ -1939,12 +2048,322 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
-     * Rejects an illegal static-partition column on {@code INSERT [OVERWRITE] ... PARTITION (col=val)}: the
-     * column must be an <em>identity</em> partition field of this (partitioned) table. Mirrors the legacy
-     * fe-resident {@code BindSink.validateStaticPartition} (now dead on the connector-driven path), but the
-     * iceberg {@link PartitionSpec} knowledge and the messages live in the connector. The lookup is keyed by
-     * partition <em>field</em> name (e.g. {@code category_bucket} for {@code bucket(4, category)}), matching
-     * legacy — so a source-column name that is not itself an identity field reads as "Unknown partition column".
+     * Whole-file metadata delete for {@code DELETE} (the engine's fast path): commit the delete as one atomic
+     * metadata operation that removes every matching data file, instead of scanning rows and writing position
+     * delete files / deletion vectors. This is what Spark, StarRocks and Trino do for whole-partition and
+     * whole-file predicates, and it is the only way to get rid of a data file whose rows are all gone: a
+     * row-level Doris DELETE keeps the file (plus a redundant deletion vector) in the snapshot, and every later
+     * scan still opens and reads it.
+     *
+     * <p>The predicate is lowered with {@link IcebergPredicateConverter.Mode#REWRITE} — the strictly
+     * all-or-nothing matrix, because a dropped conjunct would widen the delete — and then every candidate data
+     * file must be proven matched <i>in full</i> (strict partition projection or file metrics), exactly the
+     * check Spark's {@code SparkTable.canDeleteUsingMetadata} and StarRocks's
+     * {@code IcebergMetadata.canDeleteUsingMetadata} perform. Only then is the delete committed: without that
+     * proof iceberg's {@code deleteFromRowFilter} would fail the statement with "Cannot delete file where some,
+     * but not all, rows match filter".</p>
+     *
+     * <p>Anything that cannot be proven returns empty and the engine runs the ordinary row-level delete; a
+     * {@link ValidationException} raised at commit (the table moved between the check and the commit, so a
+     * candidate file is no longer fully matched) does the same, because nothing was committed.</p>
+     *
+     * <p>The returned row count is iceberg's {@code deleted-records} summary minus the rows that the delete
+     * files removed with those data files had already hidden (mirroring Trino's {@code executeDelete}), i.e. the
+     * rows this statement deleted. As in the engines above, the commit applies the predicate to the table's
+     * current state: rows concurrently appended into a deleted partition are deleted as well, whereas a
+     * row-level Doris DELETE would only delete the rows it scanned.</p>
+     */
+    @Override
+    public OptionalLong deleteUsingMetadata(ConnectorSession session, ConnectorTableHandle handle,
+            Optional<ConnectorExpression> predicate, String boundWriteMetadataIdentity,
+            BooleanSupplier isCancelled) {
+        IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        String qualifiedName = iceHandle.getDbName() + "." + iceHandle.getTableName();
+        try {
+            // withTable runs the configured cached-table cleanup in finally: the fresh load below owns its
+            // FileIO on Glue / S3Tables / vended-credential REST catalogs, so it must not outlive this call.
+            return executeAuthenticated(() -> catalogOps.withTable(
+                    iceHandle.getDbName(), iceHandle.getTableName(),
+                    table -> deleteUsingMetadata(table, session, predicate,
+                            boundWriteMetadataIdentity, isCancelled)));
+        } catch (ValidationException e) {
+            // A racing writer turned a candidate file into a partial match (or another writer already removed
+            // it): nothing was committed, so the row-level path still produces the right result.
+            LOG.info("Metadata delete of {} is no longer whole-file ({}); falling back to the row-level delete.",
+                    qualifiedName, e.getMessage());
+            return OptionalLong.empty();
+        } catch (Exception e) {
+            throw new DorisConnectorException("Failed to metadata-delete Iceberg table " + qualifiedName
+                    + ": " + e.getMessage(), e);
+        }
+    }
+
+    /** Body of the whole-file delete, run against a fresh table load inside {@code withTable}. */
+    private OptionalLong deleteUsingMetadata(Table table, ConnectorSession session,
+            Optional<ConnectorExpression> predicate, String boundWriteMetadataIdentity,
+            BooleanSupplier isCancelled) {
+        if (isCancelled.getAsBoolean()) {
+            return OptionalLong.empty();
+        }
+        if (!(table instanceof BaseTable)
+                || ((BaseTable) table).operations().current().formatVersion() < 2) {
+            // A v1 table has no row-level delete contract (the row-level path fails with
+            // "must have format version 2 or higher for position deletes"); keep that behavior.
+            return OptionalLong.empty();
+        }
+        validateBoundWriteGeneration(table, boundWriteMetadataIdentity);
+        Expression deleteExpr = predicate.isPresent()
+                ? wholeFileDeleteExpression(table, session, predicate.get())
+                : Expressions.alwaysTrue();
+        if (deleteExpr == null) {
+            return OptionalLong.empty();
+        }
+        Snapshot base = table.currentSnapshot();
+        if (base == null) {
+            // Nothing to delete; leave the empty-table path to the row-level plan.
+            return OptionalLong.empty();
+        }
+        // Candidate planning and delete-manifest reads fan out onto Iceberg's shared worker pool, which needs the
+        // plugin Kerberos FileIO; the caller-thread executeAuthenticated scope does not cover those workers.
+        Table scanTable = wrapTableForScan(table);
+        if (hasLiveDeleteFiles(scanTable, base)) {
+            // The affected-row count is only exact when nothing was hidden before: legacy position deletes,
+            // equality deletes (a key is not a row) and stale-delete cleanup all break the summary arithmetic.
+            LOG.info("Skipping metadata delete of {}: the table already carries delete files.", table.name());
+            return OptionalLong.empty();
+        }
+        if (!matchesWholeFilesOnly(scanTable, deleteExpr) || isCancelled.getAsBoolean()) {
+            return OptionalLong.empty();
+        }
+        // The load above is a metadata snapshot; re-read it immediately before committing so a drop/recreate or
+        // schema rebind between planning and commit aborts instead of hitting the new table, and so a
+        // concurrently added delete file cannot slip into the affected-row summary.
+        table.refresh();
+        validateBoundWriteGeneration(table, boundWriteMetadataIdentity);
+        Snapshot refreshed = table.currentSnapshot();
+        if (refreshed == null || hasLiveDeleteFiles(scanTable, refreshed)) {
+            return OptionalLong.empty();
+        }
+        long refreshedSnapshotId = refreshed.snapshotId();
+
+        // Use a transaction rather than table.newDelete(): its ops carry the plugin Kerberos FileIO for Iceberg's
+        // worker-pool manifest work, and its table view keeps the metadata it committed, so currentSnapshot()
+        // below is this delete's own snapshot even if another writer committed meanwhile. The bound identity
+        // and required snapshot fence the final CAS and every retry replay: a concurrent commit aborts the
+        // metadata delete (the row-level fallback then reports an exact affected-row count).
+        Transaction transaction = IcebergConnectorTransaction.openTransaction(
+                table, context, null, false, boundWriteMetadataIdentity, refreshedSnapshotId);
+        DeleteFiles deleteFiles = transaction.newDelete().deleteFromRowFilter(deleteExpr);
+        if (isCancelled.getAsBoolean()) {
+            return OptionalLong.empty();
+        }
+        deleteFiles.commit();
+        if (isCancelled.getAsBoolean()) {
+            // The snapshot is staged on the transaction only, so dropping it leaves the table unchanged (the
+            // staged metadata files are unreferenced and are reclaimed by the existing orphan-file cleanup).
+            LOG.info("Metadata delete of {} was cancelled before the remote commit.", table.name());
+            return OptionalLong.empty();
+        }
+        transaction.commitTransaction();
+        Snapshot committed = transaction.table().currentSnapshot();
+        if (committed == null || committed.snapshotId() == refreshedSnapshotId) {
+            // The predicate matched nothing; DeleteFiles does not create an empty snapshot.
+            return OptionalLong.of(0L);
+        }
+        return OptionalLong.of(deletedRowCount(committed));
+    }
+
+    /**
+     * Authenticated view of {@code table} for candidate-scan manifest IO — the metadata-delete mirror of
+     * {@code IcebergScanPlanProvider.wrapTableForScan}. Non-Kerberos catalogs and offline fakes get the table
+     * unchanged; the wrapper delegates reads to the same underlying operations.
+     */
+    private Table wrapTableForScan(Table table) {
+        if (!(context instanceof TcclPinningConnectorContext) || !(table instanceof BaseTable)) {
+            return table;
+        }
+        HadoopAuthenticator auth = ((TcclPinningConnectorContext) context).getPluginAuthenticator();
+        if (auth == null) {
+            return table;
+        }
+        BaseTable baseTable = (BaseTable) table;
+        TableOperations rawOps = baseTable.operations();
+        return new BaseTable(new IcebergAuthenticatedTableOperations(
+                rawOps, new IcebergAuthenticatedFileIO(rawOps.io(), auth)),
+                table.name(), baseTable.reporter());
+    }
+
+    /** Aborts a stale statement when the table was dropped/recreated (or rebound) after it was planned. */
+    private static void validateBoundWriteGeneration(Table table, String boundWriteMetadataIdentity) {
+        if (boundWriteMetadataIdentity != null
+                && !boundWriteMetadataIdentity.equals(IcebergWritePlanProvider.writeMetadataIdentity(table))) {
+            throw new DorisConnectorException(
+                    "Iceberg write metadata changed after the write was bound; retry the statement");
+        }
+    }
+
+    /**
+     * Lowers the statement predicate to an iceberg expression with the strictly all-or-nothing
+     * {@link IcebergPredicateConverter.Mode#REWRITE} matrix, or {@code null} when it is not fully representable
+     * (the caller then falls back to the row-level delete). A bare {@code true} — an unfiltered
+     * {@code DELETE FROM t} — is {@link Expressions#alwaysTrue()}; the rewrite matrix rejects bare literals, so
+     * that case is handled here.
+     *
+     * <p>{@code forTable} also carries the schema/type history: a DATE field promoted to TIMESTAMP_NS makes old
+     * four-byte bounds unreadable, and such predicates must fall back instead of pruning on mis-decoded metrics.</p>
+     */
+    private Expression wholeFileDeleteExpression(Table table, ConnectorSession session,
+            ConnectorExpression predicate) {
+        if (!isExactDeletePredicate(predicate)) {
+            // Negation other than IS NOT NULL (or a negated IN) changes NULL semantics: iceberg's notEqual/notIn
+            // match NULL rows while SQL's NOT(UNKNOWN) does not, so such a predicate must not drive this path.
+            return null;
+        }
+        if (predicate instanceof ConnectorLiteral) {
+            return Boolean.TRUE.equals(((ConnectorLiteral) predicate).getValue())
+                    ? Expressions.alwaysTrue() : null;
+        }
+        ZoneId zone = IcebergTimeUtils.resolveSessionZone(session);
+        List<Expression> predicates = IcebergPredicateConverter.forTable(
+                table, table.schema(), zone, IcebergPredicateConverter.Mode.REWRITE).convert(predicate);
+        // Same guard as RewriteDataFilePlanner: that matrix drops an unconvertible top-level conjunct instead of
+        // failing, and a dropped conjunct would widen the delete here.
+        if (predicates.isEmpty() || predicates.size() < countTopLevelConjuncts(predicate)) {
+            return null;
+        }
+        Expression combined = null;
+        for (Expression converted : predicates) {
+            combined = combined == null ? converted : Expressions.and(combined, converted);
+        }
+        return combined;
+    }
+
+    /** Null-safe lowering guard for the destructive path; see {@link #wholeFileDeleteExpression}. */
+    private static boolean isExactDeletePredicate(ConnectorExpression expression) {
+        if (expression instanceof ConnectorNot) {
+            return ((ConnectorNot) expression).getOperand() instanceof ConnectorIsNull;
+        }
+        if (expression instanceof ConnectorIn && ((ConnectorIn) expression).isNegated()) {
+            return false;
+        }
+        if (expression instanceof ConnectorComparison
+                && ((ConnectorComparison) expression).getOperator() == ConnectorComparison.Operator.NE) {
+            return false;
+        }
+        for (ConnectorExpression child : expression.getChildren()) {
+            if (!isExactDeletePredicate(child)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** Number of top-level conjuncts of a neutral predicate (a top-level AND's arity, else 1). */
+    private static int countTopLevelConjuncts(ConnectorExpression predicate) {
+        return predicate instanceof ConnectorAnd
+                ? ((ConnectorAnd) predicate).getConjuncts().size() : 1;
+    }
+
+    /**
+     * Whether every candidate data file of {@code deleteExpr} is matched in full, so that iceberg's
+     * {@link DeleteFiles#deleteFromRowFilter} drops files instead of rejecting a partially matched one. Whole
+     * partitions short-circuit ({@link ExpressionUtil#selectsPartitions} holds for every spec, so partition
+     * evolution is covered); otherwise each candidate file — as enumerated by the very scan the engine would
+     * run — must satisfy its own spec's strict partition projection or the strict metrics evaluator.
+     *
+     */
+    private static boolean matchesWholeFilesOnly(Table table, Expression deleteExpr) {
+        boolean caseSensitive = false;
+        if (ExpressionUtil.selectsPartitions(deleteExpr, table, caseSensitive)) {
+            return true;
+        }
+        TableScan scan = table.newScan()
+                .filter(deleteExpr)
+                .caseSensitive(caseSensitive)
+                .includeColumnStats()
+                .ignoreResiduals();
+        try (CloseableIterable<FileScanTask> tasks = scan.planFiles()) {
+            Map<Integer, Evaluator> evaluators = new HashMap<>();
+            StrictMetricsEvaluator metricsEvaluator =
+                    new StrictMetricsEvaluator(table.schema(), deleteExpr, caseSensitive);
+            for (FileScanTask task : tasks) {
+                DataFile file = task.file();
+                PartitionSpec spec = task.spec();
+                Evaluator evaluator = evaluators.computeIfAbsent(spec.specId(), specId -> new Evaluator(
+                        spec.partitionType(), Projections.strict(spec, caseSensitive).project(deleteExpr)));
+                if (!evaluator.eval(file.partition()) && !metricsEvaluator.eval(file)) {
+                    return false;
+                }
+            }
+            return true;
+        } catch (IOException e) {
+            LOG.warn("Failed to evaluate whole-file delete candidates for {}: {}",
+                    table.name(), e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Whether the snapshot has any live delete file. Both callers only need presence, so stop at the first live
+     * entry instead of materializing every delete file of every unrelated partition.
+     */
+    private static boolean hasLiveDeleteFiles(Table table, Snapshot snapshot) {
+        try {
+            for (ManifestFile manifest : snapshot.deleteManifests(table.io())) {
+                try (ManifestReader<DeleteFile> reader =
+                        ManifestFiles.readDeleteManifest(manifest, table.io(), table.specs())) {
+                    if (reader.iterator().hasNext()) {
+                        return true;
+                    }
+                }
+            }
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        return false;
+    }
+
+    /**
+     * Rows deleted by a metadata delete, derived from this delete's own committed snapshot. The pre-commit gate
+     * requires that no delete file existed on the table (checked again after the refresh), so no hidden rows need
+     * subtracting; a deletion vector added by a concurrent row-level delete between that check and our commit is
+     * still exact because its record count is its cardinality. Equality-delete records are keys, never rows, so
+     * they are not subtracted (a concurrent equality delete only logs a warning).
+     */
+    private static long deletedRowCount(Snapshot committed) {
+        if (committed == null || committed.summary() == null) {
+            return 0L;
+        }
+        Map<String, String> summary = committed.summary();
+        long deletedRecords = Long.parseLong(summary.getOrDefault(SnapshotSummary.DELETED_RECORDS_PROP, "0"));
+        long removedPosDeletes =
+                Long.parseLong(summary.getOrDefault(SnapshotSummary.REMOVED_POS_DELETES_PROP, "0"));
+        long removedEqDeletes =
+                Long.parseLong(summary.getOrDefault(SnapshotSummary.REMOVED_EQ_DELETES_PROP, "0"));
+        if (removedEqDeletes > 0) {
+            // A concurrent writer removed an equality delete between the gate and the commit: its records are
+            // keys, so the exact live-row count is no longer derivable.
+            LOG.warn("Metadata delete {} removed equality deletes; affected-row count may be approximate: {}.",
+                    committed.snapshotId(), committed.summary());
+        }
+        return Math.max(0L, deletedRecords - removedPosDeletes);
+    }
+
+    /**
+     * Rejects an illegal static-partition column on {@code INSERT [OVERWRITE] ... PARTITION (col=val)}: the name
+     * must be the SOURCE column of an <em>identity</em> partition field of this (partitioned) table.
+     *
+     * <p>That is the identifier Spark resolves for a static partition clause
+     * ({@code Analyzer.partitionColumnNames} takes the identity transform's field reference), the one
+     * {@code SHOW CREATE TABLE} renders ({@code PARTITION BY LIST (`id`)}), and the only one the engine can
+     * materialize: an identity partition value IS the column value, so the binder fills that column from the
+     * PARTITION literal ({@code PluginDrivenExternalTable#materializeStaticPartitionValues}).</p>
+     *
+     * <p>Consequently a partition FIELD name that was renamed away from its source column
+     * ({@code ADD PARTITION KEY id AS id_identity}) is rejected with the source name to use instead. The field
+     * name is not a table column, so no value could be written for it — accepting it is exactly the
+     * "PARTITION names a column the binder then cannot find" contradiction this replaces. Non-identity
+     * transforms stay rejected, and an unknown name lists the source columns that a static write can use.</p>
      */
     @Override
     public void validateStaticPartitionColumns(ConnectorSession session, ConnectorTableHandle handle,
@@ -1953,30 +2372,83 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             return;
         }
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
-        Table table = loadTable(session, iceHandle);
-        PartitionSpec spec = table.spec();
         String tableName = iceHandle.getTableName();
+        // Validate against the schema/spec this statement actually writes with. A branch-targeted write pins the
+        // BRANCH's writer schema before analysis is complete (getWriteColumns -> IcebergStatementScope.writeSchema)
+        // and binding, planning and the BE sink all consume that pinned copy, so after a main-only column rename
+        // the current metadata can disagree with the schema the branch statement binds to.
+        Optional<IcebergWriteSchemaContext> pinned = IcebergStatementScope.activeWriteSchema(
+                session, iceHandle.getDbName(), tableName);
+        Schema schema;
+        PartitionSpec spec;
+        if (pinned.isPresent()) {
+            schema = pinned.get().getSchema();
+            spec = pinned.get().getPartitionSpec();
+        } else {
+            Table table = loadTable(session, iceHandle);
+            schema = table.schema();
+            spec = table.spec();
+        }
         if (!spec.isPartitioned()) {
             throw new DorisConnectorException(String.format(
                     "Table %s is not partitioned, cannot use static partition syntax", tableName));
         }
-        Map<String, PartitionField> partitionFieldMap = new HashMap<>();
-        for (PartitionField field : spec.fields()) {
-            partitionFieldMap.put(field.name(), field);
-        }
         for (String colName : staticPartitionColumnNames) {
-            PartitionField field = partitionFieldMap.get(colName);
-            if (field == null) {
+            validateStaticPartitionColumn(schema, spec, colName, tableName);
+        }
+    }
+
+    /** The single-name rule of {@link #validateStaticPartitionColumns}. */
+    private static void validateStaticPartitionColumn(Schema schema, PartitionSpec spec, String colName,
+            String tableName) {
+        // The identity partition over this top-level column is the target. Searching by SOURCE first (across all
+        // fields, not the first source match) keeps a spec that carries a non-identity field on the same column
+        // legal - e.g. bucket(8, id) declared before identity(id) - and never lets a nested leaf or a case-folded
+        // field alias stand in for the column the binder will materialize.
+        if (IcebergPartitionUtils.identityPartitionBySourceColumn(schema, spec, colName) != null) {
+            return;
+        }
+        PartitionField bySource = IcebergPartitionUtils.partitionFieldBySourceColumn(schema, spec, colName);
+        if (bySource != null) {
+            throw nonIdentityStaticPartition(colName, bySource);
+        }
+        PartitionField byName = partitionFieldByName(spec, colName);
+        if (byName != null) {
+            if (byName.transform().isIdentity()) {
+                // Renamed identity field (ADD PARTITION KEY ... AS ...): point at the source column the engine can
+                // materialize, instead of accepting a name that no row column carries.
+                String source = IcebergPartitionUtils.topLevelSourceColumnName(schema, byName.sourceId());
+                if (source == null) {
+                    throw new DorisConnectorException(String.format(
+                            "Static partition column '%s' in table '%s' cannot be written by value: its source is"
+                                    + " a nested field, and the engine can only materialize the literal into a"
+                                    + " top-level column.", byName.name(), tableName));
+                }
                 throw new DorisConnectorException(String.format(
-                        "Unknown partition column '%s' in table '%s'. Available partition columns: %s",
-                        colName, tableName, partitionFieldMap.keySet()));
+                        "Static partition column '%s' in table '%s' is a partition field name, not a table"
+                                + " column; write the identity partition by its source column '%s' instead.",
+                        byName.name(), tableName, source));
             }
-            if (!field.transform().isIdentity()) {
-                throw new DorisConnectorException(String.format(
-                        "Cannot use static partition syntax for non-identity partition field '%s'"
-                                + " (transform: %s).", colName, field.transform().toString()));
+            throw nonIdentityStaticPartition(colName, byName);
+        }
+        throw new DorisConnectorException(String.format(
+                "Unknown partition column '%s' in table '%s'. Available partition columns: %s",
+                colName, tableName, IcebergPartitionUtils.identityPartitionSourceColumns(schema, spec)));
+    }
+
+    private static DorisConnectorException nonIdentityStaticPartition(String colName, PartitionField field) {
+        return new DorisConnectorException(String.format(
+                "Cannot use static partition syntax for non-identity partition field '%s'"
+                        + " (transform: %s).", colName, field.transform().toString()));
+    }
+
+    private static PartitionField partitionFieldByName(PartitionSpec spec, String name) {
+        for (PartitionField field : spec.fields()) {
+            if (field.name().equalsIgnoreCase(name)) {
+                return field;
             }
         }
+        return null;
     }
 
     // ========== Predicate pushdown ==========
@@ -1996,6 +2468,32 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     @Override
     public boolean supportsCastPredicatePushdown(ConnectorSession session) {
         return true;
+    }
+
+    @Override
+    public Optional<ConnectorSqlCacheVersion> getSqlCacheVersion(
+            ConnectorSession session, ConnectorTableHandle handle) {
+        IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        try {
+            return executeAuthenticated(() -> {
+                Table table = resolveTableForRead(session, iceHandle);
+                String version = metadataVersion(table, iceHandle).orElseThrow(
+                        () -> new UnsupportedOperationException("Iceberg SQL cache requires published table metadata"));
+                long updateMillis = iceHandle.getSnapshotId() < 0 ? 0
+                        : table.snapshot(iceHandle.getSnapshotId()).timestampMillis();
+                return Optional.of(new ConnectorSqlCacheVersion(version, updateMillis));
+            });
+        } catch (Exception e) {
+            throw IcebergExceptionUtils.wrapTableLoadFailure(iceHandle, e,
+                    "Failed to get iceberg SQL cache version, error message is:");
+        }
+    }
+
+    @Override
+    public boolean supportsNativePartitionPlanning(ConnectorSession session, ConnectorTableHandle handle) {
+        return !((IcebergTableHandle) handle).isSystemTable()
+                && (session == null || !Boolean.parseBoolean(session.getSessionProperties()
+                        .getOrDefault("enable_iceberg_internal_partition_pruning", "false")));
     }
 
     // ========== B-2: partition enumeration (MTMV RANGE view + SHOW PARTITIONS) ==========
@@ -2102,6 +2600,39 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         }
     }
 
+    private static Optional<String> metadataVersion(Table table, IcebergTableHandle handle) {
+        // Custom catalog tables and unpublished metadata cannot supply a stable metadata generation.
+        if (!(table instanceof BaseTable)) {
+            return Optional.empty();
+        }
+        TableMetadata metadata = ((BaseTable) table).operations().current();
+        String location = metadata.metadataFileLocation();
+        if (location == null) {
+            return Optional.empty();
+        }
+        return Optional.of(metadata.uuid() + ":" + handle.getSnapshotId() + ":"
+                + handle.getSchemaId() + ":" + location);
+    }
+
+    @Override
+    public Optional<String> getPartitionViewVersion(ConnectorSession session, ConnectorTableHandle handle) {
+        IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        if (!iceHandle.hasSnapshotPin() || session == null
+                || session.getStatementScope() == ConnectorStatementScope.NONE) {
+            // Without a statement-frozen table, metadata could change between version lookup and listing.
+            return Optional.empty();
+        }
+        try {
+            return executeAuthenticated(() -> {
+                Table table = resolveTableForRead(session, iceHandle);
+                return metadataVersion(table, iceHandle);
+            });
+        } catch (Exception e) {
+            throw IcebergExceptionUtils.wrapTableLoadFailure(iceHandle, e,
+                    "Failed to resolve iceberg partition view version, error message is:");
+        }
+    }
+
     /**
      * The physical iceberg partitions of {@code handle} with per-partition value maps, so the generic
      * {@code PluginDrivenExternalTable.getNameToPartitionItems} can populate {@code selectedPartitionNum}
@@ -2170,7 +2701,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     }
 
     private List<ConnectorPartitionInfo> listPartitions(Table table, IcebergTableHandle iceHandle) {
-        return IcebergPartitionUtils.listPartitions(table,
+        return IcebergPartitionUtils.listPartitions(table, iceHandle.getSnapshotId(),
                 TableIdentifier.of(iceHandle.getDbName(), iceHandle.getTableName()), partitionCache);
     }
 
@@ -2182,12 +2713,13 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      * snapshot id (or {@code -1} for an empty table — iceberg DOES support MVCC, so it still pins, mirroring
      * paimon), and the LATEST schema id (NOT {@code currentSnapshot().schemaId()} — a schema-only change without
      * a new snapshot advances the schema while the snapshot's id lags; legacy reads {@code table.schema()
-     * .schemaId()}). T08 serves this through the per-catalog {@link IcebergLatestSnapshotCache}: within the TTL
-     * a HIT returns the cached pin without re-loading the table (saves the load I/O and keeps the snapshot
-     * STABLE across queries — the legacy with-cache catalog). The cached value carries BOTH ids atomically so a
-     * schema-only ALTER between two queries cannot skew snapshotId vs schemaId. A disabled cache
-     * ({@code meta.cache.iceberg.table.enable=false}, {@code ttl-second <= 0} or {@code capacity=0}) reads live
-     * every call (the legacy no-cache catalog).
+     * .schemaId()}). An already frozen statement read takes precedence. With a raw table cache, the pin comes
+     * from that same table generation: its eviction and the separate latest-snapshot cache can occur at
+     * different times, so consulting both could pair a current table with an older snapshot. Catalogs without
+     * a raw table cache use the per-catalog {@link IcebergLatestSnapshotCache}, which keeps a stable pin within
+     * its TTL. The pin carries BOTH ids atomically so a schema-only ALTER cannot skew snapshotId vs schemaId.
+     * A disabled cache ({@code meta.cache.iceberg.table.enable=false}, {@code ttl-second <= 0} or
+     * {@code capacity=0}) reads live every call (the legacy no-cache catalog).
      */
     @Override
     public Optional<ConnectorMvccSnapshot> beginQuerySnapshot(
@@ -2198,11 +2730,25 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         // per-user loadTable authorization) reads live per-user every call, so authorization runs every time (no
         // stale-authz window); mirrors resolveTableForRead's tableCache null-fallback. A disabled cache (the table
         // entry turned off) is a non-null cache that reads live internally.
-        IcebergLatestSnapshotCache.CachedSnapshot pin = latestSnapshotCache != null
-                ? latestSnapshotCache.getOrLoad(id, () -> loadLatestSnapshotPin(session, iceHandle))
-                : loadLatestSnapshotPin(session, iceHandle);
+        IcebergLatestSnapshotCache.CachedSnapshot pin;
+        if (IcebergStatementScope.hasReadTable(session, iceHandle.getDbName(), iceHandle.getTableName())) {
+            // Handle/schema resolution may have frozen an older generation before another query's REFRESH.
+            // A newer shared pin must not point outside that frozen metadata, nor may this reader publish its
+            // old pin over the refreshed cache entry.
+            pin = latestSnapshotPin(loadTable(session, iceHandle));
+        } else if (tableCache != null) {
+            // The table cache owns this generation. Its capacity eviction must evict the latest pin as well;
+            // the independently sized latestSnapshotCache cannot establish that relationship.
+            pin = loadLatestSnapshotPin(session, iceHandle);
+        } else {
+            pin = latestSnapshotCache != null
+                    ? latestSnapshotCache.getOrLoad(id, () -> loadLatestSnapshotPin(session, iceHandle))
+                    : loadLatestSnapshotPin(session, iceHandle);
+        }
+        // SQL result-cache identity and column binding must describe the same read generation. The engine
+        // must not combine this snapshot/schema pin with an independently expiring name-keyed schema cache.
         ConnectorMvccSnapshot.Builder snapshot = ConnectorMvccSnapshot.builder()
-                .snapshotId(pin.snapshotId).schemaId(pin.schemaId);
+                .snapshotId(pin.snapshotId).schemaId(pin.schemaId).retainSchema(true);
         if (pin.snapshotId < 0) {
             snapshot.property(EMPTY_PARTITION_STYLE_PROPERTY, pin.emptyPartitionStyle.name());
         }
@@ -2426,6 +2972,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             // isKey is always true (external-table semantics: DESC shows Key=true),
             // and isAllowNull is always true regardless of the Iceberg required/optional flag (rows can
             // still read NULL under schema-evolution default-fill; do NOT propagate the NOT NULL constraint).
+            // The required/optional flag travels separately as the SOURCE nullability, which is what DESC /
+            // SHOW CREATE TABLE / SHOW COLUMNS / information_schema display instead of the read nullability.
             // Iceberg write defaults are statement-scoped writer metadata, not catalog display metadata.
             // IcebergWritePlanProvider pins them before write analysis; keeping the cached default null prevents
             // DESCRIBE/SHOW CREATE from exposing them and avoids using a stale default after schema evolution.
@@ -2436,7 +2984,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                     field.doc() != null ? field.doc() : "",
                     true,
                     null,
-                    true);
+                    true).withSourceNullable(field.isOptional());
             // Carry the stable iceberg field-id as the column's uniqueId (legacy
             // IcebergUtils.updateIcebergColumnUniqueId set the top-level Column.uniqueId = field.fieldId()).
             // fe-core's ConnectorColumnConverter re-applies it (>= 0); the BE field-id scan path keys the

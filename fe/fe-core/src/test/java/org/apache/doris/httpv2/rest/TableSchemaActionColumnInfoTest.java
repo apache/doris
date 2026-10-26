@@ -24,6 +24,7 @@ import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.VariantField;
 import org.apache.doris.catalog.VariantType;
@@ -34,10 +35,31 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
+import java.util.List;
 import java.util.Map;
 
 public class TableSchemaActionColumnInfoTest {
+
+    @Test
+    public void schemaRouteReportsDeclaredNullability() {
+        Column declaredNotNull = new Column("id", ScalarType.INT);
+        declaredNotNull.setIsAllowNull(false);
+        Column readNullable = new Column("id", ScalarType.INT);
+        readNullable.setIsAllowNull(true);
+
+        TableIf table = Mockito.mock(TableIf.class);
+        Mockito.when(table.getBaseSchemaForDisplay()).thenReturn(Lists.newArrayList(declaredNotNull));
+        // The read schema deliberately differs: switching /_schema back to it must fail this test.
+        Mockito.when(table.getBaseSchema()).thenReturn(Lists.newArrayList(readNullable));
+
+        List<Column> columns = TableSchemaAction.schemaColumns(table);
+
+        Assertions.assertSame(declaredNotNull, columns.get(0));
+        Assertions.assertEquals("No", TableSchemaAction.buildColumnInfo(columns.get(0)).get("is_nullable"));
+        Assertions.assertEquals("Yes", TableSchemaAction.buildColumnInfo(readNullable).get("is_nullable"));
+    }
 
     @Test
     public void testArrayDecimalColumnInfo() {

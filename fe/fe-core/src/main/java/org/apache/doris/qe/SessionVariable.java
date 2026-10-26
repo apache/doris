@@ -95,6 +95,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String LOCAL_EXCHANGE_FREE_BLOCKS_LIMIT = "local_exchange_free_blocks_limit";
     public static final String SCAN_QUEUE_MEM_LIMIT = "scan_queue_mem_limit";
     public static final String MAX_SCANNERS_CONCURRENCY = "max_scanners_concurrency";
+    public static final String INDEX_DISK_USAGE_MAX_TABLETS = "index_disk_usage_max_tablets";
+    public static final String INDEX_DISK_USAGE_POSITION_DETAIL_MAX_TABLETS =
+            "index_disk_usage_position_detail_max_tablets";
     public static final String MAX_FILE_SCANNERS_CONCURRENCY = "max_file_scanners_concurrency";
     public static final String ENABLE_FILE_SCANNER_V2 = "enable_file_scanner_v2";
     public static final String MIN_SCANNERS_CONCURRENCY = "min_scanners_concurrency";
@@ -586,6 +589,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ICEBERG_WRITE_TARGET_FILE_SIZE_BYTES = "iceberg_write_target_file_size_bytes";
     public static final String ENABLE_ICEBERG_MERGE_PARTITIONING = "enable_iceberg_merge_partitioning";
     public static final String ENABLE_PAIMON_WRITE_CHAR_PADDING = "enable_paimon_write_char_padding";
+    public static final String ENABLE_ICEBERG_INTERNAL_PARTITION_PRUNING =
+            "enable_iceberg_internal_partition_pruning";
 
     public static final String NUM_PARTITIONS_IN_BATCH_MODE = "num_partitions_in_batch_mode";
 
@@ -877,6 +882,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String COMPUTE_GROUP = "compute_group";
     public static final String DISABLE_EMPTY_PARTITION_PRUNE = "disable_empty_partition_prune";
     public static final String CLOUD_FORCE_SYNC_VERSION = "cloud_force_sync_version";
+    public static final String CLOUD_GET_VERSION_WAIT_FOR_PENDING_TXN = "cloud_get_version_wait_for_pending_txn";
     public static final String CLOUD_PARTITION_VERSION_CACHE_TTL_MS =
             "cloud_partition_version_cache_ttl_ms";
     public static final String CLOUD_TABLE_VERSION_CACHE_TTL_MS =
@@ -1171,6 +1177,15 @@ public class SessionVariable implements Serializable, Writable {
             checker = "checkMaxScannersConcurrency", description = "The max threads to read "
             + "data of ScanNode, default 4")
     public int maxScannersConcurrency = 4;
+
+    @VarAttrDef.VarAttr(name = INDEX_DISK_USAGE_MAX_TABLETS, needForward = true, description = "The max number "
+            + "of tablets index_disk_usage may scan in one query, default 20000")
+    public int indexDiskUsageMaxTablets = 20000;
+
+    @VarAttrDef.VarAttr(name = INDEX_DISK_USAGE_POSITION_DETAIL_MAX_TABLETS, needForward = true,
+            description = "The max number of tablets index_disk_usage may scan when position_detail is enabled, "
+            + "default 10000")
+    public int indexDiskUsagePositionDetailMaxTablets = 10000;
 
     @VarAttrDef.VarAttr(name = MAX_FILE_SCANNERS_CONCURRENCY, needForward = true,
             checker = "checkMaxFileScannersConcurrency", description = "The max threads to "
@@ -3289,11 +3304,15 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = CLOUD_FORCE_SYNC_TABLET_STATS, needForward = true)
     public boolean cloudForceSyncTabletStats = false;
     @VarAttrDef.VarAttr(name = CLOUD_PARTITION_VERSION_CACHE_TTL_MS)
-    public long cloudPartitionVersionCacheTtlMs = Long.MAX_VALUE;
+    public long cloudPartitionVersionCacheTtlMs = 10 * 60 * 1000L;
     @VarAttrDef.VarAttr(name = CLOUD_TABLE_VERSION_CACHE_TTL_MS)
     public long cloudTableVersionCacheTtlMs = Long.MAX_VALUE;
     @VarAttrDef.VarAttr(name = CLOUD_FORCE_SYNC_VERSION, needForward = true)
     public boolean cloudForceSyncVersion = false;
+    @VarAttrDef.VarAttr(name = CLOUD_GET_VERSION_WAIT_FOR_PENDING_TXN, needForward = true,
+            description = "Whether Cloud partition version RPCs wait for pending transactions. "
+                    + "Does not bypass the version cache or override explicitly specified waiting policies.")
+    public boolean cloudGetVersionWaitForPendingTxn = false;
     // CLOUD_VARIABLES_END
 
     // fetch remote schema rpc timeout
@@ -3717,6 +3736,11 @@ public class SessionVariable implements Serializable, Writable {
             options = {ICEBERG_PARTITION_OVERWRITE_MODE_STATIC, ICEBERG_PARTITION_OVERWRITE_MODE_DYNAMIC})
     public String icebergPartitionOverwriteMode = ICEBERG_PARTITION_OVERWRITE_MODE_STATIC;
 
+    @VarAttrDef.VarAttr(name = ENABLE_ICEBERG_INTERNAL_PARTITION_PRUNING,
+            description = "Enable Doris FE partition pruning for Iceberg scans. When disabled, ordinary scans "
+                    + "defer the Doris partition view and rely on Iceberg native file pruning. Materialized view "
+                    + "planning and partition metadata rules still require the full partition view.")
+    public boolean enableIcebergInternalPartitionPruning = false;
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
 

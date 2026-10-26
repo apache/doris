@@ -44,8 +44,10 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Parity oracle for the connector-resident {@link IcebergWriterHelper} — the self-contained port of legacy
@@ -208,6 +210,51 @@ public class IcebergWriterHelperTest {
         Assertions.assertEquals(100L, df.recordCount());
         Assertions.assertEquals(4096L, df.fileSizeInBytes());
         Assertions.assertEquals(FileFormat.PARQUET, df.format());
+    }
+
+    @Test
+    public void convertToWriterResultUsesPinnedMetadataAfterTableEvolution() {
+        // Files are labeled with the spec, sort order, format and metrics policy the writer was pinned to, even after
+        // the live table evolved every one of them.
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("test", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db1"));
+        Map<String, String> properties = new HashMap<>();
+        properties.put("write.format.default", "orc");
+        properties.put("write.metadata.metrics.default", "full");
+        Table table = catalog.createTable(TableIdentifier.of("db1", "t"), schema,
+                PartitionSpec.builderFor(schema).identity("id").build(), properties);
+        table.replaceSortOrder().desc("age").commit();
+        IcebergWriteSchemaContext context = IcebergWriteSchemaContext.create(
+                table, "db1.t", Optional.empty(), false, false);
+        int pinnedSortOrderId = table.sortOrder().orderId();
+        table.updateSpec().removeField("id").commit();
+        table.replaceSortOrder().asc("name").commit();
+        table.updateProperties().set("write.format.default", "parquet")
+                .set("write.metadata.metrics.default", "none").commit();
+
+        ByteBuffer ageBound = Conversions.toByteBuffer(Types.IntegerType.get(), 42);
+        TIcebergColumnStats stats = new TIcebergColumnStats();
+        stats.setLowerBounds(Collections.singletonMap(3, ageBound));
+        stats.setUpperBounds(Collections.singletonMap(3, ageBound));
+        TIcebergCommitData commitData = new TIcebergCommitData();
+        commitData.setFilePath("/path/to/pinned-data.orc");
+        commitData.setPartitionValues(Collections.singletonList("7"));
+        commitData.setRowCount(1);
+        commitData.setFileSize(128);
+        commitData.setFileContent(TFileContent.DATA);
+        commitData.setColumnStats(stats);
+
+        DataFile dataFile = IcebergWriterHelper.convertToWriterResult(
+                context, Collections.singletonList(commitData), ZoneOffset.UTC).dataFiles()[0];
+
+        Assertions.assertNotEquals(table.spec().specId(), dataFile.specId(), "the live spec must have moved on");
+        Assertions.assertEquals(context.getPartitionSpec().specId(), dataFile.specId());
+        Assertions.assertEquals(Integer.valueOf(7), dataFile.partition().get(0, Integer.class));
+        Assertions.assertEquals(Integer.valueOf(pinnedSortOrderId), dataFile.sortOrderId());
+        Assertions.assertEquals(FileFormat.ORC, dataFile.format());
+        Assertions.assertEquals(ageBound, dataFile.lowerBounds().get(3));
+        Assertions.assertEquals(ageBound, dataFile.upperBounds().get(3));
     }
 
     @Test

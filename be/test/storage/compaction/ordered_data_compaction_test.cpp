@@ -130,14 +130,17 @@ protected:
     int32_t _saved_ordered_data_compaction_min_segment_size = 0;
     int32_t _saved_segments_key_bounds_truncation_threshold = 0;
 
-    TabletSchemaSPtr create_schema(KeysType keys_type = DUP_KEYS) {
+    TabletSchemaSPtr create_schema(KeysType keys_type = DUP_KEYS, bool with_version_column = false,
+                                   bool with_commit_tso_column = false,
+                                   bool unset_version_col_idx = false) {
         TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
         TabletSchemaPB tablet_schema_pb;
         tablet_schema_pb.set_keys_type(keys_type);
         tablet_schema_pb.set_num_short_key_columns(1);
         tablet_schema_pb.set_num_rows_per_row_block(1024);
         tablet_schema_pb.set_compress_kind(COMPRESS_NONE);
-        tablet_schema_pb.set_next_column_unique_id(4);
+        tablet_schema_pb.set_next_column_unique_id(4 + with_version_column +
+                                                   with_commit_tso_column);
 
         ColumnPB* column_1 = tablet_schema_pb.add_column();
         column_1->set_unique_id(1);
@@ -172,6 +175,38 @@ protected:
             column_3->set_is_key(false);
             column_3->set_is_nullable(false);
             column_3->set_is_bf_column(false);
+        }
+
+        if (with_version_column) {
+            ColumnPB* version_column = tablet_schema_pb.add_column();
+            version_column->set_unique_id(4);
+            version_column->set_name(VERSION_COL);
+            version_column->set_type("BIGINT");
+            version_column->set_is_key(false);
+            version_column->set_is_nullable(false);
+            version_column->set_visible(false);
+            version_column->set_default_value("0");
+            version_column->set_length(8);
+            version_column->set_index_length(8);
+            version_column->set_aggregation("REPLACE");
+            if (!unset_version_col_idx) {
+                tablet_schema_pb.set_version_col_idx(3);
+            }
+        }
+
+        if (with_commit_tso_column) {
+            tablet_schema_pb.set_commit_tso_col_idx(tablet_schema_pb.column_size());
+            ColumnPB* tso_column = tablet_schema_pb.add_column();
+            tso_column->set_unique_id(tablet_schema_pb.column_size());
+            tso_column->set_name(COMMIT_TSO_COL);
+            tso_column->set_type("BIGINT");
+            tso_column->set_is_key(false);
+            tso_column->set_is_nullable(false);
+            tso_column->set_visible(false);
+            tso_column->set_default_value("0");
+            tso_column->set_length(8);
+            tso_column->set_index_length(8);
+            tso_column->set_aggregation("NONE");
         }
 
         tablet_schema->init_from_pb(tablet_schema_pb);
@@ -301,7 +336,8 @@ protected:
     RowsetSharedPtr create_rowset(
             TabletSchemaSPtr tablet_schema, TabletSharedPtr tablet,
             const SegmentsOverlapPB& overlap,
-            std::vector<std::vector<std::tuple<int64_t, int64_t>>> rowset_data) {
+            std::vector<std::vector<std::tuple<int64_t, int64_t>>> rowset_data,
+            Version version = Version(-1, -1), int64_t stored_version = 0) {
         RowsetWriterContext writer_context;
         if (overlap == NONOVERLAPPING) {
             for (auto i = 1; i < rowset_data.size(); i++) {
@@ -314,6 +350,9 @@ protected:
         }
         create_rowset_writer_context(tablet_schema, tablet->tablet_path(), overlap, UINT32_MAX,
                                      &writer_context);
+        if (version.first >= 0) {
+            writer_context.version = version;
+        }
 
         auto res = RowsetFactory::create_rowset_writer(*engine_ref, writer_context, true);
         EXPECT_TRUE(res.has_value()) << res.error();
@@ -333,6 +372,15 @@ protected:
                     uint8_t num = 0;
                     columns[2]->insert_data((const char*)&num, sizeof(num));
                 }
+                if (auto version_idx = tablet_schema->field_index(VERSION_COL); version_idx >= 0) {
+                    columns[version_idx]->insert_data((const char*)&stored_version,
+                                                      sizeof(stored_version));
+                }
+                if (tablet_schema->commit_tso_col_idx() >= 0) {
+                    int64_t tso_placeholder = 0;
+                    columns[tablet_schema->commit_tso_col_idx()]->insert_data(
+                            (const char*)&tso_placeholder, sizeof(tso_placeholder));
+                }
                 num_rows++;
             }
             block.set_columns(std::move(columns));
@@ -347,6 +395,32 @@ protected:
         EXPECT_EQ(rowset_data.size(), rowset->rowset_meta()->num_segments());
         EXPECT_EQ(num_rows, rowset->rowset_meta()->num_rows());
         return rowset;
+    }
+
+    std::vector<int64_t> read_hidden_values(Rowset* rowset, const TabletSchemaSPtr& tablet_schema,
+                                            ColumnId hidden_column_id) {
+        auto read_schema = std::make_shared<ReadSchema>(project_columns_by_ordinal(
+                tablet_schema->columns(), std::vector<ColumnId> {0, hidden_column_id}));
+        EXPECT_TRUE(read_schema->init_from_tablet_schema(*tablet_schema, false, false).ok());
+        RowsetReaderContext reader_context;
+        reader_context.read_schema = read_schema;
+        RowsetReaderSharedPtr reader;
+        create_and_init_rowset_reader(rowset, reader_context, &reader);
+        std::vector<int64_t> values;
+        Status status = Status::OK();
+        do {
+            Block block = read_schema->create_read_block();
+            status = reader->next_batch(&block);
+            for (size_t i = 0; i < block.rows(); ++i) {
+                values.push_back(block.get_by_position(1).column->get_int(i));
+            }
+        } while (status.ok());
+        EXPECT_EQ(status, Status::Error<END_OF_FILE>(""));
+        return values;
+    }
+
+    std::vector<int64_t> read_versions(Rowset* rowset, const TabletSchemaSPtr& tablet_schema) {
+        return read_hidden_values(rowset, tablet_schema, tablet_schema->field_index(VERSION_COL));
     }
 
     void init_rs_meta(RowsetMetaSharedPtr& pb1, int64_t start, int64_t end) {
@@ -516,7 +590,7 @@ TEST_F(OrderedDataCompactionTest, test_01) {
     EXPECT_TRUE(read_schema
                         ->init_from_tablet_schema(*tablet_schema,
                                                   /*merge_by_sequence_mapping=*/false,
-                                                  /*map_row_binlog_columns=*/false)
+                                                  /*map_changelog_columns=*/false)
                         .ok());
     RowsetReaderSharedPtr output_rs_reader;
     LOG(INFO) << "create rowset reader in test";
@@ -557,6 +631,129 @@ TEST_F(OrderedDataCompactionTest, test_01) {
             }
         }
     }
+}
+
+TEST_F(OrderedDataCompactionTest, test_version_col_singleton_rowset_not_linked) {
+    auto tablet_schema = create_schema(UNIQUE_KEYS, true);
+    auto tablet = create_tablet(*tablet_schema, false, 10000, false);
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(tablet->tablet_path()).ok());
+
+    std::vector<std::vector<std::vector<std::tuple<int64_t, int64_t>>>> input_data;
+    generate_input_data(2, 1, 2, input_data);
+    std::vector<RowsetSharedPtr> input_rowsets;
+    for (const auto& rowset_data : input_data) {
+        auto rowset = create_rowset(tablet_schema, tablet, NONOVERLAPPING, rowset_data);
+        ASSERT_EQ(rowset->start_version(), rowset->end_version());
+        ASSERT_EQ(rowset->num_rows(), 2);
+        EXPECT_EQ(read_versions(rowset.get(), tablet_schema),
+                  (std::vector<int64_t> {rowset->end_version(), rowset->end_version()}));
+        input_rowsets.push_back(std::move(rowset));
+    }
+
+    CumulativeCompaction compaction(*engine_ref, tablet);
+    compaction._input_rowsets = std::move(input_rowsets);
+    ASSERT_FALSE(compaction.handle_ordered_data_compaction());
+}
+
+TEST_F(OrderedDataCompactionTest, test_version_col_with_unset_index_singleton_not_linked) {
+    // A schema created without light schema change has the VERSION column but no index in PB.
+    auto tablet_schema = create_schema(UNIQUE_KEYS, true, false, true);
+    ASSERT_EQ(tablet_schema->version_col_idx(), -1);
+    ASSERT_EQ(tablet_schema->field_index(VERSION_COL), 3);
+    auto tablet = create_tablet(*tablet_schema, false, 10000, false);
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(tablet->tablet_path()).ok());
+
+    std::vector<std::vector<std::vector<std::tuple<int64_t, int64_t>>>> input_data;
+    generate_input_data(2, 1, 2, input_data);
+    std::vector<RowsetSharedPtr> input_rowsets;
+    for (const auto& rowset_data : input_data) {
+        auto rowset = create_rowset(tablet_schema, tablet, NONOVERLAPPING, rowset_data);
+        ASSERT_EQ(rowset->start_version(), rowset->end_version());
+        ASSERT_EQ(rowset->num_rows(), 2);
+        EXPECT_EQ(read_versions(rowset.get(), tablet_schema),
+                  (std::vector<int64_t> {rowset->end_version(), rowset->end_version()}));
+        input_rowsets.push_back(std::move(rowset));
+    }
+
+    CumulativeCompaction compaction(*engine_ref, tablet);
+    compaction._input_rowsets = std::move(input_rowsets);
+    ASSERT_FALSE(compaction.handle_ordered_data_compaction());
+}
+
+TEST_F(OrderedDataCompactionTest, test_version_col_materialized_range_rowsets_can_link) {
+    auto tablet_schema = create_schema(UNIQUE_KEYS, true);
+    auto tablet = create_tablet(*tablet_schema, false, 10000, false);
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(tablet->tablet_path()).ok());
+
+    std::vector<std::vector<std::vector<std::tuple<int64_t, int64_t>>>> input_data;
+    generate_input_data(2, 1, 2, input_data);
+    auto first = create_rowset(tablet_schema, tablet, NONOVERLAPPING, input_data[0],
+                               Version(1000, 1001), 1001);
+    auto second = create_rowset(tablet_schema, tablet, NONOVERLAPPING, input_data[1],
+                                Version(1002, 1003), 1003);
+    EXPECT_EQ(read_versions(first.get(), tablet_schema), (std::vector<int64_t> {1001, 1001}));
+    EXPECT_EQ(read_versions(second.get(), tablet_schema), (std::vector<int64_t> {1003, 1003}));
+
+    CumulativeCompaction compaction(*engine_ref, tablet);
+    compaction._input_rowsets = {first, second};
+    ASSERT_TRUE(compaction.handle_ordered_data_compaction());
+    EXPECT_EQ(compaction._output_rowset->start_version(), 1000);
+    EXPECT_EQ(compaction._output_rowset->end_version(), 1003);
+    EXPECT_EQ(read_versions(compaction._output_rowset.get(), tablet_schema),
+              (std::vector<int64_t> {1001, 1001, 1003, 1003}));
+}
+
+TEST_F(OrderedDataCompactionTest, test_commit_tso_singleton_rowsets_not_linked) {
+    auto tablet_schema = create_schema(DUP_KEYS, false, true);
+    auto tablet = create_tablet(*tablet_schema, false, 10000, false);
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(tablet->tablet_path()).ok());
+
+    std::vector<std::vector<std::vector<std::tuple<int64_t, int64_t>>>> input_data;
+    generate_input_data(2, 1, 2, input_data);
+    std::vector<RowsetSharedPtr> input_rowsets;
+    for (size_t i = 0; i < input_data.size(); ++i) {
+        auto rowset = create_rowset(tablet_schema, tablet, NONOVERLAPPING, input_data[i]);
+        rowset->rowset_meta()->set_commit_tso(100 + i);
+        EXPECT_EQ(read_hidden_values(rowset.get(), tablet_schema,
+                                     tablet_schema->commit_tso_col_idx()),
+                  (std::vector<int64_t> {100 + static_cast<int64_t>(i),
+                                         100 + static_cast<int64_t>(i)}));
+        input_rowsets.push_back(std::move(rowset));
+    }
+
+    CumulativeCompaction compaction(*engine_ref, tablet);
+    compaction._input_rowsets = std::move(input_rowsets);
+    ASSERT_FALSE(compaction.handle_ordered_data_compaction());
+}
+
+TEST_F(OrderedDataCompactionTest, test_unsafe_tail_does_not_block_safe_prefix) {
+    auto tablet_schema = create_schema(UNIQUE_KEYS, true);
+    auto tablet = create_tablet(*tablet_schema, false, 10000, false);
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(tablet->tablet_path()).ok());
+
+    std::vector<std::vector<std::vector<std::tuple<int64_t, int64_t>>>> input_data;
+    generate_input_data(5, 1, 2, input_data);
+    std::vector<RowsetSharedPtr> input_rowsets;
+    for (size_t i = 0; i < input_data.size() - 1; ++i) {
+        input_rowsets.push_back(create_rowset(tablet_schema, tablet, NONOVERLAPPING, input_data[i],
+                                              Version(1000 + 2 * i, 1001 + 2 * i), 1001 + 2 * i));
+    }
+    // Mark a two-segment singleton tail untidy; it must not veto the tidy range prefix.
+    auto tail_data = std::vector<std::vector<std::tuple<int64_t, int64_t>>> {
+            {input_data.back()[0][0]}, {input_data.back()[0][0]}};
+    auto tail = create_rowset(tablet_schema, tablet, OVERLAPPING, tail_data, Version(1008, 1008));
+    ASSERT_EQ(tail->num_segments(), 2);
+    ASSERT_TRUE(tail->is_segments_overlapping());
+    input_rowsets.push_back(tail);
+
+    CumulativeCompaction compaction(*engine_ref, tablet);
+    compaction._input_rowsets = std::move(input_rowsets);
+    ASSERT_TRUE(compaction.handle_ordered_data_compaction());
+    EXPECT_EQ(compaction._input_rowsets.size(), 4);
+    EXPECT_EQ(compaction._output_rowset->start_version(), 1000);
+    EXPECT_EQ(compaction._output_rowset->end_version(), 1007);
+    EXPECT_EQ(read_versions(compaction._output_rowset.get(), tablet_schema),
+              (std::vector<int64_t> {1001, 1001, 1003, 1003, 1005, 1005, 1007, 1007}));
 }
 
 TEST_F(OrderedDataCompactionTest, test_index_disk_size) {
