@@ -50,6 +50,10 @@ public class HadoopKerberosAuthenticator implements HadoopAuthenticator {
     private long nextRefreshTime;
     private UserGroupInformation ugi;
 
+    // Shared with Hadoop through the plugin parent loader; guarded by UserGroupInformation.class.
+    // Hadoop can publish its auth mode before setConfiguration fails, so that mode alone cannot prove success.
+    private static boolean authConfigurationFailed;
+
     // Hadoop's rule grammar keeps whitespace inside a regex or substitution distinct from rule separators.
     private static final Pattern AUTH_TO_LOCAL_RULE = Pattern.compile(
             "\\s*((DEFAULT)|(RULE:\\[(\\d*):([^\\]]*)](\\(([^)]*)\\))?"
@@ -71,11 +75,23 @@ public class HadoopKerberosAuthenticator implements HadoopAuthenticator {
                 "Invalid auth_to_local mechanism: %s", mechanism);
         Set<String> requestedRules = additionalRules == null
                 ? Collections.emptySet() : parseAuthToLocalRules(additionalRules);
-        // Plugins can load separate copies of this class while sharing Hadoop. Lock on the shared
-        // UGI class, and inspect its state instead of keeping a per-plugin initialization flag.
+        // Connector and filesystem plugins share Hadoop and this helper through their parent loader.
+        // Use Hadoop's monitor for both policy changes and the principal mapping that validates them.
         synchronized (UserGroupInformation.class) {
-            if (!UserGroupInformation.isSecurityEnabled()) {
-                UserGroupInformation.setConfiguration(hadoopConf);
+            // isSecurityEnabled() lazily initializes UGI and its Groups singleton with default settings.
+            if (!UserGroupInformation.isInitialized() || authConfigurationFailed
+                    || !UserGroupInformation.isSecurityEnabled()) {
+                String previousRules = KerberosName.getRules();
+                String previousMechanism = KerberosName.getRuleMechanism();
+                try {
+                    UserGroupInformation.setConfiguration(hadoopConf);
+                    authConfigurationFailed = false;
+                } catch (RuntimeException e) {
+                    authConfigurationFailed = true;
+                    KerberosName.setRules(previousRules);
+                    KerberosName.setRuleMechanism(previousMechanism);
+                    throw e;
+                }
                 return;
             }
             if (additionalRules == null) {
@@ -96,6 +112,28 @@ public class HadoopKerberosAuthenticator implements HadoopAuthenticator {
                 KerberosName.setRules(String.join("\n", rules));
                 LOG.debug("Extended JVM-global Kerberos auth_to_local rules from {} to {} rules",
                         previousSize, rules.size());
+            }
+        }
+    }
+
+    public static UserGroupInformation getUGIFromSubject(Configuration hadoopConf, Subject subject) throws IOException {
+        synchronized (UserGroupInformation.class) {
+            String previousRules = KerberosName.getRules();
+            String previousMechanism = KerberosName.getRuleMechanism();
+            boolean configuring = !UserGroupInformation.isInitialized() || authConfigurationFailed
+                    || !UserGroupInformation.isSecurityEnabled();
+            try {
+                initializeAuthConfig(hadoopConf);
+                return UserGroupInformation.getUGIFromSubject(subject);
+            } catch (IOException | RuntimeException e) {
+                // Some valid rule syntax (e.g. an out-of-range $ parameter) fails only when a principal
+                // is mapped. A failed catalog must not leave that rule ahead of later corrected rules.
+                KerberosName.setRules(previousRules);
+                KerberosName.setRuleMechanism(previousMechanism);
+                if (configuring) {
+                    authConfigurationFailed = true;
+                }
+                throw e;
             }
         }
     }
@@ -188,10 +226,7 @@ public class HadoopKerberosAuthenticator implements HadoopAuthenticator {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Login by kerberos authentication with principal: {}", principal);
         }
-        synchronized (UserGroupInformation.class) {
-            initializeAuthConfig(config.getConf());
-            return UserGroupInformation.getUGIFromSubject(subject);
-        }
+        return getUGIFromSubject(config.getConf(), subject);
     }
 
     private static long calculateNextRefreshTime(Subject subject) {

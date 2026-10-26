@@ -21,6 +21,7 @@ import org.apache.doris.kerberos.HadoopKerberosAuthenticator;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.security.UserGroupInformation;
+import org.apache.hadoop.security.authentication.util.KerberosName;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -71,6 +72,26 @@ class KerberosHadoopAuthenticatorTest {
         Assertions.assertEquals(2, secondLogins.get());
         Subject third = subject("THIRD.EXAMPLE");
         Assertions.assertEquals("hdfs", UserGroupInformation.getUGIFromSubject(third).getShortUserName());
+    }
+
+    @Test
+    void failedFilesystemMappingDoesNotPoisonCorrectedCatalogs() throws Exception {
+        Configuration invalid = configuration("SECOND.EXAMPLE");
+        invalid.set("hadoop.security.auth_to_local", "RULE:[2:$3]");
+        String rules = KerberosName.getRules();
+        Assertions.assertThrows(RuntimeException.class, () -> new KerberosHadoopAuthenticator(
+                "hdfs/host@SECOND.EXAMPLE", "unused.keytab", invalid) {
+            @Override
+            Subject loginSubject() {
+                return subject("SECOND.EXAMPLE");
+            }
+        });
+        Assertions.assertEquals(rules, KerberosName.getRules());
+        KerberosHadoopAuthenticator corrected = authenticator("SECOND.EXAMPLE", new AtomicInteger());
+        Assertions.assertEquals("hdfs",
+                corrected.execute(() -> UserGroupInformation.getCurrentUser().getShortUserName()));
+        Assertions.assertEquals("hdfs", HadoopKerberosAuthenticator
+                .getUGIFromSubject(configuration("THIRD.EXAMPLE"), subject("THIRD.EXAMPLE")).getShortUserName());
     }
 
     private static KerberosHadoopAuthenticator authenticator(String realm, AtomicInteger logins) {

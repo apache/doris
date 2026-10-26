@@ -18,6 +18,7 @@
 package org.apache.doris.kerberos;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.security.Groups;
 import org.apache.hadoop.security.KerberosAuthException;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.security.authentication.util.KerberosName;
@@ -80,6 +81,67 @@ class HadoopKerberosAuthenticatorTest {
         HadoopKerberosAuthenticator.initializeAuthConfig(configuration("SECOND.EXAMPLE"));
         assertUser("FIRST.EXAMPLE");
         assertUser("SECOND.EXAMPLE");
+    }
+
+    @Test
+    void firstCatalogKeepsItsGroupMappingConfiguration() throws Exception {
+        UserGroupInformation.reset();
+        Groups.reset();
+        try {
+            Configuration conf = configuration("FIRST.EXAMPLE");
+            conf.set("hadoop.user.group.static.mapping.overrides", "hdfs=analytics");
+            HadoopKerberosAuthenticator.initializeAuthConfig(conf);
+            Assertions.assertArrayEquals(new String[] {"analytics"}, user("FIRST.EXAMPLE").getGroupNames());
+        } finally {
+            Groups.reset();
+        }
+    }
+
+    @Test
+    void failedInitialConfigurationCanBeCorrected() throws Exception {
+        UserGroupInformation.setConfiguration(new Configuration(false));
+        Configuration invalid = configuration("FIRST.EXAMPLE");
+        invalid.set(AUTH_TO_LOCAL, "RULE:[2:$1]s/^hdfs$/old-user/");
+        invalid.set("hadoop.kerberos.min.seconds.before.relogin", "oops");
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> HadoopKerberosAuthenticator.initializeAuthConfig(invalid));
+
+        Configuration corrected = configuration("FIRST.EXAMPLE");
+        corrected.set(AUTH_TO_LOCAL, "RULE:[2:$1]s/^hdfs$/new-user/");
+        HadoopKerberosAuthenticator.initializeAuthConfig(corrected);
+        Assertions.assertEquals("new-user", user("FIRST.EXAMPLE").getShortUserName());
+    }
+
+    @Test
+    void failedPrincipalMappingDoesNotPoisonLaterCatalogs() throws Exception {
+        Configuration invalid = configuration("SECOND.EXAMPLE");
+        invalid.set(AUTH_TO_LOCAL, "RULE:[2:$3]");
+        String rules = KerberosName.getRules();
+        Subject subject = new Subject(false, Set.of(new KerberosPrincipal("hdfs/host@SECOND.EXAMPLE")),
+                Set.of(), Set.of());
+        Assertions.assertThrows(KerberosAuthException.class,
+                () -> HadoopKerberosAuthenticator.getUGIFromSubject(invalid, subject));
+        Assertions.assertEquals(rules, KerberosName.getRules());
+
+        HadoopKerberosAuthenticator.initializeAuthConfig(configuration("SECOND.EXAMPLE"));
+        HadoopKerberosAuthenticator.initializeAuthConfig(configuration("THIRD.EXAMPLE"));
+        assertUser("FIRST.EXAMPLE");
+        assertUser("SECOND.EXAMPLE");
+        assertUser("THIRD.EXAMPLE");
+    }
+
+    @Test
+    void failedFirstPrincipalMappingCanBeCorrected() throws Exception {
+        UserGroupInformation.reset();
+        Configuration invalid = configuration("FIRST.EXAMPLE");
+        invalid.set(AUTH_TO_LOCAL, "RULE:[2:$3]");
+        Subject subject = new Subject(false, Set.of(new KerberosPrincipal("hdfs/host@FIRST.EXAMPLE")),
+                Set.of(), Set.of());
+        Assertions.assertThrows(KerberosAuthException.class,
+                () -> HadoopKerberosAuthenticator.getUGIFromSubject(invalid, subject));
+        Assertions.assertNull(KerberosName.getRules());
+        Assertions.assertEquals("hdfs", HadoopKerberosAuthenticator
+                .getUGIFromSubject(configuration("FIRST.EXAMPLE"), subject).getShortUserName());
     }
 
     @Test

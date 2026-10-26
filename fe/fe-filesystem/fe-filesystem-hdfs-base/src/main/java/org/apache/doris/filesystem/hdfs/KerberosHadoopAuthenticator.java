@@ -58,8 +58,8 @@ import javax.security.auth.login.LoginException;
  * "LoginException: Cannot read from System.in".
  *
  * <p>UGI authentication and auth_to_local rules are shared with connector plugins.
- * {@link HadoopKerberosAuthenticator#initializeAuthConfig(Configuration)} initializes
- * that state and appends later catalogs' rules without replacing earlier mappings.
+ * {@link HadoopKerberosAuthenticator#getUGIFromSubject(Configuration, Subject)} initializes
+ * that state and retains later catalogs' rules only after successful principal mapping.
  */
 public class KerberosHadoopAuthenticator implements ExecutionAuthenticator {
 
@@ -81,11 +81,8 @@ public class KerberosHadoopAuthenticator implements ExecutionAuthenticator {
         this.keytab = keytab;
         try {
             this.subject = loginSubject();
-            synchronized (UserGroupInformation.class) {
-                HadoopKerberosAuthenticator.initializeAuthConfig(conf);
-                this.ugi = Objects.requireNonNull(UserGroupInformation.getUGIFromSubject(subject),
-                        "getUGIFromSubject returned null");
-            }
+            this.ugi = Objects.requireNonNull(HadoopKerberosAuthenticator.getUGIFromSubject(conf, subject),
+                    "getUGIFromSubject returned null");
             this.nextRefreshTime = KerberosTicketUtils.getRefreshTime(
                     KerberosTicketUtils.getTicketGrantingTicket(subject));
             LOG.info("Kerberos login succeeded for principal={}", principal);
