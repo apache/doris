@@ -18,6 +18,8 @@
 // A NULL ARRAY produced from real columns may retain nested values and index postings.
 // SEARCH must filter those postings before Boolean NOT, while SQL MATCH stays nullable.
 suite("test_search_null_array_payload_contract", "p0") {
+    // SEARCH requires the common-expression scan path on this release branch.
+    sql "SET enable_common_expr_pushdown = true"
     sql "DROP TABLE IF EXISTS test_search_null_array_payload_source"
     sql "DROP TABLE IF EXISTS test_search_null_array_payload_target"
     sql """
