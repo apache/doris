@@ -135,6 +135,7 @@ import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.job.manager.JobManager;
 import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
+import org.apache.doris.journal.bdbje.BDBEnvironment;
 import org.apache.doris.journal.bdbje.Timestamp;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.ExportJob;
@@ -321,8 +322,6 @@ import com.google.common.collect.Multimap;
 import com.google.common.collect.Queues;
 import com.google.common.collect.Sets;
 import com.sleepycat.je.rep.InsufficientLogException;
-import com.sleepycat.je.rep.NetworkRestore;
-import com.sleepycat.je.rep.NetworkRestoreConfig;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -3202,14 +3201,11 @@ public class Env {
                     hasLog = replayJournal(-1);
                     metaReplayState.setOk();
                 } catch (InsufficientLogException insufficientLogEx) {
-                    // Copy the missing log files from a member of the
-                    // replication group who owns the files
-                    LOG.error("catch insufficient log exception. please restart.", insufficientLogEx);
-                    NetworkRestore restore = new NetworkRestore();
-                    NetworkRestoreConfig config = new NetworkRestoreConfig();
-                    config.setRetainLogFiles(false);
-                    restore.execute(insufficientLogEx, config);
-                    System.exit(-1);
+                    // Exit, the missing log files will be copied from a member of the
+                    // replication group who owns the files when opening bdb environment after restart
+                    LOG.error("catch insufficient log exception. will exit and restore after restart.",
+                            insufficientLogEx);
+                    BDBEnvironment.exitForNetworkRestore(insufficientLogEx, "replay journal");
                 } catch (Throwable e) {
                     LOG.error("replayer thread catch an exception when replay journal.", e);
                     metaReplayState.setException(e);
