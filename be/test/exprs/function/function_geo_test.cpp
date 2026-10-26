@@ -802,6 +802,116 @@ TEST(VGeoFunctionsTest, GeographyAtomicEdgesRetainOriginalLineBoundaries) {
     expect_geography_relation("st_contains", open, "LINESTRING (0.5 0,1.5 0)", true);
 }
 
+TEST(VGeoFunctionsTest, GeographyNearAntipodalPointMembershipUsesRawArc) {
+    const std::string line = "LINESTRING (-44.99999999999997 -45,134.99999999999997 45)";
+    const std::string point = "POINT (45 0)";
+    for (bool reverse : {false, true}) {
+        expect_geography_relation("st_intersects", reverse ? point : line, reverse ? line : point,
+                                  true);
+        expect_geography_relation("st_disjoint", reverse ? point : line, reverse ? line : point,
+                                  false);
+        expect_geography_relation("st_touches", reverse ? point : line, reverse ? line : point,
+                                  false);
+    }
+    expect_geography_relation("st_contains", line, point, true);
+    expect_geography_relation("st_within", point, line, true);
+    for (const auto* offset : {"0.000001", "0.000000000000001", "1e-300"}) {
+        const std::string nearby = std::string("POINT (45 ") + offset + ")";
+        expect_geography_relation("st_intersects", line, nearby, false);
+        expect_geography_relation("st_contains", line, nearby, false);
+    }
+}
+
+TEST(VGeoFunctionsTest, GeographyUncertainCircleDoesNotBroadenStableCircleSearches) {
+    for (const int count : {32, 64, 128}) {
+        std::ostringstream lines;
+        // Lexicographic edge ordering puts the near-antipodal representative first.
+        lines << std::setprecision(17) << "LINESTRING (-179.99999999999997 -10,0 10";
+        for (int i = 0; i < count; ++i) {
+            lines << "," << 45.0 + 0.1 * i << " " << 5.0 + 0.1 * std::sin(i);
+        }
+        lines << ")";
+        const auto a = spatial_test_wkb(geography_test_hex(lines.str()));
+        const auto b = spatial_test_wkb(geography_test_hex("POINT (20 20)"));
+        size_t proofs = 0;
+        geography_calculation_edges_for_test(a, b, &proofs);
+        EXPECT_LE(proofs, 32 * count);
+        RecordProperty("mixed_circle_proofs_" + std::to_string(count), std::to_string(proofs));
+    }
+}
+
+TEST(VGeoFunctionsTest, GeographyCircleCoveragePreservesGapsWrapAndOpenBoundaries) {
+    const std::string circle = "LINESTRING (-170 0,-60 0,60 0,170 0,-170 0)";
+    const std::string rotated = "LINESTRING (0 0,120 0,-120 0,0 0)";
+    expect_geography_relation("st_equals", circle, rotated, true);
+    expect_geography_relation("st_equals", rotated, circle, true);
+    expect_geography_relation("st_contains", circle, "LINESTRING (175 0,-175 0)", true);
+    expect_geography_relation("st_touches", circle, "LINESTRING (0 -1,0 1)", false);
+    const std::string gaps = "LINESTRING (-80 0,-70 0,-70 10,70 10,70 0,80 0)";
+    expect_geography_relation("st_intersects", gaps, "LINESTRING (-1 0,1 0)", false);
+    expect_geography_relation("st_contains", gaps, "LINESTRING (-1 0,1 0)", false);
+    const std::string open = "LINESTRING (0 0,100 0,-50 0,50 0)";
+    expect_geography_relation("st_touches", open, "LINESTRING (0 -1,0 1)", true);
+    expect_geography_relation("st_touches", "LINESTRING (0 -1,0 1)", open, true);
+    expect_geography_relation("st_touches", open, "LINESTRING (25 -1,25 1)", false);
+    const std::string almost_antipodal =
+            "LINESTRING (-44.99999999999997 -45,134.99999999999997 45,45 0,"
+            "-44.99999999999997 -45)";
+    expect_geography_relation("st_equals", almost_antipodal,
+                              "LINESTRING (-44.99999999999997 -45,45 0,134.99999999999997 45)",
+                              true);
+    const std::string tilted = "LINESTRING (45 -45,90 0,135 45,90 0,45 -45)";
+    expect_geography_relation("st_equals", tilted, "LINESTRING (45 -45,135 45)", true);
+    expect_geography_relation("st_contains", tilted, "LINESTRING (45 -45,135 45)", true);
+}
+
+TEST(VGeoFunctionsTest, GeographyRawPointMembershipRetainsPolygonBoundaryAndLineEndpoints) {
+    const std::string line = "LINESTRING (-44.99999999999997 -45,134.99999999999997 45)";
+    const std::string polygon =
+            "POLYGON ((-44.99999999999997 -45,134.99999999999997 45,0 -80,"
+            "-44.99999999999997 -45))";
+    const std::string midpoint = "POINT (45 0)";
+    const std::string endpoint = "POINT (-44.99999999999997 -45)";
+    for (bool reverse : {false, true}) {
+        expect_geography_relation("st_intersects", reverse ? midpoint : polygon,
+                                  reverse ? polygon : midpoint, true);
+        expect_geography_relation("st_touches", reverse ? midpoint : polygon,
+                                  reverse ? polygon : midpoint, true);
+        expect_geography_relation("st_touches", reverse ? endpoint : line,
+                                  reverse ? line : endpoint, true);
+    }
+    expect_geography_relation("st_contains", polygon, midpoint, false);
+    expect_geography_relation("st_within", midpoint, polygon, false);
+    expect_geography_relation("st_contains", line, endpoint, false);
+    expect_geography_relation("st_within", endpoint, line, false);
+}
+
+TEST(VGeoFunctionsTest, GeographyDistinctOverlappingArcsHaveLinearExactProofWork) {
+    for (const int count : {64, 128, 256}) {
+        std::ostringstream retraced;
+        std::ostringstream dense;
+        retraced << std::setprecision(17) << "LINESTRING (";
+        dense << std::setprecision(17) << "LINESTRING (";
+        for (int i = 0; i <= count; ++i) {
+            retraced << (i == 0 ? "" : ",") << (i % 2 == 0 ? -80.0 : 79.0) + double(i) / (count + 1)
+                     << " 0";
+            if (i > 0) {
+                dense << (i == 1 ? "" : ",") << -1.0 + 2.0 * i / (count + 1) << " 0";
+            }
+        }
+        retraced << ")";
+        dense << ")";
+        const auto a = spatial_test_wkb(geography_test_hex(retraced.str()));
+        const auto b = spatial_test_wkb(geography_test_hex(dense.str()));
+        size_t proofs = 0;
+        EXPECT_LE(geography_calculation_edges_for_test(a, b, &proofs), 16 * count);
+        // Bound actual expensive work, not just the final deduplicated node count.
+        EXPECT_LE(proofs, 32 * count);
+        RecordProperty("exact_proofs_" + std::to_string(count), std::to_string(proofs));
+        expect_geography_relation("st_contains", retraced.str(), dense.str(), true);
+    }
+}
+
 TEST(VGeoFunctionsTest, GeographyRetracedMeridiansHaveLinearCalculationStorage) {
     for (const int count : {128, 512, 2048}) {
         std::ostringstream retraced;

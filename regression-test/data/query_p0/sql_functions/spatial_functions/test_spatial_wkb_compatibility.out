@@ -163,3 +163,9 @@ true	true	true	true	true	false
 -- !geography_retraced_atomic_edges --
 true	true	true	true	true	false	true
 
+-- !geography_near_antipodal_point --
+true	true	false	true	true	false	true	false
+
+-- !geography_circle_coverage --
+true	true	false	false
+
