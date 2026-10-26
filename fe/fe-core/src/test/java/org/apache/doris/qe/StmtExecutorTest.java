@@ -18,6 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
@@ -36,14 +37,20 @@ import org.apache.doris.common.profile.ProfileManager;
 import org.apache.doris.common.profile.RuntimeProfile;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
 import org.apache.doris.mysql.authenticate.TestLogAppender;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.SetOptionsCommand;
 import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
 import org.apache.doris.nereids.trees.plans.distribute.FragmentIdMapping;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
@@ -52,13 +59,16 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ResultFileSink;
+import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.qe.protocol.ResultSender;
 import org.apache.doris.resource.BackendSelection;
+import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.model.Statistics;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TCounter;
 import org.apache.doris.thrift.TDetailedReportParams;
+import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TQueryProfile;
@@ -73,6 +83,8 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import org.apache.thrift.TDeserializer;
+import org.apache.thrift.TSerializer;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -80,6 +92,7 @@ import org.junit.jupiter.api.parallel.ResourceLock;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentCaptor;
 import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -1292,9 +1305,216 @@ public class StmtExecutorTest extends TestWithFeService {
         getStmtForLogging.setAccessible(true);
         Assertions.assertEquals("", getStmtForLogging.invoke(executor, ""));
 
-        Method getStmtForLoggingBeforeParse = StmtExecutor.class.getDeclaredMethod("getStmtForLoggingBeforeParse");
-        getStmtForLoggingBeforeParse.setAccessible(true);
-        Assertions.assertEquals("", getStmtForLoggingBeforeParse.invoke(executor));
+        Method getCurrentStmtForLogging = StmtExecutor.class.getDeclaredMethod("getStmtForLogging");
+        getCurrentStmtForLogging.setAccessible(true);
+        Assertions.assertEquals("", getCurrentStmtForLogging.invoke(executor));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testParsedRoutineLoadLogsMaskBothSqlModes(boolean originalNoBackslashMode) throws Exception {
+        String sql = "ALTER ROUTINE LOAD FOR db.job FROM KAFKA "
+                + "('property.sasl.\\password' = 'synthetic-value')";
+        long originalMode = connectContext.getSessionVariable().getSqlMode();
+        boolean originalPrintRequest = Config.enable_print_request_before_execution;
+        try {
+            connectContext.getSessionVariable().setSqlMode(originalNoBackslashMode
+                    ? SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES : SqlModeHelper.MODE_DEFAULT);
+            AlterRoutineLoadCommand command = Mockito.spy(
+                    (AlterRoutineLoadCommand) new NereidsParser().parseSingle(sql));
+            // Keep real execution and its INFO/DEBUG logs; only skip the Kafka job mutation.
+            Mockito.doNothing().when(command).run(Mockito.any(), Mockito.any());
+            LogicalPlanAdapter statement = new LogicalPlanAdapter(command, new StatementContext());
+            statement.setOrigStmt(new OriginStatement(sql, 0));
+            // An earlier SET in a pre-parsed batch changes the mode before this command executes.
+            connectContext.getSessionVariable().setSqlMode(originalNoBackslashMode
+                    ? SqlModeHelper.MODE_DEFAULT : SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES);
+            Config.enable_print_request_before_execution = true;
+            connectContext.getState().reset();
+            try (TestLogAppender appender = TestLogAppender.attach(StmtExecutor.class)) {
+                StmtExecutor executor = new StmtExecutor(connectContext, statement);
+                executor.execute();
+
+                String expected = sql.replace("'synthetic-value'", "'******'");
+                Assertions.assertTrue(appender.contains(org.apache.logging.log4j.Level.INFO, expected));
+                Assertions.assertTrue(appender.contains(org.apache.logging.log4j.Level.DEBUG, expected));
+                Assertions.assertFalse(appender.contains(org.apache.logging.log4j.Level.INFO, "synthetic-value"));
+                Assertions.assertFalse(appender.contains(org.apache.logging.log4j.Level.DEBUG, "synthetic-value"));
+                Mockito.verify(command).run(connectContext, executor);
+            }
+        } finally {
+            Config.enable_print_request_before_execution = originalPrintRequest;
+            connectContext.getSessionVariable().setSqlMode(originalMode);
+        }
+    }
+
+    @Test
+    public void testSelectStartupLogsFailClosedOnBatchSplitMismatch() throws Exception {
+        String sql = "SELECT 1; /* outer /* inner */ x; */ ALTER ROUTINE LOAD FOR db.job FROM KAFKA "
+                + "('property.sasl.password' = 'synthetic-secret')";
+        List<StatementBase> statements = new NereidsParser().parseSQL(sql);
+        Assertions.assertEquals(2, statements.size());
+        Assertions.assertEquals(3, SqlUtils.splitMultiStmts(sql).size());
+        // ConnectProcessor retains the complete request when its splitter disagrees with Nereids.
+        StatementBase select = statements.get(0);
+        select.setOrigStmt(new OriginStatement(sql, 0));
+        boolean originalPrintRequest = Config.enable_print_request_before_execution;
+        Config.enable_print_request_before_execution = true;
+        connectContext.getState().reset();
+        try (TestLogAppender appender = TestLogAppender.attach(StmtExecutor.class)) {
+            StmtExecutor executor = new StmtExecutor(connectContext, select);
+            executor.execute();
+
+            Assertions.assertTrue(appender.contains(org.apache.logging.log4j.Level.INFO, MASKED_STMT_FALLBACK));
+            Assertions.assertTrue(appender.contains(org.apache.logging.log4j.Level.DEBUG, MASKED_STMT_FALLBACK));
+            Assertions.assertTrue(appender.contains(org.apache.logging.log4j.Level.DEBUG,
+                    "Handling query " + MASKED_STMT_FALLBACK + " with query id "));
+            Assertions.assertFalse(appender.contains(org.apache.logging.log4j.Level.INFO, "synthetic-secret"));
+            Assertions.assertFalse(appender.contains(org.apache.logging.log4j.Level.DEBUG, "synthetic-secret"));
+        } finally {
+            Config.enable_print_request_before_execution = originalPrintRequest;
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testForwardedRoutineLoadAuditMasksMasterKeyInterpretation(boolean changesPropertyBoundaries)
+            throws Exception {
+        assertForwardedRoutineLoadAuditMasksMasterKeyInterpretation(changesPropertyBoundaries, false);
+    }
+
+    @Test
+    public void testForwardedRoutineLoadAuditMasksEqualCountBoundaryMismatch() throws Exception {
+        assertForwardedRoutineLoadAuditMasksMasterKeyInterpretation(false, true);
+    }
+
+    private void assertForwardedRoutineLoadAuditMasksMasterKeyInterpretation(boolean changesPropertyBoundaries,
+            boolean changesStatementBoundaries) throws Exception {
+        String alter = changesPropertyBoundaries
+                ? "ALTER ROUTINE LOAD FOR testDb.job FROM KAFKA "
+                        + "('property.client.id' = 'client\\', \"property.sasl.password\" = \"synthetic-secret\" -- '\n)"
+                : "ALTER ROUTINE LOAD FOR testDb.job FROM KAFKA "
+                        + "('property.sasl.\\password' = 'synthetic-secret', 'property.client.id' = 'client-value')";
+        String batch = (changesPropertyBoundaries ? "SET sql_mode='NO_BACKSLASH_ESCAPES'; " : "SET sql_mode=''; ")
+                + alter;
+        if (changesStatementBoundaries) {
+            alter = "ALTER ROUTINE LOAD FOR testDb.job FROM KAFKA "
+                    + "('property.client.id'=\"; ALTER ROUTINE LOAD FOR testDb.job FROM KAFKA "
+                    + "('property.sasl.password'='synthetic-secret') -- \")";
+            batch = "SET sql_mode=''; SELECT \"prefix\\\"; " + alter + ";";
+        }
+        String expected = changesPropertyBoundaries || changesStatementBoundaries
+                ? "/* masked ALTER ROUTINE LOAD: ambiguous SQL mode */"
+                : alter.replace("'synthetic-secret'", "'******'");
+        ConnectContext follower = Mockito.spy(new ConnectContext());
+        follower.setCurrentUserIdentity(UserIdentity.ROOT);
+        follower.setEnv(Env.getCurrentEnv());
+        follower.setRemoteIP("127.0.0.1");
+        follower.setStartTime();
+        follower.getSessionVariable().setSqlMode(changesPropertyBoundaries
+                ? SqlModeHelper.MODE_DEFAULT : SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES);
+        follower.setThreadLocalInfo();
+        Mockito.doReturn(null).when(follower).getCurrentCatalog();
+        try {
+            // Parse the whole batch before running its SET, as ConnectProcessor does.
+            List<StatementBase> statements = new NereidsParser().parseSQL(batch);
+            List<String> fragments = SqlUtils.splitMultiStmts(batch);
+            Assertions.assertEquals(changesStatementBoundaries ? 3 : 2, statements.size());
+            Assertions.assertEquals(statements.size(), fragments.size());
+            int alterIndex = statements.size() - 1;
+            String forwardedSql = fragments.get(alterIndex);
+            if (changesStatementBoundaries) {
+                Assertions.assertNotEquals(alter, forwardedSql.trim());
+                Assertions.assertFalse(alter.contains("\\"));
+            }
+            LogicalPlanAdapter followerStatement = (LogicalPlanAdapter) statements.get(alterIndex);
+            followerStatement.setOrigStmt(new OriginStatement(forwardedSql, 0));
+            AlterRoutineLoadCommand followerCommand = (AlterRoutineLoadCommand) followerStatement.getLogicalPlan();
+            Assertions.assertEquals(changesPropertyBoundaries || changesStatementBoundaries ? 1 : 2,
+                    followerCommand.getDataSourceMapProperties().size());
+            if (changesPropertyBoundaries || changesStatementBoundaries) {
+                Assertions.assertTrue(followerCommand.getDataSourceMapProperties().get("property.client.id")
+                        .contains("synthetic-secret"));
+            } else {
+                Assertions.assertEquals("synthetic-secret", followerCommand.getDataSourceMapProperties()
+                        .get("property.sasl.\\password"));
+            }
+            LogicalPlanAdapter setStatement = (LogicalPlanAdapter) statements.get(0);
+            follower.setStatementContext(setStatement.getStatementContext());
+            ((SetOptionsCommand) setStatement.getLogicalPlan()).run(follower, null);
+            Assertions.assertEquals(changesPropertyBoundaries ? SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES : 0L,
+                    follower.getSessionVariable().getSqlMode());
+
+            // Reuse the original command in real startup logs under the mode selected by SET.
+            AlterRoutineLoadCommand loggedCommand = Mockito.spy(followerCommand);
+            Mockito.doNothing().when(loggedCommand).run(Mockito.any(), Mockito.any());
+            LogicalPlanAdapter loggedStatement = new LogicalPlanAdapter(loggedCommand, new StatementContext());
+            loggedStatement.setOrigStmt(new OriginStatement(forwardedSql, 0));
+            boolean originalPrintRequest = Config.enable_print_request_before_execution;
+            long originalLogMode = connectContext.getSessionVariable().getSqlMode();
+            connectContext.getSessionVariable().setSqlMode(follower.getSessionVariable().getSqlMode());
+            connectContext.setThreadLocalInfo();
+            connectContext.getState().reset();
+            Config.enable_print_request_before_execution = true;
+            try (TestLogAppender appender = TestLogAppender.attach(StmtExecutor.class)) {
+                StmtExecutor logExecutor = new StmtExecutor(connectContext, loggedStatement);
+                logExecutor.execute();
+                Mockito.verify(loggedCommand).run(connectContext, logExecutor);
+                Assertions.assertTrue(appender.contains(org.apache.logging.log4j.Level.INFO, expected));
+                Assertions.assertTrue(appender.contains(org.apache.logging.log4j.Level.DEBUG, expected));
+                Assertions.assertFalse(appender.contains(org.apache.logging.log4j.Level.INFO, "synthetic-secret"));
+                Assertions.assertFalse(appender.contains(org.apache.logging.log4j.Level.DEBUG, "synthetic-secret"));
+            } finally {
+                Config.enable_print_request_before_execution = originalPrintRequest;
+                connectContext.getSessionVariable().setSqlMode(originalLogMode);
+                follower.setThreadLocalInfo();
+            }
+
+            Env env = Mockito.mock(Env.class);
+            Mockito.when(env.getSelfNode()).thenReturn(new SystemInfoService.HostInfo("127.0.0.1", 9010));
+            WorkloadRuntimeStatusMgr statusMgr = Mockito.mock(WorkloadRuntimeStatusMgr.class);
+            Mockito.when(env.getWorkloadRuntimeStatusMgr()).thenReturn(statusMgr);
+            try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+                envStatic.when(Env::getCurrentEnv).thenReturn(env);
+                // Exercise the real request builder and wire serialization, including the current mode.
+                TMasterOpRequest request = new FEOpExecutor(new TNetworkAddress("127.0.0.1", 9020),
+                        followerStatement.getOrigStmt(), follower, false).buildStmtForwardParams();
+                TMasterOpRequest restored = new TMasterOpRequest();
+                new TDeserializer().deserialize(restored, new TSerializer().serialize(request));
+                ConnectContext master = new ConnectContext();
+                master.getSessionVariable().setForwardedSessionVariables(restored.getSessionVariables());
+                master.setThreadLocalInfo();
+                try {
+                    Assertions.assertEquals(changesPropertyBoundaries, SqlModeHelper.hasNoBackSlashEscapes());
+                    AlterRoutineLoadCommand masterCommand = (AlterRoutineLoadCommand)
+                            new NereidsParser().parseSingle(restored.getSql());
+                    KafkaDataSourceProperties properties = new KafkaDataSourceProperties(
+                            masterCommand.getDataSourceMapProperties());
+                    properties.setAlter(true);
+                    properties.setTimezone("UTC");
+                    properties.analyze();
+                    Assertions.assertEquals("synthetic-secret", properties.getCustomKafkaProperties()
+                            .get("sasl.password"));
+                    Assertions.assertEquals(changesStatementBoundaries ? null
+                                    : changesPropertyBoundaries ? "client\\" : "client-value",
+                            properties.getCustomKafkaProperties().get("client.id"));
+                } finally {
+                    follower.setThreadLocalInfo();
+                }
+
+                // Forwarding leaves the follower's originally parsed command in its audit path.
+                follower.setStatementContext(followerStatement.getStatementContext());
+                follower.getState().setIsQuery(false);
+                follower.getState().setOk();
+                AuditLogHelper.logAuditLog(follower, forwardedSql, followerStatement, null, false);
+                ArgumentCaptor<AuditEvent> captor = ArgumentCaptor.forClass(AuditEvent.class);
+                Mockito.verify(statusMgr).submitFinishQueryToAudit(captor.capture());
+                Assertions.assertEquals(expected, captor.getValue().stmt);
+                Assertions.assertEquals("OK", captor.getValue().state);
+            }
+        } finally {
+            connectContext.setThreadLocalInfo();
+        }
     }
 
     @Test
@@ -1368,9 +1588,11 @@ public class StmtExecutorTest extends TestWithFeService {
                 "CREATE EXTERNAL RESOURCE \"broken_ai_resource\" PROPERTIES (\"ai.api_key\" = \""
                         + AI_RESOURCE_LOG_SECRET + "\"");
 
-        Method getStmtForLoggingBeforeParse = StmtExecutor.class.getDeclaredMethod("getStmtForLoggingBeforeParse");
+        Method getStmtForLoggingBeforeParse = StmtExecutor.class.getDeclaredMethod(
+                "getStmtForLoggingBeforeParse", String.class);
         getStmtForLoggingBeforeParse.setAccessible(true);
-        Assertions.assertEquals(MASKED_STMT_FALLBACK, getStmtForLoggingBeforeParse.invoke(executor));
+        Assertions.assertEquals(MASKED_STMT_FALLBACK, getStmtForLoggingBeforeParse.invoke(executor,
+                executor.getOriginStmtInString()));
     }
 
     @Test

@@ -39,11 +39,15 @@ import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
 import org.apache.doris.load.routineload.kafka.KafkaProgress;
 import org.apache.doris.load.routineload.kafka.KafkaRoutineLoadJob;
 import org.apache.doris.load.routineload.kafka.KafkaTaskInfo;
+import org.apache.doris.mysql.authenticate.TestLogAppender;
 import org.apache.doris.mysql.privilege.MockedAuth;
+import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadProperty;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadSeparator;
+import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
+import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TRoutineLoadTask;
@@ -52,6 +56,7 @@ import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.kafka.common.PartitionInfo;
+import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.jupiter.api.AfterEach;
@@ -103,6 +108,96 @@ public class KafkaRoutineLoadJobTest {
     public void tearDown() {
         if (connectContextStatic != null) {
             connectContextStatic.close();
+        }
+    }
+
+    @Test
+    public void testModifyAndReplayPropertiesMaskSecrets() throws UserException {
+        Map<String, String> sensitiveProperties = Maps.newHashMap();
+        sensitiveProperties.put("property.sasl.password", "synthetic-sasl-password");
+        sensitiveProperties.put("property.sasl.password\0ignored", "synthetic-nul-password");
+        sensitiveProperties.put("property.ssl.key.password", "synthetic-ssl-password");
+        sensitiveProperties.put("property.sasl.jaas.config", "synthetic-jaas-config");
+        sensitiveProperties.put("property.sasl.oauthbearer.config", "synthetic-oauth-config");
+        sensitiveProperties.put("property.sasl.oauthbearer.client.secret", "synthetic-oauth-secret");
+        sensitiveProperties.put("property.sasl.oauthbearer.token", "synthetic-oauth-token");
+        sensitiveProperties.put("property.ssl.key.pem", "synthetic-private-key");
+        Map<String, String> sourceProperties = Maps.newHashMap(sensitiveProperties);
+        sourceProperties.put("property.client.id", "synthetic-client-value");
+        sourceProperties.put("kafka_topic", "updated-topic");
+        sourceProperties.put("kafka_broker_list", "127.0.0.2:9092");
+        Map<String, String> originalProperties = Maps.newHashMap(sourceProperties);
+        KafkaDataSourceProperties dataSourceProperties = new KafkaDataSourceProperties(sourceProperties);
+        dataSourceProperties.setAlter(true);
+        dataSourceProperties.setTimezone("UTC");
+        dataSourceProperties.analyze();
+
+        Map<String, String> jobProperties = Maps.newHashMap();
+        jobProperties.put(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY, "2");
+        AlterRoutineLoadCommand command = Mockito.mock(AlterRoutineLoadCommand.class);
+        Mockito.when(command.getAnalyzedJobProperties()).thenReturn(jobProperties);
+        Mockito.when(command.getDataSourceProperties()).thenReturn(dataSourceProperties);
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            for (boolean replay : Arrays.asList(false, true)) {
+                KafkaRoutineLoadJob job = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
+                        1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+                Deencapsulation.setField(job, "state", RoutineLoadJob.JobState.PAUSED);
+
+                try (TestLogAppender appender = TestLogAppender.attach(KafkaRoutineLoadJob.class, Level.INFO)) {
+                    if (replay) {
+                        job.replayModifyProperties(new AlterRoutineLoadJobOperationLog(1L,
+                                jobProperties, dataSourceProperties));
+                    } else {
+                        job.modifyProperties(command);
+                    }
+
+                    Assertions.assertTrue(appender.contains(Level.INFO,
+                            "modify the properties of kafka routine load job: 1"));
+                    Assertions.assertTrue(appender.contains(Level.INFO,
+                            CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY + "=2"));
+                    for (Map.Entry<String, String> property : sensitiveProperties.entrySet()) {
+                        Assertions.assertTrue(appender.contains(Level.INFO, property.getKey() + "=******"));
+                        Assertions.assertFalse(appender.contains(Level.INFO, property.getValue()));
+                        Assertions.assertEquals(property.getValue(), job.getConvertedCustomProperties()
+                                .get(property.getKey().substring("property.".length())));
+                    }
+                    Assertions.assertTrue(appender.contains(Level.INFO, "property.client.id=synthetic-client-value"));
+                    Assertions.assertTrue(appender.contains(Level.INFO, "kafka_topic=updated-topic"));
+                    Assertions.assertTrue(appender.contains(Level.INFO, "kafka_broker_list=127.0.0.2:9092"));
+                    Assertions.assertEquals("synthetic-client-value", job.getConvertedCustomProperties().get("client.id"));
+                    Assertions.assertEquals("updated-topic", job.getTopic());
+                    Assertions.assertEquals("127.0.0.2:9092", job.getBrokerList());
+                    Assertions.assertEquals(2, (int) Deencapsulation.getField(job, "desireTaskConcurrentNum"));
+                }
+            }
+            Mockito.verify(editLog).logAlterRoutineLoadJob(Mockito.any(AlterRoutineLoadJobOperationLog.class));
+        }
+        Assertions.assertEquals(originalProperties, dataSourceProperties.getOriginalDataSourceProperties());
+    }
+
+    @Test
+    public void testModifyJobPropertiesWithoutDataSource() {
+        Map<String, String> jobProperties = Maps.newHashMap();
+        jobProperties.put(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY, "2");
+
+        for (KafkaDataSourceProperties dataSourceProperties : Arrays.asList(null,
+                new KafkaDataSourceProperties(Maps.newHashMap()), new KafkaDataSourceProperties(null))) {
+            KafkaRoutineLoadJob job = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
+                    1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+            try (TestLogAppender appender = TestLogAppender.attach(KafkaRoutineLoadJob.class, Level.INFO)) {
+                job.replayModifyProperties(new AlterRoutineLoadJobOperationLog(1L,
+                        jobProperties, dataSourceProperties));
+
+                Assertions.assertTrue(appender.contains(Level.INFO,
+                        "modify the properties of kafka routine load job: 1"));
+                Assertions.assertTrue(appender.contains(Level.INFO, "datasource properties: {}"));
+                Assertions.assertEquals(2, (int) Deencapsulation.getField(job, "desireTaskConcurrentNum"));
+            }
         }
     }
 
