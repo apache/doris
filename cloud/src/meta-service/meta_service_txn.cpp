@@ -1840,6 +1840,36 @@ std::pair<MetaServiceCode, std::string> get_partition_versions(
     return {MetaServiceCode::OK, ""};
 }
 
+// Returns true when the caller should reread VISIBLE.
+bool MetaServiceImpl::wait_for_committed_txn(const std::string& instance_id,
+                                             const TxnInfoPB& txn_info,
+                                             std::unique_ptr<Transaction>& txn,
+                                             CommitTxnResponse* response, MetaServiceCode& code,
+                                             std::string& msg, KVStats& stats) {
+    // Lazy publication owns this transaction; do not reuse its stale rowset scan.
+    stats.get_bytes += txn->get_bytes();
+    stats.get_counter += txn->num_get_keys();
+    txn.reset();
+    auto txn_id = txn_info.txn_id();
+    auto task = txn_lazy_committer_->submit(instance_id, txn_id);
+    TEST_SYNC_POINT_CALLBACK("commit_txn::wait_committed", &txn_id);
+    std::tie(code, msg) = task->wait();
+    if (code == MetaServiceCode::OK) {
+        return true;
+    }
+
+    LOG(WARNING) << "txn lazy commit failed txn_id=" << txn_id << " code=" << code
+                 << " msg=" << msg;
+    // The transaction is committed; match the incomplete lazy response contract.
+    code = MetaServiceCode::OK;
+    msg.clear();
+    response->mutable_txn_info()->CopyFrom(txn_info);
+    response->mutable_txn_info()->set_status(TxnStatusPB::TXN_STATUS_VISIBLE);
+    response->set_is_lazy_commit(true);
+    response->set_is_lazy_commit_incomplete(true);
+    return false;
+}
+
 /**
  * 0. Extract txn_id from request
  * 1. Get db id from TxnKv with txn_id
@@ -1955,6 +1985,13 @@ void MetaServiceImpl::commit_txn_immediately(
             msg = ss.str();
             LOG(WARNING) << msg;
             return;
+        }
+
+        if (txn_info.status() == TxnStatusPB::TXN_STATUS_COMMITTED) {
+            if (!wait_for_committed_txn(instance_id, txn_info, txn, response, code, msg, stats)) {
+                return;
+            }
+            continue;
         }
 
         if (request->enable_check_commit_tso_fence() && config::enable_check_commit_tso_fence &&
@@ -2823,6 +2860,13 @@ void MetaServiceImpl::commit_txn_eventually(
             return;
         }
 
+        if (txn_info.status() == TxnStatusPB::TXN_STATUS_COMMITTED) {
+            if (!wait_for_committed_txn(instance_id, txn_info, txn, response, code, msg, stats)) {
+                return;
+            }
+            continue;
+        }
+
         if (request->enable_check_commit_tso_fence() && config::enable_check_commit_tso_fence &&
             txn_info.status() != TxnStatusPB::TXN_STATUS_COMMITTED &&
             !check_txn_commit_tso_fence(txn.get(), instance_id, commit_tso, response, code, msg)) {
@@ -3228,6 +3272,13 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
             LOG(INFO) << msg;
             response->mutable_txn_info()->CopyFrom(txn_info);
             return;
+        }
+
+        if (txn_info.status() == TxnStatusPB::TXN_STATUS_COMMITTED) {
+            if (!wait_for_committed_txn(instance_id, txn_info, txn, response, code, msg, stats)) {
+                return;
+            }
+            continue;
         }
 
         if (request->enable_check_commit_tso_fence() && config::enable_check_commit_tso_fence &&
