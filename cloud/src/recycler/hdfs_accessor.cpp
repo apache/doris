@@ -29,7 +29,7 @@
 #include <hdfs/hdfs.h> // IWYU pragma: export
 #endif
 
-#include <map>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -338,31 +338,32 @@ std::string accessor_prefix(const HdfsVaultInfo& info) {
     return prefix;
 }
 
-// fs_name and prefix name the directory, but a logical nameservice in fs_name resolves through the
-// vault's hdfs_confs: two vaults with fs_name hdfs://ns and prefix /warehouse are different
-// clusters when their dfs.namenode.rpc-address.ns.* differ. Append the effective confs, sorted by
-// key, so equal locations mean equal configurations; differences that do not matter only cost a
-// second listing. '\n' separates the parts, so e.g. hdfs://ns/a + /b and hdfs://ns + /a/b differ.
+// A nameservice in fs_name resolves through hdfs_confs, e.g. hdfs://ns of two vaults are different
+// clusters when their dfs.namenode.rpc-address.ns.* differ. All confs are kept in order, a client
+// may apply the first or the last value of a repeated key. '\n' separates the parts, so
+// hdfs://ns/a + /b and hdfs://ns + /a/b differ.
 std::string accessor_location(const HdfsVaultInfo& info) {
-    // libhdfs applies builder confs so that the first value set for a key wins: keep that one
-    std::map<std::string, std::string> confs;
-    for (const auto& conf : info.build_conf().hdfs_confs()) {
-        confs.emplace(conf.key(), conf.value());
-    }
     std::string location = info.build_conf().fs_name() + '\n' + accessor_prefix(info);
-    for (const auto& [key, value] : confs) {
+    for (const auto& conf : info.build_conf().hdfs_confs()) {
         location += '\n';
-        location += key;
+        location += conf.key();
         location += '=';
-        location += value;
+        location += conf.value();
     }
     return location;
+}
+
+StorageRoot accessor_root(const HdfsVaultInfo& info) {
+    std::string prefix = accessor_prefix(info);
+    strip_leading(prefix, "/");
+    strip_trailing(prefix, "/");
+    return {.container = info.build_conf().fs_name(), .prefix = std::move(prefix)};
 }
 
 } // namespace
 
 HdfsAccessor::HdfsAccessor(const HdfsVaultInfo& info)
-        : StorageVaultAccessor(AccessorType::HDFS, accessor_location(info)),
+        : StorageVaultAccessor(AccessorType::HDFS, accessor_location(info), accessor_root(info)),
           info_(info),
           prefix_(accessor_prefix(info)) {
     uri_ = info.build_conf().fs_name() + prefix_;

@@ -5205,19 +5205,48 @@ TEST(CheckerTest, normal_inverted_check) {
     ASSERT_EQ(checker.do_inverted_check(), 0);
 }
 
-TEST(CheckerTest, inverted_check_multi_vault) {
-    auto txn_kv = std::make_shared<MemTxnKv>();
-    ASSERT_EQ(txn_kv->init(), 0);
+// A checker of an instance whose storage vaults are the mock vaults added by each test
+class InvertedCheckTest : public testing::Test {
+protected:
+    void SetUp() override {
+        ASSERT_EQ(txn_kv->init(), 0);
+        InstanceInfoPB instance;
+        instance.set_instance_id(instance_id);
+        ASSERT_EQ(checker.init(instance), 0);
+    }
 
-    InstanceInfoPB instance;
-    instance.set_instance_id(instance_id);
-    InstanceChecker checker(txn_kv, instance_id);
-    ASSERT_EQ(checker.init(instance), 0);
-    auto vault1 = std::make_shared<MockAccessor>("mock://vault1");
-    auto vault2 = std::make_shared<MockAccessor>("mock://vault2");
-    checker.TEST_add_accessor("vault1", vault1);
-    checker.TEST_add_accessor("vault2", vault2);
+    std::shared_ptr<MockAccessor> add_vault(const std::string& id,
+                                            std::optional<StorageRoot> root = std::nullopt) {
+        auto vault = root ? std::make_shared<MockAccessor>("mock://" + id, *root)
+                          : std::make_shared<MockAccessor>("mock://" + id);
+        checker.TEST_add_accessor(id, vault);
+        return vault;
+    }
 
+    int64_t num_scanned() {
+        return read_status_bvar_value("checker", "num_inverted_scanned", instance_id);
+    }
+    int64_t num_leaks() {
+        return read_status_bvar_value("checker", "num_inverted_check_failed", instance_id);
+    }
+
+    std::shared_ptr<MemTxnKv> txn_kv = std::make_shared<MemTxnKv>();
+    InstanceChecker checker {txn_kv, instance_id};
+};
+
+// Puts the data objects of `from` into `to` under `prefix`, as storage seen by both vaults
+static void copy_data_objects(StorageVaultAccessor* from, StorageVaultAccessor* to,
+                              const std::string& prefix = "") {
+    std::unique_ptr<ListIterator> list_iter;
+    ASSERT_EQ(from->list_directory("data", &list_iter), 0);
+    for (auto file = list_iter->next(); file.has_value(); file = list_iter->next()) {
+        ASSERT_EQ(to->put_file(prefix + file->path, ""), 0);
+    }
+}
+
+TEST_F(InvertedCheckTest, multi_vault) {
+    auto vault1 = add_vault("vault1");
+    auto vault2 = add_vault("vault2");
     for (int t = 10001; t <= 10010; ++t) {
         for (int v = 0; v < 3; ++v) {
             create_committed_rowset(txn_kv.get(), vault1.get(), "vault1", t, v, t * 2, 1, 0);
@@ -5230,72 +5259,73 @@ TEST(CheckerTest, inverted_check_multi_vault) {
     }
     // Objects of both vaults are checked
     ASSERT_EQ(checker.do_inverted_check(), 0);
-    ASSERT_EQ(read_status_bvar_value("checker", "num_inverted_scanned", instance_id), 60);
-    ASSERT_EQ(read_status_bvar_value("checker", "num_inverted_check_failed", instance_id), 0);
+    ASSERT_EQ(num_scanned(), 60);
+    ASSERT_EQ(num_leaks(), 0);
 
     // A leaked segment in each vault: one of a tablet without rowsets, one listed after the live
     // rowsets of its tablet ("zzz" sorts after the numeric test rowset ids)
     ASSERT_EQ(vault1->put_file(segment_path(10030, next_rowset_id(), 0), ""), 0);
     ASSERT_EQ(vault2->put_file(segment_path(10015, "zzz", 0), ""), 0);
     ASSERT_EQ(checker.do_inverted_check(), 1);
-    ASSERT_EQ(read_status_bvar_value("checker", "num_inverted_scanned", instance_id), 62);
-    ASSERT_EQ(read_status_bvar_value("checker", "num_inverted_check_failed", instance_id), 2);
+    ASSERT_EQ(num_scanned(), 62);
+    ASSERT_EQ(num_leaks(), 2);
 }
 
-TEST(CheckerTest, inverted_check_same_location_once) {
-    auto txn_kv = std::make_shared<MemTxnKv>();
-    ASSERT_EQ(txn_kv->init(), 0);
-
-    InstanceInfoPB instance;
-    instance.set_instance_id(instance_id);
-    InstanceChecker checker(txn_kv, instance_id);
-    ASSERT_EQ(checker.init(instance), 0);
+TEST_F(InvertedCheckTest, same_location_once) {
     // Two resources backed by the same storage location
-    auto accessor = std::make_shared<MockAccessor>("mock://shared");
-    checker.TEST_add_accessor("vault1", accessor);
+    auto accessor = add_vault("vault1");
     checker.TEST_add_accessor("vault2", accessor);
-
     for (int t = 10001; t <= 10010; ++t) {
         create_committed_rowset(txn_kv.get(), accessor.get(), "vault1", t, 0, t * 2, 1, 0);
     }
     ASSERT_EQ(accessor->put_file(segment_path(10030, next_rowset_id(), 0), ""), 0);
     ASSERT_EQ(checker.do_inverted_check(), 1);
-    ASSERT_EQ(read_status_bvar_value("checker", "num_inverted_scanned", instance_id), 11);
-    ASSERT_EQ(read_status_bvar_value("checker", "num_inverted_check_failed", instance_id), 1);
+    ASSERT_EQ(num_scanned(), 11);
+    ASSERT_EQ(num_leaks(), 1);
 }
 
-TEST(CheckerTest, inverted_check_leak_after_live_rowset) {
-    auto txn_kv = std::make_shared<MemTxnKv>();
-    ASSERT_EQ(txn_kv->init(), 0);
+TEST_F(InvertedCheckTest, nested_vault) {
+    // The prefix of the child vault is inside the data directory of the parent vault, so the parent
+    // also lists the child objects, under data/data/
+    auto parent = add_vault("parent", StorageRoot {.container = "bucket", .prefix = "root"});
+    auto child = add_vault("child", StorageRoot {.container = "bucket", .prefix = "root/data"});
+    for (int t = 10001; t <= 10005; ++t) {
+        create_committed_rowset(txn_kv.get(), parent.get(), "parent", t, 0, t * 2, 1, 0);
+    }
+    for (int t = 10011; t <= 10015; ++t) {
+        create_committed_rowset(txn_kv.get(), child.get(), "child", t, 0, t * 2, 1, 0);
+    }
+    auto leak = segment_path(10030, next_rowset_id(), 0);
+    ASSERT_EQ(child->put_file(leak, ""), 0);
+    copy_data_objects(child.get(), parent.get(), "data/");
 
-    InstanceInfoPB instance;
-    instance.set_instance_id(instance_id);
-    auto obj_info = instance.add_obj_info();
-    obj_info->set_id("1");
-    InstanceChecker checker(txn_kv, instance_id);
-    ASSERT_EQ(checker.init(instance), 0);
-    auto accessor = checker.accessor_map_.begin()->second;
-
-    create_committed_rowset(txn_kv.get(), accessor.get(), "1", 10001, 0, 20002, 1, 0);
-    // "zzz" sorts after the numeric test rowset ids, so the leaked segment is listed after the live
-    // one of the same tablet and is checked against the cached rowsets of the tablet
-    ASSERT_EQ(accessor->put_file(segment_path(10001, "zzz", 0), ""), 0);
+    // The child objects are only checked as objects of the child vault
     ASSERT_EQ(checker.do_inverted_check(), 1);
-    ASSERT_EQ(read_status_bvar_value("checker", "num_inverted_check_failed", instance_id), 1);
+    ASSERT_EQ(num_scanned(), 11);
+    ASSERT_EQ(num_leaks(), 1);
 }
 
-TEST(CheckerTest, inverted_check_orphans_in_both_listing_orders) {
-    auto txn_kv = std::make_shared<MemTxnKv>();
-    ASSERT_EQ(txn_kv->init(), 0);
+TEST_F(InvertedCheckTest, segment_in_another_vault_is_leak) {
+    auto vault1 = add_vault("vault1");
+    auto vault2 = add_vault("vault2");
+    // Vaults 3 and 4 address the same paths with different credentials, so both are listed
+    StorageRoot root {.container = "bucket", .prefix = "p"};
+    auto vault3 = add_vault("vault3", root);
+    auto vault4 = add_vault("vault4", root);
+    create_committed_rowset(txn_kv.get(), vault1.get(), "vault1", 10001, 0, 20002, 1, 0);
+    create_committed_rowset(txn_kv.get(), vault3.get(), "vault3", 10002, 0, 20004, 1, 0);
+    // A copy of a vault1 segment in vault2 is not covered by its rowset
+    copy_data_objects(vault1.get(), vault2.get());
+    // A vault3 segment listed through vault4 is in the storage of its rowset
+    copy_data_objects(vault3.get(), vault4.get());
 
-    InstanceInfoPB instance;
-    instance.set_instance_id(instance_id);
-    auto obj_info = instance.add_obj_info();
-    obj_info->set_id("1");
-    InstanceChecker checker(txn_kv, instance_id);
-    ASSERT_EQ(checker.init(instance), 0);
-    auto accessor = checker.accessor_map_.begin()->second;
+    ASSERT_EQ(checker.do_inverted_check(), 1);
+    ASSERT_EQ(num_scanned(), 4);
+    ASSERT_EQ(num_leaks(), 1);
+}
 
+TEST_F(InvertedCheckTest, orphans_in_both_listing_orders) {
+    auto accessor = add_vault("1");
     // Tablet 10001: a live rowset listed before two orphans ("zzz*" sort after the numeric test
     // rowset ids), the orphans are checked against the cached rowsets of the tablet
     create_committed_rowset(txn_kv.get(), accessor.get(), "1", 10001, 0, 20002, 1, 0);
@@ -5307,21 +5337,12 @@ TEST(CheckerTest, inverted_check_orphans_in_both_listing_orders) {
     ASSERT_EQ(accessor->put_file(segment_path(10002, "0000", 0), ""), 0);
 
     ASSERT_EQ(checker.do_inverted_check(), 1);
-    ASSERT_EQ(read_status_bvar_value("checker", "num_inverted_scanned", instance_id), 5);
-    ASSERT_EQ(read_status_bvar_value("checker", "num_inverted_check_failed", instance_id), 3);
+    ASSERT_EQ(num_scanned(), 5);
+    ASSERT_EQ(num_leaks(), 3);
 }
 
-TEST(CheckerTest, inverted_check_rowset_meta_read_error_is_not_leak) {
-    auto txn_kv = std::make_shared<MemTxnKv>();
-    ASSERT_EQ(txn_kv->init(), 0);
-
-    InstanceInfoPB instance;
-    instance.set_instance_id(instance_id);
-    auto obj_info = instance.add_obj_info();
-    obj_info->set_id("1");
-    InstanceChecker checker(txn_kv, instance_id);
-    ASSERT_EQ(checker.init(instance), 0);
-    auto accessor = checker.accessor_map_.begin()->second;
+TEST_F(InvertedCheckTest, rowset_meta_read_error_is_not_leak) {
+    auto accessor = add_vault("1");
     for (int v = 0; v < 2; ++v) {
         create_committed_rowset(txn_kv.get(), accessor.get(), "1", 10001, v, 20002, 1, 0);
     }
@@ -5339,21 +5360,12 @@ TEST(CheckerTest, inverted_check_rowset_meta_read_error_is_not_leak) {
 
     // Failing to read the rowsets of the tablet is an error for each of its objects, never a leak
     ASSERT_EQ(checker.do_inverted_check(), -1);
-    ASSERT_EQ(read_status_bvar_value("checker", "num_inverted_scanned", instance_id), 2);
-    ASSERT_EQ(read_status_bvar_value("checker", "num_inverted_check_failed", instance_id), 0);
+    ASSERT_EQ(num_scanned(), 2);
+    ASSERT_EQ(num_leaks(), 0);
 }
 
-TEST(CheckerTest, inverted_check_rowset_committed_during_scan_is_not_leak) {
-    auto txn_kv = std::make_shared<MemTxnKv>();
-    ASSERT_EQ(txn_kv->init(), 0);
-
-    InstanceInfoPB instance;
-    instance.set_instance_id(instance_id);
-    auto obj_info = instance.add_obj_info();
-    obj_info->set_id("1");
-    InstanceChecker checker(txn_kv, instance_id);
-    ASSERT_EQ(checker.init(instance), 0);
-    auto accessor = checker.accessor_map_.begin()->second;
+TEST_F(InvertedCheckTest, rowset_committed_during_scan_is_not_leak) {
+    auto accessor = add_vault("1");
     create_committed_rowset(txn_kv.get(), accessor.get(), "1", 10001, 0, 20002, 1, 0);
     // The segment of rowset "zzz" is uploaded, and its meta commits after the checker loaded the
     // rowsets of the tablet for the first object ("zzz" sorts after the numeric rowset ids)
@@ -5388,21 +5400,12 @@ TEST(CheckerTest, inverted_check_rowset_committed_during_scan_is_not_leak) {
     // The rowset missing from the cache is read again and found, so it is not a leak
     ASSERT_EQ(checker.do_inverted_check(), 0);
     ASSERT_EQ(rowset_reads, 2);
-    ASSERT_EQ(read_status_bvar_value("checker", "num_inverted_scanned", instance_id), 2);
-    ASSERT_EQ(read_status_bvar_value("checker", "num_inverted_check_failed", instance_id), 0);
+    ASSERT_EQ(num_scanned(), 2);
+    ASSERT_EQ(num_leaks(), 0);
 }
 
-TEST(CheckerTest, inverted_check_stops_when_stopped) {
-    auto txn_kv = std::make_shared<MemTxnKv>();
-    ASSERT_EQ(txn_kv->init(), 0);
-
-    InstanceInfoPB instance;
-    instance.set_instance_id(instance_id);
-    auto obj_info = instance.add_obj_info();
-    obj_info->set_id("1");
-    InstanceChecker checker(txn_kv, instance_id);
-    ASSERT_EQ(checker.init(instance), 0);
-    auto accessor = checker.accessor_map_.begin()->second;
+TEST_F(InvertedCheckTest, stops_when_stopped) {
+    auto accessor = add_vault("1");
     for (int v = 0; v < 3; ++v) {
         create_committed_rowset(txn_kv.get(), accessor.get(), "1", 10001, v, 20002, 1, 0);
     }
@@ -5426,8 +5429,8 @@ TEST(CheckerTest, inverted_check_stops_when_stopped) {
     // No more objects are checked, so no more rowset reads are started
     ASSERT_EQ(checker.do_inverted_check(), -1);
     ASSERT_EQ(rowset_reads, 1);
-    ASSERT_EQ(read_status_bvar_value("checker", "num_inverted_scanned", instance_id), 1);
-    ASSERT_EQ(read_status_bvar_value("checker", "num_inverted_check_failed", instance_id), 0);
+    ASSERT_EQ(num_scanned(), 1);
+    ASSERT_EQ(num_leaks(), 0);
 }
 
 #ifdef ENABLE_HDFS_STORAGE_VAULT
@@ -5479,7 +5482,11 @@ TEST(HdfsAccessorLocationTest, location) {
     HdfsAccessor accessor_b(cluster_b);
     EXPECT_EQ(accessor_a.uri(), accessor_b.uri());
     EXPECT_NE(accessor_a.location(), accessor_b.location());
-    EXPECT_EQ(accessor_a.location(), accessor_a_reordered.location());
+    // The confs are kept in order, a different order may resolve differently and is listed again
+    EXPECT_NE(accessor_a.location(), accessor_a_reordered.location());
+    // The root ignores the confs: the vaults address the same paths of the nameservice
+    EXPECT_EQ(accessor_a.root(), accessor_b.root());
+    EXPECT_EQ(accessor_a.root(), (StorageRoot {.container = "hdfs://ns", .prefix = "warehouse"}));
 
     // fs_name and prefix do not merge: same uri, different directories
     auto info_split_1 = make_info("hdfs://ns/a", "b");
@@ -5489,7 +5496,8 @@ TEST(HdfsAccessorLocationTest, location) {
     EXPECT_EQ(accessor_split_1.uri(), accessor_split_2.uri());
     EXPECT_NE(accessor_split_1.location(), accessor_split_2.location());
 
-    // A repeated key takes effect with its first value, as libhdfs applies it
+    // A repeated key is kept with all its values in order: which one takes effect depends on the
+    // HDFS client, so neither value is dropped
     auto repeated = make_ha_info({{"dfs.ha.namenodes.ns", "nn1,nn2"},
                                   {"dfs.namenode.rpc-address.ns.nn1", "a1:8020"},
                                   {"dfs.namenode.rpc-address.ns.nn2", "a2:8020"},
@@ -5500,8 +5508,8 @@ TEST(HdfsAccessorLocationTest, location) {
                                            {"dfs.namenode.rpc-address.ns.nn1", "a1:8020"}});
     HdfsAccessor accessor_repeated(repeated);
     HdfsAccessor accessor_repeated_reversed(repeated_reversed);
-    EXPECT_EQ(accessor_repeated.location(), accessor_a.location());
-    EXPECT_NE(accessor_repeated_reversed.location(), accessor_a.location());
+    EXPECT_NE(accessor_repeated.location(), accessor_a.location());
+    EXPECT_NE(accessor_repeated.location(), accessor_repeated_reversed.location());
 }
 #endif
 

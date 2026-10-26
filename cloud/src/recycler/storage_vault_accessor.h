@@ -49,11 +49,20 @@ public:
     virtual std::optional<FileMeta> next() = 0;
 };
 
+// Where the objects of an accessor live: `container` is the S3 endpoint and bucket or the HDFS
+// fs_name, `prefix` the directory in it without surrounding '/'. Credentials and client confs are
+// not part of it, vaults on one bucket and prefix with different credentials share a root.
+struct StorageRoot {
+    std::string container;
+    std::string prefix;
+
+    bool operator==(const StorageRoot&) const = default;
+};
+
 class StorageVaultAccessor {
 public:
-    // `location` identifies the storage the accessor reads and writes, see `location()`
-    StorageVaultAccessor(AccessorType type, std::string location)
-            : type_(type), location_(std::move(location)) {}
+    StorageVaultAccessor(AccessorType type, std::string location, StorageRoot root)
+            : type_(type), location_(std::move(location)), root_(std::move(root)) {}
 
     virtual ~StorageVaultAccessor() = default;
 
@@ -64,12 +73,13 @@ public:
 
     const std::string& uri() const { return uri_; }
 
-    // The storage location this accessor reads and writes, built from its configuration without
-    // normalization: two accessors with equal locations see the same objects. Different locations
-    // may still reach the same storage (e.g. HDFS confs that do not affect resolution), which only
-    // costs a second listing. `uri()` is for display and may be normalized, e.g. S3 prefixes "a/b"
-    // and "a//b" have the same uri but hold different objects.
+    // The storage this accessor lists: equal locations see the same objects. It keeps the whole
+    // configuration that may select a namespace, unnormalized, e.g. S3 credentials (a gateway may
+    // map one bucket name per tenant) and HDFS confs in order. A false difference only costs a
+    // second listing.
     const std::string& location() const { return location_; }
+
+    const StorageRoot& root() const { return root_; }
 
     // If `expiration_time` > 0, only delete objects with mtime earlier than `expiration_time`.
     // returns 0 for success otherwise error
@@ -109,6 +119,7 @@ public:
 private:
     const AccessorType type_;
     const std::string location_;
+    const StorageRoot root_;
 
 protected:
     std::string uri_;

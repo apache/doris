@@ -901,15 +901,23 @@ int InstanceChecker::do_inverted_check() {
 
     struct TabletRowsets {
         int64_t tablet_id {0};
-        std::unordered_set<std::string> rowset_ids;
+        std::unordered_map<std::string /* rowset_id */, std::string /* resource_id */> rowsets;
     };
     TabletRowsets tablet_rowsets_cache;
 
     RowsetIndexesFormatV1 rowset_index_cache_v1;
     RowsetIndexesFormatV2 rowset_index_cache_v2;
 
-    // Return 0 if check success, return 1 if file is garbage data, negative if error occurred
-    auto check_segment_file = [&](const std::string& obj_key) {
+    // A rowset only covers segments under the root of its own vault, a copy in another vault is a
+    // leak. A resource without accessor (an HDFS vault in a build without HDFS) is trusted.
+    auto stored_under = [&](const std::string& resource_id, const StorageRoot& root) {
+        auto it = accessor_map_.find(resource_id);
+        return it == accessor_map_.end() || it->second->root() == root;
+    };
+
+    // Return 0 if check success, return 1 if file is garbage data, negative if error occurred.
+    // `root` is the storage root the object was listed from.
+    auto check_segment_file = [&](const std::string& obj_key, const StorageRoot& root) {
         std::vector<std::string> str;
         butil::SplitString(obj_key, '/', &str);
         // data/{tablet_id}/{rowset_id}_{seg_num}.dat
@@ -940,20 +948,17 @@ int InstanceChecker::do_inverted_check() {
             return -1;
         }
 
-        if (tablet_rowsets_cache.tablet_id == tablet_id &&
-            tablet_rowsets_cache.rowset_ids.contains(rowset_id)) {
-            return 0;
+        if (tablet_rowsets_cache.tablet_id == tablet_id) {
+            auto it = tablet_rowsets_cache.rowsets.find(rowset_id);
+            if (it != tablet_rowsets_cache.rowsets.end() && stored_under(it->second, root)) {
+                return 0;
+            }
         }
-        // An absence in the cache is not trusted: a load may commit a new rowset of the tablet
-        // after the cache was loaded, and its segments are listed later in the scan. E.g. the cache
-        // of tablet 10001 holds rowset r1, then r2 commits, then data/10001/r2_0.dat is listed: it
-        // is checked against a fresh read below instead of being reported as a leak.
-        // Get all rowset id of this tablet. The cache claims the tablet only after all its rowsets
-        // are read: a cache left with a partial rowset set by a failed read would report the
-        // following objects of the tablet as leaks, e.g. a txn error on the first object of tablet
-        // 10001 must make the next object of 10001 read the meta again, not hit an empty cache.
+        // A cache miss is read again, a rowset may have committed after the cache was loaded. The
+        // cache claims the tablet only after a complete read, a failed read must not leave a
+        // partial rowset set that reports the next objects of the tablet as leaks.
         tablet_rowsets_cache.tablet_id = 0;
-        tablet_rowsets_cache.rowset_ids.clear();
+        tablet_rowsets_cache.rowsets.clear();
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv_->create_txn(&txn);
         if (err != TxnErrorCode::TXN_OK) {
@@ -981,7 +986,7 @@ int InstanceChecker::do_inverted_check() {
                     LOG(WARNING) << "malformed rowset meta value, key=" << hex(k);
                     return -1;
                 }
-                tablet_rowsets_cache.rowset_ids.insert(rowset.rowset_id_v2());
+                tablet_rowsets_cache.rowsets.emplace(rowset.rowset_id_v2(), rowset.resource_id());
                 if (!it->has_next()) {
                     begin = k;
                     begin.push_back('\x00'); // Update to next smallest key for iteration
@@ -995,9 +1000,15 @@ int InstanceChecker::do_inverted_check() {
         }
         tablet_rowsets_cache.tablet_id = tablet_id;
 
-        if (!tablet_rowsets_cache.rowset_ids.contains(rowset_id)) {
+        auto owner = tablet_rowsets_cache.rowsets.find(rowset_id);
+        if (owner == tablet_rowsets_cache.rowsets.end()) {
             // Garbage data leak
             LOG(WARNING) << "rowset should be recycled, key=" << obj_key;
+            return 1;
+        }
+        if (!stored_under(owner->second, root)) {
+            LOG(WARNING) << "segment is not in the storage vault of its rowset, key=" << obj_key
+                         << " resource_id=" << owner->second;
             return 1;
         }
 
@@ -1052,11 +1063,8 @@ int InstanceChecker::do_inverted_check() {
     // so we choose to skip here.
     TEST_SYNC_POINT_RETURN_WITH_VALUE("InstanceChecker::do_inverted_check", (int)0);
 
-    // Several resources may be backed by the same storage location, e.g. storage vaults on the same
-    // bucket and prefix with different credentials. List each location only once, otherwise its
-    // objects would be scanned and their leaks counted repeatedly. Compare the location as
-    // configured, not the normalized `uri()`: prefixes "a/b" and "a//b" share a uri but hold
-    // different objects, and skipping one would hide its leaks.
+    // List each storage location once, resources sharing one would count its leaks repeatedly.
+    // Compare `location()`, not the normalized `uri()` ("a/b" and "a//b" hold different objects).
     std::unordered_set<std::string> checked_locations;
     for (auto& [resource_id, accessor] : accessor_map_) {
         if (!checked_locations.insert(accessor->location()).second) {
@@ -1064,6 +1072,19 @@ int InstanceChecker::do_inverted_check() {
                       << instance_id_ << " resource_id=" << resource_id
                       << " uri=" << accessor->uri();
             continue;
+        }
+        const StorageRoot& root = accessor->root();
+        // Another vault root may be nested in the listed data, e.g. prefix "root/data" in "root"
+        // is listed here as data/data/...: skip it, it is checked when its own vault is listed
+        std::string listed_dir = root.prefix.empty() ? "data/" : root.prefix + "/data/";
+        std::vector<std::string> nested_dirs;
+        for (auto& [_, other] : accessor_map_) {
+            const StorageRoot& other_root = other->root();
+            std::string other_dir = other_root.prefix + "/data/";
+            if (other_root.container == root.container && other_root.prefix != root.prefix &&
+                other_dir.starts_with(listed_dir)) {
+                nested_dirs.push_back("data/" + other_dir.substr(listed_dir.size()));
+            }
         }
         std::unique_ptr<ListIterator> list_iter;
         int ret = accessor->list_directory("data", &list_iter);
@@ -1073,8 +1094,7 @@ int InstanceChecker::do_inverted_check() {
 
         for (auto file = list_iter->next(); file.has_value(); file = list_iter->next()) {
             if (stopped()) {
-                // A stop during the rowset load of a tablet leaves the cache invalid, so each
-                // remaining object of the tablet would start another rowset meta read; stop here
+                // Otherwise each remaining object would start a rowset read cut short by the stop
                 LOG(INFO) << "inverted check stopped, instance_id=" << instance_id_;
                 return -1;
             }
@@ -1082,8 +1102,12 @@ int InstanceChecker::do_inverted_check() {
             if (path == "data/packed_file" || path.starts_with("data/packed_file/")) {
                 continue; // packed_file has dedicated check logic
             }
+            if (std::ranges::any_of(nested_dirs,
+                                    [&](const auto& dir) { return path.starts_with(dir); })) {
+                continue; // checked when the vault of the nested root is listed
+            }
             ++num_scanned;
-            int ret = check_segment_file(path);
+            int ret = check_segment_file(path, root);
             if (ret != 0) {
                 LOG(WARNING) << "failed to check segment file, uri=" << accessor->uri()
                              << " path=" << path;

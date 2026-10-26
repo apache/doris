@@ -57,8 +57,10 @@ private:
 
 class MockAccessor final : public StorageVaultAccessor {
 public:
-    // `uri` is also the location, accessors with the same uri model one storage location
+    // `uri` is also the location, accessors with the same uri model one storage location. The root
+    // defaults to the container `uri` with an empty prefix, so distinct mocks are disjoint.
     explicit MockAccessor(std::string uri = "mock");
+    MockAccessor(std::string uri, StorageRoot root);
 
     ~MockAccessor() override;
 
@@ -91,7 +93,13 @@ private:
     std::set<std::string> objects_;
 };
 
-inline MockAccessor::MockAccessor(std::string uri) : StorageVaultAccessor(AccessorType::MOCK, uri) {
+inline MockAccessor::MockAccessor(std::string uri)
+        : StorageVaultAccessor(AccessorType::MOCK, uri, StorageRoot {.container = uri}) {
+    uri_ = std::move(uri);
+}
+
+inline MockAccessor::MockAccessor(std::string uri, StorageRoot root)
+        : StorageVaultAccessor(AccessorType::MOCK, uri, std::move(root)) {
     uri_ = std::move(uri);
 }
 
