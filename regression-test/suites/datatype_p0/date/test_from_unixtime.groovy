@@ -69,7 +69,7 @@ suite("test_from_unixtime") {
     qt_hour_from_unixtime6 "SELECT HOUR(FROM_UNIXTIME(3));"
     test {
         sql """ SELECT HOUR(FROM_UNIXTIME(-1)); """
-        exception "The input value of TimeFiled(from_unixtime()) must between 0 and 253402243199"
+        exception "The input value of hour_from_unixtime is out of range in the session time zone"
     }
     explain {
         sql """ SELECT HOUR(FROM_UNIXTIME(k0)) FROM test1; """
@@ -93,7 +93,7 @@ suite("test_from_unixtime") {
     qt_minute_from_unixtime5 "SELECT MINUTE(FROM_UNIXTIME(32536771200));"
     test {
         sql """ SELECT MINUTE(FROM_UNIXTIME(-1)); """
-        exception "The input value of TimeFiled(from_unixtime()) must between 0 and 253402243199"
+        exception "The input value of minute_from_unixtime is out of range in the session time zone"
     }
     explain {
         sql """ SELECT MINUTE(FROM_UNIXTIME(k0)) FROM test1; """
@@ -115,7 +115,7 @@ suite("test_from_unixtime") {
     qt_second_from_unixtime5 "SELECT SECOND(FROM_UNIXTIME(32536771200));"
     test {
         sql """ SELECT SECOND(FROM_UNIXTIME(-1)); """
-        exception "The input value of TimeFiled(from_unixtime()) must between 0 and 253402243199"
+        exception "The input value of second_from_unixtime is out of range in the session time zone"
     }
     explain {
         sql """ SELECT SECOND(FROM_UNIXTIME(k0)) FROM test1; """
@@ -137,7 +137,7 @@ suite("test_from_unixtime") {
     qt_microsecond_from_unixtime5 "SELECT MICROSECOND(FROM_UNIXTIME(32536771200));"
     test {
         sql """ SELECT MICROSECOND(FROM_UNIXTIME(-1)); """
-        exception "The input value of TimeFiled(from_unixtime()) must between 0 and 253402243199"
+        exception "The input value of microsecond_from_unixtime is out of range in the session time zone"
     }
     explain {
         sql """ SELECT MICROSECOND(FROM_UNIXTIME(k1)) FROM test1; """

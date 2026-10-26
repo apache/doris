@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.qe.ConnectContext;
 
 import org.junit.jupiter.api.Assertions;
@@ -40,6 +41,49 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 class DateTimeExtractAndTransformTest {
+    @Test
+    void testTimeFieldFromUnixtimeBoundary() {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            String[] zones = {"UTC", "Asia/Shanghai", "-08:00", "+14:00"};
+            int[] offsets = {0, 8 * 3600, -8 * 3600, 14 * 3600};
+            for (int i = 0; i < zones.length; i++) {
+                context.getSessionVariable().setTimeZone(zones[i]);
+                long lastSecond = 253402300799L - offsets[i];
+                BigIntLiteral last = new BigIntLiteral(lastSecond);
+                Assertions.assertEquals(new TinyIntLiteral((byte) 23),
+                        DateTimeExtractAndTransform.hourFromUnixtime(last));
+                Assertions.assertEquals(new TinyIntLiteral((byte) 59),
+                        DateTimeExtractAndTransform.minuteFromUnixtime(last));
+                Assertions.assertEquals(new TinyIntLiteral((byte) 59),
+                        DateTimeExtractAndTransform.secondFromUnixtime(last));
+                Assertions.assertEquals(new IntegerLiteral(999999),
+                        DateTimeExtractAndTransform.microsecondFromUnixtime(new DecimalV3Literal(
+                                DecimalV3Type.createDecimalV3Type(18, 6),
+                                new BigDecimal(lastSecond + ".999999"))));
+                Assertions.assertEquals(new TinyIntLiteral((byte) ((8 + offsets[i] / 3600) % 24)),
+                        DateTimeExtractAndTransform.hourFromUnixtime(new BigIntLiteral(253402243200L)));
+                for (long invalid : new long[] {-1, lastSecond + 1, Long.MIN_VALUE, Long.MAX_VALUE}) {
+                    BigIntLiteral input = new BigIntLiteral(invalid);
+                    Assertions.assertThrows(AnalysisException.class,
+                            () -> DateTimeExtractAndTransform.hourFromUnixtime(input));
+                    Assertions.assertThrows(AnalysisException.class,
+                            () -> DateTimeExtractAndTransform.minuteFromUnixtime(input));
+                    Assertions.assertThrows(AnalysisException.class,
+                            () -> DateTimeExtractAndTransform.secondFromUnixtime(input));
+                }
+            }
+        } finally {
+            if (previous == null) {
+                ConnectContext.remove();
+            } else {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
     @Test
     void testAdditionalTimestampNsCalendarFunctions() {
         TimeStampNsLiteral leapDay = new TimeStampNsLiteral("2024-02-29 12:34:56.123456789");
