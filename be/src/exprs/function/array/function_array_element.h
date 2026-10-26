@@ -41,6 +41,7 @@
 #include "core/column/column.h"
 #include "core/column/column_array.h"
 #include "core/column/column_decimal.h"
+#include "core/column/column_file.h"
 #include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
@@ -48,6 +49,7 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_file.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nothing.h"
 #include "core/data_type/data_type_nullable.h"
@@ -97,6 +99,8 @@ public:
                 throw doris::Exception(st);
             }
             return make_nullable(struct_type->get_elements()[index]);
+        } else if (arg_0->get_primitive_type() == TYPE_FILE) {
+            return get_file_element_return_type(arguments);
         }
         DataTypes data_types(arguments.size());
         for (size_t i = 0; i < arguments.size(); ++i) {
@@ -141,9 +145,12 @@ public:
             res.column = res.type->create_column_const_with_default_value(input_rows_count);
             return Status::OK();
         }
-        if (remove_nullable(block.get_by_position(arguments[0]).type)->get_primitive_type() ==
-            TYPE_STRUCT) {
+        const auto primitive_type =
+                remove_nullable(block.get_by_position(arguments[0]).type)->get_primitive_type();
+        if (primitive_type == TYPE_STRUCT) {
             return _execute_struct(block, arguments, result, input_rows_count);
+        } else if (primitive_type == TYPE_FILE) {
+            return _execute_file(block, arguments, result, input_rows_count);
         }
         auto dst_null_column = ColumnUInt8::create(input_rows_count, 0);
         UInt8* dst_null_map = dst_null_column->get_data().data();
@@ -153,7 +160,7 @@ public:
 
         auto col_left_raw = block.get_by_position(arguments[0]);
         // Map element lookup requires row-aligned offsets; keep original path for map type.
-        if (remove_nullable(col_left_raw.type)->get_primitive_type() == TYPE_MAP) {
+        if (primitive_type == TYPE_MAP) {
             block.replace_by_position(arguments[0],
                                       col_left_raw.column->convert_to_full_column_if_const());
             auto col_left = block.get_by_position(arguments[0]);
@@ -196,6 +203,77 @@ public:
     }
 
 private:
+    static Status get_file_element_index(const DataTypeFile& type,
+                                         const ColumnWithTypeAndName& selector, size_t& index) {
+        if (!selector.column ||
+            !is_string_type(remove_nullable(selector.type)->get_primitive_type()) ||
+            selector.column->is_null_at(0)) {
+            return Status::InvalidArgument(
+                    "FILE element_at requires a non-NULL constant field name");
+        }
+        const auto field_name = selector.column->get_data_at(0).to_string();
+        const auto position = type.try_get_position_by_name(field_name);
+        if (!position) {
+            return Status::InvalidArgument("Unknown FILE field {}", field_name);
+        }
+        index = *position;
+        return Status::OK();
+    }
+
+    DataTypePtr get_file_element_return_type(const ColumnsWithTypeAndName& arguments) const {
+        const auto& type = assert_cast<const DataTypeFile&>(*remove_nullable(arguments[0].type));
+        // Validate constness while binding. The default constant implementation unwraps
+        // the selector for single-row execution when both arguments are constant.
+        if (!arguments[1].column || !is_column_const(*arguments[1].column)) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "FILE element_at requires a non-NULL constant field name");
+        }
+        size_t index = 0;
+        THROW_IF_ERROR(get_file_element_index(type, arguments[1], index));
+        return type.get_element(index);
+    }
+
+    Status _execute_file(Block& block, const ColumnNumbers& arguments, uint32_t result,
+                         size_t input_rows_count) const {
+        const auto& argument = block.get_by_position(arguments[0]);
+        const auto& type = assert_cast<const DataTypeFile&>(*remove_nullable(argument.type));
+        size_t index = 0;
+        RETURN_IF_ERROR(get_file_element_index(type, block.get_by_position(arguments[1]), index));
+        return execute_field<ColumnFile>(block, arguments[0], result, input_rows_count, index);
+    }
+
+    template <typename ColumnType>
+    static Status execute_field(Block& block, size_t argument, uint32_t result,
+                                size_t input_rows_count, size_t index) {
+        auto [unpacked, is_const] = unpack_if_const(block.get_by_position(argument).column);
+        ColumnPtr source = unpacked;
+        const ColumnUInt8* outer_nulls = nullptr;
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(*source)) {
+            outer_nulls = &nullable->get_null_map_column();
+            source = nullable->get_nested_column_ptr();
+        }
+        const auto& fields = assert_cast<const ColumnType&>(*source);
+        ColumnPtr selected = fields.get_column_ptr(index)->convert_to_full_column_if_const();
+        const size_t source_rows = is_const ? 1 : input_rows_count;
+        auto nulls = ColumnUInt8::create(source_rows, 0);
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(*selected)) {
+            memcpy(nulls->get_data().data(), nullable->get_null_map_data().data(), source_rows);
+            selected = nullable->get_nested_column_ptr();
+        }
+        if (outer_nulls) {
+            for (size_t row = 0; row < source_rows; ++row) {
+                nulls->get_data()[row] |= outer_nulls->get_data()[row];
+            }
+        }
+        selected = ColumnNullable::create(selected, std::move(nulls));
+        if (is_const) {
+            // Expand only the selected field, retaining shared storage for the other fields.
+            selected = ColumnConst::create(selected, input_rows_count)->convert_to_full_column();
+        }
+        block.replace_by_position(result, std::move(selected));
+        return Status::OK();
+    }
+
     static bool valid_negative_array_index(Int64 index, size_t length) {
         // Compare abs(index) - 1 so INT64_MIN stays representable and remains an out-of-range NULL.
         return index < 0 && std::cmp_less(static_cast<UInt64>(-(index + 1)), length);
@@ -244,45 +322,13 @@ private:
     Status _execute_struct(Block& block, const ColumnNumbers& arguments, uint32_t result,
                            size_t input_rows_count) const {
         const auto& struct_arg = block.get_by_position(arguments[0]);
-        ColumnPtr struct_col_ptr = struct_arg.column->convert_to_full_column_if_const();
-        // element_at manages nulls itself (use_default_implementation_for_nulls() == false), so a
-        // null struct row must be merged into the result null map manually.
-        const ColumnUInt8* outer_null_map = nullptr;
-        if (const auto* nullable = check_and_get_column<ColumnNullable>(struct_col_ptr.get())) {
-            outer_null_map = &nullable->get_null_map_column();
-            struct_col_ptr = nullable->get_nested_column_ptr();
-        }
-        const auto* struct_type =
-                check_and_get_data_type<DataTypeStruct>(remove_nullable(struct_arg.type).get());
-        const auto* struct_col = check_and_get_column<ColumnStruct>(struct_col_ptr.get());
-        if (!struct_col || !struct_type) {
-            return Status::RuntimeError("unsupported types for function {}({}, {})", get_name(),
-                                        struct_arg.type->get_name(),
-                                        block.get_by_position(arguments[1]).type->get_name());
-        }
+        const auto& struct_type =
+                assert_cast<const DataTypeStruct&>(*remove_nullable(struct_arg.type));
         const auto& index_arg = block.get_by_position(arguments[1]);
         size_t index = 0;
         RETURN_IF_ERROR(
-                get_struct_element_index(*struct_type, index_arg.column, index_arg.type, &index));
-
-        ColumnPtr field_col = struct_col->get_column_ptr(index);
-        auto res_null_column = ColumnUInt8::create(input_rows_count, 0);
-        auto& res_null_map = res_null_column->get_data();
-        ColumnPtr res_nested = field_col;
-        if (const auto* field_nullable = check_and_get_column<ColumnNullable>(field_col.get())) {
-            const auto& field_null_map = field_nullable->get_null_map_column().get_data();
-            memcpy(res_null_map.data(), field_null_map.data(), input_rows_count);
-            res_nested = field_nullable->get_nested_column_ptr();
-        }
-        if (outer_null_map) {
-            const auto& outer = outer_null_map->get_data();
-            for (size_t i = 0; i < input_rows_count; ++i) {
-                res_null_map[i] |= outer[i];
-            }
-        }
-        block.replace_by_position(result,
-                                  ColumnNullable::create(res_nested, std::move(res_null_column)));
-        return Status::OK();
+                get_struct_element_index(struct_type, index_arg.column, index_arg.type, &index));
+        return execute_field<ColumnStruct>(block, arguments[0], result, input_rows_count, index);
     }
 
     //=========================== map element===========================//

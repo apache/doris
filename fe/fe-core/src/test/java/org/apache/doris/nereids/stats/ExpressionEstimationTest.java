@@ -45,6 +45,7 @@ import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.FileType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.statistics.model.ColumnStatistic;
@@ -62,6 +63,13 @@ import java.util.List;
 import java.util.Map;
 
 class ExpressionEstimationTest {
+
+    @Test
+    public void testFileNullLiteralUsesUnknownStatistics() {
+        Statistics statistics = new Statistics(1, new HashMap<>());
+        Assertions.assertSame(ColumnStatistic.UNKNOWN,
+                ExpressionEstimation.estimate(new NullLiteral(FileType.INSTANCE), statistics));
+    }
 
     // MAX(a)
     // a belongs to [0, 500]

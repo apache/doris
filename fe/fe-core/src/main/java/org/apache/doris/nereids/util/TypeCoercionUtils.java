@@ -1593,6 +1593,7 @@ public class TypeCoercionUtils {
      */
     public static Expression processInPredicate(InPredicate inPredicate) {
         // check
+        inPredicate.children().forEach(argument -> ExpressionUtils.checkFileKey(argument, "IN"));
         inPredicate.checkLegalityBeforeTypeCoercion();
         checkNoVarbinaryComparison("IN/NOT IN", inPredicate.children());
 

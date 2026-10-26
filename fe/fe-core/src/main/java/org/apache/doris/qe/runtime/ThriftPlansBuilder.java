@@ -72,6 +72,7 @@ import org.apache.doris.thrift.TRecCTETarget;
 import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TRuntimeFilterInfo;
 import org.apache.doris.thrift.TRuntimeFilterParams;
+import org.apache.doris.thrift.TS3Resource;
 import org.apache.doris.thrift.TScanRangeParams;
 import org.apache.doris.thrift.TTopnFilterDesc;
 
@@ -238,6 +239,10 @@ public class ThriftPlansBuilder {
             aiResourceMap.put(resourceName, ((AIResource) resource).toThrift());
         }
         return aiResourceMap;
+    }
+
+    public static Map<String, TS3Resource> collectS3Resources(ConnectContext context) {
+        return context == null ? Maps.newLinkedHashMap() : context.getS3Resources();
     }
 
     private static void setParamsForOlapTableSink(List<PipelineDistributedPlan> distributedPlans,
@@ -522,6 +527,7 @@ public class ThriftPlansBuilder {
 
             // Only used for AI Functions
             params.setAiResources(collectAiResources(connectContext));
+            params.setS3Resources(collectS3Resources(connectContext));
 
             return params;
         });
