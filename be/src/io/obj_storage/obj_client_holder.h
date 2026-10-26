@@ -55,7 +55,7 @@ public:
 
     Status init();
 
-    // Merges a refreshed configuration (ObjStorageConfigResolver::merge_update) and replaces
+    // Merges a refreshed configuration (merge_obj_client_config) and replaces
     // the client if the result differs. This method is threadsafe. Resource and Storage Vault
     // refreshes are the callers.
     //

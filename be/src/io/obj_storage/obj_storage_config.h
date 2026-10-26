@@ -22,6 +22,7 @@
 #include <string>
 #include <variant>
 
+#include "common/status.h"
 #include "cpp/aws_common.h"
 #include "cpp/obj-client/auth/obj_credential.h"
 #include "cpp/obj-client/obj_storage_client.h"
@@ -41,6 +42,8 @@ namespace doris::io {
 // This header is SDK-free on purpose: it is included by both the S3 and Azure client
 // providers and must compile when BUILD_AZURE is off.
 
+// Only S3 clients apply these options today. Azure clients ignore them, although they still
+// tell cached Azure clients apart, as in the legacy conf.
 struct ObjStorageConnectionOptions {
     // Non-positive values keep the SDK/BE defaults, as in the legacy conf.
     int max_connections = -1;
@@ -144,6 +147,19 @@ struct ObjStorageConfig {
 // Adapter from the storage-domain provider to the credential layer's own provider identity,
 // used where a provider-native credential is validated.
 ObjCredentialProvider to_obj_credential_provider(ObjStorageProvider provider);
+
+// Whether the configuration is valid for its backend. Every client request is checked with it
+// before anything is built or looked up (ObjClientFactory), and FE properties are checked with
+// it right after conversion (ObjStorageConfigResolver).
+Status validate_obj_client_config(const ObjClientConfig& config);
+
+// Merges a refreshed resource or vault configuration into the one a holder uses. The storage
+// target stays: S3 keeps its endpoint, region and endpoint override, Azure keeps its endpoint.
+// Credentials, connection options, usage, the S3 vendor and addressing, and the Azure account
+// and container come from `update`, as the flat-field merge does. A different backend is a
+// different storage target, which needs a new binding rather than a reset, so it is rejected.
+Result<ObjClientConfig> merge_obj_client_config(const ObjClientConfig& current,
+                                                const ObjClientConfig& update);
 
 struct ObjClientConfigHash {
     size_t operator()(const ObjClientConfig& config) const {

@@ -23,7 +23,6 @@
 
 #include "common/logging.h"
 #include "io/obj_storage/obj_client_factory.h"
-#include "io/obj_storage/obj_storage_config_resolver.h"
 
 namespace doris::io {
 
@@ -44,7 +43,7 @@ Status ObjClientHolder::init() {
 
 Status ObjClientHolder::reset(const ObjClientConfig& update) {
     auto current = state();
-    auto merged = DORIS_TRY(ObjStorageConfigResolver::merge_update(current->config, update));
+    auto merged = DORIS_TRY(merge_obj_client_config(current->config, update));
     // Compare full-field equality of the merged config, not hash(): distinct configurations
     // can collide, which would skip a required client rebuild (e.g. a credential update).
     if (merged == current->config) {

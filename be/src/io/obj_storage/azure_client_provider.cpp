@@ -31,6 +31,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <variant>
 
 #include "cpp/obj-client/auth/azure_auth_factory.h"
 #include "cpp/obj-client/azure_obj_storage_client.h"
@@ -68,6 +69,19 @@ std::string build_azure_tls_debug_context(const std::string& selected_ca_file) {
             azure_env_or_empty("SSL_CERT_DIR"));
 }
 
+AzureCredentialOptions to_credential_options(const std::string& account,
+                                             const AzureSharedKeyConfig& shared_key) {
+    return {
+            .type = AzureCredentialType::SHARED_KEY,
+            .account_name = account,
+            .account_key = shared_key.account_key,
+    };
+}
+
+// The SharedKey pair is also reported as ak/sk endpoint info, as before the split.
+std::string account_key_for_endpoint_info(const AzureSharedKeyConfig& shared_key) {
+    return shared_key.account_key;
+}
 #endif
 
 } // namespace
@@ -110,12 +124,9 @@ Result<std::shared_ptr<ObjStorageClient>> AzureClientProvider::_build(
     VLOG_DEBUG << "uri:" << uri << ", normalized_uri:" << normalized_uri;
     std::string tls_debug_context = build_azure_tls_debug_context(ca_cert_file_path);
 
-    const auto& shared_key = std::get<AzureSharedKeyConfig>(azure.auth);
-    AzureCredentialOptions credential {
-            .type = AzureCredentialType::SHARED_KEY,
-            .account_name = azure.account,
-            .account_key = shared_key.account_key,
-    };
+    auto credential =
+            std::visit([&](const auto& auth) { return to_credential_options(azure.account, auth); },
+                       azure.auth);
     auto built = AzureAuthFactory::create(normalized_uri, credential, std::move(options));
     if (!built) {
         return ResultError(
@@ -128,7 +139,9 @@ Result<std::shared_ptr<ObjStorageClient>> AzureClientProvider::_build(
             ObjStorageEndpointInfo {
                     .endpoint = azure.endpoint,
                     .ak = azure.account,
-                    .sk = shared_key.account_key,
+                    .sk = std::visit(
+                            [](const auto& auth) { return account_key_for_endpoint_info(auth); },
+                            azure.auth),
                     .tls_debug_context = std::move(tls_debug_context),
             },
             std::move(built.shared_key_credential));
