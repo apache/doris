@@ -36,10 +36,21 @@ suite("test_array_with_single_row_max_than_uint16", "query") {
             )
             """
     // prepare data
-    streamLoad {
-        table "${testTable}"
-        set 'format', 'orc'
-        file "${context.config.dataPath}/query_p0/arr_max.orc"
+    String bucket = getS3BucketName()
+    String key = "regression/local_tvf_migration/${UUID.randomUUID()}/arr_max.orc"
+    def s3Client = getS3Client()
+    s3Client.putObject(bucket, key, new File(context.config.dataPath, "query_p0/arr_max.orc"))
+    try {
+        sql """INSERT INTO ${testTable} SELECT k1, k2, c_decimal FROM S3(
+            "uri" = "s3://${bucket}/${key}",
+            "format" = "orc",
+            "s3.endpoint" = "${getS3Endpoint()}",
+            "s3.region" = "${getS3Region()}",
+            "s3.access_key" = "${getS3AK()}",
+            "s3.secret_key" = "${getS3SK()}"
+        )"""
+    } finally {
+        s3Client.deleteObject(bucket, key)
     }
     sql "sync"
     qt_sql "SELECT COUNT(*) FROM ${testTable}"

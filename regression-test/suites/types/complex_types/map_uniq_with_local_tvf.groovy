@@ -34,10 +34,21 @@ suite("map_uniq_with_local_tvf", "p0") {
             "disable_auto_compaction" = "false"
             ); """
 
-    streamLoad {
-        table "${table_name}"
-        set 'format', 'orc'
-        file "${context.config.dataPath}/types/complex_types/mm.orc"
+    String bucket = getS3BucketName()
+    String key = "regression/local_tvf_migration/${UUID.randomUUID()}/mm.orc"
+    def s3Client = getS3Client()
+    s3Client.putObject(bucket, key, new File(context.config.dataPath, "types/complex_types/mm.orc"))
+    try {
+        sql """INSERT INTO ${table_name} SELECT id, m FROM S3(
+            "uri" = "s3://${bucket}/${key}",
+            "format" = "orc",
+            "s3.endpoint" = "${getS3Endpoint()}",
+            "s3.region" = "${getS3Region()}",
+            "s3.access_key" = "${getS3AK()}",
+            "s3.secret_key" = "${getS3SK()}"
+        )"""
+    } finally {
+        s3Client.deleteObject(bucket, key)
     }
     sql "sync"
     qt_sql "SELECT COUNT(*) FROM ${table_name}"
