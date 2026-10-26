@@ -611,6 +611,16 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
             }
         } else if (desc.category == ColumnCategory::PARTITION_KEY) {
             bool has_partition_value = partition_col_names.contains(desc.name);
+            // A projected column absent from the table-side schema tree means the schema info
+            // from FE is inconsistent with the scan projection. Fail this query loudly instead
+            // of aborting the whole BE process via children_column_exists's std::out_of_range
+            // (release) or DCHECK (debug). See #61225.
+            if (!ctx->table_info_node->has_children_column(desc.name)) {
+                return Status::InternalError(
+                        "schema mapping is missing projected column '{}'; the schema info from FE "
+                        "is inconsistent with the scan projection (file: {})",
+                        desc.name, ctx->range->path);
+            }
             bool exists_in_file = ctx->table_info_node->children_column_exists(desc.name);
             if (!has_partition_value || exists_in_file) {
                 // Keep PARTITION_KEY category stable for scan planning, but still read
@@ -620,6 +630,12 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
             }
             has_partition_from_path = true;
         } else if (desc.category == ColumnCategory::REGULAR) {
+            if (!ctx->table_info_node->has_children_column(desc.name)) {
+                return Status::InternalError(
+                        "schema mapping is missing projected column '{}'; the schema info from FE "
+                        "is inconsistent with the scan projection (file: {})",
+                        desc.name, ctx->range->path);
+            }
             ctx->column_names.push_back(desc.name);
         } else if (desc.category == ColumnCategory::GENERATED) {
             _init_row_lineage_columns();
@@ -1084,6 +1100,16 @@ Status IcebergOrcReader::on_before_init_reader(ReaderInitContext* ctx) {
             }
         } else if (desc.category == ColumnCategory::PARTITION_KEY) {
             bool has_partition_value = partition_col_names.contains(desc.name);
+            // A projected column absent from the table-side schema tree means the schema info
+            // from FE is inconsistent with the scan projection. Fail this query loudly instead
+            // of aborting the whole BE process via children_column_exists's std::out_of_range
+            // (release) or DCHECK (debug). See #61225.
+            if (!ctx->table_info_node->has_children_column(desc.name)) {
+                return Status::InternalError(
+                        "schema mapping is missing projected column '{}'; the schema info from FE "
+                        "is inconsistent with the scan projection (file: {})",
+                        desc.name, ctx->range->path);
+            }
             bool exists_in_file = ctx->table_info_node->children_column_exists(desc.name);
             if (!has_partition_value || exists_in_file) {
                 ctx->column_names.push_back(desc.name);
@@ -1091,6 +1117,12 @@ Status IcebergOrcReader::on_before_init_reader(ReaderInitContext* ctx) {
             }
             has_partition_from_path = true;
         } else if (desc.category == ColumnCategory::REGULAR) {
+            if (!ctx->table_info_node->has_children_column(desc.name)) {
+                return Status::InternalError(
+                        "schema mapping is missing projected column '{}'; the schema info from FE "
+                        "is inconsistent with the scan projection (file: {})",
+                        desc.name, ctx->range->path);
+            }
             ctx->column_names.push_back(desc.name);
         } else if (desc.category == ColumnCategory::GENERATED) {
             _init_row_lineage_columns();
