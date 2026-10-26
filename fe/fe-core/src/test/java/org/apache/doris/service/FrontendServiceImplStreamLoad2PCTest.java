@@ -210,6 +210,18 @@ public class FrontendServiceImplStreamLoad2PCTest {
     }
 
     @Test
+    public void testBeginRejectsInvalidForwardedBasicCredentials() throws Exception {
+        // HTTP ignores auth_code and forwards Basic credentials without setting the RPC authCode field.
+        TLoadTxnBeginRequest request = new TLoadTxnBeginRequest().setUser("loader").setPasswd("wrong_password")
+                .setUserIp("127.0.0.1").setDb("db").setTbl("tbl").setLabel("load_label").setBackendId(1);
+        TLoadTxnBeginResult result = service.loadTxnBegin(request);
+        Assertions.assertEquals(TStatusCode.ANALYSIS_ERROR, result.getStatus().getStatusCode());
+        Assertions.assertFalse(result.isSetTxnId());
+        Assertions.assertTrue(result.getStatus().getErrorMsgs().get(0).contains("Access denied"));
+        Mockito.verifyNoInteractions(transactions);
+    }
+
+    @Test
     public void testDuplicateBeginDoesNotReturnAnotherUsersTransaction() throws Exception {
         caller = UserIdentity.createAnalyzedUserIdentWithIp("other_loader", "%");
         Mockito.when(transactions.beginTransaction(Mockito.eq(1L), Mockito.eq(Collections.singletonList(2L)),

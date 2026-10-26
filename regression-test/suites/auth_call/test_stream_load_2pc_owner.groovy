@@ -54,9 +54,12 @@ suite("test_stream_load_2pc_owner", "p0,auth_call") {
     def headers = {
         return computeGroup.isEmpty() ? [] : ["-H", "cloud_cluster:${computeGroup}"]
     }
-    def prepare = { String label ->
+    def prepare = { String label, String authCode ->
         def args = ["-u", "${owner}:${password}", "-H", "two_phase_commit:true",
                     "-H", "Expect:100-continue", "-H", "label:${label}", "-H", "column_separator:,"] + headers()
+        if (authCode != null) {
+            args.addAll(["-H", "auth_code:${authCode}"])
+        }
         args.addAll(["-T", dataFile,
                 "http://${feAddress}/api/${db}/test_stream_load_2pc_owner/_stream_load"])
         def result = curl(args)
@@ -88,16 +91,19 @@ suite("test_stream_load_2pc_owner", "p0,auth_call") {
             sql "GRANT LOAD_PRIV ON ${db}.test_stream_load_2pc_owner TO ${user}"
         }
 
-        [false, true].each { byLabel ->
-            ["commit", "abort"].each { operation ->
-                String label = "owner_${byLabel}_${operation}_${UUID.randomUUID().toString()}"
-                def txn = prepare(label)
-                def denied = finish(other, txn, byLabel, operation)
-                assertTrue(denied.status != "Success", denied.toString())
-                assertTrue(denied.toString().contains("not the owner"), denied.toString())
-                // A rejected request must leave the transaction available for its creator.
-                def completed = finish(owner, txn, byLabel, operation)
-                assertEquals("Success", completed.status)
+        // Neither numeric nor malformed deprecated headers may turn a new user load ownerless.
+        [null, "1", "not_a_number"].each { authCode ->
+            [false, true].each { byLabel ->
+                ["commit", "abort"].each { operation ->
+                    String label = "owner_${byLabel}_${operation}_${UUID.randomUUID().toString()}"
+                    def txn = prepare(label, authCode)
+                    def denied = finish(other, txn, byLabel, operation)
+                    assertTrue(denied.status != "Success", denied.toString())
+                    assertTrue(denied.toString().contains("not the owner"), denied.toString())
+                    // A rejected request must leave the transaction available for its creator.
+                    def completed = finish(owner, txn, byLabel, operation)
+                    assertEquals("Success", completed.status)
+                }
             }
         }
     } finally {
