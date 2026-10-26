@@ -17,12 +17,6 @@
 
 #include "io/fs/s3_file_reader.h"
 
-#include <aws/core/http/URI.h>
-#include <aws/core/utils/Outcome.h>
-#include <aws/s3/S3Client.h>
-#include <aws/s3/S3Errors.h>
-#include <aws/s3/model/GetObjectRequest.h>
-#include <aws/s3/model/GetObjectResult.h>
 #include <bvar/latency_recorder.h>
 #include <bvar/reducer.h>
 #include <fmt/format.h>
@@ -49,6 +43,9 @@
 #include "util/s3_util.h"
 
 namespace doris::io {
+
+// Throttling by the storage service, which every backend reports as HTTP 429.
+constexpr int OBJ_STORAGE_HTTP_TOO_MANY_REQUESTS = 429;
 
 bvar::Adder<uint64_t> s3_file_reader_read_counter("s3_file_reader", "read_at");
 bvar::Adder<uint64_t> s3_file_reader_total("s3_file_reader", "total_num");
@@ -92,8 +89,6 @@ S3FileReader::S3FileReader(std::shared_ptr<const ObjClientHolder> client, std::s
     DorisMetrics::instance()->s3_file_reader_total->increment(1);
     s3_file_reader_total << 1;
     s3_file_being_read << 1;
-
-    Aws::Http::SetCompliantRfc3986Encoding(true);
 }
 
 S3FileReader::~S3FileReader() {
@@ -172,8 +167,7 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
         // clang-format on
         _s3_stats.total_get_request_counter++;
         if (resp.status.code != ErrorCode::OK) {
-            if (resp.http_code ==
-                static_cast<int>(Aws::Http::HttpResponseCode::TOO_MANY_REQUESTS)) {
+            if (resp.http_code == OBJ_STORAGE_HTTP_TOO_MANY_REQUESTS) {
                 s3_file_reader_too_many_request_counter << 1;
                 last_error = Status(resp.status.code, std::move(resp.status.msg));
                 retry_count++;

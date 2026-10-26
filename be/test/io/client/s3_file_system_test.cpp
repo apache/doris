@@ -35,6 +35,7 @@
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "runtime/exec_env.h"
+#include "testutil/obj_storage_test_util.h"
 #include "util/defer_op.h"
 #include "util/s3_rate_limiter_manager.h"
 #include "util/s3_util.h"
@@ -186,19 +187,23 @@ protected:
     }
 
     Status create_client() {
-        S3Conf s3_conf;
-        s3_conf.bucket = config_->get_bucket();
-        s3_conf.prefix = config_->get_prefix();
-        s3_conf.client_conf.ak = config_->get_access_key();
-        s3_conf.client_conf.sk = config_->get_secret_key();
-        s3_conf.client_conf.endpoint = config_->get_endpoint();
-        s3_conf.client_conf.bucket = config_->get_bucket();
-        s3_conf.client_conf.region = config_->get_region();
-        s3_conf.client_conf.provider = convert_provider(config_->get_provider());
-        if (config_->use_instance_profile()) {
-            s3_conf.client_conf.cred_provider_type = CredProviderType::InstanceProfile;
-            s3_conf.client_conf.role_arn = config_->get_role_arn();
-            s3_conf.client_conf.external_id = config_->get_external_id();
+        io::ObjStorageConfig s3_conf = io::make_test_s3_storage_config(
+                config_->get_bucket(), config_->get_prefix(), config_->get_endpoint(),
+                config_->get_region(), config_->get_access_key(), config_->get_secret_key());
+        if (convert_provider(config_->get_provider()) == io::ObjStorageProvider::AZURE) {
+            // Azure has always reused ak/sk as the SharedKey account/key and the bucket as
+            // the container.
+            s3_conf.client.backend = io::AzureClientConfig {
+                    .endpoint = config_->get_endpoint(),
+                    .account = config_->get_access_key(),
+                    .container = config_->get_bucket(),
+                    .auth = io::AzureSharedKeyConfig {.account_key = config_->get_secret_key()},
+            };
+        } else if (config_->use_instance_profile()) {
+            auto& auth = std::get<io::S3ClientConfig>(s3_conf.client.backend).auth;
+            auth.provider_type = CredProviderType::InstanceProfile;
+            auth.role_arn = config_->get_role_arn();
+            auth.external_id = config_->get_external_id();
         }
 
         s3_fs_ = DORIS_TRY(io::S3FileSystem::create(s3_conf, MOCK_S3_FS_ID));

@@ -16,7 +16,7 @@
 // under the License.
 
 // Tests spill on object storage (spill_storage_type=s3) against an in-memory
-// ObjStorageClient injected through S3ClientFactory. Covers the write/read round trip,
+// ObjStorageClient injected through ObjClientFactory. Covers the write/read round trip,
 // cleanup (file gc and its retry), the capacity limit, upload back pressure and request
 // statistics.
 
@@ -55,6 +55,7 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/s3_file_system.h"
+#include "io/obj_storage/obj_client_factory.h"
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_profile.h"
@@ -67,6 +68,7 @@
 #include "testutil/mock/mock_query_context.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "testutil/mock/obj_storage_client_test_stub.h"
+#include "testutil/obj_storage_test_util.h"
 #include "util/debug_points.h"
 #include "util/defer_op.h"
 #include "util/s3_util.h"
@@ -404,8 +406,8 @@ public:
     static void SetUpTestSuite() {
         _mock_client = std::make_shared<MockObjStorageClient>(&mock_store());
         std::shared_ptr<io::ObjStorageClient> client = _mock_client;
-        S3ClientFactory::instance().set_client_creator_for_test(
-                [client](const S3ClientConf&) { return client; });
+        io::ObjClientFactory::instance().set_client_creator_for_test(
+                [client](const io::ObjClientConfig&) { return client; });
 
         auto* exec_env = ExecEnv::GetInstance();
         if (exec_env->s3_file_upload_thread_pool() == nullptr) {
@@ -429,14 +431,8 @@ public:
             _owned_close_pool = true;
         }
 
-        S3Conf s3_conf;
-        s3_conf.bucket = kBucket;
-        s3_conf.prefix = kVaultPrefix;
-        s3_conf.client_conf.ak = "ak";
-        s3_conf.client_conf.sk = "sk";
-        s3_conf.client_conf.endpoint = "http://spill-mock-endpoint";
-        s3_conf.client_conf.region = "region";
-        s3_conf.client_conf.bucket = kBucket;
+        auto s3_conf = io::make_test_s3_storage_config(
+                kBucket, kVaultPrefix, "http://spill-mock-endpoint", "region", "ak", "sk");
         auto fs_or = io::S3FileSystem::create(s3_conf, "spill_s3_test_vault");
         ASSERT_TRUE(fs_or.has_value()) << fs_or.error();
         _s3_fs = fs_or.value();
@@ -444,7 +440,7 @@ public:
 
     static void TearDownTestSuite() {
         _s3_fs.reset();
-        S3ClientFactory::instance().clear_client_creator_for_test();
+        io::ObjClientFactory::instance().set_client_creator_for_test(nullptr);
         _mock_client.reset();
         auto* exec_env = ExecEnv::GetInstance();
         if (_owned_upload_pool) {
@@ -817,14 +813,8 @@ TEST_F(SpillFileS3Test, RemoteStoreLayout) {
 // newest one. A configured ID always wins.
 TEST_F(SpillFileS3Test, SelectVaultFileSystem) {
     auto make_fs = [](const std::string& id) {
-        S3Conf conf;
-        conf.bucket = kBucket;
-        conf.prefix = "vault_" + id;
-        conf.client_conf.ak = "ak";
-        conf.client_conf.sk = "sk";
-        conf.client_conf.endpoint = "http://spill-mock-endpoint";
-        conf.client_conf.region = "region";
-        conf.client_conf.bucket = kBucket;
+        auto conf = io::make_test_s3_storage_config(
+                kBucket, "vault_" + id, "http://spill-mock-endpoint", "region", "ak", "sk");
         auto fs = io::S3FileSystem::create(conf, id);
         EXPECT_TRUE(fs.has_value()) << fs.error();
         return io::RemoteFileSystemSPtr(fs.value());
@@ -867,14 +857,8 @@ TEST_F(SpillFileS3Test, VaultChangeKeepsExistingFilesAndPendingDeletesPinned) {
     ASSERT_TRUE(status.ok()) << status;
     const auto first_values = _read_all(first);
 
-    S3Conf second_conf;
-    second_conf.bucket = kBucket;
-    second_conf.prefix = "spill_s3_second_vault";
-    second_conf.client_conf.ak = "ak";
-    second_conf.client_conf.sk = "sk";
-    second_conf.client_conf.endpoint = "http://spill-mock-endpoint";
-    second_conf.client_conf.region = "region";
-    second_conf.client_conf.bucket = kBucket;
+    auto second_conf = io::make_test_s3_storage_config(
+            kBucket, "spill_s3_second_vault", "http://spill-mock-endpoint", "region", "ak", "sk");
     auto second_fs_or = io::S3FileSystem::create(second_conf, "spill_s3_second_vault");
     ASSERT_TRUE(second_fs_or.has_value()) << second_fs_or.error();
     _data_dir->init_remote_fs(second_fs_or.value(), kEndpoint);

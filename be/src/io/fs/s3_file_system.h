@@ -17,8 +17,11 @@
 
 #pragma once
 
+#include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <mutex>
+#include <optional>
 #include <shared_mutex>
 #include <string>
 #include <utility>
@@ -28,59 +31,22 @@
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/path.h"
 #include "io/fs/remote_file_system.h"
+#include "io/obj_storage/obj_client_holder.h"
+#include "io/obj_storage/obj_storage_config.h"
 #include "util/s3_util.h"
 
-namespace Aws::S3 {
-class S3Client;
-} // namespace Aws::S3
-namespace Aws::Utils::Threading {
-class PooledThreadExecutor;
-} // namespace Aws::Utils::Threading
-
 namespace doris::io {
-// In runtime, AK and SK may be modified, and the original `S3Client` instance will be replaced.
-// The `S3FileReader` cached by the `Segment` must hold a shared `ObjClientHolder` in order to
-// access S3 data with latest AK SK.
-class ObjClientHolder {
-public:
-    explicit ObjClientHolder(S3ClientConf conf);
-    ~ObjClientHolder();
 
-    Status init();
-
-    // Update s3 conf and reset client if `conf` is different. This method is threadsafe.
-    Status reset(const S3ClientConf& conf);
-
-    std::shared_ptr<ObjStorageClient> get() const {
-        std::shared_lock lock(_mtx);
-        return _client;
-    }
-
-    Result<int64_t> object_file_size(const std::string& bucket, const std::string& key) const;
-
-    // For error msg
-    std::string full_s3_path(std::string_view bucket, std::string_view key) const;
-
-    const S3ClientConf& s3_client_conf() { return _conf; }
-
-private:
-    mutable std::shared_mutex _mtx;
-    std::shared_ptr<ObjStorageClient> _client;
-    S3ClientConf _conf;
-};
-
-// File system for S3 compatible object storage
-// When creating S3FileSystem, all required info should be set in S3Conf,
-// such as ak, sk, region, endpoint, bucket.
-// And the root_path of S3FileSystem is s3_conf.prefix.
-// When using S3FileSystem, it accepts 2 kinds of path:
-//  1. Full path: s3://bucket/path/to/file.txt
-//      In this case, the root_path is not used.
+// File system for object storage (S3 and S3-compatible stores, Azure Blob), bound to the bucket
+// (Azure: container) and root prefix of one ObjStorageConfig. Backend differences live in the
+// client the holder provides. It accepts 2 kinds of path:
+//  1. Full path, e.g. s3://bucket/path/to/file.txt (ObjStorageUri::parse_s3).
+//     In this case, the root prefix is not used.
 //  2. only key: path/to/file.txt
 //      In this case, the final key will be "prefix + path/to/file.txt"
 class S3FileSystem final : public RemoteFileSystem {
 public:
-    static Result<std::shared_ptr<S3FileSystem>> create(S3Conf s3_conf, std::string id);
+    static Result<std::shared_ptr<S3FileSystem>> create(ObjStorageConfig config, std::string id);
 
     ~S3FileSystem() override;
 
@@ -126,9 +92,11 @@ protected:
     }
 
 private:
-    S3FileSystem(S3Conf s3_conf, std::string id);
+    S3FileSystem(ObjStorageConfig config, std::string id);
 
     Status init();
+
+    Result<std::string> _get_key(const Path& full_path) const;
 
     // For error msg
     std::string full_s3_path(std::string_view key) const;
