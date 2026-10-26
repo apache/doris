@@ -1922,8 +1922,7 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
         // Every cache-lock holder that can reach here took the lock with SCOPED_CACHE_LOCK, which
         // opens the scope. A missing or foreign scope (another cache's lock is the innermost)
         // falls back to removing inline, as before.
-        const bool can_defer = config::enable_file_cache_evict_io_outside_lock &&
-                               deferred_scope != nullptr && deferred_scope->owned_by(this);
+        const bool can_defer = deferred_scope != nullptr && deferred_scope->owned_by(this);
         if (sync && can_defer) {
             // Runs once the cache lock is released, before the evicting caller continues, so
             // the space is still freed on the caller's own thread.

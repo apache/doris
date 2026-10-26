@@ -507,8 +507,9 @@ private:
         requires IsXLock<T> && IsXLock<U>
     void remove(FileBlockSPtr file_block, T& cache_lock, U& segment_lock, bool sync = true);
 
-    // Runs the pending storage removal at (hash, offset) if this thread can claim it. Never call
-    // it with the cache lock held unless enable_file_cache_evict_io_outside_lock is off.
+    // Runs the pending storage removal at (hash, offset) if this thread can claim it. Called after
+    // the cache lock is released; remove() calls it under the lock only when no lock scope of this
+    // cache is open on the thread.
     void run_storage_remove(const UInt128Wrapper& hash, size_t offset,
                             bvar::LatencyRecorder* latency_us) const;
 

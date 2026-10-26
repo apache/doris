@@ -19,7 +19,6 @@
 // delete a block re-created at the same position, and must treat missing files as removed.
 
 #include <atomic>
-#include <cstdlib>
 #include <future>
 
 #include "io/cache/block_file_cache_test_common.h"
@@ -91,21 +90,9 @@ bool is_locked_elsewhere(std::mutex& mutex) {
     return locked;
 }
 
-class EvictIoConfigGuard {
-public:
-    explicit EvictIoConfigGuard(bool value)
-            : _old(config::enable_file_cache_evict_io_outside_lock) {
-        config::enable_file_cache_evict_io_outside_lock = value;
-    }
-    ~EvictIoConfigGuard() { config::enable_file_cache_evict_io_outside_lock = _old; }
-
-private:
-    bool _old;
-};
-
-void run_eviction_lock_probe(bool async_evict_io, bool expect_lock_held) {
-    EvictIoConfigGuard config_guard(async_evict_io);
-    auto base = evict_io_cache_path(async_evict_io ? "lock_on" : "lock_off");
+// Evicts one block and checks that its storage removal runs, with the cache lock not held.
+void run_eviction_lock_probe() {
+    auto base = evict_io_cache_path("lock_probe");
     fs::remove_all(base);
     fs::create_directories(base);
     Defer cleanup {[&] { fs::remove_all(base); }};
@@ -143,8 +130,8 @@ void run_eviction_lock_probe(bool async_evict_io, bool expect_lock_held) {
     insert_block(cache, key2, 0, kBlockSize);
 
     EXPECT_EQ(removes.load(), 1);
-    EXPECT_EQ(removes_under_lock.load(), expect_lock_held ? 1 : 0);
-    // The removal is synchronous for the caller either way: it is done when get_or_set returns.
+    EXPECT_EQ(removes_under_lock.load(), 0);
+    // The removal still completes on the evicting thread: it is done when get_or_set returns.
     EXPECT_FALSE(fs::exists(block_path(base, key1, 0)));
     EXPECT_TRUE(fs::exists(block_path(base, key1, kBlockSize)));
     EXPECT_EQ(cache._pending_storage_removes.size(), 0U);
@@ -153,16 +140,18 @@ void run_eviction_lock_probe(bool async_evict_io, bool expect_lock_held) {
 } // namespace
 
 TEST_F(BlockFileCacheTest, evict_io_storage_remove_runs_after_cache_lock_released) {
-    run_eviction_lock_probe(/*async_evict_io=*/true, /*expect_lock_held=*/false);
+    run_eviction_lock_probe();
 }
 
-TEST_F(BlockFileCacheTest, evict_io_storage_remove_under_lock_when_disabled) {
-    // Proves the probe detects a held lock, and keeps the legacy mode covered.
-    run_eviction_lock_probe(/*async_evict_io=*/false, /*expect_lock_held=*/true);
+// Negative control for is_locked_elsewhere(), which the lock checks in these tests rely on.
+TEST(BlockFileCacheEvictIoProbeTest, lock_probe_detects_held_lock) {
+    std::mutex mutex;
+    EXPECT_FALSE(is_locked_elsewhere(mutex));
+    std::lock_guard lock(mutex);
+    EXPECT_TRUE(is_locked_elsewhere(mutex));
 }
 
 TEST_F(BlockFileCacheTest, evict_io_remove_if_cached_removes_after_unlock) {
-    EvictIoConfigGuard config_guard(true);
     auto base = evict_io_cache_path("remove_if_cached");
     fs::remove_all(base);
     fs::create_directories(base);
@@ -200,7 +189,6 @@ TEST_F(BlockFileCacheTest, evict_io_remove_if_cached_removes_after_unlock) {
 // While an evicted block's storage removal is stalled, unrelated cache lookups do not wait for
 // it: the removal runs after the cache lock is released.
 TEST_F(BlockFileCacheTest, evict_io_lookup_proceeds_while_remove_stalls) {
-    EvictIoConfigGuard config_guard(true);
     auto base = evict_io_cache_path("stalled_remove");
     fs::remove_all(base);
     fs::create_directories(base);
@@ -265,7 +253,6 @@ TEST_F(BlockFileCacheTest, evict_io_lookup_proceeds_while_remove_stalls) {
 // blocks from storage (lazy load at startup, async load, LRU restore), which would leave a cached
 // block whose file the pending removal then deletes.
 TEST_F(BlockFileCacheTest, evict_io_load_skips_block_pending_removal) {
-    EvictIoConfigGuard config_guard(true);
     auto base = evict_io_cache_path("load_pending");
     fs::remove_all(base);
     fs::create_directories(base);
@@ -299,7 +286,6 @@ TEST_F(BlockFileCacheTest, evict_io_load_skips_block_pending_removal) {
 // A block is evicted and its removal stalls; meanwhile the same position is downloaded again.
 // The new download must wait for the stale removal, so the new file survives.
 TEST_F(BlockFileCacheTest, evict_io_recreated_block_survives_stale_remove) {
-    EvictIoConfigGuard config_guard(true);
     auto base = evict_io_cache_path("recreate");
     fs::remove_all(base);
     fs::create_directories(base);
@@ -405,7 +391,6 @@ TEST_F(BlockFileCacheTest, evict_io_queued_remove_drained_by_new_download) {
 // Many threads reserve, evict and re-insert a small set of hot positions. Every block the cache
 // believes is downloaded must still have its file once all removals have drained.
 TEST_F(BlockFileCacheTest, evict_io_concurrent_reserve_evict_reinsert) {
-    EvictIoConfigGuard config_guard(true);
     auto base = evict_io_cache_path("concurrent");
     fs::remove_all(base);
     fs::create_directories(base);
@@ -575,84 +560,6 @@ TEST(PendingStorageRemovesTest, wait_and_claim_waits_for_running_remove) {
     EXPECT_TRUE(returned.load());
     // The running removal finished the job; nothing is left to claim.
     EXPECT_FALSE(waiter_claimed);
-}
-
-// Throughput of many threads inserting into a full cache, where every insert evicts. Run with
-// DORIS_FILE_CACHE_EVICT_BENCH=1; it compares removal under the cache lock with removal after it.
-TEST_F(BlockFileCacheTest, evict_io_bench_full_cache_insert) {
-    if (std::getenv("DORIS_FILE_CACHE_EVICT_BENCH") == nullptr) {
-        GTEST_SKIP() << "set DORIS_FILE_CACHE_EVICT_BENCH=1 to run";
-    }
-    const int threads_num =
-            std::getenv("BENCH_THREADS") ? std::atoi(std::getenv("BENCH_THREADS")) : 64;
-    const int seconds = std::getenv("BENCH_SECONDS") ? std::atoi(std::getenv("BENCH_SECONDS")) : 5;
-    constexpr size_t kBenchBlock = 64 * 1024;
-    constexpr size_t kBenchBlocks = 2048;
-
-    for (bool async_evict_io : {false, true, false, true}) {
-        EvictIoConfigGuard config_guard(async_evict_io);
-        auto base = evict_io_cache_path("bench");
-        fs::remove_all(base);
-        fs::create_directories(base);
-        Defer cleanup {[&] { fs::remove_all(base); }};
-        BlockFileCache cache(base, normal_only_settings(kBenchBlocks * kBenchBlock, kBenchBlock));
-        ASSERT_TRUE(cache.initialize());
-        wait_until_cache_ready(cache);
-        std::string payload(kBenchBlock, 'p');
-        auto insert = [&](const std::string& name, int64_t* get_or_set_ns) {
-            CacheContext context;
-            ReadStatistics rstats;
-            context.stats = &rstats;
-            context.cache_type = FileCacheType::NORMAL;
-            auto hash = BlockFileCache::hash(name);
-            int64_t start = MonotonicNanos();
-            auto holder = cache.get_or_set(hash, 0, kBenchBlock, context);
-            *get_or_set_ns += MonotonicNanos() - start;
-            for (auto& block : holder.file_blocks) {
-                if (block->get_or_set_downloader() == FileBlock::get_caller_id()) {
-                    static_cast<void>(block->append(Slice(payload.data(), payload.size())));
-                    static_cast<void>(block->finalize());
-                }
-            }
-        };
-        int64_t unused = 0;
-        for (size_t i = 0; i < kBenchBlocks; ++i) {
-            insert("bench_fill_" + std::to_string(i), &unused);
-        }
-
-        std::atomic<bool> stop {false};
-        std::atomic<int64_t> ops {0};
-        std::atomic<int64_t> total_get_or_set_ns {0};
-        std::vector<std::thread> workers;
-        for (int t = 0; t < threads_num; ++t) {
-            workers.emplace_back([&, t] {
-                SCOPED_INIT_THREAD_CONTEXT();
-                int64_t local_ops = 0;
-                int64_t local_ns = 0;
-                while (!stop.load(std::memory_order_relaxed)) {
-                    insert("bench_" + std::to_string(t) + "_" + std::to_string(local_ops),
-                           &local_ns);
-                    ++local_ops;
-                }
-                ops += local_ops;
-                total_get_or_set_ns += local_ns;
-            });
-        }
-        std::this_thread::sleep_for(std::chrono::seconds(seconds));
-        stop = true;
-        for (auto& worker : workers) {
-            worker.join();
-        }
-        LOG(INFO) << "evict_io_bench async_evict_io=" << async_evict_io
-                  << " threads=" << threads_num << " inserts_per_sec=" << ops.load() / seconds
-                  << " avg_get_or_set_us="
-                  << (ops.load() == 0 ? 0 : total_get_or_set_ns.load() / ops.load() / 1000);
-        std::cout << "evict_io_bench async_evict_io=" << async_evict_io
-                  << " threads=" << threads_num << " inserts_per_sec=" << ops.load() / seconds
-                  << " avg_get_or_set_us="
-                  << (ops.load() == 0 ? 0 : total_get_or_set_ns.load() / ops.load() / 1000)
-                  << std::endl;
-    }
 }
 
 } // namespace doris::io
