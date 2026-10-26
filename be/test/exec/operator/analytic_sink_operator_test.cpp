@@ -33,6 +33,7 @@
 #include "core/column/column_const.h"
 #include "core/column/column_dummy.h"
 #include "core/column/column_nullable.h"
+#include "core/column/column_vector.h"
 #include "core/cow.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_nullable.h"
@@ -1707,6 +1708,62 @@ TEST_F(AnalyticSinkOperatorTest, SpillPathFillsPeerRangesAcrossOutputBlocksAndSi
     status = sink->sink(state.get(), &second, true);
     ASSERT_TRUE(status.ok()) << status.to_string();
     expect_large_cume_dist_peer_output(source.get(), state.get());
+}
+
+TEST_F(AnalyticSinkOperatorTest, SpillPeerRangeChecksCancellationBeforeFillingLargePeer) {
+    Initialize(8192);
+    prepare_cume_dist_without_partition();
+    auto batch = std::make_shared<AnalyticSpillBatch>();
+    batch->rows = state->batch_size();
+    batch->strategies = {WindowSpillStrategy::PEER_GROUP};
+    batch->peer_functions = {WindowSpillPeerFunction::CUME_DIST};
+    source_local_state->_current_batch = batch;
+    source_local_state->_partition_end = state->batch_size();
+    source_local_state->_peer_group_end = state->batch_size();
+    auto result = ColumnFloat64::create();
+    const std::vector<IColumn*> result_columns {result.get()};
+
+    CancelAfterChecksRuntimeState cancelled_state;
+    cancelled_state.reset_cancel_after(0);
+    expect_cancelled(source_local_state->_append_peer_group_results(
+            &cancelled_state, state->batch_size(), result_columns));
+    EXPECT_TRUE(result->empty());
+
+    // One peer/output intersection is filled in one iteration, without artificial row splits.
+    cancelled_state.reset_cancel_after(1);
+    const auto status = source_local_state->_append_peer_group_results(
+            &cancelled_state, state->batch_size(), result_columns);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_EQ(result->size(), state->batch_size());
+    for (const auto value : result->get_data()) {
+        EXPECT_DOUBLE_EQ(value, 1.0);
+    }
+}
+
+TEST_F(AnalyticSinkOperatorTest, SpillPeerRangeChecksCancellationBetweenUnevenPeers) {
+    Initialize(16);
+    prepare_cume_dist_without_partition();
+    auto batch = std::make_shared<AnalyticSpillBatch>();
+    batch->rows = state->batch_size();
+    batch->strategies = {WindowSpillStrategy::PEER_GROUP};
+    batch->peer_functions = {WindowSpillPeerFunction::CUME_DIST};
+    batch->peer_group_ends = {3, 10, 16};
+    source_local_state->_current_batch = batch;
+    source_local_state->_partition_end = batch->rows;
+    ASSERT_TRUE(source_local_state->_next_peer_group_end(state.get()).ok());
+    auto result = ColumnFloat64::create();
+    const std::vector<IColumn*> result_columns {result.get()};
+
+    CancelAfterChecksRuntimeState cancelled_state;
+    cancelled_state.reset_cancel_after(1);
+    expect_cancelled(source_local_state->_append_peer_group_results(
+            &cancelled_state, state->batch_size(), result_columns));
+    ASSERT_EQ(result->size(), 3);
+    for (const auto value : result->get_data()) {
+        EXPECT_DOUBLE_EQ(value, 3.0 / 16);
+    }
+    EXPECT_EQ(source_local_state->_peer_group_end, 3);
+    EXPECT_EQ(source_local_state->_in_memory_peer_group_index, 1);
 }
 
 TEST_F(AnalyticSinkOperatorTest, SpillPathFlushesPeerGroupsAtSpillBufferSize) {

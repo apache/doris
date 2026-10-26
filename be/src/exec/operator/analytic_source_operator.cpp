@@ -432,19 +432,15 @@ Status AnalyticLocalState::_append_peer_group_results(
         RuntimeState* state, size_t rows, const std::vector<IColumn*>& computed_result_columns) {
     const auto function_count = _current_batch->strategies.size();
     for (size_t offset = 0; offset < rows;) {
-        if ((offset & 4095) == 0) {
-            RETURN_IF_CANCELLED(state);
-        }
+        RETURN_IF_CANCELLED(state);
         const int64_t batch_row = _batch_output_position + offset;
         while (batch_row >= _peer_group_end) {
             RETURN_IF_ERROR(_next_peer_group_end(state));
         }
         DCHECK_GE(_peer_group_start, _partition_start);
         DCHECK_LE(_peer_group_end, _partition_end);
-        // Keep the existing cancellation cadence even when one peer spans many output rows.
         const size_t count =
-                std::min({rows - offset, static_cast<size_t>(_peer_group_end - batch_row),
-                          size_t {4096} - (offset & 4095)});
+                std::min(rows - offset, static_cast<size_t>(_peer_group_end - batch_row));
         for (size_t i = 0; i < function_count; ++i) {
             if (_current_batch->strategies[i] != WindowSpillStrategy::PEER_GROUP) {
                 continue;
