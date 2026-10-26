@@ -3148,6 +3148,52 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
+    public void planSystemTableScanKeepsSplitOffsetsWithTheirFileSizeDependency() throws Exception {
+        List<Long> offsets = Arrays.asList(4L, 2048L);
+        for (PartitionSpec spec : Arrays.asList(PartitionSpec.unpartitioned(),
+                PartitionSpec.builderFor(SCHEMA).identity("id").build())) {
+            Table table = createTable("t1", SCHEMA, spec);
+            table.newAppend().appendFile(dataFile(table.spec(), "data.parquet", 4096, offsets,
+                    spec.isPartitioned() ? "id=1" : null)).commit();
+            IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                    IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table));
+            for (String type : Arrays.asList("files", "data_files", "all_files", "all_data_files")) {
+                for (List<String> names : Arrays.asList(Collections.singletonList("split_offsets"),
+                        Arrays.asList("content", "split_offsets"), Arrays.asList("split_offsets", "content"),
+                        Arrays.asList("split_offsets", "file_size_in_bytes"),
+                        Arrays.asList("file_size_in_bytes", "split_offsets"))) {
+                    List<ConnectorColumnHandle> columns = names.stream()
+                            .map(name -> (ConnectorColumnHandle) new IcebergColumnHandle(name, 1))
+                            .collect(Collectors.toList());
+                    List<ConnectorScanRange> ranges = provider.planScan(null, ConnectorScanRequest.builder(
+                            IcebergTableHandle.forSystemTable("db1", "t1", type, -1L, null, -1L), columns).build());
+                    int rowCount = 0;
+                    for (ConnectorScanRange range : ranges) {
+                        FileScanTask task = IcebergSystemTableSerialization.deserializeFromBase64(
+                                ((IcebergScanRange) range).getSerializedSplit());
+                        try (CloseableIterable<StructLike> rows = task.asDataTask().rows()) {
+                            for (StructLike row : rows) {
+                                Assertions.assertEquals(offsets, row.get(names.indexOf("split_offsets"), List.class),
+                                        type + " " + names);
+                                if (names.contains("content")) {
+                                    Assertions.assertEquals(0, row.get(names.indexOf("content"), Integer.class));
+                                }
+                                if (names.contains("file_size_in_bytes")) {
+                                    Assertions.assertEquals(4096L,
+                                            row.get(names.indexOf("file_size_in_bytes"), Long.class));
+                                }
+                                rowCount++;
+                            }
+                        }
+                        Assertions.assertNull(task.schema().findField("readable_metrics"));
+                    }
+                    Assertions.assertEquals(1, rowCount);
+                }
+            }
+        }
+    }
+
+    @Test
     public void planSystemTableScanProjectionPreservesRequestedColumnOrderForPositionalBeRead() throws Exception {
         // WHY (regression — External Regression build 1000283): BE's IcebergSysTableJniScanner reads the
         // projected metadata rows POSITIONALLY (row.get(i) for i in 0..required_fields-1), relying on the i-th
