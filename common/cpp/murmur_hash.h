@@ -26,9 +26,8 @@ namespace doris {
 // MurmurHash2, 64 bit version. It was modified in order to provide the same result in big and
 // little endian archs (endian neutral).
 //
-// Shared by BE and cloud. Its results are persisted, e.g. in HLL values and in the shard of path
-// version 1 object keys (see `cpp/remote_path.h`), so it MUST NOT change. It stays inline because
-// BE calls it per row in HLL and approx_count_distinct.
+// Its results are persisted (HLL values, path version 1 shards), so it MUST NOT change. Inline as
+// BE calls it per row.
 inline uint64_t murmur_hash64A(const void* key, int64_t len, unsigned int seed) {
     const uint64_t m = 0xc6a4a7935bd1e995ULL;
     const int r = 47;

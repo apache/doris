@@ -4766,9 +4766,15 @@ int InstanceRecycler::delete_rowset_data(
                 std::for_each(paths->begin(), paths->end(),
                               [&metrics_context, &rowsets, &deleted_rowset_id, &path_format,
                                this](const std::string& path) {
-                                  std::string rowset_id =
-                                          remote_rowset_id_from_path(path, path_format);
-                                  if (rowset_id.empty()) {
+                                  // The file name is {rowset_id}_... in either path_version
+                                  int64_t tablet_id = 0;
+                                  std::string file_name;
+                                  std::string rowset_id;
+                                  if (split_remote_tablet_file_key(path, path_format, &tablet_id,
+                                                                   &file_name) &&
+                                      file_name.find('_') != std::string::npos) {
+                                      rowset_id = file_name.substr(0, file_name.find('_'));
+                                  } else {
                                       if (path.find("packed_file/") != std::string::npos) {
                                           return; // packed files do not have rowset_id encoded
                                       }

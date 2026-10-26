@@ -200,11 +200,9 @@ public:
     // hash the file_name to uint128
     static UInt128Wrapper hash(const std::string& path);
 
-    // The file name identifying a remote Doris table file in the file cache.
-    // Path version 0 names files {rowset_id}_{seg_id}.dat under data/{tablet_id}/, while path
-    // version 1 puts them under data/{shard}/{tablet_id}/{rowset_id}/{seg_id}.dat, where the bare
-    // file name is not unique across rowsets. Such files are mapped to the path version 0 name,
-    // which eviction and statistics also build from the rowset id.
+    // The file name identifying a remote Doris table file in the file cache: the path version 0
+    // name {rowset_id}_{seg_id}.dat, also for path version 1 .../{rowset_id}/{seg_id}.dat, whose
+    // bare file name is not unique across rowsets.
     static std::string doris_table_cache_file_name(std::string_view path);
 
     BlockFileCache(const std::string& cache_base_path, const FileCacheSettings& cache_settings);

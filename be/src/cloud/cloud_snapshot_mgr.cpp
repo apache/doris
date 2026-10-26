@@ -235,10 +235,8 @@ Status CloudSnapshotMgr::_create_rowset_meta(
     }
     rowset_id_mapping[src_rs_id] = dst_rs_id;
 
-    // Source files are named as in the backup repository, e.g. {rowset_id}_{seg}.dat. The targets
-    // follow the layout of the destination storage resource, e.g. a path_version 1 vault reads
-    // segment 0 from data/{shard}/{tablet_id}/{rowset_id}/0.dat, not from {rowset_id}_0.dat in the
-    // tablet directory.
+    // Source files are named as in the backup, e.g. {rowset_id}_{seg}.dat, the targets follow the
+    // layout of the destination storage resource
     const auto& layout = storage_resource.path_format;
     const std::string dst_rs_id_str = dst_rs_id.to_string();
     for (int i = 0; i < source_meta_pb.num_segments(); ++i) {

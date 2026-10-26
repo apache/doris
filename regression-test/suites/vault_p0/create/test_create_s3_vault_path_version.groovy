@@ -48,29 +48,10 @@ suite("test_create_s3_vault_path_version", "nonConcurrent") {
         """
     }
 
+    // The other invalid path formats are covered by CreateStorageVaultCommandTest
     test {
         sql createS3VaultSql(s3VaultName + "_invalid", """ "path_version" = "1" """)
         exception "shard_num is required when path_version is 1"
-    }
-    test {
-        sql createS3VaultSql(s3VaultName + "_invalid", """ "path_version" = "1", "shard_num" = "0" """)
-        exception "Invalid shard_num: 0, it must be positive"
-    }
-    test {
-        sql createS3VaultSql(s3VaultName + "_invalid", """ "path_version" = "1", "shard_num" = "-1" """)
-        exception "Invalid shard_num: -1, it must be positive"
-    }
-    test {
-        sql createS3VaultSql(s3VaultName + "_invalid", """ "path_version" = "2", "shard_num" = "16" """)
-        exception "Invalid path_version: 2, only 0 and 1 are supported"
-    }
-    test {
-        sql createS3VaultSql(s3VaultName + "_invalid", """ "path_version" = "abc" """)
-        exception "Invalid path_version: abc, it must be an integer"
-    }
-    test {
-        sql createS3VaultSql(s3VaultName + "_invalid", """ "shard_num" = "16" """)
-        exception "shard_num is only supported when path_version is 1"
     }
 
     sql createS3VaultSql(s3VaultName, """ "path_version" = "1", "shard_num" = "16" """)

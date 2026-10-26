@@ -23,19 +23,11 @@
 
 namespace doris {
 
-// Object key layout of the remote files of rowsets in a storage resource (`StorageVaultPB.path_format`).
-// This is the single definition of the layout: BE (`StorageResource`) writes and reads objects with
-// it, and the cloud recycler and checker delete and check them with it.
-//
+// Object key layout of rowset files (`StorageVaultPB.path_format`), shared by BE, the recycler and
+// the checker. Storage without a path format (legacy obj infos) uses path_version 0.
 //   path_version 0: data/{tablet_id}/{rowset_id}_{segment_id}.dat
-//   path_version 1: data/{shard}/{tablet_id}/{rowset_id}/{segment_id}.dat
+//   path_version 1: data/{shard}/{tablet_id}/{rowset_id}/{segment_id}.dat,
 //                   shard = murmur_hash64A(tablet_id) % shard_num
-//
-// e.g. tablet 10005, rowset "0200...be", segment 5, shard_num 1000:
-//   path_version 0: data/10005/0200...be_5.dat
-//   path_version 1: data/611/10005/0200...be/5.dat
-//
-// Storage resources without a path format (legacy obj infos) use path_version 0.
 struct RemotePathFormat {
     int64_t path_version = 0;
     int64_t shard_num = 0;
@@ -70,10 +62,6 @@ std::string remote_inverted_index_path_v2(const RemotePathFormat& format, int64_
 
 std::string remote_delete_bitmap_path(const RemotePathFormat& format, int64_t tablet_id,
                                       std::string_view rowset_id);
-
-// Parse the rowset id from a path built by the functions above. Return an empty string if `path`
-// is not a rowset file, e.g. a packed file.
-std::string remote_rowset_id_from_path(std::string_view path, const RemotePathFormat& format);
 
 // Split an object key of a tablet file into tablet id and file name. The file name is normalized to
 // the path_version 0 form, e.g. both data/10005/{rowset_id}_5.dat and

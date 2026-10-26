@@ -99,21 +99,6 @@ TEST(StorageResourceTest, RemotePath) {
 }
 
 TEST(StorageResourceTest, FileCacheName) {
-    S3Conf s3_conf {.bucket = "bucket",
-                    .prefix = "prefix",
-                    .client_conf = {
-                            .endpoint = "endpoint",
-                            .region = "region",
-                            .ak = "ak",
-                            .sk = "sk",
-                            .token = "",
-                            .bucket = "",
-                            .role_arn = "",
-                            .external_id = "",
-                    }};
-    auto res = io::S3FileSystem::create(std::move(s3_conf), io::FileSystem::TMP_FS_ID);
-    ASSERT_TRUE(res.has_value()) << res.error();
-
     constexpr std::string_view rowset_id_str = "0200000000001cc2224124562e7dfd4834d031b13c0210be";
     constexpr std::string_view other_rowset_id_str =
             "0200000000001cc3224124562e7dfd4834d031b13c0210be";
@@ -124,10 +109,11 @@ TEST(StorageResourceTest, FileCacheName) {
     rs_meta.set_rowset_id(rowset_id);
 
     cloud::StorageVaultPB storage_vault_pb;
-    StorageResource v0(res.value(), storage_vault_pb.path_format());
+    // Paths do not need a file system
+    StorageResource v0(nullptr, storage_vault_pb.path_format());
     storage_vault_pb.mutable_path_format()->set_path_version(1);
     storage_vault_pb.mutable_path_format()->set_shard_num(1000);
-    StorageResource v1(res.value(), storage_vault_pb.path_format());
+    StorageResource v1(nullptr, storage_vault_pb.path_format());
 
     auto file_name = [](const std::string& path) { return path.substr(path.rfind('/') + 1); };
 
@@ -152,15 +138,11 @@ TEST(StorageResourceTest, FileCacheName) {
                       v1.remote_delete_bitmap_path(10005, rowset_id_str)),
               file_name(v0.remote_delete_bitmap_path(10005, rowset_id_str)));
 
-    // the same segment of different rowsets or tablets must not collide
+    // the same segment of different rowsets must not collide
     EXPECT_NE(io::BlockFileCache::doris_table_cache_file_name(
                       v1.remote_segment_path(10005, rowset_id_str, 0)),
               io::BlockFileCache::doris_table_cache_file_name(
                       v1.remote_segment_path(10005, other_rowset_id_str, 0)));
-    EXPECT_NE(io::BlockFileCache::doris_table_cache_file_name(
-                      v1.remote_segment_path(10005, rowset_id_str, 0)),
-              io::BlockFileCache::doris_table_cache_file_name(
-                      v1.remote_segment_path(10006, other_rowset_id_str, 0)));
 
     EXPECT_EQ(io::BlockFileCache::doris_table_cache_file_name("0.dat"), "0.dat");
     EXPECT_EQ(io::BlockFileCache::doris_table_cache_file_name("/0.dat"), "0.dat");

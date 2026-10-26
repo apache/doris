@@ -727,19 +727,14 @@ static bool validate_path_format(const StorageVaultPB& vault, MetaServiceCode& c
     return true;
 }
 
-// An S3 root (bucket and prefix) must hold a single path_version. A path_version 0 tablet
-// directory data/{tablet_id}/ and a path_version 1 shard directory data/{shard}/ share a
-// namespace: tablet 10005 of a v0 vault and shard 10005 of a v1 vault (shard_num > 10005) are the
-// same directory, and recycling the tablet deletes data/10005/ with the other vault's objects.
-// Vaults with the same path_version never collide: tablet ids are unique, and a v1 vault deletes
-// data/{shard}/{tablet_id}/ only. The endpoint is not compared: one bucket has several endpoint
-// names (http/https, regional/global, internal/public), and missing a shared root loses data.
+// An S3 root (bucket and prefix) must hold a single path_version: v0 tablet 10005 and v1 shard
+// 10005 are both data/10005/, and recycling the tablet would delete the other vault's objects.
+// The endpoint is not compared, one bucket has several endpoint names (e.g. http/https).
 static bool check_s3_root_path_version(Transaction* txn, const InstanceInfoPB& instance,
                                        const std::string& bucket, std::string prefix,
                                        int64_t path_version, MetaServiceCode& code,
                                        std::string& msg) {
-    // Prefixes are stored trimmed, e.g. a request prefix "/shared/" is stored as "shared", so
-    // compare them trimmed, otherwise "shared/" would pass next to a vault on "shared"
+    // Prefixes are stored trimmed, e.g. "/shared/" as "shared"
     trim(prefix);
     auto same_root = [&](const ObjectStoreInfoPB& obj) {
         std::string obj_prefix = obj.prefix();

@@ -84,24 +84,6 @@ std::string remote_delete_bitmap_path(const RemotePathFormat& format, int64_t ta
                        DELETE_BITMAP_SUFFIX);
 }
 
-std::string remote_rowset_id_from_path(std::string_view path, const RemotePathFormat& format) {
-    auto file_name_pos = path.rfind('/');
-    if (file_name_pos == std::string_view::npos) {
-        return "";
-    }
-    std::string_view file_name = path.substr(file_name_pos + 1);
-    if (format.path_version == 0 || file_name.ends_with(DELETE_BITMAP_SUFFIX)) {
-        // {rowset_id}_{segment_id}.dat, {rowset_id}_delete_bitmap.db
-        auto pos = file_name.find('_');
-        return pos == std::string_view::npos ? "" : std::string(file_name.substr(0, pos));
-    }
-    // {rowset_id}/{segment_id}.dat
-    std::string_view dir = path.substr(0, file_name_pos);
-    auto rowset_id_pos = dir.rfind('/');
-    return rowset_id_pos == std::string_view::npos ? ""
-                                                   : std::string(dir.substr(rowset_id_pos + 1));
-}
-
 bool split_remote_tablet_file_key(std::string_view key, const RemotePathFormat& format,
                                   int64_t* tablet_id, std::string* file_name) {
     std::vector<std::string_view> parts;

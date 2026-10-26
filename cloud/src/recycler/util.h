@@ -65,9 +65,7 @@ void finish_instance_recycle_job(TxnKv* txn_kv, std::string_view key,
 int lease_instance_recycle_job(TxnKv* txn_kv, std::string_view key, const std::string& instance_id,
                                const std::string& ip_port);
 
-// The object key layout of rowset files is defined once in `cpp/remote_path.h` and shared with BE.
-// The helpers below are shorthands for it; the default format is path_version 0, which legacy obj
-// infos and vaults without path format use.
+// Shorthands for the layout in `cpp/remote_path.h`, the default format is path_version 0
 inline RemotePathFormat path_format_from_pb(const StorageVaultPB::PathFormat& path_format) {
     return {.path_version = path_format.path_version(), .shard_num = path_format.shard_num()};
 }

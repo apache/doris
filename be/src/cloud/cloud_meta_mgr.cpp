@@ -1909,18 +1909,19 @@ Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos, bool
 
     *is_vault_mode = resp.enable_storage_vault();
 
-    // Legacy object store infos have no path format, they always use path version 0
-    std::ranges::for_each(resp.obj_info(), [&](const auto& obj_store) {
-        vault_infos->emplace_back(obj_store.id(), S3Conf::get_s3_conf(obj_store),
-                                  StorageVaultPB_PathFormat {});
-    });
+    // Legacy object store infos have no path format, they use path version 0
+    auto add_obj_store = [&vault_infos](const auto& obj_store,
+                                        const StorageVaultPB_PathFormat& path_format = {}) {
+        vault_infos->emplace_back(obj_store.id(), S3Conf::get_s3_conf(obj_store), path_format);
+    };
+
+    std::ranges::for_each(resp.obj_info(), add_obj_store);
     std::ranges::for_each(resp.storage_vault(), [&](const auto& vault) {
         if (vault.has_hdfs_info()) {
             vault_infos->emplace_back(vault.id(), vault.hdfs_info(), vault.path_format());
         }
         if (vault.has_obj_info()) {
-            vault_infos->emplace_back(vault.obj_info().id(), S3Conf::get_s3_conf(vault.obj_info()),
-                                      vault.path_format());
+            add_obj_store(vault.obj_info(), vault.path_format());
         }
     });
 
@@ -2419,6 +2420,13 @@ void CloudMetaMgr::remove_delete_bitmap_update_lock(int64_t table_id, int64_t lo
     }
 }
 
+// Paths depend on the path format of the rowset's storage vault
+static const StorageResource& rowset_storage_resource(RowsetMeta& rs_meta) {
+    auto storage_resource = rs_meta.remote_storage_resource();
+    DORIS_CHECK(storage_resource.has_value());
+    return *storage_resource.value();
+}
+
 void CloudMetaMgr::check_table_size_correctness(RowsetMeta& rs_meta) {
     if (!config::enable_table_size_correctness_check) {
         return;
@@ -2428,9 +2436,6 @@ void CloudMetaMgr::check_table_size_correctness(RowsetMeta& rs_meta) {
     if (rs_meta.data_disk_size() != total_segment_size ||
         rs_meta.index_disk_size() != total_inverted_index_size ||
         rs_meta.data_disk_size() + rs_meta.index_disk_size() != rs_meta.total_disk_size()) {
-        auto maybe_storage_resource = rs_meta.remote_storage_resource();
-        DORIS_CHECK(maybe_storage_resource.has_value());
-        const StorageResource* storage_resource = maybe_storage_resource.value();
         LOG(WARNING) << "[Cloud table table size check failed]:"
                      << " tablet id: " << rs_meta.tablet_id()
                      << ", rowset id:" << rs_meta.rowset_id()
@@ -2440,24 +2445,21 @@ void CloudMetaMgr::check_table_size_correctness(RowsetMeta& rs_meta) {
                      << ", rowset real index disk size:" << total_inverted_index_size
                      << ", rowset total disk size:" << rs_meta.total_disk_size()
                      << ", rowset segment path:"
-                     << storage_resource->remote_segment_path(rs_meta.tablet_id(),
-                                                              rs_meta.rowset_id().to_string(), 0);
+                     << rowset_storage_resource(rs_meta).remote_segment_path(
+                                rs_meta.tablet_id(), rs_meta.rowset_id().to_string(), 0);
         DCHECK(false);
     }
 }
 
 int64_t CloudMetaMgr::get_segment_file_size(RowsetMeta& rs_meta) {
-    // Paths depend on the path format of the rowset's storage vault
-    auto maybe_storage_resource = rs_meta.remote_storage_resource();
-    DORIS_CHECK(maybe_storage_resource.has_value());
-    const StorageResource* storage_resource = maybe_storage_resource.value();
+    const auto& storage_resource = rowset_storage_resource(rs_meta);
     int64_t total_segment_size = 0;
     const auto fs = rs_meta.fs();
     if (!fs) {
         LOG(WARNING) << "get fs failed, resource_id={}" << rs_meta.resource_id();
     }
     for (auto seg : rs_meta.segments()) {
-        std::string segment_path = storage_resource->remote_segment_path(
+        std::string segment_path = storage_resource.remote_segment_path(
                 rs_meta.tablet_id(), rs_meta.rowset_id().to_string(), seg.id());
         int64_t segment_file_size = 0;
         auto st = fs->file_size(segment_path, &segment_file_size);
@@ -2478,10 +2480,7 @@ int64_t CloudMetaMgr::get_segment_file_size(RowsetMeta& rs_meta) {
 }
 
 int64_t CloudMetaMgr::get_inverted_index_file_size(RowsetMeta& rs_meta) {
-    // Paths depend on the path format of the rowset's storage vault
-    auto maybe_storage_resource = rs_meta.remote_storage_resource();
-    DORIS_CHECK(maybe_storage_resource.has_value());
-    const StorageResource* storage_resource = maybe_storage_resource.value();
+    const auto& storage_resource = rowset_storage_resource(rs_meta);
     int64_t total_inverted_index_size = 0;
     const auto fs = rs_meta.fs();
     if (!fs) {
@@ -2492,7 +2491,7 @@ int64_t CloudMetaMgr::get_inverted_index_file_size(RowsetMeta& rs_meta) {
         const auto& indices = rs_meta.tablet_schema()->inverted_indexes();
         for (auto& index : indices) {
             for (auto seg : rs_meta.segments()) {
-                std::string segment_path = storage_resource->remote_segment_path(
+                std::string segment_path = storage_resource.remote_segment_path(
                         rs_meta.tablet_id(), rs_meta.rowset_id().to_string(), seg.id());
                 int64_t file_size = 0;
 
@@ -2521,7 +2520,7 @@ int64_t CloudMetaMgr::get_inverted_index_file_size(RowsetMeta& rs_meta) {
     } else {
         for (auto seg : rs_meta.segments()) {
             int64_t file_size = 0;
-            std::string segment_path = storage_resource->remote_segment_path(
+            std::string segment_path = storage_resource.remote_segment_path(
                     rs_meta.tablet_id(), rs_meta.rowset_id().to_string(), seg.id());
 
             std::string inverted_index_file_path = InvertedIndexDescriptor::get_index_file_path_v2(

@@ -7483,18 +7483,6 @@ TEST(RecyclerTest, vault_path_format) {
     StorageVaultPB vault;
     EXPECT_EQ(path_format_from_pb(vault.path_format()).path_version, 0);
 
-    // rowset id parsing
-    EXPECT_EQ(remote_rowset_id_from_path(segment_path(10005, "r", 5, v0), v0), "r");
-    EXPECT_EQ(remote_rowset_id_from_path(inverted_index_path_v1(10005, "r", 5, 7, "", v0), v0),
-              "r");
-    EXPECT_EQ(remote_rowset_id_from_path(delete_bitmap_path(10005, "r", v0), v0), "r");
-    EXPECT_EQ(remote_rowset_id_from_path(segment_path(10005, "r", 5, v1), v1), "r");
-    EXPECT_EQ(remote_rowset_id_from_path(inverted_index_path_v1(10005, "r", 5, 7, "", v1), v1),
-              "r");
-    EXPECT_EQ(remote_rowset_id_from_path(inverted_index_path_v2(10005, "r", 5, v1), v1), "r");
-    EXPECT_EQ(remote_rowset_id_from_path(delete_bitmap_path(10005, "r", v1), v1), "r");
-    EXPECT_EQ(remote_rowset_id_from_path("data/packed_file/xxx", v0), "");
-
     // object key splitting, file name is normalized to path_version 0 form
     int64_t tablet_id = 0;
     std::string file_name;
@@ -7517,6 +7505,7 @@ TEST(RecyclerTest, vault_path_format) {
     EXPECT_EQ(tablet_id, 10005);
     EXPECT_EQ(file_name, "r_delete_bitmap.db");
     EXPECT_FALSE(split_remote_tablet_file_key("data/10005", v0, &tablet_id, &file_name));
+    EXPECT_FALSE(split_remote_tablet_file_key("data/packed_file/xxx", v0, &tablet_id, &file_name));
     EXPECT_FALSE(split_remote_tablet_file_key("data/611/10005", v1, &tablet_id, &file_name));
 }
 
