@@ -33,6 +33,12 @@ bvar::Adder<uint64_t> stream_load_commit_retry_counter("stream_load_commit_retry
 bvar::Window<bvar::Adder<uint64_t>> stream_load_commit_retry_counter_minute(
         "stream_load_commit_retry_counter", "1m", &stream_load_commit_retry_counter, 60);
 
+enum class TxnOpParamType : int {
+    ILLEGAL,
+    WITH_TXN_ID,
+    WITH_LABEL,
+};
+
 CloudStreamLoadExecutor::CloudStreamLoadExecutor(ExecEnv* exec_env)
         : StreamLoadExecutor(exec_env) {}
 

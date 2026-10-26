@@ -54,17 +54,11 @@ suite("test_stream_load_2pc_owner", "p0,auth_call") {
     def headers = {
         return computeGroup.isEmpty() ? [] : ["-H", "cloud_cluster:${computeGroup}"]
     }
-    def prepare = { boolean sqlHttp, String label ->
+    def prepare = { String label ->
         def args = ["-u", "${owner}:${password}", "-H", "two_phase_commit:true",
-                    "-H", "label:${label}", "-H", "column_separator:,"] + headers()
-        if (sqlHttp) {
-            args.addAll(["-H", "sql:insert into ${db}.test_stream_load_2pc_owner "
-                    + "select c1, c2 from http_stream(\"format\"=\"csv\",\"column_separator\"=\",\")",
-                    "-T", dataFile, "http://${feAddress}/api/_http_stream"])
-        } else {
-            args.addAll(["-T", dataFile,
-                    "http://${feAddress}/api/${db}/test_stream_load_2pc_owner/_stream_load"])
-        }
+                    "-H", "Expect:100-continue", "-H", "label:${label}", "-H", "column_separator:,"] + headers()
+        args.addAll(["-T", dataFile,
+                "http://${feAddress}/api/${db}/test_stream_load_2pc_owner/_stream_load"])
         def result = curl(args)
         assertEquals("Success", result.Status)
         assertTrue(result.TwoPhaseCommit.toString().equalsIgnoreCase("true"))
@@ -94,18 +88,16 @@ suite("test_stream_load_2pc_owner", "p0,auth_call") {
             sql "GRANT LOAD_PRIV ON ${db}.test_stream_load_2pc_owner TO ${user}"
         }
 
-        [false, true].each { sqlHttp ->
-            [false, true].each { byLabel ->
-                ["commit", "abort"].each { operation ->
-                    String label = "owner_${sqlHttp}_${byLabel}_${operation}_${UUID.randomUUID().toString()}"
-                    def txn = prepare(sqlHttp, label)
-                    def denied = finish(other, txn, byLabel, operation)
-                    assertTrue(denied.status != "Success", denied.toString())
-                    assertTrue(denied.toString().contains("not the owner"), denied.toString())
-                    // A rejected request must leave the transaction available for its creator.
-                    def completed = finish(owner, txn, byLabel, operation)
-                    assertEquals("Success", completed.status)
-                }
+        [false, true].each { byLabel ->
+            ["commit", "abort"].each { operation ->
+                String label = "owner_${byLabel}_${operation}_${UUID.randomUUID().toString()}"
+                def txn = prepare(label)
+                def denied = finish(other, txn, byLabel, operation)
+                assertTrue(denied.status != "Success", denied.toString())
+                assertTrue(denied.toString().contains("not the owner"), denied.toString())
+                // A rejected request must leave the transaction available for its creator.
+                def completed = finish(owner, txn, byLabel, operation)
+                assertEquals("Success", completed.status)
             }
         }
     } finally {

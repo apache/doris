@@ -3267,15 +3267,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         ConnectContext ctx = ConnectContext.get();
 
-        UserIdentity txnUser = null;
         if (request.isSetAuthCode()) {
             // TODO: deprecated, removed in 3.1, use token instead.
         } else if (Strings.isNullOrEmpty(request.getToken())) {
-            txnUser = checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
-                    request.getTbl(), request.getUserIp(), PrivPredicate.LOAD,
-                    toForwardedCertificateInfo(request.getCertBasedAuth()));
+            checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
+                    request.getTbl(),
+                    request.getUserIp(), PrivPredicate.LOAD);
         }
-        ctx.setStreamLoadTxnUser(txnUser);
         if (request.isSetMemtableOnSinkNode()) {
             ctx.getSessionVariable().enableMemtableOnSinkNode = request.isMemtableOnSinkNode();
         } else {
