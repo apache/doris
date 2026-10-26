@@ -1776,9 +1776,9 @@ TEST_F(ChangelogDeriveTest, PlainInterleavedTargetPreservesValues) {
     ASSERT_TRUE(testutil::resolve_test_changelog_layout(context).ok());
     register_segment_lsns(context, 1);
     Block block = source->create_storage_block();
-    block.get_by_position(0).column->assert_mutable()->insert(Field(int64_t(7)));
-    block.get_by_position(1).column->assert_mutable()->insert(Field(int64_t(11)));
-    block.get_by_position(2).column->assert_mutable()->insert(Field(int64_t(13)));
+    block.get_by_position(0).column->assert_mutable()->insert(Field::create_field<TYPE_INT>(7));
+    block.get_by_position(1).column->assert_mutable()->insert(Field::create_field<TYPE_INT>(11));
+    block.get_by_position(2).column->assert_mutable()->insert(Field::create_field<TYPE_INT>(13));
     block.get_by_position(3).column->assert_mutable()->insert_default();
     auto ctx = exec_ctx(target, &context);
     auto chain = build_transform_chain(context);
