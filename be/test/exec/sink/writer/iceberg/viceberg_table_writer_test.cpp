@@ -335,7 +335,7 @@ TEST(VIcebergTableWriterTest, OpenRejectsASinkWithoutTheTableFormOfTheDataLocati
     sink.__set_output_path("s3://b/db/t/data");
     TDataSink data_sink;
     data_sink.__set_iceberg_table_sink(sink);
-    VIcebergTableWriter writer(data_sink, {}, nullptr, nullptr);
+    VIcebergTableWriter writer(data_sink, {});
     RuntimeState state;
     TQueryOptions query_options;
     query_options.__set_supports_external_file_report_ack(true);
@@ -361,7 +361,7 @@ TEST(VIcebergTableWriterTest, PartitionWritersWriteAndCommitUnderBothFormsOfTheD
     sink.__set_compression_type(TFileCompressType::SNAPPYBLOCK);
     TDataSink data_sink;
     data_sink.__set_iceberg_table_sink(sink);
-    VIcebergTableWriter writer(data_sink, {}, nullptr, nullptr);
+    VIcebergTableWriter writer(data_sink, {});
     writer._schema = std::make_shared<iceberg::Schema>(std::move(columns));
     // What open() derives from the two location fields.
     writer._output_location.emplace(sink.output_path, sink.original_output_path);
