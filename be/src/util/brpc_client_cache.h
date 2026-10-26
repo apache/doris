@@ -21,6 +21,7 @@
 #include <brpc/adaptive_protocol_type.h>
 #include <brpc/channel.h>
 #include <brpc/controller.h>
+#include <bthread/bthread.h>
 #include <butil/endpoint.h>
 #include <fmt/format.h>
 #include <gen_cpp/Types_types.h>
@@ -41,6 +42,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/status.h"
+#include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "service/backend_options.h"
 #include "util/client_connection_provider.h"
@@ -184,6 +186,34 @@ public:
     }
 
     std::shared_ptr<T> get_client(const std::string& host, int port) {
+        auto* cluster_info = ExecEnv::GetInstance()->cluster_info();
+        // Startup and cache unit tests can run before ExecEnv initializes ClusterInfo.
+        return get_client(host, port,
+                          cluster_info != nullptr && cluster_info->in_graceful_shutdown());
+    }
+
+    std::shared_ptr<T> get_client(const std::string& host, int port, bool enable_handshake) {
+        const int max_attempts = enable_handshake ? 5 : 1;
+        for (int attempt = 0; attempt < max_attempts; ++attempt) {
+            auto stub = _get_client(host, port, enable_handshake);
+            if (stub != nullptr) {
+                return stub;
+            }
+            // A pod may answer heartbeats before its brpc port or DNS is ready.
+            // Retry a fresh resolution and channel, leaving healthy cache hits unchanged.
+            if (attempt + 1 < max_attempts) {
+                auto* dns_cache = ExecEnv::GetInstance()->dns_cache();
+                if (dns_cache != nullptr && !is_valid_ip(host)) {
+                    dns_cache->invalidate(host);
+                }
+                bthread_usleep(1000000L * (attempt + 1));
+            }
+        }
+        return nullptr;
+    }
+
+private:
+    std::shared_ptr<T> _get_client(const std::string& host, int port, bool enable_handshake) {
         std::string realhost = host;
         auto dns_cache = ExecEnv::GetInstance()->dns_cache();
         if (dns_cache == nullptr) {
@@ -246,14 +276,19 @@ public:
         // Create new stub using resolved IP for actual connection
         std::string real_host_port = get_host_port(realhost, port);
         auto stub = get_new_client_no_cache(real_host_port, "", "", "", 2000, 10, host);
-        if (stub != nullptr) {
-            StubEntry<T> entry {realhost, stub};
-            _stub_map.try_emplace_l(
-                    host_port, [&stub](const auto& v) { stub = v.second.stub; }, entry);
+        // In rolling mode, do not publish a new channel until the peer answers the
+        // probe. Healthy cache hits, including channels opened before the mode was
+        // enabled, must not pay an extra RPC per lookup.
+        if (stub == nullptr || (enable_handshake && !available(stub, real_host_port))) {
+            return nullptr;
         }
+        StubEntry<T> entry {realhost, stub};
+        _stub_map.try_emplace_l(
+                host_port, [&stub](const auto& v) { stub = v.second.stub; }, entry);
         return stub;
     }
 
+public:
     std::shared_ptr<T> get_client(const std::string& host_port) {
         const auto pos = host_port.rfind(':');
         std::string host = host_port.substr(0, pos);
@@ -353,6 +388,9 @@ public:
         request.set_hello(message);
         PHandShakeResponse response;
         brpc::Controller cntl;
+        // Bound a recovery probe independently of the channel's transport retries.
+        cntl.set_timeout_ms(2000);
+        cntl.set_max_retry(0);
         stub->hand_shake(&cntl, &request, &response, nullptr);
         if (cntl.Failed()) {
             LOG(WARNING) << "open brpc connection to " << host_port
