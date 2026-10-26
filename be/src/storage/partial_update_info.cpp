@@ -284,11 +284,16 @@ void PartialUpdateInfo::_generate_default_values_for_missing_cids(
         const auto& column = tablet_schema.column(cur_cid);
         if (column.has_default_value()) {
             std::string default_value;
+            // TIMESTAMPTZ schema-change defaults store a fixed backfill literal separately;
+            // new rows in partial updates must still evaluate CURRENT_TIMESTAMP at load time.
+            const auto& default_value_expr = column.has_default_value_expr()
+                                                     ? column.default_value_expr()
+                                                     : column.default_value();
             if (UNLIKELY((column.type() == FieldType::OLAP_FIELD_TYPE_DATETIMEV2 ||
                           column.type() == FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ) &&
-                         to_lower(column.default_value()).find(to_lower("CURRENT_TIMESTAMP")) !=
+                         to_lower(default_value_expr).find(to_lower("CURRENT_TIMESTAMP")) !=
                                  std::string::npos)) {
-                auto pos = to_lower(column.default_value()).find('(');
+                auto pos = to_lower(default_value_expr).find('(');
                 if (pos == std::string::npos) {
                     DateV2Value<DateTimeV2ValueType> dtv;
                     dtv.from_unixtime(timestamp_ms / 1000, timezone);
@@ -297,7 +302,7 @@ void PartialUpdateInfo::_generate_default_values_for_missing_cids(
                         default_value += timezone;
                     }
                 } else {
-                    int precision = std::stoi(column.default_value().substr(pos + 1));
+                    int precision = std::stoi(default_value_expr.substr(pos + 1));
                     DateV2Value<DateTimeV2ValueType> dtv;
                     dtv.from_unixtime(timestamp_ms / 1000, nano_seconds, timezone, precision);
                     default_value = dtv.to_string();
@@ -306,14 +311,8 @@ void PartialUpdateInfo::_generate_default_values_for_missing_cids(
                     }
                 }
             } else if (UNLIKELY(column.type() == FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS &&
-                                to_lower(column.has_default_value_expr()
-                                                 ? column.default_value_expr()
-                                                 : column.default_value())
-                                                .find(to_lower("CURRENT_TIMESTAMP")) !=
+                                to_lower(default_value_expr).find(to_lower("CURRENT_TIMESTAMP")) !=
                                         std::string::npos)) {
-                const auto& default_value_expr = column.has_default_value_expr()
-                                                         ? column.default_value_expr()
-                                                         : column.default_value();
                 auto pos = to_lower(default_value_expr).find('(');
                 DateV2Value<DateTimeV2ValueType> dtv;
                 uint16_t nanosecond_remainder = 0;
