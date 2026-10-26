@@ -22,60 +22,6 @@
 #include "util/s3_util.h"
 
 namespace doris::io {
-namespace {
-
-// The rules every client request is checked against before anything is built or looked up;
-// they are the checks the former S3ClientFactory::create applied to the flat configuration.
-Status validate_obj_client_backend(const S3ClientConfig& s3) {
-    if (s3.endpoint.empty()) {
-        return Status::InvalidArgument<false>("Invalid s3 conf, empty endpoint");
-    }
-    if (s3.region.empty()) {
-        return Status::InvalidArgument<false>("Invalid s3 conf, empty region");
-    }
-    ObjCredentialValidationContext credential_context {
-            .provider = to_obj_credential_provider(s3.vendor),
-            .ak = s3.auth.access_key,
-            .sk = s3.auth.secret_key,
-            .token = s3.auth.session_token,
-            .has_aws_role_arn = !s3.auth.role_arn.empty(),
-            .has_aws_external_id = !s3.auth.external_id.empty(),
-            .has_aws_credential_provider = s3.auth.provider_type != CredProviderType::Default,
-    };
-    if (auto error = validate_obj_credential_config(s3.auth.credential, credential_context);
-        error.has_value()) {
-        return Status::InvalidArgument<false>(*error);
-    }
-    if (s3.auth.role_arn.empty()) {
-        // Either both credentials are provided or both are empty (anonymous access)
-        if (!s3.auth.access_key.empty() && s3.auth.secret_key.empty()) {
-            return Status::InvalidArgument<false>("Invalid s3 conf, empty sk");
-        }
-        if (!s3.auth.secret_key.empty() && s3.auth.access_key.empty()) {
-            return Status::InvalidArgument<false>("Invalid s3 conf, empty ak");
-        }
-    }
-    return Status::OK();
-}
-
-// Azure has no region, which the flat configuration used to require with a placeholder value
-// ("dummy_region" from FE).
-Status validate_obj_client_backend(const AzureClientConfig& azure) {
-    if (azure.endpoint.empty()) {
-        return Status::InvalidArgument<false>("Invalid azure conf, empty endpoint");
-    }
-    const auto& shared_key = std::get<AzureSharedKeyConfig>(azure.auth);
-    // Either both are provided or both are empty, as for the flat ak/sk.
-    if (!azure.account.empty() && shared_key.account_key.empty()) {
-        return Status::InvalidArgument<false>("Invalid azure conf, empty account key");
-    }
-    if (!shared_key.account_key.empty() && azure.account.empty()) {
-        return Status::InvalidArgument<false>("Invalid azure conf, empty account name");
-    }
-    return Status::OK();
-}
-
-} // namespace
 
 ObjClientFactory::ObjClientFactory() {
     // Complete AWS SDK initialization before this singleton finishes construction. Function
@@ -91,9 +37,7 @@ ObjClientFactory& ObjClientFactory::instance() {
 
 Result<std::shared_ptr<ObjStorageClient>> ObjClientFactory::get_or_create(
         const ObjClientConfig& config) {
-    RETURN_IF_ERROR_RESULT(
-            std::visit([](const auto& backend) { return validate_obj_client_backend(backend); },
-                       config.backend));
+    RETURN_IF_ERROR_RESULT(validate_obj_client_config(config));
 #ifdef BE_TEST
     {
         std::lock_guard lock(_test_lock);
