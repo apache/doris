@@ -19,10 +19,20 @@
 // UUID annotations must survive export and nested-column reload without binary reinterpretation.
 suite("test_uuid_export", "p0,external") {
 
+    String provider = getS3Provider()
+    String endpoint = getS3Endpoint()
+    if (provider.equalsIgnoreCase("AZURE")) {
+        if (endpoint == "azure-endpoint") {
+            endpoint = "https://${getS3AK()}.blob.core.windows.net"
+        } else if (!endpoint.contains("://")) {
+            endpoint = "https://${endpoint}"
+        }
+    }
     String token = UUID.randomUUID().toString()
     String outputPath = "s3://${context.config.otherConfigs.get('s3BucketName')}/uuid_file_export/${token}_"
     String sinkProperties = """
-                            "s3.endpoint"="${getS3Endpoint()}", "s3.region"="${getS3Region()}",
+                            "provider"="${provider}",
+                            "s3.endpoint"="${endpoint}", "s3.region"="${getS3Region()}",
                             "s3.access_key"="${getS3AK()}", "s3.secret_key"="${getS3SK()}"
                             """
     sql "DROP TABLE IF EXISTS uuid_file_export"
