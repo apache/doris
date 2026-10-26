@@ -44,14 +44,16 @@ Status VStatisticsIterator::init(const StorageReadOptions& opts) {
     if (!_init) {
         _push_down_agg_type_opt = opts.push_down_agg_type_opt;
 
-        for (size_t ordinal = 0; ordinal < _schema.num_block_columns(); ordinal++) {
-            const auto* column_desc = _schema.column(ordinal);
-            auto unique_id = column_desc->unique_id();
-            if (_column_iterators_map.count(unique_id) < 1) {
-                RETURN_IF_ERROR(_segment->new_column_iterator(
-                        *column_desc, &_column_iterators_map[unique_id], &opts));
+        // COUNT only fills defaults. Every other aggregate reads the min and max of each column
+        // out of that column's own segment zone map, so each block column gets its own iterator:
+        // a unique id does not tell the columns apart, since every VARIANT path a scan adds to its
+        // read schema carries -1.
+        if (_push_down_agg_type_opt != TPushAggOp::COUNT) {
+            _column_iterators.resize(_schema.num_block_columns());
+            for (size_t ordinal = 0; ordinal < _schema.num_block_columns(); ++ordinal) {
+                RETURN_IF_ERROR(_segment->new_column_iterator(*_schema.column(ordinal),
+                                                              &_column_iterators[ordinal], &opts));
             }
-            _column_iterators.push_back(_column_iterators_map[unique_id].get());
         }
 
         _target_rows = _push_down_agg_type_opt == TPushAggOp::MINMAX ? 2 : _segment->num_rows();
@@ -62,7 +64,7 @@ Status VStatisticsIterator::init(const StorageReadOptions& opts) {
 }
 
 Status VStatisticsIterator::next_batch(Block* block) {
-    DCHECK_EQ(block->columns(), _column_iterators.size());
+    DCHECK_EQ(block->columns(), _schema.num_block_columns());
     if (_output_rows < _target_rows) {
         block->clear_column_data();
         auto columns_guard = block->mutate_columns_scoped();
@@ -76,16 +78,10 @@ Status VStatisticsIterator::next_batch(Block* block) {
                 column->insert_many_defaults(size);
             }
         } else {
-            for (int i = 0; i < columns.size(); ++i) {
+            // A CHAR bound comes out of the zone map without its '\0' padding already
+            // (DataTypeStringSerDeBase::from_olap_string), like the rows of a normal read.
+            for (size_t i = 0; i < columns.size(); ++i) {
                 RETURN_IF_ERROR(_column_iterators[i]->next_batch_of_zone_map(&size, columns[i]));
-                if (_schema.column(i)->type() == FieldType::OLAP_FIELD_TYPE_CHAR) {
-                    auto col = columns[i]->clone_empty();
-                    for (size_t j = 0; j < columns[i]->size(); ++j) {
-                        const auto ref = columns[i]->get_data_at(j).trim_tail_padding_zero();
-                        col->insert_data(ref.data, ref.size);
-                    }
-                    columns[i].swap(col);
-                }
             }
         }
         _output_rows += size;
@@ -189,89 +185,6 @@ Status VMergeIteratorContext::copy_rows(BlockView* view, bool advanced) {
     });
 
     _cur_batch_num = 0;
-    return Status::OK();
-}
-
-// This iterator will generate ordered data. For example for schema
-// (int, int) this iterator will generator data like
-// (0, 1), (1, 2), (2, 3), (3, 4)...
-//
-// Usage:
-//      ReadSchema schema;
-//      VAutoIncrementIterator iter(schema, 1000);
-//      StorageReadOptions opts;
-//      RETURN_IF_ERROR(iter.init(opts));
-//      Block block;
-//      do {
-//          st = iter.next_batch(&block);
-//      } while (st.ok());
-class VAutoIncrementIterator : public RowwiseIterator {
-public:
-    // Will generate num_rows rows in total
-    VAutoIncrementIterator(const ReadSchema& schema, size_t num_rows)
-            : _schema(schema), _num_rows(num_rows), _rows_returned() {}
-    ~VAutoIncrementIterator() override = default;
-
-    // NOTE: Currently, this function will ignore StorageReadOptions
-    Status init(const StorageReadOptions& opts) override;
-
-    Status next_batch(Block* block) override {
-        int row_idx = 0;
-        while (_rows_returned < _num_rows) {
-            for (int j = 0; j < _schema.num_block_columns(); ++j) {
-                ColumnWithTypeAndName& vc = block->get_by_position(j);
-                IColumn& vi = (IColumn&)(*vc.column);
-
-                char data[16] = {};
-                size_t data_len = 0;
-                const auto* col_schema = _schema.column(j);
-                switch (col_schema->type()) {
-                case FieldType::OLAP_FIELD_TYPE_SMALLINT:
-                    *(int16_t*)data = cast_set<int16_t>(_rows_returned + j);
-                    data_len = sizeof(int16_t);
-                    break;
-                case FieldType::OLAP_FIELD_TYPE_INT:
-                    *(int32_t*)data = cast_set<int32_t>(_rows_returned + j);
-                    data_len = sizeof(int32_t);
-                    break;
-                case FieldType::OLAP_FIELD_TYPE_BIGINT:
-                    *(int64_t*)data = cast_set<int64_t>(_rows_returned + j);
-                    data_len = sizeof(int64_t);
-                    break;
-                case FieldType::OLAP_FIELD_TYPE_FLOAT:
-                    *(float*)data = cast_set<float>(_rows_returned + j);
-                    data_len = sizeof(float);
-                    break;
-                case FieldType::OLAP_FIELD_TYPE_DOUBLE:
-                    *(double*)data = cast_set<double>(_rows_returned + j);
-                    data_len = sizeof(double);
-                    break;
-                default:
-                    break;
-                }
-
-                vi.insert_data(data, data_len);
-            }
-
-            ++row_idx;
-            ++_rows_returned;
-        }
-
-        if (row_idx > 0) {
-            return Status::OK();
-        }
-        return Status::EndOfFile("End of VAutoIncrementIterator");
-    }
-
-    const ReadSchema& schema() const override { return _schema; }
-
-private:
-    const ReadSchema& _schema;
-    size_t _num_rows;
-    size_t _rows_returned;
-};
-
-Status VAutoIncrementIterator::init(const StorageReadOptions& opts) {
     return Status::OK();
 }
 
@@ -486,10 +399,6 @@ RowwiseIteratorUPtr new_union_iterator(std::vector<RowwiseIteratorUPtr>&& inputs
 RowwiseIterator* new_vstatistics_iterator(std::shared_ptr<Segment> segment,
                                           const ReadSchema& schema) {
     return new VStatisticsIterator(segment, schema);
-}
-
-RowwiseIteratorUPtr new_auto_increment_iterator(const ReadSchema& schema, size_t num_rows) {
-    return std::make_unique<VAutoIncrementIterator>(schema, num_rows);
 }
 
 } // namespace doris
