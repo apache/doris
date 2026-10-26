@@ -19,6 +19,7 @@ package org.apache.doris.datasource.metacache;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.common.Config;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.SchemaCacheKey;
 import org.apache.doris.datasource.SchemaCacheValue;
@@ -37,6 +38,47 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 public class AbstractExternalMetaCacheTest {
+
+    @Test
+    public void testEngineInvalidationDoesNotWaitForCollidingCatalogLoader() throws Exception {
+        boolean manual = Config.enable_external_meta_cache_manual_miss_load;
+        ExecutorService executor = Executors.newCachedThreadPool();
+        Object catalogMonitor = new Object();
+        CountDownLatch loaderEntered = new CountDownLatch(1);
+        AbstractExternalMetaCache cache = new AbstractExternalMetaCache("lock-order", executor) { };
+        SchemaCacheValue value = new SchemaCacheValue(Lists.newArrayList(new Column("id", PrimitiveType.INT)));
+        cache.registerEntry(MetaCacheEntryDef.of("schema", SchemaCacheKey.class, SchemaCacheValue.class,
+                key -> {
+                    loaderEntered.countDown();
+                    synchronized (catalogMonitor) {
+                        return value;
+                    }
+                }, CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L)));
+        try {
+            Config.enable_external_meta_cache_manual_miss_load = false;
+            cache.initCatalog(1L, Maps.newHashMap());
+            MetaCacheEntry<SchemaCacheKey, SchemaCacheValue> entry = cache.entry(
+                    1L, "schema", SchemaCacheKey.class, SchemaCacheValue.class);
+            SchemaCacheKey resident = new SchemaCacheKey(NameMapping.createForTest(1L, "db", "an"));
+            SchemaCacheKey cold = new SchemaCacheKey(NameMapping.createForTest(1L, "db", "c0"));
+            Assert.assertEquals(resident.hashCode(), cold.hashCode());
+            entry.put(resident, value);
+            Future<SchemaCacheValue> load;
+            synchronized (catalogMonitor) {
+                load = executor.submit(() -> entry.get(cold));
+                Assert.assertTrue(loaderEntered.await(5, TimeUnit.SECONDS));
+                // Model the catalog-guarded DB invalidation while a cold schema load waits for it.
+                executor.submit(() -> entry.invalidateIf(key -> true)).get(3, TimeUnit.SECONDS);
+                Assert.assertNull(entry.getIfPresent(resident));
+            }
+            Assert.assertSame(value, load.get(5, TimeUnit.SECONDS));
+            Assert.assertNull(entry.getIfPresent(cold));
+        } finally {
+            Config.enable_external_meta_cache_manual_miss_load = manual;
+            cache.close();
+            executor.shutdownNow();
+        }
+    }
 
     @Test
     public void testEntryRequiresExplicitInit() {

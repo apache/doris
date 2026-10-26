@@ -65,6 +65,25 @@ public class IcebergExternalTableTest {
     }
 
     @Test
+    public void testSchemaDisplayMissingTableRepairsLookup() {
+        IcebergExternalDatabase database = Mockito.mock(IcebergExternalDatabase.class);
+        IcebergExternalTable table = Mockito.spy(
+                new IcebergExternalTable(10L, "table", "table", mockCatalog, database));
+        Mockito.doReturn(false).when(table).isView();
+        java.util.concurrent.atomic.AtomicInteger repaired = new java.util.concurrent.atomic.AtomicInteger();
+        Mockito.when(database.observeTableLookup(table)).thenReturn(java.util.Optional.of(repaired::incrementAndGet));
+        RuntimeException missing = new org.apache.iceberg.exceptions.NoSuchTableException("missing");
+        try (MockedStatic<IcebergUtils> utils = Mockito.mockStatic(IcebergUtils.class)) {
+            utils.when(() -> IcebergUtils.withIcebergTableGeneration(Mockito.same(table), Mockito.any()))
+                    .thenThrow(missing);
+            RuntimeException failure = Assertions.assertThrows(RuntimeException.class,
+                    () -> table.getBaseSchemaForDisplay(false));
+            Assertions.assertSame(missing, failure.getCause());
+            Assertions.assertEquals(1, repaired.get());
+        }
+    }
+
+    @Test
     public void testIsSupportedPartitionTable() {
         IcebergExternalDatabase database = new IcebergExternalDatabase(mockCatalog, 1L, "2", "2");
         IcebergExternalTable table = new IcebergExternalTable(1, "1", "1", mockCatalog, database);
