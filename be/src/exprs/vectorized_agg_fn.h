@@ -107,6 +107,9 @@ public:
 
     bool is_blockable() const;
 
+    // Whether the inline UInt64 count path can replace this aggregate function.
+    bool is_simple_count() const;
+
 private:
     const TFunction _fn;
 
