@@ -92,6 +92,10 @@ public class MetaCache<T> {
     private final Object physicalMetaObjLoadsLock = new Object();
     private final Map<String, Integer> physicalMetaObjLoads = Maps.newHashMap();
 
+    // Missing-table observations must not span a content refresh that retains lookup identity.
+    private long lookupObservationGeneration;
+    private int metadataRefreshes;
+
     private String name;
 
     public MetaCache(String name,
@@ -469,10 +473,23 @@ public class MetaCache<T> {
     }
 
     public Optional<T> getMetaObj(String name, long id) {
+        return getMetaObj(name, id, true);
+    }
+
+    /** Table lookups discard absent identities; legacy generic callers retain them for later recovery. */
+    public Optional<T> getMetaObj(String name, long id, boolean retainEmptyIdentity) {
+        return getMetaObjInternal(name, id, false, retainEmptyIdentity);
+    }
+
+    private Optional<T> getMetaObjInternal(String name, long id, boolean requireIndexedName,
+            boolean retainEmptyIdentity) {
         for (int attempt = 0; attempt < MAX_META_OBJ_LOAD_ATTEMPTS; attempt++) {
             long generation;
             metaObjLifecycleLock.readLock().lock();
             try {
+                if (requireIndexedName && !name.equals(idToName.get(id))) {
+                    return Optional.empty();
+                }
                 Optional<T> current = metaObjCache.getIfPresent(name);
                 if (current != null && current.isPresent()) {
                     return current;
@@ -514,7 +531,11 @@ public class MetaCache<T> {
                         return null;
                     }
                     metaObjCache.put(name, loaded);
-                    idToName.put(id, name);
+                    if (loaded.isPresent() || retainEmptyIdentity) {
+                        idToName.put(id, name);
+                    } else {
+                        idToName.remove(id, name);
+                    }
                     return loaded;
                 } finally {
                     metaObjLifecycleLock.readLock().unlock();
@@ -550,8 +571,12 @@ public class MetaCache<T> {
     }
 
     public Optional<T> getMetaObjById(long id) {
+        return getMetaObjById(id, true);
+    }
+
+    public Optional<T> getMetaObjById(long id, boolean retainEmptyIdentity) {
         String name = withMetaObjLifecycleReadLock(() -> idToName.get(id));
-        return name == null ? Optional.empty() : getMetaObj(name, id);
+        return name == null ? Optional.empty() : getMetaObjInternal(name, id, true, retainEmptyIdentity);
     }
 
     /** Return the retained canonical name without loading an evicted metadata object. */
@@ -659,6 +684,90 @@ public class MetaCache<T> {
             if (invalidated != null) {
                 return;
             }
+        }
+    }
+
+    /** Fences old object loads while retaining unrelated cached objects and their ID mappings. */
+    public void invalidateLookup(String localName, boolean allObjects) {
+        metaObjLifecycleLock.writeLock().lock();
+        try {
+            synchronized (namesMutationLock) {
+                invalidateNames();
+                metaObjGeneration.incrementAndGet();
+                lookupObservationGeneration++;
+                if (allObjects) {
+                    metaObjCache.invalidateAll();
+                    idToName.clear();
+                } else {
+                    metaObjCache.invalidate(localName);
+                    idToName.entrySet().removeIf(entry -> entry.getValue().equals(localName));
+                }
+            }
+        } finally {
+            metaObjLifecycleLock.writeLock().unlock();
+        }
+    }
+
+    /** Blocks missing-result repair during a metadata-only refresh without evicting names or objects. */
+    public Runnable beginMetadataRefresh() {
+        metaObjLifecycleLock.writeLock().lock();
+        try {
+            metadataRefreshes++;
+            lookupObservationGeneration++;
+        } finally {
+            metaObjLifecycleLock.writeLock().unlock();
+        }
+        return () -> {
+            metaObjLifecycleLock.writeLock().lock();
+            try {
+                metadataRefreshes--;
+                lookupObservationGeneration++;
+            } finally {
+                metaObjLifecycleLock.writeLock().unlock();
+            }
+        };
+    }
+
+    /** Captures matching resident membership and object state; never loads remote metadata. */
+    public Optional<Runnable> observeLookup(String localName, String remoteName, T expected,
+            boolean allObjects, Runnable invalidateMetadata) {
+        metaObjLifecycleLock.readLock().lock();
+        try {
+            synchronized (namesMutationLock) {
+                NamesCacheValue names = namesCache.getIfPresent("");
+                Optional<T> value = metaObjCache.getIfPresent(localName);
+                Pair<String, String> pair = names == null ? null : names.names.get(localName);
+                if (metadataRefreshes != 0 || names == null || !names.complete || pair == null
+                        || !pair.key().equals(remoteName) || value == null || !value.isPresent()
+                        || value.get() != expected) {
+                    return Optional.empty();
+                }
+                long objectGeneration = metaObjGeneration.get();
+                long observationGeneration = lookupObservationGeneration;
+                return Optional.of(() -> {
+                    metaObjLifecycleLock.writeLock().lock();
+                    try {
+                        synchronized (namesMutationLock) {
+                            if (metadataRefreshes != 0 || objectGeneration != metaObjGeneration.get()
+                                    || observationGeneration != lookupObservationGeneration
+                                    || namesCache.getIfPresent("") != names
+                                    || metaObjCache.getIfPresent(localName) != value) {
+                                return;
+                            }
+                            try {
+                                invalidateMetadata.run();
+                            } finally {
+                                // Names retire before any post-repair object load can be admitted.
+                                invalidateLookup(localName, allObjects);
+                            }
+                        }
+                    } finally {
+                        metaObjLifecycleLock.writeLock().unlock();
+                    }
+                });
+            }
+        } finally {
+            metaObjLifecycleLock.readLock().unlock();
         }
     }
 

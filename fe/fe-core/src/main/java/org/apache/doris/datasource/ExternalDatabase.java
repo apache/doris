@@ -34,6 +34,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
 import org.apache.doris.datasource.metacache.MetaCache;
+import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.qe.ConnectContext;
@@ -362,7 +363,9 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         }
 
         // Step 4: Build and return the table instance using the resolved names and other parameters
-        return buildTableInternal(remoteTableName, localTableName, tblId, catalog, db);
+        T table = buildTableInternal(remoteTableName, localTableName, tblId, catalog, db);
+        table.setUpdateTime(System.currentTimeMillis());
+        return table;
     }
 
     protected abstract T buildTableInternal(String remoteTableName, String localTableName, long tblId,
@@ -560,7 +563,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         // must use full qualified name to generate id.
         // otherwise, if 2 databases have the same table name, the id will be the same.
         return metaCache.getMetaObj(finalName,
-                Util.genIdByName(extCatalog.getName(), name, finalName)).orElse(null);
+                Util.genIdByName(extCatalog.getName(), name, finalName), false).orElse(null);
     }
 
     /**
@@ -610,7 +613,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     @Override
     public T getTableNullable(long tableId) {
         makeSureInitialized();
-        return metaCache.getMetaObjById(tableId).orElse(null);
+        return metaCache.getMetaObjById(tableId, false).orElse(null);
     }
 
     public long getLastUpdateTime() {
@@ -678,6 +681,64 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                     dorisTable.getName(), e);
         }
         return true;
+    }
+
+    public void invalidateTableLookup(String tableName) {
+        if (metaCache != null) {
+            String localName = getTableForReplay(tableName).map(ExternalTable::getName).orElse(tableName);
+            metaCache.invalidateLookup(localName, extCatalog.getLowerCaseTableNames() != 0);
+        }
+    }
+
+    /** Historical spellings require typed engine invalidation and an independent DB row-count fence. */
+    public void invalidateTableLookupDependencies() {
+        ExternalMetaCacheMgr cacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
+        long catalogId = getCatalog().getId();
+        cacheMgr.invalidateRowCountCache(catalogId, getId());
+        try {
+            cacheMgr.invalidateDb(this);
+        } finally {
+            cacheMgr.invalidateRowCountCache(catalogId, getId());
+        }
+    }
+
+    public Optional<Runnable> beginTableMetadataRefresh() {
+        return metaCache == null ? Optional.empty() : Optional.of(metaCache.beginMetadataRefresh());
+    }
+
+    /** A missing result is authorized only against the retained DB, names and object generations. */
+    @SuppressWarnings("unchecked")
+    public Optional<Runnable> observeTableLookup(ExternalTable table) {
+        MetaCache<T> cache = metaCache;
+        if (!initialized || cache == null) {
+            return Optional.empty();
+        }
+        long epoch = acquireTableMetadataLoadEpoch();
+        boolean allObjects = extCatalog.getLowerCaseTableNames() != 0;
+        Optional<Runnable> observed = cache.observeLookup(table.getName(), table.getRemoteName(), (T) table,
+                allObjects, () -> {
+                    if (allObjects) {
+                        invalidateTableLookupDependencies();
+                    } else {
+                        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(table);
+                    }
+                });
+        return observed.map(action -> () -> MetaCacheEntry.runWithDeferredRemovalCallbacks(() -> {
+            // A parent object loader can acquire the catalog monitor while holding its key lock.
+            // Pin that key first, then enter the same catalog -> database -> table-cache order.
+            extCatalog.executeIfDatabaseCurrent(this, () -> {
+                synchronized (extCatalog) {
+                    synchronized (this) {
+                        if (!initialized || metaCache != cache || !isTableMetadataLoadEpochCurrent(epoch)
+                                || Env.getCurrentEnv().getCatalogMgr().getCatalog(extCatalog.getId()) != extCatalog) {
+                            return false;
+                        }
+                        action.run();
+                        return true;
+                    }
+                }
+            });
+        }));
     }
 
     /**

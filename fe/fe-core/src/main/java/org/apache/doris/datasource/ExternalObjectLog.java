@@ -55,6 +55,9 @@ public class ExternalObjectLog implements Writable {
     @SerializedName(value = "invalidCache")
     private boolean invalidCache;
 
+    @SerializedName(value = "invalidateTableLookup")
+    private boolean invalidateTableLookup;
+
     @SerializedName(value = "partitionNames")
     private List<String> partitionNames;
 
@@ -77,11 +80,17 @@ public class ExternalObjectLog implements Writable {
 
     public static ExternalObjectLog createForRefreshTable(long catalogId, String dbName, String tblName,
             long updateTime) {
+        return createForRefreshTable(catalogId, dbName, tblName, updateTime, false);
+    }
+
+    public static ExternalObjectLog createForRefreshTable(long catalogId, String dbName, String tblName,
+            long updateTime, boolean invalidateTableLookup) {
         ExternalObjectLog externalObjectLog = new ExternalObjectLog();
         externalObjectLog.setCatalogId(catalogId);
         externalObjectLog.setDbName(dbName);
         externalObjectLog.setTableName(tblName);
         externalObjectLog.setLastUpdateTime(updateTime);
+        externalObjectLog.setInvalidateTableLookup(invalidateTableLookup);
         return externalObjectLog;
     }
 

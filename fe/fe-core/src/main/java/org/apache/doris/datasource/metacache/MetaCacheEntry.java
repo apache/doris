@@ -30,6 +30,8 @@ import com.github.benmanes.caffeine.cache.stats.CacheStats;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Objects;
@@ -59,6 +61,8 @@ import javax.annotation.Nullable;
  * key/predicate/full invalidation, and lightweight runtime stats.
  */
 public class MetaCacheEntry<K, V> {
+    private static final ThreadLocal<Deque<Runnable>> DEFERRED_REMOVALS = new ThreadLocal<>();
+
     private static final Logger LOG = LogManager.getLogger(MetaCacheEntry.class);
     // Use striped locks to deduplicate slow external loads without managing per-key lock lifecycle.
     private static final int LOAD_LOCK_STRIPES = 128;
@@ -278,6 +282,45 @@ public class MetaCacheEntry<K, V> {
         // Initialize striped locks eagerly to keep the hot path allocation-free.
         for (int i = 0; i < loadLocks.length; i++) {
             loadLocks[i] = new Object();
+        }
+    }
+
+    /**
+     * Keep logical invalidation synchronous, but release captured removed values after the caller's guards.
+     * This context is request-local; removed graphs are never submitted to an asynchronous executor.
+     */
+    public static void runWithDeferredRemovalCallbacks(Runnable action) {
+        if (DEFERRED_REMOVALS.get() != null) {
+            action.run();
+            return;
+        }
+        Deque<Runnable> pending = new ArrayDeque<>();
+        DEFERRED_REMOVALS.set(pending);
+        Throwable failure = null;
+        try {
+            action.run();
+        } catch (RuntimeException | Error e) {
+            failure = e;
+        } finally {
+            DEFERRED_REMOVALS.remove();
+        }
+        Runnable cleanup;
+        while ((cleanup = pending.pollFirst()) != null) {
+            try {
+                cleanup.run();
+            } catch (RuntimeException | Error e) {
+                if (failure == null) {
+                    failure = e;
+                } else if (failure != e) {
+                    failure.addSuppressed(e);
+                }
+            }
+        }
+        if (failure instanceof RuntimeException) {
+            throw (RuntimeException) failure;
+        }
+        if (failure != null) {
+            throw (Error) failure;
         }
     }
 
@@ -876,7 +919,7 @@ public class MetaCacheEntry<K, V> {
             return;
         }
         if (closed.get()) {
-            invokeRemovalListener(key, removalToken(value));
+            queueRemovalNotification(key, value);
             return;
         }
         // The dead reservation is queued before the dependency notification so the shared
@@ -930,6 +973,11 @@ public class MetaCacheEntry<K, V> {
 
     private void queueRemovalNotification(K key, @Nullable V value) {
         if (removalListener == null) {
+            return;
+        }
+        Deque<Runnable> deferred = DEFERRED_REMOVALS.get();
+        if (deferred != null) {
+            deferred.addLast(() -> queueRemovalNotification(key, value));
             return;
         }
         RemovedToken<K> removed = new RemovedToken<>(key, removalToken(value));

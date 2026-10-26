@@ -108,9 +108,11 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
 
     @Override
     public Optional<SchemaCacheValue> getSchemaCacheValue() {
-        return Optional.of(IcebergUtils.withSnapshotCacheValue(
-                MvccUtil.getSnapshotFromContext(this), this,
-                snapshotValue -> IcebergUtils.getSchemaCacheValue(this, snapshotValue)));
+        return withMissingTableRepair(() -> {
+            return Optional.of(IcebergUtils.withSnapshotCacheValue(
+                    MvccUtil.getSnapshotFromContext(this), this,
+                    snapshotValue -> IcebergUtils.getSchemaCacheValue(this, snapshotValue)));
+        });
     }
 
     @Override
@@ -258,12 +260,15 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
 
     @Override
     public MvccSnapshot loadSnapshot(Optional<TableSnapshot> tableSnapshot, Optional<TableScanParams> scanParams) {
-        if (isView()) {
-            return new EmptyMvccSnapshot();
-        } else {
-            return new IcebergMvccSnapshot(IcebergUtils.getSnapshotCacheValue(
-                    tableSnapshot, this, scanParams));
-        }
+        return withMissingTableRepair(() -> {
+            if (isView()) {
+                return new EmptyMvccSnapshot();
+            } else {
+                return new IcebergMvccSnapshot(IcebergUtils.getSnapshotCacheValue(
+                        tableSnapshot, this, scanParams));
+            }
+
+        });
     }
 
     @Override
@@ -274,12 +279,18 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
 
     @Override
     public List<Column> getFullSchema() {
-        return getFullSchema(MvccUtil.getSnapshotFromContext(this));
+        return withMissingTableRepair(() -> {
+            return getFullSchema(MvccUtil.getSnapshotFromContext(this));
+
+        });
     }
 
     @Override
     public List<Column> getFullSchema(Optional<MvccSnapshot> snapshot) {
-        return IcebergUtils.withSnapshotCacheValue(snapshot, this, this::projectFullSchema);
+        return withMissingTableRepair(() -> {
+            return IcebergUtils.withSnapshotCacheValue(snapshot, this, this::projectFullSchema);
+
+        });
     }
 
     private List<Column> projectFullSchema(IcebergSnapshotCacheValue snapshotValue) {
@@ -366,8 +377,10 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
 
     @Override
     public boolean isView() {
-        makeSureInitialized();
-        return isView;
+        return withMissingTableRepair(() -> {
+            makeSureInitialized();
+            return isView;
+        });
     }
 
     public String getViewText() {

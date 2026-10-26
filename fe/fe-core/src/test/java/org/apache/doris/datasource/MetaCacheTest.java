@@ -78,6 +78,125 @@ public class MetaCacheTest {
     }
 
     @Test
+    public void testLookupInvalidationKeepsSiblingAndFencesOldMissingObservation() {
+        metaCache.updateCache("a", "a", "old", 1L);
+        metaCache.updateCache("b", "b", "sibling", 2L);
+        // Loading a complete snapshot is required before observing membership.
+        metaCache.refreshNames();
+        metaCache.updateCache("a", "a", "old", 1L);
+        metaCache.updateCache("b", "b", "sibling", 2L);
+        AtomicInteger cleaned = new AtomicInteger();
+        Runnable oldMissing = metaCache.observeLookup("a", "a", "old", false, cleaned::incrementAndGet).get();
+        metaCache.invalidateLookup("a", false);
+        metaCache.updateCache("a", "a", "new", 1L);
+        oldMissing.run();
+        Assert.assertEquals(0, cleaned.get());
+        Assert.assertEquals("new", metaCache.tryGetMetaObj("a").get());
+        Assert.assertEquals("sibling", metaCache.getMetaObjById(2L).get());
+    }
+
+    @Test
+    public void testMetadataRefreshRetainsLookupAndRejectsOldMissing() {
+        metaCache.refreshNames();
+        metaCache.updateCache("a", "a", "old", 1L);
+        AtomicInteger cleaned = new AtomicInteger();
+        Runnable oldMissing = metaCache.observeLookup("a", "a", "old", false, cleaned::incrementAndGet).get();
+        Runnable finish = metaCache.beginMetadataRefresh();
+        Assert.assertFalse(metaCache.observeLookup("a", "a", "old", false, cleaned::incrementAndGet).isPresent());
+        finish.run();
+        oldMissing.run();
+        Assert.assertEquals(0, cleaned.get());
+        Assert.assertEquals("old", metaCache.getMetaObjById(1L).get());
+        Assert.assertTrue(metaCache.listNames().contains("a"));
+    }
+
+    @Test
+    public void testLookupFailureStillRetiresAllHistoricalSpellings() {
+        metaCache.refreshNames();
+        metaCache.updateCache("Foo", "Foo", "first", 1L);
+        metaCache.updateCache("FOO", "FOO", "second", 2L);
+        Runnable missing = metaCache.observeLookup("FOO", "FOO", "second", true, () -> {
+            throw new IllegalStateException("cleanup failed");
+        }).get();
+        Assert.assertThrows(IllegalStateException.class, missing::run);
+        Assert.assertFalse(metaCache.tryGetMetaObj("Foo").isPresent());
+        Assert.assertFalse(metaCache.tryGetMetaObj("FOO").isPresent());
+        Assert.assertFalse(metaCache.getNameByIdIfPresent(1L).isPresent());
+        Assert.assertFalse(metaCache.getNameByIdIfPresent(2L).isPresent());
+        Assert.assertFalse(metaCache.observeLookup("FOO", "FOO", "second", true, () -> { }).isPresent());
+    }
+
+    @Test
+    public void testInFlightObjectCannotRepopulateRetiredLookup() throws Exception {
+        ExecutorService executor = Executors.newCachedThreadPool();
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicInteger loads = new AtomicInteger();
+        try {
+            MetaCache<String> cache = new MetaCache<>("late-lookup", executor,
+                    OptionalLong.empty(), OptionalLong.empty(), 100,
+                    ignored -> Lists.newArrayList(Pair.of("a", "a")),
+                    ignored -> {
+                        if (loads.incrementAndGet() == 1) {
+                            started.countDown();
+                            Assert.assertTrue(release.await(10, TimeUnit.SECONDS));
+                            return Optional.of("old");
+                        }
+                        return Optional.of("new");
+                    }, null);
+            cache.listNames();
+            Future<Optional<String>> old = executor.submit(() -> cache.getMetaObj("a", 1L));
+            Assert.assertTrue(started.await(10, TimeUnit.SECONDS));
+            cache.invalidateLookup("a", false);
+            Assert.assertEquals("new", cache.getMetaObj("a", 1L).get());
+            release.countDown();
+            Assert.assertEquals("new", old.get(10, TimeUnit.SECONDS).get());
+            Assert.assertEquals("new", cache.getMetaObjById(1L).get());
+        } finally {
+            release.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testNumericLoadCannotRestoreAnInvalidatedId() throws Exception {
+        ExecutorService executor = Executors.newCachedThreadPool();
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        try {
+            MetaCache<String> cache = new MetaCache<>("numeric-lookup", executor,
+                    OptionalLong.empty(), OptionalLong.empty(), 100,
+                    ignored -> Lists.newArrayList(Pair.of("a", "a")),
+                    ignored -> {
+                        started.countDown();
+                        Assert.assertTrue(release.await(10, TimeUnit.SECONDS));
+                        return Optional.of("retired");
+                    }, null);
+            cache.updateCache("a", "a", "old", 1L);
+            cache.getMetaObjCache().invalidate("a");
+            Future<Optional<String>> numeric = executor.submit(() -> cache.getMetaObjById(1L));
+            Assert.assertTrue(started.await(10, TimeUnit.SECONDS));
+            cache.invalidateLookup("a", false);
+            release.countDown();
+            Assert.assertFalse(numeric.get(10, TimeUnit.SECONDS).isPresent());
+            Assert.assertFalse(cache.getNameByIdIfPresent(1L).isPresent());
+            Assert.assertFalse(cache.tryGetMetaObj("a").isPresent());
+        } finally {
+            release.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testTableLookupDoesNotRestoreAnAbsentIdentity() {
+        Assert.assertFalse(metaCache.getMetaObj("dropped", 7L, false).isPresent());
+        Assert.assertFalse(metaCache.getNameByIdIfPresent(7L).isPresent());
+        // Generic users keep their previous empty-entry recovery contract.
+        Assert.assertFalse(metaCache.getMetaObj("recoverable", 8L).isPresent());
+        Assert.assertEquals("recoverable", metaCache.getNameByIdIfPresent(8L).get());
+    }
+
+    @Test
     public void testListNames() {
         metaCache.updateCache("remote1", "local1", "meta1", 1L);
         metaCache.updateCache("remote2", "local2", "meta2", 2L);
