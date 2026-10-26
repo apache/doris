@@ -18,6 +18,7 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.kerberos.HadoopAuthenticator;
+import org.apache.doris.kerberos.HadoopKerberosAuthenticator;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.security.UserGroupInformation;
@@ -63,6 +64,32 @@ public class IcebergConnectorPluginAuthenticatorTest {
                         "hadoop.kerberos.keytab", "/etc/security/doris.keytab"),
                 new HashMap<>());
         Assertions.assertNotNull(auth, "storage kerberos must yield a plugin authenticator");
+    }
+
+    @Test
+    public void canonicalStorageKerberosBuildsPluginAuthenticator() {
+        HadoopAuthenticator auth = IcebergConnector.buildPluginAuthenticator(
+                props("iceberg.catalog.type", "hms",
+                        "hdfs.authentication.type", "kerberos",
+                        "hdfs.authentication.kerberos.principal", "storage@EXAMPLE.COM",
+                        "hdfs.authentication.kerberos.keytab", "/etc/security/storage.keytab"),
+                props("hadoop.security.authentication", "kerberos",
+                        "hadoop.kerberos.principal", "storage@EXAMPLE.COM",
+                        "hadoop.kerberos.keytab", "/etc/security/storage.keytab"));
+        Assertions.assertTrue(auth instanceof HadoopKerberosAuthenticator,
+                "Canonical storage configuration must select the plugin-side Kerberos UGI");
+    }
+
+    @Test
+    public void kerberosHmsWithSimpleStorageDoesNotBuildStorageAuthenticator() {
+        HadoopAuthenticator auth = IcebergConnector.buildPluginAuthenticator(
+                props("iceberg.catalog.type", "hms",
+                        "hive.metastore.authentication.type", "kerberos",
+                        "hive.metastore.client.principal", "metastore@EXAMPLE.COM",
+                        "hive.metastore.client.keytab", "/etc/security/metastore.keytab",
+                        "hdfs.authentication.type", "simple"),
+                props("hadoop.security.authentication", "simple"));
+        Assertions.assertNull(auth, "HMS credentials must not select the storage Kerberos identity");
     }
 
     /**

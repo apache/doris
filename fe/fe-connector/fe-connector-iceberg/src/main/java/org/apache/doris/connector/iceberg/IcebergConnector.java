@@ -1454,9 +1454,11 @@ public class IcebergConnector implements Connector {
      */
     static HadoopAuthenticator buildPluginAuthenticator(Map<String, String> properties,
             Map<String, String> storageHadoopConfig) {
-        if ("kerberos".equalsIgnoreCase(properties.get(HADOOP_SECURITY_AUTHENTICATION))) {
-            return HadoopAuthenticator.getHadoopAuthenticator(
-                    IcebergCatalogFactory.buildHadoopConfiguration(properties, storageHadoopConfig));
+        // Storage bindings normalize hdfs.authentication.* and XML settings into Hadoop keys.
+        // Gating on the raw legacy key would leave FileIO using the plugin's unauthenticated UGI.
+        Configuration conf = IcebergCatalogFactory.buildHadoopConfiguration(properties, storageHadoopConfig);
+        if ("kerberos".equalsIgnoreCase(conf.get(HADOOP_SECURITY_AUTHENTICATION))) {
+            return HadoopAuthenticator.getHadoopAuthenticator(conf);
         }
         return null;
     }
