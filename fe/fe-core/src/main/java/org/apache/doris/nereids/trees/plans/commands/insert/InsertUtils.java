@@ -69,6 +69,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.DataType;
@@ -533,26 +534,31 @@ public class InsertUtils {
     /**
      * Resolve DEFAULT(column) in the select lists of an INSERT ... SELECT by name against the target's pinned
      * writer schema, before the source relations are bound, so it names a target column whatever the source is.
+     * A derived table in FROM is a query of its own: DEFAULT(column) in it names a column of its own FROM clause,
+     * as without this resolution, so it is left alone.
      */
     private static Plan resolveSelectDefaultReferences(Plan query, Optional<List<Column>> writeOnlyDefaultColumns,
             TableIf table, List<String> targetNameParts) {
-        return query.rewriteUp(plan -> {
-            if (plan instanceof LogicalProject) {
-                LogicalProject<?> project = (LogicalProject<?>) plan;
-                return project.withProjects(project.getProjects().stream()
-                        .map(projection -> resolveDefaultReferences(
-                                projection, writeOnlyDefaultColumns, table, targetNameParts))
-                        .collect(ImmutableList.toImmutableList()));
-            }
-            if (plan instanceof UnboundOneRowRelation) {
-                UnboundOneRowRelation relation = (UnboundOneRowRelation) plan;
-                return new UnboundOneRowRelation(relation.getRelationId(), relation.getProjects().stream()
-                        .map(projection -> resolveDefaultReferences(
-                                projection, writeOnlyDefaultColumns, table, targetNameParts))
-                        .collect(ImmutableList.toImmutableList()));
-            }
-            return plan;
-        });
+        if (query instanceof LogicalSubQueryAlias) {
+            return query;
+        }
+        Plan plan = query.withChildren(child -> resolveSelectDefaultReferences(
+                child, writeOnlyDefaultColumns, table, targetNameParts));
+        if (plan instanceof LogicalProject) {
+            LogicalProject<?> project = (LogicalProject<?>) plan;
+            return project.withProjects(project.getProjects().stream()
+                    .map(projection -> resolveDefaultReferences(
+                            projection, writeOnlyDefaultColumns, table, targetNameParts))
+                    .collect(ImmutableList.toImmutableList()));
+        }
+        if (plan instanceof UnboundOneRowRelation) {
+            UnboundOneRowRelation relation = (UnboundOneRowRelation) plan;
+            return new UnboundOneRowRelation(relation.getRelationId(), relation.getProjects().stream()
+                    .map(projection -> resolveDefaultReferences(
+                            projection, writeOnlyDefaultColumns, table, targetNameParts))
+                    .collect(ImmutableList.toImmutableList()));
+        }
+        return plan;
     }
 
     static void pinConnectorWriteSchema(StatementContext statementContext, TableIf targetTableIf,

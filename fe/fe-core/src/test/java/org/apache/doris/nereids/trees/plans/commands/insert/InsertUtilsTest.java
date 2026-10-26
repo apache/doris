@@ -43,6 +43,8 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -506,6 +508,45 @@ public class InsertUtilsTest {
         } finally {
             ConnectContext.remove();
         }
+    }
+
+    @Test
+    public void writeOnlyDefaultInDerivedTableNamesItsOwnSource() {
+        // INSERT INTO t(score, name) SELECT v, DEFAULT(name) FROM (SELECT DEFAULT(score) AS v FROM src) q: the
+        // derived table is a query of its own, so its DEFAULT(score) names src.score, whose default can differ from
+        // the target's 9, and is left to binding, qualified or not. DEFAULT in the INSERT's own select lists, set
+        // operation branches included, still names the target column.
+        ConnectContext ctx = MemoTestUtils.createConnectContext();
+        try {
+            PluginDrivenExternalTable table = pinWriterSchema(ctx, true);
+            Expression writeDefault = PARSER.parseExpression("'write-name'");
+            for (String derived : ImmutableList.of("(select DEFAULT(score) as v from src) q",
+                    "(select DEFAULT(s.score) as v from src s) q")) {
+                Plan normalized = InsertUtils.normalizePlan(connectorSink(ImmutableList.of("score", "name"),
+                        PARSER.parseSingle("select v, DEFAULT(name) from " + derived).child(0)),
+                        table, Optional.empty(), Optional.empty());
+                LogicalProject<?> outer = (LogicalProject<?>) normalized.child(0);
+                Assertions.assertEquals(writeDefault, outer.getProjects().get(1).child(0), derived);
+                assertDerivedDefaultLeftToBinding(outer.child(0), derived);
+            }
+
+            Plan union = InsertUtils.normalizePlan(connectorSink(ImmutableList.of("name"),
+                    PARSER.parseSingle("select DEFAULT(name) union all "
+                            + "select v from (select DEFAULT(name) as v from src) q").child(0)),
+                    table, Optional.empty(), Optional.empty());
+            LogicalUnion setOperation = (LogicalUnion) union.child(0);
+            UnboundOneRowRelation oneRow = (UnboundOneRowRelation) setOperation.child(0);
+            Assertions.assertEquals(writeDefault, oneRow.getProjects().get(0).child(0));
+            assertDerivedDefaultLeftToBinding(setOperation.child(1).child(0), "union branch");
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    private static void assertDerivedDefaultLeftToBinding(Plan derivedTable, String message) {
+        Assertions.assertInstanceOf(LogicalSubQueryAlias.class, derivedTable, message);
+        LogicalProject<?> inner = (LogicalProject<?>) derivedTable.child(0);
+        Assertions.assertInstanceOf(Default.class, inner.getProjects().get(0).child(0), message);
     }
 
     @Test
