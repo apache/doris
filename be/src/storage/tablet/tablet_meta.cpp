@@ -228,6 +228,9 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     case TCompressionType::LZ4F:
         schema->set_compression_type(segment_v2::LZ4F);
         break;
+    case TCompressionType::LZ4HC:
+        schema->set_compression_type(segment_v2::LZ4HC);
+        break;
     case TCompressionType::ZLIB:
         schema->set_compression_type(segment_v2::ZLIB);
         break;
