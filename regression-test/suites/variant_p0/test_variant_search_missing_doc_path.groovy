@@ -18,6 +18,8 @@
 // Different rowsets have different doc paths. Unrelated doc values must not make a
 // proven-missing path unavailable, and NOT must complement the missing leaf before union.
 suite("test_variant_search_missing_doc_path", "p0") {
+    // SEARCH requires the common-expression scan path on this release branch.
+    sql "SET enable_common_expr_pushdown = true"
     // V1 INSERT parses JSON with the table's properties; parse_to_variant returns Variant(0),
     // which this release branch cannot cast to the table's Variant(2048). V2 needs explicit JSON parsing.
     def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""

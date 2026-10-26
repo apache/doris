@@ -19,6 +19,8 @@
 // Verify the stored document kinds and extracted values so JSON-looking scalar strings
 // cannot satisfy the historical subpath fixture.
 suite("test_variant_search_historical_rowset_index", "p0") {
+    // SEARCH requires the common-expression scan path on this release branch.
+    sql "SET enable_common_expr_pushdown = true"
     // V1 INSERT parses JSON with the table's properties; parse_to_variant returns Variant(0),
     // which this release branch cannot cast to the table's Variant(2048). V2 needs explicit JSON parsing.
     def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""

@@ -17,6 +17,8 @@
 
 // Force multiple CLucene partitions while keeping query bitmaps in the segment document domain.
 suite("test_search_segment_document_ids", "p0,nonConcurrent") {
+    // SEARCH requires the common-expression scan path on this release branch.
+    sql "SET enable_common_expr_pushdown = true"
     def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     sql "SET default_variant_enable_doc_mode = false"
     sql "SET default_variant_doc_materialization_min_rows = 0"
