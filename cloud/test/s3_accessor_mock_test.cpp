@@ -31,10 +31,10 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "cpp/aws_common.h"
+#include "cpp/obj-client/s3_obj_storage_client.h"
 #include "cpp/sync_point.h"
 #include "cpp/test/container_credentials_test_util.h"
 #include "recycler/s3_accessor.h"
-#include "recycler/s3_obj_client.h"
 
 using namespace doris;
 using namespace Aws::S3::Model;
@@ -77,18 +77,21 @@ TEST_F(S3AccessorMockTest, list_objects_compatibility) {
     // If storage only supports ListObjectsV1, s3_obj_storage_client.list_objects
     // should return an error.
     auto mock_s3_client = std::make_shared<MockS3Client>();
-    S3ObjClient s3_obj_client(mock_s3_client, "dummy-endpoint");
+    auto s3_obj_client = std::make_shared<S3ObjStorageClient>(
+            mock_s3_client, ObjStorageEndpointInfo {.endpoint = "dummy-endpoint"});
 
     ListObjectsV2Result result;
     result.SetIsTruncated(true);
     EXPECT_CALL(*mock_s3_client, ListObjectsV2(testing::_))
             .WillOnce(testing::Return(ListObjectsV2Outcome(result)));
 
-    auto response = s3_obj_client.list_objects(
-            {.bucket = "dummy-bucket", .key = "S3AccessorMockTest/list_objects_compatibility"});
+    std::vector<ObjectMeta> objects;
+    auto response = s3_obj_client->list_objects(
+            {.bucket = "dummy-bucket", .key = "S3AccessorMockTest/list_objects_compatibility"},
+            &objects);
 
-    EXPECT_FALSE(response->has_next());
-    EXPECT_FALSE(response->is_valid());
+    EXPECT_FALSE(response.ok());
+    EXPECT_TRUE(objects.empty());
 }
 
 namespace {
@@ -97,14 +100,14 @@ class ProviderProbe : public S3Accessor {
 public:
     ProviderProbe() : S3Accessor(S3Conf {}) {}
 
-    // The recycler builds its provider through _get_aws_credentials_provider_v2(), so the probe
+    // The recycler builds its provider through create_aws_credentials_provider(), so the probe
     // goes through the same call rather than reaching past it. An S3Conf with no ak/sk and no
     // role_arn is what a vault configured for container credentials looks like, and it makes the
     // factory return the CONTAINER base provider unwrapped.
     std::shared_ptr<Aws::Auth::AWSCredentialsProvider> container_provider() {
         S3Conf conf;
         conf.cred_provider_type = CredProviderType::Container;
-        return _get_aws_credentials_provider_v2(conf);
+        return create_aws_credentials_provider(conf).provider;
     }
 };
 
