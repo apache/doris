@@ -496,9 +496,18 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     public void initLogicalPlan(boolean regen) {
         if (regen || baseCommand == null) {
             this.baseCommand = null;
-            makeConnectContext();
-            LogicalPlan logicalPlan = new NereidsParser().parseSingle(getExecuteSql());
-            this.baseCommand = (InsertIntoTableCommand) logicalPlan;
+            ConnectContext previousContext = ConnectContext.get();
+            try {
+                makeConnectContext();
+                LogicalPlan logicalPlan = new NereidsParser().parseSingle(getExecuteSql());
+                this.baseCommand = (InsertIntoTableCommand) logicalPlan;
+            } finally {
+                // Subsequent privilege checks must retain the caller's identity and session roles.
+                ConnectContext.remove();
+                if (previousContext != null) {
+                    previousContext.setThreadLocalInfo();
+                }
+            }
         }
     }
 

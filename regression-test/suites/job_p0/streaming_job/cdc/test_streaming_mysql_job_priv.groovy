@@ -100,14 +100,36 @@ suite("test_streaming_mysql_job_priv", "p0,external,mysql,external_docker,extern
             sql """INSERT INTO ${mysqlDb}.${tableName} (name, age) VALUES ('B1', 2);"""
         }
 
+        // Prepare a local driver without granting ADMIN to the job creator.
+        File driverFile = new File("${context.config.dataPath}/jdbc_driver/mysql_priv_driver.jar").absoluteFile
+        driverFile.parentFile.mkdirs()
+        def download = new ProcessBuilder("curl", "--fail", "--location", "--max-time", "120",
+                driver_url, "--output", driverFile.path).redirectErrorStream(true).start()
+        String downloadOutput = download.text
+        assertEquals(0, download.waitFor(), downloadOutput)
+        scp_udf_file_to_all_fe(driverFile.path)
+        String localDriverUrl = "file://${driverFile.path}"
+
         // Create the job without ALTER privilege to verify schema changes use the job creator's identity.
         sql """grant load_priv,create_priv on ${dbName}.* to ${user}"""
+        connect(user, "${pwd}", url) {
+            test {
+                sql """CREATE JOB ${jobName} ON STREAMING
+                        FROM MYSQL (
+                            "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
+                            "driver_url" = "${driver_url}", "driver_class" = "com.mysql.cj.jdbc.Driver",
+                            "user" = "root", "password" = "123456", "database" = "${mysqlDb}",
+                            "include_tables" = "${tableName}", "offset" = "initial")
+                        TO DATABASE ${currentDb} ("table.create.properties.replication_num" = "1")"""
+                exception "HTTP/HTTPS CDC driver URLs require ADMIN privilege"
+            }
+        }
         connect(user, "${pwd}", url) {
             sql """CREATE JOB ${jobName}
                     ON STREAMING
                     FROM MYSQL (
                         "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}?allowPublicKeyRetrieval=true&useSSL=false",
-                        "driver_url" = "${driver_url}",
+                        "driver_url" = "${localDriverUrl}",
                         "driver_class" = "com.mysql.cj.jdbc.Driver",
                         "user" = "root",
                         "password" = "123456",
@@ -191,6 +213,13 @@ suite("test_streaming_mysql_job_priv", "p0,external,mysql,external_docker,extern
         }
 
         sql "PAUSE JOB where jobname =  '${jobName}'";
+        connect(user, "${pwd}", url) {
+            test {
+                sql """ALTER JOB ${jobName} FROM MYSQL ("driver_url" = "${driver_url}")
+                        TO DATABASE ${currentDb}"""
+                exception "HTTP/HTTPS CDC driver URLs require ADMIN privilege"
+            }
+        }
 
         sql """ALTER JOB ${jobName}
                 FROM MYSQL (

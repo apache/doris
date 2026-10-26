@@ -17,6 +17,7 @@
 
 package org.apache.doris.job.extensions.insert.streaming;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -34,8 +35,10 @@ import org.apache.doris.job.offset.jdbc.JdbcSourceOffsetProvider;
 import org.apache.doris.job.offset.jdbc.JdbcTvfSourceOffsetProvider;
 import org.apache.doris.job.offset.s3.S3Offset;
 import org.apache.doris.job.offset.s3.S3SourceOffsetProvider;
+import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.trees.plans.commands.AlterJobCommand;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.tablefunction.CdcStreamTableValuedFunction;
 import org.apache.doris.tablefunction.S3TableValuedFunction;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
@@ -121,21 +124,42 @@ public class StreamingInsertJobOffsetPersistenceTest {
         Deencapsulation.setField(job, "jobId", 9001L);
         job.setJobStatus(JobStatus.PAUSED);
         Deencapsulation.setField(job, "tvfType", CdcStreamTableValuedFunction.NAME);
-        HashMap<String, String> tvfProperties = new HashMap<>();
-        tvfProperties.put(DataSourceConfigKeys.TYPE, "postgres");
-        tvfProperties.put(DataSourceConfigKeys.JDBC_URL, "jdbc:postgresql://127.0.0.1:5432/source_db");
-        tvfProperties.put(DataSourceConfigKeys.TABLE, "source_table");
-        Deencapsulation.setField(job, "originTvfProps", tvfProperties);
+        Deencapsulation.setField(job, "createUser", UserIdentity.ROOT);
+        job.setExecuteSql("INSERT INTO target_table SELECT * FROM cdc_stream("
+                + "\"type\"=\"postgres\", \"jdbc_url\"=\"jdbc:postgresql://127.0.0.1:5432/source_db\", "
+                + "\"table\"=\"source_table\")");
 
         job.gsonPostProcess();
         JdbcTvfSourceOffsetProvider provider = Deencapsulation.getField(job, "offsetProvider");
         Assertions.assertNull(Deencapsulation.getField(provider, "sourceType"));
 
-        job.validateAlterOffset("{\"lsn\":\"300\"}");
+        ConnectContext previousContext = ConnectContext.get();
+        try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class)) {
+            envMockedStatic.when(Env::getCurrentEnv).thenReturn(Mockito.mock(Env.class));
+            ConnectContext caller = new ConnectContext();
+            caller.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("alter_user", "%"));
+            caller.setAuthenticatedRoles(Collections.singleton("session_role"));
+            caller.setThreadLocalInfo();
 
-        Assertions.assertEquals(JobStatus.PAUSED, job.getJobStatus());
-        Assertions.assertThrows(AnalysisException.class,
-                () -> job.validateAlterOffset("{\"file\":\"mysql-bin.000001\",\"pos\":\"154\"}"));
+            // Restored jobs have no cached plan/TVF properties. Parsing must not replace the caller.
+            job.validateAlterOffset("{\"lsn\":\"300\"}");
+
+            Assertions.assertSame(caller, ConnectContext.get());
+            Assertions.assertEquals(Collections.singleton("session_role"),
+                    ConnectContext.get().getAuthenticatedRoles());
+            Assertions.assertEquals(JobStatus.PAUSED, job.getJobStatus());
+            Assertions.assertThrows(AnalysisException.class,
+                    () -> job.validateAlterOffset("{\"file\":\"mysql-bin.000001\",\"pos\":\"154\"}"));
+
+            job.setExecuteSql("INSERT INTO");
+            Assertions.assertThrows(ParseException.class, () -> job.initLogicalPlan(true));
+            Assertions.assertSame(caller, ConnectContext.get());
+        } finally {
+            ConnectContext.remove();
+            if (previousContext != null) {
+                previousContext.setThreadLocalInfo();
+            }
+        }
     }
 
     @Test
