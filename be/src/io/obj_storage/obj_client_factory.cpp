@@ -17,45 +17,12 @@
 
 #include "io/obj_storage/obj_client_factory.h"
 
-#include <fmt/format.h>
-
 #include <variant>
 
-#include "cloud/config.h"
-#include "common/config.h"
-#include "cpp/obj-client/rate_limited_obj_storage_client.h"
-#include "util/s3_rate_limiter_manager.h"
 #include "util/s3_util.h"
 
 namespace doris::io {
 namespace {
-
-ObjStorageResponse make_be_rate_limit_response(S3RateLimitType type,
-                                               S3RateLimitRejectReason reason) {
-    const auto* limit_type = reason == S3RateLimitRejectReason::QPS ? "QPS" : "bytes";
-    // A local admission rejection is not an S3 HTTP 429. Keep the merged #65420 behavior so S3
-    // readers do not retry it as provider throttling.
-    return ObjStorageResponse::rate_limit(
-            ErrorCode::EXCEEDED_LIMIT, 0,
-            fmt::format("s3 {} request exceeds {} limit, rejected by BE rate limiter",
-                        to_string(type), limit_type));
-}
-
-class BeObjStorageRateLimitPolicy final : public ObjStorageRateLimitPolicy {
-public:
-    ObjStorageAdmission acquire(S3RateLimitType type, size_t estimated_bytes) const override {
-        auto guard = std::make_shared<S3RateLimitGuard>(type, estimated_bytes);
-        if (!guard->ok()) {
-            return ObjStorageAdmission {
-                    .resp = make_be_rate_limit_response(type, guard->reject_reason()),
-            };
-        }
-        return ObjStorageAdmission {
-                .settle = [guard = std::move(guard)](
-                                  size_t actual_bytes) { guard->settle(actual_bytes); },
-        };
-    }
-};
 
 // The rules every client request is checked against before anything is built or looked up;
 // they are the checks the former S3ClientFactory::create applied to the flat configuration.
@@ -155,15 +122,6 @@ Result<std::shared_ptr<ObjStorageClient>> ObjClientFactory::_dispatch(const ObjC
 Result<std::shared_ptr<ObjStorageClient>> ObjClientFactory::_dispatch(
         const ObjClientConfig& config, const AzureClientConfig& azure) {
     return _azure.get_or_create(config, azure);
-}
-
-std::shared_ptr<ObjStorageClient> apply_rate_limit_policy(std::shared_ptr<ObjStorageClient> client,
-                                                          ClientUsage usage) {
-    if (!config::is_cloud_mode() || usage == ClientUsage::INTERNAL_STORAGE) {
-        return std::make_shared<RateLimitedObjStorageClient>(
-                std::move(client), std::make_shared<BeObjStorageRateLimitPolicy>());
-    }
-    return client;
 }
 
 } // namespace doris::io

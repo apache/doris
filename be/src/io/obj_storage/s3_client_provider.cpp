@@ -32,7 +32,7 @@
 #include "cpp/obj_retry_strategy.h"
 #include "cpp/sync_point.h"
 #include "io/fs/gcs_signed_url_provider.h"
-#include "io/obj_storage/obj_client_factory.h"
+#include "io/obj_storage/obj_client_rate_limit.h"
 #include "util/s3_util.h"
 
 namespace doris::io {
