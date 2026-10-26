@@ -17,6 +17,7 @@
 
 package org.apache.doris.load.routineload;
 
+import org.apache.doris.alter.ChangelogColumnIdPreparer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.Separator;
@@ -1056,6 +1057,7 @@ public abstract class RoutineLoadJob
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
         Table table = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
         boolean needCleanCtx = false;
+        ChangelogColumnIdPreparer.ensureReady(db, (OlapTable) table);
         table.readLock();
         try {
             if (Config.isCloudMode()) {
@@ -1083,11 +1085,7 @@ public abstract class RoutineLoadJob
             if (txnState == null) {
                 throw new UserException("txn does not exist: " + txnId);
             }
-            txnState.addTableIndexes(planner.getDestTable());
-            if (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS
-                    || uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS) {
-                txnState.setSchemaForPartialUpdate((OlapTable) table);
-            }
+            txnState.registerWriteSchema(txnId, planner.getWriteSchemaSnapshot());
 
             return planParams;
         } finally {

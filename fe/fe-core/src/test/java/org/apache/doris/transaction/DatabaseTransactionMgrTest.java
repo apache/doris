@@ -768,6 +768,44 @@ public class DatabaseTransactionMgrTest {
     }
 
     @Test
+    public void testValuesBeginInstallsSnapshotBeforeReturningAndChecksRetries() throws Exception {
+        FakeEnv.setEnv(masterEnv);
+        Database db = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1);
+        OlapTable table = (OlapTable) db.getTableOrMetaException(CatalogTestUtil.testTableId1);
+        TxnWriteSchemaSnapshot snapshot = TxnWriteSchemaSnapshot.capture(table, false);
+        DatabaseTransactionMgr manager = masterTransMgr.getDatabaseTransactionMgr(db.getId());
+        TUniqueId requestId = new TUniqueId(91, 92);
+        long id = manager.beginTransaction(Collections.singletonList(table.getId()), "values_schema_begin",
+                requestId, transactionSource, LoadJobSourceType.BACKEND_STREAMING, -1, 60, snapshot);
+        TransactionState state = manager.getTransactionState(id);
+        Assertions.assertEquals(snapshot, state.getWriteSchema(id, table.getId()));
+        Assertions.assertEquals(snapshot.getIndexIds(), state.getLoadedTblIndexes().get(table.getId()));
+        Assertions.assertThrows(org.apache.doris.common.DuplicatedRequestException.class,
+                () -> manager.beginTransaction(Collections.singletonList(table.getId()), "values_schema_begin",
+                        requestId, transactionSource, LoadJobSourceType.BACKEND_STREAMING, -1, 60, snapshot));
+        Map<Long, Integer> changed = new HashMap<>(snapshot.getIndexSchemaVersions());
+        changed.replaceAll((index, version) -> version + 1);
+        Assertions.assertThrows(BeginTransactionException.class,
+                () -> manager.beginTransaction(Collections.singletonList(table.getId()), "values_schema_begin",
+                        requestId, transactionSource, LoadJobSourceType.BACKEND_STREAMING, -1, 60,
+                        new TxnWriteSchemaSnapshot(table.getId(), changed, Collections.emptyMap(), false)));
+        Assertions.assertEquals(snapshot, state.getWriteSchema(id, table.getId()));
+    }
+
+    @Test
+    public void testValuesBeginRejectsSchemaMismatchWithoutCreatingTransaction() throws Exception {
+        FakeEnv.setEnv(masterEnv);
+        Database db = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1);
+        OlapTable table = (OlapTable) db.getTableOrMetaException(CatalogTestUtil.testTableId1);
+        DatabaseTransactionMgr manager = masterTransMgr.getDatabaseTransactionMgr(db.getId());
+        int before = manager.getTransactionNum();
+        Assertions.assertThrows(UserException.class, () -> masterTransMgr.beginTransactionForValues(
+                db.getId(), table.getId(), "values_bad_schema", new TUniqueId(93, 94), transactionSource,
+                LoadJobSourceType.BACKEND_STREAMING, 60, Collections.emptyMap()));
+        Assertions.assertEquals(before, manager.getTransactionNum());
+    }
+
+    @Test
     public void testMappedVisibleChildAliasSurvivesReplayUntilEviction() throws Exception {
         DatabaseTransactionMgr dbMgr = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
         TransactionState state = new TransactionState(CatalogTestUtil.testDbId1, Collections.emptyList(),
@@ -776,7 +814,8 @@ public class DatabaseTransactionMgrTest {
         ChangelogWriteMapping mapping = ChangelogWriteMapping.fromThrift(new TChangelogWriteColumnMappings()
                 .setNeedHistoricalValue(true).setEntries(Collections.singletonList(
                         new TChangelogWriteColumnMapping().setSourceColumnUniqueId(1).setCurrentColumnUniqueId(2))));
-        state.registerChangelogWriteMappings(987651, Collections.singletonMap(5L, mapping));
+        state.registerWriteSchema(987651, new TxnWriteSchemaSnapshot(1, Collections.singletonMap(5L, 1),
+                Collections.singletonMap(5L, mapping), false));
         state.setTransactionStatus(TransactionStatus.VISIBLE);
         TransactionState replay = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(state), TransactionState.class);
         dbMgr.unprotectUpsertTransactionState(replay, true);
@@ -1068,7 +1107,9 @@ public class DatabaseTransactionMgrTest {
                     .setNeedHistoricalValue(true).setEntries(Collections.singletonList(
                             new TChangelogWriteColumnMapping().setSourceColumnUniqueId(1).setCurrentColumnUniqueId(2))));
             Map<Long, ChangelogWriteMapping> snapshots = Collections.singletonMap(table.getBaseIndexId(), mapping);
-            masterTransMgr.registerChangelogWriteMappings(db.getId(), txnId, snapshots);
+            TxnWriteSchemaSnapshot snapshot = new TxnWriteSchemaSnapshot(table.getId(),
+                    TxnWriteSchemaSnapshot.schemaVersions(table), snapshots, false);
+            masterTransMgr.registerWriteSchema(db.getId(), txnId, snapshot);
             masterTransMgr.preCommitTransaction2PC(db, Lists.newArrayList(table), txnId,
                     GlobalTransactionMgrTest.generateTabletCommitInfos(CatalogTestUtil.testTabletId1, allBackends),
                     1000, null);
@@ -1076,9 +1117,11 @@ public class DatabaseTransactionMgrTest {
             Assertions.assertEquals(TransactionStatus.PRECOMMITTED, persisted.getTransactionStatus());
             TransactionState replay = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(persisted), TransactionState.class);
             Assertions.assertEquals(snapshots, replay.getChangelogWriteMappings(txnId));
-            replay.registerChangelogWriteMappings(txnId, snapshots);
-            Assertions.assertThrows(IllegalStateException.class, () -> replay.registerChangelogWriteMappings(txnId,
-                    Collections.singletonMap(table.getBaseIndexId() + 100, mapping)));
+            replay.registerWriteSchema(txnId, snapshot);
+            Assertions.assertThrows(IllegalStateException.class, () -> replay.registerWriteSchema(txnId,
+                    new TxnWriteSchemaSnapshot(table.getId(),
+                            Collections.singletonMap(table.getBaseIndexId() + 100, 1),
+                            Collections.singletonMap(table.getBaseIndexId() + 100, mapping), false)));
             FakeEnv.setEnv(slaveEnv);
             slaveTransMgr.replayUpsertTransactionState(replay);
             Database replayDb = slaveEnv.getInternalCatalog().getDbOrMetaException(db.getId());

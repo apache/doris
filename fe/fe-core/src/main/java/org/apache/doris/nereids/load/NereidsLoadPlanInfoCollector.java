@@ -26,7 +26,6 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -35,7 +34,6 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -333,10 +331,6 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
                     taskInfo.getSendBatchParallelism(),
                     taskInfo.isLoadToSingleTablet(), taskInfo.isStrictMode(), timeout, uniquekeyUpdateMode,
                     uniquekeyUpdateNewRowPolicy, partialUpdateInputColumns);
-            if (!Config.isCloudMode() && !(loadPlanInfo.olapTableSink instanceof GroupCommitBlockSink)) {
-                Env.getCurrentGlobalTransactionMgr().registerChangelogWriteMappings(dbId, taskInfo.getTxnId(),
-                        loadPlanInfo.olapTableSink.getChangelogWriteMappings());
-            }
         } catch (UserException e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }

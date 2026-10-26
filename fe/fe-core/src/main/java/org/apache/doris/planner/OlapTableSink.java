@@ -88,10 +88,10 @@ import org.apache.doris.thrift.TTabletLocation;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 import org.apache.doris.transaction.ChangelogWriteMapping;
+import org.apache.doris.transaction.TxnWriteSchemaSnapshot;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.HashMultimap;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Range;
@@ -132,7 +132,7 @@ public class OlapTableSink extends DataSink {
     private List<Expr> partitionExprs;
     private Map<Long, Expr> syncMvWhereClauses;
 
-    private Map<Long, ChangelogWriteMapping> changelogWriteMappings = ImmutableMap.of();
+    private TxnWriteSchemaSnapshot writeSchemaSnapshot;
     private boolean initialized;
     private TOlapTableSchemaParam tOlapTableSchemaParam;
     private TOlapTablePartitionParam tOlapTablePartitionParam;
@@ -313,7 +313,7 @@ public class OlapTableSink extends DataSink {
 
     public Map<Long, ChangelogWriteMapping> getChangelogWriteMappings() {
         Preconditions.checkState(initialized, "OlapTableSink initialization has not completed");
-        return changelogWriteMappings;
+        return writeSchemaSnapshot.getChangelogMappings();
     }
 
     public TOlapTableSchemaParam getOlapTableSchemaParam() {
@@ -412,8 +412,14 @@ public class OlapTableSink extends DataSink {
         return tDataSink;
     }
 
+    public TxnWriteSchemaSnapshot getWriteSchemaSnapshot() {
+        Preconditions.checkState(initialized, "OlapTableSink initialization has not completed");
+        return writeSchemaSnapshot;
+    }
+
     private TOlapTableSchemaParam createSchema(long dbId, OlapTable table) throws AnalysisException {
-        Map<Long, ChangelogWriteMapping> mappings = new HashMap<>();
+        writeSchemaSnapshot = TxnWriteSchemaSnapshot.capture(table,
+                uniqueKeyUpdateMode != TUniqueKeyUpdateMode.UPSERT);
         TOlapTableSchemaParam schemaParam = new TOlapTableSchemaParam();
         schemaParam.setDbId(dbId);
         schemaParam.setTableId(table.getId());
@@ -456,10 +462,7 @@ public class OlapTableSink extends DataSink {
                     indexMeta.getSchemaHash());
             indexSchema.setChangelogIndexId(indexMeta.getChangelogIndexId());
             if (indexMeta.getChangelogIndexId() > 0) {
-                MaterializedIndexMeta changelogMeta = table.getIndexMetaByIndexId(indexMeta.getChangelogIndexId());
-                ChangelogWriteMapping mapping = ChangelogWriteMapping.fromColumns(indexMeta.getSchema(true),
-                        changelogMeta.getSchema(true), table.getChangelogConfig().getNeedHistoricalValue());
-                mappings.put(pair.getKey(), mapping);
+                ChangelogWriteMapping mapping = writeSchemaSnapshot.getChangelogMappings().get(pair.getKey());
                 indexSchema.setChangelogColumnMappings(mapping.toThrift());
             }
             Expr whereClause = indexMeta.getWhereClause();
@@ -493,7 +496,6 @@ public class OlapTableSink extends DataSink {
 
         setPartialUpdateInfoForParam(schemaParam, table, uniqueKeyUpdateMode);
         schemaParam.setInvertedIndexFileStorageFormat(table.getInvertedIndexFileStorageFormat());
-        changelogWriteMappings = ImmutableMap.copyOf(mappings);
         return schemaParam;
     }
 

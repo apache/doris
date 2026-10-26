@@ -48,6 +48,7 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.ErrorTabletInfo;
 import org.apache.doris.transaction.TabletCommitInfo;
+import org.apache.doris.transaction.TxnWriteSchemaSnapshot;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -145,6 +146,10 @@ public class LoadLoadingTask extends LoadTask {
 
     public void setLoadBackendSelectionHint(BackendSelection.SelectionHint hint) {
         loadBackendSelectionHint = hint;
+    }
+
+    public TxnWriteSchemaSnapshot getWriteSchemaSnapshot() {
+        return planner.getWriteSchemaSnapshot();
     }
 
     public TUniqueId getLoadId() {

@@ -89,6 +89,7 @@ import org.apache.doris.thrift.TTxnParams;
 import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
+import org.apache.doris.transaction.TxnWriteSchemaSnapshot;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -210,21 +211,31 @@ public class InsertUtils {
         txnEntry.setTable(tblObj);
         txnEntry.setDb(dbObj);
         String label = txnEntry.getLabel();
+        Map<Long, Integer> schemaVersions = TxnWriteSchemaSnapshot.schemaVersions((OlapTable) tblObj);
         try {
             long txnId;
             String token = Env.getCurrentEnv().getTokenManager().acquireToken();
-            if (Config.isCloudMode() || Env.getCurrentEnv().isMaster()) {
+            if (Config.isCloudMode()) {
                 txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
                         txnConf.getDbId(), Lists.newArrayList(tblObj.getId()), label,
                         new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.FE, 0,
                                 FrontendOptions.getLocalHostAddress(),
                                 ExecuteEnv.getInstance().getStartupTime()),
                         sourceType, timeoutSecond);
+            } else if (Env.getCurrentEnv().isMaster()) {
+                txnId = Env.getCurrentGlobalTransactionMgr().beginTransactionForValues(
+                        txnConf.getDbId(), tblObj.getId(), label, ctx.queryId(),
+                        new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.FE, 0,
+                                FrontendOptions.getLocalHostAddress(),
+                                ExecuteEnv.getInstance().getStartupTime()),
+                        sourceType, timeoutSecond, schemaVersions);
             } else {
                 MasterTxnExecutor masterTxnExecutor = new MasterTxnExecutor(ctx);
                 TLoadTxnBeginRequest request = new TLoadTxnBeginRequest();
                 request.setDb(txnConf.getDb()).setTbl(txnConf.getTbl()).setToken(token)
                         .setLabel(label).setUser("").setUserIp("").setPasswd("");
+                request.setTableId(tblObj.getId()).setRequestId(ctx.queryId()).setTimeout(timeoutSecond)
+                        .setTxnInsertSchemaVersions(schemaVersions);
                 TLoadTxnBeginResult result = masterTxnExecutor.beginTxn(request);
                 txnId = result.getTxnId();
             }
@@ -264,7 +275,7 @@ public class InsertUtils {
         // execute begin txn
         InsertStreamTxnExecutor executor = new InsertStreamTxnExecutor(txnEntry);
         try {
-            executor.beginTransaction(request);
+            executor.beginTransaction(request, schemaVersions);
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e);
         }

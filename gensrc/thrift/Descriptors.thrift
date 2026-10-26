@@ -365,6 +365,14 @@ struct TChangelogIndexWriteSnapshot {
     2: optional TChangelogWriteColumnMappings mappings
 }
 
+// Transaction-owned schema identity, shared by local and remote preparation.
+struct TTxnWriteSchemaSnapshot {
+    1: optional i64 table_id
+    2: optional map<i64, i32> index_schema_versions
+    3: optional list<TChangelogIndexWriteSnapshot> changelog_mappings
+    4: optional bool partial_update
+}
+
 struct TChangelogReadColumnPair {
     1: optional Types.TSlotId current_slot_id
     2: optional Types.TSlotId before_slot_id

@@ -59,6 +59,7 @@ import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TScanRangeParams;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TUniqueKeyUpdateMode;
+import org.apache.doris.transaction.TxnWriteSchemaSnapshot;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -76,6 +77,8 @@ import java.util.Map;
 public class NereidsStreamLoadPlanner {
     private static final Logger LOG = LogManager.getLogger(NereidsStreamLoadPlanner.class);
 
+    private TxnWriteSchemaSnapshot writeSchemaSnapshot;
+
     // destination Db and table get from request
     // Data will load to this table
     private Database db;
@@ -87,6 +90,10 @@ public class NereidsStreamLoadPlanner {
         this.db = db;
         this.destTable = destTable;
         this.taskInfo = taskInfo;
+    }
+
+    public TxnWriteSchemaSnapshot getWriteSchemaSnapshot() {
+        return writeSchemaSnapshot;
     }
 
     // can only be called after "plan()", or it will return null
@@ -264,6 +271,7 @@ public class NereidsStreamLoadPlanner {
         // OlapTableSink can dispatch data to corresponding node.
         PlanFragment fragment = new PlanFragment(new PlanFragmentId(0), scanNode, DataPartition.UNPARTITIONED);
         fragment.setSink(loadPlanInfo.getOlapTableSink());
+        writeSchemaSnapshot = loadPlanInfo.getOlapTableSink().getWriteSchemaSnapshot();
 
         fragment.finalize(null);
 

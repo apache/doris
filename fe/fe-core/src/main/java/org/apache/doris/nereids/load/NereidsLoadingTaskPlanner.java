@@ -45,6 +45,7 @@ import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TUniqueKeyUpdateMode;
+import org.apache.doris.transaction.TxnWriteSchemaSnapshot;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -61,6 +62,8 @@ import java.util.List;
  */
 public class NereidsLoadingTaskPlanner {
     private static final Logger LOG = LogManager.getLogger(NereidsLoadingTaskPlanner.class);
+
+    private TxnWriteSchemaSnapshot writeSchemaSnapshot;
 
     // Input params
     private final long loadJobId;
@@ -111,6 +114,10 @@ public class NereidsLoadingTaskPlanner {
         this.userInfo = userInfo;
         this.singleTabletLoadPerSink = singleTabletLoadPerSink;
         this.enableMemtableOnSinkNode = enableMemtableOnSinkNode;
+    }
+
+    public TxnWriteSchemaSnapshot getWriteSchemaSnapshot() {
+        return writeSchemaSnapshot;
     }
 
     /**
@@ -211,6 +218,7 @@ public class NereidsLoadingTaskPlanner {
         PlanFragment sinkFragment = new PlanFragment(new PlanFragmentId(0), fileScanNode, DataPartition.RANDOM);
         sinkFragment.setParallelExecNum(loadParallelism);
         sinkFragment.setSink(loadPlanInfos.get(0).getOlapTableSink());
+        writeSchemaSnapshot = loadPlanInfos.get(0).getOlapTableSink().getWriteSchemaSnapshot();
 
         fragments.add(sinkFragment);
 

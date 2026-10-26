@@ -20,6 +20,7 @@ package org.apache.doris.qe;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.load.NereidsStreamLoadPlanner;
 import org.apache.doris.nereids.load.NereidsStreamLoadTask;
@@ -41,6 +42,7 @@ import org.apache.doris.thrift.TTxnParams;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionState;
+import org.apache.doris.transaction.TxnWriteSchemaSnapshot;
 
 import org.apache.thrift.TException;
 
@@ -61,7 +63,8 @@ public class InsertStreamTxnExecutor {
         this.txnEntry = txnEntry;
     }
 
-    public void beginTransaction(TStreamLoadPutRequest request) throws UserException, TException, TimeoutException,
+    public void beginTransaction(TStreamLoadPutRequest request, Map<Long, Integer> schemaVersions)
+            throws UserException, TException, TimeoutException,
             InterruptedException, ExecutionException {
         TTxnParams txnConf = txnEntry.getTxnConf();
         OlapTable table = (OlapTable) txnEntry.getTable();
@@ -78,6 +81,8 @@ public class InsertStreamTxnExecutor {
         try {
             // Will using load id as query id in fragment
             TPipelineFragmentParams tRequest = planner.plan(streamLoadTask.getId());
+            TxnWriteSchemaSnapshot snapshot = planner.getWriteSchemaSnapshot();
+            validatePreparedSchema(schemaVersions, snapshot);
             tRequest.setTxnConf(txnConf).setImportLabel(txnEntry.getLabel());
             tRequest.setIsMowTable(isMowTable);
             tRequest.setEnableTso(table.enableTso());
@@ -98,10 +103,20 @@ public class InsertStreamTxnExecutor {
 
             pipelineParamsList.addToParamsList(tRequest);
 
-            TransactionState transactionState = Env.getCurrentGlobalTransactionMgr()
-                    .getTransactionState(table.getDatabase().getId(), streamLoadTask.getTxnId());
-            if (transactionState != null) {
-                transactionState.addTableIndexes(table);
+            if (Config.isCloudMode()) {
+                TransactionState transactionState = Env.getCurrentGlobalTransactionMgr()
+                        .getTransactionState(table.getDatabase().getId(), streamLoadTask.getTxnId());
+                if (transactionState != null) {
+                    transactionState.registerWriteSchema(streamLoadTask.getTxnId(), snapshot);
+                }
+            } else if (Env.getCurrentEnv().isMaster()) {
+                TransactionState transactionState = Env.getCurrentGlobalTransactionMgr()
+                        .getTransactionState(table.getDatabase().getId(), streamLoadTask.getTxnId());
+                if (transactionState == null || !snapshot.equals(transactionState.getWriteSchema(
+                        streamLoadTask.getTxnId(), table.getId()))) {
+                    throw new UserException("Missing or changed VALUES write schema for transaction "
+                            + streamLoadTask.getTxnId());
+                }
             }
         } finally {
             table.readUnlock();
@@ -121,6 +136,13 @@ public class InsertStreamTxnExecutor {
             }
         } catch (RpcException e) {
             throw new TException(e);
+        }
+    }
+
+    static void validatePreparedSchema(Map<Long, Integer> expected, TxnWriteSchemaSnapshot snapshot)
+            throws UserException {
+        if (!expected.equals(snapshot.getIndexSchemaVersions())) {
+            throw new UserException("Table schema changed after transaction begin; retry the transaction");
         }
     }
 
