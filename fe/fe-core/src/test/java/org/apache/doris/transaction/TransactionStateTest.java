@@ -98,19 +98,19 @@ public class TransactionStateTest {
     }
 
     @Test
-    public void testOwnerSurvivesSerialization() throws IOException {
+    public void testTxnUserSurvivesSerialization() throws IOException {
         TransactionState state = new TransactionState(1, Lists.newArrayList(2L), 3, "owner_label", null,
                 LoadJobSourceType.BACKEND_STREAMING, new TxnCoordinator(TxnSourceType.BE, 1, "be", 0), -1, 60000);
-        UserIdentity owner = UserIdentity.createAnalyzedUserIdentWithDomain("loader", "example.com");
-        state.setOwner(owner);
-        testSerDe(fileName, state, restored -> Assertions.assertEquals(owner, restored.getOwner()));
+        UserIdentity txnUser = UserIdentity.createAnalyzedUserIdentWithDomain("loader", "example.com");
+        state.setTxnUser(txnUser);
+        testSerDe(fileName, state, restored -> Assertions.assertEquals(txnUser, restored.getTxnUser()));
     }
 
     @Test
-    public void testLegacyTransactionHasNoOwner() throws IOException {
+    public void testLegacyTransactionHasNoTxnUser() throws IOException {
         TransactionState state = new TransactionState(1, Lists.newArrayList(2L), 3, "legacy_label", null,
                 LoadJobSourceType.BACKEND_STREAMING, new TxnCoordinator(TxnSourceType.BE, 1, "be", 0), -1, 60000);
-        testSerDe(fileName, state, restored -> Assertions.assertNull(restored.getOwner()));
+        testSerDe(fileName, state, restored -> Assertions.assertNull(restored.getTxnUser()));
     }
 
     @Test

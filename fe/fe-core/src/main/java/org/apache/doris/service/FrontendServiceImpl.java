@@ -1476,11 +1476,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     private TLoadTxnBeginResult loadTxnBeginImpl(TLoadTxnBeginRequest request, String clientIp) throws UserException {
-        UserIdentity owner = null;
+        UserIdentity txnUser = null;
         if (request.isSetAuthCode()) {
             // TODO: deprecated, removed in 3.1, use token instead.
         } else if (Strings.isNullOrEmpty(request.getToken())) {
-            owner = checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
+            txnUser = checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
                     request.getTbl(), request.getUserIp(), PrivPredicate.LOAD,
                     toForwardedCertificateInfo(request.getCertBasedAuth()));
         } else {
@@ -1529,15 +1529,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
                     db.getId(), Lists.newArrayList(table.getId()), request.getLabel(), request.getRequestId(),
                     txnCoord,
-                    TransactionState.LoadJobSourceType.BACKEND_STREAMING, -1, timeoutSecond, owner);
+                    TransactionState.LoadJobSourceType.BACKEND_STREAMING, -1, timeoutSecond, txnUser);
         } catch (DuplicatedRequestException e) {
-            if (owner != null) {
+            if (txnUser != null) {
                 TransactionState existing = Env.getCurrentGlobalTransactionMgr()
                         .getTransactionState(db.getId(), e.getTxnId());
                 if (existing == null) {
                     throw new UserException("transaction [" + e.getTxnId() + "] not found");
                 }
-                checkTransactionOwner(owner, existing);
+                checkTransactionUser(txnUser, existing);
             }
             throw e;
         }
@@ -1866,7 +1866,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (transactionState == null) {
             throw new UserException("transaction [" + request.getTxnId() + "] not found");
         }
-        checkTransactionOwner(currentUser, transactionState);
+        checkTransactionUser(currentUser, transactionState);
         if (LOG.isDebugEnabled()) {
             LOG.debug("txn {} has multi table {}", request.getTxnId(), transactionState.getTableIdList());
         }
@@ -1897,10 +1897,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
     }
 
-    private void checkTransactionOwner(UserIdentity currentUser, TransactionState transactionState)
+    private void checkTransactionUser(UserIdentity currentUser, TransactionState transactionState)
             throws AuthenticationException {
-        // Ownerless transactions retain their previous authorization during rolling upgrades.
-        if (transactionState.getOwner() != null && !transactionState.getOwner().equals(currentUser)
+        // Transactions without a txnUser retain their previous authorization during rolling upgrades.
+        if (transactionState.getTxnUser() != null && !transactionState.getTxnUser().equals(currentUser)
                 && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(currentUser, PrivPredicate.ADMIN)) {
             throw new AuthenticationException("Access denied: user " + currentUser
                     + " is not the owner of transaction [" + transactionState.getTransactionId() + "]");

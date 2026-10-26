@@ -173,7 +173,7 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
     @Override
     public long beginTransaction(long dbId, List<Long> tableIdList, String label, TUniqueId requestId,
             TxnCoordinator coordinator, LoadJobSourceType sourceType, long listenerId, long timeoutSecond,
-            UserIdentity owner)
+            UserIdentity txnUser)
             throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException, DuplicatedRequestException,
             QuotaExceedException, MetaNotFoundException {
         try {
@@ -193,7 +193,7 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
 
             DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
             return dbTransactionMgr.beginTransaction(tableIdList, label, requestId,
-                    coordinator, sourceType, listenerId, timeoutSecond, owner);
+                    coordinator, sourceType, listenerId, timeoutSecond, txnUser);
         } catch (DuplicatedRequestException e) {
             throw e;
         } catch (Exception e) {

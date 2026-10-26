@@ -272,7 +272,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     @Override
     public long beginTransaction(long dbId, List<Long> tableIdList, String label, TUniqueId requestId,
             TxnCoordinator coordinator, LoadJobSourceType sourceType, long listenerId, long timeoutSecond,
-            UserIdentity owner)
+            UserIdentity txnUser)
             throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException, DuplicatedRequestException,
             QuotaExceedException, MetaNotFoundException {
 
@@ -311,8 +311,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             txnInfoBuilder.addAllTableIds(tableIdList);
             txnInfoBuilder.setLabel(label);
             txnInfoBuilder.setListenerId(listenerId);
-            if (owner != null) {
-                txnInfoBuilder.setOwner(TxnUtil.txnOwnerToPb(owner));
+            if (txnUser != null) {
+                txnInfoBuilder.setTxnUser(TxnUtil.txnUserToPb(txnUser));
             }
 
             if (requestId != null) {

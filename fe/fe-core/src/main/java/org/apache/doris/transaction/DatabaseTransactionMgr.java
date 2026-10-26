@@ -345,7 +345,7 @@ public class DatabaseTransactionMgr {
 
     public long beginTransaction(List<Long> tableIdList, String label, TUniqueId requestId,
             TransactionState.TxnCoordinator coordinator, TransactionState.LoadJobSourceType sourceType,
-            long listenerId, long timeoutSecond, UserIdentity owner)
+            long listenerId, long timeoutSecond, UserIdentity txnUser)
             throws DuplicatedRequestException, LabelAlreadyUsedException, BeginTransactionException,
             AnalysisException, QuotaExceedException, MetaNotFoundException {
 
@@ -405,7 +405,7 @@ public class DatabaseTransactionMgr {
             tid = idGenerator.getNextTransactionId();
             transactionState = new TransactionState(dbId, tableIdList,
                     tid, label, requestId, sourceType, coordinator, listenerId, timeoutSecond * 1000);
-            transactionState.setOwner(owner);
+            transactionState.setTxnUser(txnUser);
             transactionState.setPrepareTime(System.currentTimeMillis());
             unprotectUpdateInMemoryState(transactionState, false);
             updateTxnLabels(transactionState);

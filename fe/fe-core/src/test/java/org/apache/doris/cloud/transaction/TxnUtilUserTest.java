@@ -24,24 +24,24 @@ import org.apache.doris.cloud.proto.Cloud.TxnStatusPB;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-public class TxnUtilOwnerTest {
+public class TxnUtilUserTest {
     @Test
-    public void testOwnerSurvivesCloudTransactionRead() {
-        UserIdentity[] owners = {
+    public void testTxnUserSurvivesCloudTransactionRead() {
+        UserIdentity[] txnUsers = {
                 UserIdentity.createAnalyzedUserIdentWithIp("loader@tenant", "%"),
                 UserIdentity.createAnalyzedUserIdentWithDomain("loader", "example.com")
         };
-        for (UserIdentity owner : owners) {
+        for (UserIdentity txnUser : txnUsers) {
             TxnInfoPB info = TxnInfoPB.newBuilder().setDbId(1).addTableIds(2).setTxnId(3)
-                    .setStatus(TxnStatusPB.TXN_STATUS_PRECOMMITTED).setOwner(TxnUtil.txnOwnerToPb(owner)).build();
-            Assertions.assertEquals(owner, TxnUtil.transactionStateFromPb(info).getOwner());
+                    .setStatus(TxnStatusPB.TXN_STATUS_PRECOMMITTED).setTxnUser(TxnUtil.txnUserToPb(txnUser)).build();
+            Assertions.assertEquals(txnUser, TxnUtil.transactionStateFromPb(info).getTxnUser());
         }
     }
 
     @Test
-    public void testLegacyCloudTransactionHasNoOwner() {
+    public void testLegacyCloudTransactionHasNoTxnUser() {
         TxnInfoPB info = TxnInfoPB.newBuilder().setDbId(1).addTableIds(2).setTxnId(3)
                 .setStatus(TxnStatusPB.TXN_STATUS_PRECOMMITTED).build();
-        Assertions.assertNull(TxnUtil.transactionStateFromPb(info).getOwner());
+        Assertions.assertNull(TxnUtil.transactionStateFromPb(info).getTxnUser());
     }
 }

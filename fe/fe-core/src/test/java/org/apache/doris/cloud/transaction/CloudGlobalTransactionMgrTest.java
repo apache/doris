@@ -164,9 +164,9 @@ public class CloudGlobalTransactionMgrTest {
     }
 
     @Test
-    public void testBeginTransactionPersistsOwner() throws Exception {
+    public void testBeginTransactionPersistsTxnUser() throws Exception {
         MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
-        UserIdentity owner = UserIdentity.createAnalyzedUserIdentWithIp("loader", "%");
+        UserIdentity txnUser = UserIdentity.createAnalyzedUserIdentWithIp("loader", "%");
         try (MockedStatic<MetaServiceProxy> mocked = Mockito.mockStatic(MetaServiceProxy.class)) {
             mocked.when(MetaServiceProxy::getInstance).thenReturn(proxy);
             Mockito.when(proxy.beginTxn(Mockito.any())).thenReturn(BeginTxnResponse.newBuilder().setTxnId(1000)
@@ -174,12 +174,12 @@ public class CloudGlobalTransactionMgrTest {
             masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
                     Lists.newArrayList(CatalogTestUtil.testTableId1), "owner_label", null, transactionSource,
                     TransactionState.LoadJobSourceType.BACKEND_STREAMING, -1,
-                    Config.stream_load_default_timeout_second, owner);
+                    Config.stream_load_default_timeout_second, txnUser);
             ArgumentCaptor<Cloud.BeginTxnRequest> capture = ArgumentCaptor.forClass(Cloud.BeginTxnRequest.class);
             Mockito.verify(proxy).beginTxn(capture.capture());
             TxnInfoPB info = capture.getValue().getTxnInfo();
-            Assertions.assertTrue(info.hasOwner());
-            Assertions.assertEquals(owner, TxnUtil.txnOwnerFromPb(info.getOwner()));
+            Assertions.assertTrue(info.hasTxnUser());
+            Assertions.assertEquals(txnUser, TxnUtil.txnUserFromPb(info.getTxnUser()));
         }
     }
 

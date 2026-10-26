@@ -53,7 +53,7 @@ import java.util.Collections;
 import java.util.List;
 
 public class FrontendServiceImplStreamLoad2PCTest {
-    private final UserIdentity owner = UserIdentity.createAnalyzedUserIdentWithIp("loader", "%");
+    private final UserIdentity txnUser = UserIdentity.createAnalyzedUserIdentWithIp("loader", "%");
     private UserIdentity caller;
     private MockedStatic<Env> envMock;
     private MockedStatic<StreamLoadCertificateAuthHelper> certificateMock;
@@ -66,7 +66,7 @@ public class FrontendServiceImplStreamLoad2PCTest {
 
     @BeforeEach
     public void setUp() throws Exception {
-        caller = owner;
+        caller = txnUser;
         Env env = Mockito.mock(Env.class);
         Auth auth = Mockito.mock(Auth.class);
         access = Mockito.mock(AccessControllerManager.class);
@@ -78,7 +78,7 @@ public class FrontendServiceImplStreamLoad2PCTest {
         transaction = new TransactionState(1, Collections.singletonList(2L), 3, "load_label", null,
                 TransactionState.LoadJobSourceType.BACKEND_STREAMING,
                 new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.BE, 1, "be", 0), -1, 60000);
-        transaction.setOwner(owner);
+        transaction.setTxnUser(txnUser);
         Mockito.when(env.isMaster()).thenReturn(true);
         Mockito.when(env.getAuth()).thenReturn(auth);
         Mockito.when(env.getAccessManager()).thenReturn(access);
@@ -141,14 +141,14 @@ public class FrontendServiceImplStreamLoad2PCTest {
         Assertions.assertEquals(TStatusCode.ANALYSIS_ERROR, result.getStatus().getStatusCode());
         Assertions.assertTrue(result.getStatus().getErrorMsgs().get(0).contains("not the owner"));
         verifyNoCompletion();
-        caller = owner;
+        caller = txnUser;
         Assertions.assertEquals(TStatusCode.OK,
                 service.loadTxn2PC(request(operation, byLabel)).getStatus().getStatusCode());
         verifyCompletion(operation);
     }
 
     @Test
-    public void testSameNameWithDifferentHostIsNotOwner() throws Exception {
+    public void testSameNameWithDifferentHostIsNotTxnUser() throws Exception {
         caller = UserIdentity.createAnalyzedUserIdentWithIp("loader", "127.0.0.1");
         Assertions.assertEquals(TStatusCode.ANALYSIS_ERROR,
                 service.loadTxn2PC(request("commit", false)).getStatus().getStatusCode());
@@ -156,12 +156,12 @@ public class FrontendServiceImplStreamLoad2PCTest {
     }
 
     @Test
-    public void testAbortAfterTableDroppedStillAuthenticatesAndChecksOwner() throws Exception {
+    public void testAbortAfterTableDroppedStillAuthenticatesAndChecksTxnUser() throws Exception {
         Mockito.when(database.getTablesOnIdOrderIfExist(Mockito.anyList())).thenReturn(Collections.emptyList());
         caller = UserIdentity.createAnalyzedUserIdentWithIp("other_loader", "%");
         Assertions.assertEquals(TStatusCode.ANALYSIS_ERROR,
                 service.loadTxn2PC(request("abort", false)).getStatus().getStatusCode());
-        caller = owner;
+        caller = txnUser;
         Assertions.assertEquals(TStatusCode.ANALYSIS_ERROR,
                 service.loadTxn2PC(request("abort", false).setPasswd("wrong")).getStatus().getStatusCode());
         verifyNoCompletion();
@@ -171,8 +171,8 @@ public class FrontendServiceImplStreamLoad2PCTest {
     }
 
     @Test
-    public void testOwnerStillNeedsLoadPrivilege() throws Exception {
-        Mockito.when(access.checkTblPriv(owner, InternalCatalog.INTERNAL_CATALOG_NAME, "db", "tbl",
+    public void testTxnUserStillNeedsLoadPrivilege() throws Exception {
+        Mockito.when(access.checkTblPriv(txnUser, InternalCatalog.INTERNAL_CATALOG_NAME, "db", "tbl",
                 PrivPredicate.LOAD)).thenReturn(false);
         Assertions.assertEquals(TStatusCode.ANALYSIS_ERROR,
                 service.loadTxn2PC(request("commit", false)).getStatus().getStatusCode());
@@ -189,8 +189,8 @@ public class FrontendServiceImplStreamLoad2PCTest {
     }
 
     @Test
-    public void testLegacyOwnerlessTransactionKeepsLoadAuthorization() throws Exception {
-        transaction.setOwner(null);
+    public void testLegacyTxnUserlessTransactionKeepsLoadAuthorization() throws Exception {
+        transaction.setTxnUser(null);
         caller = UserIdentity.createAnalyzedUserIdentWithIp("other_loader", "%");
         Assertions.assertEquals(TStatusCode.OK,
                 service.loadTxn2PC(request("commit", false)).getStatus().getStatusCode());
@@ -202,7 +202,7 @@ public class FrontendServiceImplStreamLoad2PCTest {
         Mockito.when(transactions.beginTransaction(Mockito.eq(1L), Mockito.eq(Collections.singletonList(2L)),
                 Mockito.eq("load_label"), Mockito.any(), Mockito.any(),
                 Mockito.eq(TransactionState.LoadJobSourceType.BACKEND_STREAMING), Mockito.eq(-1L),
-                Mockito.anyLong(), Mockito.eq(owner))).thenReturn(3L);
+                Mockito.anyLong(), Mockito.eq(txnUser))).thenReturn(3L);
         TLoadTxnBeginRequest request = new TLoadTxnBeginRequest().setUser("loader").setPasswd("password")
                 .setUserIp("127.0.0.1").setDb("db").setTbl("tbl").setLabel("load_label").setBackendId(1);
         TLoadTxnBeginResult result = service.loadTxnBegin(request);
@@ -224,7 +224,7 @@ public class FrontendServiceImplStreamLoad2PCTest {
         Assertions.assertEquals(TStatusCode.ANALYSIS_ERROR, result.getStatus().getStatusCode());
         Assertions.assertFalse(result.isSetTxnId());
         Assertions.assertTrue(result.getStatus().getErrorMsgs().get(0).contains("not the owner"));
-        Assertions.assertEquals(owner, transaction.getOwner());
+        Assertions.assertEquals(txnUser, transaction.getTxnUser());
     }
 
     private void verifyNoCompletion() throws Exception {

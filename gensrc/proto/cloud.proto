@@ -539,7 +539,7 @@ message TxnTsoFencePB {
     optional int64 fence_tso = 1;
 }
 
-message TxnOwnerPB {
+message TxnUserPB {
     optional string user = 1;
     optional string host = 2;
     optional bool is_domain = 3;
@@ -577,7 +577,7 @@ message TxnInfoPB {
     optional string load_cluster_id = 22;
     optional int64 commit_tso = 23;
     // Authenticated stream load creator; absent on legacy and internal transactions.
-    optional TxnOwnerPB owner = 24;
+    optional TxnUserPB txn_user = 24;
 }
 
 enum IndexObjectTypePB {

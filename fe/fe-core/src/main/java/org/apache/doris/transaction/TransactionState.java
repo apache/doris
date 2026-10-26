@@ -204,11 +204,11 @@ public class TransactionState implements Writable {
     @Setter
     @Getter
     private List<Long> tableIdList;
-    // Null for transactions created before owner tracking or by internal load jobs.
+    // Null for transactions created before transaction user tracking or by internal load jobs.
     @Getter
     @Setter
-    @SerializedName(value = "owner")
-    private UserIdentity owner;
+    @SerializedName(value = "txnUser")
+    private UserIdentity txnUser;
 
     @SerializedName(value = "txnId")
     private long transactionId;

@@ -88,7 +88,7 @@ public interface GlobalTransactionMgrIface extends Writable {
 
     public long beginTransaction(long dbId, List<Long> tableIdList, String label, TUniqueId requestId,
             TxnCoordinator coordinator, LoadJobSourceType sourceType, long listenerId, long timeoutSecond,
-            UserIdentity owner)
+            UserIdentity txnUser)
             throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException, DuplicatedRequestException,
             QuotaExceedException, MetaNotFoundException;
 
