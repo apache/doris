@@ -24,6 +24,7 @@
 #include <parquet/api/writer.h>
 #include <parquet/arrow/writer.h>
 #include <parquet/encoding.h>
+#include <unistd.h>
 
 #include <atomic>
 #include <bit>
@@ -36,6 +37,7 @@
 #include <memory>
 #include <numeric>
 #include <optional>
+#include <queue>
 #include <set>
 #include <string>
 #include <thread>
@@ -43,6 +45,7 @@
 #include <vector>
 
 #include "common/config.h"
+#include "common/metrics/doris_metrics.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/column/column_array.h"
@@ -85,6 +88,7 @@
 #include "storage/index/zone_map/zonemap_eval_context.h"
 #include "storage/index/zone_map/zonemap_filter_result.h"
 #include "storage/utils.h"
+#include "testutil/benchmark_control.h"
 #include "testutil/mock/mock_query_context.h"
 #include "util/coding.h"
 #include "util/defer_op.h"
@@ -961,7 +965,8 @@ struct PreparedTopNConjunct {
 
 PreparedTopNConjunct create_topn_conjunct(RuntimeState* state, int column_id,
                                           const DataTypePtr& data_type, const Field& bound,
-                                          bool publish_bound = true) {
+                                          bool publish_bound = true, bool is_asc = true,
+                                          bool nulls_first = false) {
     DORIS_CHECK(state != nullptr);
     DORIS_CHECK(data_type != nullptr);
     TExpr target_expr;
@@ -977,8 +982,8 @@ PreparedTopNConjunct create_topn_conjunct(RuntimeState* state, int column_id,
 
     TTopnFilterDesc desc;
     desc.__set_source_node_id(10);
-    desc.__set_is_asc(true);
-    desc.__set_null_first(false);
+    desc.__set_is_asc(is_asc);
+    desc.__set_null_first(nulls_first);
     desc.__set_target_node_id_to_target_expr({{20, std::move(target_expr)}});
     auto query_context = MockQueryContext::create();
     state->_query_ctx = query_context.get();
@@ -1927,7 +1932,9 @@ void use_schema_order_positions(format::FileScanRequest* request,
 class ParquetScanTest : public testing::Test {
 protected:
     void SetUp() override {
-        _test_dir = std::filesystem::temp_directory_path() / "doris_format_v2_parquet_scan_test";
+        // Paired baseline/candidate benchmarks must not remove the other process's fixtures.
+        _test_dir = std::filesystem::temp_directory_path() /
+                    ("doris_format_v2_parquet_scan_test_" + std::to_string(getpid()));
         std::filesystem::remove_all(_test_dir);
         std::filesystem::create_directories(_test_dir);
         _file_path = (_test_dir / "scan.parquet").string();
@@ -4788,6 +4795,305 @@ TEST_F(ParquetScanTest, OpenDefersPageIndexProbeToCurrentRowGroup) {
     ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
     EXPECT_EQ(rows, 128);
     EXPECT_EQ(counter_value(profile, "PageIndexReadCalls"), 1);
+}
+
+TEST_F(ParquetScanTest, TopNReadsBestRowGroupBeforePublishingBound) {
+    constexpr int GROUP_ROWS = 128;
+    constexpr int GROUPS = 4;
+    constexpr int K = 3;
+    for (const bool ascending : {true, false}) {
+        _file_path = (_test_dir / (ascending ? "asc.parquet" : "desc.parquet")).string();
+        std::vector<int32_t> values;
+        for (int group = 0; group < GROUPS; ++group) {
+            const int base = (ascending ? GROUPS - group - 1 : group) * GROUP_ROWS;
+            for (int row = 0; row < GROUP_ROWS; ++row) {
+                values.push_back(base + row);
+            }
+        }
+        auto table = arrow::Table::Make(arrow::schema({arrow::field("k", arrow::int32(), false)}),
+                                        {build_int32_array(values)});
+        // PLAIN, no dictionary or PageIndex: only Footer pruning can avoid reading later groups.
+        write_table(_file_path, table, GROUP_ROWS, false, false, true);
+        RuntimeProfile profile("topn_row_group_order");
+        const format::GlobalRowIdContext rowid_context {
+                .version = 1, .backend_id = 2, .file_id = 3};
+        auto reader = create_reader(0, -1, &profile, rowid_context);
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        ASSERT_TRUE(reader->init(&state).ok());
+        reader->set_batch_size(GROUP_ROWS);
+        std::vector<format::ColumnDefinition> schema;
+        ASSERT_TRUE(reader->get_schema(&schema).ok());
+        auto prepared = create_topn_conjunct(&state, 0, schema[0].type, Field {}, false, ascending);
+        auto request = std::make_shared<format::FileScanRequest>();
+        format::FileScanRequestBuilder builder(request.get());
+        ASSERT_TRUE(builder.add_predicate_column(format::LocalColumnId(0)).ok());
+        ASSERT_TRUE(builder.add_non_predicate_column(
+                                   format::LocalColumnId(format::GLOBAL_ROWID_COLUMN_ID))
+                            .ok());
+        request->conjuncts.push_back(prepared.conjunct);
+        ASSERT_TRUE(reader->open(request).ok());
+        std::vector<int32_t> top;
+        bool eof = false;
+        while (!eof) {
+            Block block = build_file_block(schema);
+            size_t rows = 0;
+            ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+            const auto& column = int32_data_column(*block.get_by_position(0).column);
+            for (size_t row = 0; row < rows; ++row) {
+                const int32_t value = column.get_element(row);
+                top.push_back(value);
+                const auto location =
+                        decode_rowid(string_data_column(*block.get_by_position(1).column), row);
+                const int expected_position =
+                        ascending ? (GROUPS - 1 - value / GROUP_ROWS) * GROUP_ROWS +
+                                            value % GROUP_ROWS
+                                  : value;
+                EXPECT_EQ(location.row_id, expected_position);
+                EXPECT_EQ(location.file_id, rowid_context.file_id);
+            }
+            std::ranges::sort(
+                    top, [ascending](int32_t a, int32_t b) { return ascending ? a < b : a > b; });
+            if (top.size() >= K) {
+                top.resize(K);
+                // Model the SortSink feedback after each block without replacing the scan request.
+                ASSERT_TRUE(prepared.query_context->get_runtime_predicate(10)
+                                    .update(Field::create_field<TYPE_INT>(top.back()))
+                                    .ok());
+            }
+        }
+        const std::vector<int32_t> expected =
+                ascending ? std::vector<int32_t> {0, 1, 2} : std::vector<int32_t> {511, 510, 509};
+        EXPECT_EQ(top, expected);
+        EXPECT_EQ(counter_value(profile, "RawRowsRead"), GROUP_ROWS);
+        EXPECT_EQ(counter_value(profile, "RowGroupsFilteredByMinMax"), GROUPS - 1);
+        prepared.conjunct->close();
+    }
+}
+
+TEST_F(ParquetScanTest, TopNOrderUsesLocalizedSlotInsteadOfPhysicalColumnOrdinal) {
+    auto table = arrow::Table::Make(
+            arrow::schema({arrow::field("padding", arrow::int32(), false),
+                           arrow::field("k", arrow::int32(), false)}),
+            {build_int32_array({-1, -1, -1, -1, -1, -1}), build_int32_array({8, 9, 4, 5, 0, 1})});
+    write_table(_file_path, table, 2, false, false, true);
+    RuntimeProfile profile("localized_topn");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto reader = create_reader(0, -1, &profile);
+    ASSERT_TRUE(reader->init(&state).ok());
+    reader->set_batch_size(2);
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    // The physical key is column 1, but the mapper binds it to slot 0 in the file-local block.
+    auto prepared = create_topn_conjunct(&state, 0, schema[1].type, Field {}, false);
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder builder(request.get());
+    ASSERT_TRUE(builder.add_predicate_column(format::LocalColumnId(1)).ok());
+    request->conjuncts.push_back(prepared.conjunct);
+    ASSERT_TRUE(reader->open(request).ok());
+    Block block = build_file_block({schema[1]});
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 2);
+    EXPECT_EQ(int32_data_column(*block.get_by_position(0).column).get_data(),
+              (ColumnInt32::Container {0, 1}));
+    ASSERT_TRUE(prepared.query_context->get_runtime_predicate(10)
+                        .update(Field::create_field<TYPE_INT>(1))
+                        .ok());
+    block.clear_column_data();
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    EXPECT_TRUE(eof);
+    EXPECT_EQ(rows, 0);
+    EXPECT_EQ(counter_value(profile, "RawRowsRead"), 2);
+    EXPECT_EQ(counter_value(profile, "RowGroupsFilteredByMinMax"), 2);
+    prepared.conjunct->close();
+}
+
+TEST_F(ParquetScanTest, TopNMissingStatisticsAndPruningFenceKeepPhysicalOrder) {
+    for (const int scenario : {0, 1, 2, 3}) {
+        auto table = arrow::Table::Make(arrow::schema({arrow::field("k", arrow::int32(), false)}),
+                                        {build_int32_array({8, 9, 4, 5, 0, 1})});
+        write_table(_file_path, table, 2, false, false, scenario != 0);
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        auto reader = create_reader();
+        ASSERT_TRUE(reader->init(&state).ok());
+        reader->set_batch_size(2);
+        std::vector<format::ColumnDefinition> schema;
+        ASSERT_TRUE(reader->get_schema(&schema).ok());
+        auto prepared = create_topn_conjunct(&state, 0, schema[0].type, Field {}, false);
+        auto request = std::make_shared<format::FileScanRequest>();
+        format::FileScanRequestBuilder builder(request.get());
+        ASSERT_TRUE(builder.add_predicate_column(format::LocalColumnId(0)).ok());
+        request->conjuncts.push_back(prepared.conjunct);
+        if (scenario == 1) {
+            // A preceding evaluation-sensitive conjunct prevents metadata pruning and reordering.
+            request->metadata_pruning_safe_conjunct_count = 0;
+        } else if (scenario == 2) {
+            request->allow_row_reordering = false;
+        } else if (scenario == 3) {
+            request->row_ids = std::vector<int64_t> {0, 3, 4};
+        }
+        ASSERT_TRUE(reader->open(request).ok());
+        std::vector<int32_t> actual;
+        bool eof = false;
+        while (!eof) {
+            Block block = build_file_block(schema);
+            size_t rows = 0;
+            ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+            const auto& column = int32_data_column(*block.get_by_position(0).column);
+            for (size_t row = 0; row < rows; ++row) {
+                actual.push_back(column.get_element(row));
+            }
+        }
+        EXPECT_EQ(actual, scenario == 3 ? (std::vector<int32_t> {8, 5, 0})
+                                        : (std::vector<int32_t> {8, 9, 4, 5, 0, 1}));
+        prepared.conjunct->close();
+    }
+}
+
+TEST_F(ParquetScanTest, TopNZoneMapObservesLateBoundsAndNullOrdering) {
+    for (const bool ascending : {true, false}) {
+        for (const bool nulls_first : {true, false}) {
+            RuntimeState state {TQueryOptions(), TQueryGlobals()};
+            auto type = make_nullable(std::make_shared<DataTypeInt32>());
+            auto prepared =
+                    create_topn_conjunct(&state, 0, type, Field {}, false, ascending, nulls_first);
+            auto zone = std::make_shared<segment_v2::ZoneMap>();
+            zone->has_not_null = true;
+            zone->min_value = Field::create_field<TYPE_INT>(10);
+            zone->max_value = Field::create_field<TYPE_INT>(20);
+            ZoneMapEvalContext ctx;
+            ctx.slots[0].data_type = type;
+            ctx.slots[0].zone_map = zone;
+            const auto& expression = prepared.conjunct->root();
+            EXPECT_TRUE(expression->can_evaluate_zonemap_filter());
+            EXPECT_NE(expression->evaluate_zonemap_filter(ctx), ZoneMapFilterResult::kNoMatch);
+            ASSERT_TRUE(prepared.query_context->get_runtime_predicate(10)
+                                .update(Field::create_field<TYPE_INT>(ascending ? 9 : 21))
+                                .ok());
+            EXPECT_EQ(expression->evaluate_zonemap_filter(ctx), ZoneMapFilterResult::kNoMatch);
+            // Equal leading keys may still win on a later ORDER BY key and must remain candidates.
+            if (ascending) {
+                zone->min_value = Field::create_field<TYPE_INT>(9);
+            } else {
+                zone->max_value = Field::create_field<TYPE_INT>(21);
+            }
+            EXPECT_EQ(expression->evaluate_zonemap_filter(ctx), ZoneMapFilterResult::kMayMatch);
+            zone->min_value = Field::create_field<TYPE_INT>(10);
+            zone->max_value = Field::create_field<TYPE_INT>(20);
+            zone->has_null = true;
+            EXPECT_EQ(expression->evaluate_zonemap_filter(ctx),
+                      nulls_first ? ZoneMapFilterResult::kMayMatch : ZoneMapFilterResult::kNoMatch);
+            zone->has_not_null = false;
+            EXPECT_EQ(expression->evaluate_zonemap_filter(ctx),
+                      nulls_first ? ZoneMapFilterResult::kMayMatch : ZoneMapFilterResult::kNoMatch);
+            ctx.slots.clear();
+            EXPECT_EQ(expression->evaluate_zonemap_filter(ctx), ZoneMapFilterResult::kUnsupported);
+            prepared.conjunct->close();
+        }
+    }
+}
+
+TEST_F(ParquetScanTest, TopNRowGroupOrderMicrobench) {
+    if (std::getenv("DORIS_TOPN_ROW_GROUP_BENCHMARK") == nullptr) {
+        GTEST_SKIP() << "Set DORIS_TOPN_ROW_GROUP_BENCHMARK=1 to run the reader microbenchmark";
+    }
+    constexpr int GROUPS = 128;
+    constexpr int GROUP_ROWS = 4096;
+    constexpr int K = 10;
+    constexpr int SAMPLES = 9;
+    constexpr int ITERATIONS = 32;
+    for (const bool ascending : {true, false}) {
+        _file_path = (_test_dir / (ascending ? "asc.parquet" : "desc.parquet")).string();
+        std::vector<int32_t> values;
+        values.reserve(GROUPS * GROUP_ROWS);
+        for (int group = 0; group < GROUPS; ++group) {
+            const int base = (ascending ? GROUPS - group - 1 : group) * GROUP_ROWS;
+            for (int row = 0; row < GROUP_ROWS; ++row) {
+                values.push_back(base + row);
+            }
+        }
+        auto table = arrow::Table::Make(arrow::schema({arrow::field("k", arrow::int32(), false)}),
+                                        {build_int32_array(values)});
+        // Fixture generation and the warmup are outside the reported reader-plus-TopK samples.
+        write_table(_file_path, table, GROUP_ROWS, false, false, true);
+        for (int sample = -1; sample < SAMPLES; ++sample) {
+            const std::string label = ascending ? "parquet_topn_asc" : "parquet_topn_desc";
+            if (sample >= 0) {
+                benchmark::wait_for_turn(label, sample);
+            }
+            uint64_t total_elapsed = 0;
+            int64_t total_checksum = 0;
+            int64_t total_rows = 0;
+            int64_t total_filtered = 0;
+            int64_t total_bytes = 0;
+            for (int iteration = 0; iteration < ITERATIONS; ++iteration) {
+                const auto bytes_before = DorisMetrics::instance()->local_bytes_read_total->value();
+                const auto start = std::chrono::steady_clock::now();
+                RuntimeProfile profile("topn_microbench");
+                RuntimeState state {TQueryOptions(), TQueryGlobals()};
+                auto reader = create_reader(0, -1, &profile);
+                ASSERT_TRUE(reader->init(&state).ok());
+                reader->set_batch_size(GROUP_ROWS);
+                std::vector<format::ColumnDefinition> schema;
+                ASSERT_TRUE(reader->get_schema(&schema).ok());
+                auto prepared =
+                        create_topn_conjunct(&state, 0, schema[0].type, Field {}, false, ascending);
+                auto request = std::make_shared<format::FileScanRequest>();
+                format::FileScanRequestBuilder builder(request.get());
+                ASSERT_TRUE(builder.add_predicate_column(format::LocalColumnId(0)).ok());
+                request->conjuncts.push_back(prepared.conjunct);
+                ASSERT_TRUE(reader->open(request).ok());
+                auto compare = [ascending](int32_t a, int32_t b) {
+                    return ascending ? a < b : a > b;
+                };
+                std::priority_queue<int32_t, std::vector<int32_t>, decltype(compare)> top(compare);
+                bool eof = false;
+                while (!eof) {
+                    Block block = build_file_block(schema);
+                    size_t rows = 0;
+                    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+                    const auto& column = int32_data_column(*block.get_by_position(0).column);
+                    for (size_t row = 0; row < rows; ++row) {
+                        top.push(column.get_element(row));
+                        if (top.size() > K) {
+                            top.pop();
+                        }
+                    }
+                    if (top.size() == K) {
+                        ASSERT_TRUE(prepared.query_context->get_runtime_predicate(10)
+                                            .update(Field::create_field<TYPE_INT>(top.top()))
+                                            .ok());
+                    }
+                }
+                ASSERT_TRUE(reader->close().ok());
+                const auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                             std::chrono::steady_clock::now() - start)
+                                             .count();
+                ASSERT_EQ(top.size(), K);
+                int64_t checksum = 0;
+                for (int rank = K - 1; rank >= 0; --rank) {
+                    EXPECT_EQ(top.top(), ascending ? rank : GROUPS * GROUP_ROWS - 1 - rank);
+                    checksum += top.top();
+                    top.pop();
+                }
+                total_elapsed += elapsed;
+                total_checksum += checksum;
+                total_rows += counter_value(profile, "RawRowsRead");
+                total_filtered += counter_value(profile, "RowGroupsFilteredByMinMax");
+                total_bytes +=
+                        DorisMetrics::instance()->local_bytes_read_total->value() - bytes_before;
+                prepared.conjunct->close();
+            }
+            if (sample >= 0) {
+                benchmark::report_sample(label, sample, ITERATIONS, total_elapsed, total_checksum,
+                                         true);
+                std::cout << "PARQUET_TOPN_WORK," << label << ',' << sample << ','
+                          << total_rows / ITERATIONS << ',' << total_filtered / ITERATIONS << ','
+                          << total_bytes / ITERATIONS << std::endl;
+            }
+        }
+    }
 }
 
 } // namespace

@@ -86,6 +86,9 @@ struct FileScanRequest {
     std::map<LocalColumnId, LocalIndex> non_predicate_positions;
     // Row-level filters converted to file-local expressions from table-level predicates.
     VExprContextSPtrs conjuncts;
+    // TableReader also sees unsafe slotless predicates omitted from file-local conjuncts. Such
+    // predicates may observe input order, so a physical reader must retain file order for them.
+    bool allow_row_reordering = true;
     // Only this leading subset may participate in footer/page metadata pruning. The boundary is
     // inherited from table-conjunct order so an omitted slotless unsafe expression remains a fence.
     size_t metadata_pruning_safe_conjunct_count = std::numeric_limits<size_t>::max();

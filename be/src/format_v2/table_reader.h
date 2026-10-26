@@ -461,6 +461,8 @@ protected:
         RETURN_IF_ERROR(_data_reader.column_mapper->create_scan_request(
                 _table_filters, _projected_columns, file_request.get(), _runtime_state));
         file_request->row_ids = _row_ids;
+        file_request->allow_row_reordering =
+                std::ranges::all_of(_conjuncts, _is_safe_to_pre_execute);
         _constant_pruning_safe_filter_count =
                 std::min(_constant_pruning_safe_filter_count,
                          file_request->constant_pruning_safe_table_filter_count);

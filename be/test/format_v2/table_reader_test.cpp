@@ -1768,6 +1768,7 @@ TEST(TableReaderTest, UnsafePredicateStaysOnScannerPath) {
     ASSERT_NE(fake_state->last_request, nullptr);
     ASSERT_EQ(fake_state->last_request->conjuncts.size(), 1);
     EXPECT_EQ(fake_state->last_request->metadata_pruning_safe_conjunct_count, 0);
+    EXPECT_FALSE(fake_state->last_request->allow_row_reordering);
     EXPECT_FALSE(predicate_executed);
     ASSERT_TRUE(reader.close().ok());
 }

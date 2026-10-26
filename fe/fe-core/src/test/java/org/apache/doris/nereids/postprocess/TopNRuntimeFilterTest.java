@@ -69,6 +69,20 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
     }
 
     @Test
+    public void testTopNFilterDoesNotCrossEvaluationSensitiveProject() {
+        for (String expression : List.of("assert_true(c_custkey < 3, 'out of range')", "rand()")) {
+            PlanChecker checker = PlanChecker.from(connectContext)
+                    .analyze("SELECT c_custkey, " + expression + " AS v FROM customer "
+                            + "ORDER BY c_custkey, v LIMIT 3")
+                    .rewrite().implement();
+            PhysicalPlan plan = new PlanPostProcessors(checker.getCascadesContext())
+                    .process(checker.getPhysicalPlan());
+            Assertions.assertTrue(checker.getCascadesContext().getTopnFilterContext().getTopnFilters().isEmpty(),
+                    plan.treeString());
+        }
+    }
+
+    @Test
     public void testUuidTopNFilterPreservesOrderingAndNullPlacement() {
         double previousRatio = connectContext.getSessionVariable().topnFilterRatio;
         connectContext.getSessionVariable().topnFilterRatio = 1000000;

@@ -92,6 +92,11 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
     @Override
     public Boolean visitPhysicalProject(
             PhysicalProject<? extends Plan> project, PushDownContext ctx) {
+        // TopN can skip or reorder input before this project. Crossing assert_true(k < 3), for
+        // example, could suppress errors in pruned row groups instead of preserving evaluation.
+        if (project.getProjects().stream().anyMatch(Expression::containsVolatileOrNoneMovableExpression)) {
+            return false;
+        }
         // project ( A+1 as x)
         // probeExpr: abs(x) => abs(A+1)
         PushDownContext ctxProjectProbeExpr = ctx;

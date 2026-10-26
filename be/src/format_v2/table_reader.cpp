@@ -1183,6 +1183,8 @@ Status TableReader::refresh_conjuncts(VExprContextSPtrs conjuncts) {
             _file_scan_request == nullptr ? nullptr
                                           : &_file_scan_request->non_predicate_positions));
     refreshed_request->row_ids = _row_ids;
+    refreshed_request->allow_row_reordering =
+            std::ranges::all_of(_conjuncts, _is_safe_to_pre_execute);
     // A refresh does not prove that every future runtime filter has arrived. Keep carrier values
     // available whenever the split started with pending filters.
     if (_push_down_agg_type == TPushAggOp::type::COUNT && _push_down_count_columns.has_value() &&

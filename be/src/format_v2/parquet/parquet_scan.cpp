@@ -20,6 +20,7 @@
 #include <iterator>
 #include <limits>
 #include <memory>
+#include <numeric>
 #include <optional>
 #include <ranges>
 #include <set>
@@ -43,6 +44,7 @@
 #include "exprs/vcompound_pred.h"
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr_context.h"
+#include "exprs/vtopn_pred.h"
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/parquet_file_context.h"
 #include "format_v2/parquet/parquet_statistics.h"
@@ -1230,6 +1232,9 @@ void ParquetScanScheduler::set_condition_cache_context(std::shared_ptr<Condition
 
 void ParquetScanScheduler::reset() {
     _next_row_group_plan_idx = 0;
+    _row_group_order.clear();
+    _row_group_order_prepared = false;
+    _topn_footer_recheck = false;
     _raw_rows_read = 0;
     _predicate_schedule_request = nullptr;
     _predicate_schedule = {};
@@ -1409,6 +1414,125 @@ std::vector<format::LocalColumnIndex> ParquetScanScheduler::adaptive_predicate_p
     return result;
 }
 
+namespace {
+
+struct TopNOrderingColumn {
+    const VTopNPred* predicate;
+    const ParquetColumnSchema* schema;
+};
+
+std::optional<TopNOrderingColumn> find_topn_ordering_column(
+        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+        const format::FileScanRequest& request) {
+    const size_t safe_count =
+            std::min(request.metadata_pruning_safe_conjunct_count, request.conjuncts.size());
+    const VTopNPred* topn = nullptr;
+    for (size_t idx = 0; idx < safe_count; ++idx) {
+        const auto& root = request.conjuncts[idx]->root();
+        if (root->is_topn_filter() && root->can_evaluate_zonemap_filter()) {
+            topn = assert_cast<const VTopNPred*>(root.get());
+            break;
+        }
+    }
+    if (topn == nullptr) {
+        return std::nullopt;
+    }
+    const auto* slot = assert_cast<const VSlotRef*>(topn->get_child(0).get());
+    const auto position = std::ranges::find_if(request.local_positions, [&](const auto& entry) {
+        return entry.second.value() == slot->column_id();
+    });
+    if (position == request.local_positions.end()) {
+        return std::nullopt;
+    }
+    const auto column = std::ranges::find_if(file_schema, [&](const auto& schema) {
+        return schema->local_id == position->first.value();
+    });
+    if (column == file_schema.end() || (*column)->kind != ParquetColumnSchemaKind::PRIMITIVE ||
+        (*column)->max_repetition_level != 0 ||
+        !expr_zonemap::data_types_compatible((*column)->type, slot->data_type())) {
+        return std::nullopt;
+    }
+    return TopNOrderingColumn {.predicate = topn, .schema = column->get()};
+}
+
+} // namespace
+
+void ParquetScanScheduler::prepare_topn_row_group_order(
+        const ParquetFileContext& file_context,
+        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+        const format::FileScanRequest& request) {
+    _row_group_order_prepared = true;
+    const auto binding = find_topn_ordering_column(file_schema, request);
+    if (!binding.has_value()) {
+        return;
+    }
+    const auto* topn = binding->predicate;
+    const auto& schema = *binding->schema;
+    const size_t safe_count =
+            std::min(request.metadata_pruning_safe_conjunct_count, request.conjuncts.size());
+    const auto& metadata = file_context.native_metadata->to_thrift();
+    _topn_footer_recheck = std::ranges::any_of(_scan_plan->row_groups, [&](const auto& plan) {
+        const auto& group = metadata.row_groups[plan.row_group_id];
+        DORIS_CHECK(schema.leaf_column_id >= 0 && schema.leaf_column_id < group.columns.size());
+        const auto& chunk = group.columns[schema.leaf_column_id];
+        return chunk.__isset.meta_data && chunk.meta_data.__isset.statistics;
+    });
+    // Files without statistics cannot benefit from repeated footer checks. Row-ID fetches promise
+    // increasing positions, and an unsafe table expression must continue observing file order.
+    if (!_topn_footer_recheck || request.row_ids.has_value() || !request.allow_row_reordering ||
+        safe_count != request.conjuncts.size() || _scan_plan->row_groups.size() < 2) {
+        return;
+    }
+    struct Priority {
+        std::optional<Field> best;
+        bool may_have_null = false;
+    };
+    std::vector<Priority> priorities;
+    priorities.reserve(_scan_plan->row_groups.size());
+    const bool trusted_nulls =
+            native::parquet_reader_compat(metadata.__isset.created_by ? metadata.created_by : "")
+                    .null_count_trusted;
+    bool usable = false;
+    for (const auto& plan : _scan_plan->row_groups) {
+        const auto& group = metadata.row_groups[plan.row_group_id];
+        DORIS_CHECK(schema.leaf_column_id >= 0 && schema.leaf_column_id < group.columns.size());
+        const auto& chunk = group.columns[schema.leaf_column_id];
+        Priority priority;
+        if (chunk.__isset.meta_data && chunk.meta_data.__isset.statistics) {
+            const auto safe_statistics = detail::sanitize_native_footer_statistics(
+                    schema.type_descriptor, chunk.meta_data.statistics,
+                    detail::has_supported_type_defined_order(metadata, schema.leaf_column_id));
+            const auto stats = ParquetStatisticsUtils::TransformColumnStatistics(
+                    schema, &safe_statistics, chunk.meta_data.num_values, _timezone, trusted_nulls);
+            if (stats.has_min_max) {
+                priority.best = topn->is_asc() ? stats.min_value : stats.max_value;
+                usable = true;
+            }
+            priority.may_have_null = stats.has_null;
+        }
+        priorities.push_back(std::move(priority));
+    }
+    if (!usable) {
+        return;
+    }
+    _row_group_order.resize(priorities.size());
+    std::iota(_row_group_order.begin(), _row_group_order.end(), 0);
+    std::stable_sort(_row_group_order.begin(), _row_group_order.end(), [&](size_t lhs, size_t rhs) {
+        const auto& left = priorities[lhs];
+        const auto& right = priorities[rhs];
+        if (topn->nulls_first() && left.may_have_null != right.may_have_null) {
+            return left.may_have_null;
+        }
+        if (left.best.has_value() != right.best.has_value()) {
+            return left.best.has_value();
+        }
+        if (!left.best.has_value()) {
+            return false;
+        }
+        return topn->is_asc() ? *left.best < *right.best : *right.best < *left.best;
+    });
+}
+
 Status ParquetScanScheduler::open_next_row_group(
         ParquetFileContext& file_context,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
@@ -1416,6 +1540,9 @@ Status ParquetScanScheduler::open_next_row_group(
     *has_row_group = false;
     RowGroupReadPlan* selected_plan = nullptr;
     DORIS_CHECK(_scan_plan != nullptr);
+    if (!_row_group_order_prepared) {
+        prepare_topn_row_group_order(file_context, file_schema, request);
+    }
     if (_requested_leaf_ids_need_refresh) {
         // A runtime-filter refresh changes the immutable projection baseline exactly once; later
         // row groups only apply their full-Variant fallback delta to this rebuilt set.
@@ -1423,7 +1550,11 @@ Status ParquetScanScheduler::open_next_row_group(
         _requested_leaf_ids_need_refresh = false;
     }
     while (_next_row_group_plan_idx < _scan_plan->row_groups.size()) {
-        RowGroupReadPlan& candidate_plan = _scan_plan->row_groups[_next_row_group_plan_idx++];
+        const size_t plan_idx = _row_group_order.empty()
+                                        ? _next_row_group_plan_idx
+                                        : _row_group_order[_next_row_group_plan_idx];
+        ++_next_row_group_plan_idx;
+        RowGroupReadPlan& candidate_plan = _scan_plan->row_groups[plan_idx];
         // Probe only the row group about to execute. This keeps LIMIT/cancellation latency
         // independent of the number of later remote row groups while preserving eager footer
         // statistics pruning during open.
@@ -1440,6 +1571,11 @@ Status ParquetScanScheduler::open_next_row_group(
             const auto& row_group = file_context.native_metadata->to_thrift()
                                             .row_groups[candidate_plan.row_group_id];
             prepare_row_group_physical_projection(row_group, file_schema, request, &candidate_plan);
+        }
+        // TopN changes its bound in place, without publishing a new FileScanRequest. For example,
+        // reading [0, 99] first can tighten ASC LIMIT 3 to 2 and exclude a later group [100, 199].
+        // Recheck before dictionary/index probes or prefetch, using the current monotonic bound.
+        if (_remaining_plans_need_replanning || _topn_footer_recheck) {
             const auto row_group_leaf_ids = row_group_leaf_column_ids(
                     file_schema, request, candidate_plan, _scan_plan->requested_leaf_column_ids);
             const auto& requested_leaf_ids = row_group_leaf_ids.has_value()
