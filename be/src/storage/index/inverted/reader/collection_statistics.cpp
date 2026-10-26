@@ -286,8 +286,9 @@ Status collect_hidden_docs(const RowsetSharedPtr& rowset, const RowsetSegmentVie
             *hidden_rows.delete_bitmap->get_agg(seg.delete_bitmap_key(hidden_rows.version));
 
     // A row written with the delete sign stays readable until base compaction removes it, while
-    // queries filter it out by predicate.
-    if (tablet_schema.delete_sign_idx() >= 0) {
+    // queries filter it out by predicate. A query with skip_delete_sign or show_hidden_columns
+    // returns it, so it is not hidden then.
+    if (hidden_rows.filters_delete_sign && tablet_schema.delete_sign_idx() >= 0) {
         OlapReaderStatistics stats;
         SegmentCacheHandle cache_handle;
         // The delete sign is column data, read as the query reads its columns.

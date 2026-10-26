@@ -53,6 +53,7 @@
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_manager.h"
+#include "storage/utils.h"
 #include "util/to_string.h"
 
 namespace doris {
@@ -526,8 +527,38 @@ static Status validate_residual_scan_conjuncts(RuntimeState* state,
     return Status::OK();
 }
 
+static bool expr_reads_slot(const VExprSPtr& expr, int slot_id) {
+    DORIS_CHECK(expr != nullptr);
+    if (expr->is_slot_ref() && assert_cast<const VSlotRef*>(expr.get())->slot_id() == slot_id) {
+        return true;
+    }
+    return std::ranges::any_of(expr->children(), [slot_id](const auto& child) {
+        return expr_reads_slot(child, slot_id);
+    });
+}
+
+bool OlapScanLocalState::_conjuncts_read_delete_sign() const {
+    const auto& p = _parent->cast<OlapScanOperatorX>();
+    const auto& slots = p._output_tuple_desc->slots();
+    const auto delete_sign = std::ranges::find_if(
+            slots, [](const SlotDescriptor* slot) { return slot->col_name() == DELETE_SIGN; });
+    // A conjunct on the delete sign reads its slot, so the scan outputs it.
+    if (delete_sign == slots.end()) {
+        return false;
+    }
+    const int slot_id = (*delete_sign)->id();
+    auto reads_delete_sign = [slot_id](const VExprContextSPtr& conjunct) {
+        return conjunct->root() != nullptr && expr_reads_slot(conjunct->root(), slot_id);
+    };
+    return std::ranges::any_of(_conjuncts, reads_delete_sign) ||
+           std::ranges::any_of(_common_expr_ctxs_push_down, reads_delete_sign);
+}
+
 Status OlapScanLocalState::_process_conjuncts(RuntimeState* state) {
     SCOPED_TIMER(_process_conjunct_timer);
+    // Read before the conjuncts are normalized, which moves them into column predicates and
+    // storage expressions.
+    _filters_delete_sign = _conjuncts_read_delete_sign();
     RETURN_IF_ERROR(ScanLocalState::_process_conjuncts(state));
     if (ScanLocalState::_eos) {
         return Status::OK();

@@ -67,6 +67,7 @@
 #include "storage/rowset/rowset_reader.h"
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_schema.h"
+#include "storage/utils.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "util/defer_op.h"
 #include "util/slice.h"
@@ -1121,6 +1122,43 @@ TEST_F(CollectionStatisticsTest, NullRowsCountAsDocumentsWithoutTokens) {
         null_hidden.delete_bitmap->add(seg.delete_bitmap_key(2), 1);
     }
     EXPECT_EQ(collect(&null_hidden), std::make_pair(uint64_t {4}, uint64_t {6}));
+}
+
+// With skip_delete_sign or show_hidden_columns the scan returns the rows written with the delete
+// sign, so the statistics count them like any other row: only the rows the delete bitmap marks
+// are left out, and the delete sign column is not read.
+TEST_F(CollectionStatisticsTest, DeleteSignRowsCountWhenTheScanReturnsThem) {
+    auto tablet_schema = create_legacy_v3_schema();
+    TabletColumn delete_sign;
+    delete_sign.set_unique_id(2);
+    delete_sign.set_name(DELETE_SIGN);
+    delete_sign.set_type(FieldType::OLAP_FIELD_TYPE_TINYINT);
+    tablet_schema->append_column(delete_sign);
+    ASSERT_GE(tablet_schema->delete_sign_idx(), 0);
+    const std::string segment_path = test_dir_ + "/delete_sign_returned_0.dat";
+    ASSERT_TRUE(write_legacy_v3_segment(tablet_schema, segment_path, 0,
+                                        {"alpha beta", "alpha", "beta gamma delta"})
+                        .ok());
+
+    auto rowset_meta = std::make_shared<collection_statistics::MockRowsetMeta>();
+    auto rowset = std::make_shared<collection_statistics::MockRowset>(tablet_schema, rowset_meta);
+    rowset->set_num_segments(1);
+    rowset->set_segment_path(0, segment_path);
+    auto reader = std::make_shared<collection_statistics::MockRowsetReader>(rowset);
+    std::vector<RowSetSplits> splits {RowSetSplits(reader)};
+
+    constexpr int64_t kVersion = 4;
+    MowHiddenRows hidden {.delete_bitmap = std::make_shared<DeleteBitmap>(9400),
+                          .version = kVersion,
+                          .filters_delete_sign = false};
+    for (const auto seg : rowset->segments()) {
+        hidden.delete_bitmap->add(seg.delete_bitmap_key(kVersion), 1);
+    }
+    const Status status = stats_->collect(runtime_state_.get(), splits, tablet_schema,
+                                          create_match_expr_contexts("alpha"), nullptr, &hidden);
+    ASSERT_TRUE(status.ok()) << status;
+    expect_collected_stats(L"1", 2, 5);
+    expect_collected_term(L"1", L"alpha", 1);
 }
 
 namespace {

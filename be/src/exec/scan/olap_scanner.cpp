@@ -303,6 +303,7 @@ Status OlapScanner::_prepare_impl() {
             hidden_rows = MowHiddenRows {
                     .delete_bitmap = _tablet_reader_params.delete_bitmap,
                     .version = _tablet_reader_params.version.second,
+                    .filters_delete_sign = local_state->_filters_delete_sign,
                     .use_segment_cache = !query_options.__isset.enable_segment_cache ||
                                          query_options.enable_segment_cache,
                     .use_page_cache = _state->enable_page_cache()};
