@@ -1010,6 +1010,7 @@ jobs:
             ${{ env.REVIEW_CONTEXT_DIR }}/review-submission.json
             ${{ env.REVIEW_CONTEXT_DIR }}/review-submission-rejected.json
             ${{ env.REVIEW_CONTEXT_DIR }}/review-api-errors.jsonl
+            ${{ env.REVIEW_CONTEXT_DIR }}/review-draft.json
           # The context directory is hidden; include only these explicit files.
           include-hidden-files: true
           if-no-files-found: ignore
