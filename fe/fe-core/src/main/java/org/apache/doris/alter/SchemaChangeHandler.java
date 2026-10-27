@@ -1948,6 +1948,9 @@ public class SchemaChangeHandler extends AlterHandler {
             //alterClauses can or cannot light schema change
             boolean lightSchemaChange = true;
             boolean lightIndexChange = false;
+            // A clause needs a heavy schema change job (a column or property change that can not be light, or
+            // an index that has to be built for the existing data). The light index change path can not run it.
+            boolean requiresHeavyChange = false;
             boolean buildIndexChange = false;
 
             // index id -> index schema
@@ -2107,6 +2110,7 @@ public class SchemaChangeHandler extends AlterHandler {
                             indexSchemaMap, colUniqueIdSupplierMap);
                     if (!clauseCanLightSchemaChange) {
                         lightSchemaChange = false;
+                        requiresHeavyChange = true;
                     }
                 } else if (alterClause instanceof AddColumnsClause) {
                     // add columns
@@ -2114,6 +2118,7 @@ public class SchemaChangeHandler extends AlterHandler {
                             indexSchemaMap, false, colUniqueIdSupplierMap);
                     if (!clauseCanLightSchemaChange) {
                         lightSchemaChange = false;
+                        requiresHeavyChange = true;
                     }
                 } else if (alterClause instanceof DropColumnClause) {
                     // drop column and drop indexes on this column
@@ -2121,6 +2126,7 @@ public class SchemaChangeHandler extends AlterHandler {
                             indexSchemaMap, newIndexes);
                     if (!clauseCanLightSchemaChange) {
                         lightSchemaChange = false;
+                        requiresHeavyChange = true;
                     }
                 } else if (alterClause instanceof ModifyColumnClause) {
                     // modify column
@@ -2128,15 +2134,18 @@ public class SchemaChangeHandler extends AlterHandler {
                             olapTable, indexSchemaMap);
                     if (!clauseCanLightSchemaChange) {
                         lightSchemaChange = false;
+                        requiresHeavyChange = true;
                     }
                 } else if (alterClause instanceof ReorderColumnsClause) {
                     // reorder column
                     processReorderColumn((ReorderColumnsClause) alterClause, olapTable, indexSchemaMap);
                     lightSchemaChange = false;
+                    requiresHeavyChange = true;
                 } else if (alterClause instanceof ModifyTablePropertiesClause) {
                     // modify table properties
                     // do nothing, properties are already in propertyMap
                     lightSchemaChange = false;
+                    requiresHeavyChange = true;
                 } else if (alterClause instanceof CreateIndexClause) {
                     CreateIndexClause createIndexClause = (CreateIndexClause) alterClause;
                     Index index = createIndexClause.getIndex();
@@ -2151,6 +2160,9 @@ public class SchemaChangeHandler extends AlterHandler {
                         alterIndexes.add(index);
                         isDropIndex = false;
                         lightIndexChange = true;
+                    } else {
+                        // The index has to be built for the existing data as well.
+                        requiresHeavyChange = true;
                     }
                 } else if (alterClause instanceof BuildIndexClause) {
                     BuildIndexClause buildIndexClause = (BuildIndexClause) alterClause;
@@ -2213,12 +2225,16 @@ public class SchemaChangeHandler extends AlterHandler {
                         lightIndexChange, buildIndexChange, indexSchemaMap);
             }
 
+            // Use a heavy job when any clause needs data conversion or an index rebuild.
+            boolean useLightIndexChange = Config.enable_light_index_change && lightIndexChange
+                    && !requiresHeavyChange;
+
             if (lightSchemaChange) {
                 long jobId = Env.getCurrentEnv().getNextId();
                 //for schema change add/drop value column optimize, direct modify table meta.
                 modifyTableLightSchemaChange(rawSql, db, olapTable, indexSchemaMap, newIndexes,
                                              null, isDropIndex, jobId, false, propertyMap);
-            } else if (Config.enable_light_index_change && lightIndexChange) {
+            } else if (useLightIndexChange) {
                 long jobId = Env.getCurrentEnv().getNextId();
                 //for schema change add/drop inverted index and ngram_bf optimize, direct modify table meta firstly.
                 modifyTableLightSchemaChange(rawSql, db, olapTable, indexSchemaMap, newIndexes,
