@@ -273,7 +273,7 @@ public class PropertyAnalyzer {
      * <p>0 is the extreme-only mode: the state keeps just the current extreme, which is enough
      * when the changelog is append-only and joins cannot retract rows. Values above 0 make
      * deleting the current extreme derivable without a complete refresh; the range is
-     * {@code 0 <= K <= MAX_TOPK_K}. Changing the property requires a complete refresh, because
+     * {@code 0 <= K <= IvmUtil.MAX_IVM_MINMAX_TOP_K}. Changing the property requires a complete refresh, because
      * the persisted state was built for the old capacity.
      */
     public static final String PROPERTIES_IVM_MINMAX_TOPK = "ivm_minmax_top_k";

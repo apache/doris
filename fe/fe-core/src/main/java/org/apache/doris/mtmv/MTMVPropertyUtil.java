@@ -27,9 +27,9 @@ import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.functions.agg.TopKFunction;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
@@ -409,9 +409,9 @@ public class MTMVPropertyUtil {
             throw new AnalysisException("valid " + PropertyAnalyzer.PROPERTIES_IVM_MINMAX_TOPK
                     + ": " + value + ", expected an integer");
         }
-        if (topK < 0 || topK > TopKFunction.MAX_TOPK_K) {
+        if (topK < 0 || topK > IvmUtil.MAX_IVM_MINMAX_TOP_K) {
             throw new AnalysisException("valid " + PropertyAnalyzer.PROPERTIES_IVM_MINMAX_TOPK
-                    + ": " + value + ", expected 0 <= K <= " + TopKFunction.MAX_TOPK_K);
+                    + ": " + value + ", expected 0 <= K <= " + IvmUtil.MAX_IVM_MINMAX_TOP_K);
         }
     }
 
@@ -436,9 +436,9 @@ public class MTMVPropertyUtil {
             throw new AnalysisException("valid " + PropertyAnalyzer.PROPERTIES_IVM_MINMAX_TOPK
                     + ": " + value + ", expected an integer");
         }
-        if (topK < 0 || topK > TopKFunction.MAX_TOPK_K) {
+        if (topK < 0 || topK > IvmUtil.MAX_IVM_MINMAX_TOP_K) {
             throw new AnalysisException("valid " + PropertyAnalyzer.PROPERTIES_IVM_MINMAX_TOPK
-                    + ": " + value + ", expected 0 <= K <= " + TopKFunction.MAX_TOPK_K);
+                    + ": " + value + ", expected 0 <= K <= " + IvmUtil.MAX_IVM_MINMAX_TOP_K);
         }
         return Optional.of(topK);
     }
