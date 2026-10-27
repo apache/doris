@@ -23,13 +23,16 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.ExternalRowCountCache;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.metacache.paimon.PaimonLatestSnapshotProjectionLoader;
 import org.apache.doris.datasource.metacache.paimon.PaimonPartitionInfoLoader;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccUtil;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.trees.plans.commands.ShowPartitionsCommand;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TDescriptorTable;
@@ -66,6 +69,85 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class PaimonExternalTableTest {
+
+    @Test
+    public void testPartitionCommandMissingAfterSuccessfulValidationRepairsLookup() {
+        verifyPartitionCommandFailure(true);
+    }
+
+    @Test
+    public void testPartitionCommandTimeoutDoesNotRepairLookup() {
+        verifyPartitionCommandFailure(false);
+    }
+
+    private void verifyPartitionCommandFailure(boolean missingTable) {
+        PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
+        PaimonExternalDatabase database = Mockito.mock(PaimonExternalDatabase.class);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(database.getRemoteName()).thenReturn("db");
+        PaimonExternalTable table = Mockito.spy(
+                new PaimonExternalTable(10L, "table", "table", catalog, database));
+        Mockito.doNothing().when(table).makeSureInitialized();
+        Mockito.doReturn(Optional.of(database)).when(catalog).getDb("db");
+        Mockito.doReturn(Optional.of(table)).when(database).getTable("table");
+        Table base = Mockito.mock(Table.class);
+        Mockito.when(base.partitionKeys()).thenReturn(Collections.singletonList("p"));
+        Mockito.doReturn(base).when(table).getBasePaimonTable();
+        AtomicInteger repairs = new AtomicInteger();
+        Mockito.when(database.observeTableLookup(table)).thenReturn(Optional.of(repairs::incrementAndGet));
+        RuntimeException failure = missingTable
+                ? new RuntimeException(new org.apache.paimon.catalog.Catalog.TableNotExistException(
+                        new org.apache.paimon.catalog.Identifier("db", "table")))
+                : new RuntimeException(new java.net.SocketTimeoutException("snapshot timeout"));
+        try (MockedStatic<PaimonUtils> utils = Mockito.mockStatic(PaimonUtils.class)) {
+            // Validation succeeds using the retained base handle; only the later live fallback fails.
+            Assert.assertTrue(table.isPartitionedTable());
+            utils.verifyNoInteractions();
+            utils.when(() -> PaimonUtils.getSnapshotCacheValue(Optional.empty(), table)).thenThrow(failure);
+            ShowPartitionsCommand command = new ShowPartitionsCommand(
+                    new TableNameInfo("ctl", "db", "table"), null, null, -1, 0, false);
+            Deencapsulation.setField(command, "catalog", catalog);
+            Assert.assertSame(failure, Assert.assertThrows(RuntimeException.class,
+                    () -> Deencapsulation.invoke(command, "handleShowPaimonTablePartitions")));
+            Assert.assertEquals(missingTable ? 1 : 0, repairs.get());
+        }
+    }
+
+    @Test
+    public void testNewestVersionMissingBaseRepairsLookup() {
+        PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
+        PaimonExternalDatabase database = Mockito.mock(PaimonExternalDatabase.class);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(database.getRemoteName()).thenReturn("db");
+        PaimonExternalTable table = Mockito.spy(
+                new PaimonExternalTable(10L, "table", "table", catalog, database));
+        Mockito.doNothing().when(table).makeSureInitialized();
+        AtomicInteger repairs = new AtomicInteger();
+        Mockito.when(database.observeTableLookup(table)).thenReturn(Optional.of(repairs::incrementAndGet));
+        RuntimeException missing = new RuntimeException(new org.apache.paimon.catalog.Catalog.TableNotExistException(
+                new org.apache.paimon.catalog.Identifier("db", "table")));
+        try (MockedStatic<PaimonUtils> utils = Mockito.mockStatic(PaimonUtils.class)) {
+            utils.when(() -> PaimonUtils.getLatestSnapshotCacheValue(table)).thenThrow(missing);
+            Assert.assertSame(missing, Assert.assertThrows(RuntimeException.class, table::getNewestUpdateVersionOrTime));
+            Assert.assertEquals(1, repairs.get());
+        }
+    }
+
+    @Test
+    public void testPinnedPartitionSnapshotDoesNotObserveOrReload() {
+        PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
+        PaimonExternalDatabase database = Mockito.mock(PaimonExternalDatabase.class);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(database.getRemoteName()).thenReturn("db");
+        PaimonExternalTable table = new PaimonExternalTable(10L, "table", "table", catalog, database);
+        PaimonSnapshotCacheValue retained = Mockito.mock(PaimonSnapshotCacheValue.class, Mockito.RETURNS_DEEP_STUBS);
+        Mockito.when(retained.getPartitionInfo().getNameToPartition()).thenReturn(Collections.emptyMap());
+        try (MockedStatic<PaimonUtils> utils = Mockito.mockStatic(PaimonUtils.class)) {
+            Assert.assertTrue(table.getPartitionSnapshot(Optional.of(new PaimonMvccSnapshot(retained))).isEmpty());
+            utils.verifyNoInteractions();
+            Mockito.verify(database, Mockito.never()).observeTableLookup(table);
+        }
+    }
 
     @Test
     @SuppressWarnings("unchecked")

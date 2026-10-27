@@ -17,9 +17,13 @@
 
 package org.apache.doris.datasource.hive;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.OrderByPair;
+import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.metacache.MetaCache;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.ShowPartitionsCommand;
@@ -31,14 +35,17 @@ import org.apache.hadoop.hive.metastore.api.NoSuchObjectException;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 class HMSPartitionListingTest {
     @Test
@@ -125,6 +132,85 @@ class HMSPartitionListingTest {
         }
     }
 
+    @Test
+    void showCreateAfterNamesRefreshRetiresHotObjectAndId() throws Exception {
+        try (Fixture fixture = new Fixture()) {
+            fixture.remoteNames.set(Collections.emptyList());
+            fixture.cache.refreshNames();
+            Assertions.assertTrue(fixture.cache.listNames().isEmpty());
+            Assertions.assertSame(fixture.table, fixture.cache.getMetaObjById(10L, false).get());
+            RuntimeException missing = fixture.missingTable();
+            Mockito.when(fixture.client.getTable("remote_db", "remote_t")).thenThrow(missing);
+            Assertions.assertSame(missing, Assertions.assertThrows(RuntimeException.class,
+                    fixture.table::getCreateTableSql));
+            fixture.assertRetired();
+        }
+    }
+
+    @Test
+    void bindingPartitionValuesMissingTableRepairsLookup() throws Exception {
+        verifyBindingPartitionValues(true, false, false);
+    }
+
+    @Test
+    void bindingOldAbsenceKeepsSameNameReplacement() throws Exception {
+        verifyBindingPartitionValues(true, true, false);
+    }
+
+    @Test
+    void bindingPartitionValuesTimeoutKeepsLookup() throws Exception {
+        verifyBindingPartitionValues(false, false, false);
+    }
+
+    @Test
+    void bindingPartitionValuesRetryMissingTableRepairsLookup() throws Exception {
+        verifyBindingPartitionValues(true, false, true);
+    }
+
+    private void verifyBindingPartitionValues(boolean missingTable, boolean recreateDuringLoad,
+            boolean retryInconsistency) throws Exception {
+        try (Fixture fixture = new Fixture()) {
+            List<Column> columns = Collections.singletonList(new Column("p", Type.INT));
+            List<Type> types = Collections.singletonList(Type.INT);
+            Mockito.doReturn(columns).when(fixture.table).getPartitionColumns(Mockito.any());
+            Mockito.doReturn(columns).when(fixture.table).getPartitionColumns();
+            Mockito.doReturn(types).when(fixture.table).getPartitionColumnTypes(Mockito.any());
+            Mockito.doReturn(HMSExternalTable.DLAType.HIVE).when(fixture.table).getDlaType();
+            Mockito.doReturn(true).when(fixture.table).supportInternalPartitionPruned();
+            HiveExternalMetaCache hive = Mockito.mock(HiveExternalMetaCache.class);
+            Env env = Mockito.mock(Env.class);
+            ExternalMetaCacheMgr manager = Mockito.mock(ExternalMetaCacheMgr.class);
+            Mockito.when(env.getExtMetaCacheMgr()).thenReturn(manager);
+            Mockito.when(manager.hive(fixture.catalog.getId())).thenReturn(hive);
+            RuntimeException failure = missingTable ? fixture.missingTable()
+                    : new HMSClientException("timeout", new java.net.SocketTimeoutException());
+            HMSExternalTable replacement = fixture.newWarmTable();
+            AtomicInteger attempts = new AtomicInteger();
+            Mockito.when(hive.getPartitionValues(fixture.table, types)).thenAnswer(ignored -> {
+                if (attempts.getAndIncrement() == 0 && retryInconsistency) {
+                    throw new RuntimeException(HiveExternalMetaCache.ERR_CACHE_INCONSISTENCY);
+                }
+                if (recreateDuringLoad) {
+                    fixture.cache.invalidateLookup("t", false);
+                    fixture.cache.updateCache("remote_t", "t", replacement, 10L);
+                }
+                throw failure;
+            });
+            try (MockedStatic<Env> current = Mockito.mockStatic(Env.class)) {
+                current.when(Env::getCurrentEnv).thenReturn(env);
+                // This is the query-binding partition initialization entry, after warm schema reads.
+                Assertions.assertSame(failure, Assertions.assertThrows(RuntimeException.class,
+                        () -> fixture.table.initSelectedPartitions(Optional.empty())));
+            }
+            Assertions.assertEquals(retryInconsistency ? 2 : 1, attempts.get());
+            if (missingTable && !recreateDuringLoad) {
+                fixture.assertRetired();
+            } else {
+                fixture.assertCurrent(recreateDuringLoad ? replacement : fixture.table);
+            }
+        }
+    }
+
     private static class Fixture implements AutoCloseable {
         private final HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
         private final HMSExternalDatabase database = Mockito.mock(HMSExternalDatabase.class);
@@ -133,16 +219,18 @@ class HMSPartitionListingTest {
         private final MetaCache<HMSExternalTable> cache;
         private final HMSExternalTable table;
         private final AtomicInteger repairs = new AtomicInteger();
+        private final AtomicReference<List<Pair<String, String>>> remoteNames = new AtomicReference<>(
+                Lists.newArrayList(Pair.of("remote_t", "t")));
 
         Fixture() throws Exception {
             Mockito.when(database.getFullName()).thenReturn("db");
             Mockito.when(database.getRemoteName()).thenReturn("remote_db");
             Mockito.when(catalog.getClient()).thenReturn(client);
             Mockito.doReturn(database).when(catalog).getDbOrAnalysisException("db");
-            table = newWarmTable();
+            table = Mockito.spy(newWarmTable());
             Mockito.doReturn(table).when(database).getTableOrAnalysisException("t");
             cache = new MetaCache<>("db", executor, OptionalLong.empty(), OptionalLong.empty(), 10,
-                    ignored -> Lists.newArrayList(Pair.of("remote_t", "t")), ignored -> Optional.empty(), null);
+                    ignored -> remoteNames.get(), ignored -> Optional.empty(), null);
             cache.refreshNames();
             cache.updateCache("remote_t", "t", table, 10L);
             Mockito.when(database.observeTableLookup(table)).thenAnswer(ignored ->

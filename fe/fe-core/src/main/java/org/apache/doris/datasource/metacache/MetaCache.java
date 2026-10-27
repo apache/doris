@@ -728,7 +728,7 @@ public class MetaCache<T> {
         };
     }
 
-    /** Captures matching resident membership and object state; never loads remote metadata. */
+    /** Captures a complete names snapshot and matching resident object; never loads remote metadata. */
     public Optional<Runnable> observeLookup(String localName, String remoteName, T expected,
             boolean allObjects, Runnable invalidateMetadata) {
         metaObjLifecycleLock.readLock().lock();
@@ -737,8 +737,10 @@ public class MetaCache<T> {
                 NamesCacheValue names = namesCache.getIfPresent("");
                 Optional<T> value = metaObjCache.getIfPresent(localName);
                 Pair<String, String> pair = names == null ? null : names.names.get(localName);
-                if (metadataRefreshes != 0 || names == null || !names.complete || pair == null
-                        || !pair.key().equals(remoteName) || value == null || !value.isPresent()
+                // A complete refresh may already omit a remotely dropped table while its object/ID
+                // remains hot. The retained object still authorizes repair; a conflicting live name does not.
+                if (metadataRefreshes != 0 || names == null || !names.complete
+                        || (pair != null && !pair.key().equals(remoteName)) || value == null || !value.isPresent()
                         || value.get() != expected) {
                     return Optional.empty();
                 }
@@ -752,6 +754,13 @@ public class MetaCache<T> {
                                     || observationGeneration != lookupObservationGeneration
                                     || namesCache.getIfPresent("") != names
                                     || metaObjCache.getIfPresent(localName) != value) {
+                                return;
+                            }
+                            // Case-folded catalogs can retain Foo's old object after a names refresh
+                            // has published a new FOO identity. Do not widen that old miss to the DB.
+                            if (pair == null && allObjects && names.names.values().stream().anyMatch(current ->
+                                    current.value().equalsIgnoreCase(localName)
+                                            || current.key().equalsIgnoreCase(remoteName))) {
                                 return;
                             }
                             try {
