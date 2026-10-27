@@ -31,6 +31,7 @@
 #include "exprs/vtopn_pred.h"
 #include "runtime/descriptors.h"
 #include "runtime/query_context.h"
+#include "storage/index/zone_map/zone_map_index.h"
 #include "testutil/mock/mock_runtime_state.h"
 
 namespace doris {
@@ -63,13 +64,26 @@ SlotDescriptor create_int_slot_descriptor() {
 
 VExprContextSPtr create_prepared_topn_expr(MockRuntimeState* state, const DataTypePtr& data_type,
                                            const Field& top_value = Field(), bool is_asc = true,
-                                           bool nulls_first = false) {
+                                           bool nulls_first = false, bool is_strict = false,
+                                           bool init_source = true) {
     DORIS_CHECK(state != nullptr);
     DORIS_CHECK(data_type != nullptr);
     auto desc = create_topn_filter_desc(data_type->get_primitive_type(), is_asc, nulls_first);
-    state->get_query_ctx()->init_runtime_predicates({desc});
+    TSortNode sort;
+    sort.__set_algorithm(TSortAlgorithm::HEAP_SORT);
+    sort.sort_info.__set_ordering_exprs(std::vector<TExpr>(
+            is_strict ? 1 : 2, desc.target_node_id_to_target_expr.at(TARGET_NODE_ID)));
+    TPlanNode source;
+    source.__set_node_id(SOURCE_NODE_ID);
+    source.__set_node_type(TPlanNodeType::SORT_NODE);
+    source.__set_sort_node(sort);
+    TPipelineFragmentParams params;
+    params.fragment.plan.__set_nodes({source});
+    state->get_query_ctx()->init_runtime_predicates({desc}, {params});
     auto& predicate = state->get_query_ctx()->get_runtime_predicate(SOURCE_NODE_ID);
-    predicate.set_detected_source();
+    if (init_source) {
+        predicate.set_detected_source();
+    }
     DORIS_CHECK(predicate.init_target(TARGET_NODE_ID, {}, -1).ok());
     if (!top_value.is_null()) {
         DORIS_CHECK(predicate.update(top_value).ok());
@@ -99,7 +113,7 @@ void check_topn_uuid_scanner_predicate(bool is_asc, bool nulls_first) {
 
     SCOPED_TRACE(is_asc);
     SCOPED_TRACE(nulls_first);
-    RuntimePredicate predicate(create_topn_filter_desc(TYPE_UUID, is_asc, nulls_first));
+    RuntimePredicate predicate(create_topn_filter_desc(TYPE_UUID, is_asc, nulls_first), false);
     predicate.set_detected_source();
     SlotDescriptor slot_desc;
     slot_desc._id = SLOT_ID;
@@ -132,10 +146,237 @@ void check_topn_uuid_scanner_predicate(bool is_asc, bool nulls_first) {
                      : (std::array<bool, 6> {false, false, false, true, true, nulls_first}));
 }
 
+void check_strict_scanner_predicate(bool ascending, bool nulls_first) {
+    RuntimePredicate predicate(create_topn_filter_desc(TYPE_INT, ascending, nulls_first), true);
+    predicate.set_detected_source();
+    auto slot = create_int_slot_descriptor();
+    ASSERT_TRUE(predicate.init_target(TARGET_NODE_ID, {{SLOT_ID, &slot}}, 0).ok());
+    const auto scanner_predicate = predicate.get_predicate(TARGET_NODE_ID);
+    auto column = ColumnInt32::create();
+    for (int value : {2, 3, 4}) {
+        column->insert_value(value);
+    }
+    std::array<bool, 3> matches {};
+    scanner_predicate->evaluate_vec(*column, matches.size(), matches.data());
+    EXPECT_EQ(matches, (std::array<bool, 3> {true, true, true}));
+    ASSERT_TRUE(predicate.update(Field::create_field<TYPE_INT>(3)).ok());
+    scanner_predicate->evaluate_vec(*column, matches.size(), matches.data());
+    EXPECT_EQ(matches, ascending ? (std::array<bool, 3> {true, false, false})
+                                 : (std::array<bool, 3> {false, false, true}));
+    segment_v2::ZoneMap zone_map;
+    zone_map.has_not_null = true;
+    zone_map.min_value = Field::create_field<TYPE_INT>(3);
+    zone_map.max_value = Field::create_field<TYPE_INT>(3);
+    EXPECT_FALSE(scanner_predicate->evaluate_and(zone_map));
+    zone_map.has_null = true;
+    EXPECT_EQ(scanner_predicate->evaluate_and(zone_map), nulls_first);
+}
+
+void check_comparison_mode(bool ascending, bool strict, const char* expected_function) {
+    RuntimePredicate predicate(create_topn_filter_desc(TYPE_INT, ascending, false), strict);
+    EXPECT_EQ(predicate.is_strict(), strict);
+    predicate.set_detected_source();
+    EXPECT_EQ(predicate.is_strict(), strict);
+    EXPECT_STREQ(predicate.comparison_function(), expected_function);
+    const auto bound = Field::create_field<TYPE_INT>(3);
+    ASSERT_TRUE(predicate.update(bound).ok());
+    predicate.set_detected_source();
+    EXPECT_TRUE(predicate.has_value());
+    EXPECT_EQ(predicate.get_value(), bound);
+}
+
+void check_scan_prepared_before_source(bool ascending) {
+    MockRuntimeState state;
+    const auto type = std::make_shared<DataTypeInt32>();
+    auto context = create_prepared_topn_expr(&state, type, Field(), ascending, false, true, false);
+    auto& predicate = state.get_query_ctx()->get_runtime_predicate(SOURCE_NODE_ID);
+    auto slot = create_int_slot_descriptor();
+    ASSERT_TRUE(predicate.init_target(TARGET_NODE_ID, {{SLOT_ID, &slot}}, 0).ok());
+    const auto scanner_predicate = predicate.get_predicate(TARGET_NODE_ID);
+    ASSERT_NE(scanner_predicate, nullptr);
+
+    Block block;
+    auto column = ColumnInt32::create();
+    for (int value : {2, 3, 4}) {
+        column->insert_value(value);
+    }
+    block.insert({std::move(column), type, "topn_column"});
+    ColumnPtr result;
+    ASSERT_TRUE(context->root()->execute_column(context.get(), &block, nullptr, 3, result).ok());
+    for (size_t row = 0; row < 3; ++row) {
+        EXPECT_TRUE(result->get_bool(row));
+    }
+
+    predicate.set_detected_source();
+    ASSERT_TRUE(predicate.update(Field::create_field<TYPE_INT>(3)).ok());
+    ASSERT_TRUE(context->root()->execute_column(context.get(), &block, nullptr, 3, result).ok());
+    const std::array<int32_t, 3> values {2, 3, 4};
+    IColumn::Filter matches(3, 1);
+    ASSERT_TRUE(context->root()
+                        ->execute_on_raw_fixed_values(
+                                reinterpret_cast<const uint8_t*>(values.data()), values.size(),
+                                sizeof(int32_t), type, 0, matches.data())
+                        .ok());
+    const IColumn::Filter expected =
+            ascending ? IColumn::Filter {1, 0, 0} : IColumn::Filter {0, 0, 1};
+    std::array<bool, 3> scanner_matches {};
+    scanner_predicate->evaluate_vec(*block.get_by_position(0).column, 3, scanner_matches.data());
+    EXPECT_EQ(matches, expected);
+    for (size_t row = 0; row < 3; ++row) {
+        EXPECT_EQ(result->get_bool(row), expected[row]);
+        EXPECT_EQ(scanner_matches[row], expected[row]);
+    }
+    context->close();
+}
+
+void check_bounds_reset(bool ascending, bool strict) {
+    RuntimePredicate predicate(create_topn_filter_desc(TYPE_INT, ascending, false), strict);
+    predicate.set_detected_source();
+    auto slot = create_int_slot_descriptor();
+    ASSERT_TRUE(predicate.init_target(TARGET_NODE_ID, {{SLOT_ID, &slot}}, 0).ok());
+    const auto scanner_predicate = predicate.get_predicate(TARGET_NODE_ID);
+    ASSERT_TRUE(predicate.update(Field::create_field<TYPE_INT>(3)).ok());
+
+    predicate.reset_bounds();
+    EXPECT_FALSE(predicate.has_value());
+    EXPECT_EQ(predicate.get_predicate(TARGET_NODE_ID), scanner_predicate);
+
+    auto column = ColumnInt32::create();
+    const int new_bound = ascending ? 5 : 1;
+    for (int value : {new_bound - 1, new_bound, new_bound + 1}) {
+        column->insert_value(value);
+    }
+    std::array<bool, 3> matches {};
+    scanner_predicate->evaluate_vec(*column, 3, matches.data());
+    EXPECT_EQ(matches, (std::array<bool, 3> {true, true, true}));
+
+    // The new heap can have a worse frontier than the previous round's heap.
+    predicate.set_detected_source();
+    ASSERT_TRUE(predicate.update(Field::create_field<TYPE_INT>(new_bound)).ok());
+    EXPECT_EQ(predicate.get_value(), Field::create_field<TYPE_INT>(new_bound));
+    scanner_predicate->evaluate_vec(*column, 3, matches.data());
+    EXPECT_EQ(matches, ascending ? (std::array<bool, 3> {true, !strict, false})
+                                 : (std::array<bool, 3> {false, !strict, true}));
+}
+
+void check_inclusive_bounds(bool ascending) {
+    RuntimePredicate predicate(create_topn_filter_desc(TYPE_INT, ascending, false), false);
+    predicate.set_detected_source();
+    EXPECT_FALSE(predicate.is_strict());
+    EXPECT_STREQ(predicate.comparison_function(), ascending ? "le" : "ge");
+    EXPECT_EQ(predicate.comparison_opcode(), ascending ? TExprOpcode::LE : TExprOpcode::GE);
+
+    auto slot = create_int_slot_descriptor();
+    ASSERT_TRUE(predicate.init_target(TARGET_NODE_ID, {{SLOT_ID, &slot}}, 0).ok());
+    ASSERT_TRUE(predicate.enable());
+    ASSERT_TRUE(predicate.update(Field::create_field<TYPE_INT>(3)).ok());
+    const auto scanner_predicate = predicate.get_predicate(TARGET_NODE_ID);
+    auto column = ColumnInt32::create();
+    for (const int value : {2, 3, 4}) {
+        column->insert_value(value);
+    }
+    std::array<bool, 3> matches {};
+    scanner_predicate->evaluate_vec(*column, matches.size(), matches.data());
+    EXPECT_EQ(matches, ascending ? (std::array<bool, 3> {true, true, false})
+                                 : (std::array<bool, 3> {false, true, true}));
+    segment_v2::ZoneMap zone_map;
+    zone_map.has_not_null = true;
+    zone_map.min_value = Field::create_field<TYPE_INT>(3);
+    zone_map.max_value = Field::create_field<TYPE_INT>(3);
+    EXPECT_TRUE(scanner_predicate->evaluate_and(zone_map));
+}
+
 } // namespace
 
+TEST(RuntimePredicateTest, InclusiveBoundsRetainEqualRows) {
+    for (const bool ascending : {false, true}) {
+        ASSERT_NO_FATAL_FAILURE(check_inclusive_bounds(ascending));
+    }
+}
+
+TEST(RuntimePredicateTest, SourcePreservesComparisonModeAndPublishedBounds) {
+    ASSERT_NO_FATAL_FAILURE(check_comparison_mode(true, false, "le"));
+    ASSERT_NO_FATAL_FAILURE(check_comparison_mode(true, true, "lt"));
+    ASSERT_NO_FATAL_FAILURE(check_comparison_mode(false, false, "ge"));
+    ASSERT_NO_FATAL_FAILURE(check_comparison_mode(false, true, "gt"));
+}
+
+TEST(RuntimePredicateTest, ScanPreparedBeforeSourceUsesBackendModeAcrossEvaluationPaths) {
+    ASSERT_NO_FATAL_FAILURE(check_scan_prepared_before_source(true));
+    ASSERT_NO_FATAL_FAILURE(check_scan_prepared_before_source(false));
+}
+
+TEST(RuntimePredicateTest, NewExecutionClearsBoundsAndAcceptsAWorseFrontier) {
+    ASSERT_NO_FATAL_FAILURE(check_bounds_reset(true, false));
+    ASSERT_NO_FATAL_FAILURE(check_bounds_reset(true, true));
+    ASSERT_NO_FATAL_FAILURE(check_bounds_reset(false, false));
+    ASSERT_NO_FATAL_FAILURE(check_bounds_reset(false, true));
+}
+
+TEST(RuntimePredicateTest, StrictBoundsRejectEqualRowsAndEqualZoneMaps) {
+    for (const bool ascending : {false, true}) {
+        for (const bool nulls_first : {false, true}) {
+            ASSERT_NO_FATAL_FAILURE(check_strict_scanner_predicate(ascending, nulls_first));
+        }
+    }
+}
+
+TEST(RuntimePredicateTest, StrictBoundsAgreeAcrossColumnRawAndDictionaryEvaluation) {
+    for (const bool ascending : {false, true}) {
+        MockRuntimeState state;
+        const auto type = std::make_shared<DataTypeInt32>();
+        auto context = create_prepared_topn_expr(&state, type, Field::create_field<TYPE_INT>(3),
+                                                 ascending, false, true);
+        const std::array<int32_t, 3> values {2, 3, 4};
+        IColumn::Filter matches(3, 1);
+        ASSERT_TRUE(context->root()
+                            ->execute_on_raw_fixed_values(
+                                    reinterpret_cast<const uint8_t*>(values.data()), values.size(),
+                                    sizeof(int32_t), type, 0, matches.data())
+                            .ok());
+        EXPECT_EQ(matches, ascending ? (IColumn::Filter {1, 0, 0}) : (IColumn::Filter {0, 0, 1}));
+        Block block;
+        auto column = ColumnInt32::create();
+        for (const auto value : values) {
+            column->insert_value(value);
+        }
+        block.insert({std::move(column), type, "topn_column"});
+        ColumnPtr result;
+        ASSERT_TRUE(
+                context->root()->execute_column(context.get(), &block, nullptr, 3, result).ok());
+        for (size_t row = 0; row < 3; ++row) {
+            EXPECT_EQ(result->get_bool(row), matches[row]);
+        }
+        DictionaryEvalContext dictionary;
+        dictionary.slots.emplace(
+                0, DictionaryEvalContext::SlotDictionary {
+                           .data_type = type, .values = {Field::create_field<TYPE_INT>(3)}});
+        EXPECT_EQ(context->root()->evaluate_dictionary_filter(dictionary),
+                  ZoneMapFilterResult::kNoMatch);
+        context->close();
+    }
+}
+
+TEST(RuntimePredicateTest, StrictBinaryBoundsRejectEquality) {
+    for (const bool ascending : {false, true}) {
+        MockRuntimeState state;
+        const auto type = DataTypeFactory::instance().create_data_type(TYPE_STRING, false);
+        auto context = create_prepared_topn_expr(
+                &state, type, Field::create_field<TYPE_STRING>("middle"), ascending, false, true);
+        const std::array<StringRef, 3> values {StringRef("alpha"), StringRef("middle"),
+                                               StringRef("zulu")};
+        IColumn::Filter matches(3, 1);
+        ASSERT_TRUE(context->root()
+                            ->execute_on_raw_binary_values(values.data(), values.size(), type, 0,
+                                                           matches.data())
+                            .ok());
+        EXPECT_EQ(matches, ascending ? (IColumn::Filter {1, 0, 0}) : (IColumn::Filter {0, 0, 1}));
+        context->close();
+    }
+}
+
 TEST(RuntimePredicateTest, init_target_creates_column_predicate_for_valid_column_id) {
-    RuntimePredicate predicate(create_topn_filter_desc());
+    RuntimePredicate predicate(create_topn_filter_desc(), false);
     predicate.set_detected_source();
 
     auto slot_desc = create_int_slot_descriptor();
@@ -150,7 +391,7 @@ TEST(RuntimePredicateTest, init_target_creates_column_predicate_for_valid_column
 }
 
 TEST(RuntimePredicateTest, init_target_without_column_predicate_still_enables_runtime_filter) {
-    RuntimePredicate predicate(create_topn_filter_desc());
+    RuntimePredicate predicate(create_topn_filter_desc(), false);
     predicate.set_detected_source();
 
     phmap::flat_hash_map<int, SlotDescriptor*> slot_id_to_slot_desc;

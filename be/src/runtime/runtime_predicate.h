@@ -40,7 +40,7 @@ class ColumnPredicate;
 
 class RuntimePredicate {
 public:
-    RuntimePredicate(const TTopnFilterDesc& desc);
+    RuntimePredicate(const TTopnFilterDesc& desc, bool is_strict);
 
     Status init_target(int32_t target_node_id,
                        phmap::flat_hash_map<int, SlotDescriptor*> slot_id_to_slot_desc,
@@ -54,9 +54,12 @@ public:
 
     void set_detected_source() {
         std::unique_lock<std::shared_mutex> wlock(_rwlock);
-        _orderby_extrem = Field(PrimitiveType::TYPE_NULL);
+        // Source detection does not reset bounds. Recursive rebuilds call reset_bounds().
         _detected_source = true;
     }
+
+    // Recursive fragment rebuild calls this after the old tasks finish, before new tasks run.
+    void reset_bounds();
 
     std::shared_ptr<ColumnPredicate> get_predicate(int32_t target_node_id) {
         std::shared_lock<std::shared_mutex> rlock(_rwlock);
@@ -82,6 +85,22 @@ public:
     }
 
     bool is_asc() const { return _is_asc; }
+
+    bool is_strict() const { return _is_strict; }
+
+    const char* comparison_function() const {
+        if (_is_asc) {
+            return _is_strict ? "lt" : "le";
+        }
+        return _is_strict ? "gt" : "ge";
+    }
+
+    TExprOpcode::type comparison_opcode() const {
+        if (_is_asc) {
+            return is_strict() ? TExprOpcode::LT : TExprOpcode::LE;
+        }
+        return is_strict() ? TExprOpcode::GT : TExprOpcode::GE;
+    }
 
     bool nulls_first() const { return _nulls_first; }
 
@@ -130,6 +149,7 @@ private:
 
     bool _nulls_first;
     bool _is_asc;
+    const bool _is_strict;
     std::map<int32_t, TargetContext> _contexts;
 
     Field _orderby_extrem {PrimitiveType::TYPE_NULL};

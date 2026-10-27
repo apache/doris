@@ -66,6 +66,33 @@ public:
     std::unique_ptr<ThreadPoolToken> token_;
 };
 
+void QueryContext::init_runtime_predicates(
+        const std::vector<TTopnFilterDesc>& topn_filter_descs,
+        const std::vector<TPipelineFragmentParams>& fragment_params) {
+    std::unordered_set<TPlanNodeId> strict_sources;
+    for (const auto& params : fragment_params) {
+        for (const auto& node : params.fragment.plan.nodes) {
+            if (node.node_type == TPlanNodeType::SORT_NODE) {
+                const auto& sort = node.sort_node;
+                // A heap retains LIMIT + OFFSET candidates before publishing a bound. With one
+                // key, another boundary tie cannot improve them. Multiple keys must keep ties:
+                // (1, 2) can still beat (1, 9). Missing algorithms execute as FULL_SORT.
+                if (sort.__isset.algorithm && sort.algorithm == TSortAlgorithm::HEAP_SORT &&
+                    sort.sort_info.ordering_exprs.size() == 1) {
+                    strict_sources.insert(node.node_id);
+                }
+            }
+        }
+    }
+    // Run before publishing QueryContext: a target fragment can prepare its cached comparison
+    // function before the source SortSink is initialized. Keep the mode immutable thereafter.
+    // If the source fragment is absent from this request, retain inclusive comparisons.
+    for (const auto& desc : topn_filter_descs) {
+        _runtime_predicates.try_emplace(desc.source_node_id, desc,
+                                        strict_sources.contains(desc.source_node_id));
+    }
+}
+
 const std::string toString(QuerySource queryType) {
     switch (queryType) {
     case QuerySource::INTERNAL_FRONTEND:

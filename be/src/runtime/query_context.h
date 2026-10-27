@@ -164,11 +164,8 @@ public:
         return _runtime_predicates.find(source_node_id)->second;
     }
 
-    void init_runtime_predicates(const std::vector<TTopnFilterDesc>& topn_filter_descs) {
-        for (auto desc : topn_filter_descs) {
-            _runtime_predicates.try_emplace(desc.source_node_id, desc);
-        }
-    }
+    void init_runtime_predicates(const std::vector<TTopnFilterDesc>& topn_filter_descs,
+                                 const std::vector<TPipelineFragmentParams>& fragment_params);
 
     Status set_workload_group(WorkloadGroupPtr& wg);
 

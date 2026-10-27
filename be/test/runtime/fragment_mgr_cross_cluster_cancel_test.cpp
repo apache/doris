@@ -21,11 +21,13 @@
 
 #include "common/config.h"
 #include "exec/pipeline/pipeline_fragment_context.h"
+#include "exec/pipeline/thrift_builder.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/frontend_info.h"
 #include "runtime/index_policy/index_policy_mgr.h"
+#include "runtime/runtime_predicate.h"
 #include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_group/workload_group_manager.h"
 #include "storage/id_manager.h"
@@ -60,6 +62,24 @@ public:
     }
 
 protected:
+    static void _add_topn_bounds(QueryContext* query_ctx, TPipelineFragmentParams& params) {
+        for (int node_id : {10, 11}) {
+            TTopnFilterDesc filter;
+            filter.__set_source_node_id(node_id);
+            filter.__set_is_asc(true);
+            filter.__set_null_first(false);
+            filter.__set_target_node_id_to_target_expr(
+                    {{20, TRuntimeFilterDescBuilder::get_default_expr()}});
+            query_ctx->init_runtime_predicates({filter}, {});
+            ASSERT_TRUE(query_ctx->get_runtime_predicate(node_id)
+                                .update(Field::create_field<TYPE_INT>(3))
+                                .ok());
+        }
+        TPlanNode source;
+        source.__set_node_id(10);
+        params.fragment.plan.nodes.push_back(source);
+    }
+
     static TDescriptorTable _make_min_desc_tbl() {
         TDescriptorTableBuilder dtb;
         TTupleDescriptorBuilder tuple_builder;
@@ -269,6 +289,7 @@ TEST_F(FragmentMgrCrossClusterCancelTest, RebuildRestoresFragmentExecutingCount)
                                                    query_ctx)
                         .ok());
     ASSERT_NE(query_ctx, nullptr);
+    ASSERT_NO_FATAL_FAILURE(_add_topn_bounds(query_ctx.get(), params));
     {
         std::lock_guard lock(fragment_mgr->_rerunnable_params_lock);
         auto& info = fragment_mgr->_rerunnable_params_map[{query_id, fragment_id}];
@@ -282,6 +303,8 @@ TEST_F(FragmentMgrCrossClusterCancelTest, RebuildRestoresFragmentExecutingCount)
     ASSERT_TRUE(st.ok()) << st.to_string();
     EXPECT_EQ(fragment_mgr->_pipeline_map.num_items(), 1);
     EXPECT_EQ(get_fragment_executing_count(), count_before_rebuild + 1);
+    EXPECT_FALSE(query_ctx->get_runtime_predicate(10).has_value());
+    EXPECT_TRUE(query_ctx->get_runtime_predicate(11).has_value());
 
     fragment_mgr->remove_pipeline_context({query_id, fragment_id});
     EXPECT_EQ(get_fragment_executing_count(), count_before_rebuild);

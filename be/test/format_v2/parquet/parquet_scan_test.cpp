@@ -989,7 +989,7 @@ PreparedTopNConjunct create_topn_conjunct(RuntimeState* state, int column_id,
     desc.__set_target_node_id_to_target_expr({{20, std::move(target_expr)}});
     auto query_context = MockQueryContext::create();
     state->_query_ctx = query_context.get();
-    query_context->init_runtime_predicates({desc});
+    query_context->init_runtime_predicates({desc}, {});
     auto& predicate = query_context->get_runtime_predicate(10);
     predicate.set_detected_source();
     DORIS_CHECK(predicate.init_target(20, {}, -1).ok());

@@ -29,8 +29,8 @@
 
 namespace doris {
 
-RuntimePredicate::RuntimePredicate(const TTopnFilterDesc& desc)
-        : _nulls_first(desc.null_first), _is_asc(desc.is_asc) {
+RuntimePredicate::RuntimePredicate(const TTopnFilterDesc& desc, bool is_strict)
+        : _nulls_first(desc.null_first), _is_asc(desc.is_asc), _is_strict(is_strict) {
     DCHECK(!desc.target_node_id_to_target_expr.empty());
     for (auto p : desc.target_node_id_to_target_expr) {
         _contexts[p.first].expr = p.second;
@@ -47,12 +47,27 @@ RuntimePredicate::RuntimePredicate(const TTopnFilterDesc& desc)
                         type_to_string(_type), ss.str());
     }
 
-    // For ASC  sort, create runtime predicate col_name <= max_top_value
-    // since values that > min_top_value are large than any value in current topn values
-    // For DESC sort, create runtime predicate col_name >= min_top_value
-    // since values that < min_top_value are less than any value in current topn values
-    _pred_constructor = _is_asc ? create_comparison_predicate<PredicateType::LE>
-                                : create_comparison_predicate<PredicateType::GE>;
+    // QueryContext fixes the mode before scanners prepare their comparison functions.
+    if (_is_strict) {
+        _pred_constructor = _is_asc ? create_comparison_predicate<PredicateType::LT>
+                                    : create_comparison_predicate<PredicateType::GT>;
+    } else {
+        _pred_constructor = _is_asc ? create_comparison_predicate<PredicateType::LE>
+                                    : create_comparison_predicate<PredicateType::GE>;
+    }
+}
+
+void RuntimePredicate::reset_bounds() {
+    std::unique_lock<std::shared_mutex> wlock(_rwlock);
+    _orderby_extrem = Field(PrimitiveType::TYPE_NULL);
+    _has_value = false;
+    for (auto& [node_id, ctx] : _contexts) {
+        // Expression targets have no storage predicate. Slot targets may already have been
+        // prepared for the new round, so clear their bound without replacing the shared wrapper.
+        if (ctx.predicate != nullptr) {
+            static_cast<SharedPredicate*>(ctx.predicate.get())->reset_for_new_execution();
+        }
+    }
 }
 
 Status RuntimePredicate::init_target(

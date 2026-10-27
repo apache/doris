@@ -1898,7 +1898,7 @@ EvolutionTopNFilter make_evolution_topn_filter(RuntimeState* state, bool ascendi
     desc.__set_target_node_id_to_target_expr({{20, target}});
     auto query = MockQueryContext::create();
     state->_query_ctx = query.get();
-    query->init_runtime_predicates({desc});
+    query->init_runtime_predicates({desc}, {});
     auto& predicate = query->get_runtime_predicate(10);
     predicate.set_detected_source();
     DORIS_CHECK(predicate.init_target(20, {}, -1).ok());

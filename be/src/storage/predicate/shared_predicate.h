@@ -77,6 +77,12 @@ public:
         _nested = nested;
     }
 
+    // Only reset between executions, after the old scanners have finished.
+    void reset_for_new_execution() {
+        std::unique_lock<std::shared_mutex> lock(*_mtx);
+        _nested.reset();
+    }
+
     Status evaluate(const IndexFieldNameAndTypePair& name_with_type, IndexIterator* iterator,
                     uint32_t num_rows, roaring::Roaring* bitmap) const override {
         std::shared_lock<std::shared_mutex> lock(*_mtx);

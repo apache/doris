@@ -25,6 +25,9 @@
 #include "exec/operator/repeat_operator.h"
 #include "exec/operator/sort_sink_operator.h"
 #include "exec/operator/sort_source_operator.h"
+#include "exec/pipeline/thrift_builder.h"
+#include "runtime/query_context.h"
+#include "runtime/runtime_predicate.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_descriptors.h"
 #include "testutil/mock/mock_runtime_state.h"
@@ -58,6 +61,52 @@ struct SortOperatorTest : public ::testing::Test {
         state = std::make_shared<MockRuntimeState>();
         state->_batch_size = 10;
         _child_op = std::make_unique<MockOperator>();
+    }
+
+    void check_runtime_predicate_mode(TSortAlgorithm::type algorithm, int mode) {
+        constexpr int target_node_id = 20;
+        SCOPED_TRACE(algorithm);
+        SCOPED_TRACE(mode);
+        MockRuntimeState runtime_state;
+        const auto actual_algorithm = mode == 1 ? TSortAlgorithm::FULL_SORT : algorithm;
+        SortSinkOperatorX sort_sink(&pool, actual_algorithm, 3, 2);
+        const auto source_node_id = sort_sink.node_id();
+        const auto target_expr = TRuntimeFilterDescBuilder::get_default_expr();
+        TTopnFilterDesc filter_desc;
+        filter_desc.__set_source_node_id(source_node_id);
+        filter_desc.__set_is_asc(true);
+        filter_desc.__set_null_first(false);
+        filter_desc.__set_target_node_id_to_target_expr({{target_node_id, target_expr}});
+        TSortInfo sort_info;
+        const size_t key_count = mode == 3 ? 2 : 1;
+        sort_info.__set_ordering_exprs(std::vector<TExpr>(key_count, target_expr));
+        sort_info.__set_is_asc_order(std::vector<bool>(key_count, true));
+        sort_info.__set_nulls_first(std::vector<bool>(key_count, false));
+        TSortNode sort_node;
+        sort_node.__set_sort_info(sort_info);
+        if (mode != 1) {
+            sort_node.__set_algorithm(algorithm);
+        }
+        TPlanNode plan_node;
+        plan_node.__set_node_id(source_node_id);
+        plan_node.__set_node_type(TPlanNodeType::SORT_NODE);
+        plan_node.__set_sort_node(sort_node);
+        TPipelineFragmentParams source_params;
+        if (mode != 0) {
+            source_params.fragment.plan.__set_nodes({plan_node});
+        }
+        // The request can list the target fragment before the source fragment.
+        runtime_state.get_query_ctx()->init_runtime_predicates(
+                {filter_desc}, {TPipelineFragmentParams {}, source_params});
+        auto& predicate = runtime_state.get_query_ctx()->get_runtime_predicate(source_node_id);
+        ASSERT_TRUE(predicate.init_target(target_node_id, {}, -1).ok());
+        const bool expected_strict = mode == 2 && algorithm == TSortAlgorithm::HEAP_SORT;
+        EXPECT_EQ(predicate.is_strict(), expected_strict);
+        EXPECT_STREQ(predicate.comparison_function(), expected_strict ? "lt" : "le");
+        ASSERT_TRUE(sort_sink.init(plan_node, &runtime_state).ok());
+
+        EXPECT_EQ(predicate.enable(), actual_algorithm == TSortAlgorithm::HEAP_SORT);
+        EXPECT_EQ(predicate.is_strict(), expected_strict);
     }
 
     void create_operator(TSortAlgorithm::type type, int64_t limit, int64_t offset) {
@@ -174,6 +223,47 @@ TEST_F(SortOperatorTest, test) {
         EXPECT_TRUE(st.ok()) << st.msg();
         EXPECT_TRUE(eos);
         EXPECT_EQ(block.rows(), 0);
+    }
+}
+
+TEST_F(SortOperatorTest, QueryContextSelectsModeBeforeSourceInitialization) {
+    for (const auto algorithm :
+         {TSortAlgorithm::HEAP_SORT, TSortAlgorithm::TOPN_SORT, TSortAlgorithm::FULL_SORT}) {
+        // 0: absent source fragment; 1: absent algorithm; 2/3: one/two ordering keys.
+        for (const int mode : {0, 1, 2, 3}) {
+            ASSERT_NO_FATAL_FAILURE(check_runtime_predicate_mode(algorithm, mode));
+        }
+    }
+}
+
+TEST_F(SortOperatorTest, QueryContextMatchesEachFilterToItsSourcePlan) {
+    const auto target_expr = TRuntimeFilterDescBuilder::get_default_expr();
+    std::vector<TTopnFilterDesc> filters;
+    TPipelineFragmentParams params;
+    for (const auto source_id : {10, 20, 30}) {
+        TTopnFilterDesc filter;
+        filter.__set_source_node_id(source_id);
+        filter.__set_is_asc(true);
+        filter.__set_null_first(false);
+        filter.__set_target_node_id_to_target_expr({{40, target_expr}});
+        filters.push_back(filter);
+
+        TSortNode sort;
+        sort.__set_algorithm(TSortAlgorithm::HEAP_SORT);
+        sort.sort_info.__set_ordering_exprs(
+                std::vector<TExpr>(source_id == 20 ? 1 : 2, target_expr));
+        TPlanNode node;
+        node.__set_node_id(source_id);
+        node.__set_node_type(TPlanNodeType::SORT_NODE);
+        node.__set_sort_node(sort);
+        params.fragment.plan.nodes.push_back(node);
+    }
+    // Descriptor order is independent of the preorder node order in the fragment plan.
+    std::ranges::reverse(filters);
+    state->get_query_ctx()->init_runtime_predicates(filters, {params});
+    for (const auto source_id : {10, 20, 30}) {
+        EXPECT_EQ(state->get_query_ctx()->get_runtime_predicate(source_id).is_strict(),
+                  source_id == 20);
     }
 }
 
