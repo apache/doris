@@ -43,6 +43,7 @@
 #include "runtime/runtime_state.h"
 #include "util/decompressor.h"
 #include "util/string_util.h"
+#include "util/utf8_check.h"
 
 namespace doris::format {
 namespace {
@@ -242,7 +243,7 @@ Status DelimitedTextReader::init(RuntimeState* state) {
     // each physical file slot maps to a field ordinal in the text row. The local id exposed in the
     // file schema is therefore the text-field ordinal, not the slot vector position.
     _source_column_idxs.clear();
-    if (_scan_params->__isset.column_idxs && !_scan_params->column_idxs.empty()) {
+    if (!_schema_only && _scan_params->__isset.column_idxs && !_scan_params->column_idxs.empty()) {
         if (_scan_params->column_idxs.size() != _source_file_slot_descs.size()) {
             return Status::InvalidArgument(
                     "{} v2 reader column_idxs size {} does not match file slot size {}",
@@ -278,6 +279,46 @@ Status DelimitedTextReader::init(RuntimeState* state) {
         _file_schema.push_back(std::move(field));
     }
     _eof = false;
+    return Status::OK();
+}
+
+Status DelimitedTextReader::infer_schema(RuntimeState* state,
+                                         std::vector<ColumnDefinition>* schema) {
+    _schema_only = true;
+    RETURN_IF_ERROR(init(state));
+    if (_file_description->range_start_offset != 0) {
+        return Status::InvalidArgument("Schema inference requires a zero start offset");
+    }
+    if (_scan_params->file_type == TFileType::FILE_BROKER) {
+        return Status::NotSupported("Delimited schema inference does not support broker load");
+    }
+    RETURN_IF_ERROR(_open_file());
+    RETURN_IF_ERROR(_create_decompressor());
+    RETURN_IF_ERROR(_create_line_reader());
+    // A header is the schema input, not a data record to skip. For example,
+    // csv_with_names must return "id,name" rather than the first row's values.
+    _skip_lines = 0;
+    Slice line;
+    bool eof = false;
+    RETURN_IF_ERROR(_read_next_line(&line, &eof));
+    if (eof || line.empty()) {
+        return Status::InternalError("The first line is empty, cannot infer column names");
+    }
+    // TEXT scans allow raw bytes, but schema RPCs must retain their UTF-8 validation contract
+    // (for example, a header containing 0xFF must fail unless validation is explicitly disabled).
+    if (!validate_utf8(*_scan_params, line.data, line.size)) {
+        return Status::InternalError("Only support csv data in utf8 codec");
+    }
+    _split_line(line);
+    const auto header = to_lower(_scan_params->file_attributes.header_type);
+    const bool has_names =
+            header == BeConsts::CSV_WITH_NAMES || header == BeConsts::CSV_WITH_NAMES_AND_TYPES;
+    schema->clear();
+    for (size_t i = 0; i < _split_values.size(); ++i) {
+        const auto name = has_names ? _split_values[i].to_string() : fmt::format("c{}", i + 1);
+        schema->push_back(synthetic_file_child(
+                name, make_nullable(std::make_shared<DataTypeString>()), cast_set<int32_t>(i)));
+    }
     return Status::OK();
 }
 
@@ -556,8 +597,8 @@ Status DelimitedTextReader::_open_file() {
         // Stream load/http_stream data lives in NewLoadStreamMgr rather than a filesystem. The
         // generic FileFactory path only supports real file systems, so FILE_STREAM must use the
         // same pipe-reader lookup as the old CSV reader.
-        RETURN_IF_ERROR(FileFactory::create_pipe_reader(*_stream_load_id, &_file_reader,
-                                                        _runtime_state, /*need_schema=*/false));
+        RETURN_IF_ERROR(FileFactory::create_pipe_reader(
+                *_stream_load_id, &_file_reader, _runtime_state, /*need_schema=*/_schema_only));
     } else {
         auto reader_options = FileFactory::get_reader_options(_runtime_state->query_options(),
                                                               *_file_description);

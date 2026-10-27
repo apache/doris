@@ -17,19 +17,27 @@
 
 #include "format_v2/table/load_reader.h"
 
+#include <arrow/api.h>
+#include <arrow/io/memory.h>
+#include <arrow/ipc/api.h>
+#include <arrow/util/compression.h>
 #include <gtest/gtest.h>
 #include <unistd.h>
 
 #include <filesystem>
 #include <fstream>
 
+#include "core/column/column_array.h"
 #include "core/column/column_complex.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
+#include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_bitmap.h"
+#include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "format_v2/schema_reader.h"
 #include "io/fs/kafka_consumer_pipe.h"
 #include "load/stream_load/new_load_stream_mgr.h"
 #include "load/stream_load/stream_load_context.h"
@@ -369,12 +377,12 @@ protected:
         }
         LoadReaderTest::TearDown();
     }
-    Status prepare(LoadTableReader& reader) {
-        RETURN_IF_ERROR(init(reader, FileFormat::JSON));
+    Status prepare(LoadTableReader& reader, FileFormat format = FileFormat::JSON) {
+        RETURN_IF_ERROR(init(reader, format));
         SplitReadOptions split;
-        split.current_split_format = FileFormat::JSON;
+        split.current_split_format = format;
         split.current_range.__set_file_type(TFileType::FILE_STREAM);
-        split.current_range.__set_format_type(TFileFormatType::FORMAT_JSON);
+        split.current_range.__set_format_type(params.format_type);
         split.current_range.__set_load_id(_context->id.to_thrift());
         split.current_range.__set_size(-1);
         return reader.prepare_split(split);
@@ -386,6 +394,311 @@ protected:
     std::shared_ptr<StreamLoadContext> _context;
     bool _owns_stream_manager = false;
 };
+
+class LoadArrowPipeTest : public LoadJsonPipeTest {
+protected:
+    void SetUp() override {
+        LoadJsonPipeTest::SetUp();
+        params.__set_format_type(TFileFormatType::FORMAT_ARROW);
+    }
+    void set_column_type(const DataTypePtr& type) {
+        source_definition.__set_slotType(type->to_thrift());
+        source_slot = std::make_unique<SlotDescriptor>(source_definition);
+        TTupleDescriptor tuple;
+        tuple.__set_id(0);
+        tuple.__set_numNullBytes(1);
+        source = std::make_unique<TupleDescriptor>(tuple);
+        source->add_slot(source_slot.get());
+        tuple.__set_id(1);
+        destination = std::make_unique<TupleDescriptor>(tuple);
+        auto definition = source_definition;
+        definition.__set_id(20);
+        definition.__set_parent(1);
+        definition.__set_colName("value");
+        destination_slot = std::make_unique<SlotDescriptor>(definition);
+        destination->add_slot(destination_slot.get());
+        params.expr_of_dest_slot[20].nodes[0].__set_type(type->to_thrift());
+    }
+    void check_timestamp_rounding(bool nested) {
+        const auto time_type = make_nullable(std::make_shared<DataTypeDateTimeV2>(3));
+        set_column_type(nested ? make_nullable(std::make_shared<DataTypeArray>(time_type))
+                               : time_type);
+        const auto wire_type = arrow::timestamp(arrow::TimeUnit::MICRO);
+        arrow::TimestampBuilder builder(wire_type, arrow::default_memory_pool());
+        ASSERT_TRUE(builder.Append(123789).ok());
+        auto timestamps = builder.Finish();
+        ASSERT_TRUE(timestamps.ok());
+        std::shared_ptr<arrow::Array> values = *timestamps;
+        if (nested) {
+            arrow::Int32Builder offsets;
+            ASSERT_TRUE(offsets.AppendValues({0, 1}).ok());
+            auto offset_values = offsets.Finish();
+            ASSERT_TRUE(offset_values.ok());
+            auto lists = arrow::ListArray::FromArrays(**offset_values, *values);
+            ASSERT_TRUE(lists.ok());
+            values = *lists;
+        }
+        auto schema = arrow::schema({arrow::field("raw_value", values->type())});
+        append_batch(arrow::RecordBatch::Make(schema, 1, {values}));
+        ASSERT_TRUE(_pipe->finish().ok());
+        LoadTableReader reader(source.get(), destination.get());
+        ASSERT_TRUE(prepare(reader, FileFormat::ARROW).ok());
+        Block output(destination->slots(), 0);
+        bool eos = false;
+        const auto status = reader.get_block(&output, &eos);
+        ASSERT_TRUE(status.ok()) << status;
+        ASSERT_EQ(output.rows(), 1);
+        const IColumn* value_column = output.get_by_position(0).column.get();
+        if (nested) {
+            const auto& nullable = assert_cast<const ColumnNullable&>(*value_column);
+            value_column =
+                    &assert_cast<const ColumnArray&>(nullable.get_nested_column()).get_data();
+        }
+        EXPECT_EQ(time_type->to_string(*value_column, 0), "1970-01-01 00:00:00.124");
+        ASSERT_TRUE(reader.close().ok());
+    }
+    void append_stream(const std::vector<std::optional<std::string>>& values,
+                       const std::string& name = "raw_value") {
+        arrow::StringBuilder builder;
+        for (const auto& value : values) {
+            ASSERT_TRUE((value ? builder.Append(*value) : builder.AppendNull()).ok());
+        }
+        auto array = builder.Finish();
+        ASSERT_TRUE(array.ok());
+        auto schema = arrow::schema({arrow::field(name, arrow::utf8())});
+        append_batch(arrow::RecordBatch::Make(schema, values.size(), {*array}));
+    }
+    void append_batch(const std::shared_ptr<arrow::RecordBatch>& batch, bool compressed = false) {
+        auto sink = arrow::io::BufferOutputStream::Create();
+        ASSERT_TRUE(sink.ok());
+        auto options = arrow::ipc::IpcWriteOptions::Defaults();
+        if (compressed) {
+            auto codec = arrow::util::Codec::Create(arrow::Compression::ZSTD);
+            ASSERT_TRUE(codec.ok());
+            options.codec = std::move(*codec);
+        }
+        auto writer = arrow::ipc::MakeStreamWriter(*sink, batch->schema(), options);
+        ASSERT_TRUE(writer.ok());
+        ASSERT_TRUE((*writer)->WriteRecordBatch(*batch).ok());
+        ASSERT_TRUE((*writer)->Close().ok());
+        auto buffer = (*sink)->Finish();
+        ASSERT_TRUE(buffer.ok());
+        // HTTP chunks need not coincide with IPC message boundaries.
+        for (int64_t pos = 0; pos < (*buffer)->size(); pos += 7) {
+            const auto length = std::min<int64_t>(7, (*buffer)->size() - pos);
+            ASSERT_TRUE(_pipe->append_json(reinterpret_cast<const char*>((*buffer)->data() + pos),
+                                           length)
+                                .ok());
+        }
+    }
+};
+
+TEST_F(LoadArrowPipeTest, ConcatenatedStreamsRespectBatchBoundariesAndNulls) {
+    auto options = state.query_options();
+    options.__set_batch_size(1);
+    state.set_query_options(options);
+    append_stream({});
+    append_stream({"first", std::nullopt, "third"});
+    append_stream({"last"});
+    ASSERT_TRUE(_pipe->finish().ok());
+    LoadTableReader reader(source.get(), destination.get());
+    const auto status = prepare(reader, FileFormat::ARROW);
+    ASSERT_TRUE(status.ok()) << status;
+    Block output(destination->slots(), 0);
+    bool eos = false;
+    const std::vector<std::optional<std::string>> expected {"first", std::nullopt, "third", "last"};
+    for (const auto& value : expected) {
+        const auto read_status = reader.get_block(&output, &eos);
+        ASSERT_TRUE(read_status.ok()) << read_status;
+        ASSERT_EQ(output.rows(), 1);
+        const auto& column = assert_cast<const ColumnNullable&>(*output.get_by_position(0).column);
+        EXPECT_EQ(column.is_null_at(0), !value.has_value());
+        if (value) {
+            EXPECT_EQ(column.get_data_at(0).to_string(), *value);
+        }
+    }
+    ASSERT_TRUE(reader.get_block(&output, &eos).ok());
+    EXPECT_TRUE(eos);
+    EXPECT_EQ(output.rows(), 0);
+    EXPECT_EQ(_pipe->get_queue_size(), 0);
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST_F(LoadArrowPipeTest, ReorderedFieldsAndDictionaryStringsUseFileLocalMapping) {
+    arrow::StringDictionaryBuilder builder;
+    ASSERT_TRUE(builder.Append("dictionary").ok());
+    ASSERT_TRUE(builder.AppendNull().ok());
+    auto values = builder.Finish();
+    ASSERT_TRUE(values.ok());
+    arrow::Int32Builder unused;
+    ASSERT_TRUE(unused.AppendValues({1, 2}).ok());
+    auto ignored = unused.Finish();
+    ASSERT_TRUE(ignored.ok());
+    auto schema = arrow::schema({arrow::field("ignored", arrow::int32()),
+                                 arrow::field("raw_value", (*values)->type())});
+    append_batch(arrow::RecordBatch::Make(schema, 2, {*ignored, *values}));
+    ASSERT_TRUE(_pipe->finish().ok());
+    LoadTableReader reader(source.get(), destination.get());
+    ASSERT_TRUE(prepare(reader, FileFormat::ARROW).ok());
+    Block output(destination->slots(), 0);
+    bool eos = false;
+    const auto status = reader.get_block(&output, &eos);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(output.rows(), 2);
+    EXPECT_EQ(output.get_by_position(0).column->get_data_at(0).to_string(), "dictionary");
+    EXPECT_TRUE(output.get_by_position(0).column->is_null_at(1));
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST_F(LoadArrowPipeTest, NestedArraysKeepNullsAcrossBatchBoundaries) {
+    set_column_type(make_nullable(
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeInt32>()))));
+    auto options = state.query_options();
+    options.__set_batch_size(1);
+    state.set_query_options(options);
+    auto values = std::make_shared<arrow::Int32Builder>();
+    arrow::ListBuilder lists(arrow::default_memory_pool(), values);
+    ASSERT_TRUE(lists.Append().ok());
+    ASSERT_TRUE(values->Append(1).ok());
+    ASSERT_TRUE(values->AppendNull().ok());
+    ASSERT_TRUE(lists.AppendNull().ok());
+    ASSERT_TRUE(lists.Append().ok());
+    auto array = lists.Finish();
+    ASSERT_TRUE(array.ok());
+    auto schema = arrow::schema({arrow::field("raw_value", (*array)->type())});
+    append_batch(arrow::RecordBatch::Make(schema, 3, {*array}));
+    ASSERT_TRUE(_pipe->finish().ok());
+    LoadTableReader reader(source.get(), destination.get());
+    ASSERT_TRUE(prepare(reader, FileFormat::ARROW).ok());
+    Block output(destination->slots(), 0);
+    bool eos = false;
+    for (int row = 0; row < 3; ++row) {
+        const auto status = reader.get_block(&output, &eos);
+        ASSERT_TRUE(status.ok()) << status;
+        ASSERT_EQ(output.rows(), 1);
+        const auto& nullable =
+                assert_cast<const ColumnNullable&>(*output.get_by_position(0).column);
+        EXPECT_EQ(nullable.is_null_at(0), row == 1);
+        const auto& array_column = assert_cast<const ColumnArray&>(nullable.get_nested_column());
+        EXPECT_EQ(array_column.get_offsets()[0], row == 0 ? 2 : 0);
+        if (row == 0) {
+            const auto& elements = assert_cast<const ColumnNullable&>(array_column.get_data());
+            EXPECT_EQ(elements.get_nested_column().get_int(0), 1);
+            EXPECT_TRUE(array_column.get_data().is_null_at(1));
+        }
+    }
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST_F(LoadArrowPipeTest, BinaryStringPayloadPreservesItsBytes) {
+    arrow::BinaryBuilder builder;
+    ASSERT_TRUE(builder.Append("\xFF", 1).ok());
+    auto values = builder.Finish();
+    ASSERT_TRUE(values.ok());
+    auto schema = arrow::schema({arrow::field("raw_value", arrow::binary())});
+    append_batch(arrow::RecordBatch::Make(schema, 1, {*values}));
+    ASSERT_TRUE(_pipe->finish().ok());
+    LoadTableReader reader(source.get(), destination.get());
+    ASSERT_TRUE(prepare(reader, FileFormat::ARROW).ok());
+    Block output(destination->slots(), 0);
+    bool eos = false;
+    const auto status = reader.get_block(&output, &eos);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(output.rows(), 1);
+    EXPECT_EQ(output.get_by_position(0).column->get_data_at(0).to_string(), "\xFF");
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST_F(LoadArrowPipeTest, ReadsCompressedIpcBatches) {
+    arrow::StringBuilder builder;
+    ASSERT_TRUE(builder.Append("compressed").ok());
+    ASSERT_TRUE(builder.AppendNull().ok());
+    auto values = builder.Finish();
+    ASSERT_TRUE(values.ok());
+    auto schema = arrow::schema({arrow::field("raw_value", arrow::utf8())});
+    append_batch(arrow::RecordBatch::Make(schema, 2, {*values}), true);
+    ASSERT_TRUE(_pipe->finish().ok());
+    LoadTableReader reader(source.get(), destination.get());
+    ASSERT_TRUE(prepare(reader, FileFormat::ARROW).ok());
+    Block output(destination->slots(), 0);
+    bool eos = false;
+    const auto status = reader.get_block(&output, &eos);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(output.rows(), 2);
+    EXPECT_EQ(output.get_by_position(0).column->get_data_at(0).to_string(), "compressed");
+    EXPECT_TRUE(output.get_by_position(0).column->is_null_at(1));
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST_F(LoadArrowPipeTest, TimestampRoundingUsesTheDorisSerde) {
+    check_timestamp_rounding(false);
+}
+
+TEST_F(LoadArrowPipeTest, NestedTimestampRoundingUsesTheDorisSerde) {
+    check_timestamp_rounding(true);
+}
+
+TEST_F(LoadArrowPipeTest, MalformedIpcReturnsAnError) {
+    append("invalid IPC");
+    ASSERT_TRUE(_pipe->finish().ok());
+    LoadTableReader reader(source.get(), destination.get());
+    ASSERT_TRUE(prepare(reader, FileFormat::ARROW).ok());
+    Block output(destination->slots(), 0);
+    bool eos = false;
+    EXPECT_FALSE(reader.get_block(&output, &eos).ok());
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST_F(LoadArrowPipeTest, EmptyFinishedPipeReturnsEof) {
+    ASSERT_TRUE(_pipe->finish().ok());
+    LoadTableReader reader(source.get(), destination.get());
+    const auto status = prepare(reader, FileFormat::ARROW);
+    ASSERT_TRUE(status.ok()) << status;
+    Block output(destination->slots(), 0);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&output, &eos).ok());
+    EXPECT_TRUE(eos);
+    EXPECT_EQ(output.rows(), 0);
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST_F(LoadArrowPipeTest, RejectsMissingRequestedColumn) {
+    append_stream({"value"}, "other");
+    ASSERT_TRUE(_pipe->finish().ok());
+    LoadTableReader reader(source.get(), destination.get());
+    const auto status = prepare(reader, FileFormat::ARROW);
+    ASSERT_TRUE(status.ok()) << status;
+    Block output(destination->slots(), 0);
+    bool eos = false;
+    EXPECT_FALSE(reader.get_block(&output, &eos).ok());
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST_F(LoadJsonPipeTest, SchemaProbeReadsTheSampleWithoutConsumingTheLoadPipe) {
+    const std::string document = R"({"raw_value":"payload"})";
+    append(document);
+    ASSERT_TRUE(_pipe->finish().ok());
+    ASSERT_TRUE(_context->allocate_schema_buffer().ok());
+    _context->schema_buffer()->put_bytes(document.data(), document.size());
+    TFileRangeDesc range;
+    range.__set_file_type(TFileType::FILE_STREAM);
+    range.__set_load_id(_context->id.to_thrift());
+    range.__set_start_offset(0);
+    range.__set_size(-1);
+    std::vector<ColumnDefinition> schema;
+    const auto status = fetch_file_schema(params, range, io, &profile, &schema);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(schema.size(), 1);
+    EXPECT_EQ(schema[0].name, "raw_value");
+    LoadTableReader reader(source.get(), destination.get());
+    ASSERT_TRUE(prepare(reader).ok());
+    Block output(destination->slots(), 0);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&output, &eos).ok());
+    ASSERT_EQ(output.rows(), 1);
+    EXPECT_EQ(output.get_by_position(0).column->get_data_at(0).to_string(), "payload");
+    ASSERT_TRUE(reader.close().ok());
+}
 
 TEST_F(LoadJsonPipeTest, ReadsEveryKafkaMessageBeforePipeEof) {
     append(R"({"raw_value":"first"})");
