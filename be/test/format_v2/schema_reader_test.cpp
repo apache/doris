@@ -141,8 +141,30 @@ TEST_F(SchemaInferenceV2Test, JsonRejectsMalformedInputAndInvalidShape) {
 
 TEST_F(SchemaInferenceV2Test, CsvRejectsEmptyFirstLineAndNonzeroOffset) {
     EXPECT_FALSE(infer("").ok());
-    EXPECT_FALSE(infer("\n1,value\n").ok());
+    const auto status = infer("\n1,value\n");
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("The first line is empty, can not parse column numbers"),
+              std::string::npos)
+            << status;
     EXPECT_FALSE(infer("1,value\n", 1).ok());
+}
+
+TEST_F(SchemaInferenceV2Test, EmptyLzopRetainsTheSchemaRpcError) {
+    // A valid LZOP header (no filename, zero timestamps), Adler-32, and an end-of-stream block.
+    const uint8_t stream[] = {0x89, 0x4c, 0x5a, 0x4f, 0x00, 0x0d, 0x0a, 0x1a, 0x0a, 0x10, 0x30,
+                              0x20, 0xa0, 0x09, 0x40, 0x01, 0x05, 0x00, 0x00, 0x00, 0x01, 0x00,
+                              0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                              0x00, 0x1d, 0x01, 0x01, 0x51, 0x00, 0x00, 0x00, 0x00};
+    params.__set_format_type(TFileFormatType::FORMAT_CSV_LZOP);
+    for (const auto* header : {"", "csv_with_names", "csv_with_names_and_types"}) {
+        attributes.__set_header_type(header);
+        const auto status =
+                infer(std::string(reinterpret_cast<const char*>(stream), sizeof(stream)));
+        EXPECT_FALSE(status.ok());
+        const auto expected = std::string("The first line is empty, can not parse column ") +
+                              (*header == '\0' ? "numbers" : "names");
+        EXPECT_NE(status.to_string().find(expected), std::string::npos) << status;
+    }
 }
 
 TEST(SchemaReaderV2Test, InfersTextAndJsonWithoutPlannedSlots) {

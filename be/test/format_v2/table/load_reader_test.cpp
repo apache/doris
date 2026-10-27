@@ -18,6 +18,7 @@
 #include "format_v2/table/load_reader.h"
 
 #include <arrow/api.h>
+#include <arrow/extension/parquet_variant.h>
 #include <arrow/io/memory.h>
 #include <arrow/ipc/api.h>
 #include <arrow/util/compression.h>
@@ -30,10 +31,13 @@
 
 #include "core/column/column_array.h"
 #include "core/column/column_complex.h"
+#include "core/column/column_fixed_length_object.h"
 #include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_struct.h"
+#include "core/column/variant_v2/column_variant_v2.h"
+#include "core/data_type/data_type_agg_state.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_bitmap.h"
 #include "core/data_type/data_type_date_or_datetime_v2.h"
@@ -43,6 +47,9 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_variant_v2.h"
+#include "format/arrow/arrow_block_convertor.h"
+#include "format/arrow/arrow_row_batch.h"
 #include "format_v2/schema_reader.h"
 #include "io/fs/kafka_consumer_pipe.h"
 #include "load/stream_load/new_load_stream_mgr.h"
@@ -408,7 +415,22 @@ protected:
         params.__set_format_type(TFileFormatType::FORMAT_ARROW);
     }
     void set_column_type(const DataTypePtr& type) {
-        source_definition.__set_slotType(type->to_thrift());
+        auto descriptor = type->to_thrift();
+        if (remove_nullable(type)->get_primitive_type() == TYPE_AGG_STATE) {
+            // AGG_STATE's function signature lives on TTypeDesc, outside its scalar type node.
+            const auto& state_type = assert_cast<const DataTypeAggState&>(*remove_nullable(type));
+            std::vector<TTypeDesc> arguments;
+            for (const auto& argument : state_type.get_sub_types()) {
+                auto argument_descriptor = argument->to_thrift();
+                argument_descriptor.__set_is_nullable(argument->is_nullable());
+                arguments.push_back(std::move(argument_descriptor));
+            }
+            descriptor.__set_sub_types(arguments);
+            descriptor.__set_function_name(state_type.get_function_name());
+            descriptor.__set_result_is_nullable(false);
+            descriptor.__set_be_exec_version(BeExecVersionManager::get_newest_version());
+        }
+        source_definition.__set_slotType(descriptor);
         source_slot = std::make_unique<SlotDescriptor>(source_definition);
         TTupleDescriptor tuple;
         tuple.__set_id(0);
@@ -423,7 +445,7 @@ protected:
         definition.__set_colName("value");
         destination_slot = std::make_unique<SlotDescriptor>(definition);
         destination->add_slot(destination_slot.get());
-        params.expr_of_dest_slot[20].nodes[0].__set_type(type->to_thrift());
+        params.expr_of_dest_slot[20].nodes[0].__set_type(descriptor);
     }
     void check_timestamp_rounding(bool nested) {
         const auto time_type = make_nullable(std::make_shared<DataTypeDateTimeV2>(3));
@@ -555,7 +577,218 @@ protected:
                                 .ok());
         }
     }
+    void make_native_variant_array(bool extension, std::shared_ptr<arrow::Array>* array) {
+        ASSERT_TRUE(register_arrow_variant_extension().ok());
+        auto type = std::make_shared<DataTypeVariantV2>();
+        auto values = type->create_column();
+        auto serde = type->get_serde();
+        DataTypeSerDe::FormatOptions options;
+        for (std::string json : {"42", "null", "null"}) {
+            Slice slice(json.data(), json.size());
+            ASSERT_TRUE(serde->deserialize_one_cell_from_json(*values, slice, options).ok());
+        }
+        auto nulls = ColumnUInt8::create();
+        nulls->get_data().assign({0, 0, 1});
+        Block block {{ColumnNullable::create(std::move(values), std::move(nulls)),
+                      make_nullable(type), "raw_value"}};
+        auto wire_type = arrow::extension::variant(
+                arrow::struct_({arrow::field("metadata", arrow::binary(), false),
+                                arrow::field("value", arrow::binary(), false)}));
+        ArrowFlightArrowBlockConvertor converter(
+                arrow::schema({arrow::field("raw_value", wire_type)}), cctz::utc_time_zone());
+        std::shared_ptr<arrow::RecordBatch> batch;
+        ASSERT_TRUE(converter.convert_to_arrow(block, arrow::default_memory_pool(), &batch).ok());
+        *array = extension ? batch->column(0)
+                           : static_cast<const arrow::ExtensionArray&>(*batch->column(0)).storage();
+    }
+    void wrap_native_variant(int container, std::shared_ptr<arrow::Array>* values) {
+        const auto variant_type = make_nullable(std::make_shared<DataTypeVariantV2>());
+        arrow::Int64Builder integers;
+        ASSERT_TRUE(integers.AppendValues({7, 8, 9}).ok());
+        auto numbers = integers.Finish();
+        ASSERT_TRUE(numbers.ok());
+        if (container == 3) {
+            set_column_type(make_nullable(std::make_shared<DataTypeStruct>(
+                    DataTypes {variant_type, make_nullable(std::make_shared<DataTypeInt32>())},
+                    Strings {"payload", "number"})));
+            auto structs = arrow::StructArray::Make(
+                    {*values, *numbers}, std::vector<std::string> {"WIRE_PAYLOAD", "WIRE_NUMBER"});
+            ASSERT_TRUE(structs.ok());
+            *values = *structs;
+            return;
+        }
+        arrow::Int32Builder offsets;
+        ASSERT_TRUE(offsets.AppendValues({0, 1, 2, 3}).ok());
+        auto positions = offsets.Finish();
+        ASSERT_TRUE(positions.ok());
+        if (container == 2) {
+            set_column_type(make_nullable(std::make_shared<DataTypeMap>(
+                    std::make_shared<DataTypeInt32>(), variant_type)));
+            *values = std::make_shared<arrow::MapArray>(
+                    arrow::map(arrow::int64(), (*values)->type()), 3,
+                    (*positions)->data()->buffers[1], *numbers, *values);
+        } else {
+            set_column_type(make_nullable(std::make_shared<DataTypeArray>(variant_type)));
+            auto lists = arrow::ListArray::FromArrays(**positions, **values);
+            ASSERT_TRUE(lists.ok());
+            *values = *lists;
+        }
+    }
+    void check_native_variant(bool extension, int container = 0) {
+        set_column_type(make_nullable(std::make_shared<DataTypeVariantV2>()));
+        std::shared_ptr<arrow::Array> values;
+        make_native_variant_array(extension, &values);
+        ASSERT_NE(values, nullptr);
+        if (container != 0) {
+            wrap_native_variant(container, &values);
+        }
+        append_batch(arrow::RecordBatch::Make(
+                arrow::schema({arrow::field("raw_value", values->type())}), 3, {values}));
+        ASSERT_TRUE(_pipe->finish().ok());
+        LoadTableReader reader(source.get(), destination.get());
+        ASSERT_TRUE(prepare(reader, FileFormat::ARROW).ok());
+        Block output(destination->slots(), 0);
+        bool eos = false;
+        const auto status = reader.get_block(&output, &eos);
+        ASSERT_TRUE(status.ok()) << status;
+        ASSERT_EQ(output.rows(), 3);
+        const IColumn* result_column = output.get_by_position(0).column.get();
+        if (container != 0) {
+            const auto& outer =
+                    assert_cast<const ColumnNullable&>(*result_column).get_nested_column();
+            if (container == 1) {
+                result_column = &assert_cast<const ColumnArray&>(outer).get_data();
+            } else if (container == 2) {
+                result_column = &assert_cast<const ColumnMap&>(outer).get_values();
+            } else {
+                result_column = &assert_cast<const ColumnStruct&>(outer).get_column(0);
+            }
+        }
+        const auto& nullable = assert_cast<const ColumnNullable&>(*result_column);
+        const auto& result = assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
+        EXPECT_EQ(result.get_value_ref(0).get_int(), 42);
+        EXPECT_FALSE(nullable.is_null_at(1));
+        EXPECT_TRUE(result.get_value_ref(1).is_null());
+        EXPECT_TRUE(nullable.is_null_at(2));
+        ASSERT_TRUE(reader.close().ok());
+    }
+    void check_count_state(bool variable_binary, int width = 8) {
+        set_column_type(make_nullable(std::make_shared<DataTypeAggState>(
+                DataTypes {std::make_shared<DataTypeInt32>()}, false, "count",
+                BeExecVersionManager::get_newest_version())));
+        std::unique_ptr<arrow::ArrayBuilder> builder;
+        const auto wire_type = variable_binary ? arrow::binary() : arrow::fixed_size_binary(width);
+        ASSERT_TRUE(arrow::MakeBuilder(arrow::default_memory_pool(), wire_type, &builder).ok());
+        const uint64_t counts[] = {0, 7};
+        for (const auto& count : counts) {
+            const std::string_view bytes(reinterpret_cast<const char*>(&count), width);
+            const auto status =
+                    variable_binary
+                            ? static_cast<arrow::BinaryBuilder&>(*builder).Append(bytes)
+                            : static_cast<arrow::FixedSizeBinaryBuilder&>(*builder).Append(bytes);
+            ASSERT_TRUE(status.ok()) << status;
+        }
+        ASSERT_TRUE(builder->AppendNull().ok());
+        auto values = builder->Finish();
+        ASSERT_TRUE(values.ok());
+        append_batch(arrow::RecordBatch::Make(arrow::schema({arrow::field("raw_value", wire_type)}),
+                                              3, {*values}));
+        ASSERT_TRUE(_pipe->finish().ok());
+        LoadTableReader reader(source.get(), destination.get());
+        const auto prepared = prepare(reader, FileFormat::ARROW);
+        ASSERT_TRUE(prepared.ok()) << prepared;
+        Block output(destination->slots(), 0);
+        bool eos = false;
+        const auto status = reader.get_block(&output, &eos);
+        if (width != sizeof(uint64_t)) {
+            EXPECT_FALSE(status.ok());
+            EXPECT_NE(status.to_string().find("Cannot decode Arrow column"), std::string::npos)
+                    << status;
+        } else {
+            ASSERT_TRUE(status.ok()) << status;
+            ASSERT_EQ(output.rows(), 3);
+            const auto& nullable =
+                    assert_cast<const ColumnNullable&>(*output.get_by_position(0).column);
+            const auto& result =
+                    assert_cast<const ColumnFixedLengthObject&>(nullable.get_nested_column());
+            EXPECT_TRUE(nullable.is_null_at(2));
+            EXPECT_EQ(result.item_size(), sizeof(uint64_t));
+            EXPECT_EQ(result.get_data_at(0),
+                      StringRef(reinterpret_cast<const char*>(&counts[0]), 8));
+            EXPECT_EQ(result.get_data_at(1),
+                      StringRef(reinterpret_cast<const char*>(&counts[1]), 8));
+        }
+        ASSERT_TRUE(reader.close().ok());
+    }
 };
+
+TEST_F(LoadArrowPipeTest, NativeVariantStoragePreservesValuesAndSqlNulls) {
+    check_native_variant(false);
+}
+
+TEST_F(LoadArrowPipeTest, NativeVariantExtensionPreservesValuesAndSqlNulls) {
+    check_native_variant(true);
+}
+
+TEST_F(LoadArrowPipeTest, NativeVariantInsideArrayPreservesValuesAndSqlNulls) {
+    check_native_variant(false, 1);
+}
+
+TEST_F(LoadArrowPipeTest, NativeVariantInsideMapSurvivesKeyNarrowing) {
+    check_native_variant(false, 2);
+}
+
+TEST_F(LoadArrowPipeTest, NativeVariantInsideStructSurvivesSiblingNarrowing) {
+    check_native_variant(false, 3);
+}
+
+TEST_F(LoadArrowPipeTest, NativeVariantExtensionInsideArrayPreservesValuesAndSqlNulls) {
+    check_native_variant(true, 1);
+}
+
+TEST_F(LoadArrowPipeTest, NativeVariantExtensionInsideMapSurvivesKeyNarrowing) {
+    check_native_variant(true, 2);
+}
+
+TEST_F(LoadArrowPipeTest, NativeVariantExtensionInsideStructSurvivesSiblingNarrowing) {
+    check_native_variant(true, 3);
+}
+
+TEST_F(LoadArrowPipeTest, CountStateUsesFixedSizeBinarySerialization) {
+    check_count_state(false);
+}
+
+TEST_F(LoadArrowPipeTest, CountStateAcceptsBinarySerialization) {
+    check_count_state(true);
+}
+
+TEST_F(LoadArrowPipeTest, CountStateRejectsWrongFixedSizeBinaryWidth) {
+    check_count_state(false, 4);
+}
+
+TEST_F(LoadArrowPipeTest, CountStateRejectsWrongBinaryWidth) {
+    check_count_state(true, 4);
+}
+
+TEST_F(LoadArrowPipeTest, StructInputForAStringSlotReturnsAnError) {
+    arrow::Int32Builder builder;
+    ASSERT_TRUE(builder.Append(7).ok());
+    auto values = builder.Finish();
+    ASSERT_TRUE(values.ok());
+    auto structs = arrow::StructArray::Make({*values}, std::vector<std::string> {"value"});
+    ASSERT_TRUE(structs.ok());
+    append_batch(arrow::RecordBatch::Make(
+            arrow::schema({arrow::field("raw_value", (*structs)->type())}), 1, {*structs}));
+    ASSERT_TRUE(_pipe->finish().ok());
+    LoadTableReader reader(source.get(), destination.get());
+    ASSERT_TRUE(prepare(reader, FileFormat::ARROW).ok());
+    Block output(destination->slots(), 0);
+    bool eos = false;
+    const auto status = reader.get_block(&output, &eos);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("Cannot decode Arrow column"), std::string::npos) << status;
+    ASSERT_TRUE(reader.close().ok());
+}
 
 TEST_F(LoadArrowPipeTest, ConcatenatedStreamsRespectBatchBoundariesAndNulls) {
     auto options = state.query_options();

@@ -29,6 +29,8 @@
 #include <utility>
 
 #include "core/block/block.h"
+#include "core/column/column_fixed_length_object.h"
+#include "core/data_type/data_type_agg_state.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
@@ -48,6 +50,37 @@ namespace doris::format::arrow_stream {
 
 namespace {
 
+class ArrowLoadSchemaConvertor final : public DorisArrowSchemaConvertor {
+public:
+    using DorisArrowSchemaConvertor::DorisArrowSchemaConvertor;
+
+    Status convert_to_arrow_type(const DataTypePtr& origin_type,
+                                 std::shared_ptr<arrow::DataType>* result) const override {
+        const auto type = remove_nullable(origin_type);
+        // VARIANT output may be UTF-8, but its input SerDe requires the native binary carrier,
+        // including when VARIANT is nested in an ARRAY, MAP, or STRUCT.
+        if (type->get_primitive_type() == TYPE_VARIANT) {
+            *result = arrow::struct_({arrow::field("metadata", arrow::binary(), false),
+                                      arrow::field("value", arrow::binary(), false)});
+            return Status::OK();
+        }
+        if (type->get_primitive_type() == TYPE_AGG_STATE) {
+            const auto& state = assert_cast<const DataTypeAggState&>(*type);
+            const auto serialized_type = remove_nullable(state.get_serialized_type());
+            // FixedLengthObject's type omits its width. The serialization column owns that
+            // contract (e.g. count(INT NOT NULL) uses eight bytes), not the runtime state size.
+            if (serialized_type->get_primitive_type() == TYPE_FIXED_LENGTH_OBJECT) {
+                const auto column = state.create_column();
+                const auto width = assert_cast<const ColumnFixedLengthObject&>(*column).item_size();
+                *result = arrow::fixed_size_binary(cast_set<int32_t>(width));
+                return Status::OK();
+            }
+            return convert_to_arrow_type(serialized_type, result);
+        }
+        return DorisArrowSchemaConvertor::convert_to_arrow_type(type, result);
+    }
+};
+
 arrow::Result<std::shared_ptr<arrow::DataType>> input_binding_type(
         const std::shared_ptr<arrow::DataType>& wire,
         const std::shared_ptr<arrow::DataType>& declared, const DataTypePtr& doris_type) {
@@ -63,7 +96,12 @@ arrow::Result<std::shared_ptr<arrow::DataType>> input_binding_type(
     if (wire->id() == arrow::Type::DATE64 && declared->id() == arrow::Type::DATE32) {
         return wire;
     }
-    const auto type = remove_nullable(doris_type);
+    const auto type = remove_nullable(get_serialized_type(remove_nullable(doris_type)));
+    // A native VARIANT carrier is a logical leaf, not a Doris STRUCT. Preserve its storage or
+    // extension unchanged and let its SerDe validate the carrier shape and encoded payload.
+    if (type->get_primitive_type() == TYPE_VARIANT) {
+        return wire;
+    }
     // IPv4 is a 32-bit bit pattern, including addresses above INT32_MAX. Numeric INT columns
     // still use the checked conversion below instead of inheriting this storage exception.
     if (type->get_primitive_type() == TYPE_IPV4 && wire->id() == arrow::Type::UINT32) {
@@ -113,17 +151,20 @@ arrow::Result<std::shared_ptr<arrow::DataType>> input_binding_type(
 }
 
 arrow::Result<std::shared_ptr<arrow::Array>> mask_hidden_children(
-        std::shared_ptr<arrow::Array> array, arrow::compute::ExecContext* context);
+        std::shared_ptr<arrow::Array> array, const std::shared_ptr<arrow::DataType>& binding,
+        arrow::compute::ExecContext* context);
 
 arrow::Result<std::shared_ptr<arrow::Array>> mask_struct_children(
-        const std::shared_ptr<arrow::Array>& array, arrow::compute::ExecContext* context) {
+        const std::shared_ptr<arrow::Array>& array, const std::shared_ptr<arrow::DataType>& binding,
+        arrow::compute::ExecContext* context) {
     const auto& structure = static_cast<const arrow::StructArray&>(*array);
     auto data = array->data()->Copy();
     for (int i = 0; i < structure.num_fields(); ++i) {
         // A NULL struct can have valid child payloads. Combine ancestor validity before
         // checked casts can inspect those logically hidden values.
         ARROW_ASSIGN_OR_RAISE(auto child, structure.GetFlattenedField(i, context->memory_pool()));
-        ARROW_ASSIGN_OR_RAISE(child, mask_hidden_children(std::move(child), context));
+        ARROW_ASSIGN_OR_RAISE(
+                child, mask_hidden_children(std::move(child), binding->field(i)->type(), context));
         data->child_data[i] = child->data();
     }
     return arrow::MakeArray(data);
@@ -150,25 +191,41 @@ arrow::Result<std::shared_ptr<arrow::Array>> compact_null_containers(
 }
 
 arrow::Result<std::shared_ptr<arrow::Array>> mask_list_children(
-        std::shared_ptr<arrow::Array> array, arrow::compute::ExecContext* context) {
+        std::shared_ptr<arrow::Array> array, const std::shared_ptr<arrow::DataType>& binding,
+        arrow::compute::ExecContext* context) {
     ARROW_ASSIGN_OR_RAISE(array, compact_null_containers(std::move(array), context));
     auto data = array->data()->Copy();
-    ARROW_ASSIGN_OR_RAISE(auto child,
-                          mask_hidden_children(arrow::MakeArray(data->child_data[0]), context));
+    ARROW_ASSIGN_OR_RAISE(auto child, mask_hidden_children(arrow::MakeArray(data->child_data[0]),
+                                                           binding->field(0)->type(), context));
     data->child_data[0] = child->data();
     return arrow::MakeArray(data);
 }
 
 arrow::Result<std::shared_ptr<arrow::Array>> mask_hidden_children(
-        std::shared_ptr<arrow::Array> array, arrow::compute::ExecContext* context) {
+        std::shared_ptr<arrow::Array> array, const std::shared_ptr<arrow::DataType>& binding,
+        arrow::compute::ExecContext* context) {
+    // Only conversions need hidden payloads masked. Descending into an unchanged VARIANT
+    // carrier would make its non-nullable metadata/value fields NULL under a SQL NULL parent,
+    // and Arrow's otherwise identical struct view would reject those synthetic child NULLs.
+    if (array->type()->Equals(binding)) {
+        return array;
+    }
+    const bool converts_list_offsets = binding->id() == arrow::Type::LIST &&
+                                       (array->type_id() == arrow::Type::LARGE_LIST ||
+                                        array->type_id() == arrow::Type::FIXED_SIZE_LIST);
+    // A STRUCT sent for a STRING slot has no corresponding target children. Leave mismatched
+    // container kinds to Arrow's cast error rather than indexing nonexistent binding fields.
+    if (array->type_id() != binding->id() && !converts_list_offsets) {
+        return array;
+    }
     switch (array->type_id()) {
     case arrow::Type::STRUCT:
-        return mask_struct_children(array, context);
+        return mask_struct_children(array, binding, context);
     case arrow::Type::LIST:
     case arrow::Type::LARGE_LIST:
     case arrow::Type::FIXED_SIZE_LIST:
     case arrow::Type::MAP:
-        return mask_list_children(std::move(array), context);
+        return mask_list_children(std::move(array), binding, context);
     default:
         return array;
     }
@@ -275,7 +332,7 @@ Status ArrowStreamReader::init(RuntimeState* state) {
     }
     for (const auto* slot : _file_slots) {
         std::shared_ptr<arrow::DataType> type;
-        RETURN_IF_ERROR(DorisArrowSchemaConvertor(state->timezone())
+        RETURN_IF_ERROR(ArrowLoadSchemaConvertor(state->timezone())
                                 .convert_to_arrow_type(slot->type(), &type));
         _arrow_types.push_back(std::move(type));
     }
@@ -352,8 +409,8 @@ Status ArrowStreamReader::_prepare_arrays() {
         // Bind differing numeric widths before concrete SerDe array casts. Timestamp units
         // stay on the wire even inside containers, so Doris retains its own rounding semantics.
         if (!array->type()->Equals(binding)) {
-            RETURN_DORIS_STATUS_IF_RESULT_ERROR(array,
-                                                mask_hidden_children(std::move(array), &context));
+            RETURN_DORIS_STATUS_IF_RESULT_ERROR(
+                    array, mask_hidden_children(std::move(array), binding, &context));
             auto options = arrow::compute::CastOptions::Safe();
             // The Arrow load protocol permits binary payloads in Doris STRING columns.
             options.allow_invalid_utf8 = true;

@@ -301,8 +301,14 @@ Status DelimitedTextReader::infer_schema(RuntimeState* state,
     Slice line;
     bool eof = false;
     RETURN_IF_ERROR(_read_next_line(&line, &eof));
+    const auto header = to_lower(_scan_params->file_attributes.header_type);
+    const bool has_names =
+            header == BeConsts::CSV_WITH_NAMES || header == BeConsts::CSV_WITH_NAMES_AND_TYPES;
     if (eof || line.empty()) {
-        return Status::InternalError("The first line is empty, cannot infer column names");
+        // Empty compressed files reach this same check after decompression. Preserve the
+        // schema RPC's existing diagnostics for callers such as the empty-LZOP TVF case.
+        return Status::InternalError("The first line is empty, can not parse column {}",
+                                     has_names ? "names" : "numbers");
     }
     // TEXT scans allow raw bytes, but schema RPCs must retain their UTF-8 validation contract
     // (for example, a header containing 0xFF must fail unless validation is explicitly disabled).
@@ -310,9 +316,6 @@ Status DelimitedTextReader::infer_schema(RuntimeState* state,
         return Status::InternalError("Only support csv data in utf8 codec");
     }
     _split_line(line);
-    const auto header = to_lower(_scan_params->file_attributes.header_type);
-    const bool has_names =
-            header == BeConsts::CSV_WITH_NAMES || header == BeConsts::CSV_WITH_NAMES_AND_TYPES;
     schema->clear();
     for (size_t i = 0; i < _split_values.size(); ++i) {
         const auto name = has_names ? _split_values[i].to_string() : fmt::format("c{}", i + 1);
