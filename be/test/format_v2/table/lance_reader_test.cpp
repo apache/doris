@@ -2780,6 +2780,33 @@ std::pair<size_t, size_t> map_range(const ColumnMap& map, size_t row) {
             static_cast<size_t>(offsets[row])};
 }
 
+// Wraps three Booleans, offset included, into three-row STRUCT<b>, LIST, MAP<STRING, BOOLEAN>,
+// STRUCT<s: STRUCT<b>> and STRUCT<l: LIST> arrays. Each starts at offset 0 and references exactly
+// its child; the list and map rows hold the values {0, 1}, {} and {2}.
+arrow::ArrayVector make_tight_nested_boolean_arrays(const std::shared_ptr<arrow::Array>& booleans) {
+    arrow::Int32Builder offsets_builder;
+    EXPECT_TRUE(offsets_builder.AppendValues({0, 2, 2, 3}).ok());
+    std::shared_ptr<arrow::Int32Array> offsets;
+    EXPECT_TRUE(offsets_builder.Finish(&offsets).ok());
+    arrow::StringBuilder keys_builder;
+    EXPECT_TRUE(keys_builder.AppendValues({"k0", "k1", "k2"}).ok());
+    std::shared_ptr<arrow::StringArray> keys;
+    EXPECT_TRUE(keys_builder.Finish(&keys).ok());
+
+    const auto structs = arrow::StructArray::Make({booleans}, {arrow::field("b", arrow::boolean())})
+                                 .ValueOrDie();
+    const auto lists =
+            arrow::ListArray::FromArrays(arrow::list(arrow::field("item", arrow::boolean())),
+                                         *offsets, *booleans)
+                    .ValueOrDie();
+    const auto maps = arrow::MapArray::FromArrays(arrow::map(arrow::utf8(), arrow::boolean()),
+                                                  offsets, keys, booleans)
+                              .ValueOrDie();
+    return {structs, lists, maps,
+            arrow::StructArray::Make({structs}, {arrow::field("s", structs->type())}).ValueOrDie(),
+            arrow::StructArray::Make({lists}, {arrow::field("l", lists->type())}).ValueOrDie()};
+}
+
 } // namespace
 
 TEST(LanceTableReaderSchemaTest, FetchesSchemaWithoutFragmentIdsOrScanInitialization) {
@@ -3526,6 +3553,100 @@ TEST(LanceTableReaderTypeTest, KeepsOrdinaryNestedArrayUnchangedDuringNormalizat
     const auto status = normalize_lance_arrow_array_for_test(field, array, &normalized);
     ASSERT_TRUE(status.ok()) << status.to_string();
     EXPECT_EQ(array.get(), normalized.get());
+}
+
+// Verifies nested arrays with tight offsets of their own are compacted when a descendant starts at
+// an offset, which the Doris SerDes reject under Arrow input validation. Lance's legacy decoder
+// returns this layout for a batch that starts mid-byte in a Boolean bitmap: rows 3..5 of
+// STRUCT<b: BOOLEAN> are a zero-offset struct over Booleans at offset 3.
+TEST(LanceTableReaderTypeTest, CompactsOffsetDescendantsOfTightNestedArrays) {
+    const bool old_validation = config::enable_arrow_input_validation;
+    config::enable_arrow_input_validation = true;
+    Defer cleanup {[&] { config::enable_arrow_input_validation = old_validation; }};
+    arrow::BooleanBuilder builder;
+    ASSERT_TRUE(
+            builder.AppendValues(std::vector<bool> {true, false, true, false, true, false}).ok());
+    std::shared_ptr<arrow::Array> booleans;
+    ASSERT_TRUE(builder.Finish(&booleans).ok());
+    // false, true, false at bit offset 3.
+    const auto inputs = make_tight_nested_boolean_arrays(booleans->Slice(3));
+    ASSERT_EQ(0, inputs[0]->offset());
+    ASSERT_EQ(3, inputs[0]->data()->child_data[0]->offset);
+    ASSERT_EQ(0, inputs[1]->offset());
+    ASSERT_EQ(3, inputs[1]->data()->child_data[0]->offset);
+
+    const auto bool_type = nullable_type(TYPE_BOOLEAN);
+    const auto struct_type =
+            make_nullable(std::make_shared<DataTypeStruct>(DataTypes {bool_type}, Strings {"b"}));
+    const auto list_type = make_nullable(std::make_shared<DataTypeArray>(bool_type));
+    const Columns columns {
+            projected_column("struct_value", struct_type),
+            projected_column("list_value", list_type),
+            projected_column("map_value", make_nullable(std::make_shared<DataTypeMap>(
+                                                  nullable_type(TYPE_STRING), bool_type))),
+            projected_column("nested_struct_value",
+                             make_nullable(std::make_shared<DataTypeStruct>(DataTypes {struct_type},
+                                                                            Strings {"s"}))),
+            projected_column("struct_list_value", make_nullable(std::make_shared<DataTypeStruct>(
+                                                          DataTypes {list_type}, Strings {"l"}))),
+    };
+    arrow::FieldVector fields;
+    for (size_t i = 0; i < columns.size(); ++i) {
+        fields.emplace_back(arrow::field(columns[i].name, inputs[i]->type()));
+    }
+    const auto record_batch = arrow::RecordBatch::Make(arrow::schema(fields), 3, inputs);
+    TQueryGlobals query_globals;
+    RuntimeState state(TQueryOptions(), query_globals);
+    Block block;
+    add_output_columns(&block, columns);
+    size_t rows = 0;
+    const auto status = convert_record_batch_for_test(&state, columns, record_batch, &block, &rows);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_EQ(3, rows);
+
+    const auto non_null = [](const IColumn& column) -> const IColumn& {
+        return assert_cast<const ColumnNullable&>(column).get_nested_column();
+    };
+    const auto booleans_of = [&](const IColumn& column) -> const ColumnUInt8::Container& {
+        return assert_cast<const ColumnUInt8&>(non_null(column)).get_data();
+    };
+    const ColumnUInt8::Container expected {0, 1, 0};
+    const ColumnArray::Offsets64 expected_offsets {2, 2, 3};
+    const auto& structs =
+            assert_cast<const ColumnStruct&>(non_null(*block.get_by_position(0).column));
+    EXPECT_EQ(expected, booleans_of(structs.get_column(0)));
+    const auto& lists = assert_cast<const ColumnArray&>(non_null(*block.get_by_position(1).column));
+    EXPECT_EQ(expected_offsets, lists.get_offsets());
+    EXPECT_EQ(expected, booleans_of(lists.get_data()));
+    const auto& maps = assert_cast<const ColumnMap&>(non_null(*block.get_by_position(2).column));
+    EXPECT_EQ(expected_offsets, maps.get_offsets());
+    EXPECT_EQ("k2", nullable_type(TYPE_STRING)->to_string(maps.get_keys(), 2));
+    EXPECT_EQ(expected, booleans_of(maps.get_values()));
+    const auto& nested_structs = assert_cast<const ColumnStruct&>(
+            non_null(assert_cast<const ColumnStruct&>(non_null(*block.get_by_position(3).column))
+                             .get_column(0)));
+    EXPECT_EQ(expected, booleans_of(nested_structs.get_column(0)));
+    const auto& struct_lists = assert_cast<const ColumnArray&>(
+            non_null(assert_cast<const ColumnStruct&>(non_null(*block.get_by_position(4).column))
+                             .get_column(0)));
+    EXPECT_EQ(expected_offsets, struct_lists.get_offsets());
+    EXPECT_EQ(expected, booleans_of(struct_lists.get_data()));
+}
+
+// Verifies nested arrays that start at offset 0 at every level keep the zero-copy path.
+TEST(LanceTableReaderTypeTest, KeepsCompactNestedArraysUnchangedDuringNormalization) {
+    arrow::BooleanBuilder builder;
+    ASSERT_TRUE(builder.AppendValues(std::vector<bool> {false, true, false}).ok());
+    std::shared_ptr<arrow::Array> booleans;
+    ASSERT_TRUE(builder.Finish(&booleans).ok());
+    for (const auto& input : make_tight_nested_boolean_arrays(booleans)) {
+        SCOPED_TRACE(input->type()->ToString());
+        std::shared_ptr<arrow::Array> normalized;
+        const auto status = normalize_lance_arrow_array_for_test(
+                arrow::field("value", input->type()), input, &normalized);
+        ASSERT_TRUE(status.ok()) << status.to_string();
+        EXPECT_EQ(input.get(), normalized.get());
+    }
 }
 
 // Verifies a Decimal256 field whose precision fits Decimal128 is narrowed with unchanged values,
