@@ -4015,6 +4015,112 @@ TEST(LanceTableReaderTypeTest, ReadsAdditionalTypesFromCompatibilityFixture) {
     EXPECT_TRUE(reader.close().ok());
 }
 
+// Verifies zero-field structs, top-level or nested, map to the unsupported-column sentinel.
+TEST(LanceTableReaderSchemaTest, MapsZeroFieldStructsAsUnsupported) {
+    const auto empty_struct = arrow::struct_(arrow::FieldVector {});
+    const auto arrow_schema = arrow::schema({
+            arrow::field("id", arrow::int64()),
+            arrow::field("empty", empty_struct),
+            arrow::field("struct_child", arrow::struct_({arrow::field("a", arrow::int32()),
+                                                         arrow::field("e", empty_struct)})),
+            arrow::field("list_item", arrow::list(arrow::field("item", empty_struct))),
+            arrow::field("map_value", arrow::map(arrow::utf8(), empty_struct)),
+            arrow::field("non_empty", arrow::struct_({arrow::field("a", arrow::int32())})),
+    });
+
+    std::vector<std::string> column_names;
+    std::vector<DataTypePtr> column_types;
+    ASSERT_TRUE(convert_arrow_schema_to_doris(arrow_schema, &column_names, &column_types).ok());
+
+    EXPECT_EQ((std::vector<std::string> {"id", "empty", "struct_child", "list_item", "map_value",
+                                         "non_empty"}),
+              column_names);
+    ASSERT_EQ(6, column_types.size());
+    for (const auto& column_type : column_types) {
+        ASSERT_NE(nullptr, column_type);
+    }
+    EXPECT_EQ(TYPE_BIGINT, column_types[0]->get_primitive_type());
+    for (size_t index = 1; index < 5; ++index) {
+        EXPECT_EQ(INVALID_TYPE, column_types[index]->get_primitive_type()) << column_names[index];
+    }
+    EXPECT_EQ(TYPE_STRUCT, column_types[5]->get_primitive_type());
+}
+
+// Verifies a written zero-field struct is fetched as unsupported and does not block its siblings.
+TEST(LanceTableReaderSchemaTest, FetchesZeroFieldStructAsUnsupportedAndScansSiblings) {
+    const auto unique_suffix = std::chrono::steady_clock::now().time_since_epoch().count();
+    const auto dataset_uri =
+            std::filesystem::temp_directory_path() /
+            ("doris_lance_zero_field_struct_" + std::to_string(unique_suffix) + ".lance");
+    Defer cleanup {[&] {
+        std::error_code error;
+        std::filesystem::remove_all(dataset_uri, error);
+    }};
+
+    const auto empty_struct = arrow::struct_(arrow::FieldVector {});
+    const auto arrow_schema = arrow::schema(
+            {arrow::field("id", arrow::int64()), arrow::field("empty", empty_struct)});
+    arrow::Int64Builder id_builder;
+    ASSERT_TRUE(id_builder.AppendValues({1, 2}).ok());
+    std::shared_ptr<arrow::Array> ids;
+    ASSERT_TRUE(id_builder.Finish(&ids).ok());
+    const auto empty = std::make_shared<arrow::StructArray>(empty_struct, 2, arrow::ArrayVector {});
+    const auto batch = arrow::RecordBatch::Make(arrow_schema, 2, {ids, empty});
+    auto batch_reader = arrow::RecordBatchReader::Make({batch}, arrow_schema);
+    ASSERT_TRUE(batch_reader.ok()) << batch_reader.status().ToString();
+
+    ArrowArrayStream stream {};
+    const auto export_status =
+            arrow::ExportRecordBatchReader(std::move(batch_reader).ValueUnsafe(), &stream);
+    ASSERT_TRUE(export_status.ok()) << export_status.ToString();
+    static_cast<void>(
+            ::lance::Dataset::write(dataset_uri.string(), &stream, ::lance::WriteMode::Create));
+
+    TFileScanRangeParams scan_params;
+    std::vector<std::string> column_names;
+    std::vector<DataTypePtr> column_types;
+    LanceTableReader schema_reader;
+    const auto status = schema_reader.fetch_schema(make_latest_lance_range(dataset_uri),
+                                                   scan_params, &column_names, &column_types);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_EQ((std::vector<std::string> {"id", "empty"}), column_names);
+    ASSERT_EQ(2, column_types.size());
+    ASSERT_NE(nullptr, column_types[0]);
+    ASSERT_NE(nullptr, column_types[1]);
+    EXPECT_EQ(TYPE_BIGINT, column_types[0]->get_primitive_type());
+    EXPECT_EQ(INVALID_TYPE, column_types[1]->get_primitive_type());
+
+    const Columns columns {projected_column("id", TYPE_BIGINT, true)};
+    TQueryGlobals query_globals;
+    RuntimeState state(TQueryOptions(), query_globals);
+    RuntimeProfile profile("lance_zero_field_struct_sibling");
+    LanceTableReader reader;
+    ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
+    ASSERT_TRUE(prepare_range(&reader, make_latest_lance_range(dataset_uri)).ok());
+
+    std::vector<int64_t> values;
+    bool eos = false;
+    while (!eos) {
+        Block block;
+        add_output_columns(&block, columns);
+        const auto read_status = reader.get_block(&block, &eos);
+        ASSERT_TRUE(read_status.ok()) << read_status.to_string();
+        if (block.rows() == 0) {
+            continue;
+        }
+        const auto& nullable_ids =
+                assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+        const auto& id_values = assert_cast<const ColumnInt64&>(nullable_ids.get_nested_column());
+        for (size_t row = 0; row < block.rows(); ++row) {
+            ASSERT_FALSE(nullable_ids.is_null_at(row));
+            values.push_back(id_values.get_data()[row]);
+        }
+    }
+    std::sort(values.begin(), values.end());
+    EXPECT_EQ((std::vector<int64_t> {1, 2}), values);
+    EXPECT_TRUE(reader.close().ok());
+}
+
 TEST(LanceTableReaderSchemaTest, FetchesNegativeScaleDecimalAsUnsupported) {
     const auto unique_suffix = std::chrono::steady_clock::now().time_since_epoch().count();
     const auto dataset_uri =
