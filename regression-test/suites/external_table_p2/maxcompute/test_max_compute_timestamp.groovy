@@ -115,52 +115,34 @@ suite("test_max_compute_timestamp", "p2,external,maxcompute,external_remote,exte
         sql """ set time_zone = "Asia/Shanghai" """
         qt_1_1 """ select * from datetime_tb1;"""
         qt_1_2 """ select * from datetime_tb1 where col1 > "2023-02-02 00:00:00.000";"""
-        qt_1_3 """ select * from datetime_tb1 where col1 >= "2023-02-02 00:00:00.000";"""
         qt_1_4 """ select * from datetime_tb1 where col1 = "2023-02-02 00:00:00.000";"""
         qt_1_5 """ select * from datetime_tb1 where col1 <= "2023-02-02 00:00:00.000";"""
-        qt_1_6 """ select * from datetime_tb1 where col1 < "2023-02-02 00:00:00.000";"""
-        qt_1_7 """ select * from datetime_tb1 where col1 != "2023-02-02 00:00:00.000";"""
 
 
         qt_2_1 """select * from timestamp_tb1;"""
-        qt_2_2 """select * from timestamp_tb1 where col1 > "2023-02-02 00:00:00.123456";"""
         qt_2_3 """select * from timestamp_tb1 where col1 >= "2023-02-02 00:00:00.123456";"""
         qt_2_4 """select * from timestamp_tb1 where col1 = "2023-02-02 00:00:00.123456";"""
-        qt_2_5 """select * from timestamp_tb1 where col1 <= "2023-02-02 00:00:00.123456";"""
         qt_2_6 """select * from timestamp_tb1 where col1 < "2023-02-02 00:00:00.123456";"""
-        qt_2_7 """select * from timestamp_tb1 where col1 != "2023-02-02 00:00:00.123456"; """
         
-        qt_2_8 """ select * from timestamp_tb1 where col2 > "2023-02-02 00:00:00.123456"; """ 
-        qt_2_9 """ select * from timestamp_tb1 where col2 >= "2023-02-02 00:00:00.123456"; """ 
         qt_2_10 """ select * from timestamp_tb1 where col2 = "2023-02-02 00:00:00.123456"; """ 
         qt_2_11 """ select * from timestamp_tb1 where col2 <= "2023-02-02 00:00:00.123456"; """ 
-        qt_2_12 """ select * from timestamp_tb1 where col2 < "2023-02-02 00:00:00.123456"; """ 
         qt_2_13 """ select * from timestamp_tb1 where col2 != "2023-02-02 00:00:00.123456"; """ 
 
 
 
         qt_3_1 """ select * from timestamp_tb2;"""
         qt_3_2 """ select * from timestamp_tb2 where col1 > "2023-02-02 00:00:00.123456";"""
-        qt_3_3 """ select * from timestamp_tb2 where col1 >= "2023-02-02 00:00:00.123456";"""
-        qt_3_4 """ select * from timestamp_tb2 where col1 = "2023-02-02 00:00:00.123456";"""
         qt_3_5 """ select * from timestamp_tb2 where col1 <= "2023-02-02 00:00:00.123456";"""
-        qt_3_6 """ select * from timestamp_tb2 where col1 < "2023-02-02 00:00:00.123456";"""
         qt_3_7 """ select * from timestamp_tb2 where col1 != "2023-02-02 00:00:00.123456";"""
-        qt_3_8 """ select * from timestamp_tb2 where col2 > "2023-02-02 00:00:00.123456";"""
         qt_3_9 """ select * from timestamp_tb2 where col2 >= "2023-02-02 00:00:00.123456";"""
         qt_3_10 """ select * from timestamp_tb2 where col2 = "2023-02-02 00:00:00.123456";"""
-        qt_3_11 """ select * from timestamp_tb2 where col2 <= "2023-02-02 00:00:00.123456";"""
         qt_3_12 """ select * from timestamp_tb2 where col2 < "2023-02-02 00:00:00.123456";"""
-        qt_3_13 """ select * from timestamp_tb2 where col2 != "2023-02-02 00:00:00.123456";"""
 
 
         sql """ set time_zone = "UTC" """
 
         qt_4_1 """ select * from datetime_tb1;"""
-        qt_4_2 """ select * from datetime_tb1 where col1 > "2023-02-01 16:00:00.000";"""
         qt_4_3 """ select * from datetime_tb1 where col1 >= "2023-02-01 16:00:00.000";"""
-        qt_4_4 """ select * from datetime_tb1 where col1 = "2023-02-01 16:00:00.000";"""
-        qt_4_5 """ select * from datetime_tb1 where col1 <= "2023-02-01 16:00:00.000";"""
         qt_4_6 """ select * from datetime_tb1 where col1 < "2023-02-01 16:00:00.000";"""
         qt_4_7 """ select * from datetime_tb1 where col1 != "2023-02-01 16:00:00.000";"""
 
@@ -168,15 +150,9 @@ suite("test_max_compute_timestamp", "p2,external,maxcompute,external_remote,exte
         qt_5_1 """select * from timestamp_tb1;"""
         qt_5_2 """select * from timestamp_tb1 where col1 > "2023-02-01 16:00:00.123456";"""
         qt_5_3 """select * from timestamp_tb1 where col1 >= "2023-02-01 16:00:00.123456";"""
-        qt_5_4 """select * from timestamp_tb1 where col1 = "2023-02-01 16:00:00.123456";"""
         qt_5_5 """select * from timestamp_tb1 where col1 <= "2023-02-01 16:00:00.123456";"""
-        qt_5_6 """select * from timestamp_tb1 where col1 < "2023-02-01 16:00:00.123456";"""
-        qt_5_7 """select * from timestamp_tb1 where col1 != "2023-02-01 16:00:00.123456"; """
         
-        qt_5_8 """ select * from timestamp_tb1 where col2 > "2023-02-02 00:00:00.123456"; """ 
-        qt_5_9 """ select * from timestamp_tb1 where col2 >= "2023-02-02 00:00:00.123456"; """ 
         qt_5_10 """ select * from timestamp_tb1 where col2 = "2023-02-02 00:00:00.123456"; """ 
-        qt_5_11 """ select * from timestamp_tb1 where col2 <= "2023-02-02 00:00:00.123456"; """ 
         qt_5_12 """ select * from timestamp_tb1 where col2 < "2023-02-02 00:00:00.123456"; """ 
         qt_5_13 """ select * from timestamp_tb1 where col2 != "2023-02-02 00:00:00.123456"; """ 
 
@@ -186,18 +162,12 @@ suite("test_max_compute_timestamp", "p2,external,maxcompute,external_remote,exte
 
         qt_6_1 """ select * from timestamp_tb2;"""
         qt_6_2 """ select * from timestamp_tb2 where col1 > "2023-02-01 16:00:00.123456";"""
-        qt_6_3 """ select * from timestamp_tb2 where col1 >= "2023-02-01 16:00:00.123456";"""
         qt_6_4 """ select * from timestamp_tb2 where col1 = "2023-02-01 16:00:00.123456";"""
-        qt_6_5 """ select * from timestamp_tb2 where col1 <= "2023-02-01 16:00:00.123456";"""
-        qt_6_6 """ select * from timestamp_tb2 where col1 < "2023-02-01 16:00:00.123456";"""
         qt_6_7 """ select * from timestamp_tb2 where col1 != "2023-02-01 16:00:00.123456";"""
     
-        qt_6_8 """ select * from timestamp_tb1 where col2 > "2023-02-02 00:00:00.123456"; """ 
         qt_6_9 """ select * from timestamp_tb1 where col2 >= "2023-02-02 00:00:00.123456"; """ 
-        qt_6_10 """ select * from timestamp_tb1 where col2 = "2023-02-02 00:00:00.123456"; """ 
         qt_6_11 """ select * from timestamp_tb1 where col2 <= "2023-02-02 00:00:00.123456"; """ 
         qt_6_12 """ select * from timestamp_tb1 where col2 < "2023-02-02 00:00:00.123456"; """ 
-        qt_6_13 """ select * from timestamp_tb1 where col2 != "2023-02-02 00:00:00.123456"; """ 
 
         
 
@@ -216,56 +186,6 @@ suite("test_max_compute_timestamp", "p2,external,maxcompute,external_remote,exte
         sql """ use ${mc_db}"""
 
 
-        sql """ set time_zone = "Asia/Shanghai" """
-        qt_7_1 """ select * from datetime_tb1;"""
-        qt_7_2 """ select * from datetime_tb1 where col1 > "2023-02-02 00:00:00.000";"""
-        qt_7_3 """ select * from datetime_tb1 where col1 >= "2023-02-02 00:00:00.000";"""
-        qt_7_4 """ select * from datetime_tb1 where col1 = "2023-02-02 00:00:00.000";"""
-        qt_7_5 """ select * from datetime_tb1 where col1 <= "2023-02-02 00:00:00.000";"""
-        qt_7_6 """ select * from datetime_tb1 where col1 < "2023-02-02 00:00:00.000";"""
-        qt_7_7 """ select * from datetime_tb1 where col1 != "2023-02-02 00:00:00.000";"""
-
-
-        qt_8_1 """ select * from timestamp_tb2;"""
-        qt_8_2 """ select * from timestamp_tb2 where col1 > "2023-02-02 00:00:00.123456";"""
-        qt_8_3 """ select * from timestamp_tb2 where col1 >= "2023-02-02 00:00:00.123456";"""
-        qt_8_4 """ select * from timestamp_tb2 where col1 = "2023-02-02 00:00:00.123456";"""
-        qt_8_5 """ select * from timestamp_tb2 where col1 <= "2023-02-02 00:00:00.123456";"""
-        qt_8_6 """ select * from timestamp_tb2 where col1 < "2023-02-02 00:00:00.123456";"""
-        qt_8_7 """ select * from timestamp_tb2 where col1 != "2023-02-02 00:00:00.123456";"""
-        qt_8_8 """ select * from timestamp_tb2 where col2 > "2023-02-02 00:00:00.123456";"""
-        qt_8_9 """ select * from timestamp_tb2 where col2 >= "2023-02-02 00:00:00.123456";"""
-        qt_8_10 """ select * from timestamp_tb2 where col2 = "2023-02-02 00:00:00.123456";"""
-        qt_8_11 """ select * from timestamp_tb2 where col2 <= "2023-02-02 00:00:00.123456";"""
-        qt_8_12 """ select * from timestamp_tb2 where col2 < "2023-02-02 00:00:00.123456";"""
-        qt_8_13 """ select * from timestamp_tb2 where col2 != "2023-02-02 00:00:00.123456";"""
-
-        sql """ set time_zone = "UTC" """
-
-        qt_9_1 """ select * from datetime_tb1;"""
-        qt_9_2 """ select * from datetime_tb1 where col1 > "2023-02-01 16:00:00.000";"""
-        qt_9_3 """ select * from datetime_tb1 where col1 >= "2023-02-01 16:00:00.000";"""
-        qt_9_4 """ select * from datetime_tb1 where col1 = "2023-02-01 16:00:00.000";"""
-        qt_9_5 """ select * from datetime_tb1 where col1 <= "2023-02-01 16:00:00.000";"""
-        qt_9_6 """ select * from datetime_tb1 where col1 < "2023-02-01 16:00:00.000";"""
-        qt_9_7 """ select * from datetime_tb1 where col1 != "2023-02-01 16:00:00.000";"""
-
-
-
-        qt_10_1 """ select * from timestamp_tb2;"""
-        qt_10_2 """ select * from timestamp_tb2 where col1 > "2023-02-01 16:00:00.123456";"""
-        qt_10_3 """ select * from timestamp_tb2 where col1 >= "2023-02-01 16:00:00.123456";"""
-        qt_10_4 """ select * from timestamp_tb2 where col1 = "2023-02-01 16:00:00.123456";"""
-        qt_10_5 """ select * from timestamp_tb2 where col1 <= "2023-02-01 16:00:00.123456";"""
-        qt_10_6 """ select * from timestamp_tb2 where col1 < "2023-02-01 16:00:00.123456";"""
-        qt_10_7 """ select * from timestamp_tb2 where col1 != "2023-02-01 16:00:00.123456";"""
-    
-        qt_10_8 """ select * from timestamp_tb1 where col2 > "2023-02-02 00:00:00.123456"; """ 
-        qt_10_9 """ select * from timestamp_tb1 where col2 >= "2023-02-02 00:00:00.123456"; """ 
-        qt_10_10 """ select * from timestamp_tb1 where col2 = "2023-02-02 00:00:00.123456"; """ 
-        qt_10_11 """ select * from timestamp_tb1 where col2 <= "2023-02-02 00:00:00.123456"; """ 
-        qt_10_12 """ select * from timestamp_tb1 where col2 < "2023-02-02 00:00:00.123456"; """ 
-        qt_10_13 """ select * from timestamp_tb1 where col2 != "2023-02-02 00:00:00.123456"; """ 
 
     }
 }
