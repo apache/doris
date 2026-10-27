@@ -557,17 +557,22 @@ Status ArrowBlockConvertor::convert_to_arrow(const Block& block, arrow::MemoryPo
     if (block.columns() != num_fields) {
         return Status::InvalidArgument("number fields not match");
     }
-    const size_t actual_end = end_row == 0 ? block.rows() : end_row;
+    const size_t declared_rows = block.rows();
+    const size_t actual_end = end_row == 0 ? declared_rows : end_row;
     // Validate endpoints before subtraction: an inverted unsigned range otherwise wraps.
-    if (start_row > actual_end || actual_end > block.rows()) {
+    if (start_row > actual_end || actual_end > declared_rows) {
         return Status::InvalidArgument("Row range out of bounds: start={}, end={}, block_rows={}",
-                                       start_row, actual_end, block.rows());
+                                       start_row, actual_end, declared_rows);
     }
     const size_t actual_rows = actual_end - start_row;
     std::vector<std::shared_ptr<arrow::Array>> arrays(num_fields);
     for (int idx = 0; idx < num_fields; ++idx) {
         const auto& entry = block.get_by_position(idx);
         auto column = entry.column->convert_to_full_column_if_const();
+        if (column->size() != declared_rows) {
+            return Status::InvalidArgument("Column {} has {} rows, but block declares {} rows", idx,
+                                           column->size(), declared_rows);
+        }
         auto target_arrow_type = schema->field(idx)->type();
         const bool has_extension = contains_extension_type(target_arrow_type);
         auto builder_arrow_type =

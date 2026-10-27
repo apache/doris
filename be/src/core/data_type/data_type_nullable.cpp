@@ -27,6 +27,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <limits>
 #include <utility>
 
 #include "agent/be_exec_version_manager.h"
@@ -43,6 +44,60 @@
 
 namespace doris {
 #include "common/compile_check_begin.h"
+
+namespace {
+
+size_t validate_streamvbyte_null_map(const char* buf, size_t remaining, size_t null_map_size) {
+    if (remaining < sizeof(size_t)) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Malformed nullable column: missing null map length");
+    }
+    size_t encode_size = unaligned_load<size_t>(buf);
+    size_t payload_remaining = remaining - sizeof(size_t);
+    if (encode_size > payload_remaining || payload_remaining - encode_size < STREAMVBYTE_PADDING) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Malformed nullable column: encoded null map exceeds input");
+    }
+    if (null_map_size > std::numeric_limits<UInt32>::max()) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Malformed nullable column: null map is too large: {}", null_map_size);
+    }
+
+    const auto* encoded_data = reinterpret_cast<const uint8_t*>(buf + sizeof(size_t));
+    uint32_t value_count = cast_set<UInt32>(upper_int32(null_map_size));
+    size_t control_bytes = (static_cast<size_t>(value_count) + 3) / 4;
+    if (control_bytes > encode_size) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Malformed nullable column: null map control bytes exceed input");
+    }
+
+    // StreamVByte stores one control byte per four integers, and each
+    // two-bit code selects one to four data bytes for its integer.
+    size_t expected_encode_size = control_bytes;
+    size_t remaining_values = value_count;
+    for (size_t i = 0; i < control_bytes; ++i) {
+        uint8_t control = encoded_data[i];
+        size_t values_in_group = std::min<size_t>(remaining_values, 4);
+        for (size_t j = 0; j < values_in_group; ++j) {
+            size_t value_bytes = ((control >> (j * 2)) & 0x03) + 1;
+            if (value_bytes > encode_size - expected_encode_size) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "Malformed nullable column: null map data exceeds input");
+            }
+            expected_encode_size += value_bytes;
+        }
+        remaining_values -= values_in_group;
+    }
+    if (expected_encode_size != encode_size) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Malformed nullable column: encoded null map size mismatch: {} != {}",
+                        expected_encode_size, encode_size);
+    }
+    return encode_size;
+}
+
+} // namespace
+
 DataTypeNullable::DataTypeNullable(const DataTypePtr& nested_data_type_)
         : nested_data_type {nested_data_type_} {
     if (!nested_data_type) {
@@ -145,7 +200,39 @@ char* DataTypeNullable::serialize(const IColumn& column, char* buf, int be_exec_
 
 const char* DataTypeNullable::deserialize(const char* buf, MutableColumnPtr* column,
                                           int be_exec_version) const {
+    return deserialize(buf, nullptr, column, be_exec_version);
+}
+
+const char* DataTypeNullable::deserialize(const char* buf, const char* end,
+                                          MutableColumnPtr* column, int be_exec_version) const {
+    if (end != nullptr && end < buf) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Malformed nullable column: invalid input range");
+    }
+
     if (be_exec_version >= USE_CONST_SERDE) {
+        constexpr size_t header_size = sizeof(bool) + 2 * sizeof(size_t);
+        if (end != nullptr) {
+            if (static_cast<size_t>(end - buf) < header_size) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "Malformed nullable column: missing serialized header");
+            }
+            uint8_t is_const_flag = unaligned_load<uint8_t>(buf);
+            if (is_const_flag > 1) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "Malformed nullable column: invalid const flag {}", is_const_flag);
+            }
+            bool is_const = is_const_flag != 0;
+            size_t row_num = unaligned_load<size_t>(buf + sizeof(bool));
+            size_t saved_num = unaligned_load<size_t>(buf + sizeof(bool) + sizeof(size_t));
+            if (saved_num != (is_const ? 1 : row_num)) {
+                throw Exception(
+                        ErrorCode::INVALID_ARGUMENT,
+                        "Malformed nullable column: inconsistent row count {}, saved count {}",
+                        row_num, saved_num);
+            }
+        }
+
         auto* origin_column = column->get();
         size_t real_have_saved_num = 0;
         buf = deserialize_const_flag_and_row_num(buf, column, &real_have_saved_num);
@@ -157,16 +244,37 @@ const char* DataTypeNullable::deserialize(const char* buf, MutableColumnPtr* col
         auto& null_map_data = assert_cast<ColumnUInt8&>(*null_map).get_data();
         // null flags
         auto mem_size = real_have_saved_num * sizeof(bool);
+        size_t encode_size = 0;
+        if (end != nullptr) {
+            size_t remaining = static_cast<size_t>(end - buf);
+            if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
+                if (mem_size > remaining) {
+                    throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                    "Malformed nullable column: truncated null map");
+                }
+            } else {
+                encode_size = validate_streamvbyte_null_map(buf, remaining, mem_size);
+            }
+        }
         null_map_data.resize(real_have_saved_num);
         if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
             memcpy(null_map_data.data(), buf, mem_size);
             buf += mem_size;
         } else {
-            size_t encode_size = unaligned_load<size_t>(buf);
+            if (end == nullptr) {
+                encode_size = unaligned_load<size_t>(buf);
+            }
             buf += sizeof(size_t);
             // Throw exception if mem_size is large than UINT32_MAX
-            streamvbyte_decode((const uint8_t*)buf, (uint32_t*)(null_map_data.data()),
-                               cast_set<UInt32>(upper_int32(mem_size)));
+            uint32_t value_count = cast_set<UInt32>(upper_int32(mem_size));
+            size_t decoded_bytes = streamvbyte_decode(
+                    (const uint8_t*)buf, (uint32_t*)(null_map_data.data()), value_count);
+            if (end != nullptr && decoded_bytes != encode_size) {
+                throw Exception(
+                        ErrorCode::INVALID_ARGUMENT,
+                        "Malformed nullable column: decoded null map size mismatch: {} != {}",
+                        decoded_bytes, encode_size);
+            }
             buf += encode_size;
         }
         // column data values
@@ -174,6 +282,10 @@ const char* DataTypeNullable::deserialize(const char* buf, MutableColumnPtr* col
         col->replace_columns(std::move(nested), std::move(null_map));
         return buf;
     } else {
+        if (end != nullptr && static_cast<size_t>(end - buf) < sizeof(uint32_t)) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Malformed nullable column: missing serialized row count");
+        }
         auto* col = assert_cast<ColumnNullable*>(column->get());
         const auto& const_col = *col;
         auto nested = std::move(*const_col.get_nested_column_ptr()).mutate();
@@ -182,17 +294,37 @@ const char* DataTypeNullable::deserialize(const char* buf, MutableColumnPtr* col
         // row num
         uint32_t mem_size = unaligned_load<uint32_t>(buf);
         buf += sizeof(uint32_t);
+        size_t encode_size = 0;
+        if (end != nullptr) {
+            size_t remaining = static_cast<size_t>(end - buf);
+            if (mem_size > remaining) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "Malformed nullable column: truncated null map");
+            }
+            if (mem_size > SERIALIZED_MEM_SIZE_LIMIT) {
+                encode_size = validate_streamvbyte_null_map(buf, remaining, mem_size);
+            }
+        }
         // null flags
         null_map_data.resize(mem_size / sizeof(bool));
         if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
             memcpy(null_map_data.data(), buf, mem_size);
             buf += mem_size;
         } else {
-            size_t encode_size = *reinterpret_cast<const size_t*>(buf);
+            if (end == nullptr) {
+                encode_size = *reinterpret_cast<const size_t*>(buf);
+            }
             buf += sizeof(size_t);
             // Throw exception if mem_size is large than UINT32_MAX
-            streamvbyte_decode((const uint8_t*)buf, (uint32_t*)(null_map_data.data()),
-                               cast_set<UInt32>(upper_int32(mem_size)));
+            uint32_t value_count = cast_set<UInt32>(upper_int32(mem_size));
+            size_t decoded_bytes = streamvbyte_decode(
+                    (const uint8_t*)buf, (uint32_t*)(null_map_data.data()), value_count);
+            if (end != nullptr && decoded_bytes != encode_size) {
+                throw Exception(
+                        ErrorCode::INVALID_ARGUMENT,
+                        "Malformed nullable column: decoded null map size mismatch: {} != {}",
+                        decoded_bytes, encode_size);
+            }
             buf += encode_size;
         }
         // data values

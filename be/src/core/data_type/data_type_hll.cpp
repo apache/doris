@@ -28,6 +28,7 @@
 #include "core/column/column_const.h"
 #include "core/string_buffer.hpp"
 #include "util/slice.h"
+#include "util/unaligned.h"
 
 namespace doris {
 
@@ -92,45 +93,94 @@ char* DataTypeHLL::serialize(const IColumn& column, char* buf, int be_exec_versi
 // second: hll1 | hll2 | ...
 const char* DataTypeHLL::deserialize(const char* buf, MutableColumnPtr* column,
                                      int be_exec_version) const {
+    return deserialize(buf, nullptr, column, be_exec_version);
+}
+
+const char* DataTypeHLL::deserialize(const char* buf, const char* end, MutableColumnPtr* column,
+                                     int be_exec_version) const {
+    if (end != nullptr && end < buf) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT, "Malformed HLL column: invalid input range");
+    }
+
+    size_t real_have_saved_num = 0;
+    auto* origin_column = column->get();
     if (be_exec_version >= USE_CONST_SERDE) {
-        auto* origin_column = column->get();
-        size_t real_have_saved_num = 0;
+        constexpr size_t header_size = sizeof(bool) + 2 * sizeof(size_t);
+        if (end != nullptr) {
+            if (static_cast<size_t>(end - buf) < header_size) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "Malformed HLL column: missing serialized header");
+            }
+            uint8_t is_const_flag = unaligned_load<uint8_t>(buf);
+            if (is_const_flag > 1) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "Malformed HLL column: invalid const flag {}", is_const_flag);
+            }
+            bool is_const = is_const_flag != 0;
+            size_t row_num = unaligned_load<size_t>(buf + sizeof(bool));
+            size_t saved_num = unaligned_load<size_t>(buf + sizeof(bool) + sizeof(size_t));
+            if (saved_num != (is_const ? 1 : row_num)) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "Malformed HLL column: inconsistent row count {}, saved count {}",
+                                row_num, saved_num);
+            }
+        }
         buf = deserialize_const_flag_and_row_num(buf, column, &real_have_saved_num);
-
-        auto& data_column = assert_cast<ColumnHLL&>(*origin_column);
-        auto& data = data_column.get_data();
-        data.resize(real_have_saved_num);
-        if (real_have_saved_num == 0) {
-            // If real_have_saved_num is 0, we don't need to deserialize any data.
-            return buf;
-        }
-        std::vector<size_t> hll_size_array(real_have_saved_num);
-        memcpy(hll_size_array.data(), buf, sizeof(size_t) * real_have_saved_num);
-        buf += sizeof(size_t) * real_have_saved_num;
-
-        for (int i = 0; i < real_have_saved_num; ++i) {
-            data[i].deserialize(Slice(buf, hll_size_array[i]));
-            buf += hll_size_array[i];
-        }
-        return buf;
     } else {
-        auto& data_column = assert_cast<ColumnHLL&>(*(column->get()));
-        auto& data = data_column.get_data();
-
-        size_t row_num = *reinterpret_cast<const size_t*>(buf);
-        buf += sizeof(size_t);
-        std::vector<size_t> hll_size_array(row_num);
-        memcpy(hll_size_array.data(), buf, sizeof(size_t) * row_num);
-        buf += sizeof(size_t) * row_num;
-
-        data.resize(row_num);
-        for (int i = 0; i < row_num; ++i) {
-            data[i].deserialize(Slice(buf, hll_size_array[i]));
-            buf += hll_size_array[i];
+        if (end != nullptr && static_cast<size_t>(end - buf) < sizeof(size_t)) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Malformed HLL column: missing serialized row count");
         }
+        size_t row_num = unaligned_load<size_t>(buf);
+        buf += sizeof(size_t);
+        real_have_saved_num = row_num;
+    }
 
+    auto& data_column = assert_cast<ColumnHLL&>(*origin_column);
+    auto& data = data_column.get_data();
+    if (end != nullptr) {
+        size_t remaining = static_cast<size_t>(end - buf);
+        if (real_have_saved_num > remaining / sizeof(size_t)) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Malformed HLL column: length array exceeds input");
+        }
+        size_t size_array_bytes = real_have_saved_num * sizeof(size_t);
+        size_t data_bytes = remaining - size_array_bytes;
+        // Every serialized HLL occupies at least one byte. Check this before resizing
+        // the column.
+        if (real_have_saved_num > data_bytes) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Malformed HLL column: row count exceeds input");
+        }
+    }
+
+    data.resize(real_have_saved_num);
+    if (real_have_saved_num == 0) {
+        // If real_have_saved_num is 0, we don't need to deserialize any data.
         return buf;
     }
+    std::vector<size_t> hll_size_array(real_have_saved_num);
+    memcpy(hll_size_array.data(), buf, sizeof(size_t) * real_have_saved_num);
+    buf += sizeof(size_t) * real_have_saved_num;
+
+    for (size_t i = 0; i < real_have_saved_num; ++i) {
+        size_t hll_size = hll_size_array[i];
+        if (hll_size > HLL_COLUMN_DEFAULT_LEN) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Malformed HLL column: value {} is too large: {}", i, hll_size);
+        }
+        if (end != nullptr && hll_size > static_cast<size_t>(end - buf)) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Malformed HLL column: value {} exceeds input: {} > {}", i, hll_size,
+                            end - buf);
+        }
+        if (!data[i].deserialize(Slice(buf, hll_size))) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Malformed HLL column: failed to deserialize value {}", i);
+        }
+        buf += hll_size;
+    }
+    return buf;
 }
 
 // binary: const flag| row num | real_saved_num | size array | data array
