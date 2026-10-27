@@ -1892,6 +1892,14 @@ DEFINE_Validator(paimon_jni_writer_memory_pool_limit_bytes,
 
 DEFINE_mInt32(thrift_client_open_num_tries, "1");
 
+// Startup-only: capacity 0 disables strong retention but preserves weak reuse
+// and per-configuration single-flight creation. TTL measures factory acquisition
+// idle time, not request activity or credential expiry.
+DEFINE_Int32(s3_client_cache_capacity, "128");
+DEFINE_Validator(s3_client_cache_capacity, [](int32_t value) { return value >= 0; });
+DEFINE_Int32(s3_client_cache_idle_ttl_seconds, "600");
+DEFINE_Validator(s3_client_cache_idle_ttl_seconds, [](int32_t value) { return value > 0; });
+
 // Default HTTP scheme used by S3Client when the endpoint has no scheme.
 DEFINE_String(s3_client_http_scheme, "https");
 DEFINE_Validator(s3_client_http_scheme, [](const std::string& config) -> bool {

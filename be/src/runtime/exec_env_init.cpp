@@ -476,7 +476,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     init_simdjson_parser();
 
     // Make aws-sdk-cpp InitAPI and ShutdownAPI called in the same thread
-    S3ClientFactory::instance();
+    S3ClientFactory::instance().init_cache_policy();
     return Status::OK();
 }
 
@@ -993,6 +993,10 @@ void ExecEnv::destroy() {
 
     SAFE_DELETE(_external_scan_context_mgr);
     SAFE_DELETE(_user_function_cache);
+
+    // Query/IO producers are stopped above. Detach the S3 policy while its
+    // manager is alive; retained clients are released without closing callers.
+    S3ClientFactory::instance().close_cache();
 
     // cache_manager must be destoried after all cache.
     // https://github.com/apache/doris/issues/24082#issuecomment-1712544039

@@ -19,6 +19,7 @@
 
 #include <gen_cpp/olap_file.pb.h>
 
+#include <functional>
 #include <vector>
 
 #include "runtime/runtime_profile.h"
@@ -58,6 +59,7 @@ public:
         CONDITION_CACHE = 23,
         ANN_INDEX_IVF_LIST_CACHE = 24,
         ANN_INDEX_RESULT_CACHE = 25,
+        S3_CLIENT_CACHE = 26,
     };
 
     static std::string type_string(CacheType type) {
@@ -112,6 +114,8 @@ public:
             return "AnnIndexIVFListCache";
         case CacheType::ANN_INDEX_RESULT_CACHE:
             return "AnnIndexResultCache";
+        case CacheType::S3_CLIENT_CACHE:
+            return "S3ClientCache";
         default:
             throw Exception(Status::FatalError("not match type of cache policy :{}",
                                                static_cast<int>(type)));
@@ -143,7 +147,8 @@ public:
             {"TabletColumnObjectPool", CacheType::TABLET_COLUMN_OBJECT_POOL},
             {"ConditionCache", CacheType::CONDITION_CACHE},
             {"AnnIndexIVFListCache", CacheType::ANN_INDEX_IVF_LIST_CACHE},
-            {"AnnIndexResultCache", CacheType::ANN_INDEX_RESULT_CACHE}};
+            {"AnnIndexResultCache", CacheType::ANN_INDEX_RESULT_CACHE},
+            {"S3ClientCache", CacheType::S3_CLIENT_CACHE}};
 
     static CacheType string_to_type(std::string type) {
         if (StringToType.contains(type)) {
@@ -167,6 +172,11 @@ public:
     CacheType type() { return _type; }
     size_t initial_capacity() const { return _initial_capacity; }
     virtual int64_t reset_initial_capacity(double adjust_weighted) = 0;
+
+    // A cache may detach expensive objects during pruning. The returned action
+    // owns only those objects (never the policy), and runs after the manager lock
+    // is released, so SDK destructors cannot block other cache registrations/GC.
+    virtual std::function<void()> take_deferred_release() { return {}; }
     bool enable_prune() const { return _enable_prune; }
     RuntimeProfile* profile() { return _profile.get(); }
 

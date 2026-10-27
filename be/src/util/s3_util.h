@@ -56,6 +56,8 @@ namespace doris {
 std::string hide_access_key(const std::string& ak);
 
 class S3URI;
+class S3ClientCache;
+class CachePolicy;
 struct S3ClientConf {
     std::string endpoint;
     std::string region;
@@ -149,6 +151,10 @@ public:
 
     static S3ClientFactory& instance();
 
+    // ExecEnv owns the CacheManager registration, not static destruction.
+    void init_cache_policy();
+    void close_cache();
+
     Result<std::shared_ptr<io::ObjStorageClient>> create(const S3ClientConf& s3_conf);
 
     static Status convert_properties_to_s3_conf(const std::map<std::string, std::string>& prop,
@@ -184,12 +190,12 @@ private:
     S3ClientFactory();
 
     Aws::SDKOptions _aws_options;
-    std::mutex _lock;
-    std::unordered_map<S3ClientConf, std::shared_ptr<io::ObjStorageClient>, S3ClientConfHash>
-            _cache;
+    std::unique_ptr<S3ClientCache> _cache;
+    std::unique_ptr<CachePolicy> _cache_policy;
     std::mutex _ca_cert_lock;
     std::string _ca_cert_file_path;
 #ifdef BE_TEST
+    std::mutex _lock;
     std::function<std::shared_ptr<io::ObjStorageClient>(const S3ClientConf&)> _test_client_creator;
 #endif
 };

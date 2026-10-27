@@ -62,6 +62,8 @@
 #include "exec/scan/scanner_scheduler.h"
 #include "io/fs/gcs_signed_url_provider.h"
 #include "runtime/exec_env.h"
+#include "runtime/memory/cache_policy.h"
+#include "util/s3_client_cache.h"
 #include "util/s3_rate_limiter_manager.h"
 #include "util/s3_uri.h"
 
@@ -220,6 +222,10 @@ S3ClientFactory::S3ClientFactory() {
         return std::make_shared<DorisAWSLogger>(logLevel);
     };
     Aws::InitAPI(_aws_options);
+    _cache = std::make_unique<S3ClientCache>(
+            static_cast<size_t>(config::s3_client_cache_capacity),
+            static_cast<uint32_t>(config::s3_client_cache_idle_ttl_seconds));
+    _cache->expose_metrics();
     _get_ca_cert_file_path();
 
 #ifdef USE_AZURE
@@ -251,7 +257,25 @@ S3ClientFactory::S3ClientFactory() {
 }
 
 S3ClientFactory::~S3ClientFactory() {
+    // ExecEnv unregisters the policy before deleting CacheManager. Unit tests
+    // that use the factory without ExecEnv never register a policy.
+    DORIS_CHECK(_cache_policy == nullptr);
+    _cache->close();
+    // ShutdownAPI must not precede SDK client destruction. Outstanding holders
+    // here violate the shutdown contract; clearing the cache alone is insufficient.
+    DORIS_CHECK(_cache->stats().live == 0);
+    _cache.reset();
     Aws::ShutdownAPI(_aws_options);
+}
+
+void S3ClientFactory::init_cache_policy() {
+    DORIS_CHECK(_cache_policy == nullptr);
+    _cache_policy = _cache->create_cache_policy();
+}
+
+void S3ClientFactory::close_cache() {
+    _cache_policy.reset();
+    _cache->close();
 }
 
 S3ClientFactory& S3ClientFactory::instance() {
@@ -271,31 +295,22 @@ Result<std::shared_ptr<io::ObjStorageClient>> S3ClientFactory::create(const S3Cl
     }
 #endif
 
-    {
-        std::lock_guard l(_lock);
-        auto it = _cache.find(s3_conf);
-        if (it != _cache.end()) {
-            return it->second;
-        }
-    }
-
-    auto client_result = (s3_conf.provider == io::ObjStorageProvider::AZURE)
-                                 ? _create_azure_client(s3_conf)
-                                 : _create_s3_client(s3_conf);
-    if (!client_result.has_value()) {
-        return ResultError(std::move(client_result).error());
-    }
-    auto obj_client = std::move(client_result).value();
-    if (!config::is_cloud_mode() || s3_conf.is_internal_bucket) {
-        obj_client = std::make_shared<io::RateLimitedObjStorageClient>(
-                std::move(obj_client), std::make_shared<BeObjStorageRateLimitPolicy>());
-    }
-
-    {
-        std::lock_guard l(_lock);
-        auto [it, _] = _cache.emplace(s3_conf, std::move(obj_client));
-        return it->second;
-    }
+    return _cache->get_or_create(
+            s3_conf,
+            [this](const S3ClientConf& conf) -> Result<std::shared_ptr<io::ObjStorageClient>> {
+                auto result = (conf.provider == io::ObjStorageProvider::AZURE)
+                                      ? _create_azure_client(conf)
+                                      : _create_s3_client(conf);
+                if (!result.has_value()) {
+                    return ResultError(std::move(result).error());
+                }
+                auto client = std::move(result).value();
+                if (!config::is_cloud_mode() || conf.is_internal_bucket) {
+                    client = std::make_shared<io::RateLimitedObjStorageClient>(
+                            std::move(client), std::make_shared<BeObjStorageRateLimitPolicy>());
+                }
+                return client;
+            });
 }
 
 #ifdef BE_TEST
