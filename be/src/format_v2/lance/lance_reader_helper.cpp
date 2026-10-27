@@ -425,6 +425,49 @@ Status compact_lance_array(const std::shared_ptr<arrow::Array>& array,
     return Status::OK();
 }
 
+template <typename OffsetType>
+bool lance_list_offsets_are_tight(const arrow::ArrayData& data) {
+    const auto* offsets = data.GetValues<OffsetType>(1);
+    return offsets[0] == 0 && offsets[data.length] == data.child_data[0]->length;
+}
+
+// Whether Doris SerDes can read this array in place: with enable_arrow_input_validation (the
+// default) they reject a non-zero offset at any depth ("non-zero array offset is not supported"),
+// and the nested SerDes expect each child to hold exactly the elements its parent references. The
+// array's own offset and offsets are not enough. Lance's legacy (v1) plain decoder returns the
+// Boolean range [start, end) as a bitmap with bit offset start % 8, and its struct and list readers
+// wrap that child unchanged: with batch_size 3, rows 3..5 of STRUCT<b: BOOLEAN> arrive as a
+// zero-offset struct whose child has offset 3, and a LIST<BOOLEAN> batch whose first value is
+// value k of the writer batch has values at offset k % 8.
+bool lance_array_layout_is_compact(const arrow::ArrayData& data) {
+    if (data.offset != 0) {
+        return false;
+    }
+    switch (data.type->id()) {
+    case arrow::Type::LIST:
+    case arrow::Type::MAP:
+        return lance_list_offsets_are_tight<int32_t>(data) &&
+               lance_array_layout_is_compact(*data.child_data[0]);
+    case arrow::Type::LARGE_LIST:
+        return lance_list_offsets_are_tight<int64_t>(data) &&
+               lance_array_layout_is_compact(*data.child_data[0]);
+    case arrow::Type::FIXED_SIZE_LIST: {
+        const auto list_size = static_cast<const arrow::FixedSizeListType&>(*data.type).list_size();
+        return data.child_data[0]->length == data.length * list_size &&
+               lance_array_layout_is_compact(*data.child_data[0]);
+    }
+    case arrow::Type::STRUCT:
+        for (const auto& child : data.child_data) {
+            if (child->length != data.length || !lance_array_layout_is_compact(*child)) {
+                return false;
+            }
+        }
+        return true;
+    default:
+        return true;
+    }
+}
+
 // Compact a sliced variable-offset parent and all of its visible descendants.
 template <typename ArrayType>
 Status compact_lance_offset_array(const std::shared_ptr<arrow::Array>& array,
@@ -442,7 +485,7 @@ Status compact_lance_offset_array(const std::shared_ptr<arrow::Array>& array,
         return Status::InvalidArgument("invalid sliced Lance offsets [{}, {}) for child length {}",
                                        child_begin, child_end, values->length());
     }
-    if (array->offset() == 0 && child_begin == 0 && child_end == values->length()) {
+    if (lance_array_layout_is_compact(*array->data())) {
         *compacted = array;
         return Status::OK();
     }
@@ -450,6 +493,8 @@ Status compact_lance_offset_array(const std::shared_ptr<arrow::Array>& array,
 }
 
 // Compact sliced arrays and nested children only when Doris cannot consume their current layout.
+// A nested array is passed through only when its whole subtree is compact, because a tight struct
+// or list can still hold an offset child (see lance_array_layout_is_compact()).
 Status compact_lance_array_if_needed(const std::shared_ptr<arrow::Array>& array,
                                      arrow::MemoryPool* memory_pool,
                                      std::shared_ptr<arrow::Array>* compacted) {
@@ -474,7 +519,7 @@ Status compact_lance_array_if_needed(const std::shared_ptr<arrow::Array>& array,
                     "invalid sliced Lance fixed-size list range [{}, {}) for child length {}",
                     child_begin, child_begin + child_length, values->length());
         }
-        if (array->offset() == 0 && child_begin == 0 && child_length == values->length()) {
+        if (lance_array_layout_is_compact(*array->data())) {
             *compacted = array;
             return Status::OK();
         }
@@ -486,11 +531,7 @@ Status compact_lance_array_if_needed(const std::shared_ptr<arrow::Array>& array,
             return Status::InvalidArgument("invalid sliced Lance struct array: {}",
                                            array->type()->ToString());
         }
-        bool requires_compaction = array->offset() != 0;
-        for (const auto& child : array->data()->child_data) {
-            requires_compaction |= child->length != array->length();
-        }
-        if (!requires_compaction) {
+        if (lance_array_layout_is_compact(*array->data())) {
             *compacted = array;
             return Status::OK();
         }
