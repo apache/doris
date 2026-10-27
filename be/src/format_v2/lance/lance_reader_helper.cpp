@@ -265,6 +265,12 @@ Status arrow_field_to_doris_type(const std::shared_ptr<arrow::Field>& field,
     }
     case arrow::Type::STRUCT: {
         const auto struct_type = std::static_pointer_cast<arrow::StructType>(arrow_type);
+        // Lance decodes STRUCT<>, but a Doris ColumnStruct takes its row count from its first
+        // child, so a zero-field struct cannot be materialized at any nesting level.
+        if (struct_type->num_fields() == 0) {
+            return Status::NotSupported("unsupported Lance Arrow zero-field struct: {}",
+                                        field->name());
+        }
         DataTypes field_types;
         Strings field_names;
         field_types.reserve(struct_type->num_fields());
