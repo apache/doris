@@ -199,9 +199,8 @@ public:
             if constexpr (T == TYPE_DECIMALV2) {
                 this->data(place).sum += column.get_data()[row_num];
             } else if constexpr (is_decimalv3(T)) {
-                add_sum(this->data(place),
-                        ResultType(static_cast<typename ResultType::NativeType>(
-                                column.get_data()[row_num].value)));
+                add_sum(this->data(place), ResultType(static_cast<typename ResultType::NativeType>(
+                                                   column.get_data()[row_num].value)));
             } else {
                 this->data(place).sum += (DataType)column.get_data()[row_num];
             }
@@ -210,9 +209,8 @@ public:
             if constexpr (T == TYPE_DECIMALV2) {
                 this->data(place).sum += -column.get_data()[row_num];
             } else if constexpr (is_decimalv3(T)) {
-                sub_sum(this->data(place),
-                        ResultType(static_cast<typename ResultType::NativeType>(
-                                column.get_data()[row_num].value)));
+                sub_sum(this->data(place), ResultType(static_cast<typename ResultType::NativeType>(
+                                                   column.get_data()[row_num].value)));
             } else {
                 this->data(place).sum -= (DataType)column.get_data()[row_num];
             }

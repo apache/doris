@@ -24,12 +24,12 @@
 #include "agent/be_exec_version_manager.h"
 #include "common/exception.h"
 #include "common/status.h"
+#include "core/arena.h"
 #include "core/column/column_decimal.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
-#include "core/arena.h"
 
 namespace doris {
 
@@ -206,8 +206,7 @@ TEST(AggDecimalOverflowTest, avg_finalize_scale_overflow) {
     agg->set_check_overflow_for_decimal(true);
 
     // max_i128 / 10000 + 1, times 10000 overflows.
-    constexpr __int128 max_int128 =
-            (__int128(0x7fffffffffffffffll) << 64) + 0xffffffffffffffffll;
+    constexpr __int128 max_int128 = (__int128(0x7fffffffffffffffll) << 64) + 0xffffffffffffffffll;
     const auto limit = max_int128 / 10000 + 1;
     auto column = make_decimal128_column({Decimal128V3(limit)});
     const IColumn* cols[1] = {column.get()};
