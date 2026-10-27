@@ -43,7 +43,7 @@ suite("test_hive_write_static_partition", "p0,external,hive,external_docker,exte
         """
         // 2. Append another row into the SAME partition.
         sql """
-            INSERT INTO ${tableName} PARTITION(ts_date='2026-07-24')
+            INSERT INTO ${tableName} PARTITION(TS_DATE='2026-07-24')
             SELECT 'tagB', 'u2', 200;
         """
         // 3. Insert into a DIFFERENT partition.
@@ -66,7 +66,7 @@ suite("test_hive_write_static_partition", "p0,external,hive,external_docker,exte
 
         // 4. INSERT OVERWRITE a single partition: it should only replace 2026-07-24, leaving 2026-07-25 intact.
         sql """
-            INSERT OVERWRITE TABLE ${tableName} PARTITION(ts_date='2026-07-24')
+            INSERT OVERWRITE TABLE ${tableName} PARTITION(Ts_Date='2026-07-24')
             SELECT 'tagX', 'u9', 999;
         """
         sql """ refresh catalog ${catalog_name}; """
@@ -165,7 +165,7 @@ suite("test_hive_write_static_partition", "p0,external,hive,external_docker,exte
         assertEquals("tagM3", beforeOverwrite[2][0]); assertEquals("2026-07-25", beforeOverwrite[2][1]); assertEquals("bj", beforeOverwrite[2][2])
 
         sql """
-            INSERT OVERWRITE TABLE ${tableName} PARTITION(dt='2026-07-24', region='bj')
+            INSERT OVERWRITE TABLE ${tableName} PARTITION(REGION='bj', Dt='2026-07-24')
             SELECT 'tagMX', 'u19', 999;
         """
         sql """ refresh catalog ${catalog_name}; """
