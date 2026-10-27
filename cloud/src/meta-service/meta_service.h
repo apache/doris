@@ -481,6 +481,10 @@ private:
     bool is_version_read_enabled(std::string_view instance_id) const;
     bool is_version_write_enabled(std::string_view instance_id) const;
 
+    bool wait_for_committed_txn(const std::string& instance_id, const TxnInfoPB& txn_info,
+                                std::unique_ptr<Transaction>& txn, CommitTxnResponse* response,
+                                MetaServiceCode& code, std::string& msg, KVStats& stats);
+
     void commit_txn_immediately(
             const CommitTxnRequest* request, CommitTxnResponse* response, MetaServiceCode& code,
             std::string& msg, const std::string& instance_id, int64_t db_id,
