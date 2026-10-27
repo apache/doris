@@ -19,6 +19,9 @@ package org.apache.doris.common.jni.vec;
 
 import org.apache.doris.common.jni.utils.OffHeap;
 
+import mockit.Invocation;
+import mockit.Mock;
+import mockit.MockUp;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -54,6 +57,14 @@ public class VectorColumnFileTest {
 
     @Test
     public void testAppendInlineDescriptorNullAndEmptyFile() {
+        new MockUp<OffHeap>() {
+            @Mock
+            public long allocateMemory(Invocation invocation, long size) {
+                // Unsafe.allocateMemory(0) masks the production malloc(0) allocation.
+                Assert.assertTrue("Empty payloads must not allocate memory", size > 0);
+                return invocation.proceed(size);
+            }
+        };
         ColumnType fileType = ColumnType.parseType("image", "file");
         VectorTable table = VectorTable.createWritableTable(
                 new ColumnType[] {fileType}, new String[] {"image"}, 1);
@@ -89,7 +100,10 @@ public class VectorColumnFileTest {
             Assert.assertEquals(payload.length, OffHeap.getLong(null, inlineData));
             Assert.assertArrayEquals(payload,
                     OffHeap.getByte(null, OffHeap.getLong(null, inlineData + 8), payload.length));
-            Assert.assertEquals(0, OffHeap.getLong(null, inlineData + 3 * 16));
+            for (int i = 1; i < 4; i++) {
+                Assert.assertEquals(0, OffHeap.getLong(null, inlineData + i * 16));
+                Assert.assertEquals(0, OffHeap.getLong(null, inlineData + i * 16 + 8));
+            }
 
             table.reset();
             column.appendFile(new FileValue("file:/new.blob", 0L, null, null, null, null));

@@ -1646,9 +1646,13 @@ public class VectorColumn {
     }
 
     public int appendVarbinary(byte[] src) {
-        long addr = OffHeap.allocateMemory(src.length);
-        OffHeap.copyMemory(src, OffHeap.BYTE_ARRAY_OFFSET, null, addr, src.length);
         reserve(appendIndex + 1);
+        long addr = 0;
+        // malloc(0) may return an owned pointer, but empty values have no payload to free.
+        if (src.length > 0) {
+            addr = OffHeap.allocateMemory(src.length);
+            OffHeap.copyMemory(src, OffHeap.BYTE_ARRAY_OFFSET, null, addr, src.length);
+        }
         OffHeap.putLong(null, data + 16L * appendIndex, src.length);
         OffHeap.putLong(null, data + 16L * appendIndex + 8, addr);
         return appendIndex++;
