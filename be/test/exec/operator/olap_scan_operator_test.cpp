@@ -428,7 +428,8 @@ protected:
         }
         _local_state->_slot_id_to_value_range[_slot->id()] = std::move(range);
         VExprSPtr expr;
-        ASSERT_TRUE(VTopNPred::create_vtopn_pred(_runtime_predicate->get_texpr(0), 10, expr).ok());
+        ASSERT_TRUE(
+                VTopNPred::create_vtopn_pred(_runtime_predicate->get_texpr(0), 10, 0, expr).ok());
         PushDownType push_down = PushDownType::UNACCEPTABLE;
         ASSERT_TRUE(
                 _local_state->_normalize_topn_filter(nullptr, expr, _slot, predicates, &push_down)
