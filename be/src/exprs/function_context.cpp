@@ -46,7 +46,7 @@ std::unique_ptr<doris::FunctionContext> FunctionContext::create_context(
 }
 
 void FunctionContext::set_constant_cols(
-        const std::vector<std::shared_ptr<doris::ColumnPtrWrapper>>& constant_cols) {
+        const std::vector<std::shared_ptr<doris::ConstantExprResult>>& constant_cols) {
     _constant_cols = constant_cols;
 }
 
@@ -119,7 +119,7 @@ bool FunctionContext::is_col_constant(int i) const {
     return _constant_cols[i] != nullptr;
 }
 
-doris::ColumnPtrWrapper* FunctionContext::get_constant_col(int i) const {
+doris::ConstantExprResult* FunctionContext::get_constant_col(int i) const {
     if (i < 0 || i >= _constant_cols.size()) {
         return nullptr;
     }
