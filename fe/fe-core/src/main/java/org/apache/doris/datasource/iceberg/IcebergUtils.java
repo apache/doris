@@ -1048,7 +1048,22 @@ public class IcebergUtils {
         return getIdentityPartitionColumns(table, false, false);
     }
 
+    public static List<String> getIdentityPartitionColumns(Table table, Schema scanSchema) {
+        return getIdentityPartitionColumns(table, scanSchema, false, false);
+    }
+
     public static List<String> getIdentityPartitionColumns(Table table,
+            boolean enableMappingVarbinary, boolean enableMappingTimestampTz) {
+        return getIdentityPartitionColumns(
+                table, table.schema(), enableMappingVarbinary, enableMappingTimestampTz);
+    }
+
+    /**
+     * Resolve identity partition names against the schema that owns this scan, rather than the
+     * table's latest schema. A pinned snapshot can expose a renamed field whose case-sensitive
+     * name must match the scan slots in {@code scanSchema}.
+     */
+    public static List<String> getIdentityPartitionColumns(Table table, Schema scanSchema,
             boolean enableMappingVarbinary, boolean enableMappingTimestampTz) {
         LinkedHashSet<String> partitionColumns = new LinkedHashSet<>();
         for (PartitionSpec spec : table.specs().values()) {
@@ -1056,12 +1071,12 @@ public class IcebergUtils {
                 if (!partitionField.transform().isIdentity()) {
                     continue;
                 }
-                NestedField sourceField = table.schema().findField(partitionField.sourceId());
+                NestedField sourceField = scanSchema.findField(partitionField.sourceId());
                 if (sourceField == null || !isSupportedPartitionValueType(
                         sourceField.type(), enableMappingVarbinary, enableMappingTimestampTz)) {
                     continue;
                 }
-                String columnName = table.schema().findColumnName(partitionField.sourceId());
+                String columnName = topLevelSourceColumnName(scanSchema, partitionField.sourceId());
                 if (columnName != null) {
                     partitionColumns.add(columnName);
                 }
@@ -1079,11 +1094,21 @@ public class IcebergUtils {
         return getCommonIdentityPartitionColumns(table, false, false);
     }
 
+    public static List<String> getCommonIdentityPartitionColumns(Table table, Schema scanSchema) {
+        return getCommonIdentityPartitionColumns(table, scanSchema, false, false);
+    }
+
     public static List<String> getCommonIdentityPartitionColumns(Table table,
+            boolean enableMappingVarbinary, boolean enableMappingTimestampTz) {
+        return getCommonIdentityPartitionColumns(
+                table, table.schema(), enableMappingVarbinary, enableMappingTimestampTz);
+    }
+
+    public static List<String> getCommonIdentityPartitionColumns(Table table, Schema scanSchema,
             boolean enableMappingVarbinary, boolean enableMappingTimestampTz) {
         LinkedHashSet<Integer> commonSourceIds = new LinkedHashSet<>();
         for (PartitionField field : table.spec().fields()) {
-            NestedField sourceField = table.schema().findField(field.sourceId());
+            NestedField sourceField = scanSchema.findField(field.sourceId());
             if (field.transform().isIdentity() && sourceField != null
                     && isSupportedPartitionValueType(
                             sourceField.type(), enableMappingVarbinary, enableMappingTimestampTz)) {
@@ -1098,18 +1123,34 @@ public class IcebergUtils {
             commonSourceIds.retainAll(specIdentitySourceIds);
         }
         return commonSourceIds.stream()
-                .map(table.schema()::findColumnName)
+                .map(sourceId -> topLevelSourceColumnName(scanSchema, sourceId))
                 .filter(columnName -> columnName != null)
                 .collect(Collectors.toList());
     }
 
     public static Map<String, String> getIdentityPartitionInfoMap(PartitionData partitionData,
             PartitionSpec partitionSpec, Table table, String timeZone) {
-        return getIdentityPartitionInfoMap(partitionData, partitionSpec, table, timeZone, false, false);
+        return getIdentityPartitionInfoMap(
+                partitionData, partitionSpec, table, timeZone, false, false);
+    }
+
+    public static Map<String, String> getIdentityPartitionInfoMap(
+            PartitionData partitionData, PartitionSpec partitionSpec, Schema scanSchema,
+            String timeZone) {
+        return getIdentityPartitionInfoMap(
+                partitionData, partitionSpec, scanSchema, timeZone, false, false);
     }
 
     public static Map<String, String> getIdentityPartitionInfoMap(PartitionData partitionData,
             PartitionSpec partitionSpec, Table table, String timeZone,
+            boolean enableMappingVarbinary, boolean enableMappingTimestampTz) {
+        return getIdentityPartitionInfoMap(
+                partitionData, partitionSpec, table.schema(), timeZone,
+                enableMappingVarbinary, enableMappingTimestampTz);
+    }
+
+    public static Map<String, String> getIdentityPartitionInfoMap(PartitionData partitionData,
+            PartitionSpec partitionSpec, Schema scanSchema, String timeZone,
             boolean enableMappingVarbinary, boolean enableMappingTimestampTz) {
         Map<String, String> partitionInfoMap = Maps.newLinkedHashMap();
         List<NestedField> fields = partitionData.getPartitionType().asNestedType().fields();
@@ -1128,7 +1169,7 @@ public class IcebergUtils {
                 continue;
             }
 
-            String columnName = table.schema().findColumnName(partitionField.sourceId());
+            String columnName = topLevelSourceColumnName(scanSchema, partitionField.sourceId());
             if (columnName == null) {
                 continue;
             }
@@ -1141,6 +1182,11 @@ public class IcebergUtils {
             }
         }
         return partitionInfoMap;
+    }
+
+    private static String topLevelSourceColumnName(Schema schema, int sourceId) {
+        NestedField field = schema.asStruct().field(sourceId);
+        return field == null ? null : field.name();
     }
 
     private static boolean isSupportedPartitionValueType(org.apache.iceberg.types.Type type,
