@@ -28,7 +28,6 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.connector.hive.HiveCatalogProperties;
 import org.apache.doris.connector.hive.HiveFileListingCache;
-import org.apache.doris.connector.hive.HiveReadTransactionManager;
 import org.apache.doris.connector.hive.HiveScanPlanProvider;
 import org.apache.doris.connector.hive.HiveScanRange;
 import org.apache.doris.connector.hive.HiveTableHandle;
@@ -227,7 +226,7 @@ class PluginDrivenScanNodeHiveStreamingTest {
             HiveCatalogProperties properties = HiveCatalogProperties.of(Collections.singletonMap(
                     HiveCatalogProperties.HIVE_METASTORE_URIS, "thrift://localhost:9083"));
             HiveScanPlanProvider provider = new HiveScanPlanProvider(hms, properties, context,
-                    new HiveReadTransactionManager(), new HiveFileListingCache(properties));
+                    new HiveFileListingCache(properties));
             HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
                     .partitionKeyNames(Collections.singletonList("pt")).location("s3://bucket/")
                     .inputFormat("org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat")

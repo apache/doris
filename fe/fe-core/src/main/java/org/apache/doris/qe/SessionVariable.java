@@ -839,8 +839,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String EXCHANGE_MULTI_BLOCKS_BYTE_SIZE = "exchange_multi_blocks_byte_size";
 
-    public static final String SKIP_CHECKING_ACID_VERSION_FILE = "skip_checking_acid_version_file";
-
     public static final String ENABLE_EXTENDED_REGEX = "enable_extended_regex";
 
     public static final String ENABLE_HYPERSCAN_FALLBACK = "enable_hyperscan_fallback";
@@ -3521,11 +3519,6 @@ public class SessionVariable implements Serializable, Writable {
             + "reading, whether to enable utf8 encoding check."
             + "non-utf8 characters will be displayed as garbled characters.")
     public boolean enableTextValidateUtf8 = true;
-
-    @VarAttrDef.VarAttr(name = SKIP_CHECKING_ACID_VERSION_FILE, needForward = true, affectQueryResultInPlan = true,
-            description = "Skip checking transactional hive version file '_orc_acid_version.'"
-    )
-    public boolean skipCheckingAcidVersionFile = false;
 
     @VarAttrDef.VarAttr(name = ENABLE_SQL_CONVERTOR_FEATURES, needForward = true,
             checker = "checkSqlConvertorFeatures",
