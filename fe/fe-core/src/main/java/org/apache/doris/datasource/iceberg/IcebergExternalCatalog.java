@@ -228,13 +228,22 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
         return resourceTracker.beginOperation();
     }
 
-    synchronized ExternalDatabase<? extends ExternalTable> getDbForCatalogOperation(
+    ExternalDatabase<? extends ExternalTable> getDbForCatalogOperation(
             IcebergMetadataOps expectedOps, String dbName) {
-        makeSureInitialized();
-        if (metadataOps != expectedOps) {
-            throw new IllegalStateException("Iceberg catalog runtime changed before database resolution");
+        synchronized (this) {
+            makeSureInitialized();
+            if (metadataOps != expectedOps) {
+                throw new IllegalStateException("Iceberg catalog runtime changed before database resolution");
+            }
         }
-        return getDbNullable(dbName);
+        // Database resolution can acquire its cache key. Never hold the catalog monitor across it.
+        ExternalDatabase<? extends ExternalTable> database = getDbNullable(dbName);
+        synchronized (this) {
+            if (metadataOps != expectedOps) {
+                throw new IllegalStateException("Iceberg catalog runtime changed during database resolution");
+            }
+        }
+        return database;
     }
 
     public String getIcebergCatalogType() {
