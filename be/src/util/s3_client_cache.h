@@ -60,6 +60,9 @@ public:
     S3ClientCache(size_t capacity, uint32_t idle_ttl_seconds, Clock clock = {});
     ~S3ClientCache();
 
+    // creator returns a freshly constructed client whose lifetime guard has not
+    // been attached yet. All returned owners, including shared_from_this(),
+    // share that client's original control block.
     Result<Client> get_or_create(const S3ClientConf& conf, const Creator& creator);
     void prune_stale();
     void prune_all();

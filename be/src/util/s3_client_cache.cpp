@@ -66,6 +66,22 @@ struct S3ClientCache::Impl {
         Counter evictions;
     };
 
+    struct ClientLifetime {
+        ClientLifetime(std::shared_ptr<MemTrackerLimiter> mem_tracker,
+                       std::shared_ptr<Metrics> client_metrics)
+                : tracker(std::move(mem_tracker)), metrics(std::move(client_metrics)) {
+            metrics->created.add(1);
+            metrics->live.add(1);
+        }
+        ~ClientLifetime() {
+            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(tracker);
+            metrics->destroyed.add(1);
+            metrics->live.add(-1);
+        }
+        std::shared_ptr<MemTrackerLimiter> tracker;
+        std::shared_ptr<Metrics> metrics;
+    };
+
     struct Retained {
         // Map-key addresses survive rehash. Only retained nodes dereference
         // this pointer; detached release batches never inspect it.
@@ -129,20 +145,12 @@ struct S3ClientCache::Impl {
     }
 
     Client track(Client client) {
-        // The alias shares one owner with all cache/holder/request references.
-        // Its deleter runs exactly once, even when the last release is on an IO
-        // thread, and keeps the metrics/tracker alive without referring to Impl.
-        auto owned = std::make_unique<Client>(std::move(client));
-        metrics->created.add(1);
-        metrics->live.add(1);
-        auto owner = std::shared_ptr<Client>(owned.release(),
-                                             [tracker = tracker, metrics = metrics](Client* p) {
-                                                 SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(tracker);
-                                                 delete p;
-                                                 metrics->destroyed.add(1);
-                                                 metrics->live.add(-1);
-                                             });
-        return Client(owner, owner->get());
+        // Do not introduce an aliasing control block: list_objects() uses
+        // shared_from_this(), and its iterator must keep the cache's weak entry
+        // alive too. A client-owned guard observes actual client destruction
+        // without owning the client or referring back to Impl.
+        client->set_lifetime_guard(std::make_shared<ClientLifetime>(tracker, metrics));
+        return client;
     }
 
     // mutex held. Expiring retention does not invalidate a live weak entry.

@@ -28,6 +28,7 @@
 #include <thread>
 #include <vector>
 
+#include "cpp/obj-client/rate_limited_obj_storage_client.h"
 #include "cpp/obj-client/s3_obj_storage_client.h"
 #include "runtime/memory/cache_manager.h"
 #include "runtime/memory/cache_policy.h"
@@ -52,6 +53,11 @@ S3ClientCache::Client fake_client() {
 S3ClientCache::Creator fake_creator() {
     return [](const S3ClientConf&) -> Result<S3ClientCache::Client> { return fake_client(); };
 }
+
+class AllowAllPolicy final : public ObjStorageRateLimitPolicy {
+public:
+    ObjStorageAdmission acquire(S3RateLimitType, size_t) const override { return {}; }
+};
 
 // Bound scheduling waits without sleeping or leaving blocked futures behind.
 bool await(const std::function<bool()>& predicate) {
@@ -90,6 +96,65 @@ TEST(S3ClientCacheTest, ExpiryPreservesRequestsAndReusesLiveClient) {
     EXPECT_EQ(cache.stats().destroyed, 1);
     cache.prune_stale();
     EXPECT_EQ(cache.stats().indexed, 0);
+}
+
+TEST(S3ClientCacheTest, LazyIteratorKeepsOriginalOwnerIndexed) {
+    for (bool decorated : {false, true}) {
+        S3ClientCache cache(1, 10);
+        S3ClientCache::Creator creator =
+                [decorated](const S3ClientConf&) -> Result<S3ClientCache::Client> {
+            auto client = fake_client();
+            if (decorated) {
+                return std::make_shared<RateLimitedObjStorageClient>(
+                        std::move(client), std::make_shared<AllowAllPolicy>());
+            }
+            return client;
+        };
+        auto client = cache.get_or_create(cache_conf(), creator).value();
+        auto original_owner = client->shared_from_this();
+        EXPECT_FALSE(client.owner_before(original_owner));
+        EXPECT_FALSE(original_owner.owner_before(client));
+        std::weak_ptr<ObjStorageClient> weak = client;
+        auto iterator = client->list_objects({.bucket = "bucket"});
+
+        cache.prune_all();
+        client.reset();
+        original_owner.reset();
+        // The iterator now is the only strong owner. It must still be visible
+        // through the factory index and must not count as a destroyed client.
+        EXPECT_FALSE(weak.expired());
+        EXPECT_EQ(cache.stats().live, 1);
+        EXPECT_EQ(cache.stats().destroyed, 0);
+        auto reused = cache.get_or_create(cache_conf(), creator).value();
+        EXPECT_EQ(reused, weak.lock());
+        EXPECT_EQ(cache.stats().created, 1);
+        EXPECT_EQ(cache.stats().weak_hits, 1);
+
+        cache.prune_all();
+        reused.reset();
+        EXPECT_EQ(cache.stats().live, 1);
+        iterator.reset();
+        EXPECT_TRUE(weak.expired());
+        EXPECT_EQ(cache.stats().live, 0);
+        EXPECT_EQ(cache.stats().destroyed, 1);
+        cache.prune_stale();
+        EXPECT_EQ(cache.stats().indexed, 0);
+    }
+}
+
+TEST(S3ClientCacheTest, LazyIteratorCanOutliveCache) {
+    std::unique_ptr<ObjStorageListIterator> iterator;
+    std::weak_ptr<ObjStorageClient> weak;
+    {
+        S3ClientCache cache(1, 10);
+        auto client = cache.get_or_create(cache_conf(), fake_creator()).value();
+        weak = client;
+        iterator = client->list_objects({.bucket = "bucket"});
+        client.reset();
+    }
+    EXPECT_FALSE(weak.expired());
+    iterator.reset();
+    EXPECT_TRUE(weak.expired());
 }
 
 TEST(S3ClientCacheTest, LruAndHitRefreshIdleTime) {

@@ -180,6 +180,12 @@ public:
 
     ObjStorageClient(const ObjStorageClient&) = delete;
     ObjStorageClient& operator=(const ObjStorageClient&) = delete;
+
+    // Attach once before publishing a freshly created client. The guard is
+    // released after the derived client and its SDK members are destroyed,
+    // including when a lazy iterator is the last shared_from_this() owner.
+    // This preserves the client's original shared ownership control block.
+    void set_lifetime_guard(std::shared_ptr<void> guard);
     // Create a multipart upload request. The returned token may be provider-issued or local and
     // identifies this writer's parts.
     // The input parameters should include the bucket and key for the object storage.
@@ -241,6 +247,8 @@ protected:
 private:
     friend class ObjStorageListIterator;
     friend class RateLimitedObjStorageClient;
+
+    std::shared_ptr<void> lifetime_guard_;
 };
 
 // A client-side iterator returned by ObjStorageClient. It requests one fixed-size page at a time.
