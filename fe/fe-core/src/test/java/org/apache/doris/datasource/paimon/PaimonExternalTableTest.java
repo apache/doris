@@ -68,6 +68,36 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class PaimonExternalTableTest {
 
     @Test
+    @SuppressWarnings("unchecked")
+    public void testOptionsSchemaRepairAfterSuccessfulSnapshotFence() {
+        PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
+        PaimonExternalDatabase database = Mockito.mock(PaimonExternalDatabase.class);
+        Mockito.when(catalog.getName()).thenReturn("ctl");
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        PaimonExternalTable table = Mockito.spy(
+                new PaimonExternalTable(10L, "table", "table", catalog, database));
+        AtomicInteger repaired = new AtomicInteger();
+        Mockito.when(database.observeTableLookup(table)).thenReturn(Optional.of(repaired::incrementAndGet));
+        PaimonSnapshotCacheValue retained = Mockito.mock(PaimonSnapshotCacheValue.class);
+        PaimonMvccSnapshot snapshot = new PaimonMvccSnapshot(retained);
+        Mockito.doReturn(snapshot).when(table).loadLatestSnapshotFence();
+        Mockito.doReturn(snapshot).when(table).loadSnapshot(Mockito.any(), Mockito.any(), Mockito.any());
+        Mockito.doReturn(Mockito.mock(Table.class)).when(table).getPaimonTable(Mockito.any(Optional.class));
+        RuntimeException missing = new RuntimeException(new org.apache.paimon.catalog.Catalog.TableNotExistException(
+                new org.apache.paimon.catalog.Identifier("db", "table")));
+        Mockito.doThrow(missing).when(table).getBasePaimonTable();
+        TableScanParams options = new TableScanParams(TableScanParams.OPTIONS,
+                ImmutableMap.of("scan.mode", "latest"), Collections.emptyList());
+        options.reuseResolvedMapParams(ImmutableMap.of("scan.snapshot-id", "12"));
+        StatementContext statement = new StatementContext(new ConnectContext(), null);
+        Assert.assertSame(snapshot, statement.loadSnapshots(table, Optional.empty(), Optional.of(options)).get());
+        Assert.assertEquals(0, repaired.get());
+        Assert.assertSame(missing, Assert.assertThrows(RuntimeException.class, () -> table.getFullSchema(options)));
+        Assert.assertEquals(1, repaired.get());
+    }
+
+    @Test
     public void testOptionsFirstMissingFenceRepairsLookup() {
         PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
         PaimonExternalDatabase database = Mockito.mock(PaimonExternalDatabase.class);

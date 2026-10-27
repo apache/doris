@@ -25,6 +25,11 @@ after_col	text	Yes	true	\N
 -- !schema_after_recreation --
 recreated_col	bigint	Yes	true	\N	
 
+-- !show_create_names_before --
+owner_show_create
+
+-- !show_create_names_after --
+
 -- !observed_names_before --
 owner_observed
 

@@ -71,6 +71,22 @@ suite("test_hive_external_lookup_refresh", "p0,external") {
     sql "REFRESH TABLE hive_lookup_target.fe_lookup_refresh_db.owner_target"
     qt_schema_after_recreation "DESC hive_lookup_target.fe_lookup_refresh_db.owner_target"
 
+    sql "CREATE TABLE hive_lookup_source.fe_lookup_refresh_db.owner_show_create (ddl_col INT)"
+    sql "SHOW CREATE TABLE hive_lookup_target.fe_lookup_refresh_db.owner_show_create"
+    order_qt_show_create_names_before """SHOW TABLES FROM hive_lookup_target.fe_lookup_refresh_db
+        LIKE 'owner_show_create'"""
+    sql "DROP TABLE hive_lookup_source.fe_lookup_refresh_db.owner_show_create"
+    test {
+        sql "SHOW CREATE TABLE hive_lookup_target.fe_lookup_refresh_db.owner_show_create"
+        exception "failed to get table"
+    }
+    order_qt_show_create_names_after """SHOW TABLES FROM hive_lookup_target.fe_lookup_refresh_db
+        LIKE 'owner_show_create'"""
+    test {
+        sql "SELECT * FROM hive_lookup_target.fe_lookup_refresh_db.owner_show_create"
+        exception "does not exist"
+    }
+
     sql "DROP CATALOG IF EXISTS hive_lookup_observed"
     sql """CREATE CATALOG hive_lookup_observed PROPERTIES (
         'type' = 'hms',
