@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "storage/iterator/vertical_merge_iterator.h"
+#include "storage/iterator/mask_merge_iterator.h"
 
 #include <gtest/gtest.h>
 

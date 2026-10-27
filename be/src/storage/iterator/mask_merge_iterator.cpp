@@ -15,28 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "storage/iterator/vertical_merge_iterator.h"
+#include "storage/iterator/mask_merge_iterator.h"
 
 #include <bvar/bvar.h>
-#include <fcntl.h>
-#include <gen_cpp/olap_file.pb.h>
-#include <stdlib.h>
 
-#include <cstddef>
-#include <ostream>
+#include <algorithm>
+#include <list>
 
-#include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
-#include "common/config.h"
 #include "common/logging.h"
-#include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
-#include "core/data_type/data_type.h"
-#include "core/string_ref.h"
-#include "core/types.h"
-#include "io/cache/block_file_cache_factory.h"
+#include "storage/iterator/row_sources_buffer.h"
 #include "storage/iterators.h"
-#include "storage/olap_common.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -48,244 +38,98 @@ bvar::Adder<int64_t> g_vertical_compaction_active_segment_contexts(
 
 } // namespace
 
-// --------------  row source  ---------------//
-RowSource::RowSource(uint16_t source_num, bool agg_flag) {
-    _data = (source_num & SOURCE_FLAG) | (source_num & AGG_FLAG);
-    _data = agg_flag ? (_data | AGG_FLAG) : (_data & SOURCE_FLAG);
-}
+// --------------- VerticalMergeIteratorContext ------------- //
+// One source of a value group: the rows of a key group source, read in order and handed out as
+// the row sources name them. Takes ownership of the iterator.
+class VerticalMergeIteratorContext {
+public:
+    VerticalMergeIteratorContext(RowwiseIteratorUPtr&& iter,
+                                 VerticalCompactionContextStats* context_stats)
+            : _iter(std::move(iter)), _context_stats(context_stats) {}
 
-uint16_t RowSource::get_source_num() const {
-    return _data & SOURCE_FLAG;
-}
+    VerticalMergeIteratorContext(const VerticalMergeIteratorContext&) = delete;
+    VerticalMergeIteratorContext(VerticalMergeIteratorContext&&) = delete;
+    VerticalMergeIteratorContext& operator=(const VerticalMergeIteratorContext&) = delete;
+    VerticalMergeIteratorContext& operator=(VerticalMergeIteratorContext&&) = delete;
 
-bool RowSource::agg_flag() const {
-    return (_data & AGG_FLAG) != 0;
-}
+    ~VerticalMergeIteratorContext();
+    Status block_reset(const std::shared_ptr<Block>& block);
+    Status init(const StorageReadOptions& opts, CompactionSampleInfo* sample_info = nullptr);
+    // Copy `count` rows from the current one on into `block`; the last of them becomes the
+    // current row.
+    Status copy_rows(Block* block, size_t count);
 
-void RowSource::set_agg_flag(bool agg_flag) {
-    _data = agg_flag ? (_data | AGG_FLAG) : (_data & SOURCE_FLAG);
-}
+    Status advance();
 
-uint16_t RowSource::data() const {
-    return _data;
-}
+    // Advance by n rows at once (batch optimization)
+    // More efficient than calling advance() n times when n rows are in same block
+    Status advance_by(size_t n);
 
-/*  --------------  row source buffer -------------   */
+    // Return if it has remaining data in this context.
+    // Only when this function return true, current_row()
+    // will return a valid row
+    bool valid() const { return _valid; }
 
-// current row_sources must save in memory so agg key can update agg flag
-Status RowSourcesBuffer::append(const std::vector<RowSource>& row_sources) {
-    if (_buffer.allocated_bytes() + row_sources.size() * sizeof(UInt16) >
-        config::vertical_compaction_max_row_source_memory_mb * 1024 * 1024) {
-        // Use capacity() - size() to get the truly available element slots.
-        // Note: PODArrayBase::allocated_bytes() includes pad_left and pad_right,
-        // which are NOT usable for storing elements. Using allocated_bytes() here
-        // would over-estimate the available space and lead to a missed spill,
-        // causing _buffer to grow beyond the configured memory limit when
-        // push_back triggers reallocation below.
-        size_t available_slots = _buffer.capacity() - _buffer.size();
-        if (available_slots < row_sources.size()) {
-            VLOG_NOTICE << "RowSourceBuffer is too large, serialize and reset buffer: "
-                        << _buffer.allocated_bytes() << ", total size: " << _total_size;
-            // serialize current buffer
-            RETURN_IF_ERROR(_create_buffer_file());
-            RETURN_IF_ERROR(_serialize());
-            _reset_buffer();
-        }
+    size_t remain_rows() { return _block->rows() - _index_in_block; }
+
+    bool is_first_row() const { return _is_first_row; }
+    void set_is_first_row(bool is_first_row) { _is_first_row = is_first_row; }
+    void set_cur_row_ref(IteratorRowRef* ref) {
+        ref->block = _block;
+        ref->row_pos = _index_in_block;
     }
-    uint64_t source_position = _total_size;
-    for (const auto& source : row_sources) {
-        _buffer.push_back(source.data());
-        auto source_num = source.get_source_num();
-        if (source_num >= _last_source_positions.size()) {
-            _last_source_positions.resize(source_num + 1);
-        }
-        _last_source_positions[source_num] = source_position++;
-    }
-    _total_size += row_sources.size();
-    return Status::OK();
-}
+    bool inited() const { return _inited; }
 
-Status RowSourcesBuffer::seek_to_begin() {
-    _buf_idx = 0;
-    _read_index = 0;
-    if (_fd > 0) {
-        auto offset = lseek(_fd, 0, SEEK_SET);
-        if (offset != 0) {
-            LOG(WARNING) << "failed to seek to 0";
-            return Status::InternalError("failed to seek to 0");
-        }
-        _reset_buffer();
-    }
-    return Status::OK();
-}
-
-Status RowSourcesBuffer::has_remaining() {
-    if (_buf_idx < _buffer.size()) {
-        return Status::OK();
-    }
-    DCHECK(_buf_idx == _buffer.size());
-    if (_fd > 0) {
-        _reset_buffer();
-        auto st = _deserialize();
-        if (!st.ok()) {
-            return st;
-        }
-        return Status::OK();
-    }
-    return Status::EndOfFile("end of row source buffer");
-}
-
-void RowSourcesBuffer::set_agg_flag(uint64_t index, bool agg) {
-    DCHECK(index < _buffer.size());
-    RowSource ori(_buffer[index]);
-    ori.set_agg_flag(agg);
-    _buffer[index] = ori.data();
-}
-
-bool RowSourcesBuffer::get_agg_flag(uint64_t index) {
-    DCHECK(index < _buffer.size());
-    RowSource ori(_buffer[index]);
-    return ori.agg_flag();
-}
-
-size_t RowSourcesBuffer::continuous_agg_count(uint64_t index) {
-    size_t result = 1;
-    int64_t start = index + 1;
-    int64_t end = _buffer.size();
-    while (start < end) {
-        RowSource next(_buffer[start++]);
-        if (next.agg_flag()) {
-            ++result;
+    size_t bytes() {
+        if (_block) {
+            return _block->allocated_bytes();
         } else {
-            break;
+            return 0;
         }
     }
-    return result;
-}
 
-size_t RowSourcesBuffer::same_source_count(uint16_t source, size_t limit) {
-    int result = 1;
-    int64_t start = _buf_idx + 1;
-    int64_t end = _buffer.size();
-    while (result < limit && start < end) {
-        RowSource next(_buffer[start++]);
-        if (source != next.get_source_num()) {
-            break;
+    size_t rows() {
+        if (_block) {
+            return _block->rows();
+        } else {
+            return 0;
         }
-        ++result;
-    }
-    return result;
-}
-
-size_t RowSourcesBuffer::same_source_continuous_non_agg_count(uint16_t source, size_t limit) {
-    size_t result = 0;
-    int64_t start = _buf_idx;
-    int64_t end = _buffer.size();
-    while (result < limit && start < end) {
-        RowSource rs(_buffer[start]);
-        // Stop if different source or agg_flag=true
-        if (rs.get_source_num() != source || rs.agg_flag()) {
-            break;
-        }
-        ++result;
-        ++start;
-    }
-    return result;
-}
-
-Status RowSourcesBuffer::_create_buffer_file() {
-    if (_fd != -1) {
-        return Status::OK();
-    }
-    std::stringstream file_path_ss;
-    if (config::is_cloud_mode()) {
-        std::vector<std::string> paths = io::FileCacheFactory::instance()->get_base_paths();
-        if (paths.empty()) {
-            return Status::InternalError("fail to create write buffer due to missing cache path");
-        }
-        std::size_t hash_val = std::hash<int64_t> {}(_tablet_id);
-        int64_t idx = hash_val % paths.size();
-        file_path_ss << paths[idx] << "/compaction_row_source_" << _tablet_id;
-    } else {
-        file_path_ss << _tablet_path << "/compaction_row_source_" << _tablet_id;
     }
 
-    if (_reader_type == ReaderType::READER_BASE_COMPACTION) {
-        file_path_ss << "_base";
-    } else if (_reader_type == ReaderType::READER_CUMULATIVE_COMPACTION ||
-               _reader_type == ReaderType::READER_SEGMENT_COMPACTION) {
-        file_path_ss << "_cumu";
-    } else if (_reader_type == ReaderType::READER_FULL_COMPACTION) {
-        file_path_ss << "_full";
-    } else if (_reader_type == ReaderType::READER_COLD_DATA_COMPACTION) {
-        file_path_ss << "_cold";
-    } else {
-        DCHECK(false);
-        return Status::InternalError("unknown reader type");
-    }
-    file_path_ss << ".XXXXXX";
-    std::string file_path = file_path_ss.str();
-    LOG(INFO) << "Vertical compaction row sources buffer path: " << file_path;
-    _fd = mkstemp(file_path.data());
-    if (_fd < 0) {
-        LOG(WARNING) << "failed to create tmp file, file_path=" << file_path
-                     << ", err: " << strerror(errno);
-        return Status::InternalError("failed to create tmp file ");
-    }
-    // file will be released after fd is close
-    unlink(file_path.data());
-    return Status::OK();
-}
+    // Get current row position in block (for batch optimization)
+    uint32_t current_row_pos() const { return _index_in_block; }
 
-Status RowSourcesBuffer::flush() {
-    if (_fd > 0 && !_buffer.empty()) {
-        RETURN_IF_ERROR(_serialize());
-        _reset_buffer();
-    }
-    return Status::OK();
-}
+    // Get block pointer (for batch optimization)
+    Block* block() const { return _block.get(); }
 
-Status RowSourcesBuffer::_serialize() {
-    size_t rows = _buffer.size();
-    if (rows == 0) {
-        return Status::OK();
-    }
-    // write size
-    ssize_t bytes_written = ::write(_fd, &rows, sizeof(rows));
-    if (bytes_written != sizeof(size_t)) {
-        LOG(WARNING) << "failed to write buffer size to file, bytes_written=" << bytes_written;
-        return Status::InternalError("fail to write buffer size to file");
-    }
-    // write data
-    bytes_written = ::write(_fd, _buffer.data(), _buffer.size() * sizeof(UInt16));
-    if (bytes_written != _buffer.size() * sizeof(UInt16)) {
-        LOG(WARNING) << "failed to write buffer data to file, bytes_written=" << bytes_written
-                     << " buffer size=" << _buffer.size() * sizeof(UInt16);
-        return Status::InternalError("fail to write buffer size to file");
-    }
-    return Status::OK();
-}
+    const std::shared_ptr<Block>& block_ptr() const { return _block; }
 
-Status RowSourcesBuffer::_deserialize() {
-    size_t rows = 0;
-    ssize_t bytes_read = ::read(_fd, &rows, sizeof(rows));
-    if (bytes_read == 0) {
-        LOG(WARNING) << "end of row source buffer file";
-        return Status::EndOfFile("end of row source buffer file");
-    } else if (bytes_read != sizeof(size_t)) {
-        LOG(WARNING) << "failed to read buffer size from file, bytes_read=" << bytes_read;
-        return Status::InternalError("failed to read buffer size from file");
-    }
-    _buffer.resize(rows);
-    auto& internal_data = _buffer;
-    bytes_read = ::read(_fd, internal_data.data(), rows * sizeof(UInt16));
-    if (bytes_read != rows * sizeof(UInt16)) {
-        LOG(WARNING) << "failed to read buffer data from file, bytes_read=" << bytes_read
-                     << ", expect bytes=" << rows * sizeof(UInt16);
-        return Status::InternalError("failed to read buffer data from file");
-    }
-    return Status::OK();
-}
+    // No later row source references this context. The returned IteratorRowRef/RowBatch keeps
+    // its own shared_ptr<Block>, so the segment reader and context-owned blocks can be released.
+    void release_resources();
+
+private:
+    // Load next block into _block
+    Status _load_next_block();
+    void _mark_active();
+    void _mark_inactive();
+
+    RowwiseIteratorUPtr _iter;
+
+    bool _valid = false;
+    bool _inited = false;
+    int32_t _index_in_block = -1;
+    size_t _block_row_max = 0;
+    VerticalCompactionContextStats* _context_stats;
+
+    // used to store data load from iterator->next_batch(Block*)
+    std::shared_ptr<Block> _block;
+    // used to store data still on block view
+    std::list<std::shared_ptr<Block>> _block_list;
+    // use to identify whether it's first block load from RowwiseIterator
+    bool _is_first_row = true;
+    bool _is_active_context_counted = false;
+};
 
 // ----------  vertical merge iterator context ----------//
 VerticalMergeIteratorContext::~VerticalMergeIteratorContext() {
@@ -471,42 +315,16 @@ Status VerticalMergeIteratorContext::_load_next_block() {
     return Status::OK();
 }
 
-//  ----------------  VerticalKeyMergeIterator  -------------  //
-VerticalKeyMergeIterator::VerticalKeyMergeIterator(std::vector<RowwiseIteratorUPtr> sources,
-                                                   ReadSchemaSPtr read_schema,
-                                                   MergeDecision decision,
-                                                   RowSourcesBuffer* row_sources_buf)
-        : _merge(std::move(sources), std::move(read_schema), std::move(decision)),
-          _row_sources_buf(row_sources_buf) {}
-
-Status VerticalKeyMergeIterator::init(const StorageReadOptions& opts,
-                                      CompactionSampleInfo* sample_info) {
-    _sample_info = sample_info;
-    return _merge.init(opts);
-}
-
-Status VerticalKeyMergeIterator::next_batch(Block* block) {
-    Status st = _merge.next_batch(block, &_runs);
-    if (!st.ok() && !st.is<END_OF_FILE>()) {
-        return st;
-    }
-    // The runs of an EndOfFile hold the rows dropped last, which the value groups skip too.
-    _row_sources.clear();
-    for (const auto& run : _runs) {
-        const auto source = static_cast<uint16_t>(run.child);
-        _row_sources.emplace_back(source, run.first_same);
-        _row_sources.insert(_row_sources.end(), run.rows - 1, RowSource(source, false));
-    }
-    RETURN_IF_ERROR(_row_sources_buf->append(_row_sources));
-    if (_sample_info != nullptr && block->rows() > 0) {
-        _sample_info->bytes += block->allocated_bytes();
-        _sample_info->rows += block->rows();
-        _sample_info = nullptr;
-    }
-    return st;
-}
-
 //  ----------------  VerticalMaskMergeIterator  -------------  //
+VerticalMaskMergeIterator::VerticalMaskMergeIterator(std::vector<RowwiseIteratorUPtr>&& iters,
+                                                     RowSourcesBuffer* row_sources_buf,
+                                                     VerticalCompactionContextStats* context_stats)
+        : _origin_iters(std::move(iters)),
+          _row_sources_buf(row_sources_buf),
+          _context_stats(context_stats) {}
+
+VerticalMaskMergeIterator::~VerticalMaskMergeIterator() = default;
+
 Status VerticalMaskMergeIterator::check_all_iter_finished() {
     for (auto& iter : _origin_iter_ctx) {
         if (iter->inited()) {
@@ -736,13 +554,6 @@ Status VerticalMaskMergeIterator::init(const StorageReadOptions& opts,
 }
 
 // interfaces to create vertical merge iterator
-std::shared_ptr<RowwiseIterator> new_vertical_key_merge_iterator(
-        std::vector<RowwiseIteratorUPtr> sources, ReadSchemaSPtr read_schema,
-        const MergeDecision& decision, RowSourcesBuffer* row_sources_buf) {
-    return std::make_shared<VerticalKeyMergeIterator>(std::move(sources), std::move(read_schema),
-                                                      decision, row_sources_buf);
-}
-
 std::shared_ptr<RowwiseIterator> new_vertical_mask_merge_iterator(
         std::vector<RowwiseIteratorUPtr>&& inputs, RowSourcesBuffer* row_sources,
         VerticalCompactionContextStats* context_stats) {
