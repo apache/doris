@@ -21,6 +21,7 @@ import org.apache.paimon.CoreOptions;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.FileSystemCatalog;
 import org.apache.paimon.catalog.Identifier;
+import org.apache.paimon.catalog.TableQueryAuthResult;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.io.DataFileMeta;
@@ -32,6 +33,7 @@ import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.IncrementalSplit;
+import org.apache.paimon.table.source.QueryAuthSplit;
 import org.apache.paimon.table.source.Split;
 import org.apache.paimon.types.DataTypes;
 import org.junit.jupiter.api.Assertions;
@@ -112,6 +114,25 @@ public class PaimonJniHeapEstimateTest {
     public void mergedSplitHoldsARowGroupOfEveryFile() {
         DataSplit split = split(false, file("data-0.parquet", 130 * MB), file("data-1.parquet", 12 * MB));
         Assertions.assertEquals((130 + 4) * MB + (12 + 4) * MB, estimate.bytesOf(split));
+    }
+
+    /**
+     * A table with query-auth rules has every split planned in a QueryAuthSplit, which a fallback-branch table
+     * wraps in its FallbackSplit; the reader reads the split inside, merging it as it would unwrapped.
+     */
+    @Test
+    public void splitPlannedForQueryAuthHoldsWhatTheSplitInsideHolds() {
+        TableQueryAuthResult rules = new TableQueryAuthResult(Collections.emptyList(), Collections.emptyMap());
+        DataSplit merged = split(false, file("data-0.parquet", 130 * MB), file("data-1.parquet", 12 * MB));
+        long expected = (130 + 4) * MB + (12 + 4) * MB;
+        Assertions.assertEquals(expected, estimate.bytesOf(new QueryAuthSplit(merged, rules)));
+        Assertions.assertEquals(expected, estimate.bytesOf(
+                FallbackReadFileStoreTable.toFallbackSplit(new QueryAuthSplit(merged, rules), true)));
+
+        IncrementalSplit diff = new IncrementalSplit(2L, BinaryRow.EMPTY_ROW, 0, 1,
+                Collections.singletonList(file("data-2.parquet", 40 * MB)), null,
+                Collections.singletonList(file("data-3.parquet", 300 * MB)), null, false);
+        Assertions.assertEquals((40 + 4) * MB + (256 + 4) * MB, estimate.bytesOf(new QueryAuthSplit(diff, rules)));
     }
 
     @Test
