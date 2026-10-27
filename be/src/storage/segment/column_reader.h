@@ -1005,6 +1005,13 @@ public:
     ConstantColumnIterator() = delete;
     explicit ConstantColumnIterator(Field value) : _value(std::move(value)) {}
 
+    // Nested column pruning materializes `read_type`, which keeps only the requested STRUCT fields
+    // of `declared_type` at any nesting depth. For example, after `ADD COLUMN s STRUCT<a:INT,
+    // b:STRING> DEFAULT '{7, "x"}'`, `struct_element(s, 'b')` reads old segments into a
+    // STRUCT<b:STRING> column, so the default parsed with the declared type must become {"x"}
+    // before it is inserted; a file iterator drops its pruned sub-iterators instead.
+    Status project_to_read_type(const DataTypePtr& declared_type, const DataTypePtr& read_type);
+
     Status seek_to_ordinal(ordinal_t ord_idx) override {
         _current_rowid = ord_idx;
         return Status::OK();

@@ -108,6 +108,9 @@ inline ColumnNullable::MutablePtr create_empty_nullable_column(const DataTypePtr
 
 namespace CastWrapper {
 
+// Normalize every nested MAP in an owned column with the last value of a repeated key winning.
+Status deduplicate_map_keys(IColumn& column);
+
 using WrapperType = std::function<Status(FunctionContext*, Block&, const ColumnNumbers&, uint32_t,
                                          size_t, const NullMap::value_type*)>;
 
