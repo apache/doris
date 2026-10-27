@@ -293,16 +293,21 @@ size_t VHeapMergeIterator::_run_end(uint32_t top_index, size_t cap) const {
 }
 
 Status VHeapMergeIterator::_take_run(MutableColumns& columns, size_t max_rows, size_t* rows,
-                                     std::vector<uint8_t>* same_key) {
+                                     std::vector<uint8_t>* same_key, std::vector<MergedRun>* runs) {
     const uint32_t top_index = _heap[0];
     Child& top = _children[top_index];
     const size_t end = _run_end(top_index, std::min(top.rows, top.pos + max_rows));
     size_t start = top.pos;
     // Only the first row of the run can repeat the key taken last, since a child holds every
     // key once.
-    const bool track_key = _decision.drop_older_versions || same_key != nullptr;
+    const bool track_key = _decision.drop_older_versions || same_key != nullptr || runs != nullptr;
     const bool repeats_last_key =
             track_key && !_last_key.empty() && _key_equals_remembered(*top.block, start);
+    if (runs != nullptr) {
+        runs->push_back({.child = top_index,
+                         .rows = cast_set<uint32_t>(end - start),
+                         .first_same = repeats_last_key});
+    }
     if (_decision.drop_older_versions && repeats_last_key) {
         ++start;
         ++_merged_rows;
@@ -343,7 +348,8 @@ void VHeapMergeIterator::_copy_taken_runs(MutableColumns& columns) {
     _taken_runs.clear();
 }
 
-Status VHeapMergeIterator::_next_batch(Block* block, std::vector<uint8_t>* same_key) {
+Status VHeapMergeIterator::_next_batch(Block* block, std::vector<uint8_t>* same_key,
+                                       std::vector<MergedRun>* runs) {
     DCHECK(!_eof) << "next_batch() called after EndOfFile";
     DCHECK(!_row_handed_out) << "a merge is consumed either by next_batch() or by next_row()";
     DCHECK_EQ(block->columns(), _read_schema->num_block_columns());
@@ -354,7 +360,7 @@ Status VHeapMergeIterator::_next_batch(Block* block, std::vector<uint8_t>* same_
         auto columns_guard = block->mutate_columns_scoped();
         auto& columns = columns_guard.mutable_columns();
         while (rows < _limits.max_rows && !_heap.empty()) {
-            RETURN_IF_ERROR(_take_run(columns, _limits.max_rows - rows, &rows, same_key));
+            RETURN_IF_ERROR(_take_run(columns, _limits.max_rows - rows, &rows, same_key, runs));
             if (_limits.has_byte_budget() &&
                 rows - rows_at_last_check >= OutputBlockLimits::BYTE_BUDGET_CHECK_INTERVAL_ROWS) {
                 rows_at_last_check = rows;
@@ -376,13 +382,18 @@ Status VHeapMergeIterator::_next_batch(Block* block, std::vector<uint8_t>* same_
 }
 
 Status VHeapMergeIterator::next_batch(Block* block) {
-    return _next_batch(block, nullptr);
+    return _next_batch(block, nullptr, nullptr);
 }
 
 Status VHeapMergeIterator::next_batch(Block* block, std::vector<uint8_t>* same_key) {
     DORIS_CHECK(!_decision.drop_older_versions);
     same_key->clear();
-    return _next_batch(block, same_key);
+    return _next_batch(block, same_key, nullptr);
+}
+
+Status VHeapMergeIterator::next_batch(Block* block, std::vector<MergedRun>* runs) {
+    runs->clear();
+    return _next_batch(block, nullptr, runs);
 }
 
 void VHeapMergeIterator::update_profile(RuntimeProfile* profile) {
