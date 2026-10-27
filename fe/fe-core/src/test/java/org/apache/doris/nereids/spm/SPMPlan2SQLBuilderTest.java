@@ -825,6 +825,37 @@ public class SPMPlan2SQLBuilderTest {
     }
 
     /**
+     * The ASSERT_ROWS relation at the RESULT ROOT (round-83 #4): there is no parent to consume the
+     * relation prefix, and toSQL() of the relation never renders assertRows - so
+     * `SELECT * FROM ASSERT_ROWS (SELECT k FROM t WHERE k > 0) a` froze as an ordinary filtered
+     * SELECT. CREATE's probe planned that text happily, and an identical replay returned BOTH rows
+     * where native execution raises the row-count error. The boundary is materialized in the only
+     * statement form the grammar has for it.
+     */
+    @Test
+    public void testRootAssertNumRowsKeepsTheAssertion() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        PhysicalOlapScan scan = mockScan("t1", List.of(a));
+        PhysicalAssertNumRows<?> assertNumRows = Mockito.mock(PhysicalAssertNumRows.class);
+        Mockito.when(assertNumRows.child(0)).thenReturn(scan);
+        stubAccept(assertNumRows);
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(assertNumRows);
+        Assertions.assertTrue(sql.startsWith("SELECT * FROM ASSERT_ROWS ("),
+                "the root assertion must be materialized, not dropped: " + sql);
+
+        Plan parsed = new NereidsParser().parseSingle(sql);
+        boolean[] found = {false};
+        SPMPlanTreeSupport.<RuntimeException>walkPlans(parsed, plan -> {
+            if (plan instanceof LogicalAssertNumRows) {
+                found[0] = true;
+            }
+        });
+        Assertions.assertTrue(found[0],
+                "the frozen SQL must re-parse into a LogicalAssertNumRows: " + sql);
+    }
+
+    /**
      * The wrapper chain between the join and the assert (the scalar expression
      * projected over the single-row input) must render INSIDE the relation the join
      * references: the assert prefix belongs to the projected relation's FROM, and the

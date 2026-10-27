@@ -865,7 +865,7 @@ public class SPMManagerAndPlannerTest {
         // plan_sql, query_id, cost, query_time_ms, source, status, create_time, update_time
         ResultRow row = new ResultRow(List.of(
                 "77", hintSql, "digest_hint", "34", hintSql, "", "1.0", "-1",
-                "USER", "ENABLED", "1767225600.000000", "1767225600.000000"));
+                "USER", "ENABLED", "1767225600000000", "1767225600000000"));
 
         BaselinePlan rebuilt = BaselineManagerTestAccess.parsePersistedRow(row);
         Assertions.assertNotNull(rebuilt.getParameterizedBindPlan(),

@@ -207,7 +207,11 @@ public class SPMRound68ManagerTest {
         String bounded = BaselineManager.conditionalStatusInsertSql(1_700_000_000L);
         Assertions.assertTrue(bounded.contains("NOT EXISTS"),
                 "the flip must require that no NEWER row of the id exists: " + bounded);
-        Assertions.assertTrue(bounded.contains("UNIX_TIMESTAMP(`update_time`)"),
+        Assertions.assertTrue(bounded.contains("TIMESTAMPDIFF(MICROSECOND"),
+                "the comparison reads the stored instant as an ABSOLUTE microsecond difference"
+                        + " (UNIX_TIMESTAMP would render a civil time and collapse a DST repeated"
+                        + " hour): " + bounded);
+        Assertions.assertTrue(bounded.contains("`update_time`)"),
                 "the comparison is on the stored instant (the table's ordering key): " + bounded);
         Assertions.assertTrue(bounded.contains("> ${previousUpdateMicros}"),
                 "the statement is bound to the INSTANT it flips from, in epoch MICROSECONDS"

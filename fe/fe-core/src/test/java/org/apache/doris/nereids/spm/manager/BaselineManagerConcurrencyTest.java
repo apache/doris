@@ -1756,8 +1756,8 @@ public class BaselineManagerConcurrencyTest {
                 Long.toString(plan.getBindSqlHash()), plan.getPlanSql(), "NaN",
                 Double.toString(plan.getCost()), Long.toString(plan.getQueryTimeMs()),
                 plan.getSource().toString(), plan.getStatus().toString(),
-                // the TIMESTAMPTZ columns are read through UNIX_TIMESTAMP (see
-                // BaselineManager#storedMicros), i.e. as a decimal SECOND value
+                // the TIMESTAMPTZ columns are read as the MICROSECOND difference from
+                // the epoch (see BaselineManager#storedMicros)
                 storedInstantText(plan.getCreateTime()),
                 storedInstantText(plan.getUpdateTime()),
                 "0", "0", "false", ""));
@@ -1765,12 +1765,12 @@ public class BaselineManagerConcurrencyTest {
 
     /**
      * The internal-table rendering of one stored instant: the SELECT lists read a
-     * TIMESTAMPTZ column through UNIX_TIMESTAMP (see BaselineManager#storedMicros), so a
-     * row carries the instant as a decimal SECOND value with the column's six
-     * fractional digits, NOT as the epoch-microsecond long the model keeps.
+     * TIMESTAMPTZ column as the MICROSECOND difference from the epoch (see
+     * BaselineManager#storedMicros), so a row carries the instant as the epoch-microsecond
+     * INTEGER - exactly the long the model keeps.
      */
     private static String storedInstantText(long epochMicros) {
-        return java.math.BigDecimal.valueOf(epochMicros, 6).toPlainString();
+        return Long.toString(epochMicros);
     }
 
     /**
@@ -2535,7 +2535,7 @@ public class BaselineManagerConcurrencyTest {
     private static ResultRow row(String bindSql, String planSql) {
         return new ResultRow(List.of(
                 "77", bindSql, "d-temp", "7", planSql, "NaN", "0", "0",
-                "USER", "ENABLED", "1767225600.000000", "1767225600.000000",
+                "USER", "ENABLED", "1767225600000000", "1767225600000000",
                 "0", "0", "false", ""));
     }
 

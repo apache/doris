@@ -5494,20 +5494,41 @@ public final class SPMPlanTreeSupport {
 
     /**
      * The identity of one non-leaf node for the resolved-key comparison (see sameResolvedKey): a
-     * FUNCTION contributes its name, everything else its node class - plus the SEMANTIC
-     * ATTRIBUTES the class alone does not carry.
+     * FUNCTION contributes its name and its DISTINCT flag, everything else its node class - plus
+     * the SEMANTIC ATTRIBUTES the class alone does not carry.
      *
      * A CAST's TARGET TYPE is exactly such an attribute (round-81 #1): {@code CAST(k AS INT)} and
      * {@code CAST(k AS DOUBLE)} are the same class over the same child, so an alias PERMUTATION
      * that swapped the two output casts passed this comparison although it resolves `x` to the
      * other cast - the bind HAVING then filtered {@code CAST(0.5 AS INT) = 0} (dropping the row)
-     * while the frozen replay filtered the DOUBLE value (keeping it). The class-only identity of
-     * a node whose constructor arguments change its meaning has to list them here.
+     * while the frozen replay filtered the DOUBLE value (keeping it).
+     *
+     * An aggregate's DISTINCT flag is the second one (round-83): {@code sum(k)} and
+     * {@code sum(DISTINCT k)} are the same class, the same name and the same child, so swapping
+     * them between two output aliases resolved `x` to the other aggregate - the bind filtered
+     * {@code sum(k) > 1} (2 for t(k)={1,1}) while the replay filtered {@code sum(DISTINCT k) > 1}
+     * (1), returning no rows. The flag lives on UnboundFunction in the parse tree and on
+     * AggregateFunction once bound; both are listed here, and any further attribute that changes
+     * what a node MEANS belongs in the same place.
      *
      * @param expression the node
      * @return the identity text
      */
     private static String nodeIdentity(Expression expression) {
+        if (expression instanceof org.apache.doris.nereids.analyzer.UnboundFunction) {
+            org.apache.doris.nereids.analyzer.UnboundFunction function =
+                    (org.apache.doris.nereids.analyzer.UnboundFunction) expression;
+            return function.getName().toLowerCase(Locale.ROOT) + "|distinct="
+                    + function.isDistinct();
+        }
+        if (expression instanceof org.apache.doris.nereids.trees.expressions.functions.agg
+                .AggregateFunction) {
+            org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction function =
+                    (org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction)
+                            expression;
+            return function.getName().toLowerCase(Locale.ROOT) + "|distinct="
+                    + function.isDistinct();
+        }
         if (expression instanceof org.apache.doris.nereids.trees.expressions.functions.Function) {
             return ((org.apache.doris.nereids.trees.expressions.functions.Function) expression)
                     .getName().toLowerCase(Locale.ROOT);
@@ -8278,8 +8299,14 @@ public final class SPMPlanTreeSupport {
             // types and saved variables expands `f(a,b)` to concat(b,a) - the frozen text keeps
             // the old concat(a,b) and the replay returns AB where the caller gets BA. Only the
             // parameter list separates the two declarations, so it is rendered in order.
+            // The BODY is rendered through expressionIdentity (round-83 #5), i.e. WITH the
+            // resolved scope trace at each structural position: toSql() drops the database of a
+            // qualified inner call, so `concat(db1.g(a), db2.g(b))` and
+            // `concat(db2.g(a), db1.g(b))` rendered identically and the entry SET below lost
+            // which argument each qualified call consumes (both gave {concat, db1.g, db2.g}).
             return "alias:" + (udf == null ? "null"
-                    : udf.getUnboundFunction().toSql() + "|params=" + udf.getParameters()
+                    : expressionIdentity(udf.getUnboundFunction())
+                            + "|params=" + udf.getParameters()
                             + "|" + udf.getSessionVariables())
                     + "|" + signature + "|" + planBehaviorOf(udf)
                     + "|" + describeAliasBodyEntries(ctx, udf, expandingAliasBody);

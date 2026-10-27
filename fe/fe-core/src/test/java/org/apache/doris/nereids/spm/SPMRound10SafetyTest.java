@@ -197,10 +197,11 @@ public class SPMRound10SafetyTest {
         values.add("-1");                                 // 7 query_time_ms
         values.add("USER");                               // 8 source
         values.add("ENABLED");                            // 9 status
-        // 10/11 create_time / update_time: the TIMESTAMPTZ columns are read through
-        // UNIX_TIMESTAMP (see BaselineManager#storedMicros), i.e. as decimal SECONDS
-        values.add("1767225600.000000");
-        values.add("1767225600.000000");
+        // 10/11 create_time / update_time: the TIMESTAMPTZ columns are read as the MICROSECOND
+        // difference from the epoch (see BaselineManager#storedMicros), i.e. the epoch-microsecond
+        // INTEGER the model keeps
+        values.add("1767225600000000");
+        values.add("1767225600000000");
         values.add(String.valueOf(SqlModeHelper.MODE_DEFAULT)); // 12 sql_mode
         values.add(String.valueOf(SqlModeHelper.MODE_DEFAULT)); // 13 plan_sql_mode
         values.add("false");                              // 14 plan_frozen

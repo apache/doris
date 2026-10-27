@@ -798,9 +798,10 @@ public class BaselineManager {
      * MAX(update_time) around its page loop); the fence is now the bounded mutation clock
      * (see SELECT_CLOCK_SQL), so the bump read only needs this id's key prefix.
      *
-     * The value is read at the column's OWN precision (see storedMicros): UNIX_TIMESTAMP of a
-     * TIMESTAMPTZ(6) yields epoch SECONDS with MICROSECOND digits, i.e. exactly the stored
-     * instant - scaling it to a coarser unit here is what used to throw that precision away.
+     * The value is read at the column's OWN precision (see storedMicros): the MICROSECOND
+     * difference from the epoch of a TIMESTAMPTZ(6) IS the stored instant, without any civil-time
+     * rendering in between - scaling it to a coarser unit here is what used to throw that
+     * precision away.
      */
     private static final String SELECT_MAX_UPDATE_TIME_SQL = "SELECT "
             + storedMicros("MAX(`update_time`)") + " FROM "
@@ -2694,6 +2695,14 @@ public class BaselineManager {
             // the delete is keyed by id + content, so a stale id can never remove an
             // unrelated row that reused the id
             assertLeaderForWrite();
+            // Retain the KEY CLEANUP BEFORE the identity delete can land (round-83 #6).
+            // Retaining afterwards meant an unreadable id watermark failed the DROP only AFTER
+            // the row was already gone: nothing was retained, so an `IF EXISTS` retry found the
+            // row ABSENT and reported success while the newer same-key twins of that id were
+            // still durable and could match cold (resumePendingDropKeyCleanup had no identity to
+            // resume from). The watermark read is also the only failing step of the retention, so
+            // it now fails with the row STILL PRESENT - the retry repeats the whole DROP.
+            retainDropKeyCleanup(removed);
             try {
                 persistDeleteByIdentity(removed);
             } catch (RuntimeException e) {
@@ -2717,25 +2726,11 @@ public class BaselineManager {
                 }
                 throw e;
             }
-            // The cached object can predate a promotion reload AND the durable row under
-            // this id may be a DIFFERENT incarnation (an id reused after the old row was
-            // dropped): DROP is keyed by the user-facing id, so no row of this id may
-            // survive - identity-deleting only the stale object would report success
-            // while the real row stays and keeps matching later reads.
             // The IDENTITY delete is CONFIRMED from here on (persistDeleteByIdentity only
-            // returns once the row is gone), so TWO obligations must be settled - in this
-            // order, because preparing the second one is a READ that can fail (round-80
-            // #4/#5):
-            //   (1) the dropped baseline stops being matchable / replayable on this FE and its
-            //       durable tombstone obligation exists;
-            //   (2) the KEY CLEANUP below is retained (it needs the id watermark) and the
-            //       lingering rows of this id are wiped.
-            // Settling (2) FIRST let an unreadable watermark throw before (1): the cached
-            // ENABLED baseline stayed matchable although its durable row was already gone, and
-            // the tombstone (plus the retry obligation) a delayed status INSERT of a demoted
-            // master needs to be defeated was never recorded - that row could revive the
-            // DROPped baseline after a cache loss / handoff. The cache-miss path already
-            // settles (1) first (see dropDurableRowByIdIfAbsentFromCache).
+            // returns once the row is gone), so the obligations below are settled in an order
+            // that keeps every one of them recoverable: the KEY CLEANUP was already retained
+            // above, the cache entry leaves first, then the two tombstone scopes and the
+            // CONFIRMED absence fence, and only then are the lingering rows of this id wiped.
             removeCachedBaseline(removed);
             // Two tombstone SCOPES are written on purpose, because the DROP has to defeat two
             // DIFFERENT revivals (round-76 #7: each path writes the scope it means, and every
@@ -2762,13 +2757,6 @@ public class BaselineManager {
             // only its publication lags - an EXPIRING fence re-published the pre-DROP row as
             // soon as the bound elapsed.
             recordConfirmedAbsenceFence(id);
-            // Retain the identity for the KEY CLEANUP below (see
-            // resumePendingDropKeyCleanup): the twin retirement runs AFTER the identity
-            // delete, so a twin whose delete throws leaves the dropped id ABSENT and this
-            // retention is then the only source of the twins that still have to go. An
-            // unreadable watermark still fails the DROP retryably, but obligations (1) above
-            // are already settled.
-            retainDropKeyCleanup(removed);
             List<BaselinePlan> retiredTwins = new ArrayList<>();
             try {
                 retiredTwins = wipeDurableRowsById(id, removed, retiredTwins);
@@ -2901,6 +2889,14 @@ public class BaselineManager {
             }
             return false;
         }
+        // Retain the KEY CLEANUP of every row this DROP is about to delete BEFORE any delete can
+        // land (round-83 #6): the bound is a READ of the id watermark and is the only failing
+        // step, so an unreadable watermark now fails with every row STILL PRESENT and the retry
+        // repeats the whole DROP - it used to fail after the deletes, leaving no retention at all,
+        // so an absent-row retry reported success while a newer same-key twin stayed durable.
+        for (BaselinePlan row : durable) {
+            retainDropKeyCleanup(row);
+        }
         try {
             for (BaselinePlan row : durable) {
                 persistDeleteByIdentity(row);
@@ -2943,26 +2939,19 @@ public class BaselineManager {
         for (BaselinePlan row : durable) {
             removeCachedBaseline(row);
         }
-        // The ID-scope tombstone and the confirmed absence fence are settled HERE, before the
-        // key-cleanup retention below (round-80 #4/#5): that retention is a READ of the id
-        // watermark and can fail, and the rows above are already deleted - an unreadable
-        // watermark used to escape with the id un-condemned and un-fenced, so a delayed status
-        // INSERT of a demoted master (or of another incarnation of this id) could revive the
-        // DROPped baseline after a cache loss / handoff. The cached path settles the same two
-        // obligations in the same order (see dropBaseline).
+        // The ID-scope tombstone and the confirmed absence fence are settled right after the
+        // deletes, like the cached path (see dropBaseline). The KEY CLEANUP was already retained
+        // BEFORE them (round-83 #6), so every obligation of this DROP is recoverable from the
+        // moment its first delete can land.
         noteDroppedIdState(id);
         // Same CONFIRMED absence fence as dropBaseline (round-76 #7): every identity delete of
         // this branch returned OK, so absence is irreversible and only its publication lags.
         recordConfirmedAbsenceFence(id);
         // retire the KEY's superseded same-key twins as well: this cache-miss DROP path
         // must not leave the loser of a handoff twin pair durable (see
-        // retireSupersededKeyTwins)
-        // Retain the identity BEFORE that cleanup is dispatched: a twin delete that throws
-        // leaves this id ABSENT durably, so the retry has no other source for the identity
-        // whose twins still have to be retired (see resumePendingDropKeyCleanup).
-        for (BaselinePlan row : durable) {
-            retainDropKeyCleanup(row);
-        }
+        // retireSupersededKeyTwins). A twin delete that throws leaves this id ABSENT durably,
+        // so the retention recorded before the deletes is the only source of the identity whose
+        // twins still have to be retired (see resumePendingDropKeyCleanup).
         List<BaselinePlan> retiredKeys = new ArrayList<>();
         try {
             for (BaselinePlan row : durable) {
@@ -10057,26 +10046,31 @@ public class BaselineManager {
 
     /**
      * Epoch MICROSECONDS of ONE TIMESTAMPTZ column, read at the column's OWN precision: the
-     * SELECT lists read the stored INSTANT with UNIX_TIMESTAMP instead of the column's
-     * rendering, because the rendering of a TIMESTAMPTZ depends on the READING session's
-     * time zone while the stored value does not - every downstream comparison (status-flip
-     * ordering, the duplicate winner, the pending fence age) would otherwise shift with the
-     * zone.
+     * SELECT lists read the stored INSTANT as a MICROSECOND difference from the epoch instead
+     * of the column's rendering, because the rendering of a TIMESTAMPTZ depends on the READING
+     * session's time zone while the stored value does not - every downstream comparison
+     * (status-flip ordering, the duplicate winner, the pending fence age) would otherwise shift
+     * with the zone.
      *
-     * UNIX_TIMESTAMP of a TIMESTAMPTZ(6) value IS the instant in seconds with six
-     * fractional digits (e.g. 1792584036.467123), so the expression applies NO scaling:
-     * multiplying it to a coarser unit is exactly what threw the stored microseconds away.
-     * parseStoredMicros turns the decimal into the epoch-microsecond long every reader /
-     * writer uses.
+     * The difference of two TIMESTAMPTZ values is ABSOLUTE (round-83 #7): UNIX_TIMESTAMP of a
+     * TIMESTAMPTZ went through the DATETIMEV2 signature, i.e. through the reading session's
+     * CIVIL time, so a GLOBAL DST time_zone made the two instants of a repeated hour collapse
+     * onto one second before the conversion back to the epoch (measured on the sandbox:
+     * 2026-11-01 05:30Z and 06:30Z both returned 1793511000 under America/New_York) - the
+     * attempted-instant confirmation and the duplicate / status ordering then compared two
+     * DIFFERENT instants as equal. TIMESTAMPDIFF(MICROSECOND, {@code <epoch>}, col) never renders
+     * a civil time, keeps all six fractional digits, and returns exactly the epoch-microsecond
+     * long every reader / writer uses.
      *
      * @param sqlExpression the column as it appears in the SELECT list, already quoted
      *                      (a bare column or an aggregate such as MAX(`update_time`)) - the
      *                      helper must not add quoting, or an aggregate would be wrapped
      *                      into `MAX(`update_time`)` and fail to parse
-     * @return the SQL expression
+     * @return the SQL expression, in epoch MICROSECONDS
      */
     private static String storedMicros(String sqlExpression) {
-        return "UNIX_TIMESTAMP(" + sqlExpression + ")";
+        return "TIMESTAMPDIFF(MICROSECOND,"
+                + " CAST('1970-01-01 00:00:00+00:00' AS TIMESTAMPTZ), " + sqlExpression + ")";
     }
 
     /**
@@ -10108,18 +10102,17 @@ public class BaselineManager {
     }
 
     /**
-     * One TIMESTAMPTZ column read through UNIX_TIMESTAMP (see storedMicros): epoch
+     * One TIMESTAMPTZ column read through TIMESTAMPDIFF (see storedMicros): epoch
      * MICROSECONDS, never a rendering. Parsing the session-zone-dependent rendering instead
      * would make every stored-time comparison (the status-flip ordering, the duplicate
      * winner, the pending fence age) depend on the reading session's time zone.
      *
-     * The read is the column's own second.microsecond decimal, so the conversion to the
-     * epoch-microsecond unit is an exact DECIMAL point shift of the column's declared scale -
-     * no floating-point rounding and no coarser unit in between (a millisecond-scaling read
-     * would silently truncate the digits the ordering relies on).
+     * The read already IS the epoch-microsecond integer (the difference of two absolute
+     * instants), so the decimal carries no unit to shift - scaling it again (as the former
+     * second-valued UNIX_TIMESTAMP text required) would multiply every instant by a million.
      *
-     * @param stored the column's UNIX_TIMESTAMP text (decimal SECONDS with the column's
-     *               fractional digits; empty / null = no value)
+     * @param stored the column's TIMESTAMPDIFF text (epoch MICROSECONDS; empty / null = no
+     *               value)
      * @return the epoch microseconds, 0 when absent
      */
     private static long parseStoredMicros(String stored) {
@@ -10127,7 +10120,6 @@ public class BaselineManager {
             return 0;
         }
         return new java.math.BigDecimal(stored.trim())
-                .movePointRight(InternalSchema.SPM_TIMESTAMP_SCALE)
                 .setScale(0, java.math.RoundingMode.DOWN)
                 .longValue();
     }

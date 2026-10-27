@@ -809,6 +809,16 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         // PhysicalAssertNumRows carries no node of its own in the frozen text: it renders
         // as the ASSERT_ROWS relation prefix wherever its parent references the input
         // relation (visitPhysicalAssertNumRows), and the parser rebuilds the assertion.
+        //
+        // At the ROOT there is no parent to consume that prefix (round-83 #4): toSQL() of the
+        // relation never renders assertRows, so `SELECT * FROM ASSERT_ROWS (SELECT ...) a`
+        // froze as an ordinary filtered SELECT - CREATE's probe planned it happily and an
+        // identical replay returned BOTH rows where native execution raises the row-count
+        // error. The boundary is therefore materialized HERE, in the only statement form the
+        // grammar has for it: the ASSERT_ROWS relation under a plain SELECT *.
+        if (relation.isAssertRows()) {
+            return "SELECT * FROM " + relation.toRelationSQL();
+        }
         return relation.toSQL();
     }
 

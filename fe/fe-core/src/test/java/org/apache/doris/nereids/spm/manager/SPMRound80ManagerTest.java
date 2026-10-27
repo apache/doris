@@ -236,14 +236,17 @@ public class SPMRound80ManagerTest {
     }
 
     /**
-     * CACHED path: the identity DELETE is CONFIRMED, then the KEY CLEANUP's watermark read fails.
-     * The DROP still fails retryably, but the dropped baseline must already have left the cache
-     * (#10) and its durable tombstone + retry obligation must already exist (#11) - otherwise a
-     * caller keeps replaying a baseline whose durable row is gone, and a delayed status INSERT of
-     * a demoted master can revive the dropped baseline after a cache loss / handoff.
+     * CACHED path: the KEY CLEANUP's watermark read fails (round-83 #6 turned the retention into
+     * the FIRST step of the DROP, so the failure now happens with the row still PRESENT).
+     *
+     * Nothing may be half-done: the identity is still durable and still matchable, no tombstone /
+     * fence / cleanup obligation was recorded, and the retry repeats the WHOLE DROP. Before the
+     * reorder the delete could land first, and a failure at this point left no cleanup obligation
+     * at all (an absent-row retry then reported success while a newer same-key twin stayed
+     * matchable - see testDropRetiresTheSurvivingTwinAfterTheWatermarkFailure).
      */
     @Test
-    public void testDropForgetsTheCachedIdentityWhenTheWatermarkReadFails() {
+    public void testCachedDropFailsBeforeDeletingWhenTheWatermarkReadFails() {
         TestStore store = new TestStore();
         BaselineManager manager = manager(store);
         // install the row as a COMPLETE cache entry: that is exactly the state a warm match
@@ -254,17 +257,17 @@ public class SPMRound80ManagerTest {
         Assertions.assertNotNull(BaselineManagerTestAccess.rawCacheGet(manager, 41L),
                 "the warmed row puts the DROP on the cached path");
 
-        assertConfirmedDropSurvivesWatermarkFailure(store, manager, 41L);
-        Assertions.assertNull(BaselineManagerTestAccess.rawCacheGet(manager, 41L),
-                "the cached row must be evicted although the key cleanup could not be prepared");
+        assertUnreadableWatermarkLeavesTheDropUntouched(store, manager, 41L);
+        Assertions.assertNotNull(BaselineManagerTestAccess.rawCacheGet(manager, 41L),
+                "the cached row must stay: nothing was deleted");
     }
 
     /**
-     * CACHE-MISS path (a promotion reload / stale snapshot): the durable rows are deleted and the
-     * same watermark failure must not leave the id un-condemned or un-fenced either.
+     * CACHE-MISS path (a promotion reload / stale snapshot): the same watermark failure must
+     * leave the durable rows untouched here as well.
      */
     @Test
-    public void testDurableDropStillCondemnsTheIdWhenTheWatermarkReadFails() {
+    public void testDurableDropFailsBeforeDeletingWhenTheWatermarkReadFails() {
         TestStore store = new TestStore();
         BaselineManager manager = manager(store);
         BaselinePlan plan = row(41L, "digest_a", BaselineStatus.ENABLED);
@@ -273,20 +276,52 @@ public class SPMRound80ManagerTest {
         Assertions.assertNull(BaselineManagerTestAccess.rawCacheGet(manager, 41L),
                 "a durable refresh leaves the row durable-only (the cache-miss DROP path)");
 
-        assertConfirmedDropSurvivesWatermarkFailure(store, manager, 41L);
+        assertUnreadableWatermarkLeavesTheDropUntouched(store, manager, 41L);
+    }
+
+    /**
+     * The scenario the retention ORDER exists for (review round-83 #6): a DROP whose KEY CLEANUP
+     * cannot be prepared must not leave a state an `IF EXISTS` retry reads as "already dropped".
+     * The id has a NEWER same-key twin; the failed attempt keeps both rows, and the retry - now
+     * with a readable watermark - deletes the id AND retires the twin, so nothing of the key stays
+     * eligible for a cold match.
+     */
+    @Test
+    public void testDropRetiresTheSurvivingTwinAfterTheWatermarkFailure() {
+        TestStore store = new TestStore();
+        BaselineManager manager = manager(store);
+        store.rows.put(41L, row(41L, "digest_a", BaselineStatus.ENABLED));
+        store.rows.put(42L, row(42L, "digest_a", BaselineStatus.ENABLED));
+        // the allocation high-water mark covers the twin, so the retirement may reclaim it
+        store.idWatermark = 42L;
+        BaselineManagerTestAccess.installCachedRow(manager,
+                row(41L, "digest_a", BaselineStatus.ENABLED));
+
+        assertUnreadableWatermarkLeavesTheDropUntouched(store, manager, 41L);
+        Assertions.assertTrue(store.rows.containsKey(42L),
+                "the twin is untouched by the failed attempt");
+
+        store.watermarkUnreadable = false;
+        Assertions.assertTrue(manager.dropBaseline(41L),
+                "the retry repeats the WHOLE DROP once the watermark is readable");
+        Assertions.assertFalse(store.rows.containsKey(41L), "the id is deleted");
+        Assertions.assertFalse(store.rows.containsKey(42L),
+                "the same-key twin is retired with the same DROP - an absent-row retry must never"
+                        + " report success while it is still matchable: " + store.rows);
+        Assertions.assertFalse(BaselineManagerTestAccess.retainsDropKeyCleanup(41L),
+                "the finished cleanup releases its retention");
     }
 
     /**
      * Drops one id whose key cleanup cannot be prepared (an unreadable id watermark) and asserts
-     * the obligations a CONFIRMED identity delete already earned: the row stops matching, both
-     * tombstone scopes are durable, the readable-tombstone obligation is retained and the
-     * confirmed absence fence masks the id.
+     * the DROP did NOTHING: the row is still durable and matchable, and no tombstone, fence or
+     * cleanup obligation was recorded for it.
      *
      * @param store   the simulated durable store
      * @param manager the manager under test
      * @param id      the id to drop
      */
-    private static void assertConfirmedDropSurvivesWatermarkFailure(TestStore store,
+    private static void assertUnreadableWatermarkLeavesTheDropUntouched(TestStore store,
             BaselineManager manager, long id) {
         store.watermarkUnreadable = true;
 
@@ -295,25 +330,18 @@ public class SPMRound80ManagerTest {
                 "an unbounded key cleanup keeps the DROP retryable");
         Assertions.assertTrue(failure.getMessage().contains("watermark"),
                 "the failure names the unreadable bound: " + failure.getMessage());
-        Assertions.assertFalse(store.rows.containsKey(id),
-                "the identity DELETE itself landed before the cleanup was prepared");
-
-        // #10: the confirmed delete must stop being matchable even though every later step
-        // failed
-        Assertions.assertNull(manager.getBaseline(id),
-                "a dropped baseline whose durable row is gone must not stay matchable");
-        // #11: the durable tombstone and the readable-tombstone obligation must survive
-        Assertions.assertTrue(store.tombstones.stream()
-                        .anyMatch(marker -> marker.startsWith(id + "|digest_a|")),
-                "the identity tombstone is appended right after the confirmed delete: "
-                        + store.tombstones);
-        Assertions.assertTrue(store.tombstones.contains(id + "||0"),
-                "the ID scope is condemned as well: " + store.tombstones);
-        Assertions.assertTrue(
-                BaselineManagerTestAccess.owesDropTombstoneConfirmation(id),
-                "the readable-tombstone obligation rides into the retry, not into the failure");
-        Assertions.assertTrue(BaselineManagerTestAccess.hasPendingMutationFence(manager, id),
-                "the confirmed absence fence still masks the id for this FE");
+        Assertions.assertTrue(store.rows.containsKey(id),
+                "the retention is the FIRST step: the identity delete never ran");
+        Assertions.assertNotNull(manager.getBaseline(id),
+                "the baseline is still durable and matchable");
+        Assertions.assertTrue(store.tombstones.isEmpty(),
+                "no tombstone may be appended for a DROP that did nothing: " + store.tombstones);
+        Assertions.assertFalse(BaselineManagerTestAccess.owesDropTombstoneConfirmation(id),
+                "no readable-tombstone obligation either");
+        Assertions.assertFalse(BaselineManagerTestAccess.hasPendingMutationFence(manager, id),
+                "the id is not fenced: it was never dropped");
+        Assertions.assertFalse(BaselineManagerTestAccess.retainsDropKeyCleanup(id),
+                "a cleanup that could not be bounded is not retained");
     }
 
     /**

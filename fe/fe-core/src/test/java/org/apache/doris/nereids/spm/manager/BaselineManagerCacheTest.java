@@ -367,8 +367,8 @@ public class BaselineManagerCacheTest {
                 "-1",                                          // query_time_ms
                 "USER",                                        // source
                 status.name(),                                 // status
-                "1767225600.000000",                               // create_time
-                "1767225600.000000",                               // update_time
+                "1767225600000000",                               // create_time
+                "1767225600000000",                               // update_time
                 String.valueOf(SqlModeHelper.MODE_DEFAULT),    // sql_mode
                 String.valueOf(SqlModeHelper.MODE_DEFAULT),    // plan_sql_mode
                 "false",                                       // plan_frozen
