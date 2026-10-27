@@ -30,6 +30,7 @@
 #include "core/data_type/data_type_struct.h"
 #include "exec/operator/olap_scan_operator.h"
 #include "exec/operator/scan_operator.h"
+#include "exec/scan/file_scan_range_utils.h"
 #include "exec/scan/file_scanner.h"
 #include "exec/scan/file_scanner_v2.h"
 #include "exec/scan/scanner_context.h"
@@ -188,8 +189,8 @@ bool FileScanLocalState::should_use_file_scanner_v2(const TQueryOptions& query_o
     // ADBC only has a FileScannerV2 reader, and enable_file_scanner_v2 is a session variable marked
     // fuzzy=true, so the regression harness flips it to false at random. Without letting adbc
     // through unconditionally, those queries land in v1, which has no "adbc" branch, and come back
-    // with an undiagnosable NotSupported -- showing up in CI as a random failure. This is the same
-    // mechanism as is_transactional_hive below, pointed the other way. Loads are left alone: there
+    // with an undiagnosable NotSupported -- showing up in CI as a random failure.
+    // Loads are left alone: there
     // is no ADBC load path, so widening the rule to cover them would only route them somewhere they
     // still cannot run.
     // Fluss is in the same position, and reaches this the same way: FlussScanPlanProvider stamps the
@@ -202,9 +203,6 @@ bool FileScanLocalState::should_use_file_scanner_v2(const TQueryOptions& query_o
          scan_params.table_format_params.table_format_type == "fluss")) {
         return true;
     }
-    const bool is_transactional_hive =
-            scan_params.__isset.table_format_params &&
-            scan_params.table_format_params.table_format_type == "transactional_hive";
     // Hybrid scans advertise native Parquet at scan level because ranges can arrive after the
     // scanner is selected; FORMAT_JNI alone does not imply that every range uses JNI.
     const bool is_hybrid_native_parquet = scan_params.format_type == TFileFormatType::FORMAT_JNI &&
@@ -224,7 +222,7 @@ bool FileScanLocalState::should_use_file_scanner_v2(const TQueryOptions& query_o
     // after scanner construction. Keep versioned Iceberg scans on V2 without eagerly listing
     // every file.
     return scanner_v2_requested && !is_load &&
-           scan_params.format_type != TFileFormatType::FORMAT_LANCE && !is_transactional_hive;
+           scan_params.format_type != TFileFormatType::FORMAT_LANCE;
 }
 
 Status FileScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
@@ -247,6 +245,7 @@ Status FileScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     } else {
         scan_params = _split_source->get_params();
     }
+    RETURN_IF_ERROR(validate_file_scan_support(*scan_params));
     const bool is_load =
             state()->desc_tbl().get_tuple_descriptor(scan_params->src_tuple_id) != nullptr;
     // TODO: Use scanner v2 for all queries.

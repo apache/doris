@@ -521,11 +521,8 @@ TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesAndLoads) 
 
     params.__set_format_type(TFileFormatType::FORMAT_ORC);
     TTableFormatFileDesc table_format_params;
-    table_format_params.__set_table_format_type("transactional_hive");
+    table_format_params.__set_table_format_type("hive");
     params.__set_table_format_params(table_format_params);
-    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
-
-    params.table_format_params.__set_table_format_type("hive");
     EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
 
     query_options.__set_enable_file_scanner_v2(false);
@@ -829,7 +826,7 @@ TEST(FileScannerV2Test, ValidateScanRangeRejectsUnsupportedRange) {
     const auto unsupported = range_with_format("lakesoul", TFileFormatType::FORMAT_PARQUET);
     const auto status = FileScannerV2::TEST_validate_scan_range(params, unsupported);
     EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
-    EXPECT_NE(status.to_string().find("lakesoul"), std::string::npos);
+    EXPECT_NE(status.to_string().find("LakeSoul"), std::string::npos);
 }
 
 // Scenario: external file scan IO contexts are query readers for SELECT so the shared file-cache
