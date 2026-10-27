@@ -90,7 +90,7 @@ suite("decompose_repeat_agg_state") {
         contains "stddev_samp_combine"
         contains "stddev_samp_merge"
         contains "stddev_samp_finalize"
-        contains "covar_pop_combine"
+        contains "covar_combine"
         contains "avg_combine"
         notContains "sum_combine"
         notContains "sum_finalize"
@@ -110,5 +110,4 @@ suite("decompose_repeat_agg_state") {
             notContains "UNION"
         }
     }
-
 }
