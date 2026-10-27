@@ -447,8 +447,8 @@ Status BaseRowsetBuilder::_build_current_tablet_schema(
         }
     }
 
-    DCHECK(index_schema != nullptr);
-    _changelog_column_mappings = index_schema->changelog_column_mappings;
+    _changelog_column_mappings =
+            index_schema != nullptr ? index_schema->changelog_column_mappings : nullptr;
 
     auto cache_key = TabletSchemaCache::build_load_schema_cache_key(
             index_id, table_schema_param, ori_tablet_schema, index_schema);
