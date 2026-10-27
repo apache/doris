@@ -29,11 +29,23 @@
 
 namespace doris {
 
-RuntimePredicate::RuntimePredicate(const TTopnFilterDesc& desc)
+RuntimePredicate::RuntimePredicate(const TTopnFilterDesc& desc,
+                                   const std::unordered_set<int32_t>& strict_target_node_ids)
         : _nulls_first(desc.null_first), _is_asc(desc.is_asc) {
     DCHECK(!desc.target_node_id_to_target_expr.empty());
-    for (auto p : desc.target_node_id_to_target_expr) {
-        _contexts[p.first].expr = p.second;
+    for (const auto& [target_id, expression] : desc.target_node_id_to_target_expr) {
+        auto& ctx = _contexts[target_id];
+        ctx.expr = expression;
+        ctx.is_strict = strict_target_node_ids.contains(target_id);
+        // A sibling scan can discard ties, but an aggregate target must retain every
+        // contribution at the boundary: SUM(10, 20) must not become SUM(10).
+        if (ctx.is_strict) {
+            ctx.pred_constructor = _is_asc ? create_comparison_predicate<PredicateType::LT>
+                                           : create_comparison_predicate<PredicateType::GT>;
+        } else {
+            ctx.pred_constructor = _is_asc ? create_comparison_predicate<PredicateType::LE>
+                                           : create_comparison_predicate<PredicateType::GE>;
+        }
     }
 
     _type = thrift_to_type(desc.target_node_id_to_target_expr.begin()
@@ -46,13 +58,19 @@ RuntimePredicate::RuntimePredicate(const TTopnFilterDesc& desc)
         throw Exception(ErrorCode::INTERNAL_ERROR, "meet invalid type, type={}, expr={}",
                         type_to_string(_type), ss.str());
     }
+}
 
-    // For ASC  sort, create runtime predicate col_name <= max_top_value
-    // since values that > min_top_value are large than any value in current topn values
-    // For DESC sort, create runtime predicate col_name >= min_top_value
-    // since values that < min_top_value are less than any value in current topn values
-    _pred_constructor = _is_asc ? create_comparison_predicate<PredicateType::LE>
-                                : create_comparison_predicate<PredicateType::GE>;
+void RuntimePredicate::reset_bounds() {
+    std::unique_lock<std::shared_mutex> wlock(_rwlock);
+    _orderby_extrem = Field(PrimitiveType::TYPE_NULL);
+    _has_value = false;
+    for (auto& [node_id, ctx] : _contexts) {
+        // Expression targets have no storage predicate. Slot targets may already have been
+        // prepared for the new round, so clear their bound without replacing the shared wrapper.
+        if (ctx.predicate != nullptr) {
+            static_cast<SharedPredicate*>(ctx.predicate.get())->reset_for_new_execution();
+        }
+    }
 }
 
 Status RuntimePredicate::init_target(
@@ -110,8 +128,7 @@ Status RuntimePredicate::update(const Field& value) {
     if (!updated) {
         return Status::OK();
     }
-    for (auto p : _contexts) {
-        auto ctx = p.second;
+    for (const auto& [target_id, ctx] : _contexts) {
         if (ctx.predicate == nullptr) {
             // 1. `init_target` will not create predicate. example : `order by abs(col1) limit x;`
             // So don't need create new `ColumnPredicate`,
@@ -130,8 +147,8 @@ Status RuntimePredicate::update(const Field& value) {
             continue;
         }
         std::shared_ptr<ColumnPredicate> pred =
-                _pred_constructor(ctx.predicate->column_id(), ctx.col_name, ctx.col_data_type,
-                                  _orderby_extrem, false);
+                ctx.pred_constructor(ctx.predicate->column_id(), ctx.col_name, ctx.col_data_type,
+                                     _orderby_extrem, false);
 
         // For NULLS FIRST, wrap a AcceptNullPredicate to return true for NULL
         // since ORDER BY ASC/DESC should get NULL first but pred returns NULL

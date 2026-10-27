@@ -1877,6 +1877,9 @@ struct TTopnFilterDesc {
   3: required bool null_first 
   // scan node id -> expr on scan node
   4: required map<Types.TPlanNodeId, Exprs.TExpr> target_node_id_to_target_expr
+  // Targets whose complete path from a single-key heap TopN permits dropping boundary ties.
+  // Absent (old FE) or empty means inclusive bounds for every target.
+  5: optional list<Types.TPlanNodeId> strict_target_node_ids
 }
 
 // Specification of a runtime filter.
