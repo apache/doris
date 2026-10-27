@@ -390,7 +390,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     public String getViewText() {
         try {
             return catalog.getExecutionAuthenticator().execute(() -> {
-                View icebergView = IcebergUtils.getIcebergView(this);
+                View icebergView = getIcebergView();
                 ViewVersion viewVersion = icebergView.currentVersion();
                 if (viewVersion == null) {
                     throw new RuntimeException(String.format("Cannot get view version for view '%s'", icebergView));
@@ -417,7 +417,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     public String getSqlDialect() {
         try {
             return catalog.getExecutionAuthenticator().execute(() -> {
-                View icebergView = IcebergUtils.getIcebergView(this);
+                View icebergView = getIcebergView();
                 ViewVersion viewVersion = icebergView.currentVersion();
                 if (viewVersion == null) {
                     throw new RuntimeException(String.format("Cannot get view version for view '%s'", icebergView));
@@ -438,7 +438,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     }
 
     public View getIcebergView() {
-        return IcebergUtils.getIcebergView(this);
+        return withMissingTableRepair(() -> IcebergUtils.getIcebergView(this));
     }
 
     /**
