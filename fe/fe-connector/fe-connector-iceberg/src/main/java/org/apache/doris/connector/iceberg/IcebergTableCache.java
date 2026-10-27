@@ -314,7 +314,7 @@ final class IcebergTableCache {
                     ? operations.current()
                     : TableMetadataParser.fromJson(snapshotMetadataLocation, snapshotMetadataJson);
             return new BaseTable(new IcebergSnapshotTableOperations(operations, metadata),
-                    table.name(), baseTable.reporter());
+                    table.name(), baseTable.reporter(), baseTable.labels());
         }
 
         private TableLease tryBorrow() {
