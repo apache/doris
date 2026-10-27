@@ -119,14 +119,6 @@
 -- !nan_lo_lt_hi --
 3
 
--- !variant_path_eq --
-1
-3
-
--- !variant_path_ne --
-2
-4
-
 -- !hidden_version_or_miss --
 2048
 
