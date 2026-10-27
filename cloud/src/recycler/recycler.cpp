@@ -50,6 +50,7 @@
 #include "common/stopwatch.h"
 #include "meta-service/meta_service.h"
 #include "meta-service/meta_service_helper.h"
+#include "meta-service/meta_service_rate_limit_helper.h"
 #include "meta-service/meta_service_schema.h"
 #include "meta-store/blob_message.h"
 #include "meta-store/meta_reader.h"
@@ -65,6 +66,7 @@
 #ifdef UNIT_TEST
 #include "../test/mock_accessor.h"
 #endif
+#include "common/adaptive_thread_pool.h"
 #include "common/bvars.h"
 #include "common/config.h"
 #include "common/encryption_util.h"
@@ -2400,9 +2402,46 @@ int batch_mark_rowsets_as_recycled(TxnKv* txn_kv, const std::string& instance_id
     return 0;
 }
 
+// Worker pool of one recycle task. If `enable_recycler_adaptive_thread_pool` is on when the pool is
+// created, it is an AdaptiveThreadPool which shrinks while meta service or FDB is under great
+// stress, otherwise it is a fixed size SimpleThreadPool.
+class RecycleWorkerPool {
+public:
+    using JobType = std::function<void()>;
+
+    explicit RecycleWorkerPool(const std::string& name) {
+        size_t size = config::instance_recycler_worker_pool_size;
+        if (config::enable_recycler_adaptive_thread_pool) {
+            pool_ = std::make_unique<AdaptiveThreadPool>(
+                    size, name, [] { return get_ms_stress_decision().under_great_stress(); });
+        } else {
+            pool_ = std::make_unique<SimpleThreadPool>(size, name);
+        }
+    }
+
+    int start() { return std::visit([](auto& pool) { return pool->start(); }, pool_); }
+
+    int stop() { return std::visit([](auto& pool) { return pool->stop(); }, pool_); }
+
+    int submit(JobType f) {
+        return std::visit([&f](auto& pool) { return pool->submit(std::move(f)); }, pool_);
+    }
+
+    int submit_with_timeout(JobType f, int timeout) {
+        return std::visit(
+                [&f, timeout](auto& pool) {
+                    return pool->submit_with_timeout(std::move(f), timeout);
+                },
+                pool_);
+    }
+
+private:
+    std::variant<std::unique_ptr<SimpleThreadPool>, std::unique_ptr<AdaptiveThreadPool>> pool_;
+};
+
 template <typename T>
 void InstanceRecycler::submit_batch_mark_rowsets_as_recycled_job(
-        SimpleThreadPool& worker_pool, std::vector<std::string> rowset_keys_to_mark) {
+        RecycleWorkerPool& worker_pool, std::vector<std::string> rowset_keys_to_mark) {
     worker_pool.submit([this, mark_keys = std::move(rowset_keys_to_mark)]() {
         if (batch_mark_rowsets_as_recycled<T>(txn_kv_.get(), instance_id_, mark_keys) != 0) {
             LOG(WARNING) << "failed to batch mark rowsets as recycled, instance_id=" << instance_id_
@@ -2552,7 +2591,7 @@ int InstanceRecycler::batch_abort_txn_or_job_for_recycle(
 }
 
 void InstanceRecycler::submit_recycle_prepare_rowsets_job(
-        SimpleThreadPool& worker_pool, std::vector<std::string> rowset_keys_to_abort,
+        RecycleWorkerPool& worker_pool, std::vector<std::string> rowset_keys_to_abort,
         std::atomic_long* num_recycled) {
     int ret = worker_pool.submit([this, rowset_keys_to_abort = std::move(rowset_keys_to_abort),
                                   num_recycled]() mutable {
@@ -2600,7 +2639,7 @@ void InstanceRecycler::submit_recycle_prepare_rowsets_job(
     }
 }
 
-void InstanceRecycler::submit_recycle_tmp_rowsets_job(SimpleThreadPool& worker_pool,
+void InstanceRecycler::submit_recycle_tmp_rowsets_job(RecycleWorkerPool& worker_pool,
                                                       std::vector<std::string> rowset_keys_to_abort,
                                                       std::atomic_long* num_recycled,
                                                       RecyclerMetricsContext* metrics_context) {
@@ -5804,8 +5843,7 @@ int InstanceRecycler::recycle_rowsets() {
 
     std::mutex async_recycled_rowset_keys_mutex;
     std::vector<std::string> async_recycled_rowset_keys;
-    auto worker_pool = std::make_unique<SimpleThreadPool>(
-            config::instance_recycler_worker_pool_size, "recycle_rowsets");
+    auto worker_pool = std::make_unique<RecycleWorkerPool>("recycle_rowsets");
     worker_pool->start();
     auto delete_rowset_data_by_prefix = [&](std::string key, const std::string& resource_id,
                                             int64_t partition_id, int64_t tablet_id,
@@ -6290,8 +6328,7 @@ int InstanceRecycler::recycle_versioned_rowsets() {
     // Store keys of rowset recycled by background workers
     std::mutex async_recycled_rowset_keys_mutex;
     std::vector<std::string> async_recycled_rowset_keys;
-    auto worker_pool = std::make_unique<SimpleThreadPool>(
-            config::instance_recycler_worker_pool_size, "recycle_rowsets");
+    auto worker_pool = std::make_unique<RecycleWorkerPool>("recycle_rowsets");
     worker_pool->start();
     auto delete_rowset_data_by_prefix = [&](std::string key, const std::string& resource_id,
                                             int64_t tablet_id, const std::string& rowset_id) {
@@ -6641,8 +6678,7 @@ int InstanceRecycler::recycle_tmp_rowsets() {
     // rowset_id -> rowset_meta
     // store tmp_rowset id and meta for statistics rs size when delete
     std::map<std::string, doris::RowsetMetaCloudPB> tmp_rowsets;
-    auto worker_pool = std::make_unique<SimpleThreadPool>(
-            config::instance_recycler_worker_pool_size, "recycle_tmp_rowsets");
+    auto worker_pool = std::make_unique<RecycleWorkerPool>("recycle_tmp_rowsets");
     worker_pool->start();
 
     int64_t earlest_ts = std::numeric_limits<int64_t>::max();
