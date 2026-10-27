@@ -102,6 +102,11 @@ arrow::Result<std::shared_ptr<arrow::DataType>> input_binding_type(
     if (type->get_primitive_type() == TYPE_VARIANT) {
         return wire;
     }
+    // DECIMALV2 SerDe rescales decimal128 input to scale nine, truncating extra fractional
+    // digits toward zero (1.2345678901 -> 1.234567890). Other decimals retain checked casts.
+    if (type->get_primitive_type() == TYPE_DECIMALV2 && wire->id() == arrow::Type::DECIMAL128) {
+        return wire;
+    }
     // IPv4 is a 32-bit bit pattern, including addresses above INT32_MAX. Numeric INT columns
     // still use the checked conversion below instead of inheriting this storage exception.
     if (type->get_primitive_type() == TYPE_IPV4 && wire->id() == arrow::Type::UINT32) {
@@ -170,19 +175,41 @@ arrow::Result<std::shared_ptr<arrow::Array>> mask_struct_children(
     return arrow::MakeArray(data);
 }
 
+arrow::Result<std::shared_ptr<arrow::Array>> fixed_list_as_large_list(
+        const arrow::FixedSizeListArray& list, const std::shared_ptr<arrow::Buffer>& validity,
+        arrow::MemoryPool* pool) {
+    arrow::Int64Builder offsets(pool);
+    ARROW_RETURN_NOT_OK(offsets.Reserve(list.length() + 1));
+    for (int64_t i = 0; i <= list.length(); ++i) {
+        ARROW_RETURN_NOT_OK(offsets.Append(list.value_offset(i)));
+    }
+    ARROW_ASSIGN_OR_RAISE(auto values, offsets.Finish());
+    return std::make_shared<arrow::LargeListArray>(
+            arrow::large_list(list.list_type()->value_field()), list.length(),
+            values->data()->buffers[1], list.values(), validity, list.null_count());
+}
+
 arrow::Result<std::shared_ptr<arrow::Array>> compact_null_containers(
         std::shared_ptr<arrow::Array> array, arrow::compute::ExecContext* context) {
     if (array->null_count() == 0) {
         return array;
     }
     // NULL lists/maps can reference nonempty child ranges. Take drops those ranges without
-    // making map keys nullable, and masks the hidden children of fixed-size lists.
+    // making map keys or other non-nullable descendants nullable.
     arrow::Int64Builder indices(context->memory_pool());
     ARROW_RETURN_NOT_OK(indices.Reserve(array->length()));
     for (int64_t i = 0; i < array->length(); ++i) {
         ARROW_RETURN_NOT_OK(array->IsNull(i) ? indices.AppendNull() : indices.Append(i));
     }
     ARROW_ASSIGN_OR_RAISE(auto positions, indices.Finish());
+    // Fixed-list Take propagates a NULL index into every child, even non-nullable STRUCT
+    // fields such as a:INT NOT NULL. View it as a variable list first so Take drops the whole
+    // hidden range instead. Keep 64-bit offsets until the final checked LIST cast.
+    if (array->type_id() == arrow::Type::FIXED_SIZE_LIST) {
+        ARROW_ASSIGN_OR_RAISE(array, fixed_list_as_large_list(
+                                             static_cast<const arrow::FixedSizeListArray&>(*array),
+                                             positions->null_bitmap(), context->memory_pool()));
+    }
     ARROW_ASSIGN_OR_RAISE(
             auto compacted,
             arrow::compute::Take(array, positions, arrow::compute::TakeOptions::NoBoundsCheck(),

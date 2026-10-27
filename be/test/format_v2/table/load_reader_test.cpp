@@ -31,6 +31,7 @@
 
 #include "core/column/column_array.h"
 #include "core/column/column_complex.h"
+#include "core/column/column_decimal.h"
 #include "core/column/column_fixed_length_object.h"
 #include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
@@ -41,6 +42,7 @@
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_bitmap.h"
 #include "core/data_type/data_type_date_or_datetime_v2.h"
+#include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_ipv4.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
@@ -720,7 +722,187 @@ protected:
         }
         ASSERT_TRUE(reader.close().ok());
     }
+    void check_null_fixed_list_struct(bool narrow, bool all_null = false, int width = 1) {
+        const auto structure = make_nullable(std::make_shared<DataTypeStruct>(
+                DataTypes {make_nullable(std::make_shared<DataTypeInt32>())}, Strings {"a"}));
+        set_column_type(make_nullable(std::make_shared<DataTypeArray>(structure)));
+        const auto wire_type = narrow ? arrow::int64() : arrow::int32();
+        std::unique_ptr<arrow::ArrayBuilder> builder;
+        ASSERT_TRUE(arrow::MakeBuilder(arrow::default_memory_pool(), wire_type, &builder).ok());
+        for (int i = 0; i < 2 * width; ++i) {
+            const auto status = narrow ? static_cast<arrow::Int64Builder&>(*builder).Append(
+                                                 i < width ? std::numeric_limits<int64_t>::max()
+                                                           : 7 + i - width)
+                                       : static_cast<arrow::Int32Builder&>(*builder).Append(
+                                                 i < width ? 1 + i : 7 + i - width);
+            ASSERT_TRUE(status.ok()) << status;
+        }
+        auto values = builder->Finish();
+        ASSERT_TRUE(values.ok());
+        auto structs = arrow::StructArray::Make(
+                {*values}, arrow::FieldVector {arrow::field("a", wire_type, false)});
+        ASSERT_TRUE(structs.ok());
+        arrow::BooleanBuilder validity;
+        ASSERT_TRUE(validity.AppendValues(std::vector<bool> {false, !all_null}).ok());
+        auto valid = validity.Finish();
+        ASSERT_TRUE(valid.ok());
+        auto lists = std::make_shared<arrow::FixedSizeListArray>(
+                arrow::fixed_size_list((*structs)->type(), width), 2, *structs,
+                (*valid)->data()->buffers[1], all_null ? 2 : 1);
+        append_batch(arrow::RecordBatch::Make(
+                arrow::schema({arrow::field("raw_value", lists->type())}), 2, {lists}));
+        ASSERT_TRUE(_pipe->finish().ok());
+        LoadTableReader reader(source.get(), destination.get());
+        ASSERT_TRUE(prepare(reader, FileFormat::ARROW).ok());
+        Block output(destination->slots(), 0);
+        bool eos = false;
+        const auto status = reader.get_block(&output, &eos);
+        ASSERT_TRUE(status.ok()) << status;
+        ASSERT_EQ(output.rows(), 2);
+        const auto& outer = assert_cast<const ColumnNullable&>(*output.get_by_position(0).column);
+        EXPECT_TRUE(outer.is_null_at(0));
+        EXPECT_EQ(outer.is_null_at(1), all_null);
+        const auto& array = assert_cast<const ColumnArray&>(outer.get_nested_column());
+        EXPECT_EQ(array.get_offsets()[0], 0);
+        EXPECT_EQ(array.get_offsets()[1], all_null ? 0 : width);
+        const auto& elements = assert_cast<const ColumnNullable&>(array.get_data());
+        const auto& fields = assert_cast<const ColumnStruct&>(elements.get_nested_column());
+        if (!all_null) {
+            const auto& numbers = assert_cast<const ColumnNullable&>(fields.get_column(0));
+            for (int i = 0; i < width; ++i) {
+                EXPECT_FALSE(numbers.is_null_at(i));
+                EXPECT_EQ(numbers.get_nested_column().get_int(i), 7 + i);
+            }
+        }
+        ASSERT_TRUE(reader.close().ok());
+    }
+    void check_null_fixed_list_variant(bool extension) {
+        set_column_type(make_nullable(std::make_shared<DataTypeArray>(
+                make_nullable(std::make_shared<DataTypeVariantV2>()))));
+        std::shared_ptr<arrow::Array> values;
+        make_native_variant_array(extension, &values);
+        ASSERT_NE(values, nullptr);
+        arrow::BooleanBuilder validity;
+        ASSERT_TRUE(validity.AppendValues(std::vector<bool> {true, false, true}).ok());
+        auto valid = validity.Finish();
+        ASSERT_TRUE(valid.ok());
+        auto lists = std::make_shared<arrow::FixedSizeListArray>(
+                arrow::fixed_size_list(values->type(), 1), 3, values, (*valid)->data()->buffers[1],
+                1);
+        append_batch(arrow::RecordBatch::Make(
+                arrow::schema({arrow::field("raw_value", lists->type())}), 3, {lists}));
+        ASSERT_TRUE(_pipe->finish().ok());
+        LoadTableReader reader(source.get(), destination.get());
+        ASSERT_TRUE(prepare(reader, FileFormat::ARROW).ok());
+        Block output(destination->slots(), 0);
+        bool eos = false;
+        const auto status = reader.get_block(&output, &eos);
+        ASSERT_TRUE(status.ok()) << status;
+        ASSERT_EQ(output.rows(), 3);
+        const auto& outer = assert_cast<const ColumnNullable&>(*output.get_by_position(0).column);
+        EXPECT_TRUE(outer.is_null_at(1));
+        const auto& array = assert_cast<const ColumnArray&>(outer.get_nested_column());
+        EXPECT_EQ(array.get_offsets()[0], 1);
+        EXPECT_EQ(array.get_offsets()[1], 1);
+        EXPECT_EQ(array.get_offsets()[2], 2);
+        const auto& elements = assert_cast<const ColumnNullable&>(array.get_data());
+        const auto& variants = assert_cast<const ColumnVariantV2&>(elements.get_nested_column());
+        EXPECT_EQ(variants.get_value_ref(0).get_int(), 42);
+        EXPECT_TRUE(elements.is_null_at(1));
+        ASSERT_TRUE(reader.close().ok());
+    }
+    void check_decimal_rescaling(bool legacy, bool nested = false, int scale = 10) {
+        const auto decimal_type =
+                make_nullable(legacy ? DataTypePtr(std::make_shared<DataTypeDecimalV2>(27, 9))
+                                     : DataTypePtr(std::make_shared<DataTypeDecimal128>(27, 9)));
+        set_column_type(nested ? make_nullable(std::make_shared<DataTypeArray>(decimal_type))
+                               : decimal_type);
+        const int64_t unscaled = scale == 10 ? 12345678901LL : 1234567;
+        arrow::Decimal128Builder builder(arrow::decimal128(20, scale),
+                                         arrow::default_memory_pool());
+        ASSERT_TRUE(builder.Append(arrow::Decimal128(unscaled)).ok());
+        ASSERT_TRUE(builder.Append(arrow::Decimal128(-unscaled)).ok());
+        ASSERT_TRUE(builder.AppendNull().ok());
+        auto decimals = builder.Finish();
+        ASSERT_TRUE(decimals.ok());
+        std::shared_ptr<arrow::Array> values = *decimals;
+        if (nested) {
+            arrow::Int32Builder offsets;
+            ASSERT_TRUE(offsets.AppendValues({0, 3}).ok());
+            auto positions = offsets.Finish();
+            ASSERT_TRUE(positions.ok());
+            auto lists = arrow::ListArray::FromArrays(**positions, *values);
+            ASSERT_TRUE(lists.ok());
+            values = *lists;
+        }
+        append_batch(
+                arrow::RecordBatch::Make(arrow::schema({arrow::field("raw_value", values->type())}),
+                                         nested ? 1 : 3, {values}));
+        ASSERT_TRUE(_pipe->finish().ok());
+        LoadTableReader reader(source.get(), destination.get());
+        ASSERT_TRUE(prepare(reader, FileFormat::ARROW).ok());
+        Block output(destination->slots(), 0);
+        bool eos = false;
+        const auto status = reader.get_block(&output, &eos);
+        if (!legacy) {
+            EXPECT_FALSE(status.ok());
+            EXPECT_NE(status.to_string().find("Cannot decode Arrow column"), std::string::npos)
+                    << status;
+        } else {
+            ASSERT_TRUE(status.ok()) << status;
+            ASSERT_EQ(output.rows(), nested ? 1 : 3);
+            const IColumn* result = output.get_by_position(0).column.get();
+            if (nested) {
+                const auto& outer = assert_cast<const ColumnNullable&>(*result).get_nested_column();
+                result = &assert_cast<const ColumnArray&>(outer).get_data();
+            }
+            const auto& nullable = assert_cast<const ColumnNullable&>(*result);
+            const auto& numbers =
+                    assert_cast<const ColumnDecimal<TYPE_DECIMALV2>&>(nullable.get_nested_column());
+            const int64_t expected = scale == 10 ? 1234567890 : 1234567000;
+            EXPECT_EQ(numbers.get_element(0).value(), expected);
+            EXPECT_EQ(numbers.get_element(1).value(), -expected);
+            EXPECT_TRUE(nullable.is_null_at(2));
+        }
+        ASSERT_TRUE(reader.close().ok());
+    }
 };
+
+TEST_F(LoadArrowPipeTest, NullFixedSizeListPreservesNonNullableStructDescendants) {
+    check_null_fixed_list_struct(false);
+}
+
+TEST_F(LoadArrowPipeTest, NullFixedSizeListCompactsStructsBeforeCheckedNarrowing) {
+    check_null_fixed_list_struct(true, false, 2);
+}
+
+TEST_F(LoadArrowPipeTest, AllNullFixedSizeListCompactsNonNullableStructDescendants) {
+    check_null_fixed_list_struct(false, true);
+}
+
+TEST_F(LoadArrowPipeTest, NullFixedSizeListPreservesNativeVariantStorage) {
+    check_null_fixed_list_variant(false);
+}
+
+TEST_F(LoadArrowPipeTest, NullFixedSizeListPreservesNativeVariantExtension) {
+    check_null_fixed_list_variant(true);
+}
+
+TEST_F(LoadArrowPipeTest, DecimalV2RetainsHigherScaleInputTruncation) {
+    check_decimal_rescaling(true);
+}
+
+TEST_F(LoadArrowPipeTest, NestedDecimalV2RetainsHigherScaleInputTruncation) {
+    check_decimal_rescaling(true, true);
+}
+
+TEST_F(LoadArrowPipeTest, DecimalV2RetainsLowerScaleInputExpansion) {
+    check_decimal_rescaling(true, false, 6);
+}
+
+TEST_F(LoadArrowPipeTest, DecimalV3StillRejectsLossyScaleReduction) {
+    check_decimal_rescaling(false);
+}
 
 TEST_F(LoadArrowPipeTest, NativeVariantStoragePreservesValuesAndSqlNulls) {
     check_native_variant(false);
