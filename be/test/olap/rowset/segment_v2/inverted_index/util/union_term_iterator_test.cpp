@@ -227,4 +227,18 @@ TEST(UnionTermIteratorTest, PositionExhaustionAndError) {
     EXPECT_EQ(uti.freq(), 0);
 }
 
+// A phrase prefix scores a document through the union of the terms its prefix expands to.
+TEST(UnionTermIteratorTest, NormIsReadFromTheSubIteratorOnTheDocument) {
+    MockIterPtr it1 = std::make_shared<MockIterator>();
+    MockIterPtr it2 = std::make_shared<MockIterator>();
+    it1->set_postings({{10, {1}}, {30, {4}}});
+    it2->set_postings({{20, {2}}, {30, {3}}});
+
+    UnionTermIterator<MockIterator> uti({it1, it2});
+    for (int32_t doc : {10, 20, 30}) {
+        ASSERT_EQ(uti.advance(doc), doc);
+        EXPECT_EQ(uti.norm(), 1) << "doc=" << doc;
+    }
+}
+
 } // namespace doris::segment_v2
