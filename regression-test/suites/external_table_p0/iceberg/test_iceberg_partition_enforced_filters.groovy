@@ -95,11 +95,14 @@ suite("test_iceberg_partition_enforced_filters",
                 }
                 // Missing column bounds must not let an overflowing truncate partition remove
                 // the row filter, whether the filtered column is projected or used only by it.
+                // Golden results avoid depending on JDBC Integer/Long wrapper types.
                 ["id", "big_id"].each { column ->
-                    assertEquals([[7]], sql("select ${column} from ${db}.numeric_truncated " +
-                            "where ${column} >= 0 order by ${column}"))
-                    assertEquals([[30]], sql("select sum(amount) from ${db}.numeric_truncated " +
-                            "where ${column} >= 0"))
+                    "qt_truncate_projected_${scanner}_${batch}_${column}"(
+                            "select ${column} from ${db}.numeric_truncated " +
+                            "where ${column} >= 0 order by ${column}")
+                    "qt_truncate_filter_only_${scanner}_${batch}_${column}"(
+                            "select sum(amount) from ${db}.numeric_truncated " +
+                            "where ${column} >= 0")
                 }
             }
         }
