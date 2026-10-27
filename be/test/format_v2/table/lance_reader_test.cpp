@@ -3535,6 +3535,92 @@ TEST(LanceTableReaderTypeTest, ReadsLastDorisDateAndIgnoresNullDate32Payload) {
     EXPECT_EQ("9999-12-31", date_type->to_string(values, 0));
 }
 
+// Verifies days hidden under NULL fixed-size-list, list, struct and map rows are not decoded.
+// Arrow leaves those child values unspecified, so 10000-01-01 under a NULL parent must neither
+// fail the batch nor reach the result, also when the NULL list row holds a STRUCT child.
+TEST(LanceTableReaderTypeTest, IgnoresDate32PayloadHiddenByNullParents) {
+    arrow::Date32Builder date_builder;
+    // 1970-01-01, 10000-01-01 (outside the Doris DATE range), 1970-01-02.
+    ASSERT_TRUE(date_builder.AppendValues({0, 2932897, 1}).ok());
+    std::shared_ptr<arrow::Array> dates;
+    ASSERT_TRUE(date_builder.Finish(&dates).ok());
+    arrow::StringBuilder keys_builder;
+    ASSERT_TRUE(keys_builder.AppendValues({"a", "b", "c"}).ok());
+    std::shared_ptr<arrow::Array> keys;
+    ASSERT_TRUE(keys_builder.Finish(&keys).ok());
+    auto entries = arrow::StructArray::Make(
+            {keys, dates},
+            {arrow::field("key", arrow::utf8(), false), arrow::field("value", arrow::date32())});
+    ASSERT_TRUE(entries.ok()) << entries.status().ToString();
+    auto struct_rows = arrow::StructArray::Make({dates}, {arrow::field("d", arrow::date32())});
+    ASSERT_TRUE(struct_rows.ok()) << struct_rows.status().ToString();
+    // Validity 0b101: rows 0 and 2 are valid, row 1 is NULL and owns the child at index 1.
+    const auto parent_validity = arrow::Buffer::FromVector(std::vector<uint8_t> {0x05});
+    const auto offsets = arrow::Buffer::FromVector(std::vector<int32_t> {0, 1, 2, 3});
+
+    const auto date_type = nullable_type(TYPE_DATEV2);
+    const auto struct_type =
+            make_nullable(std::make_shared<DataTypeStruct>(DataTypes {date_type}, Strings {"d"}));
+    const std::vector<std::pair<std::shared_ptr<arrow::ArrayData>, DataTypePtr>> cases {
+            {arrow::ArrayData::Make(
+                     arrow::fixed_size_list(arrow::field("item", arrow::date32()), 1), 3,
+                     {parent_validity}, {dates->data()}, 1),
+             make_nullable(std::make_shared<DataTypeArray>(date_type))},
+            {arrow::ArrayData::Make(arrow::list(arrow::field("item", arrow::date32())), 3,
+                                    {parent_validity, offsets}, {dates->data()}, 1),
+             make_nullable(std::make_shared<DataTypeArray>(date_type))},
+            {arrow::ArrayData::Make(arrow::struct_({arrow::field("d", arrow::date32())}), 3,
+                                    {parent_validity}, {dates->data()}, 1),
+             struct_type},
+            {arrow::ArrayData::Make(arrow::map(arrow::utf8(), arrow::date32()), 3,
+                                    {parent_validity, offsets}, {(*entries)->data()}, 1),
+             make_nullable(std::make_shared<DataTypeMap>(nullable_type(TYPE_STRING), date_type))},
+            {arrow::ArrayData::Make(arrow::list(arrow::field("item", (*struct_rows)->type())), 3,
+                                    {parent_validity, offsets}, {(*struct_rows)->data()}, 1),
+             make_nullable(std::make_shared<DataTypeArray>(struct_type))},
+    };
+    // The DATE leaf under ARRAY, STRUCT and MAP, whose rows 0 and 2 are the visible dates.
+    std::function<const ColumnNullable&(const IColumn&)> date_leaf =
+            [&date_leaf](const IColumn& column) -> const ColumnNullable& {
+        const auto& nullable = assert_cast<const ColumnNullable&>(column);
+        const auto& nested = nullable.get_nested_column();
+        if (const auto* array = check_and_get_column<ColumnArray>(nested)) {
+            return date_leaf(array->get_data());
+        }
+        if (const auto* map = check_and_get_column<ColumnMap>(nested)) {
+            return date_leaf(map->get_values());
+        }
+        if (const auto* tuple = check_and_get_column<ColumnStruct>(nested)) {
+            return date_leaf(tuple->get_column(0));
+        }
+        return nullable;
+    };
+    for (const auto& [data, doris_type] : cases) {
+        const auto array = arrow::MakeArray(data);
+        SCOPED_TRACE(array->type()->ToString());
+        const auto validate_status = array->ValidateFull();
+        ASSERT_TRUE(validate_status.ok()) << validate_status.ToString();
+        const auto schema = arrow::schema({arrow::field("value", array->type())});
+        const auto record_batch = arrow::RecordBatch::Make(schema, 3, {array});
+        const Columns columns {projected_column("value", doris_type)};
+        TQueryGlobals query_globals;
+        RuntimeState state(TQueryOptions(), query_globals);
+        Block block;
+        add_output_columns(&block, columns);
+        size_t rows = 0;
+        const auto status =
+                convert_record_batch_for_test(&state, columns, record_batch, &block, &rows);
+        ASSERT_TRUE(status.ok()) << status.to_string();
+        ASSERT_EQ(3, rows);
+        const auto& values = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+        EXPECT_EQ((ColumnUInt8::Container {0, 1, 0}), values.get_null_map_data());
+        const auto& leaf = date_leaf(values);
+        ASSERT_EQ(3, leaf.size());
+        EXPECT_EQ("1970-01-01", date_type->to_string(leaf, 0));
+        EXPECT_EQ("1970-01-02", date_type->to_string(leaf, 2));
+    }
+}
+
 // Verifies ordinary nested columns bypass Arrow reconstruction when no BFloat16 exists.
 TEST(LanceTableReaderTypeTest, KeepsOrdinaryNestedArrayUnchangedDuringNormalization) {
     const auto nested_type = arrow::struct_({
