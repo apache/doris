@@ -645,9 +645,11 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 safeCreateBranch.run();
             }
 
-            branchOptions.getRetain().ifPresent(n -> manageSnapshots.setMaxSnapshotAgeMs(branchName, n));
+            // RETAIN controls the branch reference age; WITH SNAPSHOT RETENTION <time> controls the
+            // oldest snapshot age. This matches Iceberg Spark and keeps the two SQL clauses independent.
+            branchOptions.getRetain().ifPresent(n -> manageSnapshots.setMaxRefAgeMs(branchName, n));
             branchOptions.getNumSnapshots().ifPresent(n -> manageSnapshots.setMinSnapshotsToKeep(branchName, n));
-            branchOptions.getRetention().ifPresent(n -> manageSnapshots.setMaxRefAgeMs(branchName, n));
+            branchOptions.getRetention().ifPresent(n -> manageSnapshots.setMaxSnapshotAgeMs(branchName, n));
 
             try {
                 authenticator.execute(manageSnapshots::commit);

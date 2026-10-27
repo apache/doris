@@ -303,7 +303,7 @@ public class IcebergExternalTableBranchAndTagTest {
         assertSnapshotRef(
                 icebergTable.refs().get(branch2),
                 icebergTable.currentSnapshot().snapshotId(),
-                true, 1L, 2, 3L);
+                true, 3L, 2, 1L);
 
         // total branch:
         //   'main','branch1','branch2'
@@ -329,7 +329,7 @@ public class IcebergExternalTableBranchAndTagTest {
         assertSnapshotRef(
                 icebergTable.refs().get(branch3),
                 snapshots.get(4).snapshotId(),
-                true, 1L, 2, 3L);
+                true, 3L, 2, 1L);
 
         // update branch1
         catalog.createOrReplaceBranch(dorisTable, info2);
