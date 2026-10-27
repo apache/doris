@@ -61,6 +61,9 @@ public:
     Status init(const std::string& url, bool set_fail_on_error = true,
                 AuthTokenMode auth_token_mode = AuthTokenMode::CLUSTER);
 
+    // Initialize a request to a trusted Doris-internal endpoint. TLS modules may apply
+    // internal-only client policy, such as hostname-verification exceptions, on this path.
+    Status init_internal(const std::string& url, bool set_fail_on_error = true);
     // Release request-owned options and callbacks while retaining reusable connections.
     void reset();
 
@@ -228,6 +231,8 @@ public:
     }
 
 private:
+    Status _init(const std::string& url, bool set_fail_on_error, bool internal,
+                 AuthTokenMode auth_token_mode);
     static std::string _get_ca_certificate_path(const std::string& configured_paths);
     Status _set_ca_certificate_from_config();
     const char* _to_errmsg(CURLcode code) const;

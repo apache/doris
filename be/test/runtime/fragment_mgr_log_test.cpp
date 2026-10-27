@@ -19,6 +19,7 @@
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gtest/gtest.h>
 
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -28,6 +29,7 @@
 #include "common/logging.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
+#include "service/backend_options.h"
 #include "util/debug_points.h"
 
 namespace doris {
@@ -138,6 +140,60 @@ TEST_F(FragmentMgrLogTest, ExternalRequestOmitsDescriptorCredentials) {
     EXPECT_NE(std::string::npos, log.find("query_id=1234-5678, fragment_instance_id=abcd-ef01"));
     EXPECT_NE(std::string::npos, log.find("external exec_plan_fragment query_id=1234-5678"));
     EXPECT_EQ(std::string::npos, log.find("synthetic-"));
+}
+
+class FragmentMgrUrlTest : public testing::Test {
+protected:
+    void SetUp() override {
+        _old_enable_https = config::enable_https;
+        _old_enable_tls = config::enable_tls;
+        _old_tls_excluded_protocols = config::tls_excluded_protocols;
+        _old_webserver_port = config::webserver_port;
+        _old_localhost = BackendOptions::get_localhost();
+        config::enable_https = false;
+        config::enable_tls = false;
+        config::tls_excluded_protocols.clear();
+        config::webserver_port = 8040;
+        BackendOptions::set_localhost("127.0.0.1");
+    }
+
+    void TearDown() override {
+        config::enable_https = _old_enable_https;
+        config::enable_tls = _old_enable_tls;
+        config::tls_excluded_protocols = _old_tls_excluded_protocols;
+        config::webserver_port = _old_webserver_port;
+        BackendOptions::set_localhost(_old_localhost);
+    }
+
+private:
+    bool _old_enable_https = false;
+    bool _old_enable_tls = false;
+    std::string _old_tls_excluded_protocols;
+    int32_t _old_webserver_port = 0;
+    std::string _old_localhost;
+};
+
+TEST_F(FragmentMgrUrlTest, LoadErrorUrlUsesEffectiveInternalHttpScheme) {
+    EXPECT_EQ("http://127.0.0.1:8040/api/_load_error_log?file=error.log",
+              to_load_error_http_path("error.log"));
+
+    config::enable_tls = true;
+    EXPECT_EQ("https://127.0.0.1:8040/api/_load_error_log?file=error.log",
+              to_load_error_http_path("error.log"));
+
+    config::tls_excluded_protocols = "brpc, HTTP ";
+    EXPECT_EQ("http://127.0.0.1:8040/api/_load_error_log?file=error.log",
+              to_load_error_http_path("error.log"));
+
+    config::enable_https = true;
+    EXPECT_EQ("http://127.0.0.1:8040/api/_load_error_log?file=error.log",
+              to_load_error_http_path("error.log"));
+}
+
+TEST_F(FragmentMgrUrlTest, LoadErrorUrlPreservesAbsoluteUrls) {
+    config::enable_tls = true;
+    EXPECT_EQ("http://external/error.log", to_load_error_http_path("http://external/error.log"));
+    EXPECT_EQ("https://external/error.log", to_load_error_http_path("https://external/error.log"));
 }
 
 } // namespace doris

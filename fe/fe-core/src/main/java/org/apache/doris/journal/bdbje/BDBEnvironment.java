@@ -242,7 +242,8 @@ public class BDBEnvironment {
             LOG.info("addresses is empty");
             return null;
         }
-        return new ReplicationGroupAdmin(PALO_JOURNAL_GROUP, addresses);
+        return new ReplicationGroupAdmin(PALO_JOURNAL_GROUP, addresses,
+                replicationConfig.getRepNetConfig());
     }
 
     // Return a handle to the epochDB

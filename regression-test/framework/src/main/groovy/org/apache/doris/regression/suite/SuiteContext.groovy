@@ -238,12 +238,13 @@ class SuiteContext implements Closeable {
                 jdbcConn.withCloseable { conn -> JdbcUtils.executeToList(conn, sql) }
             }
         } catch (Throwable t) {
-            throw new IllegalStateException("Create database failed, jdbcUrl: ${jdbcUrl}", t)
+            throw new IllegalStateException(
+                    "Create database failed, jdbcUrl: ${Config.sanitizeJdbcUrlForLogging(jdbcUrl)}", t)
         }
         def dbUrl = isTlsEnabled()
                 ? Config.buildUrlWithDbImpl(jdbcUrl, dbName)
                 : Config.buildUrlWithDb(jdbcUrl, dbName)
-        log.info("connect to ${dbUrl}".toString())
+        log.info("connect to ${Config.sanitizeJdbcUrlForLogging(dbUrl)}".toString())
         return DriverManager.getConnection(dbUrl, config.jdbcUser, config.jdbcPassword)
     }
 
@@ -455,27 +456,8 @@ class SuiteContext implements Closeable {
 
     public <T> T connect(String user, String password, String url, Closure<T> actionSupplier) {
         def originConnection = threadLocalConn.get()
-        if ((config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
-            String useSslconfig = "useSSL=true&requireSSL=true&verifyServerCertificate=true"
-            String clientCAKey = "clientCertificateKeyStoreUrl=file:" + config.otherConfigs.get("keyStorePath")
-            String clientCAPwd = "clientCertificateKeyStorePassword=" + config.otherConfigs.get("keyStorePassword")
-            String trustCAKey = "trustCertificateKeyStoreUrl=file:" + config.otherConfigs.get("trustStorePath")
-            String trustCAPwd = "trustCertificateKeyStorePassword=" + config.otherConfigs.get("trustStorePassword")
-            String tlsUrl = useSslconfig + "&" + clientCAKey + "&" + clientCAPwd + "&" +  trustCAKey + "&" + trustCAPwd
-            if (!url.contains("clientCertificateKeyStoreUrl")){
-                if (url.charAt(url.length() - 1) == '?') {
-                    return url + tlsUrl
-                    // e.g: jdbc:mysql://locahost:8080/dbname?a=b
-                } else if (url.contains('?')) {
-                    return url + '&' + tlsUrl
-                    // e.g: jdbc:mysql://locahost:8080/dbname
-                } else {
-                    return url + '?' + tlsUrl
-                }
-            }
-        }
         try {
-            log.info("Create new connection for user '${user}' to '${url}'")
+            log.info("Create new connection for user '${user}' to '${Config.sanitizeJdbcUrlForLogging(url)}'")
             return DriverManager.getConnection(url, user, password).withCloseable { newConn ->
                 def newConnInfo = new ConnectionInfo()
                 newConnInfo.conn = newConn
@@ -485,7 +467,7 @@ class SuiteContext implements Closeable {
                 return actionSupplier.call()
             }
         } finally {
-            log.info("Recover original connection to '${url}'")
+            log.info("Recover original connection to '${Config.sanitizeJdbcUrlForLogging(url)}'")
             if (originConnection == null) {
                 threadLocalConn.remove()
             } else {

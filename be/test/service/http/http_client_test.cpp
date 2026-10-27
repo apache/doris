@@ -678,6 +678,31 @@ TEST_F(HttpClientTest, external_request_omits_cluster_token) {
     EXPECT_EQ(response, "|Bearer google-token");
 }
 
+TEST_F(HttpClientTest, internal_then_external_request_omits_cluster_token) {
+    HttpClient client;
+    ASSERT_TRUE(client.init_internal(hostname + "/external_auth").ok());
+    client.set_auth_token("previous-cluster-token");
+    ASSERT_TRUE(
+            client.init(hostname + "/external_auth", false, HttpClient::AuthTokenMode::NONE).ok());
+    client.set_authorization("Bearer google-token");
+    std::string response;
+    ASSERT_TRUE(client.execute(&response).ok());
+    EXPECT_EQ(response, "|Bearer google-token");
+}
+
+TEST_F(HttpClientTest, get_internal) {
+    HttpClient client;
+    auto st = client.init_internal(hostname + "/simple_get");
+    ASSERT_TRUE(st.ok()) << st;
+    client.set_method(GET);
+    client.set_basic_auth("test1", "");
+
+    std::string response;
+    st = client.execute(&response);
+    EXPECT_TRUE(st.ok()) << st;
+    EXPECT_EQ("test1", response);
+}
+
 TEST_F(HttpClientTest, download) {
     HttpClient client;
     auto st = client.init(hostname + "/simple_get");
