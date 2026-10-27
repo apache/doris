@@ -528,4 +528,52 @@ public class SessionVariablesTest extends TestWithFeService {
 
         Assertions.assertFalse(variable.toThrift().isEnableHyperscanFallback());
     }
+
+    @Test
+    public void testForwardPlanAndExecutionKnobs() {
+        // A statement a non-master FE forwards (INSERT INTO ... SELECT, CTAS, ...) is
+        // planned by the master in a fresh ConnectContext that is seeded from the
+        // master's globals plus what getForwardVariables() sends. Every knob that
+        // changes the plan shape or the executor's behaviour must travel, otherwise a
+        // session-level SET is silently lost on the follower path and the master may
+        // run a different plan than the same statement run on the master directly.
+        String[] knobs = {
+                SessionVariable.AGG_PHASE, SessionVariable.BROADCAST_RIGHT_TABLE_SCALE_FACTOR,
+                SessionVariable.CTE_INLINE_MODE,
+                SessionVariable.DISABLE_COLOCATE_PLAN, SessionVariable.DISABLE_JOIN_REORDER,
+                SessionVariable.DISABLE_STREAMING_PREAGGREGATIONS, SessionVariable.DPHYPER_LIMIT,
+                SessionVariable.ENABLE_BROADCAST_JOIN_FORCE_PASSTHROUGH,
+                SessionVariable.ENABLE_BUCKET_SHUFFLE_JOIN, SessionVariable.ENABLE_COST_BASED_JOIN_REORDER,
+                SessionVariable.ENABLE_CTE_MATERIALIZE, SessionVariable.ENABLE_DECOUPLED_RUNTIME_FILTER,
+                SessionVariable.ENABLE_DISTINCT_STREAMING_AGGREGATION,
+                SessionVariable.ENABLE_DPHYP_OPTIMIZER, SessionVariable.ENABLE_LOCAL_EXCHANGE,
+                SessionVariable.ENABLE_LOCAL_EXCHANGE_BEFORE_AGG, SessionVariable.ENABLE_PARALLEL_OUTFILE,
+                SessionVariable.ENABLE_PARTITION_TOPN, SessionVariable.ENABLE_PUSH_DOWN_NO_GROUP_AGG,
+                SessionVariable.ENABLE_SHARED_EXCHANGE_SINK_BUFFER, SessionVariable.ENABLE_SQL_CACHE,
+                SessionVariable.EXCHANGE_MULTI_BLOCKS_BYTE_SIZE,
+                SessionVariable.EXPAND_RUNTIME_FILTER_BY_INNER_JION,
+                SessionVariable.GLOBAL_PARTITION_TOPN_THRESHOLD, SessionVariable.IGNORE_RUNTIME_FILTER_IDS,
+                SessionVariable.INLINE_CTE_REFERENCED_THRESHOLD,
+                SessionVariable.LOCAL_EXCHANGE_FREE_BLOCKS_LIMIT,
+                SessionVariable.LOW_MEMORY_MODE_BUFFER_LIMIT, SessionVariable.MAX_JOIN_NUMBER_BUSHY_TREE,
+                SessionVariable.MAX_JOIN_NUMBER_OF_REORDER, SessionVariable.PARALLEL_EXCHANGE_INSTANCE_NUM,
+                SessionVariable.PARALLEL_PREPARE_THRESHOLD,
+                SessionVariable.SKEW_REWRITE_JOIN_SALT_EXPLODE_FACTOR,
+                SessionVariable.SPILL_AGGREGATION_PARTITION_COUNT,
+                SessionVariable.SPILL_HASH_JOIN_PARTITION_COUNT, SessionVariable.SPILL_MIN_REVOCABLE_MEM,
+                SessionVariable.TOPN_FILTER_RATIO, SessionVariable.TOPN_OPT_LIMIT_THRESHOLD
+        };
+        SessionVariable follower = new SessionVariable();
+        follower.setDisableJoinReorder(true);
+        Map<String, String> vars = follower.getForwardVariables();
+        for (String knob : knobs) {
+            Assertions.assertTrue(vars.containsKey(knob), knob + " must be forwarded to the master");
+        }
+        Assertions.assertEquals("true", vars.get(SessionVariable.DISABLE_JOIN_REORDER));
+
+        SessionVariable master = new SessionVariable();
+        Assertions.assertFalse(master.isDisableJoinReorder());
+        master.setForwardedSessionVariables(vars);
+        Assertions.assertTrue(master.isDisableJoinReorder());
+    }
 }
