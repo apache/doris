@@ -633,6 +633,8 @@ struct TTableFormatFileDesc {
     // JDBC connection parameters (used when table_format_type == "jdbc")
     11: optional map<string, string> jdbc_params
     12: optional TLanceFileDesc lance_params
+    // Keep ES field ids aligned with master for mixed-version requests.
+    13: optional map<string, string> es_params
 }
 
 // Deprecated, hive text talbe is a special format, not a serde type
@@ -709,6 +711,9 @@ struct TFileScanRangeParams {
     // Paimon options from FE, used for jni/native scanner
     // Set at ScanNode level to avoid redundant serialization in each split
     30: optional map<string, string> paimon_options
+    31: optional map<string, string> es_properties
+    32: optional map<string, string> es_docvalue_context
+    33: optional map<string, string> es_fields_context
     // Versioned Iceberg scan semantics negotiated by FE. Absence/zero preserves legacy BE
     // behavior during a BE-first rolling upgrade; version 1 enables file-wide ID projection and
     // logical initial-default materialization.
@@ -718,7 +723,6 @@ struct TFileScanRangeParams {
     // HMS catalog property hive.parquet.time-zone. Interpretation is versioned by
     // parquet_timestamp_semantics_version.
     36: optional string hive_parquet_time_zone
-    // 31-33 are used in master; do not allocate them in branch-4.1.
     37: optional TLanceScanParams lance_scan_params
     // Non-regular columns in the pinned full schema, including columns pruned from phase one.
     // When present, omitted names are REGULAR. Used to rebuild row-id fetch projections.

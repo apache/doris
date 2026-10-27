@@ -47,12 +47,21 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TEsScanNode;
 import org.apache.doris.thrift.TEsScanRange;
 import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TExternalScanRange;
+import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TFileScanNode;
+import org.apache.doris.thrift.TFileScanRange;
+import org.apache.doris.thrift.TFileScanRangeParams;
+import org.apache.doris.thrift.TFileScanSlotInfo;
+import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
+import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -78,6 +87,7 @@ public class EsScanNode extends ExternalScanNode {
 
     private final EsTablePartitions esTablePartitions;
     private final EsTable table;
+    private final boolean useFileScannerV2;
     private QueryBuilder queryBuilder;
     private boolean isFinalized = false;
 
@@ -93,6 +103,10 @@ public class EsScanNode extends ExternalScanNode {
             table = (EsTable) (desc.getTable());
         }
         esTablePartitions = table.getEsTablePartitions();
+        // Planning and range assignment can run on different threads. Capture the query's
+        // choice once so both always serialize the same scan protocol.
+        useFileScannerV2 = ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable().enableFileScannerV2;
     }
 
     @Override
@@ -150,7 +164,18 @@ public class EsScanNode extends ExternalScanNode {
     @SneakyThrows
     @Override
     protected void toThrift(TPlanNode msg) {
-        msg.node_type = TPlanNodeType.ES_HTTP_SCAN_NODE;
+        if (useFileScannerV2) {
+            msg.setNodeType(TPlanNodeType.FILE_SCAN_NODE);
+            msg.setFileScanNode(new TFileScanNode().setTupleId(desc.getId().asInt()).setTableName(table.getName()));
+        } else {
+            msg.setNodeType(TPlanNodeType.ES_HTTP_SCAN_NODE);
+            msg.setEsScanNode(buildEsScanNode());
+        }
+        super.toThrift(msg);
+    }
+
+    @SneakyThrows
+    private TEsScanNode buildEsScanNode() {
         Map<String, String> properties = Maps.newHashMap();
         if (table.getUserName() != null) {
             properties.put(EsResource.USER, table.getUserName());
@@ -169,8 +194,65 @@ public class EsScanNode extends ExternalScanNode {
             esScanNode.setFieldsContext(table.fieldsContext());
         }
         esScanNode.setProperties(properties);
-        msg.es_scan_node = esScanNode;
-        super.toThrift(msg);
+        return esScanNode;
+    }
+
+    @Override
+    public List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength) {
+        List<TScanRangeLocations> shardLocations = super.getScanRangeLocations(maxScanRangeLength);
+        if (!useFileScannerV2) {
+            return shardLocations;
+        }
+        TEsScanNode esNode = buildEsScanNode();
+        TFileScanRangeParams params = new TFileScanRangeParams();
+        params.setFormatType(TFileFormatType.FORMAT_ES_HTTP);
+        params.setFileType(TFileType.FILE_STREAM);
+        params.setSrcTupleId(-1);
+        params.setDestTupleId(desc.getId().asInt());
+        params.setNumOfColumnsFromFile(desc.getSlots().size());
+        params.setRequiredSlots(new ArrayList<>());
+        for (SlotDescriptor slot : desc.getSlots()) {
+            params.addToRequiredSlots(new TFileScanSlotInfo().setSlotId(slot.getId().asInt()).setIsFileSlot(true));
+        }
+        params.setEsProperties(esNode.getProperties());
+        if (esNode.isSetDocvalueContext()) {
+            params.setEsDocvalueContext(esNode.getDocvalueContext());
+        }
+        if (esNode.isSetFieldsContext()) {
+            params.setEsFieldsContext(esNode.getFieldsContext());
+        }
+        List<TScanRangeLocations> fileLocations = new ArrayList<>(shardLocations.size());
+        for (TScanRangeLocations location : shardLocations) {
+            TEsScanRange shard = location.getScanRange().getEsScanRange();
+            Map<String, String> shardParams = new HashMap<>();
+            shardParams.put("index", shard.getIndex());
+            shardParams.put("shard_id", String.valueOf(shard.getShardId()));
+            if (shard.isSetType()) {
+                shardParams.put("type", shard.getType());
+            }
+            shardParams.put("es_hosts", shard.getEsHosts().stream()
+                    .map(host -> host.getHostname() + ":" + host.getPort()).collect(Collectors.joining(",")));
+            TTableFormatFileDesc tableFormat = new TTableFormatFileDesc();
+            tableFormat.setTableFormatType("es");
+            tableFormat.setEsParams(shardParams);
+            TFileRangeDesc range = new TFileRangeDesc();
+            range.setPath("es://" + shard.getIndex() + "/" + shard.getShardId());
+            range.setStartOffset(0);
+            range.setSize(-1);
+            range.setFormatType(TFileFormatType.FORMAT_ES_HTTP);
+            range.setFileType(TFileType.FILE_STREAM);
+            range.setTableFormatParams(tableFormat);
+            TFileScanRange fileRange = new TFileScanRange();
+            // This branch still uses EsScanNode rather than FileQueryScanNode, so the
+            // coordinator does not collect its common parameters into file_scan_params.
+            fileRange.setParams(params);
+            fileRange.addToRanges(range);
+            TScanRangeLocations converted = location.deepCopy();
+            converted.setScanRange(new TScanRange().setExtScanRange(
+                    new TExternalScanRange().setFileScanRange(fileRange)));
+            fileLocations.add(converted);
+        }
+        return fileLocations;
     }
 
     // only do partition(es index level) prune
