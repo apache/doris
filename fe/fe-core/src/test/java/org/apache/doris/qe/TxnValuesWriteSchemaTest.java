@@ -17,12 +17,14 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.alter.ChangelogColumnIdPreparer;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.nereids.StatementContext;
@@ -32,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTable
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.Types;
 import org.apache.doris.rpc.BackendServiceProxy;
+import org.apache.doris.service.FrontendServiceImpl;
 import org.apache.doris.thrift.TLoadTxnBeginRequest;
 import org.apache.doris.thrift.TLoadTxnBeginResult;
 import org.apache.doris.thrift.TOlapTableIndexSchema;
@@ -57,6 +60,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -65,8 +69,15 @@ import java.util.Map;
 import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.LockSupport;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /** Exercise the actual VALUES command and stream-load planner on a follower with no local transaction. */
 public class TxnValuesWriteSchemaTest extends TestWithFeService {
@@ -106,6 +117,114 @@ public class TxnValuesWriteSchemaTest extends TestWithFeService {
     @Test
     void schemaChangeAfterBeginNeverExecutesBackendPlan() throws Exception {
         runFollowerValues(false, true);
+    }
+
+    @Test
+    void valuesBeginDoesNotWaitForPreparationBehindQueuedWriter() throws Exception {
+        Env env = Env.getCurrentEnv();
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(DATABASE);
+        OlapTable table = (OlapTable) db.getTableOrMetaException(TABLE);
+        ReentrantReadWriteLock lock = Deencapsulation.getField(table, "rwLock");
+        Assertions.assertTrue(lock.isFair());
+        GlobalTransactionMgr transactions = new GlobalTransactionMgr(env);
+        transactions.setEditLog(env.getEditLog());
+        transactions.addDatabaseTransactionMgr(db.getId());
+        CountDownLatch readerHeld = new CountDownLatch(1);
+        CountDownLatch beginAllowed = new CountDownLatch(1);
+        AtomicReference<Thread> writerThread = new AtomicReference<>();
+        AtomicReference<Thread> preparerThread = new AtomicReference<>();
+        ExecutorService workers = Executors.newFixedThreadPool(3);
+        try {
+            Future<Long> values = workers.submit(() -> {
+                ChangelogColumnIdPreparer.ensureReady(db, table);
+                table.readLock();
+                try {
+                    readerHeld.countDown();
+                    Assertions.assertTrue(beginAllowed.await(10, TimeUnit.SECONDS));
+                    return transactions.beginTransactionForValues(db.getId(), table.getId(),
+                            "values_lock_order_" + UUID.randomUUID(), new TUniqueId(101, 102),
+                            new TxnCoordinator(TxnSourceType.FE, 0, "127.0.0.1", 0),
+                            LoadJobSourceType.INSERT_STREAMING, 60,
+                            TxnWriteSchemaSnapshot.schemaVersions(table));
+                } finally {
+                    table.readUnlock();
+                }
+            });
+            Assertions.assertTrue(readerHeld.await(10, TimeUnit.SECONDS));
+            Future<?> writer = workers.submit(() -> {
+                writerThread.set(Thread.currentThread());
+                table.writeLock();
+                table.writeUnlock();
+            });
+            awaitQueued(lock, writerThread);
+            Future<?> preparation = workers.submit(() -> {
+                preparerThread.set(Thread.currentThread());
+                ChangelogColumnIdPreparer.ensureReady(db, table);
+                return null;
+            });
+            // Reaching the read-lock queue proves B installed its real IN_FLIGHT future behind C.
+            awaitQueued(lock, preparerThread);
+            beginAllowed.countDown();
+            long txnId = values.get(10, TimeUnit.SECONDS);
+            writer.get(10, TimeUnit.SECONDS);
+            preparation.get(10, TimeUnit.SECONDS);
+            Assertions.assertNotNull(transactions.getTransactionState(db.getId(), txnId)
+                    .getWriteSchema(txnId, table.getId()));
+        } finally {
+            // On the old code, interruption releases A from existing.get(), breaking the cycle.
+            workers.shutdownNow();
+            Assertions.assertTrue(workers.awaitTermination(10, TimeUnit.SECONDS));
+        }
+    }
+
+    private static void awaitQueued(ReentrantReadWriteLock lock, AtomicReference<Thread> thread) {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        while (thread.get() == null || !lock.hasQueuedThread(thread.get())) {
+            Assertions.assertTrue(System.nanoTime() < deadline, "Worker did not enter the table lock queue");
+            LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(1));
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void forwardedValuesPreparesOutsideTableLockBeforeBegin(boolean rejectPreparation) throws Exception {
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(DATABASE);
+        OlapTable table = (OlapTable) db.getTableOrMetaException(TABLE);
+        ReentrantReadWriteLock lock = Deencapsulation.getField(table, "rwLock");
+        FrontendServiceImpl service = Mockito.spy(new FrontendServiceImpl(ExecuteEnv.getInstance()));
+        Mockito.doReturn(true).when(service).checkToken("values-test-token");
+        TLoadTxnBeginRequest request = new TLoadTxnBeginRequest()
+                .setDb(DATABASE).setTbl(TABLE).setTableId(table.getId())
+                .setLabel("values_rpc_prepare_" + UUID.randomUUID()).setToken("values-test-token")
+                .setRequestId(new TUniqueId(103, 104)).setTimeout(60)
+                .setTxnInsertSchemaVersions(TxnWriteSchemaSnapshot.schemaVersions(table));
+        int transactionsBefore = Env.getCurrentGlobalTransactionMgr().getTransactionNum();
+        try (MockedStatic<ChangelogColumnIdPreparer> preparer = Mockito.mockStatic(
+                ChangelogColumnIdPreparer.class, Mockito.CALLS_REAL_METHODS)) {
+            preparer.when(() -> ChangelogColumnIdPreparer.ensureReady(db, table)).thenAnswer(invocation -> {
+                Assertions.assertEquals(0, lock.getReadHoldCount());
+                Assertions.assertFalse(lock.isWriteLockedByCurrentThread());
+                if (rejectPreparation) {
+                    throw new UserException("rejected VALUES preparation");
+                }
+                invocation.callRealMethod();
+                return null;
+            });
+            TLoadTxnBeginResult result = service.loadTxnBegin(request);
+            preparer.verify(() -> ChangelogColumnIdPreparer.ensureReady(db, table), Mockito.times(1));
+            if (rejectPreparation) {
+                Assertions.assertEquals(TStatusCode.ANALYSIS_ERROR, result.getStatus().getStatusCode());
+                Assertions.assertFalse(result.isSetTxnId());
+                Assertions.assertEquals(transactionsBefore, Env.getCurrentGlobalTransactionMgr()
+                        .getTransactionNum());
+            } else {
+                Assertions.assertEquals(TStatusCode.OK, result.getStatus().getStatusCode(),
+                        result.getStatus().toString());
+                Assertions.assertNotNull(Env.getCurrentGlobalTransactionMgr()
+                        .getTransactionState(db.getId(), result.getTxnId())
+                        .getWriteSchema(result.getTxnId(), table.getId()));
+            }
+        }
     }
 
     private void runFollowerValues(boolean rejectBegin, boolean changeSchemaAfterBegin) throws Exception {
