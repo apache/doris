@@ -17,7 +17,6 @@
 
 package org.apache.doris.transaction;
 
-import org.apache.doris.alter.ChangelogColumnIdPreparer;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -210,7 +209,6 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
             Map<Long, Integer> schemaVersions) throws UserException {
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
         OlapTable table = (OlapTable) db.getTableOrMetaException(tableId, Table.TableType.OLAP);
-        ChangelogColumnIdPreparer.ensureReady(db, table);
         table.readLock();
         try {
             if (!TxnWriteSchemaSnapshot.schemaVersions(table).equals(schemaVersions)) {

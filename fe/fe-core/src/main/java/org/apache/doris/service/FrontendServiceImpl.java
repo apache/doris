@@ -1534,6 +1534,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             if (!request.isSetTableId() || request.getTableId() != table.getId()) {
                 throw new AnalysisException("Target table changed before transaction begin");
             }
+            org.apache.doris.alter.ChangelogColumnIdPreparer.ensureReady(db, table);
             txnId = Env.getCurrentGlobalTransactionMgr().beginTransactionForValues(
                     db.getId(), table.getId(), request.getLabel(), request.getRequestId(), txnCoord,
                     TransactionState.LoadJobSourceType.BACKEND_STREAMING, timeoutSecond,
