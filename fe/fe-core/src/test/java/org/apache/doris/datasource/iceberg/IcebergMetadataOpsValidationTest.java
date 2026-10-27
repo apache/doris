@@ -1503,13 +1503,13 @@ public class IcebergMetadataOpsValidationTest {
             ops.modifyColumn(v3DorisTable, ColumnPath.fromDotName("s._row_id"),
                     new Column("_row_id", Type.BIGINT, true), null, 1L);
             ops.modifyColumnComment(v3DorisTable, ColumnPath.fromDotName("s._row_id"), "comment", 1L);
-            ops.dropColumn(v3DorisTable, ColumnPath.fromDotName("s._row_id"), 1L);
+            // DROP is covered with real TableOperations in IcebergColumnDropTest.
 
             ops.addColumn(v2DorisTable, new Column("_row_id", Type.BIGINT, true), null, 1L);
             ops.renameColumn(v2DorisTable, "id", "_last_updated_sequence_number", 1L);
         }
 
-        Mockito.verify(v3UpdateSchema, Mockito.times(5)).commit();
+        Mockito.verify(v3UpdateSchema, Mockito.times(4)).commit();
         Mockito.verify(v2UpdateSchema, Mockito.times(2)).commit();
     }
 
@@ -1599,6 +1599,7 @@ public class IcebergMetadataOpsValidationTest {
                 Mockito.mock(IcebergExternalMetaCache.WritableTableLease.class);
         Mockito.when(lease.getTable()).thenReturn(icebergTable);
         Mockito.when(lease.getAuthenticator()).thenReturn(authenticator);
+        Mockito.when(lease.getRuntimeContext()).thenReturn(Mockito.mock(IcebergRuntimeContext.class));
         mockedIcebergUtils.when(() -> IcebergUtils.acquireWritableIcebergTable(dorisTable, expectedOps))
                 .thenReturn(lease);
         return lease;

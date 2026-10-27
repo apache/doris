@@ -56,6 +56,8 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Splitter;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
+import org.apache.iceberg.BaseTable;
+import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.ManageSnapshots;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.RowLevelOperationMode;
@@ -63,6 +65,9 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableMetadata;
+import org.apache.iceberg.TableMetadataParser;
+import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.UpdatePartitionSpec;
 import org.apache.iceberg.UpdateProperties;
@@ -73,10 +78,13 @@ import org.apache.iceberg.catalog.SessionCatalog;
 import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.catalog.ViewCatalog;
+import org.apache.iceberg.encryption.EncryptionManager;
 import org.apache.iceberg.exceptions.NoSuchNamespaceException;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.expressions.Term;
+import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.io.LocationProvider;
 import org.apache.iceberg.jdbc.JdbcCatalog;
 import org.apache.iceberg.rest.RESTSessionCatalog;
 import org.apache.iceberg.types.Type;
@@ -117,9 +125,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     // catalog types it is the catalog itself when it implements ViewCatalog. Empty when views are unsupported
     // or disabled.
     private final Optional<ViewCatalog> defaultViewCatalog;
-    // Non-null only when the backing catalog supports per-user dynamic session (an Iceberg REST catalog with
-    // iceberg.rest.session=user). Captured once at construction; the per-request decision is delegated to it so
-    // this class never re-checks the catalog type or reads REST properties directly.
+    // Session-aware catalog capability for ordinary metadata calls.
     private final IcebergUserSessionCatalog userSessionCatalog;
     private IcebergSessionCatalogAdapter sessionCatalogAdapter;
     private ExecutionAuthenticator executionAuthenticator;
@@ -141,10 +147,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     public IcebergMetadataOps(ExternalCatalog dorisCatalog, Catalog catalog) {
         this.dorisCatalog = dorisCatalog;
         this.catalog = catalog;
-        // Session-aware behavior exists only when the backing catalog advertises the IcebergUserSessionCatalog
-        // capability (an Iceberg REST catalog with dynamic identity). Capture it once and read what we need
-        // from the capability, so no call-time path has to know about the concrete REST catalog or its
-        // properties. For any other catalog type this is null (session disabled).
+        // Capture the session catalog and delegated-token policy with this metadata-ops generation.
+        // Other catalog types have no session-aware capability.
         this.userSessionCatalog = dorisCatalog instanceof IcebergUserSessionCatalog
                 ? (IcebergUserSessionCatalog) dorisCatalog : null;
         RESTSessionCatalog restSessionCatalog =
@@ -959,15 +963,9 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     @Override
     public void dropColumn(ExternalTable dorisTable, String columnName, long updateTime) throws UserException {
         try (IcebergExternalMetaCache.WritableTableLease lease = acquireWritableTable(dorisTable)) {
-            Table icebergTable = lease.getTable();
-            validateRowLineageColumnMutation(icebergTable, columnName, "drop");
-            ResolvedColumnPath columnPath = resolveColumnPath(icebergTable.schema(), ColumnPath.of(columnName), "drop");
-            UpdateSchema updateSchema = icebergTable.updateSchema();
-            updateSchema.deleteColumn(columnPath.getFullPath());
-            commitTableUpdate(lease, updateSchema::commit,
-                    "Failed to drop column: " + columnName + " from table: " + icebergTable.name());
+            dropColumnSafely(lease, ColumnPath.of(columnName));
         }
-        refreshTable(dorisTable, updateTime);
+        refreshAfterColumnDrop(dorisTable, updateTime);
     }
 
     @Override
@@ -977,16 +975,191 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             return;
         }
         try (IcebergExternalMetaCache.WritableTableLease lease = acquireWritableTable(dorisTable)) {
-            Table icebergTable = lease.getTable();
-            ResolvedColumnPath resolvedPath = validateNestedStructFieldPath(icebergTable.schema(), columnPath, "drop");
-
-            UpdateSchema updateSchema = icebergTable.updateSchema();
-            updateSchema.deleteColumn(resolvedPath.getFullPath());
-            commitTableUpdate(lease, updateSchema::commit,
-                    "Failed to drop nested column: " + columnPath.getFullPath() + " from table: "
-                            + icebergTable.name());
+            dropColumnSafely(lease, columnPath);
         }
-        refreshTable(dorisTable, updateTime);
+        refreshAfterColumnDrop(dorisTable, updateTime);
+    }
+
+    private void dropColumnSafely(IcebergExternalMetaCache.WritableTableLease lease, ColumnPath path)
+            throws UserException {
+        try {
+            // A refresh can perform authenticated catalog IO just like the eventual commit. Keep target
+            // validation, refresh and commit inside the one catalog generation retained by this lease.
+            lease.getAuthenticator().execute(() -> {
+                commitColumnDrop(lease, path);
+                return null;
+            });
+        } catch (UserException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new UserException("Failed to drop column: " + path.getFullPath() + ", error message is: "
+                    + ExceptionUtils.getRootCauseMessage(e), e);
+        }
+    }
+
+    private void refreshAfterColumnDrop(ExternalTable dorisTable, long updateTime) throws UserException {
+        try {
+            refreshTable(dorisTable, updateTime);
+        } catch (RuntimeException e) {
+            throw new UserException("Iceberg column DROP committed, but Doris metadata refresh failed for "
+                    + dorisTable.getRemoteDbName() + "." + dorisTable.getRemoteName()
+                    + "; refresh the table before another operation: " + e.getMessage(), e);
+        }
+    }
+
+    private void commitColumnDrop(IcebergExternalMetaCache.WritableTableLease lease, ColumnPath path)
+            throws UserException {
+        Table table = lease.getTable();
+        if (!path.isNested()) {
+            validateRowLineageColumnMutation(table, path.getTopLevelName(), "drop");
+        }
+        if (lease.getRuntimeContext().getMetastoreProperties() instanceof IcebergRestProperties) {
+            // Preserve the ordinary SDK REST endpoint, table authentication and cache handling.
+            // REST requirements cannot atomically fence the retained-spec set; that fix is separate.
+            ResolvedColumnPath resolvedPath = resolveDropPath(table.schema(), path);
+            table.updateSchema().deleteColumn(resolvedPath.getFullPath()).commit();
+            return;
+        }
+        TableOperations operations = ((HasTableOperations) table).operations();
+        TableMetadata loaded = operations.current();
+        if (loaded == null) {
+            throw new UserException("Cannot drop column from an unloaded Iceberg table: " + table.name());
+        }
+        ResolvedColumnPath loadedPath = resolveDropPath(loaded.schema(), path);
+        Set<Integer> loadedSubtreeIds = fieldSubtreeIds(loadedPath);
+
+        TableMetadata base = operations.refresh();
+        ResolvedColumnPath resolvedPath = validatePinnedDropIdentity(
+                table.name(), path, loaded, loadedSubtreeIds, base);
+        validateNotUsedByRetainedPartitionSpec(base, resolvedPath);
+        // Stage the standard SDK update against exactly the validated base. Recapturing operations.current()
+        // here could instead delete a same-name replacement published on a shared handle after refresh.
+        CapturingTableOperations schemaCapture = new CapturingTableOperations(operations, base);
+        Table stagedTable = new BaseTable(schemaCapture, table.name());
+        if (!path.isNested()) {
+            validateRowLineageColumnMutation(stagedTable, path.getTopLevelName(), "drop");
+        }
+        stagedTable.updateSchema().deleteColumn(resolvedPath.getFullPath()).commit();
+        TableMetadata schemaUpdate = schemaCapture.committed();
+        // Like IcebergTransaction, reread the file because Hadoop can reuse a metadata version
+        // after drop/recreate while refresh() retains the old cached object.
+        TableMetadata currentFile = TableMetadataParser.read(operations.io(), base.metadataFileLocation());
+        if (!Objects.equals(base.uuid(), currentFile.uuid())) {
+            throw concurrentDropTargetChange(table.name(), path);
+        }
+        // Catalogs with full metadata CAS reject changes after the validated refresh.
+        operations.commit(base, schemaUpdate);
+    }
+
+    private ResolvedColumnPath validatePinnedDropIdentity(
+            String tableName, ColumnPath path, TableMetadata loaded,
+            Set<Integer> loadedSubtreeIds, TableMetadata refreshed) throws UserException {
+        if (!Objects.equals(loaded.uuid(), refreshed.uuid())
+                || (loaded.uuid() == null && loaded != refreshed)) {
+            // UUID-less legacy metadata has no generation identity, so only the exact refreshed object can be
+            // trusted; accepting a different object could retarget the DROP to a recreated table.
+            throw concurrentDropTargetChange(tableName, path);
+        }
+        try {
+            ResolvedColumnPath refreshedPath = resolveDropPath(refreshed.schema(), path);
+            // A parent DROP pins every descendant ID as well as the parent ID, preventing a same-path subtree
+            // replacement from turning an old request into deletion of a newly created object.
+            if (!loadedSubtreeIds.equals(fieldSubtreeIds(refreshedPath))) {
+                throw concurrentDropTargetChange(tableName, path);
+            }
+            return refreshedPath;
+        } catch (UserException e) {
+            throw concurrentDropTargetChange(tableName, path);
+        }
+    }
+
+    private ResolvedColumnPath resolveDropPath(
+            Schema schema, ColumnPath path) throws UserException {
+        return path.isNested()
+                ? validateNestedStructFieldPath(schema, path, "drop")
+                : resolveColumnPath(schema, path, "drop");
+    }
+
+    private static Set<Integer> fieldSubtreeIds(ResolvedColumnPath path) {
+        return new TreeSet<>(TypeUtil.indexById(Types.StructType.of(path.getField())).keySet());
+    }
+
+    private static UserException concurrentDropTargetChange(
+            String tableName, ColumnPath path) {
+        return new UserException("Iceberg table or drop target changed concurrently: "
+                + tableName + "." + path.getFullPath());
+    }
+
+    private static void validateNotUsedByRetainedPartitionSpec(
+            TableMetadata metadata, ResolvedColumnPath columnPath) throws UserException {
+        Set<Integer> droppedFieldIds = fieldSubtreeIds(columnPath);
+        // Every retained spec resolves partition types by source field ID against the current schema,
+        // including the default spec and historical specs without live files.
+        boolean usedByRetainedSpec = metadata.specs().stream()
+                .anyMatch(spec -> spec.fields().stream().anyMatch(field ->
+                        droppedFieldIds.contains(field.sourceId())));
+        if (usedByRetainedSpec) {
+            throw new UserException(
+                    "Cannot drop column which is used by an old partition spec or current retained partition spec: "
+                            + columnPath.getFullPath());
+        }
+    }
+
+    private static final class CapturingTableOperations implements TableOperations {
+        private final TableOperations delegate;
+        private TableMetadata current;
+        private TableMetadata committed;
+
+        private CapturingTableOperations(TableOperations delegate, TableMetadata base) {
+            this.delegate = delegate;
+            this.current = base;
+        }
+
+        private TableMetadata committed() {
+            if (committed == null) {
+                throw new IllegalStateException("Iceberg metadata update did not commit to the capture");
+            }
+            return committed;
+        }
+
+        @Override
+        public TableMetadata current() {
+            return current;
+        }
+
+        @Override
+        public TableMetadata refresh() {
+            return current;
+        }
+
+        @Override
+        public void commit(TableMetadata base, TableMetadata metadata) {
+            if (base != current) {
+                throw new IllegalStateException("Iceberg metadata capture committed from an unexpected base");
+            }
+            current = metadata;
+            committed = metadata;
+        }
+
+        @Override
+        public FileIO io() {
+            return delegate.io();
+        }
+
+        @Override
+        public EncryptionManager encryption() {
+            return delegate.encryption();
+        }
+
+        @Override
+        public String metadataFileLocation(String fileName) {
+            return delegate.metadataFileLocation(fileName);
+        }
+
+        @Override
+        public LocationProvider locationProvider() {
+            return delegate.locationProvider();
+        }
     }
 
     @Override
