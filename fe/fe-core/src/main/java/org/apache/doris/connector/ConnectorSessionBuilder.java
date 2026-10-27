@@ -28,6 +28,7 @@ import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
 
 import java.util.Collections;
@@ -174,9 +175,20 @@ public final class ConnectorSessionBuilder {
                 }
             }
         }
+        ConnectorStatementScope scope = captureStatementScope();
+        if (scope != ConnectorStatementScope.NONE && connectContext != null) {
+            StmtExecutor owner = connectContext.getExecutor();
+            if (owner != null) {
+                scope.computeIfAbsent(QueryTaskGroups.SCOPE_KEY, () -> {
+                    QueryTaskGroups groups = new QueryTaskGroups();
+                    owner.registerQueryCancellationCallback(groups::close);
+                    return groups;
+                });
+            }
+        }
         return new ConnectorSessionImpl(queryId, user, timeZone, locale,
                 catalogId, catalogName, catalogProperties, sessionProperties, sid, cred,
-                captureStatementScope(), captureBeExecVersion());
+                scope, captureBeExecVersion());
     }
 
     /**

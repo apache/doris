@@ -249,6 +249,14 @@ final class IcebergTableCache {
             return owner.snapshotReadTable();
         }
 
+        TableLease retainLease() {
+            TableLease retained = owner.tryBorrow();
+            if (retained == null) {
+                throw new IllegalStateException("Iceberg table owner is already closed");
+            }
+            return retained;
+        }
+
         @Override
         public void close() {
             if (closed.compareAndSet(false, true)) {
@@ -314,7 +322,7 @@ final class IcebergTableCache {
                     ? operations.current()
                     : TableMetadataParser.fromJson(snapshotMetadataLocation, snapshotMetadataJson);
             return new BaseTable(new IcebergSnapshotTableOperations(operations, metadata),
-                    table.name(), baseTable.reporter());
+                    table.name(), baseTable.reporter(), baseTable.labels());
         }
 
         private TableLease tryBorrow() {

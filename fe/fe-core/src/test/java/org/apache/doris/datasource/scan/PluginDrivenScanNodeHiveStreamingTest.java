@@ -26,6 +26,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.FairTaskExecutor;
 import org.apache.doris.connector.hive.HiveCatalogProperties;
 import org.apache.doris.connector.hive.HiveFileListingCache;
 import org.apache.doris.connector.hive.HiveScanPlanProvider;
@@ -40,7 +41,7 @@ import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
-import org.apache.doris.datasource.ExternalMetaCacheMgr;
+import org.apache.doris.connector.spi.ConnectorTaskScheduler;
 import org.apache.doris.datasource.split.PluginDrivenSplit;
 import org.apache.doris.datasource.split.SplitAssignment;
 import org.apache.doris.datasource.split.SplitGenerator;
@@ -55,7 +56,12 @@ import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TExternalScanRange;
+import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TFileScanRange;
+import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TPushAggOp;
+import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TUniqueId;
@@ -80,8 +86,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -146,7 +150,7 @@ class PluginDrivenScanNodeHiveStreamingTest {
             Assertions.assertTrue(fixture.entered.await(10, TimeUnit.SECONDS));
             fixture.assignment.stop();
             fixture.release.countDown();
-            fixture.executor.shutdown();
+            fixture.executor.close();
             Assertions.assertTrue(fixture.executor.awaitTermination(10, TimeUnit.SECONDS));
             Assertions.assertEquals(2, fixture.listings.get());
         }
@@ -159,10 +163,10 @@ class PluginDrivenScanNodeHiveStreamingTest {
         final AtomicInteger listings = new AtomicInteger();
         final AtomicInteger activeListings = new AtomicInteger();
         final AtomicInteger peakListings = new AtomicInteger();
-        final ExecutorService executor = Executors.newFixedThreadPool(4);
+        final FairTaskExecutor executor = new FairTaskExecutor(4, Thread::new);
         final Backend backend = new Backend(0, "127.0.0.1", 9050);
         final TUniqueId queryId = new TUniqueId(69133, NEXT_QUERY.incrementAndGet());
-        final int previousParallelism = Config.max_external_cache_loader_thread_pool_size;
+        final int previousParallelism = Config.external_scan_split_threads;
         final MockedStatic<Env> envStatic;
         final PluginDrivenScanNode node;
         final SplitAssignment assignment;
@@ -234,6 +238,18 @@ class PluginDrivenScanNodeHiveStreamingTest {
             ConnectorSession session = Mockito.mock(ConnectorSession.class, Mockito.CALLS_REAL_METHODS);
             Mockito.when(session.getQueryId()).thenReturn(DebugUtil.printId(queryId));
             Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
+            FairTaskExecutor.Group group = executor.newGroup(1);
+            ConnectorTaskScheduler scheduler = Mockito.mock(ConnectorTaskScheduler.class, Mockito.CALLS_REAL_METHODS);
+            Mockito.when(scheduler.tryExecute(Mockito.any(), Mockito.any(), Mockito.any()))
+                    .thenAnswer(call -> group.tryExecute(call.getArgument(0), call.getArgument(1), call.getArgument(2)));
+            Mockito.when(scheduler.tryExecuteContinuation(Mockito.any(), Mockito.any(), Mockito.any()))
+                    .thenAnswer(call -> group.tryExecuteContinuation(
+                            call.getArgument(0), call.getArgument(1), call.getArgument(2)));
+            Mockito.doAnswer(call -> {
+                group.removeSpaceListener(call.getArgument(0));
+                return null;
+            }).when(scheduler).removeSpaceListener(Mockito.any());
+            Mockito.when(session.getTaskScheduler(ConnectorTaskScheduler.Stage.SPLIT)).thenReturn(scheduler);
             Mockito.when(session.getProperty("file_split_size", String.class)).thenReturn("1");
             Mockito.when(session.getProperty("num_partitions_in_batch_mode", Integer.class)).thenReturn(2);
             // The old implementation chooses its single-source streaming path for this same Hive scan.
@@ -246,6 +262,7 @@ class PluginDrivenScanNodeHiveStreamingTest {
             Mockito.when(desc.getSlots()).thenReturn(new ArrayList<>(Collections.singletonList(
                     Mockito.mock(SlotDescriptor.class))));
             SessionVariable variables = Mockito.mock(SessionVariable.class);
+            Mockito.when(variables.getEnableExternalTableBatchMode()).thenReturn(true);
             Mockito.when(variables.getNumPartitionsInBatchMode()).thenReturn(2);
             Mockito.when(variables.getSplitBatchSize()).thenReturn(2);
             Mockito.when(variables.getSplitQueueCapacity()).thenReturn(1);
@@ -272,18 +289,19 @@ class PluginDrivenScanNodeHiveStreamingTest {
                     (be, props, split, keys, admission) -> {
                         HiveScanRange range = (HiveScanRange) ((PluginDrivenSplit) split).getConnectorScanRange();
                         long identity = Long.parseLong(range.getPartitionValues().get("pt")) * 100 + range.getStart();
-                        return new TScanRangeLocations().setLocations(Collections.singletonList(
-                                new TScanRangeLocation().setBackendId(identity)));
+                        TFileScanRange files = new TFileScanRange().setParams(new TFileScanRangeParams())
+                                .setRanges(Collections.singletonList(new TFileRangeDesc().setPath("file-" + identity)));
+                        return new TScanRangeLocations().setScanRange(new TScanRange().setExtScanRange(
+                                new TExternalScanRange().setFileScanRange(files)))
+                                .setLocations(Collections.singletonList(
+                                        new TScanRangeLocation().setBackendId(identity)));
                     }, Collections.emptyMap(), Collections.emptyList(), true, 2, 1);
             Deencapsulation.setField(node, "splitAssignment", assignment);
-            ExternalMetaCacheMgr manager = Mockito.mock(ExternalMetaCacheMgr.class);
-            Mockito.when(manager.getScheduleExecutor()).thenReturn(executor);
             Env env = Mockito.mock(Env.class);
-            Mockito.when(env.getExtMetaCacheMgr()).thenReturn(manager);
             Mockito.when(env.getSplitSourceManager()).thenReturn(Mockito.mock(SplitSourceManager.class));
             envStatic = Mockito.mockStatic(Env.class);
             envStatic.when(Env::getCurrentEnv).thenReturn(env);
-            Config.max_external_cache_loader_thread_pool_size = 2;
+            Config.external_scan_split_threads = 2;
         }
 
         void start() {
@@ -314,12 +332,12 @@ class PluginDrivenScanNodeHiveStreamingTest {
                 assignment.stop();
                 release.countDown();
                 QeProcessorImpl.INSTANCE.unregisterQuery(queryId);
-                executor.shutdown();
+                executor.close();
                 Assertions.assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
             } finally {
-                executor.shutdownNow();
+                executor.close();
                 envStatic.close();
-                Config.max_external_cache_loader_thread_pool_size = previousParallelism;
+                Config.external_scan_split_threads = previousParallelism;
             }
         }
     }

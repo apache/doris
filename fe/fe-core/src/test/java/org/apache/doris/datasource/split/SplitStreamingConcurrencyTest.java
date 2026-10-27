@@ -21,6 +21,11 @@ import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.scan.FederationBackendPolicy;
 import org.apache.doris.spi.Split;
 import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TExternalScanRange;
+import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TFileScanRange;
+import org.apache.doris.thrift.TFileScanRangeParams;
+import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 
@@ -81,8 +86,12 @@ class SplitStreamingConcurrencyTest {
                         queuesFilled.countDown();
                     }
                     // Preserve a unique split identity through assignment and residual batches.
-                    return new TScanRangeLocations().setLocations(Collections.singletonList(
-                            new TScanRangeLocation().setBackendId(split.getStart())));
+                    TFileScanRange files = new TFileScanRange().setParams(new TFileScanRangeParams())
+                            .setRanges(Collections.singletonList(new TFileRangeDesc().setPath("file-" + split.getStart())));
+                    return new TScanRangeLocations().setScanRange(new TScanRange().setExtScanRange(
+                            new TExternalScanRange().setFileScanRange(files)))
+                            .setLocations(Collections.singletonList(
+                                    new TScanRangeLocation().setBackendId(split.getStart())));
                 }, Collections.emptyMap(), Collections.emptyList(), true, producerBatchSize, queueCapacity);
         List<Split> splits = new ArrayList<>();
         LocationPath path = LocationPath.of("s3://bucket/file.parquet");

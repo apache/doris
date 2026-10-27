@@ -91,13 +91,15 @@ public class ConnectorPluginSurfaceTest {
         // Major 20 adds deleteUsingMetadata to the connector write surface; major 21 adds
         // typed filesystem credential descriptions and statement-scoped metadata.
         // Major 22 adds the metadata-only DDL handle path; major 23 adds the provider's
-        // ConnectorSecuritySurface declaration. Major 24 adds spatial type metadata and
-        // the nested-spatial capability, which API-23 kernels cannot load.
-        Assertions.assertEquals("24.0", version.getProperty("api.version"));
+        // ConnectorSecuritySurface declaration; major 24 adds the scan task scheduler.
+        // Major 25 adds spatial type metadata and the nested-spatial capability,
+        // which API-24 kernels cannot load.
+        Assertions.assertEquals("25.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
     private static final List<Class<?>> FROZEN_TYPES = Arrays.asList(
+            ConnectorTaskScheduler.class,
             DiagnosticException.class,
             ConnectorProvider.class,
             ConnectorSecuritySurface.class,
@@ -123,11 +125,12 @@ public class ConnectorPluginSurfaceTest {
             ConnectorWritePlanProvider.class,
             org.apache.doris.extension.spi.Plugin.class,
             org.apache.doris.extension.spi.PluginFactory.class,
-            org.apache.doris.extension.spi.PluginContext.class);
+            org.apache.doris.extension.spi.PluginContext.class,
+            org.apache.doris.connector.spi.scan.ConnectorSplitSource.class);
 
     /** Public enum constants linked directly by connector plugin bytecode. */
     private static final List<Class<? extends Enum<?>>> FROZEN_ENUM_TYPES =
-            Arrays.asList(ConnectorCapability.class,
+            Arrays.asList(ConnectorCapability.class, ConnectorTaskScheduler.Stage.class,
                     org.apache.doris.connector.spi.write.ConnectorRowChangeStyle.class,
                     org.apache.doris.connector.spi.write.ConnectorWriteDistribution.Mode.class,
                     org.apache.doris.connector.spi.write.ConnectorWriteDistribution.WriterAssignment.class);
