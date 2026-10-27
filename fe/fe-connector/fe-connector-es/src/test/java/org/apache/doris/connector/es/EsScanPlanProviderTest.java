@@ -22,6 +22,7 @@ import org.apache.doris.connector.spi.ConnectorContractValidator;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.NamedColumnHandle;
 import org.apache.doris.connector.spi.pushdown.ConnectorAnd;
@@ -734,6 +735,102 @@ class EsScanPlanProviderTest {
                         Optional.of(sourceEquals("a", "elephant")));
         Assertions.assertEquals(Collections.singleton(0), result.getNotPushedConjunctIndices());
         Assertions.assertEquals(EsQueryDslBuilder.matchAllQuery(), result.getProperties().get("query_dsl"));
+    }
+
+
+    private static ConnectorExpression nativeSourceQuery() {
+        return new ConnectorFunctionCall("esquery", ConnectorType.of("BOOLEAN"),
+                Arrays.asList(sourceColumn("b"), ConnectorLiteral.ofString("{\"term\":{\"b\":\"ok\"}}")));
+    }
+
+    @Test
+    void emptyBackingMappingsRemainReadableDuringAliasSafetyAnalysis() {
+        String populated = mappingWithField("{\"type\":\"keyword\"}");
+        for (String empty : Arrays.asList("{}", "{\"doc\":{}}", "{\"_meta\":{\"description\":\"empty\"}}")) {
+            String mapping = populated.substring(0, populated.length() - 1)
+                    + ",\"empty\":{\"mappings\":" + empty + "}}";
+            ScanNodePropertiesResult result = propertiesForMapping(mapping, sourceEquals("a", "cat"));
+            Assertions.assertEquals(Collections.singleton(0), result.getNotPushedConjunctIndices());
+            Assertions.assertEquals(EsQueryDslBuilder.matchAllQuery(), result.getProperties().get("query_dsl"));
+            Assertions.assertEquals("0", result.getProperties().get("doc_values_mode"));
+        }
+    }
+
+    @Test
+    void nativeBooleanQueriesWithShortKeywordEqualityAndInRemainRemote() {
+        for (String field : Arrays.asList(
+                "{\"type\":\"keyword\",\"ignore_above\":4}",
+                "{\"type\":\"text\",\"fields\":{\"raw\":{\"type\":\"keyword\",\"ignore_above\":4}}}")) {
+            ConnectorExpression equal = sourceEquals("a", "cat");
+            ConnectorExpression in = new ConnectorIn(sourceColumn("a"), Arrays.asList(
+                    ConnectorLiteral.ofString("cat"), ConnectorLiteral.ofString("four")), false);
+            for (ConnectorExpression exact : Arrays.asList(equal, in)) {
+                for (ConnectorExpression expression : Arrays.asList(
+                        new ConnectorOr(Arrays.asList(exact, nativeSourceQuery())),
+                        new ConnectorNot(new ConnectorOr(Arrays.asList(exact, nativeSourceQuery()))),
+                        new ConnectorNot(new ConnectorAnd(Arrays.asList(exact, nativeSourceQuery()))))) {
+                    ScanNodePropertiesResult result = propertiesForMapping(mappingWithField(field), expression);
+                    Assertions.assertTrue(result.getNotPushedConjunctIndices().isEmpty(), expression.toString());
+                    Assertions.assertNotEquals(EsQueryDslBuilder.matchAllQuery(),
+                            result.getProperties().get("query_dsl"));
+                    Assertions.assertEquals("0", result.getProperties().get("doc_values_mode"));
+                }
+            }
+        }
+    }
+
+    @Test
+    void inexactNativeBooleanQueriesFailBeforeCreatingAnUnevaluableResidual() {
+        String mapping = mappingWithField("{\"type\":\"keyword\",\"ignore_above\":4}");
+        ConnectorExpression longValue = sourceEquals("a", "elephant");
+        ConnectorExpression localOnly = new ConnectorFunctionCall("unsupported_predicate", ConnectorType.of("BOOLEAN"),
+                Collections.singletonList(sourceColumn("b")));
+        for (ConnectorExpression local : Arrays.asList(longValue, localOnly, new ConnectorIsNull(sourceColumn("a"), false))) {
+            for (ConnectorExpression expression : Arrays.asList(
+                    new ConnectorOr(Arrays.asList(local, nativeSourceQuery())),
+                    new ConnectorNot(new ConnectorAnd(Arrays.asList(local, nativeSourceQuery()))))) {
+                DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
+                        () -> propertiesForMapping(mapping, expression));
+                Assertions.assertTrue(error.getMessage().contains("Cannot evaluate esquery locally"));
+            }
+        }
+        ScanNodePropertiesResult and = propertiesForMapping(mapping,
+                new ConnectorAnd(Arrays.asList(longValue, nativeSourceQuery())));
+        Assertions.assertEquals(Collections.singleton(0), and.getNotPushedConjunctIndices());
+        Assertions.assertEquals("{\"term\":{\"b\":\"ok\"}}", and.getProperties().get("query_dsl"));
+    }
+
+    @Test
+    void shortKeywordEqualityRequiresAnExactMappingOnEveryBacking() {
+        String safe = mappingWithField("{\"type\":\"keyword\",\"ignore_above\":4}");
+        for (String mapping : Arrays.asList(
+                safe.replace("\"ignore_above\":4", "\"ignore_above\":4,\"normalizer\":\"lowercase\""),
+                safe.replace("\"ignore_above\":4", "\"ignore_above\":4,\"null_value\":\"cat\""),
+                safe.substring(0, safe.length() - 1) + ",\"second\":{\"mappings\":{\"properties\":"
+                        + "{\"a\":{\"type\":\"keyword\",\"ignore_above\":2},\"b\":{\"type\":\"keyword\"}}}}}")) {
+            ScanNodePropertiesResult result = propertiesForMapping(mapping, sourceEquals("a", "cat"));
+            Assertions.assertEquals(Collections.singleton(0), result.getNotPushedConjunctIndices());
+            Assertions.assertThrows(DorisConnectorException.class, () -> propertiesForMapping(mapping,
+                    new ConnectorOr(Arrays.asList(sourceEquals("a", "cat"), nativeSourceQuery()))));
+        }
+    }
+
+    @Test
+    void exactTextKeywordPredicatesRequireKeywordSniff() {
+        CountingRestClient client = new CountingRestClient() {
+            @Override
+            public String getMapping(String indexName) {
+                return mappingWithField("{\"type\":\"text\",\"fields\":{\"raw\":"
+                        + "{\"type\":\"keyword\",\"ignore_above\":4}}}");
+            }
+        };
+        Map<String, String> properties = minimalPropertyMap();
+        properties.put(EsCatalogProperties.KEYWORD_SNIFF, "false");
+        EsScanPlanProvider provider = new EsScanPlanProvider(client, EsCatalogProperties.of(properties));
+        Assertions.assertThrows(DorisConnectorException.class, () -> provider.getScanNodePropertiesResult(
+                EMPTY_SESSION, new EsTableHandle("test"),
+                Arrays.asList(new NamedColumnHandle("a"), new NamedColumnHandle("b")),
+                Optional.of(new ConnectorOr(Arrays.asList(sourceEquals("a", "cat"), nativeSourceQuery())))));
     }
 
 }

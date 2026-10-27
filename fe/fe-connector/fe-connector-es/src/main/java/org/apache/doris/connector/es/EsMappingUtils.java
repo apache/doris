@@ -66,8 +66,17 @@ public final class EsMappingUtils {
      */
     public static ObjectNode getRootSchema(ObjectNode mappings, String mappingType,
             List<String> arrayFields) {
+        return getRootSchema(mappings, mappingType, arrayFields, false);
+    }
+
+    private static ObjectNode getRootSchema(ObjectNode mappings, String mappingType,
+            List<String> arrayFields, boolean allowEmpty) {
         if (mappingType == null) {
-            checkNonPropertiesFields(mappings, arrayFields);
+            checkNonPropertiesFields(mappings, arrayFields, allowEmpty);
+            // Alias safety analysis must accept backing indices that have not acquired a mapping yet.
+            if (mappings.isEmpty()) {
+                return mappings;
+            }
             String firstType = mappings.fieldNames().next();
             if (StreamSupport.stream(Spliterators.spliteratorUnknownSize(
                     mappings.fieldNames(), Spliterator.ORDERED), false)
@@ -75,16 +84,16 @@ public final class EsMappingUtils {
                 return mappings;
             } else {
                 ObjectNode firstData = (ObjectNode) mappings.get(firstType);
-                checkNonPropertiesFields(firstData, arrayFields);
+                checkNonPropertiesFields(firstData, arrayFields, allowEmpty);
                 return firstData;
             }
         } else {
             if (mappings.has(mappingType)) {
                 ObjectNode jsonData = (ObjectNode) mappings.get(mappingType);
-                checkNonPropertiesFields(jsonData, arrayFields);
+                checkNonPropertiesFields(jsonData, arrayFields, allowEmpty);
                 return jsonData;
             }
-            return getRootSchema(mappings, null, arrayFields);
+            return getRootSchema(mappings, null, arrayFields, allowEmpty);
         }
     }
 
@@ -161,16 +170,23 @@ public final class EsMappingUtils {
         try {
             // An alias can span mappings. Every backing index must preserve source semantics before
             // a predicate may remove rows or doc_values may replace the value returned to Doris.
+            List<ObjectNode> roots = new ArrayList<>();
+            Set<String> columns = new HashSet<>(context.getColumn2typeMap().keySet());
             for (JsonNode index : MAPPER.readTree(indexMapping)) {
-                ObjectNode root = getRootSchema((ObjectNode) index.get("mappings"), mappingType, new ArrayList<>());
+                ObjectNode root = getRootSchema((ObjectNode) index.get("mappings"), mappingType,
+                        new ArrayList<>(), true);
+                roots.add(root);
+            }
+            // Only the first mapping's schema is exposed by Doris, including unprojected filter columns.
+            roots.get(0).path("properties").fieldNames().forEachRemaining(columns::add);
+            Set<String> inexactKeywords = new HashSet<>();
+            for (ObjectNode root : roots) {
                 JsonNode properties = root.path("properties");
                 JsonNode source = root.path("_source");
                 boolean filteredSource = !source.path("enabled").asBoolean(true)
                         || source.has("includes") || source.has("excludes");
                 Set<String> copyTargets = new HashSet<>();
                 collectCopyTargets(properties, copyTargets);
-                Set<String> columns = new HashSet<>(context.getColumn2typeMap().keySet());
-                properties.fieldNames().forEachRemaining(columns::add);
                 for (String column : columns) {
                     JsonNode field = properties.path(column);
                     String indexedPath = context.getFetchFieldsContext().get(column);
@@ -178,13 +194,30 @@ public final class EsMappingUtils {
                     if (indexedPath != null) {
                         indexedField = field.path("fields").path(indexedPath.substring(column.length() + 1));
                     }
-                    if (filteredSource || field.isMissingNode() || root.path("runtime").has(column)
-                            || copyTargets.contains(column) || changesSourceValue(field)
-                            || changesSourceValue(indexedField) || hasUnsafeKeywordSubfield(field)) {
+                    boolean inexact = filteredSource || root.path("runtime").has(column)
+                            || copyTargets.contains(column) || changesSourceValueExceptLength(field)
+                            || changesSourceValueExceptLength(indexedField);
+                    for (JsonNode subfield : field.path("fields")) {
+                        if ("keyword".equals(subfield.path("type").asText())
+                                && changesSourceValueExceptLength(subfield)) {
+                            inexact = true;
+                        }
+                    }
+                    if (inexact || field.has("ignore_above") || indexedField.has("ignore_above")
+                            || hasUnsafeKeywordSubfield(field)) {
                         context.getSourceValueUnsafeFields().add(column);
+                    }
+                    if (!inexact && "keyword".equals(indexedField.path("type").asText())) {
+                        // Equality/IN with bounded literals stay exact: ignored longer values cannot
+                        // equal those literals. Intersect the bound over every backing index.
+                        context.getKeywordIgnoreAboveLimits().merge(column,
+                                indexedField.path("ignore_above").asInt(Integer.MAX_VALUE), Math::min);
+                    } else {
+                        inexactKeywords.add(column);
                     }
                 }
             }
+            inexactKeywords.forEach(context.getKeywordIgnoreAboveLimits()::remove);
         } catch (IOException e) {
             throw new DorisConnectorException("Failed to parse ES mapping: " + e.getMessage());
         }
@@ -202,7 +235,11 @@ public final class EsMappingUtils {
     }
 
     private static boolean changesSourceValue(JsonNode field) {
-        return field.isMissingNode() || field.has("ignore_above") || field.has("normalizer")
+        return field.has("ignore_above") || changesSourceValueExceptLength(field);
+    }
+
+    private static boolean changesSourceValueExceptLength(JsonNode field) {
+        return field.isMissingNode() || field.has("normalizer")
                 || field.has("null_value") || field.path("ignore_malformed").asBoolean(false)
                 || !field.path("index").asBoolean(true);
     }
@@ -293,7 +330,7 @@ public final class EsMappingUtils {
     }
 
     private static void checkNonPropertiesFields(ObjectNode mappings,
-            List<String> arrayFields) {
+            List<String> arrayFields, boolean allowEmpty) {
         JsonNode metaNode = mappings.remove("_meta");
         if (metaNode != null) {
             JsonNode dorisMeta = metaNode.get("doris");
@@ -309,7 +346,7 @@ public final class EsMappingUtils {
         mappings.remove("dynamic_templates");
         mappings.remove("dynamic");
         mappings.remove("_default_");
-        if (mappings.isEmpty()) {
+        if (!allowEmpty && mappings.isEmpty()) {
             throw new DorisConnectorException(
                     "Do not support index without explicit mapping.");
         }

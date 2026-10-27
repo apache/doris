@@ -263,6 +263,7 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
         Map<String, String> fieldsContext = Collections.emptyMap();
         List<String> needCompatDateFields = Collections.emptyList();
         Map<String, String> column2typeMap = Collections.emptyMap();
+        Map<String, Integer> keywordIgnoreAboveLimits = Collections.emptyMap();
 
         if (state.getFieldContext() != null) {
             if (props.isKeywordSniff()) {
@@ -270,13 +271,18 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
             }
             needCompatDateFields = state.getFieldContext().getNeedCompatDateFields();
             column2typeMap = state.getFieldContext().getColumn2typeMap();
+            keywordIgnoreAboveLimits = new HashMap<>(state.getFieldContext().getKeywordIgnoreAboveLimits());
+            if (!props.isKeywordSniff()) {
+                state.getFieldContext().getFetchFieldsContext().keySet().forEach(keywordIgnoreAboveLimits::remove);
+            }
         }
 
         return EsQueryDslBuilder.buildQueryDslWithResult(
                 filter.get(), fieldsContext, column2typeMap,
                 props.isLikePushDown(), needCompatDateFields,
                 state.getFieldContext() != null
-                        ? state.getFieldContext().getSourceValueUnsafeFields() : Collections.emptySet());
+                        ? state.getFieldContext().getSourceValueUnsafeFields() : Collections.emptySet(),
+                keywordIgnoreAboveLimits);
     }
 
     private EsMetadataState fetchMetadataState(ConnectorSession session, EsTableHandle handle,

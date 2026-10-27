@@ -68,6 +68,9 @@ suite("test_es_source_semantics", "p2,external") {
         request("PUT", index, [settings: settings, mappings: mappings])
     }
 
+    request("DELETE", "doris_source_safety_z_empty")
+    request("PUT", "doris_source_safety_z_empty", [settings: [number_of_shards: 2, number_of_replicas: 0]])
+
     // Use distinct shards so the routing-alias oracle cannot pass because two routing keys collide.
     def routingKeys = (0..<32).collect { "route_${it}" }
     def firstRouting = routingKeys[0]
@@ -97,6 +100,8 @@ suite("test_es_source_semantics", "p2,external") {
         request("POST", "${index}/_refresh")
     }
     request("POST", "_aliases", [actions: [
+        [add: [index: "doris_source_safety_a", alias: "doris_source_with_empty"]],
+        [add: [index: "doris_source_safety_z_empty", alias: "doris_source_with_empty"]],
         [add: [index: "doris_source_safety_a", alias: "doris_source_filtered", filter: [term: [tenant: "A"]]]],
         [add: [index: "doris_source_safety_a", alias: "doris_source_multi", filter: [term: [tenant: "A"]]]],
         [add: [index: "doris_source_safety_b", alias: "doris_source_multi", filter: [term: [tenant: "B"]]]],
@@ -130,6 +135,14 @@ suite("test_es_source_semantics", "p2,external") {
         "(limited = 'elephant' and tenant = 'A') or row_id = 2",
         "not (limited = 'elephant' and tenant = 'A')"
     ]
+    def nativeTerm = """esquery(tenant, '{"term":{"tenant":"A"}}')"""
+    def mixedNativePredicates = [
+        ["limited = 'cat' or ${nativeTerm}", "limited = 'cat' or tenant = 'A'"],
+        ["limited in ('cat', 'four') or ${nativeTerm}", "limited in ('cat', 'four') or tenant = 'A'"],
+        ["body = 'cat' or ${nativeTerm}", "body = 'cat' or tenant = 'A'"],
+        ["not (limited = 'cat' or ${nativeTerm})", "not (limited = 'cat' or tenant = 'A')"],
+        ["limited = 'elephant' and not (${nativeTerm})", "limited = 'elephant' and not (tenant = 'A')"]
+    ]
     def originalV2 = sql("show variables like 'enable_file_scanner_v2'")[0][1]
     def originalParallel = sql("show variables like 'enable_es_parallel_scroll'")[0][1]
     def originalBatch = sql("show variables like 'batch_size'")[0][1]
@@ -157,6 +170,21 @@ suite("test_es_source_semantics", "p2,external") {
                                 "select row_id from ${expectedTable} where ${predicate} order by row_id")
                         quickTest("${tag}_predicate_${i}", query)
                     }
+                    mixedNativePredicates.eachWithIndex { pair, i ->
+                        def query = "select row_id from doris_source_safety_a where ${pair[0]} order by row_id"
+                        quickTest("${tag}_native_${i}", query,
+                                "select row_id from ${expectedTable} where ${pair[1]} order by row_id")
+                        quickTest("${tag}_native_${i}", query)
+                    }
+                    // These combinations need both source evaluation and remote-only ES semantics.
+                    // Reject them while planning rather than dispatching the fake esquery BE function.
+                    ["limited = 'elephant' or ${nativeTerm}",
+                     "not (limited = 'elephant' and ${nativeTerm})"].each { predicate ->
+                        test {
+                            sql "select row_id from doris_source_safety_a where ${predicate}"
+                            exception "Cannot evaluate esquery locally"
+                        }
+                    }
                     ["limited = 'elephant'", "limited is null"].eachWithIndex { predicate, i ->
                         quickTest("${tag}_limit_${i}", "select row_id from doris_source_safety_a "
                                 + "where ${predicate} limit 1")
@@ -164,7 +192,8 @@ suite("test_es_source_semantics", "p2,external") {
                     quickTest("${tag}_hidden", "select row_id, limited from doris_source_safety_hidden "
                             + "where limited is null order by row_id")
                     ["doris_source_filtered", "doris_source_multi", "doris_source_routed",
-                     "doris_source_filtered_routed", "doris_source_empty", "doris_source_unfiltered"].each { alias ->
+                     "doris_source_filtered_routed", "doris_source_empty", "doris_source_unfiltered",
+                     "doris_source_with_empty"].each { alias ->
                         // Compare to ES itself: both Doris scan modes previously shared the same metadata path.
                         def hits = request("POST", "${alias}/_search", [size: 100, _source: ["row_id"],
                                 query: [match_all: [:]]]).hits.hits

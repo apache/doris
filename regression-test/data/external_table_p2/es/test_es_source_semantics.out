@@ -76,6 +76,25 @@
 3
 4
 
+-- !dv_false_v2_false_parallel_false_native_0 --
+1
+2
+3
+
+-- !dv_false_v2_false_parallel_false_native_1 --
+1
+2
+3
+
+-- !dv_false_v2_false_parallel_false_native_2 --
+1
+2
+3
+
+-- !dv_false_v2_false_parallel_false_native_3 --
+
+-- !dv_false_v2_false_parallel_false_native_4 --
+
 -- !dv_false_v2_false_parallel_false_limit_0 --
 1
 
@@ -134,6 +153,15 @@
 
 -- !dv_false_v2_false_parallel_false_doris_source_unfiltered_count --
 8
+
+-- !dv_false_v2_false_parallel_false_doris_source_with_empty --
+1
+2
+3
+4
+
+-- !dv_false_v2_false_parallel_false_doris_source_with_empty_count --
+4
 
 -- !dv_false_v2_false_parallel_true_source --
 1	elephant	MiXeD	\N	elephant	\N
@@ -212,6 +240,25 @@
 3
 4
 
+-- !dv_false_v2_false_parallel_true_native_0 --
+1
+2
+3
+
+-- !dv_false_v2_false_parallel_true_native_1 --
+1
+2
+3
+
+-- !dv_false_v2_false_parallel_true_native_2 --
+1
+2
+3
+
+-- !dv_false_v2_false_parallel_true_native_3 --
+
+-- !dv_false_v2_false_parallel_true_native_4 --
+
 -- !dv_false_v2_false_parallel_true_limit_0 --
 1
 
@@ -270,6 +317,15 @@
 
 -- !dv_false_v2_false_parallel_true_doris_source_unfiltered_count --
 8
+
+-- !dv_false_v2_false_parallel_true_doris_source_with_empty --
+1
+2
+3
+4
+
+-- !dv_false_v2_false_parallel_true_doris_source_with_empty_count --
+4
 
 -- !dv_false_v2_true_parallel_false_source --
 1	elephant	MiXeD	\N	elephant	\N
@@ -348,6 +404,25 @@
 3
 4
 
+-- !dv_false_v2_true_parallel_false_native_0 --
+1
+2
+3
+
+-- !dv_false_v2_true_parallel_false_native_1 --
+1
+2
+3
+
+-- !dv_false_v2_true_parallel_false_native_2 --
+1
+2
+3
+
+-- !dv_false_v2_true_parallel_false_native_3 --
+
+-- !dv_false_v2_true_parallel_false_native_4 --
+
 -- !dv_false_v2_true_parallel_false_limit_0 --
 1
 
@@ -406,6 +481,15 @@
 
 -- !dv_false_v2_true_parallel_false_doris_source_unfiltered_count --
 8
+
+-- !dv_false_v2_true_parallel_false_doris_source_with_empty --
+1
+2
+3
+4
+
+-- !dv_false_v2_true_parallel_false_doris_source_with_empty_count --
+4
 
 -- !dv_false_v2_true_parallel_true_source --
 1	elephant	MiXeD	\N	elephant	\N
@@ -484,6 +568,25 @@
 3
 4
 
+-- !dv_false_v2_true_parallel_true_native_0 --
+1
+2
+3
+
+-- !dv_false_v2_true_parallel_true_native_1 --
+1
+2
+3
+
+-- !dv_false_v2_true_parallel_true_native_2 --
+1
+2
+3
+
+-- !dv_false_v2_true_parallel_true_native_3 --
+
+-- !dv_false_v2_true_parallel_true_native_4 --
+
 -- !dv_false_v2_true_parallel_true_limit_0 --
 1
 
@@ -542,6 +645,15 @@
 
 -- !dv_false_v2_true_parallel_true_doris_source_unfiltered_count --
 8
+
+-- !dv_false_v2_true_parallel_true_doris_source_with_empty --
+1
+2
+3
+4
+
+-- !dv_false_v2_true_parallel_true_doris_source_with_empty_count --
+4
 
 -- !dv_true_v2_false_parallel_false_source --
 1	elephant	MiXeD	\N	elephant	\N
@@ -620,6 +732,25 @@
 3
 4
 
+-- !dv_true_v2_false_parallel_false_native_0 --
+1
+2
+3
+
+-- !dv_true_v2_false_parallel_false_native_1 --
+1
+2
+3
+
+-- !dv_true_v2_false_parallel_false_native_2 --
+1
+2
+3
+
+-- !dv_true_v2_false_parallel_false_native_3 --
+
+-- !dv_true_v2_false_parallel_false_native_4 --
+
 -- !dv_true_v2_false_parallel_false_limit_0 --
 1
 
@@ -678,6 +809,15 @@
 
 -- !dv_true_v2_false_parallel_false_doris_source_unfiltered_count --
 8
+
+-- !dv_true_v2_false_parallel_false_doris_source_with_empty --
+1
+2
+3
+4
+
+-- !dv_true_v2_false_parallel_false_doris_source_with_empty_count --
+4
 
 -- !dv_true_v2_false_parallel_true_source --
 1	elephant	MiXeD	\N	elephant	\N
@@ -756,6 +896,25 @@
 3
 4
 
+-- !dv_true_v2_false_parallel_true_native_0 --
+1
+2
+3
+
+-- !dv_true_v2_false_parallel_true_native_1 --
+1
+2
+3
+
+-- !dv_true_v2_false_parallel_true_native_2 --
+1
+2
+3
+
+-- !dv_true_v2_false_parallel_true_native_3 --
+
+-- !dv_true_v2_false_parallel_true_native_4 --
+
 -- !dv_true_v2_false_parallel_true_limit_0 --
 1
 
@@ -814,6 +973,15 @@
 
 -- !dv_true_v2_false_parallel_true_doris_source_unfiltered_count --
 8
+
+-- !dv_true_v2_false_parallel_true_doris_source_with_empty --
+1
+2
+3
+4
+
+-- !dv_true_v2_false_parallel_true_doris_source_with_empty_count --
+4
 
 -- !dv_true_v2_true_parallel_false_source --
 1	elephant	MiXeD	\N	elephant	\N
@@ -892,6 +1060,25 @@
 3
 4
 
+-- !dv_true_v2_true_parallel_false_native_0 --
+1
+2
+3
+
+-- !dv_true_v2_true_parallel_false_native_1 --
+1
+2
+3
+
+-- !dv_true_v2_true_parallel_false_native_2 --
+1
+2
+3
+
+-- !dv_true_v2_true_parallel_false_native_3 --
+
+-- !dv_true_v2_true_parallel_false_native_4 --
+
 -- !dv_true_v2_true_parallel_false_limit_0 --
 1
 
@@ -950,6 +1137,15 @@
 
 -- !dv_true_v2_true_parallel_false_doris_source_unfiltered_count --
 8
+
+-- !dv_true_v2_true_parallel_false_doris_source_with_empty --
+1
+2
+3
+4
+
+-- !dv_true_v2_true_parallel_false_doris_source_with_empty_count --
+4
 
 -- !dv_true_v2_true_parallel_true_source --
 1	elephant	MiXeD	\N	elephant	\N
@@ -1028,6 +1224,25 @@
 3
 4
 
+-- !dv_true_v2_true_parallel_true_native_0 --
+1
+2
+3
+
+-- !dv_true_v2_true_parallel_true_native_1 --
+1
+2
+3
+
+-- !dv_true_v2_true_parallel_true_native_2 --
+1
+2
+3
+
+-- !dv_true_v2_true_parallel_true_native_3 --
+
+-- !dv_true_v2_true_parallel_true_native_4 --
+
 -- !dv_true_v2_true_parallel_true_limit_0 --
 1
 
@@ -1086,4 +1301,13 @@
 
 -- !dv_true_v2_true_parallel_true_doris_source_unfiltered_count --
 8
+
+-- !dv_true_v2_true_parallel_true_doris_source_with_empty --
+1
+2
+3
+4
+
+-- !dv_true_v2_true_parallel_true_doris_source_with_empty_count --
+4
 
