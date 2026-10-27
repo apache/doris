@@ -159,7 +159,12 @@ public class CreateMTMVInfo extends CreateTableInfo {
 
         // analyze distribute
         Map<String, ColumnDefinition> columnMap = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
-        columns.forEach(c -> columnMap.put(c.getName(), c));
+        columns.forEach(c -> {
+            if (c.getType().typeContainsFile()) {
+                throw new AnalysisException("FILE columns are not supported in internal tables");
+            }
+            columnMap.put(c.getName(), c);
+        });
         distribution.updateCols(columns.get(0).getName());
         distribution.validate(columnMap, KeysType.DUP_KEYS);
         refreshInfo.validate();

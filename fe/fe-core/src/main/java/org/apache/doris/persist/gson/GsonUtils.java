@@ -61,6 +61,7 @@ import org.apache.doris.analysis.StructLiteral;
 import org.apache.doris.analysis.TimeStampNsLiteral;
 import org.apache.doris.analysis.TimestampArithmeticExpr;
 import org.apache.doris.analysis.UuidLiteral;
+import org.apache.doris.analysis.VarBinaryLiteral;
 import org.apache.doris.analysis.VariableExpr;
 import org.apache.doris.analysis.VirtualSlotRef;
 import org.apache.doris.backup.BackupJob;
@@ -79,6 +80,7 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.EsTable;
+import org.apache.doris.catalog.FileType;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionGenTable;
 import org.apache.doris.catalog.HMSResource;
@@ -308,6 +310,7 @@ public class GsonUtils {
             .registerSubtype(ArrayType.class, ArrayType.class.getSimpleName())
             .registerSubtype(MapType.class, MapType.class.getSimpleName())
             .registerSubtype(StructType.class, StructType.class.getSimpleName())
+            .registerSubtype(FileType.class, FileType.class.getSimpleName())
             .registerSubtype(AggStateType.class, AggStateType.class.getSimpleName())
             .registerSubtype(AnyElementType.class, AnyElementType.class.getSimpleName())
             .registerSubtype(AnyStructType.class, AnyStructType.class.getSimpleName())
@@ -348,6 +351,7 @@ public class GsonUtils {
             .registerSubtype(JsonLiteral.class, JsonLiteral.class.getSimpleName())
             .registerSubtype(ArrayLiteral.class, ArrayLiteral.class.getSimpleName())
             .registerSubtype(StructLiteral.class, StructLiteral.class.getSimpleName())
+            .registerSubtype(VarBinaryLiteral.class, VarBinaryLiteral.class.getSimpleName())
             .registerSubtype(NumericLiteralExpr.class, NumericLiteralExpr.class.getSimpleName())
             .registerSubtype(PlaceHolderExpr.class, PlaceHolderExpr.class.getSimpleName())
             .registerSubtype(CaseExpr.class, CaseExpr.class.getSimpleName())
@@ -960,6 +964,11 @@ public class GsonUtils {
                     if (value instanceof GsonPreProcessable) {
                         ((GsonPreProcessable) value).gsonPreProcess();
                     }
+                    if (value instanceof FileType) {
+                        ((FileType) value).gsonPreProcess();
+                    } else if (value instanceof ScalarType) {
+                        ((ScalarType) value).gsonPreProcess();
+                    }
                     delegate.write(out, value);
                 }
 
@@ -988,6 +997,11 @@ public class GsonUtils {
                     T obj = delegate.read(reader);
                     if (obj instanceof GsonPostProcessable) {
                         ((GsonPostProcessable) obj).gsonPostProcess();
+                    }
+                    if (obj instanceof FileType) {
+                        ((FileType) obj).gsonPostProcess();
+                    } else if (obj instanceof ScalarType) {
+                        ((ScalarType) obj).gsonPostProcess();
                     }
                     return obj;
                 }

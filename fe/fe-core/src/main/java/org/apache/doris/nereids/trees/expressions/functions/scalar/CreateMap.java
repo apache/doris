@@ -27,6 +27,7 @@ import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.VariantType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
@@ -89,6 +90,9 @@ public class CreateMap extends ScalarFunction
         for (int i = 0; i < arity(); i++) {
             DataType childType = getArgument(i).getDataType();
             boolean isKey = i % 2 == 0;
+            if (isKey) {
+                ExpressionUtils.checkFileKey(getArgument(i), "MAP key");
+            }
             if (isKey && childType.isComplexType()) {
                 throw new AnalysisException(
                         "MAP key type must be a primitive type but get " + childType.toSql());

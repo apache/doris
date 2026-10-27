@@ -430,12 +430,6 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
     }
 
     private void checkUdfSupportedType(Type type, String typePosition) throws AnalysisException {
-        // Reject bitmap/hll/quantile_state type
-        if (type.isObjectStored()) {
-            throw new AnalysisException(String.format(
-                    "%s does not support %s type %s", binaryType, typePosition, type.toSql()));
-        }
-
         if (type.isArrayType()) {
             checkUdfSupportedType(((ArrayType) type).getItemType(), typePosition + " element");
         } else if (type.isMapType()) {
@@ -445,6 +439,9 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
             for (StructField field : ((StructType) type).getFields()) {
                 checkUdfSupportedType(field.getType(), typePosition + " field " + field.getName());
             }
+        } else if (type.isObjectStored()) {
+            throw new AnalysisException(String.format(
+                    "%s does not support %s type %s", binaryType, typePosition, type.toSql()));
         }
     }
 

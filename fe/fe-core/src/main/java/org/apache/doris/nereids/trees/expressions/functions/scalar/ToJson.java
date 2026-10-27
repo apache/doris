@@ -101,7 +101,7 @@ public class ToJson extends ScalarFunction
     @Override
     public List<FunctionSignature> getSignatures() {
         DataType firstChildType = child(0).getDataType();
-        if (firstChildType.isStructType() || firstChildType.isArrayType()
+        if (firstChildType.isStructType() || firstChildType.isArrayType() || firstChildType.isFileType()
                 || (firstChildType instanceof VariantType && ((VariantType) firstChildType).isExecutionV2())) {
             return ImmutableList.of(FunctionSignature.ret(JsonType.INSTANCE).args(firstChildType));
         }

@@ -72,7 +72,7 @@ public:
 
     ObjStorageListPageResult list_objects_page(const ObjStoragePath&, std::string_view) override {
         ++calls;
-        return {};
+        return page_result;
     }
 
     ObjStorageResponse delete_objects(const ObjStoragePath&, std::vector<std::string>) override {
@@ -116,6 +116,7 @@ public:
     int create_multipart_upload_provider_calls_per_logical_call = 1;
     size_t actual_read_size = 4;
     bool fail_get = false;
+    ObjStorageListPageResult page_result;
 };
 
 class RecordingRateLimitPolicy final : public ObjStorageRateLimitPolicy {
@@ -263,6 +264,26 @@ TEST(RateLimitedObjStorageClientTest, MultipartCreateUsesOneLogicalAdmission) {
     EXPECT_EQ(policy->requests[0].estimated_bytes, 0);
     EXPECT_EQ(inner_client->create_multipart_upload_calls, 1);
     EXPECT_EQ(inner_client->create_multipart_upload_provider_calls, 2);
+}
+
+TEST(RateLimitedObjStorageClientTest, paged_listing_charges_each_provider_request) {
+    auto inner_client = std::make_shared<FakeObjStorageClient>();
+    inner_client->page_result = {.continuation_token = "next", .has_more = true};
+    auto policy = std::make_shared<RecordingRateLimitPolicy>();
+    RateLimitedObjStorageClient client(inner_client, policy);
+    const auto first = client.list_objects_page({.bucket = "b", .prefix = "p"}, "");
+    ASSERT_TRUE(first.resp.ok());
+    EXPECT_TRUE(first.has_more);
+    EXPECT_EQ(first.continuation_token, "next");
+    policy->reject = true;
+    const auto second = client.list_objects_page({.bucket = "b", .prefix = "p"}, "next");
+    expect_rejected(second.resp);
+    EXPECT_EQ(inner_client->calls, 1);
+    ASSERT_EQ(policy->requests.size(), 2);
+    for (const auto& request : policy->requests) {
+        EXPECT_EQ(request.type, S3RateLimitType::GET);
+        EXPECT_EQ(request.estimated_bytes, 0);
+    }
 }
 
 } // namespace

@@ -128,6 +128,7 @@ public class ScalarType extends Type {
     private String lenStr;
 
     public ScalarType(PrimitiveType type) {
+        Preconditions.checkArgument(type != PrimitiveType.FILE, "FILE requires its independent FileType");
         this.type = type;
     }
 
@@ -1096,6 +1097,14 @@ public class ScalarType extends Type {
             return ((VariantType) this).getEnableNestedGroup();
         }
         return false; // Default to false for backward compatibility.
+    }
+
+    public void gsonPostProcess() {
+        Preconditions.checkArgument(type != PrimitiveType.FILE, "FILE requires its independent FileType");
+    }
+
+    public void gsonPreProcess() {
+        Preconditions.checkArgument(type != PrimitiveType.FILE, "FILE requires its independent FileType");
     }
 
 }

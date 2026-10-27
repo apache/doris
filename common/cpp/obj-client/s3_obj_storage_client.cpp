@@ -268,7 +268,13 @@ ObjStorageHeadResult S3ObjStorageClient::head_object(const ObjStoragePath& opts)
 
     if (outcome.IsSuccess()) {
         return {.resp = ObjStorageResponse::OK(),
-                .file_size = outcome.GetResult().GetContentLength()};
+                .file_size = outcome.GetResult().GetContentLength(),
+                .content_type = outcome.GetResult().GetContentType().empty()
+                                        ? std::nullopt
+                                        : std::make_optional(outcome.GetResult().GetContentType()),
+                .etag = outcome.GetResult().GetETag().empty()
+                                ? std::nullopt
+                                : std::make_optional(outcome.GetResult().GetETag())};
     } else if (outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
         return {.resp = {.status = ObjStorageStatus::NOT_FOUND}, .file_size = 0};
     } else {
@@ -331,6 +337,9 @@ ObjStorageListPageResult S3ObjStorageClient::list_objects_page(
     request.WithBucket(opts.bucket)
             .WithPrefix(prefix)
             .WithMaxKeys(static_cast<int>(capabilities().max_list_page));
+    if (!opts.delimiter.empty()) {
+        request.SetDelimiter(opts.delimiter);
+    }
     if (!continuation_token.empty()) {
         request.SetContinuationToken(std::string(continuation_token));
     }
@@ -390,6 +399,10 @@ ObjStorageListPageResult S3ObjStorageClient::list_objects_page(
             .continuation_token = result.GetNextContinuationToken(),
             .has_more = result.GetIsTruncated(),
     };
+    page.common_prefixes.reserve(result.GetCommonPrefixes().size());
+    for (const auto& entry : result.GetCommonPrefixes()) {
+        page.common_prefixes.emplace_back(entry.GetPrefix());
+    }
     const auto& content = result.GetContents();
     page.objects.reserve(content.size());
     for (const auto& obj : content) {
@@ -397,7 +410,10 @@ ObjStorageListPageResult S3ObjStorageClient::list_objects_page(
                 << obj.GetKey() << ' ' << request.GetPrefix();
         page.objects.emplace_back(ObjectMeta {.key = obj.GetKey(),
                                               .size = obj.GetSize(),
-                                              .mtime_s = obj.GetLastModified().Seconds()});
+                                              .mtime_s = obj.GetLastModified().Seconds(),
+                                              .etag = obj.GetETag().empty()
+                                                              ? std::nullopt
+                                                              : std::make_optional(obj.GetETag())});
     }
     return page;
 }
