@@ -626,7 +626,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         NullableMode nullableMode = arraySortedMerge.nullable()
                 ? NullableMode.ALWAYS_NULLABLE
                 : NullableMode.ALWAYS_NOT_NULLABLE;
-        org.apache.doris.catalog.Function catalogFunction = new org.apache.doris.catalog.Function(
+        org.apache.doris.catalog.Function catalogFunction = new Function(
                 new FunctionName(arraySortedMerge.getName()), argTypes,
                 ArrayType.create(lambda.getRetType().toCatalogDataType(), true),
                 true, true, nullableMode);
