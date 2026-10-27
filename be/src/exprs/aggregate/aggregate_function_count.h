@@ -64,6 +64,10 @@ public:
 
     bool is_trivial() const override { return true; }
 
+    WindowSpillStrategy window_spill_strategy() const override {
+        return WindowSpillStrategy::PARTITION_REDUCE;
+    }
+
     void add(AggregateDataPtr __restrict place, const IColumn**, ssize_t, Arena&) const override {
         ++data(place).count;
     }
@@ -122,6 +126,14 @@ public:
         }
     }
 
+    void deserialize_from_column_row(AggregateDataPtr __restrict place, const IColumn& column,
+                                     size_t row, Arena&) const override {
+        DCHECK_LT(row, column.size());
+        const auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
+        const auto* data = reinterpret_cast<const Data*>(col.get_data().data());
+        AggregateFunctionCount::data(place) = data[row];
+    }
+
     void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
                                                  const IColumn& column, size_t begin, size_t end,
                                                  Arena&) const override {
@@ -133,6 +145,8 @@ public:
             doris::AggregateFunctionCount::data(place).count += data[i].count;
         }
     }
+
+    bool needs_deserialize_and_merge_scratch() const override { return false; }
 
     void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
                                    AggregateDataPtr rhs, const IColumn* column, Arena& arena,
@@ -200,6 +214,10 @@ public:
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }
 
     bool is_trivial() const override { return true; }
+
+    WindowSpillStrategy window_spill_strategy() const override {
+        return WindowSpillStrategy::PARTITION_REDUCE;
+    }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena&) const override {
@@ -286,6 +304,14 @@ public:
         }
     }
 
+    void deserialize_from_column_row(AggregateDataPtr __restrict place, const IColumn& column,
+                                     size_t row, Arena&) const override {
+        DCHECK_LT(row, column.size());
+        const auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
+        const auto* data = reinterpret_cast<const Data*>(col.get_data().data());
+        AggregateFunctionCountNotNullUnary::data(place) = data[row];
+    }
+
     void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
                                                  const IColumn& column, size_t begin, size_t end,
                                                  Arena&) const override {
@@ -297,6 +323,8 @@ public:
             doris::AggregateFunctionCountNotNullUnary::data(place).count += data[i].count;
         }
     }
+
+    bool needs_deserialize_and_merge_scratch() const override { return false; }
 
     void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
                                    AggregateDataPtr rhs, const IColumn* column, Arena& arena,
@@ -319,8 +347,9 @@ public:
         auto& col = assert_cast<ColumnFixedLengthObject&>(to);
         DCHECK(col.item_size() == sizeof(Data))
                 << "size is not equal: " << col.item_size() << " " << sizeof(Data);
-        col.resize(1);
-        reinterpret_cast<Data*>(col.get_data().data())->count =
+        size_t old_size = col.size();
+        col.resize(old_size + 1);
+        (reinterpret_cast<Data*>(col.get_data().data()) + old_size)->count =
                 AggregateFunctionCountNotNullUnary::data(place).count;
     }
 

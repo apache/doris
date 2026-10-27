@@ -671,6 +671,17 @@ public abstract class TestWithFeService {
         connectContext.setDatabase(dbName);
     }
 
+    // Explicit opt-in for changelog fixtures; keep the feature switch unchanged outside this DDL.
+    protected void createTableWithChangelog(String sql) throws Exception {
+        boolean originalEnableFeatureChangelog = Config.enable_feature_changelog;
+        try {
+            Config.enable_feature_changelog = true;
+            createTable(sql);
+        } finally {
+            Config.enable_feature_changelog = originalEnableFeatureChangelog;
+        }
+    }
+
     public void createTable(String sql) throws Exception {
         createTable(sql, true);
     }

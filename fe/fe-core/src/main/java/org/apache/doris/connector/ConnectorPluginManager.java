@@ -116,12 +116,16 @@ public class ConnectorPluginManager {
     //
     // NOTE: the intended end state is an FE kernel with no hadoop classes at all, every plugin
     // bringing its own. At that point the fallback above takes over on its own, and the plugin
-    // becomes responsible for shipping a patched FileSystem the same way the kernel does today.
+    // becomes responsible for shipping a patched FileSystem the same way the kernel does today -
+    // which is what the BE plugins already do, since their loader has no hadoop to delegate to:
+    // each declares hadoop-deps, and that jar's Doris-Shadows-Classes manifest entry puts it ahead
+    // of hadoop-common in the plugin directory (see be-java-extensions/jni-bootstrap PluginRuntime).
     //
     // Package-private so ConnectorPluginHadoopPatchTest asserts against this list, not a copy of it.
+    // Kerberos setup failure state must share Hadoop's loader so another plugin can retry partial setup.
     static final List<String> CONNECTOR_PARENT_FIRST_PREFIXES =
             Arrays.asList("org.apache.doris.connector.", "org.apache.doris.filesystem.",
-                    "org.apache.hadoop.");
+                    "org.apache.doris.kerberos.", "org.apache.hadoop.");
 
     /** Family label in the process-wide {@link PluginRegistry}. */
     private static final String PLUGIN_FAMILY = "CONNECTOR";

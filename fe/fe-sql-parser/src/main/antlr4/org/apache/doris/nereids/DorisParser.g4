@@ -49,6 +49,20 @@ options { tokenVocab = DorisLexer; }
                 ctx.getParent().getText(), ctx);
     }
 
+    private void validateQuotedTableSuffix(Token tableEnd, TableAliasContext alias) {
+        Token aliasStart = alias.getStart();
+        // A suffix attached to a quoted table name otherwise becomes a base-table scan alias.
+        // Keep separated or explicit dollar-prefixed aliases valid.
+        if (tableEnd.getType() == BACKQUOTED_IDENTIFIER
+                && aliasStart.getType() == IDENTIFIER
+                && aliasStart.getText().startsWith("$")
+                && tableEnd.getStopIndex() + 1 == aliasStart.getStartIndex()) {
+            throw new org.apache.doris.nereids.exceptions.ParseException(
+                    "A '$' suffix cannot be attached outside a quoted table name. "
+                    + "Quote the full table name or separate an alias with AS or whitespace.", alias);
+        }
+    }
+
     private boolean isQueryOrganizationStart() {
         int tokenType = _input.LA(1);
         return tokenType == ORDER || tokenType == LIMIT;
@@ -99,6 +113,10 @@ singleStatement
 
 expressionWithEof
     : expression EOF
+    ;
+
+propertyItemListWithEof
+    : propertyItemList EOF
     ;
 
 statement
@@ -355,7 +373,6 @@ nonExplainableDmlStatement
         TO filePath=STRING_LITERAL
         (propertyClause)?
         (withRemoteStorageSystem)?                                     #export
-    | replayCommand                                                    #replay
     | COPY INTO selectHint? name=multipartIdentifier columns=identifierList? FROM
             (stageAndPattern | (LEFT_PAREN SELECT selectColumnClause
                 FROM stageAndPattern whereClause? RIGHT_PAREN))
@@ -1392,7 +1409,8 @@ userIdentify
     ;
 
 grantUserIdentify
-    : userIdentify (IDENTIFIED BY PASSWORD? pwd=STRING_LITERAL)?
+    : userIdentify (IDENTIFIED (BY PASSWORD? pwd=STRING_LITERAL
+        | WITH AUTHENTICATION INTEGRATION integration=identifier (AS identity=STRING_LITERAL)?))?
     ;
 
 explain
@@ -1417,12 +1435,6 @@ planType
     | DISTRIBUTED
     | ALL // default type
     ;
-
-replayCommand
-    : PLAN REPLAYER replayType;
-
-replayType
-    : DUMP query;
 
 mergeType
     : APPEND
@@ -1723,7 +1735,8 @@ optScanParams
 
 relationPrimary
     : multipartIdentifier optScanParams? materializedViewName? tableSnapshot? specifiedPartition?
-       tabletList? tableAlias sample? relationHint? lateralView*                           #tableName
+       tabletList? tableAlias {validateQuotedTableSuffix($multipartIdentifier.stop, $tableAlias.ctx);}
+       sample? relationHint? lateralView*                                                 #tableName
     | LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*                                 #aliasedQuery
     | tvfName=identifier LEFT_PAREN
       (properties=propertyItemList)?
@@ -1785,7 +1798,8 @@ columnDef
         ((NOT)? nullable=NULL)?
         (AUTO_INCREMENT (LEFT_PAREN autoIncInitValue=number RIGHT_PAREN)?)?
         (DEFAULT (nullValue=NULL | SUBTRACT? INTEGER_VALUE | SUBTRACT? DECIMAL_VALUE | PI | E | BITMAP_EMPTY | stringValue=STRING_LITERAL
-           | CURRENT_DATE | defaultTimestamp=CURRENT_TIMESTAMP (LEFT_PAREN defaultValuePrecision=number RIGHT_PAREN)?))?
+           | CURRENT_DATE | defaultTimestamp=CURRENT_TIMESTAMP (LEFT_PAREN defaultValuePrecision=number RIGHT_PAREN)?
+           | defaultFunction=identifier LEFT_PAREN RIGHT_PAREN))?
         (ON UPDATE CURRENT_TIMESTAMP (LEFT_PAREN onUpdateValuePrecision=number RIGHT_PAREN)?)?
         (COMMENT comment=STRING_LITERAL)?
     ;
@@ -2164,6 +2178,7 @@ primitiveColType
     | type=DECIMALV3
     | type=IPV4
     | type=IPV6
+    | type=UUID
     | type=VARBINARY
     | type=VARIANT
     | type=ALL
@@ -2550,7 +2565,6 @@ nonReserved
     | REPEATABLE
     | REPLACE
     | REPLACE_IF_NOT_NULL
-    | REPLAYER
     | REPOSITORIES
     | REPOSITORY
     | RESOURCE
@@ -2633,6 +2647,7 @@ nonReserved
     | UNSET
     | UP
     | USER
+    | UUID
     | VALUE
     | VARBINARY
     | VARCHAR

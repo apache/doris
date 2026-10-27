@@ -59,9 +59,9 @@ public class RangerDorisAccessControllerFactory implements AuthorizationPluginFa
      * one Ranger service, which is bounded and not a leak that grows. Stopping it would cost more than that:
      * a plain {@code ALTER CATALOG} detaches and re-attaches the catalog's access controller, and a plugin
      * torn down and rebuilt between those two pays {@code cleanup()} on the DDL thread - it interrupts the
-     * policy refresher and joins it without a timeout - and then two synchronous admin REST calls on the way
-     * back up, since {@code RangerBasePlugin.init()} loads the service's roles and policies before it
-     * returns.
+     * policy refresher and joins it without a timeout - and then three synchronous admin REST calls on the
+     * way back up, since {@code RangerBasePlugin.init()} loads the service's roles, policies and user store
+     * before it returns.
      */
     private static RangerBasePlugin sharedPlugin;
     private static final Map<Map<String, String>, Held> byConfiguration = new LinkedHashMap<>();
@@ -131,8 +131,8 @@ public class RangerDorisAccessControllerFactory implements AuthorizationPluginFa
                         return held.controller;
                     }
                 }
-                // Built with no lock held: RangerBasePlugin.init() loads the service's roles and its policies
-                // over REST before it returns, so against a slow or unreachable Ranger admin doing it under
+                // Built with no lock held: RangerBasePlugin.init() loads the service's roles, policies and user
+                // store over REST before it returns, so against a slow or unreachable Ranger admin doing it under
                 // the lock queues every other binding's create - and close - behind the whole REST timeout.
                 // Losing the race that opens costs one plugin, stopped in the finally below.
                 built = new RangerDorisPlugin(SERVICE_NAME);

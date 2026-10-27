@@ -22,6 +22,7 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 
 import org.apache.iceberg.UpdateSchema;
 import org.apache.iceberg.types.Type;
+import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types;
 
 import java.util.HashSet;
@@ -50,10 +51,12 @@ import java.util.Set;
  * {@code UpdateSchema.commit()}, so any guard throwing aborts the whole change atomically.</p>
  *
  * <p><b>Supported shape changes (legacy parity):</b> widen an existing nested field's primitive type (only the
- * iceberg-representable safe promotions int&rarr;long, float&rarr;double, or an exact match), change a nested
- * field's comment, widen a NOT NULL nested field to nullable, and append new (nullable) STRUCT fields. The
- * category of every nested level must stay the same (struct/array/map); struct fields may not be renamed,
- * reordered, dropped, or narrowed to NOT NULL; a MAP key type may not change.</p>
+ * iceberg-representable safe promotions, including same-scale decimal precision widening), change a nested
+ * field's comment, and append new (nullable) STRUCT fields. The category of every nested level must stay the
+ * same (struct/array/map); struct fields may not be renamed, reordered, dropped, or narrowed to NOT NULL; a MAP
+ * key type may not change. Restating a complex type keeps the requiredness of every nested field, list element
+ * and map value (#65329): Doris DDL cannot spell NOT NULL inside it, so a nullable child there is no request to
+ * widen; a nested field becomes nullable only through an explicit NULL on its own path.</p>
  */
 public final class IcebergComplexTypeDiff {
 
@@ -207,11 +210,6 @@ public final class IcebergComplexTypeDiff {
                     updateSchema.updateColumnDoc(fieldPath, targetDoc);
                 }
             }
-
-            // Widen NOT NULL -> nullable (the reverse is rejected above by requireNotNarrowed).
-            if (oldField.isRequired() && newField.isOptional()) {
-                updateSchema.makeColumnOptional(fieldPath);
-            }
         }
 
         // Append the new fields (legacy parity: must be nullable and not clash with an existing name).
@@ -253,9 +251,6 @@ public final class IcebergComplexTypeDiff {
             // but a STRUCT nested inside the element still needs its per-field commentSpecified.
             apply(updateSchema, elementPath, oldElement, newElement, childConn(newConn, 0));
         }
-        if (!oldList.isElementOptional() && newList.isElementOptional()) {
-            updateSchema.makeColumnOptional(elementPath);
-        }
     }
 
     private static void applyMapChange(UpdateSchema updateSchema, String path,
@@ -284,9 +279,6 @@ public final class IcebergComplexTypeDiff {
             // per-field commentSpecified.
             apply(updateSchema, valuePath, oldValue, newValue, childConn(newConn, 1));
         }
-        if (!oldMap.isValueOptional() && newMap.isValueOptional()) {
-            updateSchema.makeColumnOptional(valuePath);
-        }
     }
 
     /** Rejects narrowing a nullable struct field to NOT NULL (iceberg cannot prove existing rows are non-null). */
@@ -310,21 +302,13 @@ public final class IcebergComplexTypeDiff {
 
     /**
      * Whether changing a nested primitive {@code oldType} to {@code newType} is a legal promotion, mirroring
-     * legacy {@code ColumnType.checkSupportSchemaChangeForNestedPrimitive} restricted to the iceberg-representable
-     * cases: an exact match (covers VARCHAR length growth, which both map to iceberg STRING), INT&rarr;BIGINT
-     * (iceberg INTEGER&rarr;LONG), and FLOAT&rarr;DOUBLE. Everything else (e.g. a nested DECIMAL precision change,
-     * any narrowing, a category change) is rejected — matching legacy's restrictive nested rule.
+     * Iceberg's primitive-promotion rules. Besides INTEGER&rarr;LONG and FLOAT&rarr;DOUBLE, Iceberg allows a
+     * DECIMAL precision increase when scale is unchanged. Delegating to Iceberg keeps the connector's validation
+     * aligned with the UpdateSchema operation it is about to commit.
      */
     private static boolean isLegalNestedPrimitivePromotion(Type oldType, Type newType) {
-        if (oldType.equals(newType)) {
-            return true;
-        }
-        Type.TypeID oldId = oldType.typeId();
-        Type.TypeID newId = newType.typeId();
-        if (oldId == Type.TypeID.INTEGER && newId == Type.TypeID.LONG) {
-            return true;
-        }
-        return oldId == Type.TypeID.FLOAT && newId == Type.TypeID.DOUBLE;
+        return newType.isPrimitiveType()
+                && TypeUtil.isPromotionAllowed(oldType, newType.asPrimitiveType());
     }
 
     /** The iceberg type category (struct/list/map) of {@code newType} must equal {@code oldType}'s. */

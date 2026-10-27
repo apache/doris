@@ -270,8 +270,9 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         if (table instanceof PluginDrivenExternalTable) {
             // Post-flip plugin-driven tables (e.g. iceberg as PluginDrivenMvccExternalTable) declare
             // nested-column prune via ConnectorCapability; the legacy exact-class IcebergExternalTable arm
-            // below is dead for them. Only enabled when the connector also carries nested field ids (see
-            // SUPPORTS_NESTED_COLUMN_PRUNE / SlotTypeReplacer), else nested leaves would read NULL.
+            // below is dead for them. Field ids are NOT required here: a connector addressed by name
+            // (paimon, fluss) declares SUPPORTS_NESTED_COLUMN_PRUNE alone, and only the separate
+            // SUPPORTS_FIELD_ID_ACCESS_PATH lets SlotTypeReplacer rewrite the paths to ids.
             return ((PluginDrivenExternalTable) table).supportsNestedColumnPrune();
         }
         return false;
@@ -304,6 +305,10 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         // Or used to indicate that the partition pruning is not processed.
         public static SelectedPartitions NOT_PRUNED = new SelectedPartitions(0, ImmutableMap.of(), false, false,
                 Optional.empty());
+        /** Connector-owned file planning; an unknown universe, never an empty pruned selection. */
+        public static final SelectedPartitions NATIVE = new SelectedPartitions(
+                -1, ImmutableMap.of(), false, false, Optional.empty(), true);
+
         /**
          * total partition number
          */
@@ -333,6 +338,8 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         /**
          * Constructor for SelectedPartitions.
          */
+        private final boolean nativePlanning;
+
         public SelectedPartitions(long totalPartitionNum, Map<String, PartitionItem> selectedPartitions,
                 boolean isPruned) {
             this(totalPartitionNum, selectedPartitions, isPruned, false, Optional.empty());
@@ -352,12 +359,23 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         public SelectedPartitions(long totalPartitionNum, Map<String, PartitionItem> selectedPartitions,
                 boolean isPruned, boolean hasPartitionPredicate,
                 Optional<SortedPartitionRanges<String>> sortedPartitionRanges) {
+            this(totalPartitionNum, selectedPartitions, isPruned, hasPartitionPredicate, sortedPartitionRanges, false);
+        }
+
+        private SelectedPartitions(long totalPartitionNum, Map<String, PartitionItem> selectedPartitions,
+                boolean isPruned, boolean hasPartitionPredicate,
+                Optional<SortedPartitionRanges<String>> sortedPartitionRanges, boolean nativePlanning) {
+            this.nativePlanning = nativePlanning;
             this.totalPartitionNum = totalPartitionNum;
             this.selectedPartitions = ImmutableMap.copyOf(Objects.requireNonNull(selectedPartitions,
                     "selectedPartitions is null"));
             this.isPruned = isPruned;
             this.hasPartitionPredicate = hasPartitionPredicate;
             this.sortedPartitionRanges = sortedPartitionRanges;
+        }
+
+        public boolean isNativePlanning() {
+            return nativePlanning;
         }
 
         @Override
@@ -369,7 +387,7 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
                 return false;
             }
             SelectedPartitions that = (SelectedPartitions) o;
-            return isPruned == that.isPruned
+            return nativePlanning == that.nativePlanning && isPruned == that.isPruned
                     && hasPartitionPredicate == that.hasPartitionPredicate
                     && Objects.equals(
                     selectedPartitions.keySet(), that.selectedPartitions.keySet())
@@ -379,7 +397,8 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
 
         @Override
         public int hashCode() {
-            return Objects.hash(selectedPartitions, isPruned, hasPartitionPredicate, sortedPartitionRanges.isPresent());
+            return Objects.hash(selectedPartitions, isPruned, hasPartitionPredicate,
+                    sortedPartitionRanges.isPresent(), nativePlanning);
         }
     }
 

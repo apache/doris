@@ -32,6 +32,7 @@
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
+#include "exec/pipeline/pipeline_fragment_context.h"
 #include "exprs/function/ai/ai_adapter.h"
 #include "exprs/function/ai/ai_classify.h"
 #include "exprs/function/ai/ai_extract.h"
@@ -45,6 +46,7 @@
 #include "exprs/function/ai/ai_translate.h"
 #include "exprs/function/ai/embed.h"
 #include "exprs/function/simple_function_factory.h"
+#include "runtime/runtime_profile.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_runtime_state.h"
 
@@ -52,7 +54,7 @@ namespace doris {
 
 class FunctionAITransportTestHelper : public FunctionAISentiment {
 public:
-    using FunctionAISentiment::do_send_request;
+    using FunctionAISentiment::send_request_to_llm;
 };
 
 class FunctionAIFilterBatchTestHelper : public AIFunction<FunctionAIFilterBatchTestHelper> {
@@ -564,6 +566,7 @@ TEST(AIFunctionTest, AISimilarityTrimWhitespace) {
 
 TEST(AIFunctionTest, AISimilarityInvalidValue) {
     auto runtime_state = std::make_unique<MockRuntimeState>();
+    runtime_state->_query_options.__set_enable_profile(true);
     auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
 
     std::vector<std::string> invalid_cases = {"abc", "1.2x", "", " ", "\n\t", "1,2"};
@@ -596,6 +599,14 @@ TEST(AIFunctionTest, AISimilarityInvalidValue) {
         ASSERT_NE(exec_status.to_string().find("Failed to parse float value"), std::string::npos);
     }
     unsetenv("AI_TEST_RESULT");
+    auto statistics =
+            runtime_state->get_query_ctx()->find_ai_statistics(runtime_state->fragment_id());
+    ASSERT_NE(statistics, nullptr);
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionParseErrorCount")->value(),
+              invalid_cases.size());
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionErrorCount")->value(),
+              invalid_cases.size());
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionRequestCount")->value(), 0);
 }
 
 TEST(AIFunctionTest, AISimilarityBatchExecuteTest) {
@@ -1304,6 +1315,7 @@ TEST(AIFunctionTest, NullableBoolResultThroughPreparedFunction) {
 
 TEST(AIFunctionTest, NullableFloatResultMergesArgumentNullMaps) {
     auto runtime_state = std::make_unique<MockRuntimeState>();
+    runtime_state->_query_options.__set_enable_profile(true);
     auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
     setenv("AI_TEST_RESULT", R"(["0.5","1.5"])", 1);
 
@@ -1338,6 +1350,12 @@ TEST(AIFunctionTest, NullableFloatResultMergesArgumentNullMaps) {
     EXPECT_TRUE(result.is_null_at(2));
     EXPECT_FALSE(result.is_null_at(3));
     EXPECT_FLOAT_EQ(nested.get_element(3), 1.5f);
+    auto statistics =
+            runtime_state->get_query_ctx()->find_ai_statistics(runtime_state->fragment_id());
+    ASSERT_NE(statistics, nullptr);
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionInputRows")->value(), 4);
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionSkippedNullRows")->value(), 2);
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionRequestCount")->value(), 0);
 }
 
 TEST(AIFunctionTest, NullableArrayArgumentThroughPreparedFunction) {
@@ -1408,6 +1426,7 @@ TEST(AIFunctionTest, NullableLabelElementsThroughPreparedFunction) {
 
 TEST(AIFunctionTest, AllNullConstArgumentReturnsConstNull) {
     auto runtime_state = std::make_unique<MockRuntimeState>();
+    runtime_state->_query_options.__set_enable_profile(true);
     auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
     constexpr size_t row_count = 5;
 
@@ -1435,10 +1454,17 @@ TEST(AIFunctionTest, AllNullConstArgumentReturnsConstNull) {
     for (size_t row = 0; row < row_count; ++row) {
         EXPECT_TRUE(nullable_result.is_null_at(row));
     }
+    auto statistics =
+            runtime_state->get_query_ctx()->find_ai_statistics(runtime_state->fragment_id());
+    ASSERT_NE(statistics, nullptr);
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionInputRows")->value(), 1);
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionSkippedNullRows")->value(), 1);
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionRequestCount")->value(), 0);
 }
 
 TEST(AIFunctionTest, NullResourceReturnsConstNullBeforeLookup) {
     auto runtime_state = std::make_unique<MockRuntimeState>();
+    runtime_state->_query_options.__set_enable_profile(true);
     auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
     constexpr size_t row_count = 3;
 
@@ -1462,6 +1488,12 @@ TEST(AIFunctionTest, NullResourceReturnsConstNullBeforeLookup) {
     ASSERT_TRUE(status.ok()) << status.to_string();
     ASSERT_TRUE(is_column_const(*block.get_by_position(2).column));
     EXPECT_TRUE(block.get_by_position(2).column->only_null());
+    auto statistics =
+            runtime_state->get_query_ctx()->find_ai_statistics(runtime_state->fragment_id());
+    ASSERT_NE(statistics, nullptr);
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionInputRows")->value(), 3);
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionSkippedNullRows")->value(), 3);
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionRequestCount")->value(), 0);
 }
 
 TEST(AIFunctionTest, MissingAIResourcesMetadataTest) {
@@ -1564,14 +1596,14 @@ public:
 };
 
 TEST(AIFunctionTest, NormalizeLegacyCompletionsEndpoint) {
-    TAIResource resource;
+    AIResource resource;
     resource.endpoint = "https://api.openai.com/v1/completions";
     FunctionAISentimentTestHelper::normalize_endpoint(resource);
     ASSERT_EQ(resource.endpoint, "https://api.openai.com/v1/chat/completions");
 }
 
 TEST(AIFunctionTest, NormalizeEndpointNoopForOtherPaths) {
-    TAIResource resource;
+    AIResource resource;
     resource.endpoint = "https://api.openai.com/v1/chat/completions";
     FunctionAISentimentTestHelper::normalize_endpoint(resource);
     ASSERT_EQ(resource.endpoint, "https://api.openai.com/v1/chat/completions");
@@ -1582,7 +1614,7 @@ TEST(AIFunctionTest, NormalizeEndpointNoopForOtherPaths) {
 }
 
 TEST(AIFunctionTest, NormalizeGeminiGenerateEndpointFromBaseVersion) {
-    TAIResource resource;
+    AIResource resource;
     resource.provider_type = "gemini";
     resource.model_name = "gemini-pro";
     resource.endpoint = "https://generativelanguage.googleapis.com/v1beta";
@@ -1593,7 +1625,7 @@ TEST(AIFunctionTest, NormalizeGeminiGenerateEndpointFromBaseVersion) {
 }
 
 TEST(AIFunctionTest, NormalizeGeminiEmbedEndpointFromBaseVersion) {
-    TAIResource resource;
+    AIResource resource;
     resource.provider_type = "GEMINI";
     resource.model_name = "gemini-embedding-2-preview";
     resource.endpoint = "https://generativelanguage.googleapis.com/v1beta";
@@ -1605,7 +1637,7 @@ TEST(AIFunctionTest, NormalizeGeminiEmbedEndpointFromBaseVersion) {
 }
 
 TEST(AIFunctionTest, NormalizeGeminiEndpointNoopForNonBasePath) {
-    TAIResource resource;
+    AIResource resource;
     resource.provider_type = "gemini";
     resource.model_name = "gemini-pro";
     resource.endpoint =
@@ -1617,7 +1649,7 @@ TEST(AIFunctionTest, NormalizeGeminiEndpointNoopForNonBasePath) {
 }
 
 TEST(AIFunctionTest, NormalizeGeminiEmbedLegacySingleEndpointToBatchEndpoint) {
-    TAIResource resource;
+    AIResource resource;
     resource.provider_type = "gemini";
     resource.model_name = "gemini-embedding-2-preview";
     resource.endpoint =
@@ -1646,7 +1678,7 @@ TEST(AIFunctionTest, ExecuteBatchRequestSuccess) {
     config.provider_type = "OPENAI";
     config.model_name = "test-model";
     config.api_key = "secret";
-    config.max_retries = 1;
+    config.max_retries = 0;
 
     std::shared_ptr<AIAdapter> adapter = std::make_shared<OpenAIAdapter>();
     adapter->init(config);
@@ -1685,7 +1717,7 @@ TEST(AIFunctionTest, ExecuteBatchRequestResultSizeMismatch) {
     config.provider_type = "OPENAI";
     config.model_name = "test-model";
     config.api_key = "secret";
-    config.max_retries = 1;
+    config.max_retries = 0;
 
     std::shared_ptr<AIAdapter> adapter = std::make_shared<OpenAIAdapter>();
     adapter->init(config);
@@ -1715,14 +1747,14 @@ TEST(AIFunctionTest, DoSendRequestTransportError) {
     config.provider_type = "OPENAI";
     config.model_name = "test-model";
     config.api_key = "secret";
+    config.max_retries = 0;
 
     std::shared_ptr<AIAdapter> adapter = std::make_shared<OpenAIAdapter>();
     adapter->init(config);
 
-    HttpClient client;
     std::string response;
     FunctionAITransportTestHelper helper;
-    Status st = helper.do_send_request(&client, "{}", response, config, adapter, ctx.get());
+    Status st = helper.send_request_to_llm("{}", response, config, adapter, ctx.get());
 
     ASSERT_FALSE(st.ok());
     ASSERT_EQ(response, "");
@@ -1744,15 +1776,15 @@ TEST(AIFunctionTest, DoSendRequestNon200) {
     config.provider_type = "OPENAI";
     config.model_name = "test-model";
     config.api_key = "secret";
+    config.max_retries = 0;
 
     std::shared_ptr<AIAdapter> adapter = std::make_shared<OpenAIAdapter>();
     adapter->init(config);
 
-    HttpClient client;
     std::string response;
     FunctionAITransportTestHelper helper;
-    Status st = helper.do_send_request(&client, R"({"message":"hello"})", response, config, adapter,
-                                       ctx.get());
+    Status st = helper.send_request_to_llm(R"({"message":"hello"})", response, config, adapter,
+                                           ctx.get());
 
     ASSERT_FALSE(st.ok());
     ASSERT_NE(st.to_string().find("http status code is not 200"), std::string::npos);
@@ -1779,15 +1811,15 @@ TEST(AIFunctionTest, DoSendRequestSuccess) {
     config.provider_type = "OPENAI";
     config.model_name = "test-model";
     config.api_key = "secret";
+    config.max_retries = 0;
 
     std::shared_ptr<AIAdapter> adapter = std::make_shared<OpenAIAdapter>();
     adapter->init(config);
 
-    HttpClient client;
     std::string response;
     FunctionAITransportTestHelper helper;
-    Status st = helper.do_send_request(&client, R"({"message":"hello"})", response, config, adapter,
-                                       ctx.get());
+    Status st = helper.send_request_to_llm(R"({"message":"hello"})", response, config, adapter,
+                                           ctx.get());
 
     ASSERT_TRUE(st.ok()) << st.to_string();
     ASSERT_EQ(response, R"({"ok":true})");
@@ -1795,6 +1827,59 @@ TEST(AIFunctionTest, DoSendRequestSuccess) {
     std::string request = server.join_and_get_request();
     ASSERT_NE(request.find("POST "), std::string::npos);
     ASSERT_NE(request.find(R"({"message":"hello"})"), std::string::npos);
+}
+
+// Keep the snapshot lifetime scenario together; GTest macros inflate its complexity.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+TEST(AIFunctionTest, FragmentProfileSnapshotsAreIsolatedAndDoNotDuplicateCounters) {
+    auto query = MockQueryContext::create();
+    TPipelineFragmentParams params;
+    params.fragment_id = 7;
+    auto fragment = PipelineFragmentContext::create_unique(
+            TUniqueId(), params, query, ExecEnv::GetInstance(),
+            std::function<void(RuntimeState*, Status*)> {});
+    fragment->_runtime_state = std::make_unique<MockRuntimeState>();
+    fragment->_runtime_state->_profile_level = 1;
+    fragment->_fragment_level_profile = std::make_unique<RuntimeProfile>("Fragment");
+    fragment->_prepared = true;
+    EXPECT_EQ(query->find_ai_statistics(7), nullptr);
+    auto empty = fragment->collect_realtime_profile();
+    ASSERT_EQ(empty.size(), 1);
+    EXPECT_EQ(query->find_ai_statistics(7), nullptr);
+
+    auto statistics = query->get_ai_statistics(7);
+    EXPECT_EQ(statistics, query->get_ai_statistics(7));
+    statistics->record_input(10, 3);
+    query->get_ai_statistics(8)->record_input(100, 90);
+    auto first = fragment->collect_realtime_profile();
+    auto repeated = fragment->collect_realtime_profile();
+    for (const auto& snapshot : {first, repeated}) {
+        ASSERT_EQ(snapshot.size(), 1);
+        ASSERT_EQ(snapshot.front()->nodes.size(), 1);
+        const auto& root = snapshot.front()->nodes.front();
+        EXPECT_EQ(root.num_children, 0);
+        int input_counter_count = 0;
+        for (const auto& counter : root.counters) {
+            if (counter.name == "AIFunctionInputRows") {
+                ++input_counter_count;
+                EXPECT_EQ(counter.value, 10);
+            }
+            if (counter.name == "AIFunctionSkippedNullRows") {
+                EXPECT_EQ(counter.value, 3);
+            }
+        }
+        EXPECT_EQ(input_counter_count, 1);
+        EXPECT_TRUE(root.child_counters_map.at("").contains("AIFunctionInputRows"));
+    }
+    statistics->record_input(1, 0);
+    fragment.reset();
+    query.reset();
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionInputRows")->value(), 11);
+    for (const auto& counter : first.front()->nodes.front().counters) {
+        if (counter.name == "AIFunctionInputRows") {
+            EXPECT_EQ(counter.value, 10);
+        }
+    }
 }
 
 } // namespace doris

@@ -21,9 +21,9 @@
 #include <gtest/gtest_prod.h>
 
 #include "common/atomic_shared_ptr.h"
+#include "common/status.h"
 #include "core/block/block.h"
 #include "core/column/column.h"
-#include "exec/sink/writer/async_result_writer.h"
 #include "exec/sink/writer/iceberg/partition_data.h"
 #include "exec/sink/writer/iceberg/partition_transformers.h"
 #include "exprs/vexpr_fwd.h"
@@ -38,6 +38,7 @@ class FileSystem;
 }
 
 class ObjectPool;
+class RowDescriptor;
 class RuntimeState;
 
 class IColumn;
@@ -45,29 +46,28 @@ class IPartitionWriterBase;
 class VIcebergSortWriter;
 struct ColumnWithTypeAndName;
 
-class VIcebergTableWriter final : public AsyncResultWriter {
+class VIcebergTableWriter {
 public:
-    VIcebergTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
-                        std::shared_ptr<Dependency> dep, std::shared_ptr<Dependency> fin_dep);
+    VIcebergTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs);
 
-    ~VIcebergTableWriter() = default;
+    virtual ~VIcebergTableWriter() = default;
 
     Status init_properties(ObjectPool* pool, const RowDescriptor& row_desc) {
         _row_desc = &row_desc;
         return Status::OK();
     }
 
-    Status open(RuntimeState* state, RuntimeProfile* profile) override;
+    virtual Status open(RuntimeState* state, RuntimeProfile* profile);
 
-    Status write(RuntimeState* state, Block& block) override;
+    virtual Status write(RuntimeState* state, Block& block);
 
     Status write_prepared_block(Block& block);
 
-    Status close(Status) override;
+    virtual Status close(Status);
 
     void defer_file_cleanup_until_outer_close() { _defer_file_cleanup_until_outer_close = true; }
 
-    void finish_deferred_file_cleanup(Status outer_status);
+    virtual void finish_deferred_file_cleanup(Status outer_status);
 
     bool is_rewrite_compaction() const { return _write_type == TIcebergWriteType::REWRITE; }
 
@@ -79,10 +79,14 @@ public:
 private:
     FRIEND_TEST(VIcebergTableWriterTest, RejectMissingPartitionSource);
     FRIEND_TEST(VIcebergTableWriterTest, ResolvesNestedPartitionSource);
+    FRIEND_TEST(VIcebergTableWriterTest, RejectsRequiredNullBeforeWriterCreation);
+    FRIEND_TEST(VIcebergTableWriterTest, RejectsNestedRequiredNullBeforeWriterCreation);
     // The lifecycle fixture inspects snapshots to verify that cross-thread writer ownership stays stable.
     friend class VIcebergTableWriterLifecycleTest;
+    friend class IcebergTableSinkOperatorTest;
 
-    // The spill thread needs a stable view of every partition sorter, while the async writer owns the map.
+    // Memory revocation needs a stable view of every partition sorter, while the pipeline task owns
+    // the map.
     doris::atomic_shared_ptr<ActiveWriterSnapshot> _active_writers;
     class IcebergPartitionColumn {
     public:
@@ -123,6 +127,7 @@ private:
     ColumnWithTypeAndName _nested_partition_source(
             const Block& block, const IcebergPartitionColumn& partition_column) const;
 
+    std::string _partition_to_writer_key(const doris::iceberg::StructLike& data);
     std::string _partition_to_path(const doris::iceberg::StructLike& data);
     std::string _escape(const std::string& path);
     std::vector<std::string> _partition_values(const doris::iceberg::StructLike& data);
@@ -137,6 +142,7 @@ private:
             int file_name_index = 0);
 
     IcebergPartitionData _get_partition_data(Block* block, int position);
+    std::string _partition_value_to_human_string(size_t index, const std::any& value);
 
     std::any _get_iceberg_partition_value(const PrimitiveType& type_desc,
                                           const ColumnWithTypeAndName& partition_column,
@@ -153,9 +159,11 @@ private:
     void _cleanup_closed_files();
     void _transfer_closed_files_to_report_cleanup();
 
+    const VExprContextSPtrs& _vec_output_expr_ctxs;
     // Currently it is a copy, maybe it is better to use move semantics to eliminate it.
     TDataSink _t_sink;
     RuntimeState* _state = nullptr;
+    RuntimeProfile* _operator_profile = nullptr;
 
     // Target file size in bytes for controlling when to split files
     int64_t _target_file_size_bytes = 0;
@@ -172,6 +180,7 @@ private:
     // Static partition values for each partition column (indexed by column index)
     // If _partition_column_is_static[i] is true, this stores the static value.
     std::vector<std::string> _partition_column_static_values;
+    std::vector<std::string> _partition_column_static_path_values;
     // Flags to indicate if the partition column at index i is static
     std::vector<uint8_t> _partition_column_is_static;
 

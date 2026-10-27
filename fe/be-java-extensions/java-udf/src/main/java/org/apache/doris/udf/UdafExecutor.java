@@ -19,18 +19,15 @@ package org.apache.doris.udf;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.exception.InternalException;
-import org.apache.doris.common.exception.UdfRuntimeException;
-import org.apache.doris.common.jni.utils.JavaUdfDataType;
-import org.apache.doris.common.jni.utils.OffHeap;
-import org.apache.doris.common.jni.utils.UdfClassCache;
-import org.apache.doris.common.jni.utils.UdfUtils;
-import org.apache.doris.common.jni.vec.VectorTable;
+import org.apache.doris.jni.spi.ThreadContextClassLoader;
+import org.apache.doris.jni.spi.utils.OffHeap;
+import org.apache.doris.jni.spi.vec.VectorTable;
 import org.apache.doris.thrift.TJavaUdfExecutorCtorParams;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
-import org.apache.log4j.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -47,7 +44,7 @@ import java.util.Map;
  */
 public class UdafExecutor extends BaseExecutor {
 
-    private static final Logger LOG = Logger.getLogger(UdafExecutor.class);
+    private static final Logger LOG = LoggerFactory.getLogger(UdafExecutor.class);
 
     private static final String UDAF_CREATE_FUNCTION = "create";
     private static final String UDAF_DESTROY_FUNCTION = "destroy";
@@ -81,7 +78,7 @@ public class UdafExecutor extends BaseExecutor {
 
     public void addBatch(boolean isSinglePlace, int rowStart, int rowEnd, long placeAddr, int offset,
             Map<String, String> inputParams) throws UdfRuntimeException {
-        try {
+        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(udfClassLoader())) {
             VectorTable inputTable = VectorTable.createReadableTable(inputParams);
             Object[][] inputs = inputTable.getMaterializedData(rowStart, rowEnd,
                     getInputConverters(inputTable.getNumColumns(), true));
@@ -149,7 +146,7 @@ public class UdafExecutor extends BaseExecutor {
      * invoke user create function to get obj.
      */
     public Object createAggState() throws UdfRuntimeException {
-        try {
+        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(udfClassLoader())) {
             return objCache.allMethods.get(UDAF_CREATE_FUNCTION).invoke(udf, null);
         } catch (Exception e) {
             LOG.warn("invoke createAggState function meet some error: ", e);
@@ -161,7 +158,7 @@ public class UdafExecutor extends BaseExecutor {
      * invoke destroy before colse. Here we destroy all data at once
      */
     public void destroy() throws UdfRuntimeException {
-        try {
+        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(udfClassLoader())) {
             for (Object obj : stateObjMap.values()) {
                 objCache.allMethods.get(UDAF_DESTROY_FUNCTION).invoke(udf, obj);
             }
@@ -176,7 +173,7 @@ public class UdafExecutor extends BaseExecutor {
      * invoke serialize function and return byte[] to backends.
      */
     public byte[] serialize(long place) throws UdfRuntimeException {
-        try {
+        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(udfClassLoader())) {
             Object[] args = new Object[2];
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
             args[0] = stateObjMap.get(place);
@@ -194,7 +191,7 @@ public class UdafExecutor extends BaseExecutor {
      * invoke reset function and reset the state to init.
      */
     public void reset(long place) throws UdfRuntimeException {
-        try {
+        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(udfClassLoader())) {
             Object[] args = new Object[1];
             args[0] = stateObjMap.get(place);
             if (args[0] == null) {
@@ -213,7 +210,7 @@ public class UdafExecutor extends BaseExecutor {
      * here call deserialize first, and call merge.
      */
     public void merge(long place, byte[] data) throws UdfRuntimeException {
-        try {
+        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(udfClassLoader())) {
             Object[] args = new Object[2];
             ByteArrayInputStream bins = new ByteArrayInputStream(data);
             args[0] = createAggState();
@@ -241,7 +238,7 @@ public class UdafExecutor extends BaseExecutor {
      * invoke getValue to return finally result.
      */
     public long getValue(long place, Map<String, String> outputParams) throws UdfRuntimeException {
-        try {
+        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(udfClassLoader())) {
             if (outputTable != null) {
                 outputTable.close();
             }

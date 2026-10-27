@@ -18,6 +18,7 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorTableSchema;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
@@ -42,6 +43,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -108,6 +110,82 @@ public class IcebergConnectorMetadataMvccTest {
         return new IcebergConnectorMetadata(ops, IcebergCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext());
     }
 
+    @Test
+    public void nativePartitionPlanningDoesNotOptInSystemTables() {
+        Fixture f = fixture();
+        IcebergConnectorMetadata md = metadataFor(f.table, new RecordingIcebergCatalogOps());
+        Assertions.assertTrue(md.supportsNativePartitionPlanning(null, handle()));
+        Assertions.assertFalse(md.supportsNativePartitionPlanning(null,
+                IcebergTableHandle.forSystemTable("db1", "t1", "snapshots", -1, null, -1)));
+    }
+
+    @Test
+    public void nativePartitionPlanningFollowsInternalPartitionPruningSwitch() {
+        Fixture f = fixture();
+        IcebergConnectorMetadata md = metadataFor(f.table, new RecordingIcebergCatalogOps());
+        String key = "enable_iceberg_internal_partition_pruning";
+        Assertions.assertTrue(md.supportsNativePartitionPlanning(session(Map.of(), Map.of()), handle()));
+        Assertions.assertTrue(md.supportsNativePartitionPlanning(session(Map.of(key, "false"), Map.of()), handle()));
+        Assertions.assertTrue(md.supportsNativePartitionPlanning(session(Map.of(), Map.of(key, "true")), handle()),
+                "catalog properties must not override the session switch");
+        for (String value : List.of("true", "TRUE")) {
+            ConnectorSession session = session(Map.of(key, value), Map.of());
+            Assertions.assertFalse(md.supportsNativePartitionPlanning(session, handle()));
+            Assertions.assertFalse(md.supportsNativePartitionPlanning(session,
+                    IcebergTableHandle.forSystemTable("db1", "t1", "snapshots", -1, null, -1)));
+        }
+    }
+
+    private static ConnectorSession session(Map<String, String> properties, Map<String, String> catalogProperties) {
+        return new ConnectorSession() {
+            @Override
+            public String getQueryId() {
+                return "q";
+            }
+
+            @Override
+            public String getUser() {
+                return "u";
+            }
+
+            @Override
+            public String getTimeZone() {
+                return "UTC";
+            }
+
+            @Override
+            public String getLocale() {
+                return "en_US";
+            }
+
+            @Override
+            public long getCatalogId() {
+                return 0;
+            }
+
+            @Override
+            public String getCatalogName() {
+                return "c";
+            }
+
+            @Override
+            public <T> T getProperty(String name, Class<T> type) {
+                String value = properties.getOrDefault(name, catalogProperties.get(name));
+                return value == null ? null : type.cast(value);
+            }
+
+            @Override
+            public Map<String, String> getCatalogProperties() {
+                return catalogProperties;
+            }
+
+            @Override
+            public Map<String, String> getSessionProperties() {
+                return properties;
+            }
+        };
+    }
+
     private static ConnectorTableHandle handle() {
         return new IcebergTableHandle("db1", "t1");
     }
@@ -129,6 +207,8 @@ public class IcebergConnectorMetadataMvccTest {
         // MUTATION: pinning currentSnapshot().schemaId() instead of table.schema().schemaId() would still be
         // schemaIdS2 here (same after the latest snapshot), so the load-bearing assertion is "current snapshot".
         Assertions.assertTrue(snap.isPresent());
+        Assertions.assertTrue(snap.get().isSchemaRetained(),
+                "SQL cache identity and column binding must use the same pinned schema");
         Assertions.assertEquals(f.s2, snap.get().getSnapshotId());
         Assertions.assertEquals(f.schemaIdS2, snap.get().getSchemaId());
         // The remote load goes through the seam (auth-wrapped).
@@ -431,8 +511,8 @@ public class IcebergConnectorMetadataMvccTest {
         // (isDigital == false) must route through IcebergTimeUtils.datetimeToMillis(session zone) ->
         // SnapshotUtil.snapshotIdAsOfTime, distinct from the digital epoch-millis parseLong path the existing
         // test drives. A null session resolves to UTC (resolveSessionZone); zone-correctness itself is pinned by
-        // IcebergTimeUtilsTest. Format one second AFTER S2 in UTC so the second-precision parse (which truncates
-        // sub-second millis) still lands at-or-after S2's commit -> resolves to S2. MUTATION: routing the
+        // IcebergTimeUtilsTest. Format one second AFTER S2 in UTC, at whole-second precision, so the string lands
+        // after S2's commit -> resolves to S2 (fractional seconds: see the test below). MUTATION: routing the
         // datetime string through the digital parseLong branch -> NumberFormatException -> red; never wiring the
         // datetime branch through resolveTimeTravel -> empty/wrong snapshot -> red.
         String datetime = java.time.Instant.ofEpochMilli(f.tsS2 + 1000)
@@ -443,6 +523,31 @@ public class IcebergConnectorMetadataMvccTest {
         Assertions.assertTrue(snap.isPresent(), "datetime string at-or-after S2 must resolve");
         Assertions.assertEquals(f.s2, snap.get().getSnapshotId());
         Assertions.assertEquals(f.schemaIdS2, snap.get().getSchemaId());
+    }
+
+    @Test
+    public void resolveTimestampDatetimeStringKeepsFractionalSeconds() {
+        Fixture f = fixture();
+        // Snapshots committed within the same second are told apart only by the fraction, which a client
+        // gets from e.g. date_format(committed_at, '%Y-%m-%d %H:%i:%s.%f'). S2's exact commit millis, written
+        // with 3 or 6 fractional digits, resolves to S2; one millisecond earlier no longer reaches S2 (it is
+        // S1 or nothing, depending on when S1 committed). A parser that rejects the fraction throws, and one
+        // that truncates it to the second lands before S2 unless S2 happened to commit on a whole second.
+        java.time.ZonedDateTime commit = java.time.Instant.ofEpochMilli(f.tsS2).atZone(java.time.ZoneOffset.UTC);
+        for (String pattern : new String[] {"yyyy-MM-dd HH:mm:ss.SSS", "yyyy-MM-dd HH:mm:ss.SSSSSS"}) {
+            String datetime = commit.format(java.time.format.DateTimeFormatter.ofPattern(pattern));
+            Optional<ConnectorMvccSnapshot> snap = metadataFor(f.table, new RecordingIcebergCatalogOps())
+                    .resolveTimeTravel(null, handle(), ConnectorTimeTravelSpec.timestamp(datetime, false));
+            Assertions.assertTrue(snap.isPresent(), "S2's exact commit time must resolve: " + datetime);
+            Assertions.assertEquals(f.s2, snap.get().getSnapshotId(), datetime);
+            Assertions.assertEquals(f.schemaIdS2, snap.get().getSchemaId(), datetime);
+        }
+        String justBefore = java.time.Instant.ofEpochMilli(f.tsS2 - 1).atZone(java.time.ZoneOffset.UTC)
+                .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS"));
+        Optional<ConnectorMvccSnapshot> before = metadataFor(f.table, new RecordingIcebergCatalogOps())
+                .resolveTimeTravel(null, handle(), ConnectorTimeTravelSpec.timestamp(justBefore, false));
+        Assertions.assertFalse(before.isPresent() && before.get().getSnapshotId() == f.s2,
+                "one millisecond before S2's commit must not resolve to S2: " + justBefore);
     }
 
     // ---------------------------------------------------------------------

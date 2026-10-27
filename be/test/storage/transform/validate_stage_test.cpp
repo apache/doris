@@ -43,7 +43,7 @@ using segment_v2::TransformExecContext;
 class ValidateStageTest : public MowTransformTestBase {
 protected:
     // A minimal direct-write rowset context: enough for build_transform_chain to
-    // pick the non-binlog, non-compaction stage set.
+    // pick the non-changelog, non-compaction stage set.
     RowsetWriterContext direct_rwc(const TabletSchemaSPtr& schema) {
         RowsetWriterContext c;
         c.tablet_schema = schema;
@@ -78,12 +78,12 @@ TEST_F(ValidateStageTest, CompositionCompactionEmpty) {
     EXPECT_TRUE(build_transform_chain(c).stage_names().empty());
 }
 
-// TYPE_DIRECT, no PU -> Validate, RowStoreFill, VariantParse.
+// TYPE_DIRECT, no PU -> Validate, RowStoreFill.
 TEST_F(ValidateStageTest, CompositionDirectNonPartialUpdate) {
     using V = std::vector<std::string_view>;
     auto schema = create_mow_schema(/*has_seq=*/false);
     EXPECT_EQ(build_transform_chain(direct_rwc(schema)).stage_names(),
-              (V {"Validate", "RowStoreFill", "VariantParse"}));
+              (V {"Validate", "RowStoreFill"}));
 }
 
 // TYPE_SCHEMA_CHANGE, no PU -> same shape as a direct write.
@@ -92,17 +92,16 @@ TEST_F(ValidateStageTest, CompositionSchemaChange) {
     auto schema = create_mow_schema(/*has_seq=*/false);
     RowsetWriterContext c = direct_rwc(schema);
     c.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
-    EXPECT_EQ(build_transform_chain(c).stage_names(),
-              (V {"Validate", "RowStoreFill", "VariantParse"}));
+    EXPECT_EQ(build_transform_chain(c).stage_names(), (V {"Validate", "RowStoreFill"}));
 }
 
-// Non-binlog TYPE_DEFAULT does not rebuild the row store: Validate and parse only.
+// Non-changelog TYPE_DEFAULT does not rebuild the row store: Validate only.
 TEST_F(ValidateStageTest, CompositionDefaultOmitsRowStoreFill) {
     using V = std::vector<std::string_view>;
     auto schema = create_mow_schema(/*has_seq=*/false);
     RowsetWriterContext c = direct_rwc(schema);
     c.write_type = DataWriteType::TYPE_DEFAULT;
-    EXPECT_EQ(build_transform_chain(c).stage_names(), (V {"Validate", "VariantParse"}));
+    EXPECT_EQ(build_transform_chain(c).stage_names(), (V {"Validate"}));
 }
 
 // A transient-rowset-writer PU degrades to the plain direct chain: the PU
@@ -118,12 +117,10 @@ TEST_F(ValidateStageTest, CompositionTransientPartialUpdateDegradesToNoFill) {
     RowsetWriterContext c = direct_rwc(schema);
     c.partial_update_info = pui;
     c.is_transient_rowset_writer = true; // degrade: PU predicate becomes false
-    EXPECT_EQ(build_transform_chain(c).stage_names(),
-              (V {"Validate", "RowStoreFill", "VariantParse"}));
+    EXPECT_EQ(build_transform_chain(c).stage_names(), (V {"Validate", "RowStoreFill"}));
 }
 
-// TYPE_DIRECT + fixed PU -> the fixed fill stage sits between Validate and Parse;
-// the legacy fixed path parsed variants before rebuilding RowStore.
+// TYPE_DIRECT + fixed PU -> fill the full block before rebuilding RowStore.
 TEST_F(ValidateStageTest, CompositionFixedPartialUpdate) {
     using V = std::vector<std::string_view>;
     auto schema = create_mow_schema(/*has_seq=*/false);
@@ -134,12 +131,10 @@ TEST_F(ValidateStageTest, CompositionFixedPartialUpdate) {
     RowsetWriterContext c = direct_rwc(schema);
     c.partial_update_info = fixed;
     EXPECT_EQ(build_transform_chain(c).stage_names(),
-              (V {"Validate", "FixedPartialUpdateFill", "VariantParse", "RowStoreFill"}));
+              (V {"Validate", "FixedPartialUpdateFill", "RowStoreFill"}));
 }
 
-// TYPE_DIRECT + flexible PU -> the flexible fill stage sits after Validate; the
-// legacy flexible path rebuilt RowStore before parsing the filled variants, the
-// reverse of the fixed order.
+// TYPE_DIRECT + flexible PU -> fill the full block before rebuilding RowStore.
 TEST_F(ValidateStageTest, CompositionFlexiblePartialUpdate) {
     using V = std::vector<std::string_view>;
     auto fschema = create_flexible_mow_schema();
@@ -151,19 +146,19 @@ TEST_F(ValidateStageTest, CompositionFlexiblePartialUpdate) {
     RowsetWriterContext fc = direct_rwc(fschema);
     fc.partial_update_info = flexible;
     EXPECT_EQ(build_transform_chain(fc).stage_names(),
-              (V {"Validate", "FlexiblePartialUpdateFill", "RowStoreFill", "VariantParse"}));
+              (V {"Validate", "FlexiblePartialUpdateFill", "RowStoreFill"}));
 }
 
-// Binlog sub-writers derive their rows in the chain: a direct write picks the
+// Changelog sub-writers derive their rows in the chain: a direct write picks the
 // Plain or MoW derive stage, every other write type keeps an empty chain
-// (compaction and schema change feed rows that are already binlog shaped).
-TEST_F(ValidateStageTest, CompositionBinlogDirectDerivesOtherwiseEmpty) {
+// (compaction and schema change feed rows that are already changelog shaped).
+TEST_F(ValidateStageTest, CompositionChangelogDirectDerivesOtherwiseEmpty) {
     using V = std::vector<std::string_view>;
     auto schema = create_mow_schema(/*has_seq=*/false);
     RowsetWriterContext rwc = direct_rwc(schema);
-    rwc.write_binlog_opt().enable = true;
+    rwc.write_changelog_opt().enable = true;
 
-    EXPECT_EQ(build_transform_chain(rwc).stage_names(), (V {"PlainRowBinlogDerive"}));
+    EXPECT_EQ(build_transform_chain(rwc).stage_names(), (V {"PlainChangelogDerive"}));
 
     for (auto write_type : {DataWriteType::TYPE_DEFAULT, DataWriteType::TYPE_SCHEMA_CHANGE,
                             DataWriteType::TYPE_COMPACTION}) {
@@ -174,9 +169,9 @@ TEST_F(ValidateStageTest, CompositionBinlogDirectDerivesOtherwiseEmpty) {
 
 // The publish phase rewrites conflicting rows through a transient writer: still
 // TYPE_DIRECT and still carrying the partial-update info, but the rows are final,
-// so the binlog op must come from their own delete sign rather than a second
+// so the changelog op must come from their own delete sign rather than a second
 // history probe. is_transient_rowset_writer is what separates the two.
-TEST_F(ValidateStageTest, CompositionBinlogTransientPartialUpdateStaysPlain) {
+TEST_F(ValidateStageTest, CompositionChangelogTransientPartialUpdateStaysPlain) {
     using V = std::vector<std::string_view>;
     auto schema = create_mow_schema(/*has_seq=*/false);
     auto pui = std::make_shared<PartialUpdateInfo>();
@@ -184,39 +179,39 @@ TEST_F(ValidateStageTest, CompositionBinlogTransientPartialUpdateStaysPlain) {
                           PartialUpdateNewRowPolicyPB::APPEND, {"k"}, false, 0, 0, "UTC", "")
                         .ok());
     RowsetWriterContext rwc = direct_rwc(schema);
-    rwc.write_binlog_opt().enable = true;
-    auto& cfg = rwc.write_binlog_opt().write_binlog_config();
+    rwc.write_changelog_opt().enable = true;
+    auto& cfg = rwc.write_changelog_opt().write_changelog_config();
     cfg.source.partial_update_info = pui;
     cfg.source.source_write_type = DataWriteType::TYPE_DIRECT;
     cfg.source.is_transient_rowset_writer = true;
 
-    EXPECT_EQ(build_transform_chain(rwc).stage_names(), (V {"PlainRowBinlogDerive"}));
+    EXPECT_EQ(build_transform_chain(rwc).stage_names(), (V {"PlainChangelogDerive"}));
 
     // the same write with a BEFORE image still needs the probe
-    rwc.write_binlog_opt().write_binlog_config().write_before = true;
-    EXPECT_EQ(build_transform_chain(rwc).stage_names(), (V {"MowRowBinlogDerive"}));
+    rwc.write_changelog_opt().write_changelog_config().write_before = true;
+    EXPECT_EQ(build_transform_chain(rwc).stage_names(), (V {"MowChangelogDerive"}));
 
     // and a non-transient write of the same partial update does probe
-    rwc.write_binlog_opt().write_binlog_config().write_before = false;
-    rwc.write_binlog_opt().write_binlog_config().source.is_transient_rowset_writer = false;
-    EXPECT_EQ(build_transform_chain(rwc).stage_names(), (V {"MowRowBinlogDerive"}));
+    rwc.write_changelog_opt().write_changelog_config().write_before = false;
+    rwc.write_changelog_opt().write_changelog_config().source.is_transient_rowset_writer = false;
+    EXPECT_EQ(build_transform_chain(rwc).stage_names(), (V {"MowChangelogDerive"}));
 }
 
-// A direct binlog write that needs history -- a BEFORE image here -- picks the
+// A direct changelog write that needs history -- a BEFORE image here -- picks the
 // MoW derive stage instead of the plain one.
-TEST_F(ValidateStageTest, CompositionBinlogBeforeImagePicksMowDerive) {
+TEST_F(ValidateStageTest, CompositionChangelogBeforeImagePicksMowDerive) {
     using V = std::vector<std::string_view>;
     auto schema = create_mow_schema(/*has_seq=*/false);
     RowsetWriterContext rwc = direct_rwc(schema);
-    rwc.write_binlog_opt().enable = true;
-    rwc.write_binlog_opt().write_binlog_config().write_before = true;
+    rwc.write_changelog_opt().enable = true;
+    rwc.write_changelog_opt().write_changelog_config().write_before = true;
 
-    EXPECT_EQ(build_transform_chain(rwc).stage_names(), (V {"MowRowBinlogDerive"}));
+    EXPECT_EQ(build_transform_chain(rwc).stage_names(), (V {"MowChangelogDerive"}));
 }
 
 // =============================================================================
 // ValidateStage branches (V1-V9). ValidateStage is the chain's first stage on
-// every non-compaction, non-binlog path, so we build the real chain and drive
+// every non-compaction, non-changelog path, so we build the real chain and drive
 // it with a block that already fails / passes validate.
 // =============================================================================
 

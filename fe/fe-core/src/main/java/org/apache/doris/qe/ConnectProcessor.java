@@ -32,8 +32,10 @@ import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.analysis.UuidLiteral;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.NameSpaceContext;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.qe.ComputeGroupException;
@@ -42,19 +44,19 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConnectionException;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.DelegatedCredential;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.metric.MetricRepo;
-import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlServerStatusFlag;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.SqlCacheContext.CacheKeyType;
@@ -62,7 +64,6 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.exceptions.SyntaxParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
-import org.apache.doris.nereids.minidump.MinidumpUtils;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.parser.SqlDialectHelper;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
@@ -158,11 +159,14 @@ public abstract class ConnectProcessor {
     }
 
     protected void handleStmtResetById(int stmtId) {
-        if (ctx.getPreparedStementContext(String.valueOf(stmtId)) == null) {
+        PreparedStatementContext prepared = ctx.getPreparedStementContext(String.valueOf(stmtId));
+        if (prepared == null) {
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_STMT_HANDLER,
                     String.format("Unknown prepared statement handler (%s) given to mysqld_stmt_reset", stmtId));
             return;
         }
+        prepared.clearLongData();
+        prepared.setEmptyCursorOpen(false);
         ctx.getState().setOk();
     }
 
@@ -322,6 +326,7 @@ public abstract class ConnectProcessor {
                 if (i > 0) {
                     ctx.resetReturnRows();
                 }
+                ctx.getProtocolAdapter().beforeStatement(ctx);
                 // Re-resolve per statement: an earlier statement in the same multi-stmt
                 // request (e.g. SET workload_group=...) may have changed the effective
                 // workload group, and later statements that fail before Coordinator.exec
@@ -362,11 +367,16 @@ public abstract class ConnectProcessor {
                     if (!ctx.isReturnResultFromLocal()) {
                         returnResultFromRemoteExecutor.add(executor);
                     }
-                    if (!ctx.getProtocolAdapter().finishStatement(ctx, executor, i, stmts.size())) {
-                        break;
-                    }
+                    // A statement that ran is audited whether or not the request goes on: the Flight
+                    // adapter refuses a result that is not the last statement's after the statement
+                    // executed, and the refusal is what the audit row then records (State=ERR with
+                    // its error code), counted as one failed query like any other.
+                    boolean requestGoesOn = ctx.getProtocolAdapter().finishStatement(ctx, executor, i, stmts.size());
                     auditAfterExec(auditStmt, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(),
                             true);
+                    if (!requestGoesOn) {
+                        break;
+                    }
                     // execute failed, skip remaining stmts
                     if (ctx.getState().getStateType() == MysqlStateType.ERR || (!Env.getCurrentEnv().isMaster()
                             && ctx.executor != null && ctx.executor.hasForwardedToMaster()
@@ -505,9 +515,6 @@ public abstract class ConnectProcessor {
     // Use a handler for exception to avoid big try catch block which is a little hard to understand
     protected void handleQueryException(Throwable throwable, String origStmt,
             StatementBase parsedStmt, Data.PQueryStatistics statistics) throws ConnectionException {
-        if (ctx.getMinidump() != null) {
-            MinidumpUtils.saveMinidumpString(ctx.getMinidump(), DebugUtil.printId(ctx.queryId()));
-        }
         if (throwable instanceof SyntaxParseException) {
             // Syntax parse exception.
             Throwable e = new AnalysisException(throwable.getMessage(), throwable);
@@ -578,7 +585,7 @@ public abstract class ConnectProcessor {
         ctx.setThreadLocalInfo();
         StmtExecutor executor = null;
         try {
-            restoreForwardedMysqlContext(ctx, request);
+            MysqlProtocolAdapter.of(ctx).restoreFromForwardRequest(ctx, request);
             // 0 for compatibility.
             int idx = request.isSetStmtIdx() ? request.getStmtIdx() : 0;
             executor = new StmtExecutor(ctx, new OriginStatement(request.getSql(), idx), true);
@@ -587,11 +594,28 @@ public abstract class ConnectProcessor {
                 CatalogIf catalog = ctx.getEnv().getCatalogMgr().getCatalog(request.getDefaultCatalog());
                 if (catalog != null) {
                     ctx.getEnv().changeCatalog(ctx, request.getDefaultCatalog());
-                    // Set default db only when the default catalog is set and the dbname exists in default catalog.
+                    // Restore the selected database after its catalog, checking existence when metadata is available.
                     if (request.isSetDefaultDatabase()) {
-                        DatabaseIf db = ctx.getCurrentCatalog().getDbNullable(request.getDefaultDatabase());
+                        DatabaseIf db = null;
+                        try {
+                            db = ctx.getCurrentCatalog().getDbNullable(request.getDefaultDatabase());
+                        } catch (RuntimeException e) {
+                            // Optional context restoration must not block catalog repair commands. Retain the name
+                            // so statements that actually use the database still resolve it and report failures.
+                            ctx.restoreDatabaseName(request.getDefaultDatabase());
+                            LOG.debug("Deferring lookup of forwarded default database {}.{}",
+                                    request.getDefaultCatalog(), request.getDefaultDatabase(), e);
+                        }
                         if (db != null) {
-                            ctx.getEnv().changeDb(ctx, request.getDefaultDatabase());
+                            if (!ctx.getEnv().getAccessManager().checkDbPriv(ctx, ctx.getDefaultCatalog(),
+                                    request.getDefaultDatabase(), PrivPredicate.SHOW)) {
+                                ErrorReport.reportDdlException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
+                                        ctx.getQualifiedUser(), request.getDefaultDatabase());
+                            }
+                            // Reuse the resolved database: a concurrent refresh can make a second lookup fail
+                            // before a catalog repair statement gets a chance to execute.
+                            ctx.restoreNameSpaceContext(new NameSpaceContext(ctx.getDefaultCatalog(),
+                                    request.getDefaultDatabase(), db.getId()));
                         }
                     }
                 }
@@ -688,35 +712,17 @@ public abstract class ConnectProcessor {
         }
         if (executor != null) {
             List<Long> auditStatisticsBackendIds = Lists.newArrayList(
-                    AuditLogHelper.getExternalDmlAuditBackendIds(executor));
+                    AuditLogHelper.getAuditStatisticsBackendIds(executor));
             if (!auditStatisticsBackendIds.isEmpty()) {
                 result.setAuditStatisticsBackendIds(auditStatisticsBackendIds);
             }
             if (executor.getProxyShowResultSet() != null) {
                 result.setResultSet(executor.getProxyShowResultSet().tothrift());
-            } else if (!executor.getProxyQueryResultBufList().isEmpty()) {
-                result.setQueryResultBufList(executor.getProxyQueryResultBufList());
+            } else if (!mysqlAdapter.proxyResultPackets().isEmpty()) {
+                result.setQueryResultBufList(mysqlAdapter.proxyResultPackets());
             }
         }
         return result;
-    }
-
-    static void restoreForwardedMysqlContext(ConnectContext context, TMasterOpRequest request) {
-        int flags = request.isSetMysqlCapability() ? request.getMysqlCapability()
-                : MysqlCapability.DEFAULT_CAPABILITY.getFlags()
-                        & ~MysqlCapability.Flag.CLIENT_DEPRECATE_EOF.getFlagBit();
-        if (request.isSetClientDeprecatedEOF() && request.isClientDeprecatedEOF()) {
-            flags |= MysqlCapability.Flag.CLIENT_DEPRECATE_EOF.getFlagBit();
-        }
-        MysqlCapability capability = new MysqlCapability(flags);
-        context.setCapability(capability);
-        context.getMysqlChannel().getSerializer().setCapability(capability);
-        if (capability.isDeprecatedEOF()) {
-            context.getMysqlChannel().setClientDeprecatedEOF();
-        }
-        // Old followers do not carry the cursor flag. Keep their existing behavior; they must
-        // be upgraded to preserve cursor intent. Do not reject their ordinary prepared statements.
-        context.setCursorFetchRequested(request.isSetCursorFetchRequested() && request.isCursorFetchRequested());
     }
 
     static void restoreForwardedSessionContext(ConnectContext context, TMasterOpRequest request) {
@@ -773,6 +779,7 @@ public abstract class ConnectProcessor {
                         literalType.isTimeStampNs() ? literalType : null);
             case IPV4_LITERAL: return new IPv4Literal(node.ipv4_literal.value);
             case IPV6_LITERAL: return new IPv6Literal(node.ipv6_literal.value);
+            case UUID_LITERAL: return new UuidLiteral(new UUID(node.uuid_literal.hi, node.uuid_literal.lo).toString());
             default: throw new AnalysisException("Wrong type from thrift;");
         }
     }

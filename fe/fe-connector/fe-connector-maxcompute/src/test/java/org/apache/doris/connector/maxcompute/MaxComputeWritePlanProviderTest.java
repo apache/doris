@@ -44,6 +44,19 @@ public class MaxComputeWritePlanProviderTest {
     }
 
     @Test
+    public void staticNullPartitionCanCrossThrift() throws Exception {
+        java.util.Map<String, String> spec = new java.util.HashMap<>();
+        spec.put("p", null);
+        org.apache.doris.thrift.TMaxComputeTableSink sink = new org.apache.doris.thrift.TMaxComputeTableSink();
+        sink.setStaticPartitionSpec(MaxComputeWritePlanProvider.encodeStaticPartitionSpec(spec));
+        byte[] bytes = new org.apache.thrift.TSerializer().serialize(sink);
+        org.apache.doris.thrift.TMaxComputeTableSink decoded = new org.apache.doris.thrift.TMaxComputeTableSink();
+        new org.apache.thrift.TDeserializer().deserialize(decoded, bytes);
+        Assertions.assertEquals("null", decoded.getStaticPartitionSpec().get("p"));
+        Assertions.assertNull(spec.get("p"));
+    }
+
+    @Test
     public void declaresInsertOverwriteAndSinkTraits() {
         MaxComputeWritePlanProvider p = provider();
 

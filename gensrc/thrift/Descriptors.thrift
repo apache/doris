@@ -152,7 +152,7 @@ enum THdfsFileFormat {
   LZO_TEXT = 1,
   RC_FILE = 2,
   SEQUENCE_FILE =3,
-  AVRO = 4,
+  AVRO = 4, // Deprecated: reading this format is no longer supported.
   PARQUET = 5
 }
 
@@ -355,7 +355,8 @@ struct TOlapTableIndexSchema {
     4: optional list<TColumn> columns_desc
     5: optional list<TOlapTableIndex> indexes_desc
     6: optional Exprs.TExpr where_clause
-    7: optional i64 row_binlog_id
+    // ATTN(changelog-rename): formerly "row_binlog_id"
+    7: optional i64 changelog_index_id
 }
 
 struct TOlapTableSchemaParam {
@@ -377,13 +378,14 @@ struct TOlapTableSchemaParam {
     14: optional Types.TUniqueKeyUpdateMode unique_key_update_mode
     15: optional i32 sequence_map_col_unique_id = -1
     16: optional TPartialUpdateNewRowPolicy partial_update_new_key_policy
-    17: optional list<TOlapTableIndexSchema> row_binlog_index_schemas
+    // ATTN(changelog-rename): formerly "row_binlog_index_schemas"
+    17: optional list<TOlapTableIndexSchema> changelog_index_schemas
 }
 
 struct TTabletLocation {
     1: required i64 tablet_id
     2: required list<i64> node_ids
-    // used to write binlog tablet by base tablet with the same bucket idx
+    // used to write changelog tablet by base tablet with the same bucket idx
     3: optional i64 base_tablet_id
 }
 
@@ -497,6 +499,7 @@ struct TTrinoConnectorTable {
   3: optional map<string, string> properties
 }
 
+// Deprecated: the associated external table read support has been removed.
 struct TLakeSoulTable {
   1: optional string db_name
   2: optional string table_name
@@ -536,7 +539,7 @@ struct TTableDescriptor {
   20: optional TJdbcTable jdbcTable
   21: optional TMCTable mcTable
   22: optional TTrinoConnectorTable trinoConnectorTable
-  23: optional TLakeSoulTable lakesoulTable
+  23: optional TLakeSoulTable lakesoulTable // Deprecated: reading this format is no longer supported.
   24: optional TDictionaryTable dictionaryTable
   25: optional TRemoteDorisTable remoteDorisTable
 }

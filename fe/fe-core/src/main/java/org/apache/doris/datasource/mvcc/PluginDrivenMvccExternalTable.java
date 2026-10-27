@@ -21,6 +21,7 @@ import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.PartitionItem;
@@ -39,11 +40,13 @@ import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartition;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartitionView;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.spi.mvcc.ConnectorSqlCacheVersion;
 import org.apache.doris.connector.spi.mvcc.ConnectorTableFreshness;
 import org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.datasource.connector.converter.ConnectorColumnConverter;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenMetadata;
@@ -55,8 +58,11 @@ import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVSnapshotIdSnapshot;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVTimestampSnapshot;
+import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.cache.SqlCacheVersionProvider;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -74,6 +80,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
+import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -92,7 +100,8 @@ import java.util.stream.Collectors;
  * degrades MTMV to conservative over-refresh (the partition never matches its prior snapshot).</p>
  */
 public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
-        implements MTMVRelatedTableIf, MTMVBaseTableIf, MvccTable, SupportBinarySearchFilteringPartitions {
+        implements MTMVRelatedTableIf, MTMVBaseTableIf, MvccTable, SupportBinarySearchFilteringPartitions,
+        SqlCacheVersionProvider {
 
     private static final Logger LOG = LogManager.getLogger(PluginDrivenMvccExternalTable.class);
 
@@ -126,7 +135,7 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
 
     /**
      * Lists the partition set at LATEST and pins the connector snapshot. The per-partition build is
-     * delegated to {@link #listLatestPartitions} (shared with the @incr path, which legacy also reads
+     * delegated to {@link #listPartitions} (shared with the @incr path, which legacy also reads
      * at LATEST).
      */
     private PluginDrivenMvccSnapshot materializeLatest() {
@@ -172,9 +181,48 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         // legacy listPartitions/LIST/timestamp path below (byte-unchanged; the no-op applySnapshot for the
         // latest pin is side-effect-free for both paimon and iceberg).
         ConnectorTableHandle pinnedHandle = metadata.applySnapshot(session, handle, connectorSnapshot);
-        // Partition counts feed COUNT(*) pushdown and SQL block rules, so even the initial latest
-        // materialization must enumerate the same pinned generation that the data scan reads.
+        PluginDrivenSchemaCacheValue pinnedSchema = null;
+        if (connectorSnapshot.isSchemaRetained() && connectorSnapshot.getSchemaId() >= 0) {
+            // A schema coordinate alone is not permission to replace the ordinary schema. Only
+            // connectors that own the complete statement schema opt into this publication path.
+            ConnectorTableSchema atSchema = metadata.getTableSchema(session, pinnedHandle, connectorSnapshot);
+            pinnedSchema = toSchemaCacheValue(metadata, session,
+                    db != null ? db.getRemoteName() : "", getRemoteName(), atSchema);
+            // Eager pins bypass the schema cache loader, so preserve its mapped-column validation.
+            pinnedSchema.validateSchema();
+        }
+        if (canDeferPartitionView(metadata, session, pinnedHandle)) {
+            PluginDrivenSchemaCacheValue schema = pinnedSchema != null ? pinnedSchema
+                    : (PluginDrivenSchemaCacheValue) getLatestSchemaCacheValue().orElseThrow(
+                            () -> new IllegalStateException("Missing schema for pinned table " + getName()));
+            return new PluginDrivenMvccSnapshot(connectorSnapshot, schema,
+                    () -> materializePartitionView(metadata, session, pinnedHandle, connectorSnapshot, schema,
+                            schema.getPartitionColumns()));
+        }
+        List<Column> partitionColumns = pinnedSchema == null
+                ? getPartitionColumns() : pinnedSchema.getPartitionColumns();
+        return materializePartitionView(metadata, session, pinnedHandle, connectorSnapshot,
+                pinnedSchema, partitionColumns);
+    }
+
+    private boolean canDeferPartitionView(ConnectorMetadata metadata, ConnectorSession session,
+            ConnectorTableHandle handle) {
+        ConnectContext ctx = ConnectContext.get();
+        // Candidates are collected before binding/pinning. Keep the existing MV path intact in this first
+        // step, including its partition pruning and compensation. Non-query MTMV callers stay eager too.
+        return ctx != null && ctx.getStatementContext() != null && !ctx.getState().isInternal()
+                && metadata.supportsNativePartitionPlanning(session, handle)
+                && ctx.getStatementContext().getCandidateMTMVs().isEmpty()
+                && !ctx.getEnv().getSqlBlockRuleMgr().hasPartitionMetadataRules();
+    }
+
+    private PluginDrivenMvccSnapshot materializePartitionView(ConnectorMetadata metadata, ConnectorSession session,
+            ConnectorTableHandle pinnedHandle, ConnectorMvccSnapshot connectorSnapshot,
+            PluginDrivenSchemaCacheValue pinnedSchema, List<Column> partitionColumns) {
+        // Partition-aware consumers must enumerate the same pinned generation that the data scan reads,
+        // whether this view is requested during binding or loaded later.
         ConnectorTableHandle partitionHandle = pinnedHandle;
+        Optional<String> partitionViewVersion = metadata.getPartitionViewVersion(session, pinnedHandle);
         Optional<ConnectorMvccPartitionView> viewOpt =
                 metadata.getMvccPartitionView(session, pinnedHandle);
         if (viewOpt.isPresent()) {
@@ -182,7 +230,8 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
             if (connectorSnapshot.getSnapshotId() < 0) {
                 // A negative query-begin pin is the connector's resolved-empty generation. Falling through to
                 // a live LIST read would mix partitions committed after the data scan's empty boundary.
-                return buildFromRangeView(connectorSnapshot, view);
+                return buildFromRangeView(
+                        connectorSnapshot, view, pinnedSchema, partitionColumns, partitionViewVersion);
             }
             // A non-RANGE (UNPARTITIONED) view is the connector's "not RANGE / not MTMV-range-eligible" verdict
             // (iceberg's range view only covers single time-transform specs). If the table nonetheless declares
@@ -194,21 +243,17 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
             // A RANGE view (range items) and a genuinely unpartitioned table (no partition columns) are
             // unaffected. Freshness matches the legacy LIST path (timestamps / 0), harmless here because the
             // UNPARTITIONED verdict keeps this table out of the snapshot-id MTMV path.
-            if (view.getStyle() != ConnectorMvccPartitionView.Style.RANGE && !getPartitionColumns().isEmpty()) {
-                Map<String, PartitionItem> listItems = Maps.newHashMap();
-                Map<String, Long> listLastModifiedMillis = Maps.newHashMap();
-                listLatestPartitions(metadata, session, partitionHandle, listItems, listLastModifiedMillis);
-                return new PluginDrivenMvccSnapshot(connectorSnapshot, listItems, listLastModifiedMillis,
-                        null, PartitionType.UNPARTITIONED, false, 0L);
+            if (view.getStyle() != ConnectorMvccPartitionView.Style.RANGE && !partitionColumns.isEmpty()) {
+                PluginDrivenPartitionView viewItems = listPartitions(metadata, session, partitionHandle,
+                        partitionColumns);
+                return new PluginDrivenMvccSnapshot(connectorSnapshot, viewItems,
+                        pinnedSchema, PartitionType.UNPARTITIONED, false, 0L, 0L);
             }
-            return buildFromRangeView(connectorSnapshot, view);
+            return buildFromRangeView(connectorSnapshot, view, pinnedSchema, partitionColumns, partitionViewVersion);
         }
 
-        Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMap();
-        Map<String, Long> nameToLastModifiedMillis = Maps.newHashMap();
-        listLatestPartitions(metadata, session, partitionHandle, nameToPartitionItem, nameToLastModifiedMillis);
-        return new PluginDrivenMvccSnapshot(connectorSnapshot, nameToPartitionItem,
-                nameToLastModifiedMillis);
+        PluginDrivenPartitionView viewItems = listPartitions(metadata, session, partitionHandle, partitionColumns);
+        return new PluginDrivenMvccSnapshot(connectorSnapshot, viewItems, pinnedSchema);
     }
 
     /**
@@ -221,31 +266,50 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
      * per-partition log-and-skip).
      */
     private PluginDrivenMvccSnapshot buildFromRangeView(ConnectorMvccSnapshot connectorSnapshot,
-            ConnectorMvccPartitionView view) {
+            ConnectorMvccPartitionView view, PluginDrivenSchemaCacheValue pinnedSchema, List<Column> partitionColumns,
+            Optional<String> version) {
         PartitionType partitionType = view.getStyle() == ConnectorMvccPartitionView.Style.RANGE
                 ? PartitionType.RANGE : PartitionType.UNPARTITIONED;
         boolean snapshotIdFreshness =
                 view.getFreshness() == ConnectorMvccPartitionView.Freshness.SNAPSHOT_ID;
+        List<Type> types = partitionColumns.stream().map(Column::getType).collect(Collectors.toList());
+        List<ConnectorMvccPartition> partitions = view.getStyle() == ConnectorMvccPartitionView.Style.RANGE
+                ? view.getPartitions() : Collections.emptyList();
+        PluginDrivenPartitionView.Key key = version
+                .map(v -> PluginDrivenPartitionView.Key.versioned(getId(), getDbName(), getName(), v, types, true))
+                .orElseGet(() -> PluginDrivenPartitionView.Key.range(
+                        getId(), getDbName(), getName(), partitions, types));
+        PluginDrivenPartitionView converted = cachedPartitionView(key, k -> {
+            List<Type> frozenTypes = k.frozenTypes();
+            List<Column> columns = Lists.newArrayListWithCapacity(partitionColumns.size());
+            for (int i = 0; i < partitionColumns.size(); i++) {
+                columns.add(new Column(partitionColumns.get(i).getName(), frozenTypes.get(i)));
+            }
+            return buildRangePartitionView(version.isPresent() ? partitions : k.rangePartitions(),
+                    columns, k.buildSortedRanges());
+        });
+        return new PluginDrivenMvccSnapshot(connectorSnapshot, converted,
+                pinnedSchema, partitionType, snapshotIdFreshness, view.getNewestUpdateMonotonicMarker(),
+                view.getNewestUpdateWallClockMillis());
+    }
+
+    private PluginDrivenPartitionView buildRangePartitionView(List<ConnectorMvccPartition> partitions,
+            List<Column> partitionColumns, boolean buildSortedRanges) {
         Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMap();
         Map<String, Long> nameToFreshnessValue = Maps.newHashMap();
-        if (view.getStyle() == ConnectorMvccPartitionView.Style.RANGE) {
-            List<Column> partitionColumns = getPartitionColumns();
-            for (ConnectorMvccPartition partition : view.getPartitions()) {
-                try {
-                    nameToPartitionItem.put(partition.getName(),
-                            toRangePartitionItem(partition, partitionColumns));
-                } catch (AnalysisException e) {
-                    // Fail loud: a range partition that cannot build is a real metadata error, not a
-                    // skippable row (legacy loadPartitionInfo lets getPartitionRange throw).
-                    throw new RuntimeException("Failed to build range partition item for "
-                            + partition.getName() + ", partitionColumns: " + partitionColumns, e);
-                }
-                nameToFreshnessValue.put(partition.getName(), partition.getFreshnessValue());
+        for (ConnectorMvccPartition partition : partitions) {
+            try {
+                nameToPartitionItem.put(partition.getName(),
+                        toRangePartitionItem(partition, partitionColumns));
+            } catch (AnalysisException e) {
+                // Fail loud: a range partition that cannot build is a real metadata error, not a
+                // skippable row (legacy loadPartitionInfo lets getPartitionRange throw).
+                throw new RuntimeException("Failed to build range partition item for "
+                        + partition.getName() + ", partitionColumns: " + partitionColumns, e);
             }
+            nameToFreshnessValue.put(partition.getName(), partition.getFreshnessValue());
         }
-        return new PluginDrivenMvccSnapshot(connectorSnapshot, nameToPartitionItem, nameToFreshnessValue,
-                null, partitionType, snapshotIdFreshness, view.getNewestUpdateMonotonicMarker(),
-                view.getNewestUpdateWallClockMillis());
+        return new PluginDrivenPartitionView(nameToPartitionItem, nameToFreshnessValue, buildSortedRanges);
     }
 
     /**
@@ -257,8 +321,10 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
      */
     private static RangePartitionItem toRangePartitionItem(ConnectorMvccPartition partition,
             List<Column> partitionColumns) throws AnalysisException {
-        PartitionKey lowerKey = PartitionKey.createPartitionKey(
-                toPartitionValues(partition.getLowerBound()), partitionColumns);
+        // The NULL-min sentinel is not a wall-clock date: parsing it in a positive offset underflows year zero.
+        PartitionKey lowerKey = partition.getUpperBound().isEmpty()
+                ? PartitionKey.createInfinityPartitionKey(partitionColumns, false)
+                : PartitionKey.createPartitionKey(toPartitionValues(partition.getLowerBound()), partitionColumns);
         PartitionKey upperKey = partition.getUpperBound().isEmpty()
                 ? lowerKey.successor()
                 : PartitionKey.createPartitionKey(toPartitionValues(partition.getUpperBound()), partitionColumns);
@@ -275,19 +341,40 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
     }
 
     /**
-     * Lists the partition set at LATEST into the two supplied maps (rendered name -&gt; built
-     * {@link PartitionItem} / -&gt; last-modified epoch millis). Mirrors legacy
-     * {@code PaimonUtil.generatePartitionInfo}: per-partition build is wrapped in try/catch so a single
-     * un-parseable name is logged and skipped (leaving the listed-name set larger than the built-item
-     * set, which {@link PluginDrivenMvccSnapshot#isPartitionInvalid} then treats as UNPARTITIONED)
-     * rather than failing the whole query.
+     * Lists partitions from the supplied handle, using the same column types that the caller publishes.
+     * Both an opted-in latest pin and explicit time travel must use their retained schema here.
+     * Unparseable partitions remain logged and skipped so the snapshot can fall back to scan-all.
      */
-    private void listLatestPartitions(ConnectorMetadata metadata, ConnectorSession session,
-            ConnectorTableHandle handle, Map<String, PartitionItem> nameToPartitionItem,
-            Map<String, Long> nameToLastModifiedMillis) {
-        List<Column> partitionColumns = getPartitionColumns();
+    private PluginDrivenPartitionView listPartitions(ConnectorMetadata metadata, ConnectorSession session,
+            ConnectorTableHandle handle, List<Column> partitionColumns) {
         List<Type> types = partitionColumns.stream().map(Column::getType).collect(Collectors.toList());
-        List<ConnectorPartitionInfo> parts = metadata.listPartitions(session, handle, Optional.empty());
+        Optional<String> version = metadata.getPartitionViewVersion(session, handle);
+        if (version.isPresent()) {
+            PluginDrivenPartitionView.Key key = PluginDrivenPartitionView.Key.versioned(
+                    getId(), getDbName(), getName(), version.get(), types, false);
+            return cachedPartitionView(key, k -> buildListPartitionView(
+                    metadata.listPartitions(session, handle, Optional.empty()), k.frozenTypes(),
+                    k.buildSortedRanges()));
+        }
+        return partitionView(metadata.listPartitions(session, handle, Optional.empty()), types);
+    }
+
+    PluginDrivenPartitionView partitionView(List<ConnectorPartitionInfo> parts, List<Type> types) {
+        PluginDrivenPartitionView.Key key = PluginDrivenPartitionView.Key.list(
+                getId(), getDbName(), getName(), parts, types);
+        return cachedPartitionView(key, k -> buildListPartitionView(
+                k.listPartitions(), k.frozenTypes(), k.buildSortedRanges()));
+    }
+
+    PluginDrivenPartitionView cachedPartitionView(PluginDrivenPartitionView.Key key,
+            Function<PluginDrivenPartitionView.Key, PluginDrivenPartitionView> loader) {
+        return Env.getCurrentEnv().getExtMetaCacheMgr().getPartitionView(this, key, loader);
+    }
+
+    private PluginDrivenPartitionView buildListPartitionView(List<ConnectorPartitionInfo> parts, List<Type> types,
+            boolean buildSortedRanges) {
+        Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMapWithExpectedSize(parts.size());
+        Map<String, Long> nameToLastModifiedMillis = Maps.newHashMapWithExpectedSize(parts.size());
         for (ConnectorPartitionInfo part : parts) {
             String partitionName = part.getPartitionName();
             nameToLastModifiedMillis.put(partitionName, part.getLastModifiedMillis());
@@ -305,14 +392,35 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
                 //     rows, it only loses partition pruning. Do NOT hoist this check out of the catch to
                 //     "fail loud" — that was tried (cfb0958e607) and every real-world hit was a legitimate
                 //     spec evolution, not a mis-wired connector, taking down 6 suites (CI 996541).
+                // Partition transforms can produce a different type from the source column.
+                List<Type> valueTypes = part.getPartitionValueTypes().isEmpty() ? types
+                        : part.getPartitionValueTypes().stream().map(ConnectorColumnConverter::convertType)
+                                .collect(Collectors.toList());
                 nameToPartitionItem.put(partitionName,
-                        toListPartitionItem(partitionName, types,
+                        toListPartitionItem(partitionName, valueTypes,
                                 part.getOrderedPartitionValues(), part.getPartitionValueNullFlags()));
             } catch (Exception e) {
                 LOG.warn("toListPartitionItem failed, partitionColumns: {}, partitionName: {}",
-                        partitionColumns, partitionName, e);
+                        types, partitionName, e);
             }
         }
+        // One line for the listing, next to the per-partition ones above.
+        //
+        // A per-partition WARN is the right shape for the case this catch was written for - iceberg
+        // spec evolution, where SOME rows carry fewer values than the current spec has columns - but
+        // it is the wrong shape for the case where the two lists never agreed at all: every
+        // partition then fails for the same reason, and what the reader needs is the two counts and
+        // the fact that the whole table just went UNPARTITIONED, not N copies of one stack trace.
+        // That shape is what a pinned read produces when the at-snapshot schema declares partition
+        // columns the pinned listing does not match (see ConnectorMetadata.listsPartitionsAtSnapshot).
+        if (!parts.isEmpty() && nameToPartitionItem.isEmpty()) {
+            LOG.warn("every partition of {}.{} was skipped while building partition items, so the "
+                            + "table is reported UNPARTITIONED for this read: {} listed, 0 built, "
+                            + "typed by {} partition column(s) {}. The connector's partition columns "
+                            + "and the values it lists do not agree.",
+                    getDbName(), getName(), parts.size(), types.size(), types);
+        }
+        return new PluginDrivenPartitionView(nameToPartitionItem, nameToLastModifiedMillis, buildSortedRanges);
     }
 
     private ConnectorMvccSnapshot emptySnapshot() {
@@ -459,11 +567,8 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
             // pin (connectorSnapshot.getProperties()); the scan node's applySnapshot threads them onto the handle.
             // Partitions are listed on the BASE handle at latest — the full latest set, identical to the
             // normal-read materializeLatest path — NOT a snapshot-pinned handle.
-            Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMap();
-            Map<String, Long> nameToLastModifiedMillis = Maps.newHashMap();
-            listLatestPartitions(metadata, session, handle, nameToPartitionItem, nameToLastModifiedMillis);
-            return new PluginDrivenMvccSnapshot(connectorSnapshot, nameToPartitionItem,
-                    nameToLastModifiedMillis, null);
+            PluginDrivenPartitionView viewItems = listPartitions(metadata, session, handle, getPartitionColumns());
+            return new PluginDrivenMvccSnapshot(connectorSnapshot, viewItems, null);
         }
 
         // Schema-at-snapshot: thread the pin onto the handle FIRST (applySnapshot), so a BRANCH pin
@@ -477,12 +582,26 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         PluginDrivenSchemaCacheValue pinnedSchema =
                 toSchemaCacheValue(metadata, session, dbName, tableName, atSchema);
 
-        // Explicit point-in-time time-travel (snapshot id / tag / timestamp / branch) does NOT list
-        // partitions (EMPTY partition maps) — parity with legacy PaimonPartitionInfo.EMPTY. The empty
-        // maps make isPartitionInvalid() == (0!=0) == false, so getPartitionColumns(snapshot) flows
-        // through super -> the schema-aware getSchemaCacheValue() below -> the pinned schema's partition
-        // columns. Partition pruning is deferred to the connector's predicate pushdown (the generic scan
-        // node's resolveRequiredPartitions treats this empty-universe pin as scan-all).
+        // Explicit point-in-time time-travel (snapshot id / tag / timestamp / branch) lists partitions only
+        // from a connector that can list them AT the pin. A listing at LATEST is the wrong universe in both
+        // directions — it hides a partition dropped since the pin (pruning it away would lose rows) and
+        // invents ones created after it — so a snapshot-blind connector keeps EMPTY maps, parity with legacy
+        // PaimonPartitionInfo.EMPTY: isPartitionInvalid() == (0!=0) == false, getPartitionColumns(snapshot)
+        // flows through super -> the schema-aware getSchemaCacheValue() -> the pinned schema's partition
+        // columns, and pruning is deferred to the connector's predicate pushdown (the generic scan node's
+        // resolveRequiredPartitions treats an empty universe as scan-all).
+        //
+        // The cost of that safe answer is a query that reads every partition and an EXPLAIN that reports
+        // `partition=0/0` for it — indistinguishable from "pruned to nothing". So a connector that DOES
+        // read the pin when listing (listsPartitionsAtSnapshot) gets the real set instead, listed on the
+        // snapshot-applied handle, and pruning and partition=N/M both become truthful.
+        if (metadata.listsPartitionsAtSnapshot(session, pinnedHandle)) {
+            // Typed by the PINNED schema, which is the one this snapshot publishes: see listPartitions.
+            Supplier<PluginDrivenMvccSnapshot> loader = () -> new PluginDrivenMvccSnapshot(connectorSnapshot,
+                    listPartitions(metadata, session, pinnedHandle, pinnedSchema.getPartitionColumns()), pinnedSchema);
+            return canDeferPartitionView(metadata, session, pinnedHandle)
+                    ? new PluginDrivenMvccSnapshot(connectorSnapshot, pinnedSchema, loader) : loader.get();
+        }
         return new PluginDrivenMvccSnapshot(connectorSnapshot,
                 Collections.emptyMap(), Collections.emptyMap(), pinnedSchema);
     }
@@ -670,6 +789,22 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
     // ──────────────────── partition view (snapshot-aware) ────────────────────
 
     @Override
+    public LogicalFileScan.SelectedPartitions initSelectedPartitions(Optional<MvccSnapshot> snapshot) {
+        PluginDrivenMvccSnapshot pin = getOrMaterialize(snapshot);
+        if (pin.hasDeferredPartitions()) {
+            return LogicalFileScan.SelectedPartitions.NATIVE;
+        }
+        return super.initSelectedPartitions(Optional.of(pin));
+    }
+
+    @Override
+    public boolean supportInternalPartitionPruned(Optional<MvccSnapshot> snapshot) {
+        // Non-range connector views enumerate raw transforms and historical specs for counts.
+        // Those values are not source-column LIST keys, even when their types happen to match.
+        return getOrMaterialize(snapshot).getPartitionType() != PartitionType.UNPARTITIONED;
+    }
+
+    @Override
     public Map<String, PartitionItem> getNameToPartitionItems(Optional<MvccSnapshot> snapshot) {
         return getOrMaterialize(snapshot).getNameToPartitionItem();
     }
@@ -695,6 +830,9 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
     @Override
     public List<Column> getPartitionColumns(Optional<MvccSnapshot> snapshot) {
         PluginDrivenMvccSnapshot pin = getOrMaterialize(snapshot);
+        if (pin.hasDeferredPartitions()) {
+            return super.getPartitionColumns(Optional.of(pin));
+        }
         if (pin.getPartitionType() != null) {
             // Range-view path: do NOT empty the columns here (parity master getIcebergPartitionColumns, which
             // always returns the spec columns); UNPARTITIONED is enforced via getPartitionType above.
@@ -749,11 +887,15 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         return 0L;
     }
 
-    // getSortedPartitionRanges is now a pure pass-through to ExternalTable's cache-manager delegation
-    // (5c17b748880's snapshotId==-1 short-circuit was removed: getPartitionMetaVersion above derives a
-    // content-comparable version from the frozen partition name set for ALL engines, so Cache B is
-    // correct uniformly -- snapshot-less hive and real-snapshot iceberg/paimon alike) -- no override
-    // needed here.
+    @Override
+    public Optional<SortedPartitionRanges<String>> getSortedPartitionRanges(CatalogRelation scan) {
+        ConnectContext context = ConnectContext.get();
+        if (context != null && !context.getSessionVariable().enableBinarySearchFilteringPartitions) {
+            return Optional.empty();
+        }
+        // The index belongs to the query's frozen view, not a separately refreshed table-wide cache.
+        return getOrMaterialize(pinnedSnapshot(scan)).getPartitionView().getSortedRanges();
+    }
 
     private Optional<MvccSnapshot> pinnedSnapshot(CatalogRelation scan) {
         if (scan instanceof LogicalFileScan) {
@@ -922,6 +1064,20 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
             this.metadata = metadata;
             this.handle = handle;
         }
+    }
+
+    @Override
+    public Optional<ConnectorSqlCacheVersion> getSqlCacheVersion(Optional<MvccSnapshot> snapshot) {
+        Optional<FreshnessProbe> probe = resolveFreshnessProbe();
+        if (!probe.isPresent()) {
+            return Optional.empty();
+        }
+        FreshnessProbe p = probe.get();
+        ConnectorMvccSnapshot pin = snapshot
+                .map(value -> ((PluginDrivenMvccSnapshot) value).getConnectorSnapshot())
+                .orElseGet(() -> p.metadata.beginQuerySnapshot(p.session, p.handle).orElseGet(this::emptySnapshot));
+        ConnectorTableHandle pinnedHandle = p.metadata.applySnapshot(p.session, p.handle, pin);
+        return p.metadata.getSqlCacheVersion(p.session, pinnedHandle);
     }
 
     @Override

@@ -20,12 +20,15 @@ package org.apache.doris.connector.spi;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartitionView;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.spi.mvcc.ConnectorSqlCacheVersion;
 import org.apache.doris.connector.spi.mvcc.ConnectorTableFreshness;
 import org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -57,6 +60,17 @@ public interface ConnectorMetadata extends
         ConnectorIdentifierOps,
         Closeable {
 
+    /**
+     * Lists tables and views for the engine's relation-name cache. The default combines the two domains;
+     * connectors with a shared remote listing may override it to avoid fetching either listing twice.
+     * The engine calls this only for connectors declaring SUPPORTS_VIEW.
+     */
+    default List<String> listRelationNames(ConnectorSession session, String dbName) {
+        LinkedHashSet<String> names = new LinkedHashSet<>(listTableNames(session, dbName));
+        names.addAll(listViewNames(session, dbName));
+        return new ArrayList<>(names);
+    }
+
     // ──────────────────── MVCC Snapshots ────────────────────
 
     /**
@@ -69,6 +83,27 @@ public interface ConnectorMetadata extends
     default Optional<ConnectorMvccSnapshot> beginQuerySnapshot(
             ConnectorSession session, ConnectorTableHandle handle) {
         return Optional.empty();
+    }
+
+    /**
+     * A lightweight SQL result-cache version for the supplied snapshot-pinned handle.
+     * Empty keeps the engine's legacy freshness path. An implementation that cannot identify a generation
+     * reliably must throw to disable caching for that query, rather than return an unsafe constant.
+     * Implementations must use the statement's frozen metadata and must not enumerate files or partitions.
+     */
+    default Optional<ConnectorSqlCacheVersion> getSqlCacheVersion(
+            ConnectorSession session, ConnectorTableHandle handle) {
+        return Optional.empty();
+    }
+
+    /**
+     * Whether ordinary scans can plan files from predicates without enumerating engine partitions.
+     * Opting in permits the engine to defer the pinned partition view until a partition-aware consumer
+     * requests it. The connector must honor the pinned handle independently of an engine partition selection.
+     * Materialized-view planning and partition-based query limits may still request the complete view.
+     */
+    default boolean supportsNativePartitionPlanning(ConnectorSession session, ConnectorTableHandle handle) {
+        return false;
     }
 
     /** Whether relation-level options need the statement's latest snapshot as their version fence. */
@@ -96,6 +131,46 @@ public interface ConnectorMetadata extends
     default Optional<ConnectorMvccPartitionView> getMvccPartitionView(
             ConnectorSession session, ConnectorTableHandle handle) {
         return Optional.empty();
+    }
+
+    /**
+     * Whether {@link #listPartitions} reads the pin carried by a snapshot-applied handle, so that a
+     * {@code FOR TIME/VERSION AS OF} query can be told which partitions existed AT that pin.
+     *
+     * <p>Point-in-time time travel otherwise pins with EMPTY partition maps, because a partition set
+     * listed at LATEST is the wrong universe for a past snapshot in both directions: it hides a
+     * partition that has since been dropped (pruning it away loses rows) and invents ones created
+     * after the pin. Empty is the safe answer — the generic scan node reads it as scan-all and lets
+     * the connector's own predicate pushdown do the pruning — but it costs the query its partition
+     * pruning and makes EXPLAIN report {@code partition=0/0} for a scan that reads everything.</p>
+     *
+     * <p>A connector that answers true promises that {@code listPartitions} on the handle returned by
+     * {@link #applySnapshot} enumerates exactly the partitions with data at that pin. The generic
+     * model then pins the real partition set and both pruning and {@code partition=N/M} become
+     * truthful. The default is false: a connector whose listing is snapshot-blind keeps the empty pin,
+     * which is correct, just coarse.</p>
+     *
+     * <p><b>A SECOND PROMISE COMES WITH IT, and it is easy to miss:</b> the AT-SNAPSHOT schema this
+     * connector returns from {@link #getTableSchema(ConnectorSession, ConnectorTableHandle,
+     * ConnectorMvccSnapshot)} must declare, through {@code ConnectorTableSchema.PARTITION_COLUMNS_KEY},
+     * partition columns that MATCH the values that pinned listing produces - same count, in the same
+     * order, each parseable into the column's type. That schema is what types the pinned partition
+     * items, because it is the schema this snapshot publishes; the latest schema may partition the
+     * table differently.</p>
+     *
+     * <p>Breaking that promise degrades quietly rather than failing: each mismatched partition is
+     * skipped inside a per-partition catch, the pinned item map ends up shorter than the listed name
+     * set, and the table is reported UNPARTITIONED. Rows are still correct - pruning and
+     * {@code partition=N/M} are what is lost. Two signals in the log: one WARN per skipped
+     * partition, and - when EVERY partition was skipped, which is what a schema that never matched
+     * produces as opposed to iceberg spec evolution - one aggregate WARN naming both counts and the
+     * partition columns, from {@code PluginDrivenMvccExternalTable}. Note
+     * that a connector whose at-snapshot schema resolution can degrade to an empty column list on
+     * error - hudi's {@code getSchemaFromMetaClient} swallows a failed metadata read into one -
+     * produces exactly this shape from a transient fault.</p>
+     */
+    default boolean listsPartitionsAtSnapshot(ConnectorSession session, ConnectorTableHandle handle) {
+        return false;
     }
 
     /**

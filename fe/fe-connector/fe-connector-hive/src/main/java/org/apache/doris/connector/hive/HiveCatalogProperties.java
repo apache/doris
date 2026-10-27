@@ -63,6 +63,13 @@ public final class HiveCatalogProperties {
     public static final String URI = "uri";
 
     /**
+     * Hive 3's {@code MetastoreConf} name for {@link #HIVE_METASTORE_URIS}. This holder does not bind it, but
+     * the raw property passthrough hands it to the HMS client, which reads it BEFORE
+     * {@link #HIVE_METASTORE_URIS}; when set, it is the endpoint the client actually connects to.
+     */
+    public static final String METASTORE_THRIFT_URIS = "metastore.thrift.uris";
+
+    /**
      * Selects the metastore implementation. Read by {@code HmsClientConfig} (which owns the key and
      * its accepted values); named here only so {@link #of} can reject a removed value by its message.
      */
@@ -260,11 +267,13 @@ public final class HiveCatalogProperties {
     }
 
     public boolean isEnableMappingVarbinary() {
-        return enableMappingVarbinary;
+        // Legacy properties remain parseable, but binary values always retain their bytes.
+        return true;
     }
 
     public boolean isEnableMappingTimestampTz() {
-        return enableMappingTimestampTz;
+        // Instant types cannot be downgraded to session-local wall clocks.
+        return true;
     }
 
     /** The catalog property map verbatim. Callers that reach the HMS client want {@link #getHmsClientProperties()}. */

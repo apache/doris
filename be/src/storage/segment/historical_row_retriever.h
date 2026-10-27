@@ -19,6 +19,7 @@
 
 #include "common/status.h"
 #include "core/block/block.h"
+#include "storage/changelog_types.h"
 #include "storage/olap_define.h"
 #include "storage/olap_utils.h"
 #include "storage/partial_update_info.h"
@@ -55,7 +56,7 @@ public:
     virtual Status build_before_block(Block* before_block, const std::vector<uint32_t>& value_cids,
                                       size_t row_pos, size_t num_rows) = 0;
 
-    virtual std::vector<int64_t>& get_operators() = 0;
+    virtual std::vector<ChangelogOp>& get_operators() = 0;
 
 protected:
     HistoricalRowRetrieverContext _context;
@@ -69,9 +70,9 @@ public:
     ~PrimaryKeyModelRowRetriever() override;
     Status init(const HistoricalRowRetrieverContext& context) override;
 
-    Status prepare_lookup_plan_from_source_columns(
-            const std::vector<IOlapColumnDataAccessor*>& key_columns,
-            const IOlapColumnDataAccessor* seq_column, std::shared_ptr<MowContext> mow_context) {
+    Status prepare_lookup_plan_from_source_columns(const std::vector<const IColumn*>& key_columns,
+                                                   const IColumn* seq_column,
+                                                   std::shared_ptr<MowContext> mow_context) {
         _key_columns = key_columns;
         _seq_column = seq_column;
         _mow_context = mow_context;
@@ -81,7 +82,7 @@ public:
     Status retrieve_historical_row(const Int8* delete_sign_column_data, size_t row_pos,
                                    size_t num_rows) override;
 
-    // Row Binlog receives the original flexible-partial-update block, while the base writer fills
+    // Changelog receives the original flexible-partial-update block, while the base writer fills
     // its own copy. Reuse the common flexible aggregator/read plans with a read-only MOW probe to
     // build the same full AFTER rows without changing the base tablet's delete bitmap. The optional
     // LSN sidecar is merged and filtered together with the rows.
@@ -96,15 +97,15 @@ public:
 
     Status revise_operators_by_old_delete_sign(size_t num_rows);
 
-    std::vector<int64_t>& get_operators() override { return _operators; };
+    std::vector<ChangelogOp>& get_operators() override { return _operators; };
 
 private:
     Status _fill_old_delete_signs(const Block& old_value_block,
                                   const std::map<uint32_t, uint32_t>& read_index, size_t num_rows);
 
     // get key_columns, seq column, delete data from source block, prepare for searching historial data
-    std::vector<IOlapColumnDataAccessor*> _key_columns;
-    const IOlapColumnDataAccessor* _seq_column = nullptr;
+    std::vector<const IColumn*> _key_columns;
+    const IColumn* _seq_column = nullptr;
     std::shared_ptr<MowContext> _mow_context;
     std::unique_ptr<RowKeyEncoder> _key_encoder;
 
@@ -115,8 +116,8 @@ private:
     std::vector<bool> _use_default_or_null_flag;
     bool _has_default_or_nullable = false;
 
-    // cache operator for fill_binlog_columns
-    std::vector<int64_t> _operators;
+    // cache operator for fill_changelog_columns
+    std::vector<ChangelogOp> _operators;
     // Aligned by row position in the current append batch.
     std::vector<signed char> _old_delete_signs;
 };

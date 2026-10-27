@@ -17,22 +17,33 @@
 
 #include "storage/task/index_builder.h"
 
+#include <array>
+#include <cstring>
 #include <mutex>
 
 #include "common/cast_set.h"
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "core/assert_cast.h"
+#include "core/column/column_array.h"
+#include "core/column/column_decimal.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
+#include "core/column/column_vector.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
+#include "storage/index/index_fs_directory.h"
 #include "storage/index/index_writer.h" // IndexColumnWriter, complete type for member calls
-#include "storage/index/inverted/inverted_index_desc.h"
-#include "storage/index/inverted/inverted_index_fs_directory.h"
+#include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/olap_define.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/schema.h"
+#include "storage/segment/array_index_input.h"
 #include "storage/segment/segment_loader.h"
 #include "storage/storage_engine.h"
+#include "storage/storage_layout.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/debug_points.h"
 #include "util/trace.h"
@@ -47,12 +58,9 @@ IndexBuilder::IndexBuilder(StorageEngine& engine, TabletSharedPtr tablet,
           _tablet(std::move(tablet)),
           _columns(columns),
           _alter_inverted_indexes(alter_inverted_indexes),
-          _is_drop_op(is_drop_op) {
-    _olap_data_convertor = std::make_unique<OlapBlockDataConvertor>();
-}
+          _is_drop_op(is_drop_op) {}
 
 IndexBuilder::~IndexBuilder() {
-    _olap_data_convertor.reset();
     _index_column_writers.clear();
 }
 
@@ -386,7 +394,14 @@ Status IndexBuilder::update_inverted_index_info() {
                             st = Status::Error<ErrorCode::INIT_FAILED>(
                                     "debug point: reader init error");
                         })
-                if (!st.ok() && !st.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>()) {
+                // A missing container (the rowset predates every index) and an
+                // EMPTY one (the schema owns an index, but no logical index had
+                // anything to write -- an all-NULL VARIANT column) both mean the
+                // same thing here: there is nothing to carry over. Both leave the
+                // reader un-inited, so get_all_directories() yields an empty map
+                // and every requested index is built from the raw columns.
+                if (!st.ok() && !st.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>() &&
+                    !st.is<ErrorCode::INVERTED_INDEX_BYPASS>()) {
                     return st;
                 }
                 _index_file_readers.emplace(
@@ -403,6 +418,9 @@ Status IndexBuilder::update_inverted_index_info() {
         rowset_meta->set_num_segments(input_rowset_meta->num_segments());
         rowset_meta->set_segments_overlap(input_rowset_meta->segments_overlap());
         rowset_meta->set_rowset_state(input_rowset_meta->rowset_state());
+        if (input_rowset_meta->has_commit_tso()) {
+            rowset_meta->set_commit_tso(input_rowset_meta->commit_tso());
+        }
         std::vector<KeyBoundsPB> key_bounds;
         RETURN_IF_ERROR(input_rowset->get_segments_key_bounds(&key_bounds));
         rowset_meta->set_segments_key_bounds_truncated(
@@ -446,8 +464,23 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                       << " rowset_id=" << output_rowset_meta->rowset_id().to_string();
             return Status::OK();
         }
-        if (output_rs_tablet_schema->get_inverted_index_storage_format() !=
-            InvertedIndexStorageFormatPB::V1) {
+        // Dropping the last index leaves a schema that owns no index file at all,
+        // and a rowset must not keep a file its own schema does not claim: link,
+        // copy, upload, remove and CRC all decide whether to touch the container
+        // by asking has_inverted_or_ann_index() of the rowset's own schema, so a
+        // file written here would be linked by nobody and deleted by nobody.
+        // Both segment writer paths already gate container creation the same way;
+        // this is the one caller that did not. It used to be masked by
+        // ~LocalFileWriter deleting a file that was never closed -- an accident,
+        // not a design, and one that never held for remote storage.
+        const bool is_v1 = output_rs_tablet_schema->get_inverted_index_storage_format() ==
+                           InvertedIndexStorageFormatPB::V1;
+        const bool output_has_index_file = output_rs_tablet_schema->has_inverted_or_ann_index();
+        if (!is_v1 && !output_has_index_file) {
+            LOG(INFO) << "drop index removed the last index, no index file is written. tablet_id="
+                      << _tablet->tablet_id()
+                      << " rowset_id=" << output_rowset_meta->rowset_id().to_string();
+        } else if (!is_v1) {
             const auto& fs = output_rowset_meta->fs();
 
             const auto& output_rowset_schema = output_rowset_meta->tablet_schema();
@@ -516,12 +549,26 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
         return Status::OK();
     } else {
         // create inverted or ann index writer
-        const auto& fs = output_rowset_meta->fs();
         auto output_rowset_schema = output_rowset_meta->tablet_schema();
+        // Same invariant as the drop branch above, and it holds for every storage
+        // format: no index in the output schema, no index file. Reached when
+        // nothing the request asked for survived schema resolution (every
+        // requested column is missing) and the input rowset carried no index
+        // either -- SNII would otherwise seal a header-only container here.
+        if (!output_rowset_schema->has_inverted_or_ann_index()) {
+            LOG(INFO) << "no index in the output rowset schema, no index file is written."
+                      << " tablet_id=" << _tablet->tablet_id()
+                      << " rowset_id=" << output_rowset_meta->rowset_id().to_string()
+                      << " source_rows=" << output_rowset_meta->num_rows();
+            return Status::OK();
+        }
         if (output_rowset_schema->get_inverted_index_storage_format() ==
             InvertedIndexStorageFormatPB::SNII) {
             return _handle_single_rowset_snii(output_rowset_meta, segments);
         }
+        // fs() looks the tablet up to pick the encryption algorithm, so resolve it
+        // only on the V2/V3 path that writes an index file.
+        const auto& fs = output_rowset_meta->fs();
         size_t inverted_index_size = 0;
         for (auto& seg_ptr : segments) {
             std::string index_path_prefix {
@@ -530,7 +577,6 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                             seg_ptr->id()))};
             std::vector<ColumnId> return_columns;
             std::vector<std::pair<int64_t, int64_t>> inverted_index_writer_signs;
-            _olap_data_convertor->reserve(_alter_inverted_indexes.size());
 
             std::unique_ptr<IndexFileWriter> index_file_writer = nullptr;
             if (output_rowset_schema->get_inverted_index_storage_format() >=
@@ -597,7 +643,6 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                     continue;
                 }
                 DCHECK(output_rowset_schema->has_inverted_index_with_index_id(index_id));
-                _olap_data_convertor->add_column_data_convertor(column);
                 return_columns.emplace_back(column_idx);
 
                 if (inverted_index.index_type == TIndexType::INVERTED) {
@@ -679,10 +724,8 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                 continue;
             }
             // create iterator for each segment
-            StorageReadOptions read_options;
             OlapReaderStatistics stats;
-            read_options.stats = &stats;
-            read_options.tablet_schema = output_rowset_schema;
+            StorageReadOptions read_options(stats);
             auto schema = std::make_shared<ReadSchema>(
                     project_columns_by_ordinal(output_rowset_schema->columns(), return_columns));
             std::unique_ptr<RowwiseIterator> iter;
@@ -745,8 +788,6 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                             "CLuceneError occurred: {}", e.what());
                 }
             }
-
-            _olap_data_convertor->reset();
         }
         for (auto&& [seg_id, index_file_writer] : _index_file_writers) {
             auto st = index_file_writer->begin_close();
@@ -883,16 +924,14 @@ Status IndexBuilder::_build_snii_indexes_for_segment(const TabletSchemaSPtr& out
                                                      IndexFileWriter* index_file_writer,
                                                      const segment_v2::SegmentSharedPtr& seg_ptr) {
     // One raw column read per column group; every writer on the column is fed
-    // from the same converted data.
+    // from the same block column.
     std::vector<std::vector<std::pair<int64_t, int64_t>>> group_writer_signs;
     std::vector<ColumnId> return_columns;
-    _olap_data_convertor->reserve(plan.build_columns.size());
     for (const auto& [col_unique_id, index_metas] : plan.build_columns) {
         const int32_t column_idx = output_rowset_schema->field_index(col_unique_id);
         DORIS_CHECK_GE(column_idx, 0);
         const TabletColumn& column = output_rowset_schema->column(column_idx);
         DORIS_CHECK(segment_v2::IndexColumnWriter::check_support_inverted_index(column));
-        _olap_data_convertor->add_column_data_convertor(column);
         return_columns.emplace_back(column_idx);
         std::vector<std::pair<int64_t, int64_t>> signs;
         for (const TabletIndex* index_meta : index_metas) {
@@ -915,10 +954,8 @@ Status IndexBuilder::_build_snii_indexes_for_segment(const TabletSchemaSPtr& out
         group_writer_signs.push_back(std::move(signs));
     }
 
-    StorageReadOptions read_options;
     OlapReaderStatistics stats;
-    read_options.stats = &stats;
-    read_options.tablet_schema = output_rowset_schema;
+    StorageReadOptions read_options(stats);
     auto schema = std::make_shared<ReadSchema>(
             project_columns_by_ordinal(output_rowset_schema->columns(), return_columns));
     std::unique_ptr<RowwiseIterator> iter;
@@ -950,46 +987,36 @@ Status IndexBuilder::_build_snii_indexes_for_segment(const TabletSchemaSPtr& out
             })
         }
     }
-    _olap_data_convertor->reset();
     return Status::OK();
 }
 
 Status IndexBuilder::_write_snii_index_data(
         const TabletSchemaSPtr& tablet_schema, Block* block, const SniiIndexRewritePlan& plan,
         const std::vector<std::vector<std::pair<int64_t, int64_t>>>& group_writer_signs) {
-    _olap_data_convertor->set_source_content(block, 0, block->rows());
     for (size_t group = 0; group < group_writer_signs.size(); ++group) {
-        auto converted_result = _olap_data_convertor->convert_column_data(group);
-        if (!converted_result.first.ok()) {
-            LOG(WARNING) << "failed to convert block, errcode: " << converted_result.first;
-            return converted_result.first;
-        }
         const TabletColumn& column = tablet_schema->column_by_uid(plan.build_columns[group].first);
-        const auto* base_ptr = (const uint8_t*)converted_result.second->get_data();
-        const auto* null_map = converted_result.second->get_nullmap();
+        if (column.type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
+            RETURN_IF_ERROR(_add_array(group_writer_signs[group], &column,
+                                       *block->get_by_position(group).column, block->rows()));
+            continue;
+        }
+        const uint8_t* null_map = nullptr;
+        const IColumn* nested = nullptr;
+        RETURN_IF_CATCH_EXCEPTION(
+                { nested = &peel_nullable(*block->get_by_position(group).column, 0, &null_map); });
+        // Every writer on the column reads the SAME block column, which is
+        // exactly the shared-column-read guarantee.
         for (const auto& writer_sign : group_writer_signs[group]) {
-            // _add_nullable/_add_data advance the value pointer as they consume
-            // rows; every writer on the column starts from the SAME converted
-            // data, which is exactly the shared-column-read guarantee.
-            const uint8_t* ptr = base_ptr;
-            if (null_map) {
-                RETURN_IF_ERROR(_add_nullable(column.name(), writer_sign, &column, null_map, &ptr,
-                                              block->rows()));
-            } else {
-                RETURN_IF_ERROR(
-                        _add_data(column.name(), writer_sign, &column, &ptr, block->rows()));
-            }
+            RETURN_IF_ERROR(_add_column(writer_sign, column, *nested, null_map, block->rows(),
+                                        /*pad_char=*/false));
         }
     }
-    _olap_data_convertor->clear_source_content();
     return Status::OK();
 }
 
 Status IndexBuilder::_write_inverted_index_data(TabletSchemaSPtr tablet_schema, int64_t segment_idx,
                                                 Block* block) {
     VLOG_DEBUG << "begin to write inverted/ann index";
-    // converter block data
-    _olap_data_convertor->set_source_content(block, 0, block->rows());
     for (auto i = 0; i < _alter_inverted_indexes.size(); ++i) {
         auto inverted_index = _alter_inverted_indexes[i];
         auto index_id = inverted_index.index_id;
@@ -1011,132 +1038,120 @@ Status IndexBuilder::_write_inverted_index_data(TabletSchemaSPtr tablet_schema, 
         }
         const auto& column = tablet_schema->column(column_idx);
         auto writer_sign = std::make_pair(segment_idx, index_id);
-        auto converted_result = _olap_data_convertor->convert_column_data(i);
         DBUG_EXECUTE_IF("IndexBuilder::_write_inverted_index_data_convert_column_data_error", {
-            converted_result.first = Status::Error<ErrorCode::INTERNAL_ERROR>(
+            return Status::Error<ErrorCode::INTERNAL_ERROR>(
                     "debug point: _write_inverted_index_data_convert_column_data_error");
         })
-        if (converted_result.first != Status::OK()) {
-            LOG(WARNING) << "failed to convert block, errcode: " << converted_result.first;
-            return converted_result.first;
+        if (column.type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
+            RETURN_IF_ERROR(_add_array({writer_sign}, &column, *block->get_by_position(i).column,
+                                       block->rows()));
+            continue;
         }
-        const auto* ptr = (const uint8_t*)converted_result.second->get_data();
-        const auto* null_map = converted_result.second->get_nullmap();
-        if (null_map) {
-            RETURN_IF_ERROR(_add_nullable(column_name, writer_sign, &column, null_map, &ptr,
-                                          block->rows()));
-        } else {
-            RETURN_IF_ERROR(_add_data(column_name, writer_sign, &column, &ptr, block->rows()));
-        }
+        const uint8_t* null_map = nullptr;
+        const IColumn* nested = nullptr;
+        RETURN_IF_CATCH_EXCEPTION(
+                { nested = &peel_nullable(*block->get_by_position(i).column, 0, &null_map); });
+        RETURN_IF_ERROR(_add_column(writer_sign, column, *nested, null_map, block->rows(),
+                                    /*pad_char=*/true));
     }
-    _olap_data_convertor->clear_source_content();
-
     return Status::OK();
 }
 
-Status IndexBuilder::_add_nullable(const std::string& column_name,
-                                   const std::pair<int64_t, int64_t>& index_writer_sign,
-                                   const TabletColumn* column, const uint8_t* null_map,
-                                   const uint8_t** ptr, size_t num_rows) {
-    auto index_column_writer_it = _index_column_writers.find(index_writer_sign);
-    DORIS_CHECK(index_column_writer_it != _index_column_writers.end());
-    DORIS_CHECK(index_column_writer_it->second != nullptr);
-    auto* index_column_writer = index_column_writer_it->second.get();
+Status IndexBuilder::_add_array(const std::vector<std::pair<int64_t, int64_t>>& index_writer_signs,
+                                const TabletColumn* column, const IColumn& array_column,
+                                size_t num_rows) {
+    DCHECK(column->get_subtype_count() == 1);
+    const uint8_t* outer_null_map = nullptr;
+    const ColumnArray* col_array = nullptr;
+    auto offsets = ColumnOffset64::create();
+    RETURN_IF_CATCH_EXCEPTION({
+        col_array =
+                assert_cast<const ColumnArray*>(&peel_nullable(array_column, 0, &outer_null_map));
+        segment_v2::rebase_offsets(col_array->get_offsets(), 0, num_rows, 0, offsets.get());
+    });
+    const TabletColumn& item_column = column->get_sub_column(0);
 
-    // TODO: need to process null data for inverted index
-    if (column->type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
-        DCHECK(column->get_subtype_count() == 1);
-        // [size, offset_ptr, item_data_ptr, item_nullmap_ptr]
-        const auto* data_ptr = reinterpret_cast<const uint64_t*>(*ptr);
-        // total number length
-        auto offset_data = *(data_ptr + 1);
-        const auto* offsets_ptr = (const uint8_t*)offset_data;
+    for (const auto& index_writer_sign : index_writer_signs) {
+        auto index_column_writer_it = _index_column_writers.find(index_writer_sign);
+        DORIS_CHECK(index_column_writer_it != _index_column_writers.end());
+        DORIS_CHECK(index_column_writer_it->second != nullptr);
+        auto* index_column_writer = index_column_writer_it->second.get();
         try {
-            auto data = *(data_ptr + 2);
-            auto nested_null_map = *(data_ptr + 3);
-            RETURN_IF_ERROR(index_column_writer->add_array_values(
-                    field_type_size(column->get_sub_column(0).type()),
-                    reinterpret_cast<const void*>(data),
-                    reinterpret_cast<const uint8_t*>(nested_null_map), offsets_ptr, num_rows));
+            // CHAR items read back without their padding and are fed padded to their
+            // length, as on load, to every index.
+            RETURN_IF_ERROR(segment_v2::feed_array_index(
+                    index_column_writer, item_column.type(), col_array->get_data(), 0, *offsets,
+                    outer_null_map, _buffers, item_column.length()));
             DBUG_EXECUTE_IF("IndexBuilder::_add_nullable_add_array_values_error", {
                 _CLTHROWA(CL_ERR_IO, "debug point: _add_nullable_add_array_values_error");
             })
-            RETURN_IF_ERROR(index_column_writer->add_array_nulls(null_map, num_rows));
         } catch (const std::exception& e) {
             return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                     "CLuceneError occurred: {}", e.what());
         }
-
-        return Status::OK();
     }
-    size_t offset = 0;
-    auto next_run_step = [&]() {
-        size_t step = 1;
-        for (auto i = offset + 1; i < num_rows; ++i) {
-            if (null_map[offset] == null_map[i]) {
-                step++;
-            } else {
-                break;
-            }
-        }
-        return step;
-    };
-    try {
-        do {
-            auto step = next_run_step();
-            if (null_map[offset]) {
-                RETURN_IF_ERROR(index_column_writer->add_nulls(static_cast<uint32_t>(step)));
-            } else {
-                RETURN_IF_ERROR(index_column_writer->add_values(column_name, *ptr, step));
-            }
-            *ptr += field_type_size(column->type()) * step;
-            offset += step;
-            DBUG_EXECUTE_IF("IndexBuilder::_add_nullable_throw_exception",
-                            { _CLTHROWA(CL_ERR_IO, "debug point: _add_nullable_throw_exception"); })
-        } while (offset < num_rows);
-    } catch (const std::exception& e) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>("CLuceneError occurred: {}",
-                                                                      e.what());
-    }
-
     return Status::OK();
 }
 
-Status IndexBuilder::_add_data(const std::string& column_name,
-                               const std::pair<int64_t, int64_t>& index_writer_sign,
-                               const TabletColumn* column, const uint8_t** ptr, size_t num_rows) {
+namespace {
+
+// Feeds rows [row_pos, row_pos + count) of `nested`, a run without NULL rows, to `writer` as
+// their storage cells, CHAR padded to its length when pad_char.
+Status add_index_values(segment_v2::IndexColumnWriter& writer, const TabletColumn& column,
+                        const IColumn& nested, size_t row_pos, size_t count,
+                        StorageBuffers& buffers, bool pad_char) {
+    using CharLayout = StorageLayout<FieldType::OLAP_FIELD_TYPE_CHAR>;
+    const uint8_t* values = nullptr;
+    if (column.type() != FieldType::OLAP_FIELD_TYPE_CHAR) {
+        values = column_to_storage(column.type(), nested, row_pos, count, buffers);
+    } else if (pad_char) {
+        values = CharLayout::column_to_storage(nested, row_pos, count, column.length(),
+                                               /*null_map=*/nullptr, buffers);
+    } else {
+        values = CharLayout::column_to_storage(nested, row_pos, count, buffers);
+    }
+    return writer.add_values(values, count);
+}
+
+} // namespace
+
+Status IndexBuilder::_add_column(const std::pair<int64_t, int64_t>& index_writer_sign,
+                                 const TabletColumn& column, const IColumn& nested,
+                                 const uint8_t* null_map, size_t num_rows, bool pad_char) {
     auto index_column_writer_it = _index_column_writers.find(index_writer_sign);
     DORIS_CHECK(index_column_writer_it != _index_column_writers.end());
     DORIS_CHECK(index_column_writer_it->second != nullptr);
-    auto* index_column_writer = index_column_writer_it->second.get();
+    auto* writer = index_column_writer_it->second.get();
 
     try {
-        if (column->type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
-            DCHECK(column->get_subtype_count() == 1);
-            // [size, offset_ptr, item_data_ptr, item_nullmap_ptr]
-            const auto* data_ptr = reinterpret_cast<const uint64_t*>(*ptr);
-            // total number length
-            auto element_cnt = size_t((unsigned long)(*data_ptr));
-            auto offset_data = *(data_ptr + 1);
-            const auto* offsets_ptr = (const uint8_t*)offset_data;
-            if (element_cnt > 0) {
-                auto data = *(data_ptr + 2);
-                auto nested_null_map = *(data_ptr + 3);
-                RETURN_IF_ERROR(index_column_writer->add_array_values(
-                        field_type_size(column->get_sub_column(0).type()),
-                        reinterpret_cast<const void*>(data),
-                        reinterpret_cast<const uint8_t*>(nested_null_map), offsets_ptr, num_rows));
-            }
-        } else {
-            RETURN_IF_ERROR(index_column_writer->add_values(column_name, *ptr, num_rows));
+        if (null_map == nullptr) {
+            RETURN_IF_ERROR(
+                    add_index_values(*writer, column, nested, 0, num_rows, _buffers, pad_char));
+            DBUG_EXECUTE_IF("IndexBuilder::_add_data_throw_exception",
+                            { _CLTHROWA(CL_ERR_IO, "debug point: _add_data_throw_exception"); })
+            return Status::OK();
         }
-        DBUG_EXECUTE_IF("IndexBuilder::_add_data_throw_exception",
-                        { _CLTHROWA(CL_ERR_IO, "debug point: _add_data_throw_exception"); })
+        size_t offset = 0;
+        while (offset < num_rows) {
+            const bool is_null = null_map[offset] != 0;
+            const size_t remaining = num_rows - offset;
+            const auto* run_end = static_cast<const uint8_t*>(
+                    memchr(null_map + offset, is_null ? 0 : 1, remaining));
+            const size_t len = run_end != nullptr ? run_end - (null_map + offset) : remaining;
+            if (is_null) {
+                RETURN_IF_ERROR(writer->add_nulls(cast_set<uint32_t>(len)));
+            } else {
+                RETURN_IF_ERROR(
+                        add_index_values(*writer, column, nested, offset, len, _buffers, pad_char));
+            }
+            DBUG_EXECUTE_IF("IndexBuilder::_add_nullable_throw_exception",
+                            { _CLTHROWA(CL_ERR_IO, "debug point: _add_nullable_throw_exception"); })
+            offset += len;
+        }
     } catch (const std::exception& e) {
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>("CLuceneError occurred: {}",
                                                                       e.what());
     }
-
     return Status::OK();
 }
 

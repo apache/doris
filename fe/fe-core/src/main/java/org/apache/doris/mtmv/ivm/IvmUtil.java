@@ -22,14 +22,17 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.common.util.DebugPointUtil;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.info.TableNameInfoUtils;
+import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash3128;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
@@ -37,6 +40,7 @@ import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
@@ -55,6 +59,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * IVM (Incremental View Maintenance) utility class.
@@ -74,6 +79,28 @@ public class IvmUtil {
 
     public static boolean isIvmHiddenColumn(String columnName) {
         return columnName != null && columnName.startsWith(Column.IVM_HIDDEN_COLUMN_PREFIX);
+    }
+
+    /**
+     * A base scan's own storage column that must not be carried into an IVM plan.
+     * <p>
+     * The criterion is not "hidden column": it is a column whose name matches a column IVM owns and
+     * that the delta rewrite reads back from the plan output by name. The base table's sequence
+     * column ({@code Column.SEQUENCE_COL}) is the only such column today: IVM owns the MV's sequence
+     * and several handlers select it with {@code findSlotByName}, so a base sequence surviving
+     * normalization shadows the delta-allocated one. The two can even have different types (a base
+     * DATETIME sequence against the MV's BIGINT), which turns the mistake into a rejected write.
+     * <p>
+     * The other hidden columns stay in place, deliberately. The base delete sign is referenced by the
+     * {@code __DORIS_DELETE_SIGN__ = 0} filter directly above the scan, by ExprId; masking it would
+     * leave that filter with a dangling slot. The MV's own delete sign is computed from the delta
+     * factor rather than looked up, and for a merge-on-write base table a visible row's delete sign is
+     * always 0. Version and commit tso are not read by name either -- the sink maps its hidden columns
+     * positionally and defaults the missing ones -- and they are pruned when unused. The row lsn is
+     * the row identity IVM reads for DUP detail tables.
+     */
+    public static boolean isBaseScanStorageColumnToMask(String columnName) {
+        return Column.SEQUENCE_COL.equalsIgnoreCase(columnName);
     }
 
     /**
@@ -102,11 +129,32 @@ public class IvmUtil {
     }
 
     public static boolean isCommonHiddenSlot(String columnName) {
+        // A changelog before column ends with its user column's name, which may itself end with "_COL".
         return columnName != null && (columnName.equals(Column.DELETE_SIGN)
                 || (columnName.startsWith(Column.HIDDEN_COLUMN_PREFIX)
-                && columnName.endsWith("_COL__") && !isIvmHiddenColumn(columnName)));
+                && columnName.endsWith("_COL__") && !isIvmHiddenColumn(columnName)
+                && !Column.isChangelogBeforeColumn(columnName)));
     }
 
+    /**
+     * The default a hidden slot takes when the plan writing an append-only detail MV does not produce it.
+     * That model keeps no row identity in the row lsn column: the column is the MV's own changelog
+     * bookkeeping, which the storage layer fills in as it writes the row, so a refresh appending a value
+     * for it is not what makes the MV correct. The unique-key model is the opposite, which is why its
+     * default is refused outright.
+     */
+    public static Expression getAppendOnlyDupHiddenSlotDefault(String columnName, DataType targetType) {
+        return Column.ROW_LSN_COL.equals(columnName)
+                ? new IntegerLiteral(0).castTo(targetType)
+                : getCommonHiddenSlotDefault(columnName, targetType);
+    }
+
+    /**
+     * The value a common hidden slot takes when the plan writing it does not produce it. The data
+     * type owns that value ({@link DataType#zeroValue()}), so a hidden slot of any type -- a
+     * base table's sequence column can be a DATE/DATETIME, for example -- gets a non-null
+     * placeholder instead of failing the rewrite; a type without one still fails loudly.
+     */
     public static Expression getCommonHiddenSlotDefault(String columnName, DataType targetType) {
         if (!isCommonHiddenSlot(columnName)) {
             throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
@@ -126,17 +174,9 @@ public class IvmUtil {
         if (defaultValue != null) {
             return defaultValue.castTo(targetType);
         }
-        if (targetType.isNumericType()) {
-            return new IntegerLiteral(0).castTo(targetType);
-        } else if (targetType.isStringLikeType()) {
-            return new VarcharLiteral("").castTo(targetType);
-        } else if (targetType.isBitmapType()) {
-            // Column.SKIP_BITMAP_COL is a bitmap type and uses bitmap_empty() as its default.
-            return new BitmapEmpty();
-        } else {
-            throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
-                    "no default value for IVM hidden slot: " + columnName + ", type=" + targetType);
-        }
+        return targetType.zeroValue().orElseThrow(() -> new IvmException(
+                IvmFailureReason.PLAN_REWRITE_FAILED,
+                "no default value for IVM hidden slot: " + columnName + ", type=" + targetType));
     }
 
     /**
@@ -158,7 +198,7 @@ public class IvmUtil {
      * <p>Because the single-key path may return NULL, callers must treat row-ids as nullable
      * (e.g. use null-safe equality when joining on row-id).
      *
-     * <p>Used by both normalize (IvmNormalizeMTMV) and delta rewrite (IvmAggDeltaHandler)
+     * <p>Used by both normalize (IvmNormalizeUniqKeysMTMV) and delta rewrite (IvmAggDeltaHandler)
      * to ensure row-id derivation is identical.
      */
     public static Expression buildRowIdHash(List<? extends Expression> keyExprs) {
@@ -310,5 +350,48 @@ public class IvmUtil {
             }
         }
         return found;
+    }
+
+    /** Whether the refresh reads this base table's changes while it is an excluded trigger table. */
+    public static boolean isExcludedTriggerTable(Set<TableNameInfo> excludedTriggerTables, LogicalOlapScan scan) {
+        if (excludedTriggerTables.isEmpty()) {
+            return false;
+        }
+        OlapTable table = scan.getTable();
+        TableNameInfo tableNameInfo = TableNameInfoUtils.fromTableOrNull(table);
+        if (tableNameInfo == null) {
+            List<String> qualifier = scan.getQualifier();
+            String dbName = qualifier.isEmpty() ? table.getDBName() : qualifier.get(qualifier.size() - 1);
+            if (dbName == null) {
+                return false;
+            }
+            String ctlName = qualifier.size() >= 2 ? qualifier.get(qualifier.size() - 2)
+                    : InternalCatalog.INTERNAL_CATALOG_NAME;
+            tableNameInfo = new TableNameInfo(ctlName, dbName, table.getName());
+        }
+        return MTMVPartitionUtil.isTableExcluded(excludedTriggerTables, tableNameInfo);
+    }
+
+    /**
+     * Checks that this base table can produce the changes a refresh reads: it must have changelog
+     * enabled, and it must not be a base table whose own refresh is a partition overwrite. An
+     * excluded trigger table produces no delta at all, so it is exempt from the first.
+     */
+    public static void validateChangelogEnabled(Set<TableNameInfo> excludedTriggerTables, LogicalOlapScan scan) {
+        if (isExcludedTriggerTable(excludedTriggerTables, scan)) {
+            return;
+        }
+        OlapTable table = scan.getTable();
+        if (!scan.isChangelogEnabled()) {
+            throw new IvmException(IvmFailureReason.CHANGELOG_NOT_ENABLED,
+                    "SQL can be incrementally refreshed, but changelog is not enabled for table: "
+                            + table.getName()
+                            + ". Please set 'changelog.enable' = 'true'.");
+        }
+        if (table instanceof MTMV && !((MTMV) table).isIvm()) {
+            throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
+                    "INCREMENTAL materialized view cannot use non-IVM MTMV as a base table: "
+                            + table.getName() + ". The base MTMV is refreshed by partition overwrite.");
+        }
     }
 }

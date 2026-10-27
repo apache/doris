@@ -20,6 +20,8 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 // when move rowsets from stale to unused, the delete bitmap are not deleted
 // when delete unused rowsets, the delete bitmap are deleted
+import org.apache.doris.regression.util.Http
+
 suite("test_mow_stale_rowset_delete_bitmap", "nonConcurrent") {
     def testTable = "test_mow_stale_rowset_delete_bitmap"
     def backendId_to_backendIP = [:]
@@ -155,20 +157,7 @@ suite("test_mow_stale_rowset_delete_bitmap", "nonConcurrent") {
         def be_host = backendId_to_backendIP[trigger_backend_id]
         def be_http_port = backendId_to_backendHttpPort[trigger_backend_id]
         boolean running = true
-        StringBuilder sb = new StringBuilder();
-        sb.append("curl -X GET http://${be_host}:${be_http_port}")
-        sb.append("/api/delete_bitmap/count_local?verbose=true&tablet_id=")
-        sb.append(tablet_id)
-
-        String command = sb.toString()
-        logger.info(command)
-        def process = command.execute()
-        def code = process.waitFor()
-        def out = process.getText()
-        logger.info("Get local delete bitmap count status:  =" + code + ", out=" + out)
-        assertEquals(code, 0)
-        def deleteBitmapStatus = parseJson(out.trim())
-        return deleteBitmapStatus
+        return Http.GET("http://${be_host}:${be_http_port}/api/delete_bitmap/count_local?verbose=true&tablet_id=${tablet_id}", true, false)
     }
 
     AtomicBoolean query_result = new AtomicBoolean(true)

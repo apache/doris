@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.thrift.TFileContent;
 import org.apache.doris.thrift.TIcebergColumnStats;
 import org.apache.doris.thrift.TIcebergCommitData;
@@ -89,8 +90,53 @@ final class IcebergWriterHelper {
     // Local copy (value 3), mirroring the connector's per-class private ICEBERG_ROW_LINEAGE_MIN_VERSION in
     // IcebergConnectorMetadata; the self-contained helper does not import fe-core IcebergUtils.
     private static final int ICEBERG_ROW_LINEAGE_MIN_VERSION = 3;
+    // Iceberg introduced the VARIANT type in format-version 3.
+    private static final int ICEBERG_VARIANT_MIN_VERSION = 3;
 
     private IcebergWriterHelper() {
+    }
+
+    /**
+     * Checks the format of a table that is to hold VARIANT values Doris writes: VARIANT needs format-version 3,
+     * and Doris writes it only to Parquet data files.
+     */
+    static void validateVariantWriteFormat(int formatVersion, FileFormat fileFormat) {
+        if (formatVersion < ICEBERG_VARIANT_MIN_VERSION) {
+            throw new DorisConnectorException(
+                    "Iceberg VARIANT writes require table format-version 3, but found " + formatVersion);
+        }
+        if (fileFormat != FileFormat.PARQUET) {
+            throw new DorisConnectorException(
+                    "Iceberg VARIANT writes require Parquet data files, but found " + fileFormat);
+        }
+    }
+
+    /** Checks that {@code table} can take the new VARIANT column {@code columnName} that Doris will write. */
+    static void validateVariantColumn(Table table, String columnName) {
+        if (getFormatVersion(table) < ICEBERG_VARIANT_MIN_VERSION) {
+            throw new DorisConnectorException(
+                    "Iceberg VARIANT column " + columnName + " requires table format-version 3");
+        }
+        if (getFileFormat(table) != FileFormat.PARQUET) {
+            throw new DorisConnectorException("Iceberg VARIANT column " + columnName + " requires Parquet data files");
+        }
+    }
+
+    /**
+     * Rejects {@code columnName} as the new name of a top-level column of {@code table} when it is a format-version
+     * 3 row-lineage column name ({@code _row_id}, {@code _last_updated_sequence_number}, in any case). Such a table
+     * reads both as hidden columns, so a column that takes either name makes every later read of the table fail with
+     * a duplicate column. Nested fields and older format versions may use the names, and dropping such a column or
+     * renaming it away stays allowed: that is how a table that already holds one becomes readable again.
+     */
+    static void validateNotRowLineageColumn(Table table, String columnName, String operation) {
+        int formatVersion = getFormatVersion(table);
+        if (formatVersion >= ICEBERG_ROW_LINEAGE_MIN_VERSION
+                && (MetadataColumns.ROW_ID.name().equalsIgnoreCase(columnName)
+                || MetadataColumns.LAST_UPDATED_SEQUENCE_NUMBER.name().equalsIgnoreCase(columnName))) {
+            throw new DorisConnectorException("Cannot " + operation + " Iceberg v" + formatVersion
+                    + " reserved row lineage column: " + columnName);
+        }
     }
 
     /**
@@ -138,7 +184,7 @@ final class IcebergWriterHelper {
                 partitionData = Optional.of(convertToPartitionData(partitionValues, spec, zone));
             }
             DataFile dataFile = genDataFile(fileFormat, location, spec, partitionData, recordCount, fileSize,
-                    metrics, sortOrder);
+                    metrics, sortOrder, commitData.getSplitOffsets());
             dataFiles.add(dataFile);
         }
         return WriteResult.builder()
@@ -148,7 +194,7 @@ final class IcebergWriterHelper {
 
     private static DataFile genDataFile(FileFormat format, String location, PartitionSpec spec,
             Optional<PartitionData> partitionData, long recordCount, long fileSize, Metrics metrics,
-            SortOrder sortOrder) {
+            SortOrder sortOrder, List<Long> splitOffsets) {
         DataFiles.Builder builder = DataFiles.builder(spec)
                 .withPath(location)
                 .withFileSizeInBytes(fileSize)
@@ -156,6 +202,10 @@ final class IcebergWriterHelper {
                 .withMetrics(metrics)
                 .withSortOrder(sortOrder)
                 .withFormat(format);
+        // Older BE fragments omit this optional field; only Parquet data writers report these boundaries.
+        if (format == FileFormat.PARQUET && splitOffsets != null && !splitOffsets.isEmpty()) {
+            builder.withSplitOffsets(splitOffsets);
+        }
         partitionData.ifPresent(builder::withPartition);
         return builder.build();
     }
@@ -193,6 +243,11 @@ final class IcebergWriterHelper {
         Map<Integer, Long> nullValueCounts = new HashMap<>();
         Map<Integer, ByteBuffer> lowerBounds = new HashMap<>();
         Map<Integer, ByteBuffer> upperBounds = new HashMap<>();
+        // Deliberately null rather than empty when BE reports nothing: iceberg reads a missing NaN count as
+        // "may contain NaN" and keeps the file for a float range predicate, which is the only safe reading of
+        // a BE that does not count NaNs (an older one, or a format whose writer cannot). An explicit zero is
+        // a positive claim that the column holds none, so it must only ever come from BE having counted.
+        Map<Integer, Long> nanValueCounts = null;
         if (commitData.isSetColumnStats()) {
             TIcebergColumnStats stats = commitData.column_stats;
             if (stats.isSetColumnSizes()) {
@@ -203,6 +258,9 @@ final class IcebergWriterHelper {
             }
             if (stats.isSetNullValueCounts()) {
                 nullValueCounts = stats.null_value_counts;
+            }
+            if (stats.isSetNanValueCounts()) {
+                nanValueCounts = stats.nan_value_counts;
             }
             if (stats.isSetLowerBounds()) {
                 lowerBounds = stats.lower_bounds;
@@ -217,7 +275,8 @@ final class IcebergWriterHelper {
                 filterDisabledMetrics(columnSizes, schema, metricsConfig),
                 filterLogicalMetrics(valueCounts, schema, metricsConfig, fieldParents),
                 filterLogicalMetrics(nullValueCounts, schema, metricsConfig, fieldParents),
-                null,
+                nanValueCounts == null ? null
+                        : filterLogicalMetrics(nanValueCounts, schema, metricsConfig, fieldParents),
                 filterBounds(lowerBounds, schema, metricsConfig, fieldParents, fileFormat, true),
                 filterBounds(upperBounds, schema, metricsConfig, fieldParents, fileFormat, false));
     }
@@ -404,7 +463,7 @@ final class IcebergWriterHelper {
         return toFileFormat(resolveFileFormatName(table, table.properties(), id, cache));
     }
 
-    private static FileFormat toFileFormat(String fileFormatName) {
+    static FileFormat toFileFormat(String fileFormatName) {
         if (fileFormatName.toLowerCase().contains(ORC_NAME)) {
             return FileFormat.ORC;
         } else if (fileFormatName.toLowerCase().contains(PARQUET_NAME)) {
@@ -551,9 +610,49 @@ final class IcebergWriterHelper {
                     .anyMatch(field -> MetricsUtil.metricsMode(writerSchema, metricsConfig, field.fieldId())
                             != MetricsModes.None.get());
         }
+        // A Parquet VARIANT reports the value and null counts of its own field id.
         return TypeUtil.indexById(writerSchema.asStruct()).values().stream()
-                .filter(field -> field.type().isPrimitiveType())
+                .filter(field -> field.type().isPrimitiveType() || field.type().isVariantType())
                 .anyMatch(field -> MetricsUtil.metricsMode(writerSchema, metricsConfig, field.fieldId())
                         != MetricsModes.None.get());
+    }
+
+    /**
+     * Field ids of the FLOAT/DOUBLE fields whose NaN count would survive this table's metrics policy, i.e.
+     * whose effective mode is not {@code none}. Threaded to the BE so it counts only what
+     * {@link #buildDataFileMetrics} would keep.
+     *
+     * <p>This exists because a NaN count is the one statistic BE cannot read back from the parquet footer --
+     * it is an extra pass over the values. {@link #shouldCollectColumnStats} is table-wide and stays true as
+     * soon as any single field is enabled, which is not a fine enough gate: iceberg gives the first
+     * {@code write.metadata.metrics.max-inferred-column-defaults} (100) fields the default mode and
+     * {@code none} to everything after it, so a wide table disables most of its columns with no property set
+     * at all. Without this list BE would scan every float column on every block and FE would then drop most
+     * of the results.</p>
+     *
+     * <p>The list is the metrics POLICY, not a capability claim: BE counts the subset it can actually reach
+     * (today, top-level columns), and a field it does not count simply stays absent from the manifest, which
+     * iceberg reads as "may contain NaN".</p>
+     */
+    static List<Integer> nanCountFieldIds(Table table, Schema writerSchema) {
+        return nanCountFieldIds(MetricsConfig.forTable(table), writerSchema);
+    }
+
+    static List<Integer> nanCountFieldIds(IcebergWriteSchemaContext context, Schema writerSchema) {
+        return nanCountFieldIds(context.getMetricsConfig(), writerSchema);
+    }
+
+    private static List<Integer> nanCountFieldIds(MetricsConfig metricsConfig, Schema writerSchema) {
+        return TypeUtil.indexById(writerSchema.asStruct()).values().stream()
+                .filter(field -> isFloatingType(field.type()))
+                .map(Types.NestedField::fieldId)
+                .filter(fieldId -> MetricsUtil.metricsMode(writerSchema, metricsConfig, fieldId)
+                        != MetricsModes.None.get())
+                .sorted()
+                .collect(Collectors.toList());
+    }
+
+    private static boolean isFloatingType(Type type) {
+        return type.typeId() == Type.TypeID.FLOAT || type.typeId() == Type.TypeID.DOUBLE;
     }
 }

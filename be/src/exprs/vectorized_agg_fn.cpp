@@ -23,6 +23,7 @@
 #include <gen_cpp/PlanNodes_types.h>
 #include <glog/logging.h>
 
+#include <algorithm>
 #include <memory>
 #include <ostream>
 #include <string_view>
@@ -104,9 +105,10 @@ Status AggFnEvaluator::create(ObjectPool* pool, const TExpr& desc, const TSortIn
     // Child arguments contains [real arguments, order by arguments], we pass the arguments
     // to the order by functions
     for (int i = 0; i < sort_size; ++i) {
-        agg_fn_evaluator->_sort_description.emplace_back(real_arguments_size + i,
-                                                         sort_info.is_asc_order[i] ? 1 : -1,
-                                                         sort_info.nulls_first[i] ? -1 : 1);
+        const int direction = sort_info.is_asc_order[i] ? 1 : -1;
+        agg_fn_evaluator->_sort_description.emplace_back(
+                real_arguments_size + i, direction,
+                sort_info.nulls_first[i] ? -direction : direction);
     }
 
     // Pass the real arguments to get functions
@@ -294,6 +296,11 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
 
     if (_fn.name.function_name == "ai_agg") {
         _function->set_query_context(state->get_query_ctx());
+        // Keep the shared request executor when profiling is off, without collecting usage.
+        _function->set_ai_statistics(
+                state->enable_profile()
+                        ? state->get_query_ctx()->get_ai_statistics(state->fragment_id())
+                        : nullptr);
     }
 
     // Query-side only: storage-created aggregate functions never go through AggFnEvaluator.
@@ -496,6 +503,16 @@ bool AggFnEvaluator::is_blockable() const {
     return _function->is_blockable() ||
            std::any_of(_input_exprs_ctxs.begin(), _input_exprs_ctxs.end(),
                        [](VExprContextSPtr ctx) { return ctx->root()->is_blockable(); });
+}
+
+bool AggFnEvaluator::is_simple_count() const {
+    // The inline count path never evaluates the arguments, so it is only valid when
+    // skipping the evaluation cannot change the result, e.g. COUNT(assert_true(...)).
+    return _function->is_simple_count() &&
+           std::all_of(_input_exprs_ctxs.begin(), _input_exprs_ctxs.end(),
+                       [](const VExprContextSPtr& ctx) {
+                           return ctx->root()->is_slot_ref() || ctx->root()->is_literal();
+                       });
 }
 
 } // namespace doris

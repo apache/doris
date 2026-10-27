@@ -132,8 +132,28 @@ public final class CatalogMetaCache implements AutoCloseable {
         }
     }
 
+    /**
+     * Removes one cache registration if it is still owned by this catalog. This is intended for
+     * rolling back a multi-step connector construction without closing unrelated sibling caches.
+     */
+    public void remove(MetaCache<?, ?> cache) {
+        MetaCache<?, ?> nonNullCache = Objects.requireNonNull(cache, "cache can not be null");
+        if (entries.remove(nonNullCache.name(), nonNullCache)) {
+            try {
+                nonNullCache.closeFromOwner();
+            } finally {
+                names.remove(nonNullCache.name());
+            }
+        }
+    }
+
     public void invalidateCatalog() {
         registry.invalidate(ScopePath.catalog());
+    }
+
+    /** Runs a short auxiliary-index update at the same publication boundary as catalog invalidation. */
+    public void invalidateCatalogAndRun(Runnable commitAction) {
+        registry.invalidateAndRunUnderPublicationGate(ScopePath.catalog(), commitAction);
     }
 
     public void invalidateDatabase(String database) {

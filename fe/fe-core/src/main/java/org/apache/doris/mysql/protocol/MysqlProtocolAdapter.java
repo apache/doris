@@ -18,8 +18,10 @@
 package org.apache.doris.mysql.protocol;
 
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.mysql.DummyMysqlChannel;
 import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlChannel;
+import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlCursorFetchCompatibility;
 import org.apache.doris.mysql.MysqlHandshakePacket;
 import org.apache.doris.mysql.MysqlPacket;
@@ -27,17 +29,18 @@ import org.apache.doris.mysql.MysqlResultSetEndPacket;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.MysqlServerStatusFlag;
 import org.apache.doris.mysql.MysqlSslContext;
+import org.apache.doris.mysql.ProxyMysqlChannel;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
-import org.apache.doris.qe.ConnectPoolMgr;
 import org.apache.doris.qe.ConnectProcessor;
-import org.apache.doris.qe.ConnectScheduler;
+import org.apache.doris.qe.PreparedStatementContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.protocol.ProtocolAdapter;
+import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TResultSinkType;
 
 import org.apache.logging.log4j.LogManager;
@@ -45,6 +48,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.List;
 
 /**
  * The MySQL protocol side of a connection: the channel to the client, the capabilities negotiated
@@ -71,6 +75,9 @@ public class MysqlProtocolAdapter implements ProtocolAdapter {
     private ByteBuffer prepareExecuteBuffer;
     // Whether the current COM_STMT_EXECUTE requested a server-side read-only cursor.
     private boolean cursorFetchRequested;
+    private boolean resultHasRows;
+    private boolean emptyCursorSupported = true;
+    private PreparedStatementContext executingPreparedStatement;
 
     public MysqlProtocolAdapter(MysqlChannel channel) {
         this.channel = channel;
@@ -112,17 +119,128 @@ public class MysqlProtocolAdapter implements ProtocolAdapter {
     }
 
     @Override
-    public ConnectPoolMgr connectPool(ConnectScheduler scheduler) {
-        return scheduler.getConnectPoolMgr();
+    public boolean canReplayForwardedQueryResult() {
+        return true;
+    }
+
+    @Override
+    public boolean supportsFeSideResult() {
+        return true;
+    }
+
+    @Override
+    public boolean supportsShortCircuitPointQuery() {
+        return true;
+    }
+
+    /**
+     * The packets of a failed attempt are dropped when the next attempt resets the channel, so a
+     * retry is invisible to the client as long as none of them was flushed to the socket yet.
+     */
+    @Override
+    public boolean canRetryQuery(ConnectContext ctx) {
+        return !channel.isSend();
+    }
+
+    /**
+     * Clears the send flag and whatever the previous statement of the request left in the send
+     * buffer. Between the statements of a request run for a client that did not negotiate
+     * CLIENT_MULTI_STATEMENTS nothing is flushed (see {@link #finishStatement}), so what a
+     * statement wrote is still in the buffer when the next one starts.
+     */
+    @Override
+    public void beforeStatement(ConnectContext ctx) {
+        resetResult();
+    }
+
+    @Override
+    public void beforeAttempt(ConnectContext ctx) {
+        // The result of every attempt is relayed by this frontend; a failed attempt registers
+        // nothing for the client that the next one would have to drop.
+    }
+
+    @Override
+    public void beforeQuery(ConnectContext ctx) {
+        // The rows are relayed through the channel as the coordinator fetches them.
+    }
+
+    @Override
+    public boolean returnsResultFromLocal(ConnectContext ctx) {
+        return true;
+    }
+
+    /**
+     * The master encodes the response of a forwarded statement for this connection's client, so
+     * it needs the client's negotiated capabilities, and for a forwarded COM_STMT_EXECUTE the
+     * execute packet and whether it asked for a cursor. {@link #restoreFromForwardRequest} is the
+     * master's side. HTTP and internal contexts have no client protocol state to forward.
+     */
+    @Override
+    public void fillForwardRequest(ConnectContext ctx, TMasterOpRequest request) {
+        // HTTP and internal contexts have no negotiated capability. A dummy channel with an
+        // explicitly supplied capability still carries that state when forwarding.
+        if (channel instanceof DummyMysqlChannel && capability == null) {
+            return;
+        }
+        if (ctx.getCommand() == MysqlCommand.COM_STMT_EXECUTE) {
+            if (prepareExecuteBuffer != null) {
+                request.setPrepareExecuteBuffer(prepareExecuteBuffer);
+            }
+            request.setCursorFetchRequested(cursorFetchRequested);
+            request.setEmptyCursorSupported(true);
+        }
+        request.setClientDeprecatedEOF(channel.clientDeprecatedEOF());
+        request.setMysqlCapability(capability.getFlags());
+    }
+
+    /**
+     * On the master, gives the proxy context of a forwarded statement the capabilities of the
+     * client it is answering, as {@link #fillForwardRequest} put them in the request. A request
+     * from an old frontend carries neither the capability flags nor the cursor flag; it gets the
+     * default capabilities without CLIENT_DEPRECATE_EOF, plus that flag when set separately, and
+     * its ordinary prepared statements are not rejected. The defaults carry the multi-statement
+     * flags, which an old frontend did not advertise; that is of no consequence here, because the
+     * master answers one forwarded statement at a time and the channel's multi-statement flag is
+     * set only by the handshake on the frontend the client is connected to.
+     */
+    public void restoreFromForwardRequest(ConnectContext ctx, TMasterOpRequest request) {
+        int flags = request.isSetMysqlCapability() ? request.getMysqlCapability()
+                : MysqlCapability.DEFAULT_CAPABILITY.getFlags()
+                        & ~MysqlCapability.Flag.CLIENT_DEPRECATE_EOF.getFlagBit();
+        if (request.isSetClientDeprecatedEOF() && request.isClientDeprecatedEOF()) {
+            flags |= MysqlCapability.Flag.CLIENT_DEPRECATE_EOF.getFlagBit();
+        }
+        MysqlCapability restored = new MysqlCapability(flags);
+        setCapability(restored);
+        channel.getSerializer().setCapability(restored);
+        if (restored.isDeprecatedEOF()) {
+            channel.setClientDeprecatedEOF();
+        }
+        cursorFetchRequested = request.isSetCursorFetchRequested() && request.isCursorFetchRequested();
+        emptyCursorSupported = request.isSetEmptyCursorSupported() && request.isEmptyCursorSupported();
+    }
+
+    /**
+     * On the master, the packets the forwarded statement produced, collected by the proxy
+     * context's channel to be handed back to the frontend the client is connected to.
+     */
+    public List<ByteBuffer> proxyResultPackets() {
+        return ((ProxyMysqlChannel) channel).getProxyResultBufferList();
+    }
+
+    @Override
+    public void releaseSession(ConnectContext ctx) {
+        // Nothing is held for a MySQL session beyond its channel, which closeConnection closes.
     }
 
     /**
      * Between the statements of a multi-statement request the intermediate response carries
      * SERVER_MORE_RESULTS_EXISTS, and is sent right away if the client negotiated
      * CLIENT_MULTI_STATEMENTS. Here Doris differs from MySQL: a client that did not negotiate it
-     * gets the request run as several statements anyway, but only the last result is delivered
-     * (the next query resets the channel, see {@link MysqlResultSender#reset}). The response of the
-     * last statement is the response of the command, sent by {@link #finishCommand}.
+     * gets the request run as several statements anyway, but only the last statement's outcome
+     * is delivered (the next statement resets the channel, see {@link #beforeStatement}). The
+     * response of the last statement is the response of the command, sent by
+     * {@link #finishCommand}.
      */
     @Override
     public boolean finishStatement(ConnectContext ctx, StmtExecutor executor, int stmtIndex, int stmtCount)
@@ -165,6 +283,13 @@ public class MysqlProtocolAdapter implements ProtocolAdapter {
             return;
         }
 
+        if (executingPreparedStatement != null) {
+            // A forwarded EXECUTE's final packet was encoded by the master. Retain the cursor on
+            // the client-facing FE so its later FETCH can complete locally without another RPC.
+            boolean cursorOpen = Byte.toUnsignedInt(packet.get(packet.position())) == 0xFE
+                    && (packet.get(packet.position() + 3) & MysqlServerStatusFlag.SERVER_STATUS_CURSOR_EXISTS) != 0;
+            executingPreparedStatement.setEmptyCursorOpen(cursorOpen);
+        }
         LOG.debug("Send to mysql channel for query {}", DebugUtil.printId(ctx.queryId()));
         channel.sendAndFlush(packet);
         // note(wb) we should write profile after return result to mysql client
@@ -192,6 +317,11 @@ public class MysqlProtocolAdapter implements ProtocolAdapter {
         // instead of the traditional EOF packet. This is required by the MySQL protocol
         // and expected by MySQL Connector/J 9.5.0+.
         if (ctx.getState().getStateType() == MysqlStateType.EOF && channel.clientDeprecatedEOF()) {
+            if (emptyCursorSupported && cursorFetchRequested && !resultHasRows) {
+                // Both old and new drivers consume a cursor's opening terminator. An empty
+                // cursor needs no retained rows and its first FETCH sends LAST_ROW_SENT.
+                ctx.getState().serverStatus |= MysqlServerStatusFlag.SERVER_STATUS_CURSOR_EXISTS;
+            }
             packet = new MysqlResultSetEndPacket(ctx.getState());
         } else {
             packet = ctx.getState().toResponsePacket();
@@ -211,7 +341,9 @@ public class MysqlProtocolAdapter implements ProtocolAdapter {
 
     @Override
     public void afterStatement(ConnectContext ctx) {
+        prepareExecuteBuffer = null;
         cursorFetchRequested = false;
+        executingPreparedStatement = null;
     }
 
     @Override
@@ -263,16 +395,29 @@ public class MysqlProtocolAdapter implements ProtocolAdapter {
         this.cursorFetchRequested = cursorFetchRequested;
     }
 
-    /**
-     * Whether the client will consume the first OK packet after the column definitions of the
-     * result it asked a cursor for. Connector/J before 9.5 does, while probing whether the cursor
-     * was created; Doris never creates one, so the result must carry one more end marker or an
-     * empty result would leave the client waiting.
-     */
+    /** Whether legacy buffered results need an extra terminator for this client. */
     public boolean clientConsumesCursorMetadataTerminator(ConnectContext ctx) {
         return cursorFetchRequested
                 && MysqlCursorFetchCompatibility.resolve(ctx.getConnectAttributes())
                         != MysqlCursorFetchCompatibility.Behavior.STANDARD;
+    }
+
+    public boolean isEmptyCursorSupported() {
+        return emptyCursorSupported;
+    }
+
+    public void beginPreparedExecute(PreparedStatementContext prepared) {
+        executingPreparedStatement = prepared;
+        prepared.setEmptyCursorOpen(false);
+    }
+
+    void recordResultRow() {
+        resultHasRows = true;
+    }
+
+    void resetResult() {
+        resultHasRows = false;
+        channel.reset();
     }
 
     // The xnio read loop. A command is read and processed while reads are suspended, which is what

@@ -60,7 +60,6 @@ import org.apache.doris.nereids.trees.plans.commands.ExecuteActionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
-import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateIndexOp;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
@@ -99,6 +98,26 @@ import java.util.Optional;
 import java.util.Set;
 
 public class NereidsParserTest extends ParserTestBase {
+
+    @Test
+    public void testParsePropertiesRejectsTrailingTokens() {
+        NereidsParser parser = new NereidsParser();
+        for (String suffix : new String[] {" trailing_tokens", " ;", " )", " @", " \"extra\"=\"value\""}) {
+            Assertions.assertThrows(ParseException.class,
+                    () -> parser.parseProperties("\"parser\" = \"unicode\"" + suffix), suffix);
+        }
+    }
+
+    @Test
+    public void testParseProperties() {
+        NereidsParser parser = new NereidsParser();
+        Assertions.assertEquals(ImmutableMap.of("parser", "unicode"),
+                parser.parseProperties("\"parser\" = \"unicode\""));
+        Assertions.assertEquals(ImmutableMap.of("parser", "unicode", "support_phrase", "true"),
+                parser.parseProperties("\"parser\" = \"unicode\", \"support_phrase\" = \"true\""));
+        Assertions.assertEquals(ImmutableMap.of("parser", "unicode"),
+                parser.parseProperties(" \"parser\" = \"unicode\" /* comment */ \n -- comment\n"));
+    }
 
     @Test
     public void testParseMultiple() {
@@ -424,14 +443,16 @@ public class NereidsParserTest extends ParserTestBase {
     }
 
     @Test
-    public void testPlanReplayer() {
-        String sql = "plan replayer dump select `AD``D` from t1 where a = 1";
+    public void testReplayerIsIdentifier() {
         NereidsParser nereidsParser = new NereidsParser();
-        LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
-        Assertions.assertInstanceOf(ReplayCommand.class, logicalPlan);
+        Assertions.assertThrows(ParseException.class,
+                () -> nereidsParser.parseSingle("plan replayer dump select `AD``D` from t1 where a = 1"));
         Assertions.assertThrows(ParseException.class,
                 () -> nereidsParser.parseSingle("plan replayer play 'path'"));
-        // PLAY is no longer a keyword, so it is an ordinary identifier in any case.
+        // REPLAYER and PLAY are no longer keywords, so they are ordinary identifiers.
+        Assertions.assertDoesNotThrow(() -> nereidsParser.parseSingle("select replayer from replayer"));
+        Assertions.assertDoesNotThrow(() -> nereidsParser.parseSingle(
+                "select replayer.replayer as replayer from replayer"));
         Assertions.assertDoesNotThrow(() -> nereidsParser.parseSingle("select pLaY from play"));
         Assertions.assertDoesNotThrow(() -> nereidsParser.parseSingle("select play.play as play from play"));
     }
@@ -1172,11 +1193,11 @@ public class NereidsParserTest extends ParserTestBase {
 
     @Test
     public void testBlockSqlAst() {
-        String sql = "plan replayer dump select `AD``D` from t1 where a = 1";
+        String sql = "CREATE ROW POLICY test_policy ON db1.t1 AS RESTRICTIVE TO root USING (k1 = 1)";
         NereidsParser nereidsParser = new NereidsParser();
         LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
 
-        Config.block_sql_ast_names = "ReplayCommand";
+        Config.block_sql_ast_names = "CreatePolicyCommand";
         StmtExecutor.initBlockSqlAstNames();
         StmtExecutor stmtExecutor = new StmtExecutor(new ConnectContext(), "");
         try {
@@ -1186,7 +1207,7 @@ public class NereidsParserTest extends ParserTestBase {
             // do nothing
         }
 
-        Config.block_sql_ast_names = "CreatePolicyCommand, ReplayCommand";
+        Config.block_sql_ast_names = "CreateTableCommand, CreatePolicyCommand";
         StmtExecutor.initBlockSqlAstNames();
         try {
             stmtExecutor.checkSqlBlocked(logicalPlan.getClass());
@@ -1722,6 +1743,21 @@ public class NereidsParserTest extends ParserTestBase {
         String sql = "CREATE MATERIALIZED VIEW t1 SELECT * FROM t2";
         LogicalPlan logicalPlan = parser.parseSingle(sql);
         Assertions.assertInstanceOf(CreateMaterializedViewCommand.class, logicalPlan);
+    }
+
+    @Test
+    public void testCreateSyncMvIfNotExists() {
+        NereidsParser parser = new NereidsParser();
+        LogicalPlan logicalPlan = parser.parseSingle(
+                "CREATE MATERIALIZED VIEW IF NOT EXISTS mv1 SELECT k1 FROM t2");
+        CreateMaterializedViewCommand command = Assertions.assertInstanceOf(
+                CreateMaterializedViewCommand.class, logicalPlan);
+        Assertions.assertTrue(command.isIfNotExists());
+
+        LogicalPlan withoutClause = parser.parseSingle("CREATE MATERIALIZED VIEW mv1 SELECT k1 FROM t2");
+        CreateMaterializedViewCommand withoutClauseCommand = Assertions.assertInstanceOf(
+                CreateMaterializedViewCommand.class, withoutClause);
+        Assertions.assertFalse(withoutClauseCommand.isIfNotExists());
     }
 
     @Test

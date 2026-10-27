@@ -23,6 +23,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlProto;
+import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
@@ -60,6 +61,7 @@ public class FEOpExecutorMysqlProtocolTest {
 
             Assertions.assertTrue(request.isClientDeprecatedEOF());
             Assertions.assertTrue(request.isCursorFetchRequested());
+            Assertions.assertTrue(request.isEmptyCursorSupported());
             Assertions.assertEquals("8.2.0", request.getConnectAttributes().get("_client_version"));
 
             for (byte[] payload : Arrays.asList(new byte[0], new byte[] {0, 1, 3, 0, 42, 0, 0, 0})) {
@@ -71,6 +73,7 @@ public class FEOpExecutorMysqlProtocolTest {
                 Assertions.assertTrue(restored.isSetPrepareExecuteBuffer());
                 Assertions.assertArrayEquals(payload, restored.getPrepareExecuteBuffer());
                 Assertions.assertTrue(restored.isCursorFetchRequested());
+                Assertions.assertTrue(restored.isEmptyCursorSupported());
             }
         }
     }
@@ -113,7 +116,7 @@ public class FEOpExecutorMysqlProtocolTest {
         TMasterOpRequest request = new TMasterOpRequest();
         request.setMysqlCapability(legacyFlags);
         ConnectContext context = createContext();
-        ConnectProcessor.restoreForwardedMysqlContext(context, request);
+        MysqlProtocolAdapter.of(context).restoreFromForwardRequest(context, request);
         Assertions.assertEquals(legacyFlags, context.getCapability().getFlags());
         Assertions.assertFalse(context.getMysqlChannel().getSerializer().getCapability().isDeprecatedEOF());
 
@@ -122,14 +125,14 @@ public class FEOpExecutorMysqlProtocolTest {
         request.setPrepareExecuteBuffer(new byte[] {0});
         context = createContext();
         context.setConnectAttributes(ImmutableMap.of("_client_name", "MySQL Connector/J", "_client_version", "8.2.0"));
-        ConnectProcessor.restoreForwardedMysqlContext(context, request);
+        MysqlProtocolAdapter.of(context).restoreFromForwardRequest(context, request);
         Assertions.assertFalse(context.isCursorFetchRequested());
         Assertions.assertTrue(context.getCapability().isDeprecatedEOF());
         request.setCursorFetchRequested(true);
-        ConnectProcessor.restoreForwardedMysqlContext(context, request);
+        MysqlProtocolAdapter.of(context).restoreFromForwardRequest(context, request);
         Assertions.assertTrue(context.isCursorFetchRequested());
         request.setCursorFetchRequested(false);
-        ConnectProcessor.restoreForwardedMysqlContext(context, request);
+        MysqlProtocolAdapter.of(context).restoreFromForwardRequest(context, request);
         Assertions.assertFalse(context.isCursorFetchRequested());
     }
 

@@ -22,9 +22,11 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <optional>
 
 #include "cpp/aws_common.h"
 #include "cpp/obj-client/auth/aws_credential_factory.h"
+#include "cpp/obj-client/auth/obj_credential.h"
 #include "cpp/obj-client/obj_storage_client.h"
 #include "recycler/storage_vault_accessor.h"
 
@@ -87,6 +89,7 @@ struct S3Conf {
     CredProviderType cred_provider_type = CredProviderType::Default;
     std::string role_arn;
     std::string external_id;
+    doris::CredentialConfig credential {};
 
     enum Provider : uint8_t {
         S3,
@@ -155,17 +158,6 @@ protected:
     S3Conf conf_;
     std::shared_ptr<ObjStorageClient> obj_client_;
     std::string _ca_cert_file_path;
-};
-
-class GcsAccessor final : public S3Accessor {
-public:
-    explicit GcsAccessor(S3Conf conf) : S3Accessor(std::move(conf)) {}
-    ~GcsAccessor() override = default;
-
-    int delete_files(const std::vector<std::string>& paths) override;
-
-private:
-    int delete_prefix_impl(const std::string& path_prefix, int64_t expiration_time = 0) override;
 };
 
 } // namespace cloud

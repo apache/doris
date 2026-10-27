@@ -64,8 +64,8 @@ public class AlterDatabasePropertiesCommand extends AlterCommand {
         }
 
         // clone properties for analyse
-        Map<String, String> analysisProperties = new HashMap<String, String>(properties);
-        PropertyAnalyzer.analyzeBinlogConfig(analysisProperties);
+        PropertyAnalyzer.analyzeBinlogConfig(new HashMap<String, String>(properties));
+        PropertyAnalyzer.analyzeChangelogConfig(new HashMap<String, String>(properties));
     }
 
     @Override

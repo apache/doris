@@ -209,6 +209,10 @@ static constexpr uint64_t MAX_DATETIME_V2 = ((uint64_t)MAX_DATE_V2 << TIME_PART_
 static constexpr uint64_t MIN_DATETIME_V2 = (uint64_t)MIN_DATE_V2 << TIME_PART_LENGTH;
 
 static constexpr uint32_t MAX_YEAR = 9999;
+// UTC 9999-12-31 23:59:59 plus one day for time zone offsets. Reject larger inputs
+// before narrowing the civil year; the converted date still needs its exact range check.
+static constexpr int64_t MAX_UNIX_TIMESTAMP_WITH_TIMEZONE =
+        253402300799LL + HOUR_PER_DAY * SECOND_PER_HOUR;
 static constexpr uint32_t MAX_MONTH = 12;
 static constexpr uint32_t MAX_HOUR = 23;
 static constexpr uint32_t MAX_MINUTE = 59;
@@ -288,7 +292,8 @@ public:
               _year(0) {} // before int128  16 bytes  --->  after int64 8 bytes
 
     const static VecDateTimeValue FIRST_DAY;
-    const static VecDateTimeValue DEFAULT_VALUE;
+    const static VecDateTimeValue DATE_DEFAULT_VALUE;
+    const static VecDateTimeValue DATETIME_DEFAULT_VALUE;
 
     // The data format of DATE/DATETIME is different in storage layer and execute layer.
     // So we should use different creator to get data from value.
@@ -724,7 +729,7 @@ public:
         return (daynr() - rhs.daynr()) * SECOND_PER_HOUR * HOUR_PER_DAY + time_part_diff(rhs);
     }
 
-    void set_type(int type);
+    void set_type(TimeType type);
 
     int type() const { return _type; }
 
@@ -763,7 +768,7 @@ public:
     bool get_date_from_daynr(uint64_t);
 
     // reset 0
-    void reset_zero_by_type(int type) { set_zero(type); }
+    void reset_zero_by_type(TimeType type) { set_zero(type); }
 
 private:
     // Used to make sure sizeof VecDateTimeValue
@@ -790,7 +795,7 @@ private:
                              bool disable_lut = false);
 
     // Helper to set max, min, zero
-    void set_zero(int type);
+    void set_zero(TimeType type);
     void set_max_time(bool neg);
 
     bool from_date_format_str(const char* format, int format_len, const char* value,
@@ -806,7 +811,7 @@ private:
     uint8_t _month;
     uint16_t _year;
 
-    VecDateTimeValue(uint8_t neg, uint8_t type, uint8_t hour, uint8_t minute, uint8_t second,
+    VecDateTimeValue(uint8_t neg, TimeType type, uint8_t hour, uint8_t minute, uint8_t second,
                      uint16_t year, uint8_t month, uint8_t day)
             : _neg(neg),
               _type(type),
@@ -822,9 +827,11 @@ static_assert(std::is_trivially_destructible_v<VecDateTimeValue>,
               "VecDateTimeValue must be trivial destructible");
 static_assert(std::is_trivially_copyable_v<VecDateTimeValue>,
               "VecDateTimeValue must be trivial copyable");
-inline const VecDateTimeValue VecDateTimeValue::FIRST_DAY(false, TYPE_DATETIME, 0, 0, 0, 1, 1, 1);
-inline const VecDateTimeValue VecDateTimeValue::DEFAULT_VALUE(false, TYPE_DATETIME, 0, 0, 0, 1970,
-                                                              1, 1);
+inline const VecDateTimeValue VecDateTimeValue::FIRST_DAY(false, TIME_DATETIME, 0, 0, 0, 1, 1, 1);
+inline const VecDateTimeValue VecDateTimeValue::DATE_DEFAULT_VALUE(false, TIME_DATE, 0, 0, 0, 1970,
+                                                                   1, 1);
+inline const VecDateTimeValue VecDateTimeValue::DATETIME_DEFAULT_VALUE(false, TIME_DATETIME, 0, 0,
+                                                                       0, 1970, 1, 1);
 
 template <typename T>
 class DateV2Value {

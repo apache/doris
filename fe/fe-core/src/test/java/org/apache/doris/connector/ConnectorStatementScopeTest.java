@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector;
 
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.ConnectorWriteOps;
@@ -40,7 +41,9 @@ import org.mockito.Mockito;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 
 /**
  * Tests for the per-statement {@link ConnectorStatementScope}: the {@link ConnectorStatementScope#NONE} no-op,
@@ -51,6 +54,22 @@ import java.util.concurrent.atomic.AtomicInteger;
  * {@code executeCommandAllocatesFreshConnectorScopePerExecution}).
  */
 public class ConnectorStatementScopeTest {
+
+    @Test
+    public void lookupDoesNotLoadAndRespectsPlanningAndStatementCleanup() {
+        ConnectorStatementScopeImpl scope = new ConnectorStatementScopeImpl();
+        Assertions.assertNull(scope.getIfPresent("missing"));
+        Object table = scope.computeIfAbsent("table", Object::new);
+        Object planning = scope.computeIfAbsentForPlanning("planning", Object::new);
+        Assertions.assertSame(table, scope.getIfPresent("table"));
+        Assertions.assertSame(planning, scope.getIfPresent("planning"));
+        scope.endPlanning();
+        Assertions.assertNull(scope.getIfPresent("planning"));
+        Assertions.assertSame(table, scope.getIfPresent("table"));
+        scope.closeAll();
+        Assertions.assertNull(scope.getIfPresent("table"));
+        Assertions.assertNull(ConnectorStatementScope.NONE.getIfPresent("table"));
+    }
 
     @Test
     public void noneNeverMemoizes() {
@@ -91,6 +110,106 @@ public class ConnectorStatementScopeTest {
 
         Object b = scope.computeIfAbsent("B", Object::new);
         Assertions.assertNotSame(firstA, b, "different keys are isolated (cross-catalog / cross-table)");
+    }
+
+    @Test
+    public void nonePlanningValuesAreNeverMemoized() {
+        // Under NONE a value only planning reads is loaded on every call too, and ending planning has nothing to do.
+        // MUTATION: NONE memoizing planning values -> one load -> red.
+        AtomicInteger loads = new AtomicInteger();
+        Supplier<Object> loader = () -> {
+            loads.incrementAndGet();
+            return new Object();
+        };
+        ConnectorStatementScope none = ConnectorStatementScope.NONE;
+
+        Assertions.assertNotSame(none.computeIfAbsentForPlanning("k", loader),
+                none.computeIfAbsentForPlanning("k", loader));
+        none.endPlanning();
+        Assertions.assertEquals(2, loads.get(), "NONE must run the loader every time (no memo)");
+    }
+
+    @Test
+    public void endPlanningDropsOnlyThePlanningValues() throws Exception {
+        // Identical scans share their planned ranges only within one plan, so a value only planning reads is dropped
+        // when planning ends, while the values the statement keeps (its tables, metadata, transactions) stay until
+        // closeAll. A later plan of the same statement registers the value again, and the end of that plan drops it.
+        // MUTATION: endPlanning dropping nothing, dropping every value, or forgetting a value registered again -> red.
+        ConnectorStatementScope scope = new ConnectorStatementScopeImpl();
+        AtomicInteger memoLoads = new AtomicInteger();
+        Supplier<Object> memoLoader = () -> {
+            memoLoads.incrementAndGet();
+            return new Object();
+        };
+        Object memo = scope.computeIfAbsentForPlanning("memo", memoLoader);
+        Assertions.assertSame(memo, scope.computeIfAbsentForPlanning("memo", memoLoader),
+                "within one plan the value is shared");
+        Object table = scope.computeIfAbsent("table", Object::new);
+        AtomicInteger closes = new AtomicInteger();
+        AutoCloseable metadata = () -> closes.incrementAndGet();
+        scope.computeIfAbsent("metadata", () -> metadata);
+
+        scope.endPlanning();
+
+        Assertions.assertSame(table, scope.computeIfAbsent("table", Object::new), "statement values outlive planning");
+        Object memoOfNextPlan = scope.computeIfAbsentForPlanning("memo", memoLoader);
+        Assertions.assertNotSame(memo, memoOfNextPlan, "the next plan of the statement loads the value again");
+        scope.endPlanning();
+        Assertions.assertNotSame(memoOfNextPlan, scope.computeIfAbsentForPlanning("memo", memoLoader));
+        Assertions.assertEquals(3, memoLoads.get());
+
+        scope.closeAll();
+        Assertions.assertEquals(1, closes.get(), "closeAll still closes the statement values");
+    }
+
+    @Test
+    public void planningValueMustHoldNothingToClose() {
+        // endPlanning drops a value without closing it, so a closeable one would leak. MUTATION: dropping the check
+        // -> no exception -> red.
+        ConnectorStatementScope scope = new ConnectorStatementScopeImpl();
+        AutoCloseable closeable = () -> { };
+
+        Assertions.assertThrows(IllegalStateException.class,
+                () -> scope.computeIfAbsentForPlanning("closeable", () -> closeable));
+    }
+
+    @Test
+    public void releasingPlannerResourcesEndsThePlanningOfTheScope() {
+        // NereidsPlanner.planWithLock releases the planner resources when planning is over, which ends connector
+        // planning; a statement no connector has touched has no scope to end. MUTATION: releasePlannerResources not
+        // ending connector planning -> red.
+        StatementContext ctx = new StatementContext();
+        ctx.releasePlannerResources();
+        ConnectorStatementScope scope = ctx.getOrCreateConnectorStatementScope();
+        Object memo = scope.computeIfAbsentForPlanning("memo", Object::new);
+        Object table = scope.computeIfAbsent("table", Object::new);
+
+        ctx.releasePlannerResources();
+
+        Assertions.assertSame(scope, ctx.getOrCreateConnectorStatementScope(), "ending planning keeps the scope");
+        Assertions.assertSame(table, scope.computeIfAbsent("table", Object::new));
+        Assertions.assertNotSame(memo, scope.computeIfAbsentForPlanning("memo", Object::new));
+    }
+
+    @Test
+    public void releasingPlannerResourcesEndsPlanningWhenAResourceFailsToClose() {
+        // A table lock that fails to unlock still reaches the caller, after the planning values are gone.
+        // MUTATION: ending connector planning only after the release succeeded -> the memo survives -> red.
+        StatementContext ctx = new StatementContext();
+        ConnectorStatementScope scope = ctx.getOrCreateConnectorStatementScope();
+        Object memo = scope.computeIfAbsentForPlanning("memo", Object::new);
+        TableIf table = Mockito.mock(TableIf.class);
+        Mockito.when(table.needReadLockWhenPlan()).thenReturn(true);
+        Mockito.when(table.tryReadLock(Mockito.anyLong(), Mockito.any(TimeUnit.class))).thenReturn(true);
+        Mockito.when(table.getNameWithFullQualifiers()).thenReturn("internal.db.t");
+        IllegalStateException unlockFailure = new IllegalStateException("unlock failed");
+        Mockito.doThrow(unlockFailure).when(table).readUnlock();
+        ctx.getTables().put(Arrays.asList("internal", "db", "t"), table);
+        ctx.lock();
+
+        Assertions.assertSame(unlockFailure,
+                Assertions.assertThrows(IllegalStateException.class, ctx::releasePlannerResources));
+        Assertions.assertNotSame(memo, scope.computeIfAbsentForPlanning("memo", Object::new));
     }
 
     @Test

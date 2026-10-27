@@ -1,0 +1,36 @@
+{
+  "version" : 3,
+  "id" : 1,
+  "fields" : [ {
+    "id" : 0,
+    "name" : "id",
+    "type" : "INT"
+  }, {
+    "id" : 1,
+    "name" : "nested_array",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : "TIMESTAMP(4)"
+    }
+  }, {
+    "id" : 2,
+    "name" : "nested_row",
+    "type" : {
+      "type" : "ROW",
+      "fields" : [ {
+        "id" : 3,
+        "name" : "nested_ts",
+        "type" : "TIMESTAMP(6)"
+      } ]
+    }
+  } ],
+  "highestFieldId" : 3,
+  "partitionKeys" : [ ],
+  "primaryKeys" : [ ],
+  "options" : {
+    "write-only" : "true",
+    "file.format" : "parquet"
+  },
+  "comment" : "",
+  "timeMillis" : 1790147527899
+}

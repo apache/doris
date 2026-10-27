@@ -322,7 +322,13 @@ suite("check_before_quit", "nonConcurrent,p0") {
                 } else if (createTableSql[0][1].contains("CREATE MATERIALIZED VIEW")) {
                     sql "drop materialized view if exists ${tbl}"
                 } else {
-                    sql "drop table if exists ${tbl}"
+                    // SHOW TABLES also lists table streams, such as the ones IVM creates for an
+                    // incremental materialized view, and DROP TABLE refuses to drop a stream.
+                    if (createTableSql[0][1].contains("CREATE STREAM")) {
+                        sql "drop stream if exists ${tbl}"
+                    } else {
+                        sql "drop table if exists ${tbl}"
+                    }
                     // only re create table, because the table which view depends may be dropped,
                     // so recreate view may fail
                     try {

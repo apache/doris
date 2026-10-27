@@ -38,6 +38,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "core/column/column.h"
+#include "core/column/column_execute_util.h"
 #include "core/column/column_string.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/pod_array_fwd.h"
@@ -78,10 +79,6 @@ struct StringASCII {
     }
 };
 
-struct NameParseDataSize {
-    static constexpr auto name = "parse_data_size";
-};
-
 static const std::map<std::string_view, Int128> UNITS = {
         {"B", static_cast<Int128>(1)},        {"kB", static_cast<Int128>(1) << 10},
         {"MB", static_cast<Int128>(1) << 20}, {"GB", static_cast<Int128>(1) << 30},
@@ -89,24 +86,47 @@ static const std::map<std::string_view, Int128> UNITS = {
         {"EB", static_cast<Int128>(1) << 60}, {"ZB", static_cast<Int128>(1) << 70},
         {"YB", static_cast<Int128>(1) << 80}};
 
-struct ParseDataSize {
-    using ReturnType = DataTypeInt128;
-    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_STRING;
-    using Type = String;
-    using ReturnColumnType = ColumnInt128;
+class FunctionStringParseDataSize : public IFunction {
+public:
+    static constexpr auto name = "parse_data_size";
+    static FunctionPtr create() { return std::make_shared<FunctionStringParseDataSize>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 1; }
+    bool use_default_implementation_for_nulls() const override { return false; }
 
-    static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
-                         PaddedPODArray<Int128>& res) {
-        auto size = offsets.size();
-        res.resize(size);
-        for (int i = 0; i < size; ++i) {
-            const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-            int str_size = offsets[i] - offsets[i - 1];
-            res[i] = parse_data_size(std::string_view(raw_str, str_size));
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        auto type = std::make_shared<DataTypeInt128>();
+        return arguments[0]->is_nullable() ? make_nullable(type) : type;
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        const auto input =
+                ColumnView<TYPE_STRING>::create(block.get_by_position(arguments[0]).column);
+        auto res = ColumnInt128::create(input_rows_count, 0);
+        auto& values = res->get_data();
+        ColumnUInt8::MutablePtr null_map;
+        if (input.null_map != nullptr) {
+            null_map = ColumnUInt8::create(input_rows_count, 0);
+        }
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            if (input.is_null_at(i)) {
+                null_map->get_data()[i] = 1;
+                continue;
+            }
+            const auto value = input.value_at(i);
+            values[i] = parse_data_size(std::string_view(value.data, value.size));
+        }
+        if (null_map) {
+            block.replace_by_position(result,
+                                      ColumnNullable::create(std::move(res), std::move(null_map)));
+        } else {
+            block.replace_by_position(result, std::move(res));
         }
         return Status::OK();
     }
 
+private:
     static Int128 parse_data_size(const std::string_view& dataSize) {
         int digit_length = 0;
         for (char c : dataSize) {
@@ -552,42 +572,78 @@ struct TransferImpl {
             return Status::OK();
         }
 
-        const bool is_ascii = simd::VStringFunctions::is_ascii({data.data(), data.size()});
         res_offsets.resize(offset_size);
-        if (is_ascii) {
+        const size_t data_length = data.size();
+        // Fast path: entire column is ASCII
+        if (simd::VStringFunctions::is_ascii({data.data(), data.size()})) {
             memcpy_small_allow_read_write_overflow15(
                     res_offsets.data(), offsets.data(),
                     offset_size * sizeof(ColumnString::Offsets::value_type));
 
-            size_t data_length = data.size();
             res_data.resize(data_length);
             if constexpr (std::is_same_v<OpName, NameToUpper>) {
                 simd::VStringFunctions::to_upper(data.data(), data_length, res_data.data());
             } else if constexpr (std::is_same_v<OpName, NameToLower>) {
                 simd::VStringFunctions::to_lower(data.data(), data_length, res_data.data());
             }
-        } else {
-            execute_utf8(data, offsets, res_data, res_offsets);
+            return Status::OK();
         }
 
+        // Mixed path: combine consecutive ASCII rows for SIMD; only non-ASCII rows use ICU.
+        // Preserve full Unicode case mappings for non-ASCII rows.
+        execute_mixed(data, offsets, res_data, res_offsets);
         return Status::OK();
     }
 
-    static void execute_utf8(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
-                             ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {
-        std::string result;
-        for (int64_t i = 0; i < offsets.size(); ++i) {
-            const char* begin = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-            uint32_t size = offsets[i] - offsets[i - 1];
+    static void execute_mixed(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                              ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {
+        size_t offset_size = offsets.size();
+        res_data.reserve(data.size());
+        auto process_ascii_run = [&](int64_t first_row, int64_t last_row) {
+            if (first_row == last_row) {
+                return;
+            }
+            const size_t src_offset = offsets[first_row - 1];
+            const size_t size = offsets[last_row - 1] - src_offset;
+            const size_t res_offset = res_data.size();
+            ColumnString::check_chars_length(res_offset + size, res_offsets.size());
+            res_data.resize(res_offset + size);
+            if constexpr (std::is_same_v<OpName, NameToUpper>) {
+                simd::VStringFunctions::to_upper(data.data() + src_offset, size,
+                                                 res_data.data() + res_offset);
+            } else if constexpr (std::is_same_v<OpName, NameToLower>) {
+                simd::VStringFunctions::to_lower(data.data() + src_offset, size,
+                                                 res_data.data() + res_offset);
+            }
+            // Earlier Unicode rows can change length, so rebase each offset on this run's output.
+            for (int64_t row = first_row; row < last_row; ++row) {
+                res_offsets[row] = (ColumnString::Offset)(res_offset + offsets[row] - src_offset);
+            }
+        };
 
+        int64_t ascii_run_start = 0;
+        std::string result;
+        for (int64_t i = 0; i < offset_size; ++i) {
+            const uint8_t* begin = &data[offsets[i - 1]];
+            uint32_t size = offsets[i] - offsets[i - 1];
+            if (size == 0 ||
+                simd::VStringFunctions::is_ascii({reinterpret_cast<const char*>(begin), size})) {
+                continue;
+            }
+
+            // E.g. ["a", "b", "你", "c"] converts "ab" together, keeping short rows SIMD-friendly.
+            process_ascii_run(ascii_run_start, i);
+            ascii_run_start = i + 1;
+            // Preserve full Unicode mappings, including expansions and context-sensitive casing.
             result.clear();
             if constexpr (std::is_same_v<OpName, NameToUpper>) {
-                to_upper_utf8(begin, size, result);
+                to_upper_utf8(reinterpret_cast<const char*>(begin), size, result);
             } else if constexpr (std::is_same_v<OpName, NameToLower>) {
-                to_lower_utf8(begin, size, result);
+                to_lower_utf8(reinterpret_cast<const char*>(begin), size, result);
             }
             StringOP::push_value_string(result, i, res_data, res_offsets);
         }
+        process_ascii_run(ascii_run_start, offset_size);
     }
 
     static void to_upper_utf8(const char* data, uint32_t size, std::string& result) {
@@ -617,13 +673,53 @@ struct InitcapImpl {
                          ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {
         res_offsets.resize(offsets.size());
 
-        const bool is_ascii = simd::VStringFunctions::is_ascii({data.data(), data.size()});
-        if (is_ascii) {
+        // Fast path: entire column is ASCII
+        if (simd::VStringFunctions::is_ascii({data.data(), data.size()})) {
             impl_vectors_ascii(data, offsets, res_data, res_offsets);
-        } else {
-            impl_vectors_utf8(data, offsets, res_data, res_offsets);
+            return Status::OK();
         }
+        // Mixed path: per-row decision so ASCII rows never touch ICU
+        impl_vectors_mixed(data, offsets, res_data, res_offsets);
         return Status::OK();
+    }
+
+    static void impl_vectors_mixed(const ColumnString::Chars& data,
+                                   const ColumnString::Offsets& offsets,
+                                   ColumnString::Chars& res_data,
+                                   ColumnString::Offsets& res_offsets) {
+        size_t offset_size = offsets.size();
+        res_data.reserve(data.size());
+        std::string result;
+        for (int64_t i = 0; i < offset_size; ++i) {
+            const uint8_t* begin = &data[offsets[i - 1]];
+            uint32_t size = offsets[i] - offsets[i - 1];
+            if (size == 0) {
+                res_offsets[i] = (ColumnString::Offset)res_data.size();
+                continue;
+            }
+            if (simd::VStringFunctions::is_ascii({reinterpret_cast<const char*>(begin), size})) {
+                size_t res_offset = res_data.size();
+                ColumnString::check_chars_length(res_offset + size, res_offsets.size());
+                res_data.resize(res_offset + size);
+                // to_lower then capitalize first letter of each word
+                simd::VStringFunctions::to_lower(begin, size, res_data.data() + res_offset);
+                bool need_capitalize = true;
+                for (size_t j = 0; j < size; ++j) {
+                    auto& c = res_data[res_offset + j];
+                    if (!::isalnum(c)) {
+                        need_capitalize = true;
+                    } else if (need_capitalize) {
+                        c = static_cast<char>(::toupper(static_cast<unsigned char>(c)));
+                        need_capitalize = false;
+                    }
+                }
+                res_offsets[i] = (ColumnString::Offset)res_data.size();
+            } else {
+                result.clear();
+                to_initcap_utf8(reinterpret_cast<const char*>(begin), size, result);
+                StringOP::push_value_string(result, i, res_data, res_offsets);
+            }
+        }
     }
 
     static void impl_vectors_ascii(const ColumnString::Chars& data,
@@ -650,7 +746,7 @@ struct InitcapImpl {
                 } else if (need_capitalize) {
                     /*
                     https://en.cppreference.com/w/cpp/string/byte/toupper
-                    Like all other functions from <cctype>, the behavior of std::toupper is undefined if the argument's value is neither representable as unsigned char nor equal to EOF. 
+                    Like all other functions from <cctype>, the behavior of std::toupper is undefined if the argument's value is neither representable as unsigned char nor equal to EOF.
                     To use these functions safely with plain chars (or signed chars), the argument should first be converted to unsigned char:
                     char my_toupper(char ch)
                     {
@@ -663,20 +759,6 @@ struct InitcapImpl {
             }
 
             start_index = end_index;
-        }
-    }
-
-    static void impl_vectors_utf8(const ColumnString::Chars& data,
-                                  const ColumnString::Offsets& offsets,
-                                  ColumnString::Chars& res_data,
-                                  ColumnString::Offsets& res_offsets) {
-        std::string result;
-        for (int64_t i = 0; i < offsets.size(); ++i) {
-            const char* begin = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-            uint32_t size = offsets[i] - offsets[i - 1];
-            result.clear();
-            to_initcap_utf8(begin, size, result);
-            StringOP::push_value_string(result, i, res_data, res_offsets);
         }
     }
 
@@ -1349,7 +1431,6 @@ template <typename LeftDataType, typename RightDataType>
 using StringFindInSetImpl = StringFunctionImpl<LeftDataType, RightDataType, FindInSetOp>;
 
 // ready for regist function
-using FunctionStringParseDataSize = FunctionUnaryToType<ParseDataSize, NameParseDataSize>;
 using FunctionStringASCII = FunctionUnaryToType<StringASCII, NameStringASCII>;
 using FunctionStringLength = FunctionUnaryToType<StringLengthImpl, NameStringLength>;
 using FunctionCrc32 = FunctionUnaryToType<Crc32Impl, NameCrc32>;

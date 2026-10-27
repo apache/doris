@@ -36,13 +36,11 @@
 #include "common/config.h"
 #include "common/exception.h"
 #include "core/column/column_string.h"
-#include "core/column/column_variant.h"
 #include "core/string_buffer.hpp"
 #include "core/value/jsonb_value.h"
 #include "core/value/variant/variant_batch_builder.h"
 #include "core/value/variant/variant_canonical.h"
 #include "core/value/variant/variant_parquet_encoding.h"
-#include "exec/common/variant_util.h"
 #include "variant_test_utils.h"
 
 namespace doris {
@@ -282,64 +280,16 @@ TEST(VariantJsonTest, EncoderCopiesRowsBeforeParserReuseAndProducesCanonicalValu
     EXPECT_TRUE(canonical_equals(block.value_at(0), reparsed.value_at(0)));
 }
 
-TEST(VariantJsonTest, DuplicateKeysKeepFirstCompleteSubtreeWhenEnabled) {
-    JsonToVariantOptions options;
-    options.check_duplicate_json_path = true;
-    VariantBatchBuilder block = encode_jsons(
-            {R"({"a":1,"a":[2]})", R"({"a":[1],"a":2})", R"({"a":{"b":1},"a":{"c":2}})"}, options);
-    ASSERT_EQ(block.num_rows(), 3);
-    EXPECT_EQ(print_json(block.value_at(0)), R"({"a":1})");
-    EXPECT_EQ(print_json(block.value_at(1)), R"({"a":[1]})");
-    EXPECT_EQ(print_json(block.value_at(2)), R"({"a":{"b":1}})");
-
-    // This is member-level first-wins semantics. It deliberately removes the old PathInData
-    // flatten/merge artifact; it is not evidence that the broader T0.2 comparison is complete.
-    VariantBatchBuilder dotted = encode_jsons({R"({"a.b":1,"a":{"b":2}})"}, options);
-    EXPECT_EQ(print_json(dotted.value_at(0)), R"({"a":{"b":2},"a.b":1})");
-}
-
-TEST(VariantJsonTest, DuplicateKeysFailWithoutPerObjectHashWhenDisabled) {
-    JsonToVariantOptions options;
-    options.check_duplicate_json_path = false;
-    expect_exception_code(ErrorCode::INVALID_ARGUMENT,
-                          [&] { static_cast<void>(encode_jsons({R"({"a":1,"a":2})"}, options)); });
-}
-
-TEST(VariantJsonTest, RepeatedDuplicateSchemasStayStableAcrossSchemaAndScalarRows) {
-    JsonToVariantOptions options;
-    options.check_duplicate_json_path = true;
-    VariantBatchBuilder block =
-            encode_jsons({R"({"a":1,"a":2})", R"({"a":3,"a":4})", "null", R"({"a":5,"a":6})",
-                          R"({"b":7,"b":8})", R"({"b":9,"b":10})"},
-                         options);
-    ASSERT_EQ(block.num_rows(), 6);
-    EXPECT_EQ(print_json(block.value_at(0)), R"({"a":1})");
-    EXPECT_EQ(print_json(block.value_at(1)), R"({"a":3})");
-    EXPECT_TRUE(block.value_at(2).is_null());
-    EXPECT_EQ(print_json(block.value_at(3)), R"({"a":5})");
-    EXPECT_EQ(print_json(block.value_at(4)), R"({"b":7})");
-    EXPECT_EQ(print_json(block.value_at(5)), R"({"b":9})");
-    std::vector<VariantRef> rows;
-    rows.reserve(block.num_rows());
-    for (size_t index = 0; index < block.num_rows(); ++index) {
-        rows.push_back(block.value_at(index));
+TEST(VariantJsonTest, DuplicateKeysFail) {
+    for (const std::string_view json :
+         {R"({"a":1,"a":2})", R"({"a":1,"a":[2]})", R"({"a":{"b":1},"a":{"c":2}})"}) {
+        expect_exception_code(ErrorCode::INVALID_ARGUMENT,
+                              [&] { static_cast<void>(encode_jsons({json})); });
     }
-    validate_canonical(block.metadata_ref(), rows);
-}
 
-TEST(VariantJsonTest, IgnoredDuplicateSubtreeStillValidatesKeysAndDepth) {
-    JsonToVariantOptions options;
-    options.max_json_key_length = 255;
-    options.check_duplicate_json_path = true;
-    const std::string oversized_key(256, 'k');
-    const std::string oversized = R"({"a":1,"a":{")" + oversized_key + R"(":2}})";
-    expect_exception_code(ErrorCode::INVALID_ARGUMENT,
-                          [&] { static_cast<void>(encode_jsons({oversized}, options)); });
-
-    const std::string too_deep =
-            R"({"a":1,"a":)" + nested_array_json(VARIANT_MAX_NESTING_DEPTH) + "}";
-    expect_exception_code(ErrorCode::INVALID_ARGUMENT,
-                          [&] { static_cast<void>(encode_jsons({too_deep}, options)); });
+    // A dotted key and a nested key are different members of a parsed value.
+    VariantBatchBuilder dotted = encode_jsons({R"({"a.b":1,"a":{"b":2}})"});
+    EXPECT_EQ(print_json(dotted.value_at(0)), R"({"a":{"b":2},"a.b":1})");
 }
 
 TEST(VariantJsonTest, KeyLengthBoundaryIsMeasuredInUtf8Bytes) {
@@ -359,13 +309,15 @@ TEST(VariantJsonTest, EmptyAndInvalidInputFollowExplicitPolicy) {
     permissive.throw_on_invalid_json = false;
     VariantBatchBuilder block = encode_jsons({std::string_view {}, "{"}, permissive);
     ASSERT_EQ(block.num_rows(), 2);
-    EXPECT_EQ(print_json(block.value_at(0)), "{}");
+    EXPECT_EQ(print_json(block.value_at(0)), R"("")");
     EXPECT_EQ(print_json(block.value_at(1)), R"("{")");
 
-    JsonToVariantOptions strict;
-    strict.throw_on_invalid_json = true;
+    const JsonToVariantOptions strict;
+    EXPECT_TRUE(strict.throw_on_invalid_json);
     expect_exception_code(ErrorCode::INVALID_ARGUMENT,
                           [&] { static_cast<void>(encode_jsons({"{"}, strict)); });
+    expect_exception_code(ErrorCode::INVALID_ARGUMENT,
+                          [&] { static_cast<void>(encode_jsons({std::string_view {}}, strict)); });
 
     const std::string invalid_utf8(1, static_cast<char>(0xFF));
     expect_exception_code(ErrorCode::INVALID_ARGUMENT, [&] {
@@ -520,8 +472,7 @@ TEST(VariantJsonTest, CurrentConfigIsSnapshottedAndExplicitOptionsAreValidated) 
     const JsonToVariantOptions options = JsonToVariantOptions::current_config();
     EXPECT_EQ(options.max_json_key_length,
               static_cast<uint32_t>(config::variant_max_json_key_length));
-    EXPECT_EQ(options.throw_on_invalid_json, config::variant_throw_exeception_on_invalid_json);
-    EXPECT_EQ(options.check_duplicate_json_path, config::variant_enable_duplicate_json_path_check);
+    EXPECT_TRUE(options.throw_on_invalid_json);
 
     JsonToVariantOptions invalid;
     invalid.max_json_key_length = 0;
@@ -670,27 +621,11 @@ TEST(VariantJsonTest, DISABLED_MB1Initial) {
                 return bytes;
             });
 
-    const auto [old_seconds, old_checksum] =
-            measure_mb1(workloads, [](const std::string& json, uint32_t count) {
-                auto strings = ColumnString::create();
-                for (uint32_t row = 0; row < count; ++row) {
-                    strings->insert_data(json.data(), json.size());
-                }
-                auto variant = ColumnVariant::create(0, true);
-                ParseConfig config;
-                config.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
-                variant_util::parse_json_to_variant(*variant, *strings, config);
-                return variant->rows();
-            });
-
     EXPECT_GT(new_checksum, 0);
     EXPECT_GT(jsonb_checksum, 0);
-    EXPECT_GT(old_checksum, 0);
     std::cout << "MB1 RELEASE rows=" << row_count << " new_seconds=" << new_seconds
               << " new_rows_per_second=" << rows / new_seconds << " jsonb_seconds=" << jsonb_seconds
-              << " new_throughput_over_jsonb=" << jsonb_seconds / new_seconds
-              << " old_parse_seconds=" << old_seconds
-              << " new_throughput_over_old_parse=" << old_seconds / new_seconds << std::endl;
+              << " new_throughput_over_jsonb=" << jsonb_seconds / new_seconds << std::endl;
 }
 
 } // namespace

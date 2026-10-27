@@ -49,7 +49,8 @@ DEFINE_mInt32(lease_compaction_interval_seconds, "20");
 DEFINE_mBool(enable_parallel_cumu_compaction, "false");
 DEFINE_mDouble(base_compaction_thread_num_factor, "0.25");
 DEFINE_mDouble(cumu_compaction_thread_num_factor, "0.5");
-DEFINE_mDouble(binlog_compaction_thread_num_factor, "0.25");
+// ATTN(changelog-rename): formerly "binlog_compaction_thread_num_factor"
+DEFINE_mDouble(changelog_compaction_thread_num_factor, "0.25");
 DEFINE_mInt32(check_auto_compaction_interval_seconds, "5");
 DEFINE_mInt32(max_base_compaction_task_num_per_disk, "2");
 DEFINE_mBool(prioritize_query_perf_in_compaction, "false");
@@ -61,6 +62,8 @@ DEFINE_mInt32(cloud_single_rowset_compaction_segment_group_size, "64");
 
 DEFINE_mInt32(refresh_s3_info_interval_s, "60");
 DEFINE_mInt32(vacuum_stale_rowsets_interval_s, "300");
+// Retain recent completed attempts when warmup arrives before the target's metadata sync.
+DEFINE_mInt64(warm_up_rowset_state_gc_grace_period_seconds, "3600");
 DEFINE_mInt32(schedule_sync_tablets_interval_s, "600");
 
 DEFINE_mInt32(mow_stream_load_commit_retry_times, "5");
@@ -88,7 +91,8 @@ DEFINE_mBool(enable_sync_tablet_delete_bitmap_by_cache, "true");
 DEFINE_mInt32(delete_bitmap_store_write_version, "1");
 DEFINE_mInt32(delete_bitmap_store_read_version, "1");
 DEFINE_mBool(enable_delete_bitmap_store_v2_check_correctness, "false");
-DEFINE_mInt64(delete_bitmap_store_v2_max_bytes_in_fdb, "1024"); // TODO change default value
+// Leave room for DeleteBitmapStoragePB overhead to fit within blob_put's 90000-byte split size.
+DEFINE_mInt64(delete_bitmap_store_v2_max_bytes_in_fdb, "89000");
 DEFINE_Int32(sync_delete_bitmap_task_max_thread, "32");
 DEFINE_mBool(enable_agg_delta_delete_bitmap_for_store_v2, "true");
 

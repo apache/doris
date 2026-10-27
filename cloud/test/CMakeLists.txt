@@ -41,6 +41,7 @@ set_target_properties(txn_kv_test PROPERTIES COMPILE_FLAGS "-fno-access-control"
 
 add_executable(recycler_test
     recycler_test.cpp
+    recycler_benchmark_test.cpp
     recycler_operation_log_test.cpp
     table_stream_recycler_test.cpp
     table_stream_checker_test.cpp
@@ -79,6 +80,8 @@ add_executable(metric_test metric_test.cpp)
 add_executable(log_test log_test.cpp)
 
 add_executable(resource_test resource_test.cpp)
+
+add_executable(obj_credential_test obj_credential_test.cpp)
 
 add_executable(rpc_kv_bvar_test rpc_kv_bvar_test.cpp)
 
@@ -174,6 +177,8 @@ target_link_libraries(metric_test ${TEST_LINK_LIBS})
 target_link_libraries(log_test ${TEST_LINK_LIBS})
 
 target_link_libraries(resource_test ${TEST_LINK_LIBS})
+
+target_link_libraries(obj_credential_test ${TEST_LINK_LIBS})
 
 target_link_libraries(rpc_kv_bvar_test ${TEST_LINK_LIBS})
 

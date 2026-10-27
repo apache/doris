@@ -145,6 +145,10 @@ public:
                             CheckTxnConflictResponse* response,
                             ::google::protobuf::Closure* done) override;
 
+    void advance_tso_fence(::google::protobuf::RpcController* controller,
+                           const AdvanceTsoFenceRequest* request, AdvanceTsoFenceResponse* response,
+                           ::google::protobuf::Closure* done) override;
+
     void abort_txn_with_coordinator(::google::protobuf::RpcController* controller,
                                     const AbortTxnWithCoordinatorRequest* request,
                                     AbortTxnWithCoordinatorResponse* response,
@@ -486,6 +490,10 @@ private:
     bool is_version_read_enabled(std::string_view instance_id) const;
     bool is_version_write_enabled(std::string_view instance_id) const;
 
+    bool wait_for_committed_txn(const std::string& instance_id, const TxnInfoPB& txn_info,
+                                std::unique_ptr<Transaction>& txn, CommitTxnResponse* response,
+                                MetaServiceCode& code, std::string& msg, KVStats& stats);
+
     void commit_txn_immediately(
             const CommitTxnRequest* request, CommitTxnResponse* response, MetaServiceCode& code,
             std::string& msg, const std::string& instance_id, int64_t db_id,
@@ -617,6 +625,12 @@ public:
                             CheckTxnConflictResponse* response,
                             ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::check_txn_conflict, controller, request, response, done);
+    }
+
+    void advance_tso_fence(::google::protobuf::RpcController* controller,
+                           const AdvanceTsoFenceRequest* request, AdvanceTsoFenceResponse* response,
+                           ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::advance_tso_fence, controller, request, response, done);
     }
 
     void abort_txn_with_coordinator(::google::protobuf::RpcController* controller,

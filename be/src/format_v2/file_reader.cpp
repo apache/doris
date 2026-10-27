@@ -73,7 +73,13 @@ std::string FileScanRequest::debug_string() const {
         }
         out << column_id << ":" << block_position;
     }
-    out << "}, conjunct_count=" << conjuncts.size()
+    out << "}, row_ids=";
+    if (row_ids.has_value()) {
+        out << join_debug_strings(*row_ids, [](int64_t row_id) { return std::to_string(row_id); });
+    } else {
+        out << "nullopt";
+    }
+    out << ", conjunct_count=" << conjuncts.size()
         << ", metadata_pruning_safe_conjunct_count=" << metadata_pruning_safe_conjunct_count
         << ", constant_pruning_safe_table_filter_count=" << constant_pruning_safe_table_filter_count
         << ", delete_conjunct_count=" << delete_conjuncts.size() << ", variant_schema_overrides="
@@ -91,7 +97,7 @@ std::string FileScanRequest::debug_string() const {
 }
 
 Status FileReader::init(RuntimeState* state) {
-    _init_profile();
+    // Concrete readers initialize their counters before starting their lifecycle timers.
     SCOPED_RAW_TIMER(&_reader_statistics.file_reader_create_time);
     ++_reader_statistics.open_file_num;
     io::FileReaderOptions reader_options =

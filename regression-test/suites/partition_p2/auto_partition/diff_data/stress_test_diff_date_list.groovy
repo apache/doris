@@ -30,7 +30,8 @@ suite("stress_test_diff_date_list", "p2,nonConcurrent") {
     def fileName = "doris-dbgen"
     def fileUrl = "http://${getS3BucketName()}.${getS3Endpoint()}/regression/doris-dbgen-23-10-18/doris-dbgen-23-10-20/doris-dbgen"
     def filePath = Paths.get(dirPath, fileName)
-    if (!Files.exists(filePath)) {
+    boolean enableTls = context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true") ?: false
+    if (!enableTls && !Files.exists(filePath)) {
         new URL(fileUrl).withInputStream { inputStream ->
             Files.copy(inputStream, filePath)
         }
@@ -46,6 +47,19 @@ suite("stress_test_diff_date_list", "p2,nonConcurrent") {
         def rows = cur_rows // total rows to load
         def bulkSize = rows
         def tableName = tb_name
+
+        if (enableTls) {
+            // The archived dbgen binary cannot present a client certificate.
+            File outputDir = new File("${dirPath}/${part_type}_${i}")
+            assertTrue(outputDir.mkdirs() || outputDir.isDirectory())
+            new File(outputDir, "data.csv").withWriter("UTF-8") { writer ->
+                String row = "${i}|1|true|109|2022-12-10\n"
+                for (int n = 0; n < rows; n++) {
+                    writer.write(row)
+                }
+            }
+            return
+        }
 
         def jdbcUrl = context.config.jdbcUrl
         def urlWithoutSchema = jdbcUrl.substring(jdbcUrl.indexOf("://") + 3)

@@ -369,66 +369,6 @@ public interface HmsClient extends Closeable {
         throw new UnsupportedOperationException("partitionExists is not supported by this client");
     }
 
-    // ========== Phase 4: ACID transactions ==========
-    //
-    // Read-side ACID primitives for transactional Hive tables. Like the Phase 3 block, they default
-    // to throwing so read-only / non-transactional clients need not implement them.
-
-    /**
-     * Open a Hive ACID transaction.
-     *
-     * @param user the user opening the transaction
-     * @return the new transaction id
-     * @throws HmsClientException if the operation fails
-     */
-    default long openTxn(String user) {
-        throw new UnsupportedOperationException("openTxn is not supported by this client");
-    }
-
-    /**
-     * Commit a Hive ACID transaction (also releases the transaction's locks).
-     *
-     * @param txnId the transaction id
-     * @throws HmsClientException if the operation fails
-     */
-    default void commitTxn(long txnId) {
-        throw new UnsupportedOperationException("commitTxn is not supported by this client");
-    }
-
-    /**
-     * Get the valid-transaction / valid-write-id snapshot for a transactional table, as the two
-     * Hadoop-configuration entries ({@link HmsAcidConstants}) that BE consumes for ACID reads. On a
-     * metastore-incompatibility error the implementation degrades to a max watermark rather than
-     * failing the read.
-     *
-     * @param fullTableName        fully-qualified "db.table"
-     * @param currentTransactionId the reader's open transaction id
-     * @return map with {@link HmsAcidConstants#VALID_TXNS_KEY} and
-     *         {@link HmsAcidConstants#VALID_WRITEIDS_KEY}
-     * @throws HmsClientException if the operation fails
-     */
-    default Map<String, String> getValidWriteIds(String fullTableName, long currentTransactionId) {
-        throw new UnsupportedOperationException("getValidWriteIds is not supported by this client");
-    }
-
-    /**
-     * Acquire a shared (read) lock over a table and, if given, specific partitions, polling until the
-     * lock is granted or the timeout elapses.
-     *
-     * @param queryId        the query id (lock owner)
-     * @param txnId          the transaction id
-     * @param user           the requesting user
-     * @param dbName         database name
-     * @param tableName      table name
-     * @param partitionNames partitions to lock; empty locks the whole table
-     * @param timeoutMs      maximum time to wait for the lock, in milliseconds
-     * @throws HmsClientException if the lock cannot be acquired within the timeout
-     */
-    default void acquireSharedLock(String queryId, long txnId, String user, String dbName,
-            String tableName, List<String> partitionNames, long timeoutMs) {
-        throw new UnsupportedOperationException("acquireSharedLock is not supported by this client");
-    }
-
     /**
      * Acquire a standalone exclusive lock over a non-transactional Hive table.
      *

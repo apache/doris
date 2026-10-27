@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.parser;
 
 import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
@@ -247,5 +248,28 @@ public class LogicalPlanBuilderTest {
         Assertions.assertInstanceOf(UnboundSlot.class, sort.getOrderKeys().get(0).getExpr());
         // Second key: column name remains as UnboundSlot
         Assertions.assertInstanceOf(UnboundSlot.class, sort.getOrderKeys().get(1).getExpr());
+    }
+
+    @Test
+    public void testDeleteAndUpdateOrderByWideOrdinalKeepsItsDigits() {
+        // The ordinal becomes an UnboundSlot named after the literal, so narrowing the literal
+        // renames the slot. 4294967297 is 2^32 + 1, which getIntValue() turned into "1".
+        // 18446744073709551617 is 2^64 + 1, a LARGEINT, which getLongValue() also narrows to 1,
+        // so it pins the width-independent accessor rather than merely a wider one.
+        for (String ordinal : new String[] {"4294967297", "18446744073709551617"}) {
+            assertFirstOrderKeyIsSlotNamed("DELETE FROM t ORDER BY " + ordinal + " LIMIT 10", ordinal);
+            assertFirstOrderKeyIsSlotNamed("UPDATE t SET c1 = 10 ORDER BY " + ordinal + " LIMIT 10", ordinal);
+        }
+    }
+
+    private void assertFirstOrderKeyIsSlotNamed(String sql, String expectedName) {
+        LogicalPlan plan = parser.parseSingle(sql);
+        LogicalPlan query = plan instanceof UpdateCommand
+                ? ((UpdateCommand) plan).getLogicalQuery()
+                : ((DeleteFromUsingCommand) plan).getLogicalQuery();
+        LogicalSort<?> sort = (LogicalSort<?>) ((LogicalLimit<?>) query).child();
+        Expression key = sort.getOrderKeys().get(0).getExpr();
+        Assertions.assertInstanceOf(UnboundSlot.class, key, sql);
+        Assertions.assertEquals(expectedName, ((UnboundSlot) key).getName(), sql);
     }
 }

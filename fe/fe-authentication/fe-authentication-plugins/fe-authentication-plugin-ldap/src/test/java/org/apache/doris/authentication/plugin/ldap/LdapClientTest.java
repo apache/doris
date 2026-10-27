@@ -272,8 +272,8 @@ class LdapClientTest {
         String expected = "test\\2a\\28\\29\\5c\\00";
         Assertions.assertEquals(expected, LdapEncoder.filterEncode(input));
 
-        // Null input
-        Assertions.assertNull(LdapEncoder.filterEncode(null));
+        // Spring LDAP 4 requires a non-null value.
+        Assertions.assertThrows(NullPointerException.class, () -> LdapEncoder.filterEncode(null));
 
         // Normal username should not be altered
         Assertions.assertEquals("zhangsan", LdapEncoder.filterEncode("zhangsan"));

@@ -27,7 +27,7 @@ public final class ConnectorComputeVariantType extends VariantType {
     public void toThrift(TTypeDesc container) {
         super.toThrift(container);
         // External native readers always produce ColumnVariantV2, independently of the storage
-        // format default controlled by Config.enable_variant_v2.
+        // Connector Variant uses the V2 execution carrier.
         container.getTypes().get(container.getTypes().size() - 1).scalar_type.setVariantIsV2(true);
     }
 }

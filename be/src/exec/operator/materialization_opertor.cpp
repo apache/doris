@@ -606,7 +606,8 @@ Status MaterializationOperator::pull(RuntimeState* state, Block* output_block, b
 
 Status MaterializationOperator::push(RuntimeState* state, Block* in_block, bool eos) const {
     auto& local_state = get_local_state(state);
-    SCOPED_TIMER(local_state.exec_time_counter());
+    // StatefulOperatorX::get_block_impl already times push() with this counter.
+    // Nesting the same timer counts the synchronous row-fetch RPC wait twice.
     if (!local_state._materialization_state.rpc_struct_inited) {
         RETURN_IF_ERROR(local_state._materialization_state.init_multi_requests(
                 _materialization_node, state));

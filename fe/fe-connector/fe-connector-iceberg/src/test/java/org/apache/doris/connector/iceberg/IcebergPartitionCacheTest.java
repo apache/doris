@@ -32,14 +32,13 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Unit tests for {@link IcebergPartitionCache} (PERF-02). Mirrors {@link IcebergTableCacheTest} but keys by
- * {@code (TableIdentifier, snapshotId)} and stores the raw partition list. Covers within-TTL stability, the
- * {@code ttl <= 0} disable, invalidation, and the exception-propagation guarantee that {@code listPartitions}'
- * dropped-partition-source-column degradation depends on.
+ * {@code (TableIdentifier, snapshotId, schemaId, specId)} and stores the raw partition list. Covers within-TTL
+ * stability, the {@code ttl <= 0} disable, invalidation, and exception propagation.
  */
 public class IcebergPartitionCacheTest {
 
     private static IcebergPartitionCache.Key key(String db, String tbl, long snapshotId) {
-        return new IcebergPartitionCache.Key(TableIdentifier.of(db, tbl), snapshotId);
+        return new IcebergPartitionCache.Key(TableIdentifier.of(db, tbl), snapshotId, 0, 0);
     }
 
     /** A raw partition list of the given size, distinguishable by size. */

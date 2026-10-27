@@ -44,6 +44,32 @@ public interface ConnectorStatementScope {
      */
     <T> T computeIfAbsent(String key, Supplier<T> loader);
 
+    /** Returns an already loaded statement value without loading or retaining anything on a miss. */
+    default <T> T getIfPresent(String key) {
+        return null;
+    }
+
+    /**
+     * {@link #computeIfAbsent} for a value only planning reads, such as a memo that lets the identical scans of
+     * one plan share their planned ranges. The engine drops such values once planning ends ({@link #endPlanning}),
+     * so nothing they reference is held while the statement executes. A call after that computes and registers
+     * the value again, which a scan planned at execution time (a partition batch planned through
+     * {@code ConnectorScanPlanProvider#planScanForPartitionBatch}'s default) would do: the value then stays until
+     * {@link #closeAll}. The value must hold nothing to close, because it is dropped without being closed. Under
+     * {@link #NONE} the loader runs on every call.
+     */
+    default <T> T computeIfAbsentForPlanning(String key, Supplier<T> loader) {
+        return computeIfAbsent(key, loader);
+    }
+
+    /**
+     * Drops every value registered through {@link #computeIfAbsentForPlanning}. The engine calls it when the
+     * planning of the statement ends, whether or not the plan succeeded; values registered through
+     * {@link #computeIfAbsent} stay until {@link #closeAll}. The default is a no-op.
+     */
+    default void endPlanning() {
+    }
+
     /**
      * Typed convenience over {@link #computeIfAbsent} for the ONE {@link ConnectorMetadata} a statement uses per
      * {@code key}. The engine's metadata funnel builds {@code key} (as {@code "metadata:" + catalogId}, plus the

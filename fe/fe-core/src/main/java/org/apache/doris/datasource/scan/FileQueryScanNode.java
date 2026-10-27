@@ -35,6 +35,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
+import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -190,6 +191,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
         // Set enable_mapping_varbinary from catalog or TVF
         params.setEnableMappingVarbinary(getEnableMappingVarbinary());
         params.setEnableMappingTimestampTz(getEnableMappingTimestampTz());
+        // Distinguish explicit wall-clock semantics from old FE plans during a BE-first upgrade.
+        params.setParquetTimestampSemanticsVersion(FileFormatUtils.PARQUET_TIMESTAMP_SEMANTICS_VERSION);
         String hiveParquetTimeZone = getHiveParquetTimeZone();
         if (!hiveParquetTimeZone.isEmpty()) {
             params.setHiveParquetTimeZone(hiveParquetTimeZone);
@@ -241,12 +244,16 @@ public abstract class FileQueryScanNode extends FileScanNode {
         setColumnPositionMapping();
     }
 
+    protected TColumnCategory classifyColumn(SlotDescriptor slot, List<String> partitionKeys) {
+        return classifyColumn(slot.getColumn().getName(), partitionKeys);
+    }
+
     /**
-     * Classify a column's category for the BE reader.
+     * Classify projected and lazy columns with the same connector-specific rules.
      * Subclasses override this for format-specific classification.
      */
-    protected TColumnCategory classifyColumn(SlotDescriptor slot, List<String> partitionKeys) {
-        if (partitionKeys.contains(slot.getColumn().getName())) {
+    protected TColumnCategory classifyColumn(String columnName, List<String> partitionKeys) {
+        if (partitionKeys.contains(columnName)) {
             return TColumnCategory.PARTITION_KEY;
         }
         return TColumnCategory.REGULAR;
@@ -300,8 +307,24 @@ public abstract class FileQueryScanNode extends FileScanNode {
         // Pre-index columns into a Map for O(1) lookup
         List<Column> columns = getPinnedFullSchema();
         Map<String, Integer> columnNameMap = new HashMap<>(columns.size());
+        boolean needsRowIdFetch = desc.getSlots().stream()
+                .anyMatch(slot -> slot.getColumn().getName().startsWith(Column.GLOBAL_ROWID_COL));
+        List<String> partitionKeys = needsRowIdFetch ? getPathPartitionKeys() : Collections.emptyList();
+        Map<String, TColumnCategory> columnCategories = new HashMap<>();
         for (int i = 0; i < columns.size(); i++) {
-            columnNameMap.putIfAbsent(columns.get(i).getName(), i);
+            String columnName = columns.get(i).getName();
+            columnNameMap.putIfAbsent(columnName, i);
+            if (needsRowIdFetch) {
+                TColumnCategory category = classifyColumn(columnName, partitionKeys);
+                if (category != TColumnCategory.REGULAR) {
+                    columnCategories.put(columnName, category);
+                }
+            }
+        }
+        if (needsRowIdFetch) {
+            // Lazy slots are already absent from the scan tuple. Preserve their categories from
+            // the pinned full schema so phase two cannot mistake metadata for physical columns.
+            params.setColumnNameToCategory(columnCategories);
         }
 
         for (TFileScanSlotInfo slot : params.getRequiredSlots()) {
@@ -393,7 +416,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
             // File splits are generated lazily, and fetched by backends while scanning.
             // Only provide the unique ID of split source to backend.
             splitAssignment = new SplitAssignment(backendPolicy, this, this::splitToScanRange,
-                    locationProperties, pathPartitionKeys, admissionResult);
+                    locationProperties, pathPartitionKeys, admissionResult,
+                    sessionVariable.getSplitBatchSize(), sessionVariable.getSplitQueueCapacity());
             splitAssignment.init();
             if (executor != null) {
                 executor.getSummaryProfile().setGetSplitsFinishTime();
@@ -481,14 +505,11 @@ public abstract class FileQueryScanNode extends FileScanNode {
         FileSplit fileSplit = (FileSplit) split;
         TScanRangeLocations curLocations = newLocations();
         // If fileSplit has partition values, use the values collected from hive partitions.
-        // Otherwise, use the values in file path. Migrated tables emit PluginDrivenSplit (never a HiveSplit)
-        // and always carry connector-supplied partition values, so isACID stays false: the connector owns
-        // ACID delta-dir handling and rewrites columns-from-path in its ConnectorScanRange.populateRangeParams.
-        boolean isACID = false;
+        // Otherwise, parse partition values from the file path.
         FilePartitionUtils.ParsedColumnsFromPath partitionValuesFromPath =
                 fileSplit.getPartitionValues() == null
                         ? FilePartitionUtils.parseColumnsFromPathWithNullInfo(
-                                fileSplit.getPathString(), pathPartitionKeys, false, isACID)
+                                fileSplit.getPathString(), pathPartitionKeys, false)
                         : FilePartitionUtils.normalizeColumnsFromPath(fileSplit.getPartitionValues());
 
         TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath.getValues(),
@@ -725,10 +746,13 @@ public abstract class FileQueryScanNode extends FileScanNode {
     @Override
     public void stop() {
         if (splitAssignment != null) {
-            splitAssignment.stop();
-            SplitSourceManager manager = Env.getCurrentEnv().getSplitSourceManager();
-            for (Long sourceId : splitAssignment.getSources()) {
-                manager.removeSplitSource(sourceId);
+            try {
+                splitAssignment.stop();
+            } finally {
+                SplitSourceManager manager = Env.getCurrentEnv().getSplitSourceManager();
+                for (Long sourceId : splitAssignment.getSources()) {
+                    manager.removeSplitSource(sourceId);
+                }
             }
         }
     }

@@ -111,6 +111,8 @@ public class VariableMgr {
     // If a session variable "foo" is an experimental variable,
     // its display name is "experimental_foo"
     private static ImmutableMap<String, VarContext> ctxByDisplayVarName;
+    // Visibility and aliases come from immutable annotations; values must still be read on every export.
+    private static final ImmutableMap<String, VarContext> SHOWN_CTX_BY_VAR_NAME;
 
     // This variable is equivalent to the default value of session variables.
     // Whenever a new session is established, the value in this object is copied to the session-level variable.
@@ -155,8 +157,13 @@ public class VariableMgr {
             "enable_phrase_query_sequential_opt",
             "enable_rust_lance_reader",
             "enable_paimon_cpp_reader",
+            // Keep old connection-init SET statements valid after removing Hive ACID reads.
+            "skip_checking_acid_version_file",
+            "enable_nereids_trace",
+            "nereids_trace_event_mode",
             "shuffled_agg_node_ids",
-            "plan_nereids_dump");
+            "plan_nereids_dump",
+            "enable_variant_schema_auto_cast");
 
     private static boolean isRemovedSessionVar(String varName) {
         return varName != null && REMOVED_SESSION_VAR_NAMES.contains(varName.toLowerCase());
@@ -169,10 +176,47 @@ public class VariableMgr {
         ImmutableSortedMap.Builder<String, VarContext> builder = getStringVarContextBuilder(defaultSessionVariable);
         ctxByVarName = builder.build();
         ctxByDisplayVarName = getDisplaySessionVars();
+        ImmutableMap.Builder<String, VarContext> shownBuilder = ImmutableMap.builder();
+        for (Map.Entry<String, VarContext> entry : ctxByVarName.entrySet()) {
+            if (isShown(entry.getValue())) {
+                shownBuilder.put(entry);
+            }
+        }
+        SHOWN_CTX_BY_VAR_NAME = shownBuilder.build();
     }
 
     public static SessionVariable getDefaultSessionVariable() {
         return defaultSessionVariable;
+    }
+
+    public static boolean isDynamicPartitionDropProtectionEnabled() {
+        rlock.lock();
+        try {
+            return defaultSessionVariable.isEnableDynamicPartitionDropProtection();
+        } finally {
+            rlock.unlock();
+        }
+    }
+
+    /**
+     * Sets a persistent global-only session variable while constructing an image.
+     *
+     * <p>The caller is responsible for persisting the resulting image. This method intentionally does not write an
+     * edit log because image construction may happen without a running edit log.</p>
+     */
+    public static void setGlobalSessionVariableForImage(String name, String value) throws DdlException {
+        wlock.lock();
+        try {
+            VarContext ctx = getVarContext(name);
+            Preconditions.checkArgument(ctx != null, "Unknown session variable: %s", name);
+            Preconditions.checkArgument(ctx.getObj() == defaultSessionVariable,
+                    "Not a session variable: %s", name);
+            Preconditions.checkArgument((ctx.getFlag() & VarAttrDef.GLOBAL) != 0,
+                    "Session variable is not global-only: %s", name);
+            setValue(defaultSessionVariable, new SessionVariableField(ctx.getField()), value);
+        } finally {
+            wlock.unlock();
+        }
     }
 
     // Set value to a variable
@@ -247,11 +291,7 @@ public class VariableMgr {
                 field.setShort(obj, Short.parseShort(value));
                 break;
             case "int":
-                int intValue = Integer.parseInt(value);
-                if (SessionVariable.RUNTIME_FILTER_TYPE.equalsIgnoreCase(name)) {
-                    intValue = (int) RuntimeFilterTypeHelper.normalizeDeprecatedRuntimeFilterTypes(intValue);
-                }
-                field.setInt(obj, intValue);
+                field.setInt(obj, SessionVariable.normalizeIntValue(name, value));
                 break;
             case "long":
                 field.setLong(obj, Long.parseLong(value));
@@ -409,6 +449,25 @@ public class VariableMgr {
             return null;
         }
         return ctx;
+    }
+
+    /**
+     * The variable SHOW VARIABLES lists under exactly this name, or null when it lists none: the
+     * name is unknown, spelled otherwise (SET takes a name in any case and an experimental
+     * variable's name with or without its prefix; SHOW VARIABLES shows one spelling), or the
+     * variable is removed or invisible.
+     */
+    @Nullable
+    public static VarContext getShownVarContext(String displayName) {
+        VarContext ctx = ctxByDisplayVarName.get(displayName);
+        return ctx != null && isShown(ctx) ? ctx : null;
+    }
+
+    // Whether SHOW VARIABLES lists the variable: a removed or an invisible one it does not.
+    private static boolean isShown(VarContext ctx) {
+        VarAttrDef.VarAttr varAttr = ctx.getField().getAnnotation(VarAttrDef.VarAttr.class);
+        return !VariableAnnotation.REMOVED.equals(varAttr.varType())
+                && (VarAttrDef.INVISIBLE & varAttr.flag()) == 0;
     }
 
     private static void setVarInternal(SessionVariable sessionVariable, SetVar setVar, VarContext ctx)
@@ -811,13 +870,7 @@ public class VariableMgr {
         rlock.lock();
         try {
             for (Map.Entry<String, VarContext> entry : ctxByDisplayVarName.entrySet()) {
-                VarAttrDef.VarAttr varAttr = entry.getValue().getField().getAnnotation(VarAttrDef.VarAttr.class);
-                // not show removed variables
-                if (VariableAnnotation.REMOVED.equals(varAttr.varType())) {
-                    continue;
-                }
-                // not show invisible variables
-                if ((VarAttrDef.INVISIBLE & varAttr.flag()) != 0) {
+                if (!isShown(entry.getValue())) {
                     continue;
                 }
                 // Filter variable not match to the regex.
@@ -894,13 +947,7 @@ public class VariableMgr {
         try {
             for (Map.Entry<String, VarContext> entry : ctxByDisplayVarName.entrySet()) {
                 VarContext ctx = entry.getValue();
-                VarAttrDef.VarAttr varAttr = ctx.getField().getAnnotation(VarAttrDef.VarAttr.class);
-                // not show removed variables
-                if (VariableAnnotation.REMOVED.equals(varAttr.varType())) {
-                    continue;
-                }
-                // not show invisible variables
-                if ((VarAttrDef.INVISIBLE & varAttr.flag()) != 0) {
+                if (!isShown(ctx)) {
                     continue;
                 }
                 List<String> row = Lists.newArrayList();
@@ -940,18 +987,11 @@ public class VariableMgr {
      * without a hard-coded whitelist.</p>
      */
     public static Map<String, String> toMap(SessionVariable sessionVar) {
-        Map<String, String> result = Maps.newHashMap();
+        Map<String, String> result = Maps.newHashMapWithExpectedSize(SHOWN_CTX_BY_VAR_NAME.size());
         rlock.lock();
         try {
-            for (Map.Entry<String, VarContext> entry : ctxByVarName.entrySet()) {
+            for (Map.Entry<String, VarContext> entry : SHOWN_CTX_BY_VAR_NAME.entrySet()) {
                 VarContext ctx = entry.getValue();
-                VarAttrDef.VarAttr varAttr = ctx.getField().getAnnotation(VarAttrDef.VarAttr.class);
-                if (VariableAnnotation.REMOVED.equals(varAttr.varType())) {
-                    continue;
-                }
-                if ((VarAttrDef.INVISIBLE & varAttr.flag()) != 0) {
-                    continue;
-                }
                 result.put(entry.getKey(), getValue(sessionVar, ctx.getField()));
             }
         } finally {

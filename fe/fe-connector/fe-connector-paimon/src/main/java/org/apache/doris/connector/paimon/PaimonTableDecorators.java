@@ -17,9 +17,13 @@
 
 package org.apache.doris.connector.paimon;
 
+import org.apache.paimon.table.ChainGroupReadTable;
 import org.apache.paimon.table.DelegatedFileStoreTable;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.table.Table;
+
+import java.util.Map;
 
 /**
  * The one place that knows how Paimon stacks {@link DelegatedFileStoreTable} decorators on a loaded
@@ -31,27 +35,50 @@ final class PaimonTableDecorators {
     }
 
     /**
+     * Rebuild a fallback-branch pair around new branches. A chain table is a pair whose other branch is a
+     * {@link ChainGroupReadTable} over its snapshot and delta branches: the group plans and reads the chain
+     * itself, and it is the only pair Paimon lets one nest inside another, so it is rebuilt as a group.
+     */
+    static FileStoreTable rebuildFallbackPair(FallbackReadFileStoreTable pair, FileStoreTable wrapped,
+            FileStoreTable other) {
+        if (pair instanceof ChainGroupReadTable) {
+            return new ChainGroupReadTable(wrapped, other);
+        }
+        return new FallbackReadFileStoreTable(wrapped, other, PaimonReaderOptions.isWrappedFirst(pair));
+    }
+
+    static Map<String, String> otherOptions(FallbackReadFileStoreTable pair, Map<String, String> options) {
+        return new FallbackOptions(pair).rewriteOtherOptions(options);
+    }
+
+    private static final class FallbackOptions extends FallbackReadFileStoreTable {
+        private FallbackOptions(FallbackReadFileStoreTable pair) {
+            super(pair.wrapped(), pair.other(), PaimonReaderOptions.isWrappedFirst(pair));
+        }
+
+        @Override
+        public Map<String, String> rewriteOtherOptions(Map<String, String> options) {
+            return super.rewriteOtherOptions(options);
+        }
+    }
+
+    /**
+     * Whether {@code table} reads as a chain table: a fallback pair whose other branch is a
+     * {@link ChainGroupReadTable}. A branch of a chain table read on its own is a plain table.
+     */
+    static boolean isChainTable(Table table) {
+        if (!(table instanceof FileStoreTable)) {
+            return false;
+        }
+        FileStoreTable base = unwrapToFallbackOrBase((FileStoreTable) table);
+        return base instanceof FallbackReadFileStoreTable
+                && ((FallbackReadFileStoreTable) base).other() instanceof ChainGroupReadTable;
+    }
+
+    /**
      * Peel the decorators Paimon may have stacked on top of the table, down to the fallback-branch
      * pair - the one layer that must stay on top, because that is what dispatches a read to the
      * right branch.
-     *
-     * <p>{@code PrivilegedCatalog#getTable} wraps whatever {@code FileStoreTableFactory} built into
-     * a {@code PrivilegedFileStoreTable}, so with file based privileges enabled a
-     * {@code scan.fallback-branch} table reaches Doris as {@code Privileged(FallbackRead(...))}.
-     * Paimon itself never lets a decorator sit above the pair - {@code CatalogUtils#loadTable}
-     * builds system tables straight over the {@code FileStoreTableFactory} result and only wraps
-     * what it returns - and both Paimon and Doris dispatch on a direct {@code instanceof
-     * FallbackReadFileStoreTable}, which looks straight past a decorator and silently falls back to
-     * the delegated main branch alone.
-     *
-     * <p>The decorators are peeled off rather than re-applied, and what that costs differs by
-     * caller. Rebuilding the table the BE gets loses nothing: the privilege wrapper only asserts on
-     * {@code newScan()} / {@code newRead()}, which the FE has already run while planning, and a
-     * plain (non fallback) table loses the wrapper the same way once it is rebuilt out of
-     * fileIO / location / schema. Building a system table over the peeled base does drop that
-     * assertion, but that is Paimon's own semantics rather than a relaxation of it:
-     * {@code PrivilegedCatalog#getTable} wraps only a result that is a {@code FileStoreTable}, and
-     * no system table is one, so {@code db.tbl$ro} never carries the decorator there either.
      */
     static FileStoreTable unwrapToFallbackOrBase(FileStoreTable dataTable) {
         FileStoreTable current = dataTable;

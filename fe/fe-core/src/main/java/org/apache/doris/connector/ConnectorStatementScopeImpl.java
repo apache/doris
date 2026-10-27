@@ -20,9 +20,12 @@ package org.apache.doris.connector;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.datasource.plugin.CatalogStatementTransaction;
 
+import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Iterator;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 
@@ -34,20 +37,53 @@ import java.util.function.Supplier;
  * partition-batch) reuse the single {@link org.apache.doris.connector.spi.ConnectorSession} built on the
  * request thread and so reach this same scope concurrently. {@code computeIfAbsent} gives every caller of
  * a key the same instance — required for the shared table object and for the delete supply map that scan
- * and write both mutate. The loaders used by connectors do not re-enter this scope, so the map's
- * single-key atomicity is safe here.</p>
+ * and write both mutate. Loaders MUST NOT re-enter this scope: a recursive {@code computeIfAbsent}
+ * can throw {@code IllegalStateException} on a same-bin collision or silently drop entries during a
+ * mid-computation resize. Connectors that need scope-backed state during scan planning nest a
+ * separate connector-private memo map inside the scope, avoiding re-entry and preserving the
+ * String-key SPI contract.</p>
+ *
+ * <p>A value registered through {@link #computeIfAbsentForPlanning} lives only until {@link #endPlanning}, which
+ * {@link org.apache.doris.nereids.StatementContext#releasePlannerResources} calls once planning is over, whether or
+ * not the plan succeeded.</p>
  */
 public class ConnectorStatementScopeImpl implements ConnectorStatementScope {
 
     private static final Logger LOG = LogManager.getLogger(ConnectorStatementScopeImpl.class);
 
     private final ConcurrentHashMap<String, Object> cache = new ConcurrentHashMap<>();
+    // Keys of the values only planning reads; endPlanning drops them.
+    private final Set<String> planningKeys = ConcurrentHashMap.newKeySet();
     private boolean closed;
 
     @Override
     @SuppressWarnings("unchecked")
     public <T> T computeIfAbsent(String key, Supplier<T> loader) {
         return (T) cache.computeIfAbsent(key, k -> loader.get());
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public <T> T getIfPresent(String key) {
+        return (T) cache.get(key);
+    }
+
+    @Override
+    public <T> T computeIfAbsentForPlanning(String key, Supplier<T> loader) {
+        T value = computeIfAbsent(key, loader);
+        Preconditions.checkState(!(value instanceof AutoCloseable),
+                "planning value %s is dropped without being closed, so it must hold nothing to close", key);
+        planningKeys.add(key);
+        return value;
+    }
+
+    @Override
+    public void endPlanning() {
+        Iterator<String> keys = planningKeys.iterator();
+        while (keys.hasNext()) {
+            cache.remove(keys.next());
+            keys.remove();
+        }
     }
 
     /**

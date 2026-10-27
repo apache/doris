@@ -16,8 +16,6 @@
 // under the License.
 
 suite("double_write_schema_change_with_variant", "nonConcurrent") {
-    setFeConfigTemporary([enable_variant_v2: true]) {
-    assertTrue(getFeConfig("enable_variant_v2").toBoolean())
     def variantV2Function = "parse_to_variant"
     def set_be_config = { key, value ->
         String backend_id;
@@ -85,7 +83,11 @@ suite("double_write_schema_change_with_variant", "nonConcurrent") {
          return jobStateResult[0][9]
     }
 
-    def insert_sql = """ insert into ${table_name} values(1, ${variantV2Function}('{"id":"25061216922","type":"PushEvent","actor":{"id":100067519,"login":"savorfamily","display_login":"savorfamily","gravatar_id":"123","url":"https://api.github.com/users/savorfamily","avatar_url":"https://avatars.githubusercontent.com/u/100067519?"},"repo":{"id":461434218,"name":"savorfamily/upptime","url":"https://api.github.com/repos/savorfamily/upptime"},"payload":{"push_id":11572320522,"size":1,"distinct_size":1,"ref":"refs/heads/master","head":"81106d369f763cb729d9d77610ace252c9db53f0","before":"2bf823a4febcf809da126828ecef7617c8cc48ea","commits":[{"sha":"81106d369f763cb729d9d77610ace252c9db53f0","author":{"email":"73812536+upptime-bot@users.noreply.github.com","name":"Upptime Bot"},"message":":bento: Update graphs [skip ci]","distinct":true,"url":"https://api.github.com/repos/savorfamily/upptime/commits/81106d369f763cb729d9d77610ace252c9db53f0"}]},"public":true,"created_at":"2022-11-07T02:00:00Z"}'), "123111.0") """
+    // Use an integer valued literal: the double -> text conversion prints 123111 as
+    // "123111", while a "123111.0" literal that is written after the column has
+    // become text would stay "123111.0". Mixing both would make the whole row
+    // checks below depend on the schema change timing.
+    def insert_sql = """ insert into ${table_name} values(1, ${variantV2Function}('{"id":"25061216922","type":"PushEvent","actor":{"id":100067519,"login":"savorfamily","display_login":"savorfamily","gravatar_id":"123","url":"https://api.github.com/users/savorfamily","avatar_url":"https://avatars.githubusercontent.com/u/100067519?"},"repo":{"id":461434218,"name":"savorfamily/upptime","url":"https://api.github.com/repos/savorfamily/upptime"},"payload":{"push_id":11572320522,"size":1,"distinct_size":1,"ref":"refs/heads/master","head":"81106d369f763cb729d9d77610ace252c9db53f0","before":"2bf823a4febcf809da126828ecef7617c8cc48ea","commits":[{"sha":"81106d369f763cb729d9d77610ace252c9db53f0","author":{"email":"73812536+upptime-bot@users.noreply.github.com","name":"Upptime Bot"},"message":":bento: Update graphs [skip ci]","distinct":true,"url":"https://api.github.com/repos/savorfamily/upptime/commits/81106d369f763cb729d9d77610ace252c9db53f0"}]},"public":true,"created_at":"2022-11-07T02:00:00Z"}'), "123111") """
 
     def double_write = { ->
         int max_try_time = 3000
@@ -130,5 +132,5 @@ suite("double_write_schema_change_with_variant", "nonConcurrent") {
     // restore configs
     set_be_config.call("memory_limitation_per_thread_for_schema_change_bytes", "2147483648")
     set_be_config.call("write_buffer_size", "209715200")
-    }
+
 }

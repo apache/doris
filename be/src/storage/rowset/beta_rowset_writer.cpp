@@ -48,8 +48,8 @@
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "runtime/thread_context.h"
-#include "storage/index/inverted/inverted_index_cache.h"
-#include "storage/index/inverted/inverted_index_desc.h"
+#include "storage/index/inverted/common/inverted_index_cache.h"
+#include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/olap_define.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset_factory.h"
@@ -153,8 +153,8 @@ void build_rowset_meta_with_spec_field(RowsetMeta& rowset_meta,
     if (spec_rowset_meta.has_commit_tso()) {
         rowset_meta.set_commit_tso(spec_rowset_meta.commit_tso());
     }
-    if (spec_rowset_meta.is_row_binlog()) {
-        rowset_meta.mark_row_binlog();
+    if (spec_rowset_meta.is_changelog()) {
+        rowset_meta.mark_changelog();
     }
 }
 
@@ -336,10 +336,16 @@ BaseBetaRowsetWriter::BaseBetaRowsetWriter()
 BetaRowsetWriter::BetaRowsetWriter(StorageEngine& engine)
         : _engine(engine), _segcompaction_worker(std::make_shared<SegcompactionWorker>(this)) {}
 
-RowBinlogRowsetWriter::RowBinlogRowsetWriter(StorageEngine& engine) : BetaRowsetWriter(engine) {}
+ChangelogRowsetWriter::ChangelogRowsetWriter(StorageEngine& engine) : BetaRowsetWriter(engine) {}
 
 BaseBetaRowsetWriter::~BaseBetaRowsetWriter() {
+    // Finish callbacks before removing files they can still read on cancellation.
+    if (_calc_delete_bitmap_token) {
+        _calc_delete_bitmap_token->cancel();
+    }
     if (!_already_built && _rowset_meta->is_local()) {
+        TEST_SYNC_POINT_CALLBACK("BaseBetaRowsetWriter::~BaseBetaRowsetWriter:before_file_cleanup",
+                                 this);
         // abnormal exit, remove all files generated
         auto& fs = io::global_local_filesystem();
         for (int i = _segment_start_id; i < _segment_creator.next_segment_id(); ++i) {
@@ -352,12 +358,13 @@ BaseBetaRowsetWriter::~BaseBetaRowsetWriter() {
                           fmt::format("Failed to delete file={}", seg_path));
         }
     }
-    if (_calc_delete_bitmap_token) {
-        _calc_delete_bitmap_token->cancel();
-    }
 }
 
 BetaRowsetWriter::~BetaRowsetWriter() {
+    // Bitmap callbacks capture this and can call virtual methods using derived state.
+    if (_calc_delete_bitmap_token != nullptr) {
+        _calc_delete_bitmap_token->cancel();
+    }
     /* Note that segcompaction is async and in parallel with load job. So we should handle carefully
      * when the job is cancelled. Although it is meaningless to continue segcompaction when the job
      * is cancelled, the objects involved in the job should be preserved during segcompaction to
@@ -365,12 +372,18 @@ BetaRowsetWriter::~BetaRowsetWriter() {
     WARN_IF_ERROR(_wait_flying_segcompaction(), "segment compaction failed");
 }
 
+void BaseBetaRowsetWriter::cancel_calc_delete_bitmap(const Status& st) {
+    if (_calc_delete_bitmap_token != nullptr) {
+        _calc_delete_bitmap_token->cancel(st);
+    }
+}
+
 Status BaseBetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) {
     _context = rowset_writer_context;
     DCHECK(_context.tablet_schema != nullptr);
-    // Row-binlog writer or a schema carrying ROW_LSN_COL needs allocated LSN.
+    // Changelog writer or a schema carrying ROW_LSN_COL needs allocated LSN.
     _context._need_allocate_lsn =
-            _context.write_binlog_opt().enable || _context.tablet_schema->row_lsn_col_idx() >= 0;
+            _context.write_changelog_opt().enable || _context.tablet_schema->row_lsn_col_idx() >= 0;
     _rowset_meta.reset(new RowsetMeta);
     if (_context.storage_resource) {
         _rowset_meta->set_remote_storage_resource(*_context.storage_resource);
@@ -400,8 +413,8 @@ Status BaseBetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_conte
         _rowset_meta->set_inverted_index_storage_format(*_context.inverted_index_storage_format);
     }
     _rowset_meta->set_compaction_level(_context.compaction_level);
-    if (_context.write_binlog_opt().enable) {
-        _rowset_meta->mark_row_binlog();
+    if (_context.write_changelog_opt().enable) {
+        _rowset_meta->mark_changelog();
     }
     _context.segment_collector = std::make_shared<SegmentCollectorT<BaseBetaRowsetWriter>>(this);
     _context.file_writer_creator = std::make_shared<FileWriterCreatorT<BaseBetaRowsetWriter>>(this);
@@ -457,6 +470,8 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
 
         OlapStopWatch watch;
         // Step 2: Build tmp rowset (needs file_writer to be closed)
+        TEST_SYNC_POINT_CALLBACK("BaseBetaRowsetWriter::_generate_delete_bitmap:before_build_tmp",
+                                 this);
         RowsetSharedPtr rowset_ptr;
         st = _build_tmp(rowset_ptr);
         if (!st.ok()) {
@@ -497,6 +512,7 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
                   << _context.mow_context->delete_bitmap->cardinality()
                   << ", queue_time_us: " << queue_time_us
                   << ", cost: " << watch.get_elapse_time_us() << "(us), total rows: " << total_rows;
+        TEST_SYNC_POINT_CALLBACK("BaseBetaRowsetWriter::_generate_delete_bitmap:finished", this);
         return Status::OK();
     });
 }
@@ -507,7 +523,8 @@ Status BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) 
         _segcompaction_worker->init_mem_tracker(rowset_writer_context);
     }
     if (_context.mow_context != nullptr) {
-        _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor_for_load()->create_token();
+        _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor_for_load()->create_token(
+                _context.load_cancel_status);
     }
     return Status::OK();
 }
@@ -1106,8 +1123,8 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
         rowset_meta->set_segments_overlap(NONOVERLAPPING);
     } else if (!segments_encoded_key_bounds.empty() &&
                is_segment_overlapping(segments_encoded_key_bounds) &&
-               _rowset_meta->is_row_binlog()) {
-        // A row-binlog horizontal merge output can hold the same user key in more than
+               _rowset_meta->is_changelog()) {
+        // A changelog horizontal merge output can hold the same user key in more than
         // one output segment (a forced segment boundary splits a key range), so the
         // segments genuinely overlap. The compaction ctx default is NONOVERLAPPING for
         // the non-quick-merge path, and the branch above only ever downgrades, so upgrade
@@ -1148,7 +1165,7 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
     rowset_meta->set_index_disk_size(total_index_size + _total_index_size);
     bool aggregate_key_bounds = config::enable_aggregate_non_mow_key_bounds &&
                                 !_context.enable_unique_key_merge_on_write &&
-                                !_rowset_meta->is_row_binlog();
+                                !_rowset_meta->is_changelog();
     rowset_meta->set_segments_key_bounds(segments_encoded_key_bounds, aggregate_key_bounds);
     // TODO write zonemap to meta
     rowset_meta->set_empty((num_rows_written + _num_rows_written) == 0);
@@ -1255,9 +1272,11 @@ Status BetaRowsetWriter::create_segment_writer_for_segcompaction(
     writer_options.write_type = DataWriteType::TYPE_COMPACTION;
     writer_options.max_rows_per_segment = _context.max_rows_per_segment;
 
-    *writer = std::make_unique<segment_v2::VerticalSegmentWriter>(
-            file_writer.get(), _num_segcompacted, _context.tablet_schema, _context.tablet,
-            _context.data_dir, writer_options, index_file_writer.get());
+    RETURN_IF_CATCH_EXCEPTION({
+        *writer = std::make_unique<segment_v2::VerticalSegmentWriter>(
+                file_writer.get(), _num_segcompacted, _context.tablet_schema, _context.tablet,
+                _context.data_dir, writer_options, index_file_writer.get());
+    });
     if (auto& seg_writer = _segcompaction_worker->get_file_writer();
         seg_writer != nullptr && seg_writer->state() != io::FileWriter::State::CLOSED) {
         RETURN_IF_ERROR(_segcompaction_worker->get_file_writer()->close());

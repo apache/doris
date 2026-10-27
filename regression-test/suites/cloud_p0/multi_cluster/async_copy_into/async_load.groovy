@@ -18,6 +18,7 @@
 import groovy.json.JsonOutput
 
 suite("async_load") {
+    withRestoredMultiClusterState(false) {
     def externalStageName = "regression_test_tpch"
     def prefix = "tpch/sf1"
 
@@ -51,7 +52,7 @@ suite("async_load") {
             }
         }
     }
-    wait_cluster_change()
+    sleep(20000)
 
     List<List<Object>> result  = sql "show clusters"
     assertTrue(result.size() == 0);
@@ -60,7 +61,7 @@ suite("async_load") {
                      "regression_cluster_name0", "regression_cluster_id0");
     add_cluster.call(beUniqueIdList[1], ipList[1], hbPortList[1],
                      "regression_cluster_name1", "regression_cluster_id1");
-    wait_cluster_change()
+    sleep(20000)
 
     result  = sql "show clusters"
     assertEquals(result.size(), 2);
@@ -97,7 +98,7 @@ suite("async_load") {
         'prefix' = 'regression' ,
         'ak' = '${getS3AK()}' ,
         'sk' = '${getS3SK()}' ,
-        'provider' = '${getProvider()}',
+        'provider' = '${getS3Provider()}',
         'access_type' = 'aksk',
         'default.file.column_separator' = "|" 
         );
@@ -109,7 +110,7 @@ suite("async_load") {
         assertTrue(result.size() == 1)
         assertTrue(result[0].size() == 8)
         //assertTrue(result[0][1].equals("FINISHED"))
-        id = result[0][0]
+        def id = result[0][0]
         while(true) {
             result = sql "show copy where id = \'${id}\'"
             logger.info("copy result: " + result)
@@ -272,4 +273,5 @@ suite("async_load") {
 
     assertTrue(before_cluster0_query_scan_rows == after_cluster0_query_scan_rows)
     assertTrue(before_cluster1_query_scan_rows < after_cluster1_query_scan_rows)
+    }
 }

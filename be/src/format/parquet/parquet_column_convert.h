@@ -43,6 +43,25 @@
 namespace doris::parquet {
 namespace detail {
 
+struct EpochSecondsAndMicros {
+    int64_t seconds;
+    uint32_t microseconds;
+};
+
+inline EpochSecondsAndMicros split_epoch_time(int64_t timestamp, int64_t units_per_second,
+                                              int64_t nanos_per_unit) {
+    int64_t seconds = timestamp / units_per_second;
+    int64_t subsecond = timestamp % units_per_second;
+    // C++ division truncates toward zero. Normalize to floor division so the fractional part is
+    // always non-negative for timestamps before the Unix epoch.
+    if (subsecond < 0) {
+        subsecond += units_per_second;
+        --seconds;
+    }
+    return {.seconds = seconds,
+            .microseconds = static_cast<uint32_t>(subsecond * nanos_per_unit / 1000)};
+}
+
 inline bool try_split_local_time(int64_t local_time, uint16_t* year, uint8_t* month, uint8_t* day,
                                  uint8_t* hour, uint8_t* minute, uint8_t* second) {
     static const libdivide::divider<int64_t> fast_div_86400(86400);
@@ -314,7 +333,7 @@ public:
     static std::unique_ptr<PhysicalToLogicalConverter> get_converter(
             const FieldSchema* field_schema, DataTypePtr src_logical_type,
             const DataTypePtr& dst_logical_type, const cctz::time_zone* ctz,
-            bool is_dict_filter = false);
+            bool is_dict_filter = false, bool preserve_binary_uuid = false);
 
     static bool is_parquet_native_type(PrimitiveType type);
 
@@ -366,14 +385,16 @@ public:
                        get_appended_null_map_start(src_physical_col, src_new_rows));
 
         dst_logical_col = IColumn::mutate(std::move(dst_logical_col));
-        const size_t dst_old_rows = get_mutable_inner_column_size(dst_logical_col);
         const size_t dst_old_null_map_size =
                 get_null_map_size_or_inner_column_size(dst_logical_col);
+        const size_t rows_to_convert = get_mutable_inner_column_size(src_logical_column);
+        // Logical converters append all source rows and may mark failed casts as NULL (e.g.
+        // "xx" -> BIGINT). Copy source nulls first so those writes have allocated entries and
+        // are not overwritten after conversion. Keep any existing destination prefix intact.
+        align_null_map(src_logical_column, dst_logical_col, dst_old_null_map_size, rows_to_convert,
+                       get_appended_null_map_start(src_logical_column, rows_to_convert));
         auto converted_column = dst_logical_col->assert_mutable();
         RETURN_IF_ERROR(_logical_converter->convert(src_logical_column, converted_column));
-        const size_t dst_new_rows = get_mutable_inner_column_size(dst_logical_col) - dst_old_rows;
-        align_null_map(src_logical_column, dst_logical_col, dst_old_null_map_size, dst_new_rows,
-                       get_appended_null_map_start(src_logical_column, dst_new_rows));
         return Status::OK();
     }
 
@@ -833,18 +854,18 @@ struct Int64ToTimestamp : public PhysicalToLogicalConverter {
             int64_t x = src_data[i];
             auto& num = data[start_idx + i];
             auto& value = reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(num);
-            const int64_t epoch_seconds = x / _convert_params->second_mask;
+            const auto epoch_time = detail::split_epoch_time(x, _convert_params->second_mask,
+                                                             _convert_params->scale_to_nano_factor);
             if (_convert_params->is_fixed_offset) {
                 if (!detail::try_convert_timestamp_with_fixed_offset(
-                            value, epoch_seconds, _convert_params->fixed_offset_seconds)) {
-                    value.from_unixtime(epoch_seconds, *_convert_params->ctz);
+                            value, epoch_time.seconds, _convert_params->fixed_offset_seconds)) {
+                    value.from_unixtime(epoch_time.seconds, *_convert_params->ctz);
                 }
-            } else if (!detail::try_convert_timestamp_with_lookup(value, epoch_seconds,
+            } else if (!detail::try_convert_timestamp_with_lookup(value, epoch_time.seconds,
                                                                   *_convert_params->ctz)) {
-                value.from_unixtime(epoch_seconds, *_convert_params->ctz);
+                value.from_unixtime(epoch_time.seconds, *_convert_params->ctz);
             }
-            value.set_microsecond((x % _convert_params->second_mask) *
-                                  (_convert_params->scale_to_nano_factor / 1000));
+            value.set_microsecond(epoch_time.microseconds);
         }
         return Status::OK();
     }
@@ -866,9 +887,10 @@ struct Int64ToTimestampTz : public PhysicalToLogicalConverter {
         for (int i = 0; i < rows; i++) {
             int64_t x = src_data[i];
             auto& tz = dest_data[start_idx + i];
-            tz.from_unixtime(x / _convert_params->second_mask, UTC);
-            tz.set_microsecond((x % _convert_params->second_mask) *
-                               (_convert_params->scale_to_nano_factor / 1000));
+            const auto epoch_time = detail::split_epoch_time(x, _convert_params->second_mask,
+                                                             _convert_params->scale_to_nano_factor);
+            tz.from_unixtime(epoch_time.seconds, UTC);
+            tz.set_microsecond(epoch_time.microseconds);
         }
         return Status::OK();
     }
@@ -891,18 +913,18 @@ struct Int96toTimestamp : public PhysicalToLogicalConverter {
             auto& dst_value =
                     reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(data[start_idx + i]);
 
-            int64_t timestamp_with_micros = src_cell_data.to_timestamp_micros();
-            const int64_t epoch_seconds = timestamp_with_micros / 1000000;
+            const auto epoch_time =
+                    detail::split_epoch_time(src_cell_data.to_timestamp_micros(), 1000000, 1000);
             if (_convert_params->is_fixed_offset) {
                 if (!detail::try_convert_timestamp_with_fixed_offset(
-                            dst_value, epoch_seconds, _convert_params->fixed_offset_seconds)) {
-                    dst_value.from_unixtime(epoch_seconds, *_convert_params->ctz);
+                            dst_value, epoch_time.seconds, _convert_params->fixed_offset_seconds)) {
+                    dst_value.from_unixtime(epoch_time.seconds, *_convert_params->ctz);
                 }
-            } else if (!detail::try_convert_timestamp_with_lookup(dst_value, epoch_seconds,
+            } else if (!detail::try_convert_timestamp_with_lookup(dst_value, epoch_time.seconds,
                                                                   *_convert_params->ctz)) {
-                dst_value.from_unixtime(epoch_seconds, *_convert_params->ctz);
+                dst_value.from_unixtime(epoch_time.seconds, *_convert_params->ctz);
             }
-            dst_value.set_microsecond(timestamp_with_micros % 1000000);
+            dst_value.set_microsecond(epoch_time.microseconds);
         }
         return Status::OK();
     }
@@ -923,10 +945,11 @@ struct Int96toTimestampTz : public PhysicalToLogicalConverter {
 
         for (int i = 0; i < rows; i++) {
             ParquetInt96 src_cell_data = ParquetInt96_data[i];
-            int64_t timestamp_with_micros = src_cell_data.to_timestamp_micros();
             auto& tz = data[start_idx + i];
-            tz.from_unixtime(timestamp_with_micros / 1000000, UTC);
-            tz.set_microsecond(timestamp_with_micros % 1000000);
+            const auto epoch_time =
+                    detail::split_epoch_time(src_cell_data.to_timestamp_micros(), 1000000, 1000);
+            tz.from_unixtime(epoch_time.seconds, UTC);
+            tz.set_microsecond(epoch_time.microseconds);
         }
         return Status::OK();
     }

@@ -66,6 +66,7 @@ import org.apache.iceberg.PartitionSpecParser;
 import org.apache.iceberg.PositionDeletesScanTask;
 import org.apache.iceberg.ScanTask;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.SchemaAwareDataTableScan;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SplittableScanTask;
@@ -78,6 +79,7 @@ import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.InclusiveMetricsEvaluator;
+import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.expressions.ManifestEvaluator;
 import org.apache.iceberg.expressions.Projections;
 import org.apache.iceberg.expressions.ResidualEvaluator;
@@ -91,8 +93,8 @@ import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.types.Types.NestedField;
+import org.apache.iceberg.util.DateTimeUtil;
 import org.apache.iceberg.util.ScanTaskUtil;
-import org.apache.iceberg.util.SerializationUtil;
 import org.apache.iceberg.util.TableScanUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -119,6 +121,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
+import java.util.stream.Collectors;
 
 /**
  * {@link ConnectorScanPlanProvider} for Iceberg tables, mirroring the paimon connector's
@@ -152,6 +155,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     private static final String ENABLE_FILE_SCANNER_V2 = "enable_file_scanner_v2";
     // FIX-M3 streaming (file-count) batch gate — keys byte-identical to fe-core SessionVariable.
     private static final String ENABLE_EXTERNAL_TABLE_BATCH_MODE = "enable_external_table_batch_mode";
+    static final String SCAN_REUSE_NAMESPACE = "iceberg.scan-reuse";
     private static final String NUM_FILES_IN_BATCH_MODE = "num_files_in_batch_mode";
     private static final String IGNORE_ICEBERG_DANGLING_DELETE = "ignore_iceberg_dangling_delete";
     private static final long DEFAULT_NUM_FILES_IN_BATCH_MODE = 1024L;
@@ -432,15 +436,50 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      */
     @Override
     public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
-        IcebergTableHandle handle = (IcebergTableHandle) request.getTableHandle();
+        IcebergTableHandle icebergHandle = (IcebergTableHandle) request.getTableHandle();
         try {
-            return planScanInternal(session, handle, request.getColumns(),
-                    request.getFilter(), request.isCountPushdown());
+            // The reuse key deliberately omits projected columns because they do not change Iceberg split
+            // planning. Reader compatibility still depends on whether metadata columns are requested, so
+            // validate every call before a cached range list can be returned.
+            validateMetadataColumnReader(session, request.getColumns());
+            if (session == null || !session.isExternalScanTaskReuseEnabled()) {
+                return rejectRowIdScanWithoutPartitionData(request.getColumns(), planScanInternal(session,
+                        icebergHandle, request.getColumns(), request.getFilter(), request.isCountPushdown()));
+            }
+            if (icebergHandle.isSystemTable()) {
+                // System tables read connector metadata through their own readers; never reuse them.
+                return planScanInternal(session, icebergHandle, request.getColumns(),
+                        request.getFilter(), request.isCountPushdown());
+            }
+            // Statement-scoped reuse: within one statement the identical scan (same table, same
+            // snapshot/ref/schema pin, same filter, same COUNT pushdown) plans once and every
+            // duplicated relation shares the result. The scope is NONE for offline planning and tests,
+            // in which case the loader runs on every call. Session variables are constant within a
+            // statement and deliberately absent from the key.
+            //
+            // The ranges are memoized in a map HUNG INSIDE the statement scope rather than cached
+            // directly: planScanInternal re-enters the scope itself (sharedTable and the v3
+            // rewritableDeleteSupply are scope-backed), and a loader of the scope's
+            // ConcurrentHashMap must not touch that map (same-bin re-entry throws
+            // IllegalStateException("Recursive update"); a mid-computation resize silently drops the
+            // outer entry). The scope loader only constructs the memo map; planning then runs on that
+            // separate map, so every scope call from planScanInternal is top-level again. The memo
+            // key is catalog-scoped, which also isolates same-named tables across a cross-catalog
+            // statement. Every scan of a statement is planned within one plan, so the memo is dropped
+            // when planning ends.
+            String memoKey = SCAN_REUSE_NAMESPACE + ":" + session.getCatalogId() + ":" + session.getQueryId();
+            Map<IcebergScanReuseKey, List<ConnectorScanRange>> scanReuse = session.getStatementScope()
+                    .computeIfAbsentForPlanning(memoKey, () -> new ConcurrentHashMap<>());
+            IcebergScanReuseKey reuseKey = new IcebergScanReuseKey(icebergHandle, request);
+            return rejectRowIdScanWithoutPartitionData(request.getColumns(), scanReuse.computeIfAbsent(reuseKey,
+                    k -> Collections.unmodifiableList(planScanInternal(session,
+                            icebergHandle, request.getColumns(), request.getFilter(),
+                            request.isCountPushdown()))));
         } catch (RuntimeException e) {
             // Normal data scans and native position_deletes run on File Scanner V2. Keep the serialized JNI
             // system-table route untouched because its deferred reads belong to the V1 scanner contract.
-            if (!handle.isSystemTable() || isPositionDeletesSysTable(handle)) {
-                throw IcebergExceptionUtils.wrapMetadataReadFailure(handle, e);
+            if (!icebergHandle.isSystemTable() || isPositionDeletesSysTable(icebergHandle)) {
+                throw IcebergExceptionUtils.wrapMetadataReadFailure(icebergHandle, e);
             }
             throw e;
         }
@@ -493,7 +532,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         long threshold = sessionLong(session, NUM_FILES_IN_BATCH_MODE, DEFAULT_NUM_FILES_IN_BATCH_MODE);
         long fileCount = 0;
         try (CloseableIterable<ManifestFile> matching = getMatchingManifest(
-                snapshot.dataManifests(table.io()), table.specs(), scan.filter())) {
+                snapshot.dataManifests(table.io()),
+                SchemaAwareDataTableScan.specsFor(scan), scan.filter())) {
             for (ManifestFile manifest : matching) {
                 // Manifest metadata counts (cheap — no per-file read). Null guard for ancient manifests that
                 // omit the counts (legacy summed them unguarded; 0 is the safe under-count, never over-streams).
@@ -533,8 +573,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * method must independently preserve an explicitly empty pinned snapshot.
      */
     @Override
-    public ConnectorSplitSource streamSplits(ConnectorSession session, ConnectorTableHandle handle,
-            List<ConnectorColumnHandle> columns, Optional<ConnectorExpression> filter, long limit) {
+    public ConnectorSplitSource streamSplits(ConnectorSession session, ConnectorScanRequest request) {
+        ConnectorTableHandle handle = request.getTableHandle();
+        List<ConnectorColumnHandle> columns = request.getColumns();
+        Optional<ConnectorExpression> filter = request.getFilter();
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         validateMetadataColumnReader(session, columns);
         if (iceHandle.isResolvedEmptySnapshot()) {
@@ -543,11 +585,13 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             return emptySplitSource();
         }
         Table table = resolveTable(session, iceHandle);
+        Schema scanSchema = pinnedSchema(table, iceHandle);
         TableScan scan = buildScan(table, iceHandle, filter, session);
         int formatVersion = getFormatVersion(table);
-        List<String> orderedPartitionKeys = IcebergPartitionUtils.getIdentityPartitionColumns(table);
+        List<String> orderedPartitionKeys =
+                IcebergPartitionUtils.getIdentityPartitionColumns(table, scanSchema);
         ZoneId zone = resolveSessionZone(session);
-        boolean partitioned = table.spec().isPartitioned();
+        boolean partitioned = IcebergPartitionUtils.hasPartitionedSpec(table);
         Map<String, String> vendedToken = context != null
                 ? extractVendedToken(table, restVendedCredentialsEnabled()) : Collections.emptyMap();
         UnaryOperator<String> uriNormalizer = newUriNormalizer(vendedToken);
@@ -557,9 +601,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         try {
             CloseableIterable<FileScanTask> tasks = streamingFileScanTasks(
                     scan, session, table, filter, sliceSize);
-            return new IcebergStreamingSplitSource(tasks, table, formatVersion, partitioned,
+            return new IcebergStreamingSplitSource(tasks, table, scanSchema, formatVersion, partitioned,
                     orderedPartitionKeys, zone, uriNormalizer, sliceSize,
-                    iceHandle.getRewriteFileScope(), iceHandle);
+                    iceHandle.getRewriteFileScope(), iceHandle, requiresRowId(columns));
         } catch (RuntimeException e) {
             throw IcebergExceptionUtils.wrapMetadataReadFailure(iceHandle, e);
         }
@@ -616,6 +660,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     private final class IcebergStreamingSplitSource implements ConnectorSplitSource {
         private final CloseableIterable<FileScanTask> tasks;
         private final Table table;
+        private final Schema scanSchema;
         private final int formatVersion;
         private final boolean partitioned;
         private final List<String> orderedPartitionKeys;
@@ -624,6 +669,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         private final long sliceSize;
         private final Set<String> rewriteScope;
         private final IcebergTableHandle handle;
+        private final boolean requiresRowId;
         // Lazily opened on first hasNext() so the ctor never throws — iceberg's ParallelIterable submits
         // manifest readers in tasks.iterator(), which can fail; opening it eagerly here would throw out of
         // streamSplits() BEFORE the source is returned, leaking the planFiles() iterable (the engine pump's
@@ -636,12 +682,14 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // 1-entry cache stays O(1) memory (never accumulates), preserving the streaming path's OOM safety.
         private final PerFileScratch scratch = new PerFileScratch();
 
-        IcebergStreamingSplitSource(CloseableIterable<FileScanTask> tasks, Table table, int formatVersion,
+        IcebergStreamingSplitSource(CloseableIterable<FileScanTask> tasks, Table table, Schema scanSchema,
+                int formatVersion,
                 boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
                 UnaryOperator<String> uriNormalizer, long sliceSize, Set<String> rewriteScope,
-                IcebergTableHandle handle) {
+                IcebergTableHandle handle, boolean requiresRowId) {
             this.tasks = tasks;
             this.table = table;
+            this.scanSchema = scanSchema;
             this.formatVersion = formatVersion;
             this.partitioned = partitioned;
             this.orderedPartitionKeys = orderedPartitionKeys;
@@ -650,6 +698,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             this.sliceSize = sliceSize;
             this.rewriteScope = rewriteScope;
             this.handle = handle;
+            this.requiresRowId = requiresRowId;
         }
 
         @Override
@@ -662,9 +711,14 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                     iterator = tasks.iterator();
                 }
                 while (iterator.hasNext()) {
-                    IcebergScanRange range = buildRangeForTask(iterator.next(), table, formatVersion, partitioned,
-                            orderedPartitionKeys, zone, uriNormalizer, sliceSize, rewriteScope, null, scratch);
+                    IcebergScanRange range = buildRangeForTask(
+                            iterator.next(), table, scanSchema, formatVersion, partitioned,
+                            orderedPartitionKeys, zone, uriNormalizer, sliceSize, rewriteScope, null,
+                            scratch);
                     if (range != null) {
+                        if (requiresRowId) {
+                            rejectRowIdRangeWithoutPartitionData(range);
+                        }
                         buffered = range;
                         return true;
                     }
@@ -705,7 +759,6 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             Optional<ConnectorExpression> filter,
             boolean countPushdown) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
-        validateMetadataColumnReader(session, columns);
         if (iceHandle.isResolvedEmptySnapshot() && !isSnapshotIndependentSystemTable(iceHandle)) {
             // Iceberg has no snapshot id that can represent "before the first commit". Returning no ranges is
             // the read-side MVCC fence; otherwise a refreshed Table would turn -1 into "latest" and expose a
@@ -720,6 +773,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             return planSystemTableScan(iceHandle, columns, filter, session);
         }
         Table table = resolveTable(session, iceHandle);
+        Schema scanSchema = pinnedSchema(table, iceHandle);
         TableScan scan = buildScan(table, iceHandle, filter, session);
         // FIX-SCAN-METRICS: attach a per-scan metrics reporter so the iceberg SDK's ScanReport (planning time,
         // data/delete files, scanned vs skipped manifests) is captured into the query profile — restores the
@@ -733,9 +787,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         }
 
         int formatVersion = getFormatVersion(table);
-        List<String> orderedPartitionKeys = IcebergPartitionUtils.getIdentityPartitionColumns(table);
+        List<String> orderedPartitionKeys =
+                IcebergPartitionUtils.getIdentityPartitionColumns(table, scanSchema);
         ZoneId zone = resolveSessionZone(session);
-        boolean partitioned = table.spec().isPartitioned();
+        boolean partitioned = IcebergPartitionUtils.hasPartitionedSpec(table);
 
         // Vended credentials (T09): extract the per-table REST vended token ONCE per scan (gated on the catalog
         // flag iceberg.rest.vended-credentials-enabled, mirroring legacy IcebergVendedCredentialsProvider), then
@@ -756,8 +811,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // A data-row predicate can leave partially matching files, whose file-level recordCount is only an
         // upper bound. Keep those scans on the normal path even if the engine supplies the count signal.
         if (countPushdown && filter.isEmpty()) {
-            Optional<List<ConnectorScanRange>> countRanges = planCountPushdown(table, scan, formatVersion,
-                    partitioned, orderedPartitionKeys, zone, uriNormalizer, session, filter);
+            Optional<List<ConnectorScanRange>> countRanges = planCountPushdown(
+                    table, scan, scanSchema, formatVersion, partitioned, orderedPartitionKeys, zone,
+                    uriNormalizer, session, filter);
             if (countRanges.isPresent()) {
                 return countRanges.get();
             }
@@ -796,9 +852,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             for (FileScanTask task : plan.tasks) {
                 // Shared per-task mapping (rewrite-scope skip + M-2 weight denominator + v3 stash side-effect),
                 // identical to the streaming path's IcebergStreamingSplitSource so both produce the same ranges.
-                IcebergScanRange range = buildRangeForTask(task, table, formatVersion, partitioned,
-                        orderedPartitionKeys, zone, uriNormalizer, plan.targetSplitSize, rewriteScope,
-                        rewritableDeleteSupply, scratch);
+                IcebergScanRange range = buildRangeForTask(
+                        task, table, scanSchema, formatVersion, partitioned, orderedPartitionKeys, zone,
+                        uriNormalizer, plan.targetSplitSize, rewriteScope, rewritableDeleteSupply,
+                        scratch);
                 if (range != null) {
                     ranges.add(range);
                 }
@@ -854,8 +911,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * side-effect. The streaming path passes {@code rewritableDeleteSupply=null} (v3 is gated onto the eager
      * path — see {@link #streamingSplitEstimate}), so the accumulation is inert there.
      */
-    private IcebergScanRange buildRangeForTask(FileScanTask task, Table table, int formatVersion,
-            boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
+    private IcebergScanRange buildRangeForTask(FileScanTask task, Table table, Schema scanSchema,
+            int formatVersion, boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
             UnaryOperator<String> uriNormalizer, long targetSplitSize, Set<String> rewriteScope,
             Map<String, List<TIcebergDeleteFileDesc>> rewritableDeleteSupply, PerFileScratch scratch) {
         DataFile dataFile = task.file();
@@ -869,8 +926,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         boolean firstSliceOfFile = scratch.file != dataFile;
         // targetSplitSize is the scan-level weight denominator (M-2): each data-file range carries a
         // size-proportional BE scheduling weight (selfSplitWeight computed inside buildRange).
-        IcebergScanRange range = buildRange(table, dataFile, task, formatVersion, partitioned,
-                orderedPartitionKeys, zone, uriNormalizer, -1, targetSplitSize, scratch);
+        IcebergScanRange range = buildRange(
+                table, scanSchema, dataFile, task, formatVersion, partitioned, orderedPartitionKeys,
+                zone, uriNormalizer, -1, targetSplitSize, scratch);
         if (rewritableDeleteSupply != null && firstSliceOfFile) {
             // Record this data file's non-equality delete supply keyed on its RAW path (the exact string the BE
             // matches a rewritable set against). An empty list (no old non-eq deletes) contributes nothing.
@@ -888,7 +946,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * resolve the metadata table ({@link #resolveSysTable}), apply the time-travel pin + predicate through the
      * shared {@link #buildScan} (legacy {@code createTableScan} honors {@code useSnapshot}/{@code useRef} on the
      * metadata-table scan too — iceberg system tables are legal time-travel targets), then serialize each
-     * metadata {@code FileScanTask} ({@code SerializationUtil.serializeToBase64}) into a JNI split carrying ONLY
+     * metadata {@code FileScanTask} into a rolling-upgrade-compatible JNI split carrying ONLY
      * {@code serialized_split} + {@code FORMAT_JNI} (see {@link IcebergScanRange#populateRangeParams}). COUNT(*)
      * pushdown does not apply (a metadata table has no snapshot-summary count). The serialized {@code
      * FileScanTask} bytes are consumed verbatim by BE's {@code IcebergSysTableJniScanner}
@@ -924,7 +982,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             return doPlanPositionDeletesSystemTableScan(handle, metadataTable, columns, filter, session);
         }
         TableScan scan = buildScan(metadataTable, handle, filter, session);
-        // Project the metadata-table scan to ONLY the requested columns, in the SAME order BE lists them in
+        // Project the metadata-table scan to the requested columns first, in the SAME order BE lists them in
         // required_fields (== the scan slot order: buildColumnHandles iterates desc.getSlots(), BE builds
         // required_fields from the matching file_slot_descs). This mirrors legacy IcebergScanNode
         // .getSystemTableProjectedSchema() + scan.project(...). Two reasons the projection is mandatory AND must
@@ -938,7 +996,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         //      the ids through a Set and re-emit them in TABLE-schema order (TypeUtil.project), breaking that
         //      contract; scan.project(orderedSchema) preserves the requested order, so we build the schema by
         //      hand from the requested columns.
-        List<String> projectedColumns = requestedLowerNames(columns);
+        List<String> projectedColumns = requestedColumnNames(columns);
         if (!projectedColumns.isEmpty()) {
             Schema metadataSchema = metadataTable.schema();
             List<NestedField> projectedFields = new ArrayList<>(projectedColumns.size());
@@ -953,6 +1011,13 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                     projectedFields.add(field);
                 }
             }
+            // Iceberg returns split_offsets only when the last offset is smaller than file_size_in_bytes.
+            // Without that dependency, even valid offsets such as [4, 2048] are hidden as null. Append it
+            // after the requested columns so BE's positional reads keep their original order.
+            if (seenFieldIds.contains(DataFile.SPLIT_OFFSETS.fieldId())
+                    && seenFieldIds.add(DataFile.FILE_SIZE.fieldId())) {
+                projectedFields.add(metadataSchema.findField(DataFile.FILE_SIZE.fieldId()));
+            }
             scan = scan.project(new Schema(projectedFields));
         }
         List<ConnectorScanRange> ranges = new ArrayList<>();
@@ -960,7 +1025,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             for (FileScanTask task : tasks) {
                 ranges.add(new IcebergScanRange.Builder()
                         .path(SYS_TABLE_DUMMY_PATH)
-                        .serializedSplit(SerializationUtil.serializeToBase64(task))
+                        .serializedSplit(IcebergSystemTableSerialization.serializeToBase64(task))
                         .build());
             }
         } catch (IOException e) {
@@ -1013,8 +1078,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             }
         }
         if (filter.isPresent()) {
-            List<Expression> predicates = new IcebergPredicateConverter(
-                    metadataTable.schema(), resolveSessionZone(session)).convert(filter.get());
+            List<Expression> predicates = IcebergPredicateConverter.forTable(
+                    metadataTable, metadataTable.schema(), resolveSessionZone(session),
+                    IcebergPredicateConverter.Mode.SCAN).convert(filter.get());
             for (Expression predicate : predicates) {
                 scan = scan.filter(predicate);
             }
@@ -1186,7 +1252,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
 
     /** Whether the query projects the {@code partition} column (legacy read the tuple's slots). */
     private static boolean isPositionDeletesPartitionColumnRequested(List<ConnectorColumnHandle> columns) {
-        return requestedLowerNames(columns).stream().anyMatch("partition"::equalsIgnoreCase);
+        return requestedColumnNames(columns).stream().anyMatch("partition"::equalsIgnoreCase);
     }
 
     /**
@@ -1201,7 +1267,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      */
     private TableScan buildScan(Table table, IcebergTableHandle handle, Optional<ConnectorExpression> filter,
             ConnectorSession session) {
-        TableScan scan = table.newScan();
+        Schema selectedSchema = handle.isSystemTable() ? table.schema() : pinnedSchema(table, handle);
+        // Keep the SDK's native Table.newScan implementation unless an actual historical schema needs the
+        // metadata-only snapshot fix; catalog-specific Table wrappers may provide their own scan behavior.
+        TableScan scan = !handle.isSystemTable() && !selectedSchema.sameSchema(table.schema())
+                ? SchemaAwareDataTableScan.newScan(table) : table.newScan();
         // MVCC / time-travel pin: a tag/branch pins by REF (so a later commit to the ref is honored, legacy
         // parity), else by snapshot id (legacy createTableScan: useRef when info.getRef()!=null else useSnapshot).
         if (handle.hasSnapshotPin() && supportsSnapshotSelection(handle)) {
@@ -1211,12 +1281,19 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 scan = scan.useSnapshot(handle.getSnapshotId());
             }
         }
+        // A latest MVCC pin may pair the current schema with the preceding snapshot after a schema-only commit.
+        // Preserve that logical schema explicitly so cache metrics use new field IDs and their initial defaults.
+        if (!handle.isSystemTable() && !scan.schema().sameSchema(selectedSchema)) {
+            scan = scan.project(selectedSchema);
+        }
         if (filter.isPresent()) {
             // Historical predicates must resolve names to the field ids of the generation used for binding;
             // using the current schema drops renamed predicates or can bind a later reused name incorrectly.
-            Schema predicateSchema = handle.hasSnapshotPin() ? pinnedSchema(table, handle) : table.schema();
+            Schema predicateSchema = handle.isSystemTable() && handle.hasSnapshotPin()
+                    ? pinnedSchema(table, handle) : selectedSchema;
             List<Expression> predicates =
-                    new IcebergPredicateConverter(predicateSchema, resolveSessionZone(session)).convert(filter.get());
+                    IcebergPredicateConverter.forTable(table, predicateSchema, resolveSessionZone(session),
+                            IcebergPredicateConverter.Mode.SCAN).convert(filter.get());
             for (Expression predicate : predicates) {
                 scan = scan.filter(predicate);
             }
@@ -1291,7 +1368,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * perform a normal scan.
      */
     private Optional<List<ConnectorScanRange>> planCountPushdown(Table table, TableScan scan,
-            int formatVersion, boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
+            Schema scanSchema, int formatVersion, boolean partitioned, List<String> orderedPartitionKeys,
+            ZoneId zone,
             UnaryOperator<String> uriNormalizer, ConnectorSession session, Optional<ConnectorExpression> filter) {
         Snapshot snapshot = scan.snapshot();
         if (snapshot == null) {
@@ -1320,15 +1398,16 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             if (!visibleRows.isPresent()) {
                 return Optional.empty();
             }
-            return planManifestCountRange(table, scan, visibleRows.getAsLong(), formatVersion,
-                    partitioned, orderedPartitionKeys, zone, uriNormalizer, session, filter,
-                    netPositionDeletes);
+            return planManifestCountRange(
+                    table, scan, scanSchema, visibleRows.getAsLong(), formatVersion, partitioned,
+                    orderedPartitionKeys, zone, uriNormalizer, session, filter, netPositionDeletes);
         }
 
         // Older manifest lists may omit aggregate counters. Preserve correctness by falling back to the
         // bounded per-file enumeration instead of trusting snapshot summary metadata.
-        return planCountPushdownFromFileTasks(table, scan, formatVersion, partitioned,
-                orderedPartitionKeys, zone, uriNormalizer, session, filter, netPositionDeletes,
+        return planCountPushdownFromFileTasks(
+                table, scan, scanSchema, formatVersion, partitioned, orderedPartitionKeys, zone,
+                uriNormalizer, session, filter, netPositionDeletes,
                 netPositionDeletes ? positionDeleteRows.getAsLong() : 0);
     }
 
@@ -1364,33 +1443,37 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                         netPositionDeletes ? positionDeleteRows.getAsLong() : 0).isPresent();
     }
 
-    private Optional<List<ConnectorScanRange>> planManifestCountRange(Table table, TableScan scan, long exactCount,
-            int formatVersion, boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
-            UnaryOperator<String> uriNormalizer, ConnectorSession session, Optional<ConnectorExpression> filter,
-            boolean netPositionDeletes) {
+    private Optional<List<ConnectorScanRange>> planManifestCountRange(
+            Table table, TableScan scan, Schema scanSchema, long exactCount, int formatVersion,
+            boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
+            UnaryOperator<String> uriNormalizer, ConnectorSession session,
+            Optional<ConnectorExpression> filter, boolean netPositionDeletes) {
         if (!isManifestCacheEnabled()) {
-            return buildManifestCountRange(table, scan.planFiles(), exactCount, formatVersion, partitioned,
+            return buildManifestCountRange(
+                    table, scanSchema, scan.planFiles(), exactCount, formatVersion, partitioned,
                     orderedPartitionKeys, zone, uriNormalizer, netPositionDeletes);
         }
         String statsQueryId = session != null ? session.getQueryId() : null;
         try {
-            return buildManifestCountRange(table,
-                    cacheBackedFileScanTasks(scan, session, table, filter, statsQueryId), exactCount,
-                    formatVersion, partitioned, orderedPartitionKeys, zone, uriNormalizer, netPositionDeletes);
+            return buildManifestCountRange(
+                    table, scanSchema, cacheBackedFileScanTasks(scan, session, table, filter, statsQueryId),
+                    exactCount, formatVersion, partitioned, orderedPartitionKeys, zone, uriNormalizer,
+                    netPositionDeletes);
         } catch (Exception e) {
             LOG.warn("Iceberg count-pushdown representative plan with manifest cache failed, "
                     + "falling back to SDK scan: {}", e.getMessage(), e);
             manifestCache.recordFailure(statsQueryId);
             // The SDK retry must own a new iterable because a lazy cache failure may leave the first one partial.
-            return buildManifestCountRange(table, scan.planFiles(), exactCount, formatVersion, partitioned,
+            return buildManifestCountRange(
+                    table, scanSchema, scan.planFiles(), exactCount, formatVersion, partitioned,
                     orderedPartitionKeys, zone, uriNormalizer, netPositionDeletes);
         }
     }
 
-    private Optional<List<ConnectorScanRange>> buildManifestCountRange(Table table,
-            CloseableIterable<FileScanTask> tasks, long exactCount, int formatVersion, boolean partitioned,
-            List<String> orderedPartitionKeys, ZoneId zone, UnaryOperator<String> uriNormalizer,
-            boolean netPositionDeletes) {
+    private Optional<List<ConnectorScanRange>> buildManifestCountRange(
+            Table table, Schema scanSchema, CloseableIterable<FileScanTask> tasks, long exactCount,
+            int formatVersion, boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
+            UnaryOperator<String> uriNormalizer, boolean netPositionDeletes) {
         try (CloseableIterable<FileScanTask> closeableTasks = tasks) {
             for (FileScanTask task : closeableTasks) {
                 // Data-manifest rows and the separately netted live delete files are authoritative, but retain
@@ -1398,8 +1481,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 if (hasNonIgnorableTaskDeletes(task, netPositionDeletes) || task.file().recordCount() < 0) {
                     return Optional.empty();
                 }
-                return Optional.of(Collections.singletonList(buildRange(table, task.file(), task, formatVersion,
-                        partitioned, orderedPartitionKeys, zone, uriNormalizer, exactCount, -1, null)));
+                return Optional.of(Collections.singletonList(buildRange(
+                        table, scanSchema, task.file(), task, formatVersion, partitioned,
+                        orderedPartitionKeys, zone, uriNormalizer, exactCount, -1, null)));
             }
         } catch (IOException e) {
             throw new RuntimeException("Failed to plan iceberg count-pushdown file, error message is:"
@@ -1408,17 +1492,20 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         return exactCount == 0 ? Optional.of(Collections.emptyList()) : Optional.empty();
     }
 
-    private Optional<List<ConnectorScanRange>> planCountPushdownFromFileTasks(Table table, TableScan scan,
-            int formatVersion, boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
-            UnaryOperator<String> uriNormalizer, ConnectorSession session, Optional<ConnectorExpression> filter,
-            boolean netPositionDeletes, long positionDeleteRows) {
+    private Optional<List<ConnectorScanRange>> planCountPushdownFromFileTasks(
+            Table table, TableScan scan, Schema scanSchema, int formatVersion, boolean partitioned,
+            List<String> orderedPartitionKeys, ZoneId zone, UnaryOperator<String> uriNormalizer,
+            ConnectorSession session, Optional<ConnectorExpression> filter, boolean netPositionDeletes,
+            long positionDeleteRows) {
         if (!isManifestCacheEnabled()) {
-            return accumulateCountPushdownFileTasks(table, scan.planFiles(), formatVersion, partitioned,
+            return accumulateCountPushdownFileTasks(
+                    table, scanSchema, scan.planFiles(), formatVersion, partitioned,
                     orderedPartitionKeys, zone, uriNormalizer, netPositionDeletes, positionDeleteRows);
         }
         String statsQueryId = session != null ? session.getQueryId() : null;
         try {
-            return accumulateCountPushdownFileTasks(table,
+            return accumulateCountPushdownFileTasks(
+                    table, scanSchema,
                     cacheBackedFileScanTasks(scan, session, table, filter, statsQueryId), formatVersion,
                     partitioned, orderedPartitionKeys, zone, uriNormalizer, netPositionDeletes,
                     positionDeleteRows);
@@ -1428,15 +1515,16 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             manifestCache.recordFailure(statsQueryId);
             // The retry owns a fresh accumulator so rows consumed before a lazy cache failure are never counted
             // twice and the SDK fallback remains an exact restart.
-            return accumulateCountPushdownFileTasks(table, scan.planFiles(), formatVersion, partitioned,
+            return accumulateCountPushdownFileTasks(
+                    table, scanSchema, scan.planFiles(), formatVersion, partitioned,
                     orderedPartitionKeys, zone, uriNormalizer, netPositionDeletes, positionDeleteRows);
         }
     }
 
-    private Optional<List<ConnectorScanRange>> accumulateCountPushdownFileTasks(Table table,
-            CloseableIterable<FileScanTask> tasks, int formatVersion, boolean partitioned,
-            List<String> orderedPartitionKeys, ZoneId zone, UnaryOperator<String> uriNormalizer,
-            boolean netPositionDeletes, long positionDeleteRows) {
+    private Optional<List<ConnectorScanRange>> accumulateCountPushdownFileTasks(
+            Table table, Schema scanSchema, CloseableIterable<FileScanTask> tasks, int formatVersion,
+            boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
+            UnaryOperator<String> uriNormalizer, boolean netPositionDeletes, long positionDeleteRows) {
         FileScanTask representative = null;
         long exactCount = 0;
         try (CloseableIterable<FileScanTask> closeableTasks = tasks) {
@@ -1468,9 +1556,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         }
         // targetSplitSize = -1: the count-pushdown collapse emits a single range, so its scheduling weight is
         // irrelevant and PluginDrivenSplit keeps SplitWeight.standard().
-        return Optional.of(Collections.singletonList(buildRange(table, representative.file(), representative,
-                formatVersion, partitioned, orderedPartitionKeys, zone, uriNormalizer,
-                visibleRows.getAsLong(), -1, null)));
+        return Optional.of(Collections.singletonList(buildRange(
+                table, scanSchema, representative.file(), representative, formatVersion, partitioned,
+                orderedPartitionKeys, zone, uriNormalizer, visibleRows.getAsLong(), -1, null)));
     }
 
     private static boolean hasNonIgnorableTaskDeletes(FileScanTask task, boolean netPositionDeletes) {
@@ -1570,7 +1658,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         private DataFile file;
         private Integer partitionSpecId;
         private String partitionDataJson;
+        private String rawPartitionKey;
         private Map<String, String> partitionValues = Collections.emptyMap();
+        // The table's CURRENT spec isPartitioned() — scan-invariant, memoized with the rest so the display
+        // gate (see IcebergScanRange#getScannedPartitionKey) costs one table.spec() per file, not per slice.
+        private boolean countsAsScannedPartition;
         private List<IcebergScanRange.DeleteFile> deleteCarriers = Collections.emptyList();
         private String fileFormat;
         private Long firstRowId;
@@ -1591,13 +1683,15 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * size-proportional {@code selfSplitWeight} are per-slice. A {@code null} scratch (the single
      * count-pushdown range) computes without caching. Byte-identical to the former per-slice recompute.</p>
      */
-    private IcebergScanRange buildRange(Table table, DataFile dataFile, FileScanTask task, int formatVersion,
-            boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
+    private IcebergScanRange buildRange(Table table, Schema scanSchema, DataFile dataFile,
+            FileScanTask task, int formatVersion, boolean partitioned,
+            List<String> orderedPartitionKeys, ZoneId zone,
             UnaryOperator<String> uriNormalizer, long pushDownRowCount, long targetSplitSize,
             PerFileScratch scratch) {
         PerFileScratch file = (scratch != null && scratch.file == dataFile)
                 ? scratch
-                : computePerFileInvariants(table, dataFile, task, formatVersion, partitioned,
+                : computePerFileInvariants(
+                        table, scanSchema, dataFile, task, formatVersion, partitioned,
                         orderedPartitionKeys, zone, uriNormalizer, scratch);
         // M-2 size-proportional weight numerator = this split's byte length + the byte size of every
         // merge-on-read delete file applying to it, mirroring legacy IcebergSplit.selfSplitWeight (ctor sets
@@ -1621,9 +1715,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 .formatVersion(formatVersion)
                 .partitionSpecId(file.partitionSpecId)
                 .partitionDataJson(file.partitionDataJson)
+                .rawPartitionKey(file.rawPartitionKey)
                 .firstRowId(file.firstRowId)
                 .lastUpdatedSequenceNumber(file.lastUpdatedSequenceNumber)
                 .partitionValues(file.partitionValues)
+                .countsAsScannedPartition(file.countsAsScannedPartition)
                 .deleteFiles(file.deleteCarriers)
                 .pushDownRowCount(pushDownRowCount)
                 .selfSplitWeight(selfSplitWeight)
@@ -1639,23 +1735,33 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * so the memoized range is byte-identical to the per-slice recompute. The scratch fields are assigned only
      * after the fail-loud check, so a rejected file never leaves a half-populated scratch.
      */
-    private PerFileScratch computePerFileInvariants(Table table, DataFile dataFile, FileScanTask task,
-            int formatVersion, boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
+    private PerFileScratch computePerFileInvariants(Table table, Schema scanSchema, DataFile dataFile,
+            FileScanTask task, int formatVersion, boolean partitioned,
+            List<String> orderedPartitionKeys, ZoneId zone,
             UnaryOperator<String> uriNormalizer, PerFileScratch scratch) {
         perFileInvariantComputeCount++;
         Integer partitionSpecId = null;
         String partitionDataJson = null;
+        String rawPartitionKey = null;
         Map<String, String> partitionValues = Collections.emptyMap();
         if (partitioned && dataFile.partition() instanceof PartitionData) {
             PartitionData partitionData = (PartitionData) dataFile.partition();
             int specId = dataFile.specId();
             PartitionSpec spec = table.specs().get(specId);
             partitionSpecId = specId;
-            partitionDataJson = IcebergPartitionUtils.getPartitionDataJson(partitionData, spec, zone);
+            try {
+                partitionDataJson = IcebergPartitionUtils.getPartitionDataJson(partitionData, spec, zone);
+            } catch (UnsupportedOperationException e) {
+                // A historical partition field whose source column was dropped has no serializable type. Only
+                // row IDs need the tuple, so the file stays readable and a row-ID scan is rejected per call; the
+                // raw values still count the file's partition in EXPLAIN partition=N/M and sql_block_rule.
+                rawPartitionKey = IcebergPartitionUtils.getRawPartitionKey(partitionData);
+            }
             // Order the identity values as the path_partition_keys list (legacy getOrderedPathPartitionKeys),
             // filtered to keys this file carries — so columns-from-path matches legacy ordering exactly.
             Map<String, String> identityMap =
-                    IcebergPartitionUtils.getIdentityPartitionInfoMap(partitionData, spec, table, zone);
+                    IcebergPartitionUtils.getIdentityPartitionInfoMap(
+                            partitionData, spec, scanSchema, zone);
             Map<String, String> ordered = new LinkedHashMap<>();
             for (String key : orderedPartitionKeys) {
                 if (identityMap.containsKey(key)) {
@@ -1691,7 +1797,12 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         file.file = dataFile;
         file.partitionSpecId = partitionSpecId;
         file.partitionDataJson = partitionDataJson;
+        file.rawPartitionKey = rawPartitionKey;
         file.partitionValues = partitionValues;
+        // Display-only gate (see IcebergScanRange#getScannedPartitionKey): a table whose CURRENT spec is
+        // unpartitioned reports no partitions, so the old-spec partitions its files still carry must not
+        // start showing up in EXPLAIN partition=N/M or in a sql_block_rule partition_num check.
+        file.countsAsScannedPartition = table.spec().isPartitioned();
         file.fileFormat = fileFormat;
         file.firstRowId = firstRowId;
         file.lastUpdatedSequenceNumber = lastUpdatedSequenceNumber;
@@ -1865,7 +1976,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * <ul>
      *   <li>{@code file_format_type=jni} — makes the parent default the per-range format to {@code FORMAT_JNI},
      *       which each native range overrides to parquet/orc in {@code populateRangeParams} (mirrors paimon).</li>
-     *   <li>{@code path_partition_keys} — the lowercased, comma-joined identity partition columns, so FE marks
+     *   <li>{@code path_partition_keys} — the case-preserved, comma-joined identity partition columns, so FE marks
      *       those slots as partition columns and excludes them from the file-decode set; without it BE
      *       double-fills the partition columns (decode-from-file AND append-from-path) and DCHECKs (CI #968880).
      *       Emitted only when the table is partitioned (an empty value would split into a single "" key).</li>
@@ -1942,7 +2053,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // (empty partitionKeys + null schema-dict table). resolveTable still loads the base table here for
         // the credential overlay below (the metadata table shares the base table's FileIO).
         if (!systemTable) {
-            List<String> partitionKeys = IcebergPartitionUtils.getIdentityPartitionColumns(table);
+            List<String> partitionKeys =
+                    IcebergPartitionUtils.getIdentityPartitionColumns(table, scanSchema);
             if (!partitionKeys.isEmpty()) {
                 props.put(ScanNodePropertyKeys.PATH_PARTITION_KEYS, String.join(",", partitionKeys));
             }
@@ -1983,7 +2095,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // pruned-by-requested-columns dict (CI #969249).
         //
         // Row-lineage (format-version >= 3): _row_id / _last_updated_sequence_number are GENERATED BE scan slots
-        // (they reach BE column_names) but are NOT in schema.columns(), so requestedLowerNames — keyed off the
+        // (they reach BE column_names) but are NOT in schema.columns(), so requestedColumnNames — keyed off the
         // iceberg column handles — never carries them. encodeSchemaEvolutionProp(appendRowLineage=true) appends
         // them to the dict root so BE's StructNode children map contains them; else the ParquetReader's
         // unconditional children.at("_row_id") std::out_of_range-SIGABRTs the whole BE.
@@ -2005,7 +2117,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             // every branch so the default and current field type match BE's read.
             if (hasApplicableEqualityDeletes) {
                 List<NestedField> equalityFields = schemaForPotentialEqualityDeletes(
-                        table, scanSchema, applicableEqualityDeleteFieldIds);
+                        table, exactScan.snapshot(), scanSchema, applicableEqualityDeleteFieldIds);
                 dict = IcebergSchemaUtils.encodeEqualitySchemaEvolutionProp(
                         table, equalityFields, appendRowLineage,
                         enableVarbinary, enableTimestampTz);
@@ -2024,7 +2136,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                         enableVarbinary, enableTimestampTz);
             } else {
                 dict = IcebergSchemaUtils.encodeSchemaEvolutionProp(
-                        table, table.schema(), requestedLowerNames(columns),
+                        table, table.schema(), requestedColumnNames(columns),
                         appendRowLineage, enableVarbinary, enableTimestampTz);
             }
             props.put(SCHEMA_EVOLUTION_PROP, dict);
@@ -2062,7 +2174,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             Table metadataTable = MetadataTableUtils.createMetadataTableInstance(
                     table, MetadataTableType.POSITION_DELETES);
             props.put(SCHEMA_EVOLUTION_PROP, IcebergSchemaUtils.encodeSchemaEvolutionProp(
-                    metadataTable, metadataTable.schema(), requestedLowerNames(columns), false,
+                    metadataTable, metadataTable.schema(), requestedColumnNames(columns), false,
                     enableVarbinary, enableTimestampTz));
         }
         // Pushed-predicate EXPLAIN prop (explain gap): serialize the iceberg Expression form of each pushed
@@ -2073,8 +2185,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // IcebergScanNode `if (!pushdownIcebergPredicates.isEmpty())`).
         if (!systemTable && filter.isPresent()) {
             Schema predicateSchema = iceHandle.hasSnapshotPin() ? pinnedSchema(table, iceHandle) : table.schema();
-            List<Expression> pushed = new IcebergPredicateConverter(
-                    predicateSchema, resolveSessionZone(session)).convert(filter.get());
+            List<Expression> pushed = IcebergPredicateConverter.forTable(
+                    table, predicateSchema, resolveSessionZone(session),
+                    IcebergPredicateConverter.Mode.SCAN).convert(filter.get());
             if (!pushed.isEmpty()) {
                 StringBuilder sb = new StringBuilder();
                 for (Expression predicate : pushed) {
@@ -2096,13 +2209,14 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /**
-     * The lowercased names of the requested (pruned) columns — the authoritative Doris scan slots the field-id
+     * The case-preserved names of the requested (pruned) columns — the authoritative Doris scan slots the field-id
      * dictionary keys its {@code -1} entry off (so its top-level names == the BE scan-slot names BY
      * CONSTRUCTION; CI #969249). The names come straight from the {@link IcebergColumnHandle}s
-     * {@code IcebergConnectorMetadata.getColumnHandles} produced (already lowercased). An empty list (count-only
-     * scan / no column handles) makes the dictionary fall back to all top-level columns.
+     * {@code IcebergConnectorMetadata.getColumnHandles} produced, minus the synthesized
+     * {@code _file} / {@code _pos} / hidden row-id columns, which are not in the table schema. An empty list
+     * (count-only scan / no column handles) makes the dictionary fall back to all top-level columns.
      */
-    private static List<String> requestedLowerNames(List<ConnectorColumnHandle> columns) {
+    private static List<String> requestedColumnNames(List<ConnectorColumnHandle> columns) {
         if (columns == null || columns.isEmpty()) {
             return Collections.emptyList();
         }
@@ -2110,7 +2224,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         for (ConnectorColumnHandle column : columns) {
             String name = ((IcebergColumnHandle) column).getName();
             if (!ICEBERG_FILE_PATH_COL.equalsIgnoreCase(name)
-                    && !ICEBERG_ROW_POSITION_COL.equalsIgnoreCase(name)) {
+                    && !ICEBERG_ROW_POSITION_COL.equalsIgnoreCase(name)
+                    && !DORIS_ICEBERG_ROWID_COL.equalsIgnoreCase(name)) {
                 names.add(name);
             }
         }
@@ -2174,29 +2289,27 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * delete manifests does not enumerate data files or byte-split tasks, and retained state is bounded by the
      * number of equality keys rather than the table's entire schema history.
      *
-     * <p>The metadata schema list is searched in reverse chronology up to the selected schema (schema IDs are
-     * identifiers, not a sequence), so the latest definition of each stable field ID wins. Current fields remain
-     * first, allowing a dropped/re-added name to resolve the projected field by name while a live historical
-     * equality key resolves by its stable field ID.</p>
+     * <p>Schema IDs are identifiers, not a sequence: Iceberg reuses an ID when evolution returns to an earlier
+     * schema, so a schema's position in the metadata list does not tell when it was last active, and the list may
+     * also hold schemas committed after a time-travel or branch target. The scan snapshot's parent chain is
+     * therefore searched first, so the definition active on that lineage wins; the whole metadata list, newest
+     * first, is the fallback for schema-only changes and expired ancestors. The selected definition keeps its name
+     * and initial default but takes the relaxations its field has in any retained schema
+     * ({@link #withRetainedRelaxations}): a delete committed after a schema-only promotion or required-to-optional
+     * change follows the relaxed definition even when no snapshot records it. Current fields remain first,
+     * allowing a dropped/re-added name to resolve the projected field by name while a live historical equality key
+     * resolves by its stable field ID.</p>
      */
     @VisibleForTesting
     static List<NestedField> schemaForPotentialEqualityDeletes(
             Table table, TableScan scan, Schema scanSchema) {
         return schemaForPotentialEqualityDeletes(
-                table, scanSchema, applicableEqualityDeleteFieldIds(table, scan));
+                table, scan.snapshot(), scanSchema, applicableEqualityDeleteFieldIds(table, scan));
     }
 
-    private static List<NestedField> schemaForPotentialEqualityDeletes(
-            Table table, Schema scanSchema, Set<Integer> equalityFieldIds) {
-        List<Schema> metadataSchemas = metadataSchemaHistory(table);
-        int selectedSchemaIndex = -1;
-        for (int index = 0; index < metadataSchemas.size(); index++) {
-            if (metadataSchemas.get(index).schemaId() == scanSchema.schemaId()) {
-                selectedSchemaIndex = index;
-            }
-        }
-        int lastRelevantIndex = selectedSchemaIndex >= 0
-                ? selectedSchemaIndex : metadataSchemas.size() - 1;
+    @VisibleForTesting
+    static List<NestedField> schemaForPotentialEqualityDeletes(
+            Table table, Snapshot scanSnapshot, Schema scanSchema, Set<Integer> equalityFieldIds) {
         Set<Integer> missing = new HashSet<>(equalityFieldIds);
         missing.removeAll(TypeUtil.indexById(scanSchema.asStruct()).keySet());
         if (missing.isEmpty()) {
@@ -2204,8 +2317,24 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         }
 
         List<NestedField> fields = new ArrayList<>(scanSchema.columns());
-        for (int index = lastRelevantIndex; index >= 0 && !missing.isEmpty(); index--) {
-            addHistoricalEqualityFields(fields, missing, metadataSchemas.get(index));
+        List<Schema> metadataSchemas = metadataSchemaHistory(table);
+        // Snapshots on one lineage mostly share a schema, so each schema is indexed at most once.
+        Set<Integer> lineageSchemaIds = new HashSet<>();
+        for (Snapshot snapshot = scanSnapshot; snapshot != null && !missing.isEmpty();
+                snapshot = snapshot.parentId() == null ? null : table.snapshot(snapshot.parentId())) {
+            Integer schemaId = snapshot.schemaId();
+            if (schemaId == null || !lineageSchemaIds.add(schemaId)) {
+                continue;
+            }
+            Schema lineageSchema = table.schemas().get(schemaId);
+            if (lineageSchema == null) {
+                throw new IllegalStateException(
+                        "Iceberg snapshot schema " + schemaId + " is absent from table metadata");
+            }
+            addHistoricalEqualityFields(fields, missing, lineageSchema, metadataSchemas);
+        }
+        for (int index = metadataSchemas.size() - 1; index >= 0 && !missing.isEmpty(); index--) {
+            addHistoricalEqualityFields(fields, missing, metadataSchemas.get(index), metadataSchemas);
         }
         if (!missing.isEmpty()) {
             throw new IllegalStateException(
@@ -2221,8 +2350,105 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         return new ArrayList<>(table.schemas().values());
     }
 
-    private static void addHistoricalEqualityFields(
-            List<NestedField> fields, Set<Integer> missingFieldIds, Schema historicalSchema) {
+    /**
+     * A writer commits with the schema that is current at commit, so a key dropped before its delete commits loses
+     * the schema-only changes made before the drop from every snapshot. Field IDs are never reused and a field
+     * only relaxes compatibly, by promotion or from required to optional, so each field of the selected definition
+     * takes the widest promotion of its type ({@link #widestPromotion}) and the optionality it has in any retained
+     * schema; neither depends on the order of the schemas. A field required in every retained schema stays
+     * required; a rebuilt field keeps its initial default in the promoted type ({@link #promotedDefault}) and drops
+     * its write default, which no reader uses and whose stale value may not fit the promoted type.
+     */
+    private static List<NestedField> withRetainedRelaxations(List<NestedField> fields, List<Schema> schemas) {
+        List<NestedField> relaxed = new ArrayList<>(fields.size());
+        for (NestedField field : fields) {
+            Type type = field.type();
+            boolean optional = field.isOptional();
+            List<Type.PrimitiveType> promotions = new ArrayList<>();
+            for (Schema schema : schemas) {
+                NestedField retained = schema.findField(field.fieldId());
+                if (retained == null) {
+                    continue;
+                }
+                optional |= retained.isOptional();
+                if (type.isPrimitiveType() && retained.type().isPrimitiveType()
+                        && isWideningPromotion(type.asPrimitiveType(), retained.type().asPrimitiveType())) {
+                    promotions.add(retained.type().asPrimitiveType());
+                }
+            }
+            if (type.isPrimitiveType()) {
+                type = widestPromotion(field, promotions);
+            }
+            if (type.isStructType()) {
+                type = Types.StructType.of(withRetainedRelaxations(type.asStructType().fields(), schemas));
+            }
+            relaxed.add(type.equals(field.type()) && optional == field.isOptional()
+                    ? field : Types.NestedField.from(field).ofType(type).isOptional(optional)
+                            .withInitialDefault(promotedDefault(field.initialDefaultLiteral(), field.type(), type))
+                            .withWriteDefault((Literal<?>) null)
+                            .build());
+        }
+        return relaxed;
+    }
+
+    /**
+     * The promotion of {@code field} that every other one in {@code promotions} promotes to. Evolution moves a
+     * field only along promotions, so its retained promotions form a chain unless the current schema was set back
+     * to an earlier one and the field was then promoted differently: DATE to both TIMESTAMP and TIMESTAMP_NS, or
+     * UNKNOWN to two unrelated types. Neither type then holds the other's values exactly, and the metadata does not
+     * record which one a delete file was written in, so planning fails instead of comparing in either.
+     */
+    private static Type.PrimitiveType widestPromotion(NestedField field, List<Type.PrimitiveType> promotions) {
+        Type.PrimitiveType widest = field.type().asPrimitiveType();
+        for (Type.PrimitiveType promotion : promotions) {
+            if (isWideningPromotion(widest, promotion)) {
+                widest = promotion;
+            }
+        }
+        for (Type.PrimitiveType promotion : promotions) {
+            if (!isWideningPromotion(promotion, widest)) {
+                throw new IllegalStateException("Iceberg equality-delete field " + field.fieldId() + " ("
+                        + field.name() + ") was promoted to both " + widest + " and " + promotion
+                        + " in schema history");
+            }
+        }
+        return widest;
+    }
+
+    /**
+     * {@link TypeUtil#isPromotionAllowed} plus the v3 promotions that the SDK's schema update does not implement yet
+     * but the format allows: UNKNOWN to any primitive type, and DATE to an unzoned TIMESTAMP or TIMESTAMP_NS.
+     */
+    private static boolean isWideningPromotion(Type.PrimitiveType from, Type.PrimitiveType to) {
+        if (TypeUtil.isPromotionAllowed(from, to)) {
+            return true;
+        }
+        if (from.typeId() == Type.TypeID.UNKNOWN) {
+            return true;
+        }
+        if (from.typeId() != Type.TypeID.DATE) {
+            return false;
+        }
+        return to.typeId() == Type.TypeID.TIMESTAMP && !((Types.TimestampType) to).shouldAdjustToUTC()
+                || to.typeId() == Type.TypeID.TIMESTAMP_NANO && !((Types.TimestampNanoType) to).shouldAdjustToUTC();
+    }
+
+    /**
+     * {@code value}, the initial default of a field of type {@code from}, in the type {@code to} the field is rebuilt
+     * with. NestedField casts the initial default to its type, which converts the literals of the SDK promotions,
+     * but in Iceberg 1.12.0 a DATE literal converts only to DATE: a DATE default moves to midnight of its day in the
+     * promoted TIMESTAMP or TIMESTAMP_NS, and a date outside that type's range throws, as the format requires.
+     */
+    private static Literal<?> promotedDefault(Literal<?> value, Type from, Type to) {
+        if (value == null || from.typeId() != Type.TypeID.DATE || to.equals(from)) {
+            return value;
+        }
+        return Literal.of(DateTimeUtil.microsFromTimestamp(
+                DateTimeUtil.dateFromDays((Integer) value.value()).atStartOfDay())).to(to);
+    }
+
+    private static void addHistoricalEqualityFields(List<NestedField> fields, Set<Integer> missingFieldIds,
+            Schema historicalSchema, List<Schema> retainedSchemas) {
         Map<Integer, NestedField> historicalFields = TypeUtil.indexById(historicalSchema.asStruct());
         Set<Integer> selectedFieldIds = new HashSet<>();
         for (Integer fieldId : missingFieldIds) {
@@ -2239,7 +2465,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             return;
         }
         Schema selectedSchema = TypeUtil.select(historicalSchema, selectedFieldIds);
-        mergeHistoricalEqualityFields(fields, selectedSchema.columns());
+        mergeHistoricalEqualityFields(fields, withRetainedRelaxations(selectedSchema.columns(), retainedSchemas));
         missingFieldIds.removeAll(selectedFieldIds);
     }
 
@@ -2754,16 +2980,17 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         if (snapshot == null) {
             return CloseableIterable.withNoopClose(Collections.emptyList());
         }
-        Expression filterExpr = combineFilter(filter, table, session);
-        Map<Integer, PartitionSpec> specsById = table.specs();
+        Schema scanSchema = scan.schema();
+        Expression filterExpr = combineFilter(filter, table, scanSchema, session);
+        Map<Integer, PartitionSpec> specsById = SchemaAwareDataTableScan.specsFor(scan);
         boolean caseSensitive = true;
 
         Map<Integer, ResidualEvaluator> residualEvaluators = new HashMap<>();
         specsById.forEach((id, spec) -> residualEvaluators.put(id,
                 ResidualEvaluator.of(spec, filterExpr, caseSensitive)));
         InclusiveMetricsEvaluator metricsEvaluator =
-                new InclusiveMetricsEvaluator(table.schema(), filterExpr, caseSensitive);
-        String schemaJson = SchemaParser.toJson(table.schema());
+                new InclusiveMetricsEvaluator(scanSchema, filterExpr, caseSensitive);
+        String schemaJson = SchemaParser.toJson(scanSchema);
 
         // Phase 1 (eager): partition-prune + cache-load delete manifests into the delete-file index.
         List<DeleteFile> deleteFiles = new ArrayList<>();
@@ -2778,9 +3005,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             if (!ManifestEvaluator.forPartitionFilter(filterExpr, spec, caseSensitive).eval(manifest)) {
                 continue;
             }
-            deleteFiles.addAll(manifestCacheGet(manifest, table, statsQueryId).getDeleteFiles());
+            deleteFiles.addAll(manifestCacheGet(manifest, table, specsById, statsQueryId).getDeleteFiles());
         }
         DeleteFileIndex deleteIndex = DeleteFileIndex.builderFor(deleteFiles)
+                .schemasById(table.schemas())
                 .specsById(specsById)
                 .caseSensitive(caseSensitive)
                 .build();
@@ -2803,10 +3031,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /** Dispatch a manifest read to the stats-tallying or no-stats cache overload (see cacheBackedFileScanTasks). */
-    private ManifestCacheValue manifestCacheGet(ManifestFile manifest, Table table, String statsQueryId) {
+    private ManifestCacheValue manifestCacheGet(ManifestFile manifest, Table table,
+            Map<Integer, PartitionSpec> specsById, String statsQueryId) {
         return statsQueryId != null
-                ? manifestCache.getManifestCacheValue(manifest, table, statsQueryId)
-                : manifestCache.getManifestCacheValue(manifest, table);
+                ? manifestCache.getManifestCacheValue(manifest, table, specsById, statsQueryId)
+                : manifestCache.getManifestCacheValue(manifest, table, specsById);
     }
 
     /**
@@ -2895,7 +3124,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 }
                 currentResidual = residual;
                 currentSpecJson = PartitionSpecParser.toJson(spec);
-                dataFileIt = manifestCacheGet(manifest, table, statsQueryId).getDataFiles().iterator();
+                dataFileIt = manifestCacheGet(manifest, table, specsById, statsQueryId).getDataFiles().iterator();
             }
         }
 
@@ -2908,15 +3137,17 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     /**
      * Combine the pushed predicate into one iceberg {@link Expression} for manifest-level pruning, mirroring
      * legacy {@code conjuncts.stream().map(convertToIcebergExpr).filter(nonNull).reduce(alwaysTrue, and)}. Reuses
-     * the T02 {@link IcebergPredicateConverter} on the table's CURRENT schema; an absent filter is
+     * the T02 {@link IcebergPredicateConverter} on the scan-bound schema; an absent filter is
      * {@code alwaysTrue()} (scan everything).
      */
-    private Expression combineFilter(Optional<ConnectorExpression> filter, Table table, ConnectorSession session) {
+    private Expression combineFilter(Optional<ConnectorExpression> filter, Table table,
+            Schema schema, ConnectorSession session) {
         if (!filter.isPresent()) {
             return Expressions.alwaysTrue();
         }
         List<Expression> predicates =
-                new IcebergPredicateConverter(table.schema(), resolveSessionZone(session)).convert(filter.get());
+                IcebergPredicateConverter.forTable(table, schema, resolveSessionZone(session),
+                        IcebergPredicateConverter.Mode.SCAN).convert(filter.get());
         Expression combined = Expressions.alwaysTrue();
         for (Expression predicate : predicates) {
             combined = Expressions.and(combined, predicate);
@@ -3027,6 +3258,35 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         return Boolean.parseBoolean(raw.trim());
     }
 
+    private static boolean requiresRowId(List<ConnectorColumnHandle> columns) {
+        return columns.stream()
+                .filter(column -> column instanceof IcebergColumnHandle)
+                .anyMatch(column -> DORIS_ICEBERG_ROWID_COL.equalsIgnoreCase(((IcebergColumnHandle) column).getName()));
+    }
+
+    /**
+     * Rejects a scan that produces Iceberg row IDs (DELETE, UPDATE, MERGE) when a file's partition tuple could not
+     * be serialized. Row IDs carry the partition of the delete files BE writes, and a missing value must not become
+     * a NULL partition. Checked on every call, like {@link #validateMetadataColumnReader}, because the scan reuse
+     * key leaves the projection out.
+     */
+    private static List<ConnectorScanRange> rejectRowIdScanWithoutPartitionData(
+            List<ConnectorColumnHandle> columns, List<ConnectorScanRange> ranges) {
+        if (requiresRowId(columns)) {
+            for (ConnectorScanRange range : ranges) {
+                rejectRowIdRangeWithoutPartitionData((IcebergScanRange) range);
+            }
+        }
+        return ranges;
+    }
+
+    private static void rejectRowIdRangeWithoutPartitionData(IcebergScanRange range) {
+        if (range.isPartitionDataUnavailable()) {
+            throw new DorisConnectorException("Cannot produce Iceberg row IDs with unsupported partition types in spec "
+                    + range.getPartitionSpecId() + ". Rewrite historical data files before DELETE or UPDATE.");
+        }
+    }
+
     private static boolean requiresMetadataColumns(List<ConnectorColumnHandle> columns) {
         return columns.stream()
                 .filter(column -> column instanceof IcebergColumnHandle)
@@ -3092,7 +3352,12 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                         () -> tableCache.borrow(
                                 TableIdentifier.of(handle.getDbName(), handle.getTableName()), directLoader),
                         directLoader);
+        rejectServerSideScanPlanning(raw, handle);
         return wrapTableForScan(raw);
+    }
+
+    private static void rejectServerSideScanPlanning(Table table, IcebergTableHandle handle) {
+        IcebergScanPlanning.rejectServerSideScanPlanning(table, handle.getDbName() + "." + handle.getTableName());
     }
 
     /**
@@ -3131,9 +3396,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         if (auth == null) {
             return table;
         }
-        TableOperations rawOps = ((BaseTable) table).operations();
+        BaseTable baseTable = (BaseTable) table;
+        TableOperations rawOps = baseTable.operations();
+        // Keep the table's metrics reporter: every scan of a Kerberos catalog runs on this wrapper.
         return new BaseTable(new IcebergAuthenticatedTableOperations(
-                rawOps, new IcebergAuthenticatedFileIO(rawOps.io(), auth)), table.name());
+                rawOps, new IcebergAuthenticatedFileIO(rawOps.io(), auth)), table.name(), baseTable.reporter());
     }
 
     /**
@@ -3160,6 +3427,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                         () -> tableCache.borrow(TableIdentifier.of(handle.getDbName(), handle.getTableName()),
                                 () -> ops.loadTable(handle.getDbName(), handle.getTableName())),
                         () -> ops.loadTable(handle.getDbName(), handle.getTableName()));
+        rejectServerSideScanPlanning(base, handle);
         return MetadataTableUtils.createMetadataTableInstance(
                 base,
                 MetadataTableType.from(handle.getSysTableName()));
@@ -3168,5 +3436,71 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     /** This catalog's engine-owned storage services (see {@link ConnectorContext#getStorageContext()}). */
     private ConnectorStorageContext storage() {
         return context.getStorageContext();
+    }
+
+    /**
+     * Statement-scoped cache key for one Iceberg scan.
+     *
+     * <p>Includes every input that changes the planned file list: table identity, the typed
+     * time-travel pin (snapshot id / ref / schema id), the rewrite-file scope, the pushed filter
+     * and the COUNT pushdown flag. System tables are excluded upstream, and session variables are
+     * statement-constant, so both stay out of the key.
+     */
+    private static final class IcebergScanReuseKey {
+        private final String dbName;
+        private final String tableName;
+        private final long snapshotId;
+        private final String ref;
+        private final long schemaId;
+        private final List<String> rewriteFileScope;
+        private final Optional<ConnectorExpression> filter;
+        private final boolean countPushdown;
+
+        private IcebergScanReuseKey(IcebergTableHandle handle, ConnectorScanRequest request) {
+            this.dbName = handle.getDbName();
+            this.tableName = handle.getTableName();
+            this.snapshotId = handle.getSnapshotId();
+            this.ref = handle.getRef();
+            this.schemaId = handle.getSchemaId();
+            // System tables are bypassed in planScan before this key is built, so sysTableName is
+            // always null here; if the system-table bypass is ever relaxed, add it back.
+            this.rewriteFileScope = handle.getRewriteFileScope() == null
+                    ? Collections.emptyList()
+                    : handle.getRewriteFileScope().stream().sorted()
+                            .collect(Collectors.toList());
+            this.filter = request.getFilter();
+            this.countPushdown = request.isCountPushdown();
+        }
+
+        @Override
+        public boolean equals(Object object) {
+            if (this == object) {
+                return true;
+            }
+            if (!(object instanceof IcebergScanReuseKey)) {
+                return false;
+            }
+            IcebergScanReuseKey that = (IcebergScanReuseKey) object;
+            return snapshotId == that.snapshotId
+                    && schemaId == that.schemaId
+                    && countPushdown == that.countPushdown
+                    && Objects.equals(dbName, that.dbName)
+                    && Objects.equals(tableName, that.tableName)
+                    && Objects.equals(ref, that.ref)
+                    && Objects.equals(rewriteFileScope, that.rewriteFileScope)
+                    && Objects.equals(filter, that.filter);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(dbName, tableName, snapshotId, ref, schemaId,
+                    rewriteFileScope, filter, countPushdown);
+        }
+
+        @Override
+        public String toString() {
+            return "IcebergScanReuseKey{db=" + dbName + ", table=" + tableName
+                    + ", snapshot=" + snapshotId + "}";
+        }
     }
 }

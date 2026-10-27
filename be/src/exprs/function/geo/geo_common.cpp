@@ -21,25 +21,25 @@ namespace doris {
 
 std::string to_string(GeoParseStatus status) {
     switch (status) {
-    case GEO_PARSE_OK:
+    case GeoParseStatus::GEO_PARSE_OK:
         return "OK";
-    case GEO_PARSE_COORD_INVALID:
+    case GeoParseStatus::GEO_PARSE_COORD_INVALID:
         return "Coordinate invalid";
-    case GEO_PARSE_LOOP_NOT_CLOSED:
+    case GeoParseStatus::GEO_PARSE_LOOP_NOT_CLOSED:
         return "Loop is not closed";
-    case GEO_PARSE_LOOP_LACK_VERTICES:
+    case GeoParseStatus::GEO_PARSE_LOOP_LACK_VERTICES:
         return "Loop lack enough vertices";
-    case GEO_PARSE_LOOP_INVALID:
+    case GeoParseStatus::GEO_PARSE_LOOP_INVALID:
         return "Loop invalid";
-    case GEO_PARSE_POLYGON_NOT_HOLE:
+    case GeoParseStatus::GEO_PARSE_POLYGON_NOT_HOLE:
         return "Loop not contained in the first loop";
-    case GEO_PARSE_POLYLINE_LACK_VERTICES:
+    case GeoParseStatus::GEO_PARSE_POLYLINE_LACK_VERTICES:
         return "Line string lack vertices";
-    case GEO_PARSE_POLYLINE_INVALID:
+    case GeoParseStatus::GEO_PARSE_POLYLINE_INVALID:
         return "Line string invalid";
-    case GEO_PARSE_CIRCLE_INVALID:
+    case GeoParseStatus::GEO_PARSE_CIRCLE_INVALID:
         return "Circle invalid";
-    case GEO_PARSE_WKT_SYNTAX_ERROR:
+    case GeoParseStatus::GEO_PARSE_WKT_SYNTAX_ERROR:
         return "WKT syntax error";
     default:
         return "Unknown";

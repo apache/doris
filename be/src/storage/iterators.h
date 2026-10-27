@@ -33,6 +33,7 @@
 #include "storage/predicate/column_predicate.h"
 #include "storage/row_cursor.h"
 #include "storage/segment/row_ranges.h"
+#include "storage/segment/variant/variant_compaction_paths.h"
 #include "storage/tablet/tablet_schema.h"
 
 namespace doris {
@@ -44,6 +45,13 @@ struct IteratorRowRef;
 
 class StorageReadOptions {
 public:
+    // Every storage read needs a statistics sink. Deleting the default constructor keeps copied
+    // options valid from creation; for example, SegmentIterator stores a copy and later
+    // dereferences stats while reading pages.
+    StorageReadOptions() = delete;
+
+    explicit StorageReadOptions(OlapReaderStatistics& stats_) noexcept : stats(&stats_) {}
+
     struct KeyRange {
         KeyRange()
                 : lower_key(nullptr),
@@ -109,24 +117,27 @@ public:
     // or COUNT_ON_INDEX columns, because the column values no longer affect filtering or counting.
     std::set<uint32_t> zonemap_always_true_pred_cols;
 
-    // REQUIRED (null is not allowed)
-    OlapReaderStatistics* stats = nullptr;
+    // Non-owning and initialized to a valid object by the constructor.
+    OlapReaderStatistics* stats;
     bool use_page_cache = false;
     uint32_t block_row_max = 4096 - 32; // see https://github.com/apache/doris/pull/11816
     // Effective adaptive batch size byte budget.
     size_t preferred_block_size_bytes = 8388608UL;
 
-    TabletSchemaSPtr tablet_schema = nullptr;
+    // Whether the tablet schema this read targets materializes variant subcolumns as extracted
+    // columns. A compaction read then takes them as flat leaves.
+    bool tablet_has_extracted_variant_columns = false;
+    // The compaction output schema's variant path layout; null outside a variant compaction.
+    VariantCompactionPathsSPtr variant_compaction_paths;
     bool enable_unique_key_merge_on_write = false;
-    bool record_rowids = false;
     std::vector<int> topn_filter_source_node_ids;
     // used for special optimization for query : ORDER BY key DESC LIMIT n
     bool read_orderby_key_reverse = false;
     // For rows with the same key, use ascending order (small-to-large) for tie-breakers.
     // For example, use lower rowset version / segment id first.
     bool use_insert_order_when_same = false;
-    bool read_row_binlog = false;
-    int binlog_tso_idx = -1;
+    bool read_changelog = false;
+    int changelog_tso_idx = -1;
     // columns for orderby keys
     std::vector<uint32_t>* read_orderby_key_columns = nullptr;
     io::IOContext io_ctx;
@@ -230,11 +241,6 @@ public:
     }
 
     virtual bool is_merge_iterator() const { return false; }
-
-    virtual Status current_block_row_locations(std::vector<RowLocation>* block_row_locations) {
-        return Status::InternalError("should not reach here, current class: " +
-                                     demangle(typeid(*this).name()));
-    }
 
     // return schema for this Iterator
     virtual const ReadSchema& schema() const = 0;

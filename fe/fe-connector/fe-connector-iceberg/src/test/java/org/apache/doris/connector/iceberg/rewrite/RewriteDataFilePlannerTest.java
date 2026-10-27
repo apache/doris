@@ -35,6 +35,7 @@ import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileMetadata;
 import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
@@ -425,6 +426,28 @@ public class RewriteDataFilePlannerTest {
         DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
                 () -> plan(t, rewriteAll(1_000_000L, where(partial))));
         Assertions.assertTrue(e.getMessage().contains("cannot be pushed down"));
+    }
+
+    @Test
+    public void nanosecondWhereRewritesOnlyTheMatchingPartition() {
+        Schema schema = new Schema(Types.NestedField.optional(1, "ts", Types.TimestampNanoType.withoutZone()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("ts").build();
+        Table table = catalog.createTable(TableIdentifier.of("db1", "ns"), schema, spec,
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "3"));
+        long expected = 1704164645123456789L;
+        for (long nanos : new long[] {expected, expected + 1}) {
+            PartitionData partition = new PartitionData(spec.partitionType());
+            partition.set(0, nanos);
+            append(table, DataFiles.builder(spec).withPath("s3://bucket/" + nanos + ".parquet")
+                    .withFileSizeInBytes(100).withRecordCount(1).withPartition(partition)
+                    .withFormat(FileFormat.PARQUET).build());
+        }
+        ConnectorExpression predicate = new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                new ConnectorColumnRef("ts", ConnectorType.of("TIMESTAMP_NS")),
+                new ConnectorLiteral(ConnectorType.of("STRING"), "2024-01-02 03:04:05.123456789"));
+        List<RewriteDataGroup> groups = plan(table, rewriteAll(1_000_000L, where(predicate)));
+        Assertions.assertEquals(1, totalFiles(groups));
+        Assertions.assertEquals(expected, groups.get(0).getTasks().get(0).file().partition().get(0, Long.class));
     }
 
     @Test

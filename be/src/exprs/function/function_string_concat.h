@@ -70,7 +70,7 @@ public:
     }
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        if (scope == FunctionContext::THREAD_LOCAL) {
+        if (scope == FunctionContext::FunctionStateScope::THREAD_LOCAL) {
             return Status::OK();
         }
         std::shared_ptr<ConcatState> state = std::make_shared<ConcatState>();
@@ -112,7 +112,7 @@ public:
             return Status::OK();
         }
         auto* concat_state = reinterpret_cast<ConcatState*>(
-                context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+                context->get_function_state(FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
         if (!concat_state) {
             return Status::RuntimeError("funciton context for function '{}' must have ConcatState;",
                                         get_name());
@@ -520,7 +520,16 @@ private:
                 }
             }
 
-            fmt::format_to(buffer, "{}", fmt::join(views, sep));
+            // Direct append instead of fmt::format_to + fmt::join
+            if (!views.empty()) {
+                buffer.append(views[0].data(), views[0].data() + views[0].size());
+                for (size_t j = 1; j < views.size(); ++j) {
+                    if (!sep.empty()) {
+                        buffer.append(sep.data(), sep.data() + sep.size());
+                    }
+                    buffer.append(views[j].data(), views[j].data() + views[j].size());
+                }
+            }
 
             StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i, res_data,
                                         res_offset);
@@ -560,7 +569,16 @@ private:
                     views.emplace_back(ptr, size);
                 }
             }
-            fmt::format_to(buffer, "{}", fmt::join(views, sep));
+            // Direct append instead of fmt::format_to + fmt::join
+            if (!views.empty()) {
+                buffer.append(views[0].data(), views[0].data() + views[0].size());
+                for (size_t j = 1; j < views.size(); ++j) {
+                    if (!sep.empty()) {
+                        buffer.append(sep.data(), sep.data() + sep.size());
+                    }
+                    buffer.append(views[j].data(), views[j].data() + views[j].size());
+                }
+            }
             StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i, res_data,
                                         res_offset);
         }
@@ -626,50 +644,60 @@ public:
                          ColumnUInt8::Container& null_map) const {
         size_t input_row_size = offsets.size();
 
-        fmt::memory_buffer buffer;
         res_offsets.resize(input_row_size);
         null_map.resize_fill(input_row_size, 0);
+        // Reserve the combined size of rows with positive repeat counts.
+        size_t total = 0;
         for (ssize_t i = 0; i < input_row_size; ++i) {
-            buffer.clear();
-            const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+            size_t size = offsets[i] - offsets[i - 1];
+            int repeat = repeats[i];
+            if (repeat > 0) {
+                ColumnString::check_chars_length(repeat * size + total, 0);
+                total += repeat * size;
+            }
+        }
+        res_data.reserve(total);
+
+        for (ssize_t i = 0; i < input_row_size; ++i) {
+            const uint8_t* raw_str = &data[offsets[i - 1]];
             size_t size = offsets[i] - offsets[i - 1];
             int repeat = repeats[i];
             if (repeat <= 0) {
                 StringOP::push_empty_string(i, res_data, res_offsets);
             } else {
-                ColumnString::check_chars_length(repeat * size + res_data.size(), 0);
-                for (int j = 0; j < repeat; ++j) {
-                    buffer.append(raw_str, raw_str + size);
-                }
-                StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i,
-                                            res_data, res_offsets);
+                size_t old_size = res_data.size();
+                res_data.resize(old_size + repeat * size);
+                StringOP::fast_repeat(res_data.data() + old_size, raw_str, size, repeat);
+                res_offsets[i] = (ColumnString::Offset)res_data.size();
             }
         }
         return Status::OK();
     }
 
-    // TODO: 1. use pmr::vector<char> replace fmt_buffer may speed up the code
-    //       2. abstract the `vector_vector` and `vector_const`
-    //       3. rethink we should use `DEFAULT_MAX_STRING_SIZE` to bigger here
+    // TODO: rethink we should use `DEFAULT_MAX_STRING_SIZE` to bigger here
     void vector_const(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
                       int repeat, ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets,
                       ColumnUInt8::Container& null_map) const {
         size_t input_row_size = offsets.size();
 
-        fmt::memory_buffer buffer;
         res_offsets.resize(input_row_size);
         null_map.resize_fill(input_row_size, 0);
+        // Pre-size for const repeat
+        size_t total = 0;
         for (ssize_t i = 0; i < input_row_size; ++i) {
-            buffer.clear();
-            const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             size_t size = offsets[i] - offsets[i - 1];
-            ColumnString::check_chars_length(repeat * size + res_data.size(), 0);
+            ColumnString::check_chars_length(repeat * size + total, 0);
+            total += repeat * size;
+        }
+        res_data.reserve(total);
 
-            for (int j = 0; j < repeat; ++j) {
-                buffer.append(raw_str, raw_str + size);
-            }
-            StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i, res_data,
-                                        res_offsets);
+        for (ssize_t i = 0; i < input_row_size; ++i) {
+            const uint8_t* raw_str = &data[offsets[i - 1]];
+            size_t size = offsets[i] - offsets[i - 1];
+            size_t old_size = res_data.size();
+            res_data.resize(old_size + repeat * size);
+            StringOP::fast_repeat(res_data.data() + old_size, raw_str, size, repeat);
+            res_offsets[i] = (ColumnString::Offset)res_data.size();
         }
     }
 };

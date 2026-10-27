@@ -20,6 +20,7 @@ package org.apache.doris.nereids.types;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
 import org.apache.doris.nereids.types.coercion.CharacterType;
@@ -27,6 +28,8 @@ import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
 import org.apache.doris.nereids.types.coercion.RangeScalable;
 import org.apache.doris.nereids.types.coercion.ScaleTimeType;
+
+import java.util.Optional;
 
 /**
  * Time v2 type in Nereids.
@@ -54,6 +57,17 @@ public class TimeV2Type extends PrimitiveType implements RangeScalable, ScaleTim
         if (target instanceof TimeV2Type) {
             TimeV2Type timeV2Type = (TimeV2Type) target;
             return timeV2Type.scale >= scale;
+        }
+        // Scale-zero values are one second (one million microseconds) apart. Even near the largest
+        // supported TIMEV2 value, a binary32 ULP is only 262144 microseconds, so FLOAT cannot merge
+        // adjacent values. At scale one or greater, the spacing can be smaller than that ULP.
+        if (target instanceof FloatType) {
+            return scale == 0;
+        }
+        // BE stores TIMEV2 as an integral microsecond count in a DOUBLE. Its bounded domain
+        // is well below 2^53, so BIGINT, LARGEINT, and DOUBLE preserve it exactly.
+        if (target instanceof BigIntType || target instanceof LargeIntType || target instanceof DoubleType) {
+            return true;
         }
         return target instanceof CharacterType;
     }
@@ -139,5 +153,10 @@ public class TimeV2Type extends PrimitiveType implements RangeScalable, ScaleTim
     @Override
     public String toSql() {
         return super.toSql() + "(" + scale + ")";
+    }
+
+    @Override
+    public Optional<Expression> zeroValue() {
+        return Optional.of(new TimeV2Literal(this, "00:00:00"));
     }
 }

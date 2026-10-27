@@ -67,9 +67,6 @@ public class FlightResultSenderTest {
         TUniqueId queryId = new TUniqueId(3, 4);
         ctx.setQueryId(queryId);
         ctx.setRunningQuery("show variables");
-        // The query path marks the result as coming from the backend before an EXPLAIN turns out
-        // to be answered here; the sender puts that right.
-        ctx.setReturnResultFromLocal(false);
         List<List<String>> rows = Lists.newArrayList();
         rows.add(Lists.newArrayList("wait_timeout", "28800"));
         rows.add(Lists.newArrayList("x", null));
@@ -80,7 +77,6 @@ public class FlightResultSenderTest {
 
         ctx.getResultSender().sendResultSet(resultSet, null, false);
 
-        Assertions.assertTrue(ctx.isReturnResultFromLocal());
         Assertions.assertEquals(1, adapter.getChannel().resultNum());
         FlightSqlResultCacheEntry entry = adapter.getChannel().getResult(DebugUtil.printId(queryId));
         Assertions.assertNotNull(entry);

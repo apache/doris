@@ -46,11 +46,10 @@ namespace doris {
 class TabletColumn;
 class TabletSchema;
 class StorageReadOptions;
+class ColumnVariantV2;
 namespace io {
 class FileReader;
 } // namespace io
-class ColumnVariant;
-class OlapBlockDataConvertor;
 } // namespace doris
 
 namespace doris::segment_v2 {
@@ -134,23 +133,17 @@ NestedGroupPathMatch find_in_nested_groups(const NestedGroupReaders& readers,
 // The default provider is a no-op placeholder.
 // Downstream integrations may provide a full implementation that expands JSONB
 // into NestedGroup columns with auxiliary indexes.
-Status build_nested_groups_from_variant_jsonb(
-        const ColumnVariant& variant, NestedGroupsMap* nested_groups,
-        std::vector<std::string>* out_ng_paths = nullptr,
-        std::vector<std::string>* out_conflict_paths = nullptr);
-
 class NestedGroupWriteProvider {
 public:
     virtual ~NestedGroupWriteProvider() = default;
 
-    virtual Status prepare(const ColumnVariant& variant, const TabletColumn* tablet_column,
-                           const ColumnWriterOptions& opts, OlapBlockDataConvertor* converter,
-                           int* column_id, VariantStatistics* statistics) = 0;
+    virtual Status prepare(const ColumnVariantV2& variant, const TabletColumn* tablet_column,
+                           const ColumnWriterOptions& opts, int* column_id,
+                           VariantStatistics* statistics) = 0;
 
     virtual Status prepare_with_built_groups(const NestedGroupsMap& nested_groups,
                                              const TabletColumn* tablet_column,
-                                             const ColumnWriterOptions& opts,
-                                             OlapBlockDataConvertor* converter, int* column_id,
+                                             const ColumnWriterOptions& opts, int* column_id,
                                              VariantStatistics* statistics) = 0;
 
     virtual Status init_with_plan(const NestedGroupStreamingWritePlan& plan,
@@ -159,7 +152,7 @@ public:
                                   VariantStatistics* statistics) = 0;
 
     virtual Status append_chunk(const NestedGroupStreamingWritePlan& plan,
-                                const ColumnVariant& variant) = 0;
+                                const ColumnVariantV2& variant) = 0;
 
     virtual uint64_t estimate_buffer_size() const = 0;
 
