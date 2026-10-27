@@ -26,21 +26,26 @@ import org.apache.doris.connector.spi.ddl.PartitionFieldChange;
 import org.apache.doris.connector.spi.ddl.TagChange;
 
 import com.google.common.base.Splitter;
+import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.ManageSnapshots;
+import org.apache.iceberg.MetricsConfig;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableMetadata;
+import org.apache.iceberg.TableOperations;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.UpdatePartitionSpec;
-import org.apache.iceberg.UpdateProperties;
 import org.apache.iceberg.UpdateSchema;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.catalog.ViewCatalog;
+import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.NoSuchNamespaceException;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.Term;
@@ -48,6 +53,7 @@ import org.apache.iceberg.hadoop.HadoopCatalog;
 import org.apache.iceberg.jdbc.JdbcCatalog;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
+import org.apache.iceberg.util.Tasks;
 import org.apache.iceberg.view.View;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -55,6 +61,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -511,12 +518,44 @@ public interface IcebergCatalogOps {
         @Override
         public void setTableProperties(String dbName, String tableName, Map<String, String> properties) {
             withTable(dbName, tableName, table -> {
-                IcebergSchemaUtils.validateRowLineageFormatVersionUpgrade(table, properties);
-                UpdateProperties updateProperties = table.updateProperties();
-                properties.forEach(updateProperties::set);
-                updateProperties.commit();
+                commitTableProperties(table, properties);
                 return null;
             });
+        }
+
+        /**
+         * Applies the property map with Iceberg's optimistic commit contract while validating every metadata base
+         * that can actually be committed. {@link Table#updateProperties()} refreshes inside its retry loop, so a
+         * one-time precheck can validate a different schema from the one eventually upgraded.
+         */
+        private static void commitTableProperties(Table table, Map<String, String> properties) {
+            if (!(table instanceof HasTableOperations)) {
+                throw new DorisConnectorException(
+                        "Cannot update properties for an Iceberg table without metadata operations: " + table.name());
+            }
+
+            TableOperations operations = ((HasTableOperations) table).operations();
+            TableMetadata current = operations.current();
+            Tasks.foreach(operations)
+                    .retry(current.propertyTryAsInt(TableProperties.COMMIT_NUM_RETRIES,
+                            TableProperties.COMMIT_NUM_RETRIES_DEFAULT))
+                    .exponentialBackoff(
+                            current.propertyTryAsInt(TableProperties.COMMIT_MIN_RETRY_WAIT_MS,
+                                    TableProperties.COMMIT_MIN_RETRY_WAIT_MS_DEFAULT),
+                            current.propertyTryAsInt(TableProperties.COMMIT_MAX_RETRY_WAIT_MS,
+                                    TableProperties.COMMIT_MAX_RETRY_WAIT_MS_DEFAULT),
+                            current.propertyTryAsInt(TableProperties.COMMIT_TOTAL_RETRY_TIME_MS,
+                                    TableProperties.COMMIT_TOTAL_RETRY_TIME_MS_DEFAULT),
+                            2.0)
+                    .onlyRetryOn(CommitFailedException.class)
+                    .run(taskOps -> {
+                        TableMetadata base = taskOps.refresh();
+                        Map<String, String> updatedProperties = new HashMap<>(base.properties());
+                        updatedProperties.putAll(properties);
+                        MetricsConfig.validate(updatedProperties, base.schema());
+                        IcebergSchemaUtils.validateRowLineageFormatVersionUpgrade(base, properties);
+                        taskOps.commit(base, base.replaceProperties(updatedProperties));
+                    });
         }
 
         @Override

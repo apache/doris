@@ -20,20 +20,30 @@ package org.apache.doris.connector.iceberg;
 import org.apache.doris.connector.iceberg.IcebergCatalogOps.CatalogBackedIcebergCatalogOps;
 import org.apache.doris.connector.spi.DorisConnectorException;
 
+import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableMetadata;
+import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableProperties;
+import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.encryption.EncryptionManager;
+import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
+import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.io.LocationProvider;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 public class IcebergLineageDdlKnownBugsTest {
@@ -43,26 +53,29 @@ public class IcebergLineageDdlKnownBugsTest {
     @Test
     public void upgradeRejectsExistingRowIdColumn() throws Exception {
         assertUpgradePreservesUniqueMetadataNames("_row_id");
+        assertUpgradePreservesUniqueMetadataNames("_ROW_ID");
     }
 
     @Test
     public void upgradeRejectsExistingSequenceColumn() throws Exception {
         assertUpgradePreservesUniqueMetadataNames("_last_updated_sequence_number");
+        assertUpgradePreservesUniqueMetadataNames("_LAST_UPDATED_SEQUENCE_NUMBER");
     }
 
     @Test
     public void effectiveSchemaRejectsExistingV3LineageNameCollision() throws Exception {
-        try (InMemoryCatalog catalog = catalog()) {
-            catalog.createTable(IDENTIFIER, new Schema(
-                            Types.NestedField.optional(1, "_row_id", Types.LongType.get())),
-                    PartitionSpec.unpartitioned(), Collections.singletonMap("format-version", "3"));
+        for (String reservedName : Arrays.asList(
+                "_row_id", "_ROW_ID", "_last_updated_sequence_number", "_LAST_UPDATED_SEQUENCE_NUMBER")) {
+            try (InMemoryCatalog catalog = catalog()) {
+                catalog.createTable(IDENTIFIER, new Schema(
+                                Types.NestedField.optional(1, reservedName, Types.LongType.get())),
+                        PartitionSpec.unpartitioned(), Collections.singletonMap("format-version", "3"));
 
-            DorisConnectorException exception = Assertions.assertThrows(DorisConnectorException.class,
-                    () -> metadata(catalog).getTableSchema(null, HANDLE));
-            Assertions.assertTrue(exception.getMessage().contains("multiple fields for name _row_id"),
-                    exception.getMessage());
-            Assertions.assertTrue(exception.getMessage().contains("Cannot expose Iceberg row lineage columns"),
-                    exception.getMessage());
+                DorisConnectorException exception = Assertions.assertThrows(DorisConnectorException.class,
+                        () -> metadata(catalog).getTableSchema(null, HANDLE));
+                Assertions.assertTrue(exception.getMessage().contains(reservedName), exception.getMessage());
+                Assertions.assertTrue(exception.getMessage().contains("row lineage"), exception.getMessage());
+            }
         }
     }
 
@@ -108,6 +121,46 @@ public class IcebergLineageDdlKnownBugsTest {
         }
     }
 
+    @Test
+    public void revalidatesSchemaAddedBeforePropertyCommit() throws Exception {
+        assertConcurrentSchemaChangeRejected(RaceMode.BEFORE_COMMIT);
+    }
+
+    @Test
+    public void revalidatesSchemaAddedBeforeCommitRetry() throws Exception {
+        assertConcurrentSchemaChangeRejected(RaceMode.COMMIT_CONFLICT);
+    }
+
+    private void assertConcurrentSchemaChangeRejected(RaceMode raceMode) throws Exception {
+        try (InMemoryCatalog catalog = catalog()) {
+            catalog.createTable(IDENTIFIER, new Schema(
+                            Types.NestedField.optional(1, "id", Types.LongType.get())),
+                    PartitionSpec.unpartitioned(), Collections.singletonMap("format-version", "2"));
+            Table underlying = catalog.loadTable(IDENTIFIER);
+            RacingTableOperations racingOps = new RacingTableOperations(
+                    ((HasTableOperations) underlying).operations(), raceMode);
+
+            Catalog catalogApi = new SingleTableCatalog(new BaseTable(racingOps, IDENTIFIER.toString()));
+            Map<String, String> properties = new LinkedHashMap<>();
+            properties.put(TableProperties.WRITE_TARGET_FILE_SIZE_BYTES, "134217728");
+            properties.put(TableProperties.FORMAT_VERSION, "3");
+
+            DorisConnectorException exception = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> new CatalogBackedIcebergCatalogOps(catalogApi)
+                            .setTableProperties("db", "events", properties));
+            Assertions.assertTrue(exception.getMessage().contains("_ROW_ID"), exception.getMessage());
+            Assertions.assertTrue(racingOps.injected(), "the test must introduce the concurrent schema change");
+
+            Table after = catalog.loadTable(IDENTIFIER);
+            Assertions.assertEquals(2,
+                    ((HasTableOperations) after).operations().current().formatVersion(),
+                    "the racing upgrade must not commit format-version 3");
+            Assertions.assertFalse(after.properties().containsKey(TableProperties.WRITE_TARGET_FILE_SIZE_BYTES),
+                    "the racing property map must not commit its non-conflicting entries");
+            Assertions.assertNotNull(after.schema().findField("_ROW_ID"));
+        }
+    }
+
     private void assertUpgradePreservesUniqueMetadataNames(String reservedName) throws Exception {
         try (InMemoryCatalog catalog = catalog()) {
             catalog.createTable(IDENTIFIER, new Schema(
@@ -121,8 +174,7 @@ public class IcebergLineageDdlKnownBugsTest {
 
             DorisConnectorException exception = Assertions.assertThrows(DorisConnectorException.class,
                     () -> metadata(catalog).setTableProperties(null, HANDLE, properties));
-            Assertions.assertTrue(exception.getMessage().contains("multiple fields for name " + reservedName),
-                    exception.getMessage());
+            Assertions.assertTrue(exception.getMessage().contains(reservedName), exception.getMessage());
 
             Table after = catalog.loadTable(IDENTIFIER);
             Assertions.assertEquals(2,
@@ -153,5 +205,105 @@ public class IcebergLineageDdlKnownBugsTest {
                 IcebergCatalogProperties.of(Collections.singletonMap(
                         IcebergCatalogProperties.ICEBERG_CATALOG_TYPE, IcebergCatalogProperties.TYPE_REST)),
                 new RecordingConnectorContext());
+    }
+
+    private enum RaceMode {
+        BEFORE_COMMIT,
+        COMMIT_CONFLICT
+    }
+
+    private static final class SingleTableCatalog implements Catalog {
+        private final Table table;
+
+        private SingleTableCatalog(Table table) {
+            this.table = table;
+        }
+
+        @Override
+        public List<TableIdentifier> listTables(Namespace namespace) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public Table loadTable(TableIdentifier identifier) {
+            return table;
+        }
+
+        @Override
+        public boolean dropTable(TableIdentifier identifier, boolean purge) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void renameTable(TableIdentifier from, TableIdentifier to) {
+            throw new UnsupportedOperationException();
+        }
+    }
+
+    private static final class RacingTableOperations implements TableOperations {
+        private final TableOperations delegate;
+        private final RaceMode raceMode;
+        private TableMetadata current;
+        private boolean injected;
+
+        private RacingTableOperations(TableOperations delegate, RaceMode raceMode) {
+            this.delegate = delegate;
+            this.raceMode = raceMode;
+            this.current = delegate.current();
+        }
+
+        private boolean injected() {
+            return injected;
+        }
+
+        private void injectConcurrentColumn() {
+            new BaseTable(delegate, IDENTIFIER.toString())
+                    .updateSchema().addColumn("_ROW_ID", Types.LongType.get()).commit();
+            current = delegate.refresh();
+            injected = true;
+        }
+
+        @Override
+        public TableMetadata current() {
+            return current;
+        }
+
+        @Override
+        public TableMetadata refresh() {
+            current = delegate.refresh();
+            if (raceMode == RaceMode.BEFORE_COMMIT && !injected) {
+                injectConcurrentColumn();
+            }
+            return current;
+        }
+
+        @Override
+        public void commit(TableMetadata base, TableMetadata metadata) {
+            if (raceMode == RaceMode.COMMIT_CONFLICT && !injected) {
+                injectConcurrentColumn();
+                throw new CommitFailedException("simulated concurrent schema commit");
+            }
+            delegate.commit(base, metadata);
+        }
+
+        @Override
+        public FileIO io() {
+            return delegate.io();
+        }
+
+        @Override
+        public EncryptionManager encryption() {
+            return delegate.encryption();
+        }
+
+        @Override
+        public String metadataFileLocation(String fileName) {
+            return delegate.metadataFileLocation(fileName);
+        }
+
+        @Override
+        public LocationProvider locationProvider() {
+            return delegate.locationProvider();
+        }
     }
 }

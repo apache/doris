@@ -34,6 +34,7 @@ import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SingleValueParser;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.mapping.MappedField;
@@ -119,8 +120,8 @@ public final class IcebergSchemaUtils {
      * through one connector schema, which must remain a valid Iceberg {@link Schema}. Delegate that contract to
      * Iceberg instead of maintaining a second reserved-name rule here.</p>
      */
-    static void validateRowLineageFormatVersionUpgrade(Table table, Map<String, String> properties) {
-        int currentFormatVersion = IcebergWriterHelper.getFormatVersion(table);
+    static void validateRowLineageFormatVersionUpgrade(TableMetadata metadata, Map<String, String> properties) {
+        int currentFormatVersion = metadata.formatVersion();
         if (currentFormatVersion >= ICEBERG_ROW_LINEAGE_MIN_VERSION) {
             return;
         }
@@ -139,7 +140,7 @@ public final class IcebergSchemaUtils {
         }
 
         if (targetFormatVersion >= ICEBERG_ROW_LINEAGE_MIN_VERSION) {
-            validateRowLineageSchema(table.schema());
+            validateRowLineageSchema(metadata.schema());
         }
     }
 
@@ -154,6 +155,16 @@ public final class IcebergSchemaUtils {
         } catch (ValidationException | IllegalArgumentException e) {
             throw new DorisConnectorException(
                     "Cannot expose Iceberg row lineage columns with the current table schema: " + e.getMessage(), e);
+        }
+
+        // Iceberg field names are case-sensitive, while Doris resolves identifiers case-insensitively.
+        // Preserve Doris's stronger CREATE and ADD/RENAME contract at this connector boundary.
+        for (Types.NestedField field : schema.columns()) {
+            if (MetadataColumns.ROW_ID.name().equalsIgnoreCase(field.name())
+                    || MetadataColumns.LAST_UPDATED_SEQUENCE_NUMBER.name().equalsIgnoreCase(field.name())) {
+                throw new DorisConnectorException("Cannot expose Iceberg row lineage columns with the current table "
+                        + "schema: column " + field.name() + " conflicts with reserved row lineage name");
+            }
         }
     }
 
