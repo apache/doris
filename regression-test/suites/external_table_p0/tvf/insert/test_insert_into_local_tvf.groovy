@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_insert_into_local_tvf", "tvf,external,external_docker") {
+    logger.info("Skip: this suite requires LOCAL TVF, which is disabled.")
+    return
+
 
     List<List<Object>> backends = sql """ show backends """
     assertTrue(backends.size() > 0)

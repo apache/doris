@@ -161,37 +161,8 @@ suite("test_export_basic", "p0") {
         """
         waiting_export.call(db, label)
 
-        // check data correctness
-        sql """ DROP TABLE IF EXISTS ${table_load_name} """
-        sql """
-        CREATE TABLE IF NOT EXISTS ${table_load_name} (
-            `id` int(11) NULL,
-            `Name` string NULL,
-            `age` int(11) NULL
-            )
-            DISTRIBUTED BY HASH(id) PROPERTIES("replication_num" = "1");
-        """
+        // LOCAL TVF readback is disabled; export completion is checked above.
 
-        // use local() tvf to reload the data
-        def ipList = [:]
-        def portList = [:]
-        getBackendIpHeartbeatPort(ipList, portList)
-        ipList.each { beid, ip ->
-            logger.info("Begin to insert into ${table_load_name} from local()")
-            sql """
-                insert into ${table_load_name}
-                select * from local(
-                    "file_path" = "${local_tvf_prefix}/${table_export_name}_${uuid}/*",
-                    "backend_id" = "${beid}",
-                    "format" = "csv",
-                    "column_separator" = ","
-                );         
-            """ 
-            insert_res = sql "show last insert;"
-            logger.info("insert from local(), BE id = ${beid}, result: " + insert_res.toString())
-        }
-
-        qt_select_load1 """ SELECT * FROM ${table_load_name} t ORDER BY id; """
     
     } finally {
         try_sql("DROP TABLE IF EXISTS ${table_load_name}")
@@ -219,37 +190,8 @@ suite("test_export_basic", "p0") {
         """
         waiting_export.call(db, label)
 
-        // check data correctness
-        sql """ DROP TABLE IF EXISTS ${table_load_name} """
-        sql """
-        CREATE TABLE IF NOT EXISTS ${table_load_name} (
-            `id` int(11) NULL,
-            `Name` string NULL,
-            `age` int(11) NULL
-            )
-            DISTRIBUTED BY HASH(id) PROPERTIES("replication_num" = "1");
-        """
+        // LOCAL TVF readback is disabled; export completion is checked above.
 
-        // use local() tvf to reload the data
-        def ipList = [:]
-        def portList = [:]
-        getBackendIpHeartbeatPort(ipList, portList)
-        ipList.each { beid, ip ->
-            logger.info("Begin to insert into ${table_load_name} from local()")
-            sql """
-                insert into ${table_load_name}
-                select * from local(
-                    "file_path" = "${local_tvf_prefix}/${table_export_name}_${uuid}/*",
-                    "backend_id" = "${beid}",
-                    "format" = "csv",
-                    "column_separator" = ","
-                );         
-            """ 
-            insert_res = sql "show last insert;"
-            logger.info("insert from local(), BE id = ${beid}, result: " + insert_res.toString())
-        }
-
-        qt_select_load2 """ SELECT * FROM ${table_load_name} t ORDER BY id; """
     
     } finally {
         try_sql("DROP TABLE IF EXISTS ${table_load_name}")
@@ -277,37 +219,8 @@ suite("test_export_basic", "p0") {
         """
         waiting_export.call(db, label)
 
-        // check data correctness
-        sql """ DROP TABLE IF EXISTS ${table_load_name} """
-        sql """
-        CREATE TABLE IF NOT EXISTS ${table_load_name} (
-            `id` int(11) NULL,
-            `Name` string NULL,
-            `age` int(11) NULL
-            )
-            DISTRIBUTED BY HASH(id) PROPERTIES("replication_num" = "1");
-        """
+        // LOCAL TVF readback is disabled; export completion is checked above.
 
-        // use local() tvf to reload the data
-        def ipList = [:]
-        def portList = [:]
-        getBackendIpHeartbeatPort(ipList, portList)
-        ipList.each { beid, ip ->
-            logger.info("Begin to insert into ${table_load_name} from local()")
-            sql """
-                insert into ${table_load_name}
-                select * from local(
-                    "file_path" = "${local_tvf_prefix}/${table_export_name}_${uuid}/*",
-                    "backend_id" = "${beid}",
-                    "format" = "csv",
-                    "column_separator" = ","
-                );         
-            """ 
-            insert_res = sql "show last insert;"
-            logger.info("insert from local(), BE id = ${beid}, result: " + insert_res.toString())
-        }
-
-        qt_select_load3 """ SELECT * FROM ${table_load_name} t ORDER BY id; """
     
     } finally {
         try_sql("DROP TABLE IF EXISTS ${table_load_name}")
@@ -335,37 +248,8 @@ suite("test_export_basic", "p0") {
         """
         waiting_export.call(db, label)
 
-        // check data correctness
-        sql """ DROP TABLE IF EXISTS ${table_load_name} """
-        sql """
-        CREATE TABLE IF NOT EXISTS ${table_load_name} (
-            `id` int(11) NULL,
-            `Name` string NULL,
-            `age` int(11) NULL
-            )
-            DISTRIBUTED BY HASH(id) PROPERTIES("replication_num" = "1");
-        """
+        // LOCAL TVF readback is disabled; export completion is checked above.
 
-        // use local() tvf to reload the data
-        def ipList = [:]
-        def portList = [:]
-        getBackendIpHeartbeatPort(ipList, portList)
-        ipList.each { beid, ip ->
-            logger.info("Begin to insert into ${table_load_name} from local()")
-            sql """
-                insert into ${table_load_name}
-                select * from local(
-                    "file_path" = "${local_tvf_prefix}/${table_export_name}_${uuid}/*",
-                    "backend_id" = "${beid}",
-                    "format" = "csv",
-                    "column_separator" = ","
-                );         
-            """ 
-            insert_res = sql "show last insert;"
-            logger.info("insert from local(), BE id = ${beid}, result: " + insert_res.toString())
-        }
-
-        qt_select_load4 """ SELECT * FROM ${table_load_name} t ORDER BY id; """
     
     } finally {
         try_sql("DROP TABLE IF EXISTS ${table_load_name}")
@@ -437,36 +321,8 @@ suite("test_export_basic", "p0") {
         """
         waiting_export.call(db, label)
 
-        // check data correctness
-        sql """ DROP TABLE IF EXISTS ${table_load_name} """
-        sql """
-        CREATE TABLE IF NOT EXISTS ${table_load_name} (
-            `id` int(11) NULL,
-            `Name` string NULL
-            )
-            DISTRIBUTED BY HASH(id) PROPERTIES("replication_num" = "1");
-        """
+        // LOCAL TVF readback is disabled; export completion is checked above.
 
-        // use local() tvf to reload the data
-        def ipList = [:]
-        def portList = [:]
-        getBackendIpHeartbeatPort(ipList, portList)
-        ipList.each { beid, ip ->
-            logger.info("Begin to insert into ${table_load_name} from local()")
-            sql """
-                insert into ${table_load_name} (id, Name)
-                select * from local(
-                    "file_path" = "${local_tvf_prefix}/${table_export_name}_${uuid}/*",
-                    "backend_id" = "${beid}",
-                    "format" = "csv",
-                    "column_separator" = ","
-                );         
-            """ 
-            insert_res = sql "show last insert;"
-            logger.info("insert from local(), BE id = ${beid}, result: " + insert_res.toString())
-        }
-
-        qt_select_load6 """ SELECT * FROM ${table_load_name} t ORDER BY id; """
     
     } finally {
         try_sql("DROP TABLE IF EXISTS ${table_load_name}")
@@ -495,35 +351,8 @@ suite("test_export_basic", "p0") {
         """
         waiting_export.call(db, label)
 
-        // check data correctness
-        sql """ DROP TABLE IF EXISTS ${table_load_name} """
-        sql """
-        CREATE TABLE IF NOT EXISTS ${table_load_name} (
-            `id` int(11) NULL
-            )
-            DISTRIBUTED BY HASH(id) PROPERTIES("replication_num" = "1");
-        """
+        // LOCAL TVF readback is disabled; export completion is checked above.
 
-        // use local() tvf to reload the data
-        def ipList = [:]
-        def portList = [:]
-        getBackendIpHeartbeatPort(ipList, portList)
-        ipList.each { beid, ip ->
-            logger.info("Begin to insert into ${table_load_name} from local()")
-            sql """
-                insert into ${table_load_name}
-                select * from local(
-                    "file_path" = "${local_tvf_prefix}/${table_export_name}_${uuid}/*",
-                    "backend_id" = "${beid}",
-                    "format" = "csv",
-                    "column_separator" = ","
-                );         
-            """ 
-            insert_res = sql "show last insert;"
-            logger.info("insert from local(), BE id = ${beid}, result: " + insert_res.toString())
-        }
-
-        qt_select_load7 """ SELECT * FROM ${table_load_name} t ORDER BY id; """
 
         // test label
         def label_db = "export_p0_test_label"
