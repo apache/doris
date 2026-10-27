@@ -60,6 +60,10 @@ Status validate_prx_window_limits(const PrxWindowLimits& limits) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                 "prx: writer window limits exceed reader limits");
     }
+    if (limits.zstd_min_saving_percent > 100) {
+        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
+                "prx: zstd minimum saving is a percentage");
+    }
     return Status::OK();
 }
 
@@ -451,7 +455,8 @@ size_t zstd_frame_size(size_t plain_size, size_t compressed_size) {
 // before PFOR materialization in build_prx_window_auto_from_flat.
 AutoPrxCodecChoice select_auto_prx_codec(size_t pfor_payload_size, size_t plain_payload_size,
                                          size_t compressed_payload_size, bool has_compressed,
-                                         uint32_t max_uncomp_bytes) {
+                                         uint32_t max_uncomp_bytes,
+                                         uint32_t zstd_min_saving_percent) {
     const bool pfor_readable = pfor_payload_size <= max_uncomp_bytes;
     const bool plain_readable = plain_payload_size <= max_uncomp_bytes;
     AutoPrxCodecChoice choice;
@@ -462,7 +467,14 @@ AutoPrxCodecChoice select_auto_prx_codec(size_t pfor_payload_size, size_t plain_
     }
     if (has_compressed && plain_readable) {
         const size_t frame_size = zstd_frame_size(plain_payload_size, compressed_payload_size);
-        if (!choice.readable || frame_size < selected_frame_size) {
+        // Against a PFOR frame ZSTD must save the configured share; without one it only has to win.
+        const bool saves_enough =
+                !choice.readable ||
+                (frame_size < selected_frame_size &&
+                 static_cast<uint64_t>(frame_size) * 100 <=
+                         static_cast<uint64_t>(selected_frame_size) *
+                                 (100 - std::min<uint32_t>(zstd_min_saving_percent, 100)));
+        if (saves_enough) {
             choice = {.codec = PrxCodec::kZstd, .readable = true};
             selected_frame_size = frame_size;
         }
@@ -543,9 +555,9 @@ Status build_prx_window_auto_from_flat(std::span<const uint32_t> positions_flat,
             testing::note_prx_raw_build();
             RETURN_IF_ERROR(zstd_compress(plain.view(), zstd_level, &compressed));
         }
-        const AutoPrxCodecChoice choice =
-                select_auto_prx_codec(payload.size(), plain.size(), compressed.size(),
-                                      has_compressed, limits.max_uncomp_bytes);
+        const AutoPrxCodecChoice choice = select_auto_prx_codec(
+                payload.size(), plain.size(), compressed.size(), has_compressed,
+                limits.max_uncomp_bytes, limits.zstd_min_saving_percent);
         DCHECK(choice.readable);
         if (choice.codec == PrxCodec::kZstd) {
             write_zstd_compressed(plain.view(), Slice(compressed), sink);
@@ -1405,10 +1417,11 @@ void note_prx_delta_materialization() {
 }
 
 uint8_t select_auto_prx_codec_for_test(size_t pfor_payload_size, size_t plain_payload_size,
-                                       size_t compressed_payload_size, uint32_t max_uncomp_bytes) {
-    const AutoPrxCodecChoice choice =
-            select_auto_prx_codec(pfor_payload_size, plain_payload_size, compressed_payload_size,
-                                  plain_payload_size >= kPrxAutoZstdMinBytes, max_uncomp_bytes);
+                                       size_t compressed_payload_size, uint32_t max_uncomp_bytes,
+                                       uint32_t zstd_min_saving_percent) {
+    const AutoPrxCodecChoice choice = select_auto_prx_codec(
+            pfor_payload_size, plain_payload_size, compressed_payload_size,
+            plain_payload_size >= kPrxAutoZstdMinBytes, max_uncomp_bytes, zstd_min_saving_percent);
     DCHECK(choice.readable);
     return static_cast<uint8_t>(choice.codec);
 }
