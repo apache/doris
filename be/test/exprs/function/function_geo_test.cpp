@@ -698,6 +698,16 @@ TEST(VGeoFunctionsTest, GeographyTouchesDistinguishesBoundaryFromInterior) {
     }
 }
 
+TEST(VGeoFunctionsTest, GeographyTouchesKeepsRoundedZeroLengthEdgesOpen) {
+    const std::string original = "LINESTRING (0 58,0 59)";
+    const std::string subdivided = "LINESTRING (0 58,0 58.00000000000001,0 59)";
+    const std::string other = "LINESTRING (-1 57,0 58,1 57)";
+    for (const auto& line : {original, subdivided}) {
+        expect_geography_relation("st_touches", line, other, true);
+        expect_geography_relation("st_touches", other, line, true);
+    }
+}
+
 TEST(VGeoFunctionsTest, GeographyEqualsUsesPointSetsAndOverlapsRequiresPositiveDimension) {
     struct Case {
         std::string left;

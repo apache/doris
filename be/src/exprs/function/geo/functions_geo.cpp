@@ -649,6 +649,13 @@ public:
         }
         EdgeSet edges;
         auto add_edge = [&](const GeographyVertex& a, const GeographyVertex& b) {
+            // Rounded adjacent vertices can share one S2Point while remaining distinct raw
+            // WKB vertices, for example 58 and 58.00000000000001 degrees. The raw edge is
+            // retained for identity, but its zero-length S2 representation must not become
+            // an OPEN/AA boundary marker at the original line endpoint.
+            if (a.point == b.point) {
+                return;
+            }
             edges.emplace(std::min(a, b), std::max(a, b));
         };
         // Merge latitude coverage before splitting: N repeated or overlapping edges
