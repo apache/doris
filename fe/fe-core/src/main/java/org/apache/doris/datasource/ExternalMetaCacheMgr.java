@@ -24,6 +24,7 @@ import org.apache.doris.common.cache.NereidsSortedPartitionsCacheManager;
 import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.cache.MetaCache;
+import org.apache.doris.connector.cache.MetaCacheCleanup;
 import org.apache.doris.connector.cache.MetaCacheGovernance;
 import org.apache.doris.datasource.doris.DorisExternalMetaCache;
 import org.apache.doris.datasource.doris.RemoteDorisExternalCatalog;
@@ -98,6 +99,9 @@ public class ExternalMetaCacheMgr {
     private ExternalRowCountCache rowCountCache;
 
     public ExternalMetaCacheMgr(boolean isCheckpointCatalog) {
+        // The cache module is parent-first across connector plugins, so resource cleanup shares one FE owner.
+        MetaCacheCleanup.configureResourceReclaimer((description, cleanup) -> ExternalResourceReclaimer.getInstance()
+                .submit(description, cleanup));
         MetaCacheGovernance.configureGlobalMaxWeight(configuredGlobalMaxWeight());
         rowCountRefreshExecutor = newThreadPool(isCheckpointCatalog,
                 Config.max_external_cache_loader_thread_pool_size,
