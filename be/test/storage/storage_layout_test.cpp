@@ -515,31 +515,6 @@ TEST(StorageLayoutTest, StorageToColumnCopiesStoredValuesAsTheyAre) {
     EXPECT_EQ(decimals->get_data()[1], Decimal32(67890));
 }
 
-TEST(StorageLayoutTest, StorageToColumnIntoNullableMarksTheRowsNotNull) {
-    auto ints = ColumnNullable::create(ColumnInt32::create(), ColumnUInt8::create());
-    ints->insert_default();
-    const int32_t stored_ints[] = {7, 8};
-    StorageLayout<FieldType::OLAP_FIELD_TYPE_INT>::storage_to_column(
-            reinterpret_cast<const uint8_t*>(stored_ints), 2, *ints);
-    ASSERT_EQ(ints->size(), 3);
-    EXPECT_TRUE(ints->is_null_at(0));
-    EXPECT_FALSE(ints->is_null_at(1));
-    EXPECT_FALSE(ints->is_null_at(2));
-    const auto& values = assert_cast<const ColumnInt32&>(ints->get_nested_column()).get_data();
-    EXPECT_EQ(values[1], 7);
-    EXPECT_EQ(values[2], 8);
-
-    auto dates = ColumnNullable::create(ColumnDate::create(), ColumnUInt8::create());
-    VecDateTimeValue day;
-    ASSERT_TRUE(day.from_date_int64(20200101));
-    const uint24_t stored_date = StorageLayout<FieldType::OLAP_FIELD_TYPE_DATE>::to_storage(day);
-    StorageLayout<FieldType::OLAP_FIELD_TYPE_DATE>::storage_to_column(
-            reinterpret_cast<const uint8_t*>(&stored_date), 1, *dates);
-    ASSERT_EQ(dates->size(), 1);
-    EXPECT_FALSE(dates->is_null_at(0));
-    EXPECT_EQ(assert_cast<const ColumnDate&>(dates->get_nested_column()).get_data()[0], day);
-}
-
 TEST(StorageLayoutTest, ObjectBatchSerialisesEveryValue) {
     auto bitmaps = ColumnBitmap::create();
     for (size_t i = 0; i < 3; ++i) {

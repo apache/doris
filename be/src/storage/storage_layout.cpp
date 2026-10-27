@@ -28,7 +28,6 @@
 #include "core/column/column_complex.h"
 #include "core/column/column_decimal.h"
 #include "core/column/column_fixed_length_object.h"
-#include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/value/bitmap_value.h"
@@ -68,13 +67,6 @@ void repack_from_column(const IColumn& column, size_t row_pos, size_t n, uint8_t
 // Appends n stored values of a repacked layout, each turned back into its PrimitiveValue.
 template <FieldType FT>
 void repack_to_column(const uint8_t* values, size_t n, IColumn& dst) {
-    if (is_column_nullable(dst)) {
-        // A page holds no NULL row: the n rows it decodes are all not NULL.
-        auto& nullable = assert_cast<ColumnNullable&>(dst);
-        nullable.push_false_to_nullmap(n);
-        repack_to_column<FT>(values, n, nullable.get_nested_column());
-        return;
-    }
     using StorageValue = typename StorageTypeTraits<FT>::StorageType;
     using Column =
             typename PrimitiveTypeTraits<storage_field_type_to_primitive_type(FT)>::ColumnType;
