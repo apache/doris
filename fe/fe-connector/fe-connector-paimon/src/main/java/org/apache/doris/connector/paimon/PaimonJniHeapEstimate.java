@@ -21,12 +21,12 @@ import org.apache.paimon.CoreOptions;
 import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.options.MemorySize;
 import org.apache.paimon.schema.TableSchema;
-import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.IncrementalSplit;
 import org.apache.paimon.table.source.Split;
+import org.apache.paimon.table.source.Splits;
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.MapType;
@@ -63,6 +63,10 @@ import java.util.function.LongFunction;
  * so it holds what one merge of all those files holds; of an append table it reads the later snapshot's
  * files one after another. The other splits that are not DataSplits, those of the metadata system tables
  * and of format tables, hold little and declare nothing.
+ *
+ * <p>A split is looked at through the wrappers paimon plans it in, which its reader reads through: the
+ * {@code QueryAuthSplit} every split of a table with query-auth rules (a catalog's row filter or column
+ * mask) comes in, and the {@code FallbackSplit} of a fallback-branch table, which wraps that in turn.
  *
  * <p>A file's row groups, dictionary pages and columns are those of the schema version it was written under
  * ({@link DataFileMeta#schemaId()}): paimon's writers take the row group size and the largest parquet
@@ -124,14 +128,12 @@ final class PaimonJniHeapEstimate {
     }
 
     long bytesOf(Split split) {
-        if (split instanceof DataSplit) {
-            DataSplit dataSplit = (DataSplit) split;
+        // A fallback-branch table's FallbackDataSplit is a DataSplit itself.
+        Split read = Splits.underlying(split);
+        if (read instanceof DataSplit) {
+            DataSplit dataSplit = (DataSplit) read;
             return readsFileByFile(dataSplit) ? largest(dataSplit.dataFiles()) : total(dataSplit.dataFiles());
         }
-        // A fallback-branch table wraps the splits that are not DataSplits; its FallbackDataSplit is one.
-        Split read = split instanceof FallbackReadFileStoreTable.FallbackSplit
-                ? ((FallbackReadFileStoreTable.FallbackSplit) split).wrapped()
-                : split;
         if (!(read instanceof IncrementalSplit)) {
             return 0;
         }

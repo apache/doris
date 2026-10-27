@@ -1354,7 +1354,8 @@ public class PaimonScanPlanProviderTest {
     /**
      * With enable_jni_heap_admission a JNI split declares each of its files by the schema version it was
      * written under: files written before an ALTER TABLE lowered the block size and added a column are
-     * declared by the row groups and the columns they were written with, not by today's options.
+     * declared by the row groups and the columns they were written with, not by today's options. So are
+     * they when read through $audit_log or $binlog, which show today's options of the table they wrap.
      */
     @Test
     public void jniSplitDeclaresFilesWrittenBeforeAnAlterByTheirOwnSchema(@TempDir Path warehouse)
@@ -1385,29 +1386,39 @@ public class PaimonScanPlanProviderTest {
                     SchemaChange.setOption(CoreOptions.FILE_BLOCK_SIZE.key(), "1 b"),
                     SchemaChange.addColumn("x", DataTypes.INT())), false);
 
+            FileStoreTable altered = (FileStoreTable) catalog.getTable(id);
             RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
-            ops.table = catalog.getTable(id);
+            ops.table = altered;
             PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
                     PaimonCatalogProperties.of(Collections.emptyMap()), ops);
-            PaimonTableHandle handle = new PaimonTableHandle(
-                    "db", "altered", Collections.emptyList(), Collections.emptyList());
-            List<ConnectorScanRange> ranges = provider.planScan(
-                    sessionWithProps(Collections.singletonMap("enable_jni_heap_admission", "true")),
-                    ConnectorScanRequest.builder(handle, Collections.emptyList()).build());
+            // $audit_log and $binlog read the same files, while showing the table's current options.
+            for (String kind : Arrays.asList("", "audit_log", "binlog")) {
+                PaimonTableHandle handle = kind.isEmpty()
+                        ? new PaimonTableHandle("db", "altered", Collections.emptyList(), Collections.emptyList())
+                        : PaimonTableHandle.forSystemTable("db", "altered", kind, true);
+                if (!kind.isEmpty()) {
+                    handle.setSysBaseTable(altered);
+                    handle.setSystemTableSource(altered);
+                    handle.setPaimonTable(org.apache.paimon.table.system.SystemTableLoader.load(kind, altered));
+                }
+                List<ConnectorScanRange> ranges = provider.planScan(
+                        sessionWithProps(Collections.singletonMap("enable_jni_heap_admission", "true")),
+                        ConnectorScanRequest.builder(handle, Collections.emptyList()).build());
 
-            Assertions.assertEquals(1, ranges.size());
-            DataSplit split = (DataSplit) deserializeJniSplits(ranges).get(0);
-            Assertions.assertFalse(split.rawConvertible(), "the two files must be merged");
-            Assertions.assertEquals(2, split.dataFiles().size());
-            // Under version 0 a file has 128 MB row groups - all of a small file - and 5 columns, (id, val)
-            // keyed by id; version 1 would give it 2 bytes of 1-byte row groups and 6 columns.
-            long expected = 0;
-            for (DataFileMeta file : split.dataFiles()) {
-                Assertions.assertEquals(0L, file.schemaId());
-                expected += file.fileSize() + 5 * PaimonJniHeapEstimate.DEFAULT_DICTIONARY_PAGE_BYTES;
+                Assertions.assertEquals(1, ranges.size(), kind);
+                DataSplit split = (DataSplit) deserializeJniSplits(ranges).get(0);
+                Assertions.assertFalse(split.rawConvertible(), "the two files must be merged");
+                Assertions.assertEquals(2, split.dataFiles().size());
+                // Under version 0 a file has 128 MB row groups - all of a small file - and 5 columns, (id, val)
+                // keyed by id; version 1 would give it 2 bytes of 1-byte row groups and 6 columns.
+                long expected = 0;
+                for (DataFileMeta file : split.dataFiles()) {
+                    Assertions.assertEquals(0L, file.schemaId());
+                    expected += file.fileSize() + 5 * PaimonJniHeapEstimate.DEFAULT_DICTIONARY_PAGE_BYTES;
+                }
+                Assertions.assertEquals(String.valueOf(expected),
+                        ranges.get(0).getProperties().get("paimon.jni_heap_bytes"), kind);
             }
-            Assertions.assertEquals(String.valueOf(expected),
-                    ranges.get(0).getProperties().get("paimon.jni_heap_bytes"));
         }
     }
 

@@ -2244,12 +2244,13 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      * size set by the schema version it was written under, which an ALTER TABLE since leaves as it is, so
      * the estimate reads the versions its files were written under, of the branch that planned its split: a
      * scan.fallback-branch or scan.primary-branch table plans the splits of two branches, each numbering its
-     * schema versions on its own. $ro reads its base table's files, under that table's schema ids, as
-     * {@link #physicalVariantSchemaIds} resolves it; the other system tables are estimated by the options
-     * they show.
+     * schema versions on its own. $ro, $audit_log, $binlog and $row_tracking read their base table's files,
+     * under that table's schema ids, while showing its current options; the metadata system tables are
+     * estimated by the options they show.
      */
     private ToLongFunction<Split> jniHeapBytes(Table table, PaimonTableHandle handle) {
-        Table physicalSchemaTable = resolveSchemaDictTable(table, handle);
+        // The base table of a wrapper, resolved as the timestamp-history checks resolve it.
+        Table physicalSchemaTable = withSchemaHistoryAuthentication(() -> resolveTimestampHistoryTable(table, handle));
         if (!(physicalSchemaTable instanceof FileStoreTable)) {
             return PaimonJniHeapEstimate.of(table)::bytesOf;
         }
