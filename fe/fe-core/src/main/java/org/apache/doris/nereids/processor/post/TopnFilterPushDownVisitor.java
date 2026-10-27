@@ -92,9 +92,8 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
     @Override
     public Boolean visitPhysicalProject(
             PhysicalProject<? extends Plan> project, PushDownContext ctx) {
-        // TopN can skip or reorder input before this project. Crossing assert_true(k < 3), for
-        // example, could suppress errors in pruned row groups instead of preserving evaluation.
-        if (project.getProjects().stream().anyMatch(Expression::containsVolatileOrNoneMovableExpression)) {
+        // TopN may skip or reorder rows before assert_true or overflowing date arithmetic runs.
+        if (hasEvaluationSensitiveExpressions(project)) {
             return false;
         }
         // project ( A+1 as x)
@@ -111,6 +110,12 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
             ctxProjectProbeExpr = ctx.withNewProbeExpression(newProbeExpr);
         }
         return project.child().accept(this, ctxProjectProbeExpr);
+    }
+
+    private static boolean hasEvaluationSensitiveExpressions(Plan plan) {
+        return plan.getExpressions().stream().anyMatch(expression ->
+                expression.containsVolatileOrNoneMovableExpression()
+                        || ExpressionUtils.containsUnsafeDateArithmetic(expression));
     }
 
     @Override
@@ -197,6 +202,10 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
     @Override
     public Boolean visitPhysicalHashJoin(PhysicalHashJoin<? extends Plan, ? extends Plan> join,
             PushDownContext ctx) {
+        // Scan conjuncts cannot fence ON expressions retained on the join, including mark predicates.
+        if (hasEvaluationSensitiveExpressions(join)) {
+            return false;
+        }
         if (ctx.nullsFirst && (join.getJoinType().isOuterJoin() || join.getJoinType().isAsofOuterJoin())) {
             // topn-filter can be pushed down to the left child of leftOuterJoin
             // and to the right child of rightOuterJoin,
@@ -230,6 +239,9 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
     @Override
     public Boolean visitPhysicalNestedLoopJoin(PhysicalNestedLoopJoin<? extends Plan, ? extends Plan> join,
             PushDownContext ctx) {
+        if (hasEvaluationSensitiveExpressions(join)) {
+            return false;
+        }
         if (ctx.nullsFirst && join.getJoinType().isOuterJoin()) {
             // topn-filter can be pushed down to the left child of leftOuterJoin
             // and to the right child of rightOuterJoin,

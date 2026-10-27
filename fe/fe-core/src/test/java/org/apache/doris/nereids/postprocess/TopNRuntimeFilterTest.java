@@ -29,8 +29,11 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.SortPhase;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
@@ -50,6 +53,8 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
     public void runBeforeAll() throws Exception {
         super.runBeforeAll();
         createTable("CREATE TABLE uuid_topn (id INT, u UUID) DUPLICATE KEY(id) "
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')");
+        createTable("CREATE TABLE topn_safety (id INT, k INT, d DATE) DUPLICATE KEY(id) "
                 + "DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')");
     }
 
@@ -79,6 +84,62 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
                     .process(checker.getPhysicalPlan());
             Assertions.assertTrue(checker.getCascadesContext().getTopnFilterContext().getTopnFilters().isEmpty(),
                     plan.treeString());
+        }
+    }
+
+    @Test
+    public void testTopNFilterDoesNotCrossThrowingDateProject() {
+        for (String expression : List.of("weeks_add(d, 1)", "days_sub(d, 1)",
+                "year(weeks_add(d, 1))", "day_floor(d, 2)")) {
+            // A secondary key keeps the throwing expression below TopN instead of deferring it.
+            assertTopNFilterBoundary("SELECT k, " + expression + " AS v FROM topn_safety "
+                    + "ORDER BY k, v LIMIT 1", PhysicalProject.class, false);
+        }
+    }
+
+    @Test
+    public void testTopNFilterDoesNotCrossSensitiveHashJoin() {
+        for (String predicate : List.of("assert_true(l.k < 3, 'bad')",
+                "assert_true(l.k + r.k < 3, 'bad')")) {
+            assertTopNFilterBoundary("SELECT l.k FROM topn_safety l JOIN topn_safety r "
+                    + "ON l.id = r.id AND " + predicate + " ORDER BY l.k LIMIT 1",
+                    PhysicalHashJoin.class, false);
+        }
+    }
+
+    @Test
+    public void testTopNFilterDoesNotCrossSensitiveNestedLoopJoin() {
+        assertTopNFilterBoundary("SELECT l.k FROM topn_safety l JOIN topn_safety r "
+                + "ON l.id < r.id AND assert_true(l.k < 3, 'bad') ORDER BY l.k LIMIT 1",
+                PhysicalNestedLoopJoin.class, false);
+    }
+
+    @Test
+    public void testTopNFilterStillCrossesSafeProjectsAndJoins() {
+        assertTopNFilterBoundary("SELECT k, weeks_add(d, 0) AS v FROM topn_safety "
+                + "ORDER BY k, v LIMIT 1", PhysicalProject.class, true);
+        assertTopNFilterBoundary("SELECT l.k FROM topn_safety l JOIN topn_safety r "
+                + "ON l.id = r.id ORDER BY l.k LIMIT 1", PhysicalHashJoin.class, true);
+        assertTopNFilterBoundary("SELECT l.k FROM topn_safety l JOIN topn_safety r "
+                + "ON l.id < r.id ORDER BY l.k LIMIT 1", PhysicalNestedLoopJoin.class, true);
+    }
+
+    private void assertTopNFilterBoundary(String sql, Class<? extends Plan> boundary, boolean expectFilter) {
+        double previousRatio = connectContext.getSessionVariable().topnFilterRatio;
+        boolean previousJoinReorder = connectContext.getSessionVariable().isDisableJoinReorder();
+        connectContext.getSessionVariable().topnFilterRatio = 1000000;
+        connectContext.getSessionVariable().setDisableJoinReorder(true);
+        try {
+            PlanChecker checker = PlanChecker.from(connectContext).analyze(sql).rewrite().implement();
+            PhysicalPlan plan = new PlanPostProcessors(checker.getCascadesContext())
+                    .process(checker.getPhysicalPlan());
+            Assertions.assertTrue(plan.anyMatch(boundary::isInstance), plan.treeString());
+            Assertions.assertEquals(expectFilter,
+                    !checker.getCascadesContext().getTopnFilterContext().getTopnFilters().isEmpty(),
+                    plan.treeString());
+        } finally {
+            connectContext.getSessionVariable().topnFilterRatio = previousRatio;
+            connectContext.getSessionVariable().setDisableJoinReorder(previousJoinReorder);
         }
     }
 
