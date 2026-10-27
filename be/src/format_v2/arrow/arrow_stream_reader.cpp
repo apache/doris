@@ -19,6 +19,7 @@
 
 #include <arrow/array.h>
 #include <arrow/buffer.h>
+#include <arrow/builder.h>
 #include <arrow/compute/api.h>
 #include <arrow/io/interfaces.h>
 #include <arrow/ipc/reader.h>
@@ -28,6 +29,10 @@
 #include <utility>
 
 #include "core/block/block.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_map.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_struct.h"
 #include "format/arrow/arrow_array_normalizer.h"
 #include "format/arrow/arrow_row_batch.h"
 #include "format/arrow/arrow_utils.h"
@@ -43,9 +48,9 @@ namespace doris::format::arrow_stream {
 
 namespace {
 
-std::shared_ptr<arrow::DataType> input_binding_type(
+arrow::Result<std::shared_ptr<arrow::DataType>> input_binding_type(
         const std::shared_ptr<arrow::DataType>& wire,
-        const std::shared_ptr<arrow::DataType>& declared) {
+        const std::shared_ptr<arrow::DataType>& declared, const DataTypePtr& doris_type) {
     if (wire->Equals(declared)) {
         return declared;
     }
@@ -54,33 +59,119 @@ std::shared_ptr<arrow::DataType> input_binding_type(
     if (wire->id() == arrow::Type::TIMESTAMP && declared->id() == arrow::Type::TIMESTAMP) {
         return wire;
     }
+    // DATE64 SerDe checks whole days and the Doris year range; DATE32 rebinding would bypass it.
+    if (wire->id() == arrow::Type::DATE64 && declared->id() == arrow::Type::DATE32) {
+        return wire;
+    }
+    const auto type = remove_nullable(doris_type);
+    // IPv4 is a 32-bit bit pattern, including addresses above INT32_MAX. Numeric INT columns
+    // still use the checked conversion below instead of inheriting this storage exception.
+    if (type->get_primitive_type() == TYPE_IPV4 && wire->id() == arrow::Type::UINT32) {
+        return wire;
+    }
     if (declared->id() == arrow::Type::LIST &&
         (wire->id() == arrow::Type::LIST || wire->id() == arrow::Type::LARGE_LIST ||
          wire->id() == arrow::Type::FIXED_SIZE_LIST)) {
         const auto& source = static_cast<const arrow::BaseListType&>(*wire);
         const auto& target = static_cast<const arrow::ListType&>(*declared);
-        return arrow::list(target.value_field()->WithType(
-                input_binding_type(source.value_type(), target.value_type())));
+        const auto& array = assert_cast<const DataTypeArray&>(*type);
+        ARROW_ASSIGN_OR_RAISE(auto child,
+                              input_binding_type(source.value_type(), target.value_type(),
+                                                 array.get_nested_type()));
+        return arrow::list(source.value_field()->WithType(child));
     }
     if (wire->id() == arrow::Type::MAP && declared->id() == arrow::Type::MAP) {
         const auto& source = static_cast<const arrow::MapType&>(*wire);
         const auto& target = static_cast<const arrow::MapType&>(*declared);
-        return std::make_shared<arrow::MapType>(target.key_field()->WithType(input_binding_type(
-                                                        source.key_type(), target.key_type())),
-                                                target.item_field()->WithType(input_binding_type(
-                                                        source.item_type(), target.item_type())),
-                                                target.keys_sorted());
+        const auto& map = assert_cast<const DataTypeMap&>(*type);
+        ARROW_ASSIGN_OR_RAISE(auto key, input_binding_type(source.key_type(), target.key_type(),
+                                                           map.get_key_type()));
+        ARROW_ASSIGN_OR_RAISE(auto item, input_binding_type(source.item_type(), target.item_type(),
+                                                            map.get_value_type()));
+        return std::make_shared<arrow::MapType>(source.key_field()->WithType(key),
+                                                source.item_field()->WithType(item),
+                                                source.keys_sorted());
     }
-    if (wire->id() == arrow::Type::STRUCT && declared->id() == arrow::Type::STRUCT &&
-        wire->num_fields() == declared->num_fields()) {
+    if (wire->id() == arrow::Type::STRUCT && declared->id() == arrow::Type::STRUCT) {
+        if (wire->num_fields() != declared->num_fields()) {
+            return arrow::Status::Invalid(
+                    "Arrow STRUCT field count does not match the load schema");
+        }
+        const auto& structure = assert_cast<const DataTypeStruct&>(*type);
         arrow::FieldVector fields;
         for (int i = 0; i < wire->num_fields(); ++i) {
-            fields.push_back(declared->field(i)->WithType(
-                    input_binding_type(wire->field(i)->type(), declared->field(i)->type())));
+            ARROW_ASSIGN_OR_RAISE(auto child, input_binding_type(wire->field(i)->type(),
+                                                                 declared->field(i)->type(),
+                                                                 structure.get_elements()[i]));
+            // Struct SerDe binds children by position. Arrow casts bind by name, so retain the
+            // wire names to prevent a case/name difference from synthesizing NULL children.
+            fields.push_back(wire->field(i)->WithType(child));
         }
         return arrow::struct_(fields);
     }
     return declared;
+}
+
+arrow::Result<std::shared_ptr<arrow::Array>> mask_hidden_children(
+        std::shared_ptr<arrow::Array> array, arrow::compute::ExecContext* context);
+
+arrow::Result<std::shared_ptr<arrow::Array>> mask_struct_children(
+        const std::shared_ptr<arrow::Array>& array, arrow::compute::ExecContext* context) {
+    const auto& structure = static_cast<const arrow::StructArray&>(*array);
+    auto data = array->data()->Copy();
+    for (int i = 0; i < structure.num_fields(); ++i) {
+        // A NULL struct can have valid child payloads. Combine ancestor validity before
+        // checked casts can inspect those logically hidden values.
+        ARROW_ASSIGN_OR_RAISE(auto child, structure.GetFlattenedField(i, context->memory_pool()));
+        ARROW_ASSIGN_OR_RAISE(child, mask_hidden_children(std::move(child), context));
+        data->child_data[i] = child->data();
+    }
+    return arrow::MakeArray(data);
+}
+
+arrow::Result<std::shared_ptr<arrow::Array>> compact_null_containers(
+        std::shared_ptr<arrow::Array> array, arrow::compute::ExecContext* context) {
+    if (array->null_count() == 0) {
+        return array;
+    }
+    // NULL lists/maps can reference nonempty child ranges. Take drops those ranges without
+    // making map keys nullable, and masks the hidden children of fixed-size lists.
+    arrow::Int64Builder indices(context->memory_pool());
+    ARROW_RETURN_NOT_OK(indices.Reserve(array->length()));
+    for (int64_t i = 0; i < array->length(); ++i) {
+        ARROW_RETURN_NOT_OK(array->IsNull(i) ? indices.AppendNull() : indices.Append(i));
+    }
+    ARROW_ASSIGN_OR_RAISE(auto positions, indices.Finish());
+    ARROW_ASSIGN_OR_RAISE(
+            auto compacted,
+            arrow::compute::Take(array, positions, arrow::compute::TakeOptions::NoBoundsCheck(),
+                                 context));
+    return compacted.make_array();
+}
+
+arrow::Result<std::shared_ptr<arrow::Array>> mask_list_children(
+        std::shared_ptr<arrow::Array> array, arrow::compute::ExecContext* context) {
+    ARROW_ASSIGN_OR_RAISE(array, compact_null_containers(std::move(array), context));
+    auto data = array->data()->Copy();
+    ARROW_ASSIGN_OR_RAISE(auto child,
+                          mask_hidden_children(arrow::MakeArray(data->child_data[0]), context));
+    data->child_data[0] = child->data();
+    return arrow::MakeArray(data);
+}
+
+arrow::Result<std::shared_ptr<arrow::Array>> mask_hidden_children(
+        std::shared_ptr<arrow::Array> array, arrow::compute::ExecContext* context) {
+    switch (array->type_id()) {
+    case arrow::Type::STRUCT:
+        return mask_struct_children(array, context);
+    case arrow::Type::LIST:
+    case arrow::Type::LARGE_LIST:
+    case arrow::Type::FIXED_SIZE_LIST:
+    case arrow::Type::MAP:
+        return mask_list_children(std::move(array), context);
+    default:
+        return array;
+    }
 }
 
 } // namespace
@@ -253,11 +344,16 @@ Status ArrowStreamReader::_prepare_arrays() {
         std::shared_ptr<arrow::Array> array;
         RETURN_IF_ERROR(normalize_arrow_array(_batch->column(_arrow_positions[id.value()]),
                                               _arrow_pool.get(), &array));
-        const auto binding = input_binding_type(array->type(), _arrow_types[id.value()]);
+        arrow::compute::ExecContext context(_arrow_pool.get());
+        std::shared_ptr<arrow::DataType> binding;
+        RETURN_DORIS_STATUS_IF_RESULT_ERROR(
+                binding, input_binding_type(array->type(), _arrow_types[id.value()],
+                                            _file_slots[id.value()]->type()));
         // Bind differing numeric widths before concrete SerDe array casts. Timestamp units
         // stay on the wire even inside containers, so Doris retains its own rounding semantics.
         if (!array->type()->Equals(binding)) {
-            arrow::compute::ExecContext context(_arrow_pool.get());
+            RETURN_DORIS_STATUS_IF_RESULT_ERROR(array,
+                                                mask_hidden_children(std::move(array), &context));
             auto options = arrow::compute::CastOptions::Safe();
             // The Arrow load protocol permits binary payloads in Doris STRING columns.
             options.allow_invalid_utf8 = true;

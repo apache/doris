@@ -26,17 +26,23 @@
 
 #include <filesystem>
 #include <fstream>
+#include <limits>
 
 #include "core/column/column_array.h"
 #include "core/column/column_complex.h"
+#include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
+#include "core/column/column_struct.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_bitmap.h"
 #include "core/data_type/data_type_date_or_datetime_v2.h"
+#include "core/data_type/data_type_ipv4.h"
+#include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_struct.h"
 #include "format_v2/schema_reader.h"
 #include "io/fs/kafka_consumer_pipe.h"
 #include "load/stream_load/new_load_stream_mgr.h"
@@ -468,6 +474,64 @@ protected:
         auto schema = arrow::schema({arrow::field(name, arrow::utf8())});
         append_batch(arrow::RecordBatch::Make(schema, values.size(), {*array}));
     }
+    void check_hidden_container_values(int container) {
+        const auto int_type = make_nullable(std::make_shared<DataTypeInt32>());
+        set_column_type(make_nullable(
+                container == 2 ? DataTypePtr(std::make_shared<DataTypeMap>(
+                                         std::make_shared<DataTypeInt32>(), int_type))
+                               : DataTypePtr(std::make_shared<DataTypeArray>(int_type))));
+        arrow::Int64Builder builder;
+        ASSERT_TRUE(builder.AppendValues({std::numeric_limits<int64_t>::max(), 7}).ok());
+        auto values = builder.Finish();
+        ASSERT_TRUE(values.ok());
+        arrow::BooleanBuilder validity;
+        ASSERT_TRUE(validity.AppendValues(std::vector<bool> {false, true}).ok());
+        auto valid = validity.Finish();
+        ASSERT_TRUE(valid.ok());
+        const auto bitmap = (*valid)->data()->buffers[1];
+        std::shared_ptr<arrow::Array> input;
+        if (container == 1) {
+            input = std::make_shared<arrow::FixedSizeListArray>(
+                    arrow::fixed_size_list(arrow::int64(), 1), 2, *values, bitmap, 1);
+        } else {
+            arrow::Int32Builder offsets;
+            ASSERT_TRUE(offsets.AppendValues({0, 1, 2}).ok());
+            auto positions = offsets.Finish();
+            ASSERT_TRUE(positions.ok());
+            if (container == 2) {
+                input = std::make_shared<arrow::MapArray>(
+                        arrow::map(arrow::int64(), arrow::int64()), 2,
+                        (*positions)->data()->buffers[1], *values, *values, bitmap, 1);
+            } else {
+                auto lists = arrow::ListArray::FromArrays(**positions, **values,
+                                                          arrow::default_memory_pool(), bitmap, 1);
+                ASSERT_TRUE(lists.ok());
+                input = *lists;
+            }
+        }
+        append_batch(arrow::RecordBatch::Make(
+                arrow::schema({arrow::field("raw_value", input->type())}), 2, {input}));
+        ASSERT_TRUE(_pipe->finish().ok());
+        LoadTableReader reader(source.get(), destination.get());
+        ASSERT_TRUE(prepare(reader, FileFormat::ARROW).ok());
+        Block output(destination->slots(), 0);
+        bool eos = false;
+        const auto status = reader.get_block(&output, &eos);
+        ASSERT_TRUE(status.ok()) << status;
+        ASSERT_EQ(output.rows(), 2);
+        EXPECT_TRUE(output.get_by_position(0).column->is_null_at(0));
+        EXPECT_FALSE(output.get_by_position(0).column->is_null_at(1));
+        const auto& column = assert_cast<const ColumnNullable&>(*output.get_by_position(0).column);
+        if (container == 2) {
+            const auto& map = assert_cast<const ColumnMap&>(column.get_nested_column());
+            EXPECT_EQ(map.get_keys().get_int(0), 7);
+        } else {
+            const auto& array = assert_cast<const ColumnArray&>(column.get_nested_column());
+            const auto& elements = assert_cast<const ColumnNullable&>(array.get_data());
+            EXPECT_EQ(elements.get_nested_column().get_int(array.get_offsets()[0]), 7);
+        }
+        ASSERT_TRUE(reader.close().ok());
+    }
     void append_batch(const std::shared_ptr<arrow::RecordBatch>& batch, bool compressed = false) {
         auto sink = arrow::io::BufferOutputStream::Create();
         ASSERT_TRUE(sink.ok());
@@ -606,6 +670,156 @@ TEST_F(LoadArrowPipeTest, BinaryStringPayloadPreservesItsBytes) {
     ASSERT_TRUE(status.ok()) << status;
     ASSERT_EQ(output.rows(), 1);
     EXPECT_EQ(output.get_by_position(0).column->get_data_at(0).to_string(), "\xFF");
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST_F(LoadArrowPipeTest, StructChildrenBindPositionallyInsideAnArray) {
+    const auto structure = make_nullable(std::make_shared<DataTypeStruct>(
+            DataTypes {make_nullable(std::make_shared<DataTypeInt32>()),
+                       make_nullable(std::make_shared<DataTypeInt32>())},
+            Strings {"a", "b"}));
+    set_column_type(make_nullable(std::make_shared<DataTypeArray>(structure)));
+    arrow::Int64Builder builder;
+    ASSERT_TRUE(builder.AppendValues({7, 9}).ok());
+    auto values = builder.Finish();
+    ASSERT_TRUE(values.ok());
+    auto structs = arrow::StructArray::Make(
+            {*values, *values}, arrow::FieldVector {arrow::field("A", arrow::int64()),
+                                                    arrow::field("different", arrow::int64())});
+    ASSERT_TRUE(structs.ok());
+    arrow::Int32Builder offsets;
+    ASSERT_TRUE(offsets.AppendValues({0, 2}).ok());
+    auto positions = offsets.Finish();
+    ASSERT_TRUE(positions.ok());
+    auto lists = arrow::ListArray::FromArrays(**positions, **structs);
+    ASSERT_TRUE(lists.ok());
+    append_batch(arrow::RecordBatch::Make(
+            arrow::schema({arrow::field("raw_value", (*lists)->type())}), 1, {*lists}));
+    ASSERT_TRUE(_pipe->finish().ok());
+    LoadTableReader reader(source.get(), destination.get());
+    ASSERT_TRUE(prepare(reader, FileFormat::ARROW).ok());
+    Block output(destination->slots(), 0);
+    bool eos = false;
+    const auto status = reader.get_block(&output, &eos);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(output.rows(), 1);
+    const auto& outer = assert_cast<const ColumnNullable&>(*output.get_by_position(0).column);
+    const auto& array = assert_cast<const ColumnArray&>(outer.get_nested_column());
+    const auto& elements = assert_cast<const ColumnNullable&>(array.get_data());
+    const auto& fields = assert_cast<const ColumnStruct&>(elements.get_nested_column());
+    EXPECT_FALSE(fields.get_column(0).is_null_at(0));
+    EXPECT_EQ(
+            assert_cast<const ColumnNullable&>(fields.get_column(0)).get_nested_column().get_int(0),
+            7);
+    EXPECT_FALSE(fields.get_column(1).is_null_at(1));
+    EXPECT_EQ(
+            assert_cast<const ColumnNullable&>(fields.get_column(1)).get_nested_column().get_int(1),
+            9);
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST_F(LoadArrowPipeTest, Date64RetainsDorisRangeValidation) {
+    set_column_type(make_nullable(std::make_shared<DataTypeDateV2>()));
+    arrow::Date64Builder builder;
+    ASSERT_TRUE(builder.Append(253402300800000LL).ok());
+    auto values = builder.Finish();
+    ASSERT_TRUE(values.ok());
+    append_batch(arrow::RecordBatch::Make(
+            arrow::schema({arrow::field("raw_value", arrow::date64())}), 1, {*values}));
+    ASSERT_TRUE(_pipe->finish().ok());
+    LoadTableReader reader(source.get(), destination.get());
+    ASSERT_TRUE(prepare(reader, FileFormat::ARROW).ok());
+    Block output(destination->slots(), 0);
+    bool eos = false;
+    const auto status = reader.get_block(&output, &eos);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("Doris DATE range"), std::string::npos) << status;
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST_F(LoadArrowPipeTest, UInt32Ipv4PreservesTheUnsignedAddressBits) {
+    set_column_type(make_nullable(std::make_shared<DataTypeIPv4>()));
+    arrow::UInt32Builder builder;
+    ASSERT_TRUE(builder.AppendValues({0x7fffffffU, 0x80000000U, 0xffffffffU}).ok());
+    auto values = builder.Finish();
+    ASSERT_TRUE(values.ok());
+    append_batch(arrow::RecordBatch::Make(
+            arrow::schema({arrow::field("raw_value", arrow::uint32())}), 3, {*values}));
+    ASSERT_TRUE(_pipe->finish().ok());
+    LoadTableReader reader(source.get(), destination.get());
+    ASSERT_TRUE(prepare(reader, FileFormat::ARROW).ok());
+    Block output(destination->slots(), 0);
+    bool eos = false;
+    const auto status = reader.get_block(&output, &eos);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(output.rows(), 3);
+    const auto type = destination_slot->type();
+    EXPECT_EQ(type->to_string(*output.get_by_position(0).column, 0), "127.255.255.255");
+    EXPECT_EQ(type->to_string(*output.get_by_position(0).column, 1), "128.0.0.0");
+    EXPECT_EQ(type->to_string(*output.get_by_position(0).column, 2), "255.255.255.255");
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST_F(LoadArrowPipeTest, NullStructIgnoresAnOverflowingHiddenChild) {
+    set_column_type(make_nullable(std::make_shared<DataTypeStruct>(
+            DataTypes {make_nullable(std::make_shared<DataTypeInt32>())}, Strings {"a"})));
+    arrow::Int64Builder builder;
+    ASSERT_TRUE(builder.AppendValues({std::numeric_limits<int64_t>::max(), 7}).ok());
+    auto values = builder.Finish();
+    ASSERT_TRUE(values.ok());
+    arrow::BooleanBuilder validity;
+    ASSERT_TRUE(validity.AppendValues(std::vector<bool> {false, true}).ok());
+    auto valid = validity.Finish();
+    ASSERT_TRUE(valid.ok());
+    auto structs = arrow::StructArray::Make({*values},
+                                            arrow::FieldVector {arrow::field("a", arrow::int64())},
+                                            (*valid)->data()->buffers[1], 1);
+    ASSERT_TRUE(structs.ok());
+    append_batch(arrow::RecordBatch::Make(
+            arrow::schema({arrow::field("raw_value", (*structs)->type())}), 2, {*structs}));
+    ASSERT_TRUE(_pipe->finish().ok());
+    LoadTableReader reader(source.get(), destination.get());
+    ASSERT_TRUE(prepare(reader, FileFormat::ARROW).ok());
+    Block output(destination->slots(), 0);
+    bool eos = false;
+    const auto status = reader.get_block(&output, &eos);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(output.rows(), 2);
+    EXPECT_TRUE(output.get_by_position(0).column->is_null_at(0));
+    const auto& nullable = assert_cast<const ColumnNullable&>(*output.get_by_position(0).column);
+    const auto& fields = assert_cast<const ColumnStruct&>(nullable.get_nested_column());
+    EXPECT_EQ(
+            assert_cast<const ColumnNullable&>(fields.get_column(0)).get_nested_column().get_int(1),
+            7);
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST_F(LoadArrowPipeTest, NullListIgnoresAnOverflowingHiddenChild) {
+    check_hidden_container_values(0);
+}
+
+TEST_F(LoadArrowPipeTest, NullFixedSizeListIgnoresAnOverflowingHiddenChild) {
+    check_hidden_container_values(1);
+}
+
+TEST_F(LoadArrowPipeTest, NullMapIgnoresOverflowingHiddenKeysAndValues) {
+    check_hidden_container_values(2);
+}
+
+TEST_F(LoadArrowPipeTest, NumericIntStillRejectsAnOverflowingUInt32) {
+    set_column_type(make_nullable(std::make_shared<DataTypeInt32>()));
+    arrow::UInt32Builder builder;
+    ASSERT_TRUE(builder.Append(0xffffffffU).ok());
+    auto values = builder.Finish();
+    ASSERT_TRUE(values.ok());
+    append_batch(arrow::RecordBatch::Make(
+            arrow::schema({arrow::field("raw_value", arrow::uint32())}), 1, {*values}));
+    ASSERT_TRUE(_pipe->finish().ok());
+    LoadTableReader reader(source.get(), destination.get());
+    ASSERT_TRUE(prepare(reader, FileFormat::ARROW).ok());
+    Block output(destination->slots(), 0);
+    bool eos = false;
+    EXPECT_FALSE(reader.get_block(&output, &eos).ok());
     ASSERT_TRUE(reader.close().ok());
 }
 
