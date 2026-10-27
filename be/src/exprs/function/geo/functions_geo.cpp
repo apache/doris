@@ -1122,9 +1122,10 @@ static Status geography_relation(std::string_view name, const GeoShape& lhs, con
                                       (containment || name == "st_equals" || name == "st_overlaps");
     // (0,58)->(0,59) covers a longer raw interval than (0,58+ulp)->(0,59),
     // even when their S2 endpoints collide. Reuse the shared noding for these relations.
-    const bool raw_line_coverage = container.type() == GeoShapeType::GEO_SHAPE_LINE_STRING &&
-                                   value.type() == GeoShapeType::GEO_SHAPE_LINE_STRING &&
-                                   (containment || name == "st_equals" || name == "st_overlaps");
+    const bool raw_line_coverage =
+            container.type() == GeoShapeType::GEO_SHAPE_LINE_STRING &&
+            value.type() == GeoShapeType::GEO_SHAPE_LINE_STRING &&
+            (containment || name == "st_equals" || name == "st_overlaps" || name == "st_touches");
     if (raw_line_coverage) {
         nodes.add_line(name == "st_within" ? nodes.right : nodes.left, &left, &left_edges);
         nodes.add_line(name == "st_within" ? nodes.left : nodes.right, &right, &right_edges);
@@ -1138,6 +1139,10 @@ static Status geography_relation(std::string_view name, const GeoShape& lhs, con
     options.set_polygon_model(S2BooleanOperation::PolygonModel::CLOSED);
     options.set_polyline_model(S2BooleanOperation::PolylineModel::CLOSED);
     options.set_polyline_loops_have_boundaries(false);
+    const auto shares_raw_line_edge = [&] {
+        return std::ranges::any_of(left_edges,
+                                   [&](const auto& edge) { return right_edges.contains(edge); });
+    };
     if (name == "st_equals") {
         *result = left_edges == right_edges && left_polygon_edges == right_polygon_edges &&
                   S2BooleanOperation::Equals(left, right, options);
@@ -1189,8 +1194,7 @@ static Status geography_relation(std::string_view name, const GeoShape& lhs, con
         }
         // A crossing point has no shared raw edge. Conversely, a positive raw overlap
         // such as (0,58)->(0,58+ulp) must survive even when S2 rounds it to one point.
-        *result = std::ranges::any_of(left_edges,
-                                      [&](const auto& edge) { return right_edges.contains(edge); });
+        *result = shares_raw_line_edge();
         return Status::OK();
     }
     bool intersects = S2BooleanOperation::Intersects(left, right, options);
@@ -1198,11 +1202,13 @@ static Status geography_relation(std::string_view name, const GeoShape& lhs, con
     // conversion-distance fallback used below by Intersects/Disjoint.
     if (name == "st_touches") {
         *result = intersects && !S2BooleanOperation::Intersects(left, right, interior_options);
-        // CLOSED/OPEN alone treats the raw gap (0,58)->(0,58+ulp) as a common endpoint.
+        // CLOSED/OPEN alone treats a raw gap or a positive overlap 58->58+ulp as one
+        // endpoint contact. A shared raw edge has intersecting interiors, so cannot touch.
         if (*result && lhs.type() == GeoShapeType::GEO_SHAPE_LINE_STRING &&
             rhs.type() == GeoShapeType::GEO_SHAPE_LINE_STRING) {
-            *result = nodes.line_boundary_touches(nodes.left, nodes.right) ||
-                      nodes.line_boundary_touches(nodes.right, nodes.left);
+            *result = !shares_raw_line_edge() &&
+                      (nodes.line_boundary_touches(nodes.left, nodes.right) ||
+                       nodes.line_boundary_touches(nodes.right, nodes.left));
         }
         return Status::OK();
     }

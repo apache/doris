@@ -840,6 +840,11 @@ TEST(VGeoFunctionsTest, GeographyTouchesRejectsRoundedLineEndpointGap) {
     const std::string gap = "LINESTRING (0 58.00000000000001,0 59)";
     expect_geography_relation("st_touches", line, gap, false);
     expect_geography_relation("st_touches", gap, line, false);
+    const std::string overlap = "LINESTRING (0 57,0 58.00000000000001)";
+    const std::string other = "LINESTRING (0 58,0 59)";
+    expect_geography_relation("st_touches", overlap, other, false);
+    expect_geography_relation("st_touches", other, overlap, false);
+    expect_geography_relation("st_overlaps", overlap, other, true);
     for (const auto* touching : {"LINESTRING (0 58,0 59)", "LINESTRING (-1 58,0 58,1 58)"}) {
         expect_geography_relation("st_touches", line, touching, true);
         expect_geography_relation("st_touches", touching, line, true);
