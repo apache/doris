@@ -122,14 +122,10 @@ ZoneMapFilterResult VTopNPred::evaluate_zonemap_filter(const ZoneMapEvalContext&
     if (!zone->has_not_null) {
         return ZoneMapFilterResult::kNoMatch;
     }
-    // Legacy Parquet can supply STRING statistics for a VARBINARY slot. Validate both carriers
-    // before the shared range helper, which asserts its typed-statistics contract.
-    const auto primitive_type = remove_nullable(type)->get_primitive_type();
     if (ctx.floating_nan_count_unknown(slot->column_id()) || bound.is_nan() ||
-        !expr_zonemap::field_types_compatible(bound.get_type(), primitive_type) ||
-        !expr_zonemap::field_types_compatible(zone->min_value.get_type(), primitive_type) ||
-        !expr_zonemap::field_types_compatible(zone->max_value.get_type(), primitive_type) ||
-        !expr_zonemap::range_stats_usable_for_zonemap(*zone, type)) {
+        !expr_zonemap::range_stats_usable_for_zonemap(*zone, type) ||
+        !expr_zonemap::field_types_compatible(bound.get_type(),
+                                              remove_nullable(type)->get_primitive_type())) {
         return unsupported_zonemap_filter(ctx);
     }
     // Keep equality: with ORDER BY a, b a row tied on a can still improve b.

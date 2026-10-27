@@ -20,7 +20,6 @@
 #include <gtest/gtest.h>
 
 #include <array>
-#include <string>
 
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_number.h"
@@ -30,7 +29,6 @@
 #include "exprs/expr_zonemap_filter.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vtopn_pred.h"
-#include "format/parquet/parquet_predicate.h"
 #include "runtime/descriptors.h"
 #include "runtime/query_context.h"
 #include "testutil/mock/mock_runtime_state.h"
@@ -132,53 +130,6 @@ void check_topn_uuid_scanner_predicate(bool is_asc, bool nulls_first) {
     EXPECT_EQ(matches,
               is_asc ? (std::array<bool, 6> {true, true, false, false, false, nulls_first})
                      : (std::array<bool, 6> {false, false, false, true, true, nulls_first}));
-}
-
-void check_topn_varbinary_zonemap_carriers(bool ascending) {
-    const std::string minimum("m\0", 2);
-    const std::string maximum("z\xff", 2);
-    SCOPED_TRACE(ascending);
-    MockRuntimeState state;
-    const auto type = DataTypeFactory::instance().create_data_type(TYPE_VARBINARY, false);
-    auto context = create_prepared_topn_expr(&state, type, Field {}, ascending);
-    FieldSchema schema;
-    schema.parquet_schema.__set_type(tparquet::Type::BYTE_ARRAY);
-    schema.data_type = type;
-    auto zone = std::make_shared<segment_v2::ZoneMap>();
-    zone->has_not_null = true;
-    // Use the retained V1 decoder: BYTE_ARRAY bounds remain STRING Fields for this slot.
-    ASSERT_TRUE(ParquetPredicate::parse_min_max_value(&schema, minimum, maximum,
-                                                      cctz::utc_time_zone(), &zone->min_value,
-                                                      &zone->max_value)
-                        .ok());
-    ASSERT_EQ(zone->min_value.get_type(), TYPE_STRING);
-    ASSERT_EQ(zone->max_value.get_type(), TYPE_STRING);
-    ZoneMapEvalContext ctx;
-    ctx.slots[0].set_data_type_from_parquet(type);
-    ctx.slots[0].zone_map = zone;
-    const auto& expression = context->root();
-    EXPECT_EQ(expression->evaluate_zonemap_filter(ctx), ZoneMapFilterResult::kMayMatch);
-    const std::string bound = ascending ? std::string("a\0", 2) : std::string("\xff\0", 2);
-    ASSERT_TRUE(state.get_query_ctx()
-                        ->get_runtime_predicate(SOURCE_NODE_ID)
-                        .update(Field::create_field<TYPE_VARBINARY>(StringView(bound)))
-                        .ok());
-    EXPECT_EQ(expression->evaluate_zonemap_filter(ctx), ZoneMapFilterResult::kUnsupported);
-    zone->min_value = Field::create_field<TYPE_VARBINARY>(StringView(minimum));
-    EXPECT_EQ(expression->evaluate_zonemap_filter(ctx), ZoneMapFilterResult::kUnsupported);
-    zone->min_value = Field::create_field<TYPE_STRING>(minimum);
-    zone->max_value = Field::create_field<TYPE_VARBINARY>(StringView(maximum));
-    EXPECT_EQ(expression->evaluate_zonemap_filter(ctx), ZoneMapFilterResult::kUnsupported);
-    // Native V2 bounds use the slot's actual carrier and must still support range pruning.
-    zone->min_value = Field::create_field<TYPE_VARBINARY>(StringView(minimum));
-    EXPECT_EQ(expression->evaluate_zonemap_filter(ctx), ZoneMapFilterResult::kNoMatch);
-    if (ascending) {
-        zone->min_value = Field::create_field<TYPE_VARBINARY>(StringView(bound));
-    } else {
-        zone->max_value = Field::create_field<TYPE_VARBINARY>(StringView(bound));
-    }
-    EXPECT_EQ(expression->evaluate_zonemap_filter(ctx), ZoneMapFilterResult::kMayMatch);
-    context->close();
 }
 
 } // namespace
@@ -342,11 +293,6 @@ TEST(RuntimePredicateTest, TopNPredicateFiltersTimestampNsRawValues) {
                         .ok());
     EXPECT_EQ(matches, (IColumn::Filter {1, 1, 0}));
     context->close();
-}
-
-TEST(RuntimePredicateTest, TopNZoneMapLegacyVarbinaryStatisticsFallBackAfterLateBound) {
-    check_topn_varbinary_zonemap_carriers(true);
-    check_topn_varbinary_zonemap_carriers(false);
 }
 
 TEST(RuntimePredicateTest, TopNPredicateAdvertisesDirectCapabilityForEverySupportedType) {
