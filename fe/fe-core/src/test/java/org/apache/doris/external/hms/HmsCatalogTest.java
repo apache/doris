@@ -112,6 +112,9 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
 
         HMSExternalDatabase db = new HMSExternalDatabase(hmsCatalog, 10000, "hms_db", "hms_db");
         Deencapsulation.setField(db, "initialized", true);
+        for (HMSExternalTable table : java.util.Arrays.asList(tbl, view1, view2, view3, view4)) {
+            Deencapsulation.setField(table, "db", db);
+        }
 
         Deencapsulation.setField(tbl, "objectCreated", true);
         Deencapsulation.setField(tbl, "updateTime", NOW);
