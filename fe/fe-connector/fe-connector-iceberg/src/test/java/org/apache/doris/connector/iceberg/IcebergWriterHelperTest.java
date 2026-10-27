@@ -26,6 +26,7 @@ import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileFormat;
+import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
@@ -33,19 +34,25 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
+import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.WriteResult;
 import org.apache.iceberg.types.Conversions;
 import org.apache.iceberg.types.Types;
+import org.apache.thrift.TDeserializer;
+import org.apache.thrift.protocol.TJSONProtocol;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Parity oracle for the connector-resident {@link IcebergWriterHelper} — the self-contained port of legacy
@@ -208,6 +215,100 @@ public class IcebergWriterHelperTest {
         Assertions.assertEquals(100L, df.recordCount());
         Assertions.assertEquals(4096L, df.fileSizeInBytes());
         Assertions.assertEquals(FileFormat.PARQUET, df.format());
+    }
+
+    @Test
+    public void convertToWriterResultCarriesSplitOffsetsFromCommitProtocol() throws Exception {
+        Table table = tableWith("write.format.default", "parquet", "write.metadata.metrics.default", "none");
+        TIcebergCommitData commit = new TIcebergCommitData();
+        // Decode the optional field on the wire so this also exercises compatibility with older BE fragments.
+        String fragment = "{\"1\":{\"str\":\"data.parquet\"},\"2\":{\"i64\":100},"
+                + "\"3\":{\"i64\":4096},\"15\":{\"lst\":[\"i64\",2,4,2048]}}";
+        new TDeserializer(new TJSONProtocol.Factory()).deserialize(commit, fragment.getBytes(StandardCharsets.UTF_8));
+        DataFile file = IcebergWriterHelper.convertToWriterResult(
+                table, Collections.singletonList(commit), ZoneOffset.UTC).dataFiles()[0];
+        Assertions.assertEquals(Arrays.asList(4L, 2048L), file.splitOffsets());
+        table.newAppend().appendFile(file).commit();
+        try (CloseableIterable<FileScanTask> tasks = table.newScan().planFiles()) {
+            Assertions.assertEquals(Arrays.asList(4L, 2048L), tasks.iterator().next().file().splitOffsets());
+        }
+    }
+
+    @Test
+    public void convertToWriterResultKeepsOffsetsPerFileAndSupportsOldFragments() {
+        Table table = tableWith("write.format.default", "parquet");
+        List<TIcebergCommitData> commits = new ArrayList<>();
+        for (int i = 0; i < 3; i++) {
+            TIcebergCommitData commit = new TIcebergCommitData();
+            commit.setFilePath("data-" + i + ".parquet");
+            commit.setRowCount(10);
+            commit.setFileSize(4096);
+            if (i < 2) {
+                commit.setSplitOffsets(i == 0 ? Arrays.asList(4L, 1024L) : Collections.singletonList(4L));
+            }
+            commits.add(commit);
+        }
+        DataFile[] files = IcebergWriterHelper.convertToWriterResult(table, commits, ZoneOffset.UTC).dataFiles();
+        Assertions.assertEquals(Arrays.asList(4L, 1024L), files[0].splitOffsets());
+        Assertions.assertEquals(Collections.singletonList(4L), files[1].splitOffsets());
+        Assertions.assertNull(files[2].splitOffsets());
+    }
+
+    @Test
+    public void convertToWriterResultDoesNotApplyParquetOffsetsToOrc() {
+        TIcebergCommitData commit = new TIcebergCommitData();
+        commit.setFilePath("data.orc");
+        commit.setRowCount(10);
+        commit.setFileSize(4096);
+        commit.setSplitOffsets(Collections.singletonList(4L));
+        DataFile file = IcebergWriterHelper.convertToWriterResult(tableWith("write.format.default", "orc"),
+                Collections.singletonList(commit), ZoneOffset.UTC).dataFiles()[0];
+        Assertions.assertNull(file.splitOffsets());
+    }
+
+    @Test
+    public void convertToWriterResultUsesPinnedMetadataAfterTableEvolution() {
+        // Files are labeled with the spec, sort order, format and metrics policy the writer was pinned to, even after
+        // the live table evolved every one of them.
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("test", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db1"));
+        Map<String, String> properties = new HashMap<>();
+        properties.put("write.format.default", "orc");
+        properties.put("write.metadata.metrics.default", "full");
+        Table table = catalog.createTable(TableIdentifier.of("db1", "t"), schema,
+                PartitionSpec.builderFor(schema).identity("id").build(), properties);
+        table.replaceSortOrder().desc("age").commit();
+        IcebergWriteSchemaContext context = IcebergWriteSchemaContext.create(
+                table, "db1.t", Optional.empty(), false, false);
+        int pinnedSortOrderId = table.sortOrder().orderId();
+        table.updateSpec().removeField("id").commit();
+        table.replaceSortOrder().asc("name").commit();
+        table.updateProperties().set("write.format.default", "parquet")
+                .set("write.metadata.metrics.default", "none").commit();
+
+        ByteBuffer ageBound = Conversions.toByteBuffer(Types.IntegerType.get(), 42);
+        TIcebergColumnStats stats = new TIcebergColumnStats();
+        stats.setLowerBounds(Collections.singletonMap(3, ageBound));
+        stats.setUpperBounds(Collections.singletonMap(3, ageBound));
+        TIcebergCommitData commitData = new TIcebergCommitData();
+        commitData.setFilePath("/path/to/pinned-data.orc");
+        commitData.setPartitionValues(Collections.singletonList("7"));
+        commitData.setRowCount(1);
+        commitData.setFileSize(128);
+        commitData.setFileContent(TFileContent.DATA);
+        commitData.setColumnStats(stats);
+
+        DataFile dataFile = IcebergWriterHelper.convertToWriterResult(
+                context, Collections.singletonList(commitData), ZoneOffset.UTC).dataFiles()[0];
+
+        Assertions.assertNotEquals(table.spec().specId(), dataFile.specId(), "the live spec must have moved on");
+        Assertions.assertEquals(context.getPartitionSpec().specId(), dataFile.specId());
+        Assertions.assertEquals(Integer.valueOf(7), dataFile.partition().get(0, Integer.class));
+        Assertions.assertEquals(Integer.valueOf(pinnedSortOrderId), dataFile.sortOrderId());
+        Assertions.assertEquals(FileFormat.ORC, dataFile.format());
+        Assertions.assertEquals(ageBound, dataFile.lowerBounds().get(3));
+        Assertions.assertEquals(ageBound, dataFile.upperBounds().get(3));
     }
 
     @Test

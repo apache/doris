@@ -85,6 +85,46 @@ public class LoadCommandTest extends TestWithFeService {
     }
 
     @Test
+    public void testGcpNativeCredentialForS3Load() {
+        String loadSql = "LOAD LABEL gcp_native_load("
+                + " DATA INFILE(\"gs://load-bucket/customer\")"
+                + " INTO TABLE customer"
+                + ") WITH S3("
+                + " \"provider\" = \"GCP\","
+                + " \"gs.endpoint\" = \"https://storage.googleapis.com\","
+                + " \"gs.credential_provider_type\" = \"COMPUTE_ENGINE\","
+                + " \"gs.impersonation_service_account\" = "
+                + "\"target@my-project.iam.gserviceaccount.com\""
+                + ");";
+
+        LoadCommand command = (LoadCommand) new NereidsParser().parseSingle(loadSql);
+        BrokerDesc brokerDesc = command.getBrokerDesc();
+        Assertions.assertEquals("us-east1", brokerDesc.getBackendConfigProperties().get("AWS_REGION"));
+        Assertions.assertEquals("GCP", brokerDesc.getBackendConfigProperties().get("provider"));
+        Assertions.assertEquals("COMPUTE_ENGINE", brokerDesc.getBackendConfigProperties()
+                .get("gs.credential_provider_type"));
+        Assertions.assertEquals("target@my-project.iam.gserviceaccount.com",
+                brokerDesc.getBackendConfigProperties().get("gs.impersonation_service_account"));
+    }
+
+    @Test
+    public void testGcpNativeCredentialValidationHappensBeforeLoadSubmission() {
+        String loadSql = "LOAD LABEL invalid_gcp_native_load("
+                + " DATA INFILE(\"gs://load-bucket/customer\")"
+                + " INTO TABLE customer"
+                + ") WITH S3("
+                + " \"provider\" = \"GCP\","
+                + " \"gs.credential_provider_type\" = \"\""
+                + ");";
+
+        IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> new NereidsParser().parseSingle(loadSql));
+        Assertions.assertTrue(exception.getMessage().contains("gs.credential_provider_type"));
+        Assertions.assertTrue(exception.getMessage().contains("DEFAULT"));
+        Assertions.assertTrue(exception.getMessage().contains("COMPUTE_ENGINE"));
+    }
+
+    @Test
     public void testLoadCommandBitmap() {
         String loadSql1 = "LOAD LABEL load_bitmap_table_test( "
                 + "     DATA INFILE(\"s3://bucket/load_bitmap_table\") "

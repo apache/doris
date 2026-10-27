@@ -56,6 +56,22 @@ import java.util.function.Supplier;
 public class ConnectorStatementScopeTest {
 
     @Test
+    public void lookupDoesNotLoadAndRespectsPlanningAndStatementCleanup() {
+        ConnectorStatementScopeImpl scope = new ConnectorStatementScopeImpl();
+        Assertions.assertNull(scope.getIfPresent("missing"));
+        Object table = scope.computeIfAbsent("table", Object::new);
+        Object planning = scope.computeIfAbsentForPlanning("planning", Object::new);
+        Assertions.assertSame(table, scope.getIfPresent("table"));
+        Assertions.assertSame(planning, scope.getIfPresent("planning"));
+        scope.endPlanning();
+        Assertions.assertNull(scope.getIfPresent("planning"));
+        Assertions.assertSame(table, scope.getIfPresent("table"));
+        scope.closeAll();
+        Assertions.assertNull(scope.getIfPresent("table"));
+        Assertions.assertNull(ConnectorStatementScope.NONE.getIfPresent("table"));
+    }
+
+    @Test
     public void noneNeverMemoizes() {
         // NONE = the off-context default (offline / no live statement): the loader runs every call, so a
         // connector under NONE behaves byte-identically to loading every time. MUTATION: NONE memoizing -> the

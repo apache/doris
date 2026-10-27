@@ -62,6 +62,10 @@ SpillFile::~SpillFile() {
     gc();
 }
 
+bool SpillFile::is_remote() const {
+    return _data_dir->is_remote();
+}
+
 void SpillFile::gc() {
     if (_gc_started) {
         return;

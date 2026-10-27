@@ -57,6 +57,8 @@ public:
     Status may_hold(std::string_view term, bool* held) override;
     Status doc_freq(std::string_view term, uint64_t* out) override;
     Status scoring_doc_freq(std::string_view term, uint64_t* out) override;
+    Status scoring_doc_freq_among(std::string_view term, std::span<const uint32_t> docs,
+                                  uint64_t* out) override;
     Status encoded_norms(std::span<const uint32_t> docs, std::vector<uint32_t>* out) override;
     Status expand_terms(index_query::TermPattern& pattern, int32_t max_expansions,
                         std::vector<std::string>* out) override;

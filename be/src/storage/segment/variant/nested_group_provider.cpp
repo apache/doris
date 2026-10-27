@@ -121,10 +121,9 @@ NestedGroupPathMatch find_in_nested_groups_impl(const NestedGroupReaders& reader
 class DefaultNestedGroupWriteProvider final : public NestedGroupWriteProvider {
 public:
     Status prepare(const ColumnVariantV2& /*variant*/, const TabletColumn* tablet_column,
-                   const ColumnWriterOptions& /*opts*/, OlapBlockDataConvertor* converter,
-                   int* column_id, VariantStatistics* statistics) override {
-        if (tablet_column == nullptr || converter == nullptr || column_id == nullptr ||
-            statistics == nullptr) {
+                   const ColumnWriterOptions& /*opts*/, int* column_id,
+                   VariantStatistics* statistics) override {
+        if (tablet_column == nullptr || column_id == nullptr || statistics == nullptr) {
             return Status::InvalidArgument("NestedGroup provider input is null");
         }
         return Status::NotSupported("NestedGroup write path is not available in this build");
@@ -132,11 +131,9 @@ public:
 
     Status prepare_with_built_groups(const NestedGroupsMap& /*nested_groups*/,
                                      const TabletColumn* tablet_column,
-                                     const ColumnWriterOptions& /*opts*/,
-                                     OlapBlockDataConvertor* converter, int* column_id,
+                                     const ColumnWriterOptions& /*opts*/, int* column_id,
                                      VariantStatistics* statistics) override {
-        if (tablet_column == nullptr || converter == nullptr || column_id == nullptr ||
-            statistics == nullptr) {
+        if (tablet_column == nullptr || column_id == nullptr || statistics == nullptr) {
             return Status::InvalidArgument("NestedGroup provider input is null");
         }
         return Status::NotSupported("NestedGroup write path is not available in this build");

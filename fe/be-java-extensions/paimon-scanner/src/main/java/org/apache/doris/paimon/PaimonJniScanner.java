@@ -968,8 +968,8 @@ public class PaimonJniScanner extends JniScanner {
             if (normalized == wrapped) {
                 return table;
             }
-            // FE planning already enforced privilege delegates. Keeping one here would hide the
-            // fallback tree and force a single copied cap onto branches with independent values.
+            // An outer delegate would hide the fallback tree and force a single copied cap onto
+            // branches with independent values.
             return normalized;
         }
 
@@ -1039,7 +1039,7 @@ public class PaimonJniScanner extends JniScanner {
     private static FileStoreTable unwrapSystemPlanningSource(FileStoreTable table) {
         FileStoreTable current = table;
         // System wrappers dispatch fallback reads only when the fallback pair is their direct
-        // source; FE authorization has already run, so privilege-only delegates must not hide it.
+        // source; outer delegates must not hide the fallback pair from the system wrapper.
         while (current instanceof DelegatedFileStoreTable
                 && !(current instanceof FallbackReadFileStoreTable)) {
             current = ((DelegatedFileStoreTable) current).wrapped();

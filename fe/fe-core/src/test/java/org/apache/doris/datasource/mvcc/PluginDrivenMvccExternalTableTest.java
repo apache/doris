@@ -19,8 +19,12 @@ package org.apache.doris.datasource.mvcc;
 
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
+import org.apache.doris.blockrule.SqlBlockRule;
+import org.apache.doris.blockrule.SqlBlockRuleMgr;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ListPartitionItem;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PartitionType;
@@ -40,11 +44,13 @@ import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartition;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartitionView;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.spi.mvcc.ConnectorSqlCacheVersion;
 import org.apache.doris.connector.spi.mvcc.ConnectorTableFreshness;
 import org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec;
 import org.apache.doris.connector.spi.scan.ConnectorPartitionValues;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
@@ -85,6 +91,11 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -157,6 +168,167 @@ public class PluginDrivenMvccExternalTableTest {
         Fixture range = Fixture.rangeView(rangeView(rangePart("p1", "2024-01-01", "2024-01-02", FRESH_555)));
         Optional<MvccSnapshot> rangePin = Optional.of(range.table.loadSnapshot(Optional.empty(), Optional.empty()));
         Assertions.assertTrue(range.table.supportInternalPartitionPruned(rangePin));
+    }
+
+    @Test
+    public void sqlCacheVersionUsesTheSuppliedScalarPinWithoutMaterializingPartitions() {
+        Fixture f = Fixture.partitioned();
+        ConnectorMvccSnapshot scalar = ConnectorMvccSnapshot.builder().snapshotId(7L).build();
+        PluginDrivenMvccSnapshot pin = new PluginDrivenMvccSnapshot(scalar,
+                Collections.emptyMap(), Collections.emptyMap());
+        ConnectorSqlCacheVersion version = new ConnectorSqlCacheVersion("uuid:7:schema1:metadata1", 1000L);
+        Mockito.when(f.metadata.getSqlCacheVersion(f.session, f.pinnedHandle)).thenReturn(Optional.of(version));
+        Assertions.assertSame(version, f.table.getSqlCacheVersion(Optional.of(pin)).orElseThrow());
+        Mockito.verify(f.metadata).applySnapshot(f.session, f.handle, scalar);
+        Mockito.verify(f.metadata, Mockito.never()).beginQuerySnapshot(Mockito.any(), Mockito.any());
+        Mockito.verify(f.metadata, Mockito.never()).getMvccPartitionView(Mockito.any(), Mockito.any());
+        Mockito.verify(f.metadata, Mockito.never()).listPartitions(Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    public void sqlCacheLookupResolvesLatestScalarVersionWithoutPartitionView() {
+        Fixture f = Fixture.partitioned();
+        ConnectorSqlCacheVersion version = new ConnectorSqlCacheVersion("uuid:latest:schema1:metadata1", 1000L);
+        Mockito.when(f.metadata.getSqlCacheVersion(f.session, f.pinnedHandle)).thenReturn(Optional.of(version));
+        Assertions.assertSame(version, f.table.getSqlCacheVersion(Optional.empty()).orElseThrow());
+        Mockito.verify(f.metadata).beginQuerySnapshot(f.session, f.handle);
+        Mockito.verify(f.metadata, Mockito.never()).getMvccPartitionView(Mockito.any(), Mockito.any());
+        Mockito.verify(f.metadata, Mockito.never()).listPartitions(Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
+    private static ConnectContext nativeContext(Fixture f, SqlBlockRuleMgr rules) {
+        ConnectContext ctx = new ConnectContext();
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getSqlBlockRuleMgr()).thenReturn(rules);
+        InternalCatalog internal = Mockito.mock(InternalCatalog.class);
+        Mockito.when(internal.getName()).thenReturn(InternalCatalog.INTERNAL_CATALOG_NAME);
+        Mockito.when(env.getInternalCatalog()).thenReturn(internal);
+        ctx.setEnv(env);
+        ctx.setStatementContext(new StatementContext(ctx, null));
+        ctx.setThreadLocalInfo();
+        Mockito.when(f.metadata.supportsNativePartitionPlanning(f.session, f.pinnedHandle)).thenReturn(true);
+        return ctx;
+    }
+
+    @Test
+    public void ordinaryNativePlanningDoesNotEnumeratePartitions() {
+        Fixture f = Fixture.partitioned();
+        nativeContext(f, new SqlBlockRuleMgr());
+        PluginDrivenMvccSnapshot pin = (PluginDrivenMvccSnapshot)
+                f.table.loadSnapshot(Optional.empty(), Optional.empty());
+        Assertions.assertTrue(pin.hasDeferredPartitions());
+        Assertions.assertEquals(PINNED_SNAPSHOT_ID, pin.getConnectorSnapshot().getSnapshotId());
+        Assertions.assertSame(f.latestCacheValue, pin.getPinnedSchema());
+        Assertions.assertEquals(1, f.table.getPartitionColumns(Optional.of(pin)).size());
+        Assertions.assertSame(LogicalFileScan.SelectedPartitions.NATIVE,
+                f.table.initSelectedPartitions(Optional.of(pin)));
+        Mockito.verify(f.metadata, Mockito.never()).getMvccPartitionView(Mockito.any(), Mockito.any());
+        Mockito.verify(f.metadata, Mockito.never()).listPartitions(Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    public void nativeSelectionKeepsTheFilterAndSkipsInternalPruning() {
+        Fixture f = Fixture.partitioned();
+        ConnectContext ctx = nativeContext(f, new SqlBlockRuleMgr());
+        MvccSnapshot pin = f.table.loadSnapshot(Optional.empty(), Optional.empty());
+        ctx.getStatementContext().setSnapshot(new MvccTableInfo(f.table), pin);
+        SlotReference slot = new SlotReference("dt", DateV2Type.INSTANCE);
+        LogicalFileScan scan = new LogicalFileScan(new RelationId(11), f.table,
+                Collections.singletonList("db"), Collections.emptyList(), Optional.empty(),
+                Optional.empty(), Optional.empty(), Optional.of(Collections.singletonList(slot)));
+        LogicalFilter<?> filter = new LogicalFilter<>(
+                Collections.singleton(new EqualTo(slot, new DateV2Literal(2024, 1, 1))), scan);
+        Assertions.assertSame(LogicalFileScan.SelectedPartitions.NATIVE, scan.getSelectedPartitions());
+        // The rewrite framework checks this pattern before invoking transform.
+        Assertions.assertFalse(new PruneFileScanPartition().build().getPattern().matchPlanTree(filter));
+        Assertions.assertEquals(Collections.singleton(new EqualTo(slot, new DateV2Literal(2024, 1, 1))),
+                filter.getConjuncts());
+        Mockito.verify(f.metadata, Mockito.never()).listPartitions(Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    public void deferredViewLoadsOnceOnThePinnedHandleAcrossThreads() throws Exception {
+        Fixture f = Fixture.partitioned();
+        nativeContext(f, new SqlBlockRuleMgr());
+        PluginDrivenMvccSnapshot pin = (PluginDrivenMvccSnapshot)
+                f.table.loadSnapshot(Optional.empty(), Optional.empty());
+        // A later latest generation must not change what the deferred loader enumerates.
+        Mockito.when(f.metadata.beginQuerySnapshot(f.session, f.handle)).thenReturn(Optional.of(
+                ConnectorMvccSnapshot.builder().snapshotId(PINNED_SNAPSHOT_ID + 1).build()));
+        Mockito.when(f.metadata.listPartitions(Mockito.eq(f.session), Mockito.eq(f.handle), Mockito.any()))
+                .thenReturn(Collections.singletonList(cpi("dt=2025-01-01", 1L)));
+        ExecutorService pool = Executors.newFixedThreadPool(4);
+        try {
+            List<Future<Map<String, PartitionItem>>> results = new ArrayList<>();
+            for (int i = 0; i < 8; i++) {
+                results.add(pool.submit(pin::getNameToPartitionItem));
+            }
+            Map<String, PartitionItem> first = results.get(0).get();
+            Assertions.assertEquals(2, first.size());
+            for (Future<Map<String, PartitionItem>> result : results) {
+                Assertions.assertSame(first, result.get());
+            }
+            Assertions.assertEquals(PINNED_SNAPSHOT_ID, pin.getConnectorSnapshot().getSnapshotId());
+            Mockito.verify(f.metadata, Mockito.times(1)).listPartitions(
+                    Mockito.eq(f.session), Mockito.eq(f.pinnedHandle), Mockito.any());
+            Mockito.verify(f.metadata, Mockito.never()).listPartitions(
+                    Mockito.eq(f.session), Mockito.eq(f.handle), Mockito.any());
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    public void deferredViewFailureDoesNotPublishPartialData() {
+        Fixture f = Fixture.partitioned();
+        nativeContext(f, new SqlBlockRuleMgr());
+        PluginDrivenMvccSnapshot pin = (PluginDrivenMvccSnapshot)
+                f.table.loadSnapshot(Optional.empty(), Optional.empty());
+        Mockito.when(f.metadata.listPartitions(Mockito.eq(f.session), Mockito.eq(f.pinnedHandle), Mockito.any()))
+                .thenThrow(new IllegalStateException("manifest unavailable"))
+                .thenReturn(Collections.singletonList(cpi("dt=2024-01-01", TS_2024_01_01)));
+        Assertions.assertThrows(IllegalStateException.class, pin::getNameToPartitionItem);
+        Assertions.assertEquals(1, pin.getNameToPartitionItem().size());
+    }
+
+    @Test
+    public void candidateMvKeepsTheExistingPartitionViewAndPruning() {
+        Fixture f = Fixture.partitioned();
+        ConnectContext ctx = nativeContext(f, new SqlBlockRuleMgr());
+        ctx.getStatementContext().getCandidateMTMVs().add(Mockito.mock(MTMV.class));
+        PluginDrivenMvccSnapshot pin = (PluginDrivenMvccSnapshot)
+                f.table.loadSnapshot(Optional.empty(), Optional.empty());
+        Assertions.assertFalse(pin.hasDeferredPartitions());
+        Assertions.assertEquals(2, pin.getNameToPartitionItem().size());
+        Assertions.assertFalse(f.table.initSelectedPartitions(Optional.of(pin)).isNativePlanning());
+    }
+
+    @Test
+    public void partitionRuleKeepsExactPartitionMetadata() {
+        Fixture f = Fixture.partitioned();
+        SqlBlockRuleMgr rules = new SqlBlockRuleMgr();
+        rules.getNameToSqlBlockRuleMap().put("part_limit", new SqlBlockRule(
+                "part_limit", "NULL", "NULL", 1L, 0L, 0L, false, true, true));
+        nativeContext(f, rules);
+        PluginDrivenMvccSnapshot pin = (PluginDrivenMvccSnapshot)
+                f.table.loadSnapshot(Optional.empty(), Optional.empty());
+        Assertions.assertFalse(pin.hasDeferredPartitions());
+        Assertions.assertEquals(2, f.table.initSelectedPartitions(Optional.of(pin)).totalPartitionNum);
+    }
+
+    @Test
+    public void explicitTimeTravelDefersOnlyItsOwnPinnedListing() {
+        Fixture f = Fixture.timeTravel();
+        nativeContext(f, new SqlBlockRuleMgr());
+        Mockito.when(f.metadata.listsPartitionsAtSnapshot(f.session, f.pinnedHandle)).thenReturn(true);
+        PluginDrivenMvccSnapshot pin = (PluginDrivenMvccSnapshot) f.table.loadSnapshot(
+                Optional.of(TableSnapshot.versionOf("7")), Optional.empty());
+        Assertions.assertTrue(pin.hasDeferredPartitions());
+        Assertions.assertEquals(Fixture.TT_SCHEMA_ID, pin.getSchemaId());
+        Assertions.assertEquals(Type.STRING, f.table.getPartitionColumns(Optional.of(pin)).get(0).getType());
+        Mockito.verify(f.metadata, Mockito.never()).listPartitions(Mockito.any(), Mockito.any(), Mockito.any());
+        Assertions.assertEquals(2, pin.getNameToPartitionItem().size());
+        Mockito.verify(f.metadata).listPartitions(Mockito.eq(f.session), Mockito.eq(f.pinnedHandle), Mockito.any());
     }
 
     @AfterEach
@@ -678,6 +850,27 @@ public class PluginDrivenMvccExternalTableTest {
         Assertions.assertEquals(1, item.getItems().lowerEndpoint().getKeys().size());
         Assertions.assertEquals(Type.INT, item.getItems().lowerEndpoint().getKeys().get(0).getType());
         Assertions.assertEquals("10", item.getItems().lowerEndpoint().getKeys().get(0).getStringValue());
+    }
+
+    @Test
+    public void testPartitionViewReuseStillChecksConnectorAndPinsSnapshot() {
+        Fixture f = pinnedPartitionFixture();
+        List<ConnectorPartitionInfo> parts = Collections.singletonList(cpi("key=10", TS_2024_01_01));
+        Mockito.when(f.metadata.listPartitions(Mockito.eq(f.session), Mockito.eq(f.pinnedHandle), Mockito.any()))
+                .thenReturn(parts);
+        PluginDrivenMvccSnapshot first = (PluginDrivenMvccSnapshot)
+                f.table.loadSnapshot(Optional.empty(), Optional.empty());
+        PluginDrivenMvccSnapshot second = (PluginDrivenMvccSnapshot)
+                f.table.loadSnapshot(Optional.empty(), Optional.empty());
+        Assertions.assertNotSame(first, second);
+        Assertions.assertSame(first.getNameToPartitionItem(), second.getNameToPartitionItem());
+        Mockito.verify(f.metadata, Mockito.times(2)).beginQuerySnapshot(f.session, f.handle);
+        Mockito.verify(f.metadata, Mockito.times(2))
+                .listPartitions(Mockito.eq(f.session), Mockito.eq(f.pinnedHandle), Mockito.any());
+        Mockito.when(f.metadata.listPartitions(Mockito.eq(f.session), Mockito.eq(f.pinnedHandle), Mockito.any()))
+                .thenThrow(new IllegalStateException("listing denied"));
+        Assertions.assertThrows(IllegalStateException.class,
+                () -> f.table.loadSnapshot(Optional.empty(), Optional.empty()));
     }
 
     @Test
@@ -1597,6 +1790,27 @@ public class PluginDrivenMvccExternalTableTest {
         Mockito.verify(f.metadata).listPartitions(Mockito.any(), Mockito.any(), Mockito.any());
     }
 
+    @Test
+    public void testVersionedPartitionViewSkipsListingOnHitAndKeepsOldPin() throws AnalysisException {
+        Fixture f = Fixture.partitioned();
+        Mockito.when(f.metadata.getPartitionViewVersion(f.session, f.pinnedHandle))
+                .thenReturn(Optional.of("snapshot-1/schema-1/spec-1"));
+        Optional<MvccSnapshot> first = Optional.of(f.table.loadSnapshot(Optional.empty(), Optional.empty()));
+        Optional<MvccSnapshot> again = Optional.of(f.table.loadSnapshot(Optional.empty(), Optional.empty()));
+        Assertions.assertSame(f.table.getNameToPartitionItems(first), f.table.getNameToPartitionItems(again));
+        Mockito.verify(f.metadata, Mockito.times(1)).listPartitions(Mockito.any(), Mockito.any(), Mockito.any());
+
+        Mockito.when(f.metadata.getPartitionViewVersion(f.session, f.pinnedHandle))
+                .thenReturn(Optional.of("snapshot-2/schema-1/spec-1"));
+        Mockito.when(f.metadata.listPartitions(Mockito.eq(f.session), Mockito.eq(f.pinnedHandle), Mockito.any()))
+                .thenReturn(Collections.singletonList(cpi("dt=2024-02-01", 20L)));
+        Optional<MvccSnapshot> next = Optional.of(f.table.loadSnapshot(Optional.empty(), Optional.empty()));
+        Assertions.assertEquals(Collections.singleton("dt=2024-02-01"),
+                f.table.getNameToPartitionItems(next).keySet());
+        Assertions.assertFalse(f.table.getNameToPartitionItems(first).containsKey("dt=2024-02-01"));
+        Mockito.verify(f.metadata, Mockito.times(2)).listPartitions(Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
     // ==================== fixtures / helpers ====================
 
     private static ConnectorPartitionInfo cpi(String name, long lastModifiedMillis) {
@@ -1834,6 +2048,15 @@ public class PluginDrivenMvccExternalTableTest {
 
             PluginDrivenMvccExternalTable table =
                     new PluginDrivenMvccExternalTable(1L, "tbl", "REMOTE_TBL", catalog, db) {
+                        private final Map<PluginDrivenPartitionView.Key, PluginDrivenPartitionView> views =
+                                new ConcurrentHashMap<>();
+
+                        @Override
+                        PluginDrivenPartitionView cachedPartitionView(PluginDrivenPartitionView.Key key,
+                                Function<PluginDrivenPartitionView.Key, PluginDrivenPartitionView> loader) {
+                            return views.computeIfAbsent(key, loader);
+                        }
+
                         @Override
                         protected synchronized void makeSureInitialized() {
                             // no-op: skip Env-backed catalog/db init

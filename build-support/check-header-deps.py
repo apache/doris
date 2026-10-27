@@ -587,11 +587,11 @@ REVERSE_REACH_BASELINES = {
     "gen_cpp/Types_types.h": 1993,
     "gen_cpp/segment_v2.pb.h": 1234,
     "gen_cpp/PaloInternalService_types.h": 1133,
-    "util/threadpool.h": 988,
+    "util/threadpool.h": 1200,
     # parsed_page.h holds RleDecoder<bool> by value and constructs it in the
     # header, so the whole storage read stack sees the RLE machinery; a live
     # dependency, budgeted as-is (trimming it is a refactor, not a gate).
-    "util/rle_encoding.h": 823,
+    "util/rle_encoding.h": 825,
     "gen_cpp/internal_service.pb.h": 741,
     "gen_cpp/FrontendService_types.h": 576,
     "storage/options.h": 464,

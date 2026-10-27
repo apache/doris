@@ -41,6 +41,7 @@ import org.apache.doris.common.util.ExceptionDiagnosticUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.MetaCacheBudgetManager;
+import org.apache.doris.connector.cache.MetaCacheGovernance;
 import org.apache.doris.datasource.doris.RemoteDorisExternalDatabase;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
@@ -79,6 +80,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -479,7 +481,34 @@ public abstract class ExternalCatalog
 
     /** Strict CREATE/ALTER validation for the core metadata-cache namespace owned by this catalog. */
     protected void checkMetaCacheWeightProperties(Map<String, String> properties) {
-        CacheSpec.checkWeightProperties(properties, "default", "schema");
+        CacheSpec.checkWeightProperties(properties, coreMetaCacheEngine(), "schema");
+    }
+
+    /** The engine of the core metadata-cache namespace that fe-core owns for this catalog. */
+    protected String coreMetaCacheEngine() {
+        return "default";
+    }
+
+    /**
+     * CREATE / ALTER CATALOG only, never on replay: the meta cache keys this statement submits for the engine of the
+     * core metadata-cache namespace must be well formed, and the weights it submits must not exceed the FE-global
+     * limit. A connector checks the keys of its own engines when it validates the statement's properties.
+     */
+    public void checkSubmittedMetaCacheProperties(Map<String, String> effectiveProperties,
+            Map<String, String> submittedProperties) throws DdlException {
+        checkSubmittedMetaCacheProperties(effectiveProperties, submittedProperties,
+                MetaCacheGovernance.globalMaxWeight());
+    }
+
+    void checkSubmittedMetaCacheProperties(Map<String, String> effectiveProperties,
+            Map<String, String> submittedProperties, OptionalLong globalMaxWeight) throws DdlException {
+        try {
+            CacheSpec.checkSubmittedEngineProperties(submittedProperties, coreMetaCacheEngine());
+            CacheSpec.checkSubmittedWeightsAgainstGlobal(
+                    effectiveProperties, submittedProperties, globalMaxWeight, coreMetaCacheEngine());
+        } catch (IllegalArgumentException e) {
+            throw new DdlException(e.getMessage());
+        }
     }
 
     /**
@@ -1188,6 +1217,14 @@ public abstract class ExternalCatalog
             tableAutoAnalyzePolicy = Maps.newHashMap();
         }
         this.dbIdNameIndex = new IdNameIndex("external database");
+    }
+
+    /** Cache-only identity fence for a read through a retained database instance. */
+    public Optional<FeMetaCacheEntry.Observation> observeDatabase(ExternalDatabase<?> database) {
+        if (!initialized || databases == null) {
+            return Optional.empty();
+        }
+        return databases.observe(database.getFullName(), database);
     }
 
     public void addDatabaseForTest(ExternalDatabase<? extends ExternalTable> db) {

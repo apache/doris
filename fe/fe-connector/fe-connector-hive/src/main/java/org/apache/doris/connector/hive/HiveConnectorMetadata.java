@@ -100,6 +100,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.function.ToLongBiFunction;
@@ -2147,6 +2148,21 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         }
         // hive: no per-table row-level DML mode constraint (SPI default no-op). A hive handle MUST stay
         // permissive here -- a throw would newly reject legal plain-hive row-level DML.
+    }
+
+    /**
+     * A foreign Iceberg handle must use the sibling's whole-file metadata-delete implementation. The Hive gateway
+     * itself has no data-file delete contract, so a real Hive handle keeps the SPI default of falling back.
+     */
+    @Override
+    public OptionalLong deleteUsingMetadata(ConnectorSession session, ConnectorTableHandle handle,
+            Optional<ConnectorExpression> predicate, String boundWriteMetadataIdentity,
+            BooleanSupplier isCancelled) {
+        if (!(handle instanceof HiveTableHandle)) {
+            return siblingMetadata(session, handle).deleteUsingMetadata(
+                    session, handle, predicate, boundWriteMetadataIdentity, isCancelled);
+        }
+        return OptionalLong.empty();
     }
 
     /**

@@ -29,6 +29,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
+import org.apache.doris.catalog.stream.StreamReadMode;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -70,7 +71,7 @@ class IvmDeltaRewriteHelperTest extends IvmDeltaTestBase {
 
     @Test
     void testIsIncrementalDeltaScan_streamScanNotIncremental_returnsFalse() {
-        LogicalOlapTableStreamScan scan = (LogicalOlapTableStreamScan) buildDeltaScan().withPreSnapshot(Optional.empty());
+        LogicalOlapTableStreamScan scan = buildDeltaScan().withReadMode(StreamReadMode.SNAPSHOT);
         Assertions.assertFalse(helper.isIncrementalDeltaScan(scan));
     }
 
@@ -161,7 +162,7 @@ class IvmDeltaRewriteHelperTest extends IvmDeltaTestBase {
                     .getDbOrAnalysisException("test_db")
                     .getTableOrAnalysisException(IvmUtil.streamName(0L, scan.getTable().getFullQualifiers()));
 
-            LogicalPlan preSnapshot = (LogicalPlan) scan.withPreSnapshot(Optional.of(stream));
+            LogicalPlan preSnapshot = scan.withSnapshot(true, stream);
             LogicalPlan remapped = helper.remapOlapScanToPlan(scan, preSnapshot);
 
             Assertions.assertInstanceOf(LogicalProject.class, remapped);
@@ -183,7 +184,7 @@ class IvmDeltaRewriteHelperTest extends IvmDeltaTestBase {
     void testRemapScanOutputForPostSnapshotPreservesExprId() {
         LogicalOlapScan scan = buildScanForTable(2, "t_post");
 
-        LogicalPlan postSnapshot = (LogicalPlan) scan.withPostSnapshot();
+        LogicalPlan postSnapshot = scan.withSnapshot(false, getRegisteredStream(scan.getTable(), 0L));
         LogicalPlan remapped = helper.remapOlapScanToPlan(scan, postSnapshot);
 
         Assertions.assertInstanceOf(LogicalProject.class, remapped);
@@ -211,7 +212,7 @@ class IvmDeltaRewriteHelperTest extends IvmDeltaTestBase {
         LogicalProject<LogicalOlapTableStreamScan> oldProject = new LogicalProject<>(
                 ImmutableList.of(aliasId, passthroughName), deltaScan);
 
-        LogicalPlan newChild = (LogicalPlan) deltaScan.withPreSnapshot(Optional.empty());
+        LogicalPlan newChild = deltaScan.withReadMode(StreamReadMode.SNAPSHOT);
         LogicalProject<?> remapped = helper.remapStreamScanToPlan(oldProject, newChild);
 
         Assertions.assertInstanceOf(LogicalOlapTableStreamScan.class, remapped.child());
@@ -229,7 +230,7 @@ class IvmDeltaRewriteHelperTest extends IvmDeltaTestBase {
         LogicalProject<LogicalOlapTableStreamScan> oldProject = new LogicalProject<>(
                 ImmutableList.of(aliasId, passthroughName), deltaScan);
 
-        LogicalPlan newChild = (LogicalPlan) deltaScan.withPostSnapshot();
+        LogicalPlan newChild = buildPostSnapshotScan(deltaScan);
         LogicalProject<?> remapped = helper.remapStreamScanToPlan(oldProject, newChild);
 
         Assertions.assertInstanceOf(LogicalOlapScan.class, remapped.child());
@@ -245,7 +246,7 @@ class IvmDeltaRewriteHelperTest extends IvmDeltaTestBase {
         LogicalProject<LogicalOlapTableStreamScan> oldProject = new LogicalProject<>(
                 ImmutableList.of(missingStreamColumn), deltaScan);
 
-        LogicalPlan newChild = (LogicalPlan) deltaScan.withPostSnapshot();
+        LogicalPlan newChild = buildPostSnapshotScan(deltaScan);
         LogicalProject<?> remapped = helper.remapStreamScanToPlan(oldProject, newChild);
         Assertions.assertInstanceOf(Alias.class, remapped.getProjects().get(0));
         Assertions.assertInstanceOf(NullLiteral.class,
@@ -259,7 +260,7 @@ class IvmDeltaRewriteHelperTest extends IvmDeltaTestBase {
         LogicalProject<LogicalOlapTableStreamScan> oldProject = new LogicalProject<>(
                 ImmutableList.of(hiddenAlias), deltaScan);
 
-        LogicalPlan newChild = (LogicalPlan) deltaScan.withPostSnapshot();
+        LogicalPlan newChild = buildPostSnapshotScan(deltaScan);
         LogicalProject<?> remapped = helper.remapStreamScanToPlan(oldProject, newChild);
         Assertions.assertInstanceOf(Alias.class, remapped.getProjects().get(0));
         Assertions.assertInstanceOf(NullLiteral.class, ((Alias) remapped.getProjects().get(0)).child());
@@ -286,7 +287,7 @@ class IvmDeltaRewriteHelperTest extends IvmDeltaTestBase {
             Assertions.assertEquals(new BigIntLiteral(0L),
                     findAliasChild(streamProject, Column.SEQUENCE_COL));
 
-            LogicalPlan snapshotPlan = (LogicalPlan) streamScan.withPostSnapshot();
+            LogicalPlan snapshotPlan = buildPostSnapshotScan(streamScan);
             LogicalProject<?> remapped = helper.remapStreamScanToPlan(streamProject, snapshotPlan);
 
             Assertions.assertEquals(helper.findSlotByName(snapshotPlan.getOutput(), Column.DELETE_SIGN),

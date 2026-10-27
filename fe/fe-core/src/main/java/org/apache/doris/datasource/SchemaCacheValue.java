@@ -19,6 +19,7 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Column;
 
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -38,6 +39,14 @@ public class SchemaCacheValue {
 
     public List<Column> getSchema() {
         return schema;
+    }
+
+    /**
+     * The column lists that grow with the table's width. The cache's size estimator walks them column by column, so
+     * a wide table stays admissible to a weighted schema cache.
+     */
+    public List<List<Column>> getColumnLists() {
+        return Collections.singletonList(schema);
     }
 
     public void validateSchema() throws IllegalArgumentException {

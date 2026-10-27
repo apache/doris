@@ -21,6 +21,7 @@
 #include <atomic>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <iostream>
 #include <memory>
 #include <mutex>
@@ -37,6 +38,7 @@
 #include "storage/index/inverted/snii/encoding/byte_sink.h"
 #include "storage/index/inverted/snii/encoding/byte_source.h"
 #include "storage/index/inverted/snii/encoding/pfor.h"
+#include "storage/index/inverted/snii/format/dict_entry.h"
 #include "storage/index/inverted/snii/format/format_constants.h"
 #include "storage/index/inverted/snii/format/prx_pod.h"
 #include "storage/index/inverted/snii/format/tail_pointer.h"
@@ -44,6 +46,7 @@
 #include "storage/index/inverted/snii/io/file_writer.h"
 #include "storage/index/inverted/snii/reader/dict_block_cache.h"
 #include "storage/index/inverted/snii/reader/logical_index_reader.h"
+#include "storage/index/inverted/snii/reader/snii_index_source.h"
 #include "storage/index/inverted/snii/reader/snii_segment_reader.h"
 #include "storage/index/inverted/snii/snii_query_oracle.h"
 #include "storage/index/inverted/snii/snii_query_test_util.h"
@@ -794,6 +797,74 @@ TEST(SniiRegexpQueryTest, AnchoredPrefixEnumeratesSingleTerm) {
 
     std::vector<uint32_t> docids;
     assert_ok(regexp_query(index_reader, kPattern, &docids));
+    EXPECT_EQ(docids, all_docids_0_to(9000));
+}
+
+// A term test handed to visit_prefix_terms runs on the key alone: the visitor sees exactly the
+// accepted terms, and the dictionary decodes only their bodies.
+TEST(SniiRegexpQueryTest, AcceptKeySkipsBodiesOfRejectedTerms) {
+    MemoryFile file;
+    reader::SniiSegmentReader segment_reader;
+    reader::LogicalIndexReader index_reader;
+    assert_ok(build_reader(&file, &segment_reader, &index_reader));
+
+    auto visit = [&](const std::function<bool(std::string_view)>& accept_key,
+                     std::vector<std::string>* terms, size_t stop_after = 0) {
+        terms->clear();
+        format::reset_dict_entry_counters();
+        assert_ok(index_reader.visit_prefix_terms(
+                "",
+                [&](reader::LogicalIndexReader::PrefixHit&& hit, bool* stop) {
+                    terms->push_back(hit.term);
+                    *stop = stop_after > 0 && terms->size() == stop_after;
+                    return Status::OK();
+                },
+                /*cache=*/nullptr, accept_key));
+        return format::dict_entry_body_decode_count();
+    };
+
+    std::vector<std::string> all;
+    EXPECT_EQ(visit({}, &all), 11U);
+    EXPECT_EQ(all.size(), 11U);
+
+    const auto starts_with_ord = [](std::string_view term) { return term.starts_with("ord"); };
+    std::vector<std::string> accepted;
+    EXPECT_EQ(visit(starts_with_ord, &accepted), 2U);
+    EXPECT_EQ(accepted, (std::vector<std::string> {"order", "ordinal"}));
+
+    const auto none = [](std::string_view) { return false; };
+    std::vector<std::string> rejected;
+    EXPECT_EQ(visit(none, &rejected), 0U);
+    EXPECT_TRUE(rejected.empty());
+
+    // The visitor's stop counts accepted terms only.
+    std::vector<std::string> first;
+    EXPECT_EQ(visit(starts_with_ord, &first, /*stop_after=*/1), 1U);
+    EXPECT_EQ(first, (std::vector<std::string> {"order"}));
+}
+
+// A regexp without a literal prefix enumerates the whole dictionary, but only the terms it
+// matches pay for a body decode.
+TEST(SniiRegexpQueryTest, UnanchoredRegexpDecodesOnlyMatchedBodies) {
+    MemoryFile file;
+    reader::SniiSegmentReader segment_reader;
+    reader::LogicalIndexReader index_reader;
+    assert_ok(build_reader(&file, &segment_reader, &index_reader));
+
+    index_query::TermPattern pattern;
+    assert_ok(index_query::TermPattern::create(index_query::TermPatternKind::kRegexp, "rdin",
+                                               &pattern));
+    ASSERT_EQ(pattern.enumeration_prefix(), "");
+
+    reader::SniiIndexSource source(index_reader);
+    std::vector<std::string> terms;
+    format::reset_dict_entry_counters();
+    assert_ok(source.expand_terms(pattern, 0, &terms));
+    EXPECT_EQ(terms, (std::vector<std::string> {"ordinal"}));
+    EXPECT_EQ(format::dict_entry_body_decode_count(), 1U);
+
+    std::vector<uint32_t> docids;
+    assert_ok(regexp_query(index_reader, "rdin", &docids));
     EXPECT_EQ(docids, all_docids_0_to(9000));
 }
 

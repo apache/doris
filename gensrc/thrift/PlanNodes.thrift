@@ -124,7 +124,7 @@ enum TFileFormatType {
     FORMAT_JSON = 9,
     FORMAT_PROTO = 10,
     FORMAT_JNI = 11,
-    FORMAT_AVRO = 12,
+    FORMAT_AVRO = 12, // Deprecated: reading this format is no longer supported.
     FORMAT_CSV_LZ4BLOCK = 13,
     FORMAT_CSV_SNAPPYBLOCK = 14,
     FORMAT_WAL = 15,
@@ -362,6 +362,9 @@ struct TIcebergFileDesc {
     // Only for format_version >= 3, the sequence number which last updated this file.
     11: optional i64 last_updated_sequence_number;
     12: optional string serialized_split;
+    // Reserved for branch-4.1 / branch-4.2 field `13: optional ExternalTableSchema.TSchema
+    // equality_delete_schema` (the split-local schema of dropped equality-delete keys). Master
+    // carries those schemas in TFileScanRangeParams.history_schema_info. Do not reuse this id.
 }
 
 struct TPaimonDeletionFileDesc {
@@ -445,6 +448,7 @@ struct THudiFileDesc {
     12: optional i64 schema_id; // for schema change. (native reader)
 }
 
+// Deprecated: the associated external table read support has been removed.
 struct TLakeSoulFileDesc {
     1: optional list<string> file_paths;
     2: optional list<string> primary_keys;
@@ -453,11 +457,13 @@ struct TLakeSoulFileDesc {
     5: optional string options;
 }
 
+// Deprecated: the associated external table read support has been removed.
 struct TTransactionalHiveDeleteDeltaDesc {
     1: optional string directory_location
     2: optional list<string> file_names
 }
 
+// Deprecated: the associated external table read support has been removed.
 struct TTransactionalHiveDesc {
     1: optional string partition
     2: optional list<TTransactionalHiveDeleteDeltaDesc> delete_deltas
@@ -486,10 +492,10 @@ struct TTableFormatFileDesc {
     2: optional TIcebergFileDesc iceberg_params
     3: optional THudiFileDesc hudi_params
     4: optional TPaimonFileDesc paimon_params
-    5: optional TTransactionalHiveDesc transactional_hive_params
+    5: optional TTransactionalHiveDesc transactional_hive_params // Deprecated: reading this format is no longer supported.
     6: optional TMaxComputeFileDesc max_compute_params
     7: optional TTrinoConnectorFileDesc trino_connector_params
-    8: optional TLakeSoulFileDesc lakesoul_params
+    8: optional TLakeSoulFileDesc lakesoul_params // Deprecated: reading this format is no longer supported.
     9: optional i64 table_level_row_count = -1
     10: optional TRemoteDorisFileDesc remote_doris_params
     // JDBC connection parameters (used when table_format_type == "jdbc")
@@ -1319,6 +1325,9 @@ struct TBucketedAggregationNode {
   // so intermediate and output tuples are always identical.
   3: optional Types.TTupleId tuple_id
   5: optional bool need_finalize
+  // 0 selects one bucket when both sink and source have one instance, otherwise 256 buckets.
+  // Positive values must be powers of two in [1, 256]. Missing retains 256 buckets.
+  6: optional i32 num_buckets
 }
 
 struct TRepeatNode {

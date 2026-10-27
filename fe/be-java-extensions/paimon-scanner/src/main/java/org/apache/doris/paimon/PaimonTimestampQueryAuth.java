@@ -146,13 +146,30 @@ final class PaimonTimestampQueryAuth extends TableQueryAuthResult {
 
     @Override
     public RecordReader<InternalRow> doAuth(RecordReader<InternalRow> reader, RowType readType) {
-        // Delegate the policy itself to Paimon; neither filters nor masks are dropped or rewritten.
+        return doAuth(reader, readType, original.extractPredicate(), original.extractColumnMasking());
+    }
+
+    @Override
+    public void validateReadType(RowType tableType, RowType readType, Set<String> ruleFields,
+            Set<String> resolvedBlobViewFields) {
+        // The physical p9 request preserves historical fractions; policies see current precision.
+        // Keep the SDK's schema and blob-view checks against the type actually passed to doAuth.
+        original.validateReadType(tableType, currentReadType.project(readType.getFieldNames()),
+                ruleFields, resolvedBlobViewFields);
+    }
+
+    @Override
+    public RecordReader<InternalRow> doAuth(RecordReader<InternalRow> reader, RowType readType,
+            Predicate rowFilter, Map<String, Transform> selectedColumnMasking) {
+        // Paimon 2.1 ReadTransform calls this overload with only the masks active for this read.
+        // Repair before applying either rule, and preserve that selection when delegating.
         // System-table readers synthesize fields such as rowkind only after this inner callback.
         RowType currentDataType = currentReadType.project(readType.getFieldNames());
         if (readType.equals(currentDataType)) {
-            return original.doAuth(reader, readType);
+            return original.doAuth(reader, readType, rowFilter, selectedColumnMasking);
         }
-        return original.doAuth(reader.transform(row -> repairRow(row, readType, currentDataType)), currentDataType);
+        return original.doAuth(reader.transform(row -> repairRow(row, readType, currentDataType)),
+                currentDataType, rowFilter, selectedColumnMasking);
     }
 
     static InternalRow repairRow(InternalRow row, RowType readType, RowType currentType) {
