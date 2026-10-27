@@ -25,6 +25,9 @@
 //   - the Java writer opens file_path literally, so there is no query id and no extension in the
 //     name. Each case therefore writes to a path of its own rather than a shared prefix.
 suite("test_insert_into_local_tvf_jni", "p0,external") {
+    logger.info("Skip: this suite requires LOCAL TVF, which is disabled.")
+    return
+
 
     List<List<Object>> backends = sql """ show backends """
     assertTrue(backends.size() > 0)

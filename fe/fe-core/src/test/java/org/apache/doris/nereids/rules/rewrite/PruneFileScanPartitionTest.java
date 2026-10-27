@@ -37,6 +37,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.ExternalTablePreloadInfo;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
 import org.apache.doris.nereids.trees.expressions.And;
@@ -52,6 +53,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -288,9 +290,39 @@ public class PruneFileScanPartitionTest {
             LogicalFileScan scan = fixture.scan(new RelationId(19));
             SelectedPartitions selected = fixture.prune(new LogicalFilter<>(
                     Set.of(new EqualTo(fixture.partitionSlot, new IntegerLiteral(1))), scan));
-            Assertions.assertSame(SelectedPartitions.NOT_PRUNED, selected);
+            Assertions.assertSame(scan.getSelectedPartitions(), selected);
             Mockito.verify(fixture.table, Mockito.never()).applyPartitionFilterForScan(Mockito.any(), Mockito.any());
             Mockito.verify(fixture.table, Mockito.never()).getNameToPartitionItemsForScan(Mockito.any());
+        }
+    }
+
+    @Test
+    public void testPlanOnlyLateFilterSkipIsIdempotentInTheActualTopDownJob() throws Exception {
+        for (SelectedPartitions initial : List.of(
+                SelectedPartitions.DEFERRED_PARTITION_PRUNING, SelectedPartitions.NOT_PRUNED)) {
+            try (PruningFixture fixture = new PruningFixture()) {
+                fixture.register(false);
+                fixture.statement.preloadDeferredScanPartitionViewsBeforeLock(false);
+                fixture.lock();
+                LogicalFileScan scan = fixture.scan(new RelationId(19)).withSelectedPartitions(initial);
+                Expression latePredicate = new EqualTo(fixture.partitionSlot, new IntegerLiteral(1));
+                LogicalFilter<LogicalFileScan> filter = new LogicalFilter<>(Set.of(latePredicate), scan);
+                CascadesContext cascades = CascadesContext.initContext(
+                        fixture.statement, filter, PhysicalProperties.ANY);
+                for (int pass = 0; pass < 2; pass++) {
+                    Rewriter.getWholeTreeRewriterWithCustomJobs(cascades,
+                            ImmutableList.of(Rewriter.topDown(new PruneFileScanPartition()))).execute();
+                    LogicalFilter<?> rewritten = (LogicalFilter<?>) cascades.getRewritePlan();
+                    LogicalFileScan rewrittenScan = (LogicalFileScan) rewritten.child();
+                    Assertions.assertSame(initial, rewrittenScan.getSelectedPartitions());
+                    Assertions.assertEquals(latePredicate, rewritten.getPredicate());
+                    Assertions.assertFalse(rewrittenScan.getSelectedPartitions().isPruned);
+                }
+                Assertions.assertFalse(fixture.preloadInfo().hasScanPartitionView());
+                Mockito.verify(fixture.table, Mockito.never()).applyPartitionFilterForScan(
+                        Mockito.any(), Mockito.any());
+                Mockito.verify(fixture.table, Mockito.never()).getNameToPartitionItemsForScan(Mockito.any());
+            }
         }
     }
 
@@ -315,6 +347,7 @@ public class PruneFileScanPartitionTest {
             Mockito.when(table.getId()).thenReturn(22L);
             Mockito.when(table.supportsExternalMetadataPreload()).thenReturn(true);
             Mockito.when(table.supportsConnectorPartitionPruning()).thenReturn(true);
+            Mockito.when(table.supportInternalPartitionPruned()).thenReturn(true);
             Mockito.when(table.supportInternalPartitionPruned(Mockito.any())).thenReturn(true);
             Mockito.when(table.getPartitionColumns(Mockito.any())).thenReturn(List.of(new Column("p", Type.INT)));
             Mockito.when(table.initSelectedPartitions(Mockito.any()))

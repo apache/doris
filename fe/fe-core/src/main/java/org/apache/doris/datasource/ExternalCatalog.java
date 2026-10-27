@@ -41,6 +41,7 @@ import org.apache.doris.common.util.ExceptionDiagnosticUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.MetaCacheBudgetManager;
+import org.apache.doris.connector.cache.MetaCacheGovernance;
 import org.apache.doris.datasource.doris.RemoteDorisExternalDatabase;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
@@ -79,6 +80,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -479,7 +481,34 @@ public abstract class ExternalCatalog
 
     /** Strict CREATE/ALTER validation for the core metadata-cache namespace owned by this catalog. */
     protected void checkMetaCacheWeightProperties(Map<String, String> properties) {
-        CacheSpec.checkWeightProperties(properties, "default", "schema");
+        CacheSpec.checkWeightProperties(properties, coreMetaCacheEngine(), "schema");
+    }
+
+    /** The engine of the core metadata-cache namespace that fe-core owns for this catalog. */
+    protected String coreMetaCacheEngine() {
+        return "default";
+    }
+
+    /**
+     * CREATE / ALTER CATALOG only, never on replay: the meta cache keys this statement submits for the engine of the
+     * core metadata-cache namespace must be well formed, and the weights it submits must not exceed the FE-global
+     * limit. A connector checks the keys of its own engines when it validates the statement's properties.
+     */
+    public void checkSubmittedMetaCacheProperties(Map<String, String> effectiveProperties,
+            Map<String, String> submittedProperties) throws DdlException {
+        checkSubmittedMetaCacheProperties(effectiveProperties, submittedProperties,
+                MetaCacheGovernance.globalMaxWeight());
+    }
+
+    void checkSubmittedMetaCacheProperties(Map<String, String> effectiveProperties,
+            Map<String, String> submittedProperties, OptionalLong globalMaxWeight) throws DdlException {
+        try {
+            CacheSpec.checkSubmittedEngineProperties(submittedProperties, coreMetaCacheEngine());
+            CacheSpec.checkSubmittedWeightsAgainstGlobal(
+                    effectiveProperties, submittedProperties, globalMaxWeight, coreMetaCacheEngine());
+        } catch (IllegalArgumentException e) {
+            throw new DdlException(e.getMessage());
+        }
     }
 
     /**
@@ -779,17 +808,8 @@ public abstract class ExternalCatalog
         if (StringUtils.isEmpty(dbName)) {
             return null;
         }
-        try {
-            makeSureInitialized();
-        } catch (Exception e) {
-            String diagnosticTrace = initErrorStackTrace(e);
-            if (diagnosticTrace != null) {
-                LOG.warn("failed to get db {} in catalog {}: {}", dbName, name, diagnosticTrace);
-            } else {
-                LOG.warn("failed to get db {} in catalog {}", dbName, name, e);
-            }
-            return null;
-        }
+        // Initialization errors do not establish that the requested database is absent.
+        makeSureInitialized();
 
         SessionContext sessionContext = SessionContext.current();
         if (shouldBypassDbNameCache(sessionContext)) {
@@ -1098,42 +1118,14 @@ public abstract class ExternalCatalog
         // When running ut, disable this check to make ut pass.
         // Because in ut, the database is not created in remote system.
         if (checkExists && (!FeConstants.runningUnitTest || this instanceof TestExternalCatalog)) {
-            try {
-                final String lookupLocalDbName = localDbName;
-                // Reuse the shared names lookup helper so existence checks follow the same miss-refresh policy.
-                Boolean exists = resolveDatabaseNameFromSnapshot(lookupLocalDbName, false,
-                        namesValue -> namesValue.containsLocalName(lookupLocalDbName) ? Boolean.TRUE : null);
-                if (!Boolean.TRUE.equals(exists)) {
-                    LOG.warn("Database {} does not exist in the remote system. Skipping initialization.",
-                            localDbName);
-                    return null;
-                }
-            } catch (RuntimeException e) {
-                // Handle "Found conflicting" exception explicitly
-                if (e.getMessage().contains(FOUND_CONFLICTING)) {
-                    LOG.error(e.getMessage());
-                    throw e; // Rethrow to let the caller handle this critical issue
-                } else {
-                    // Any errors other than name conflicts, we default to not finding the database
-                    String diagnosticTrace = initErrorStackTrace(e);
-                    if (diagnosticTrace != null) {
-                        LOG.warn("Failed to check db {} exist in remote system, ignore it: {}",
-                                localDbName, diagnosticTrace);
-                    } else {
-                        LOG.warn("Failed to check db {} exist in remote system, ignore it.", localDbName, e);
-                    }
-                    return null;
-                }
-            } catch (Exception e) {
-                // If connection failed, it will throw exception.
-                // ignore it and treat it as not exist.
-                String diagnosticTrace = initErrorStackTrace(e);
-                if (diagnosticTrace != null) {
-                    LOG.warn("Failed to check db {} exist in remote system, ignore it: {}",
-                            localDbName, diagnosticTrace);
-                } else {
-                    LOG.warn("Failed to check db {} exist in remote system, ignore it.", localDbName, e);
-                }
+            // Authentication and connection failures must propagate; only a successful lookup can prove absence.
+            final String lookupLocalDbName = localDbName;
+            // Reuse the shared names lookup helper so existence checks follow the same miss-refresh policy.
+            Boolean exists = resolveDatabaseNameFromSnapshot(lookupLocalDbName, false,
+                    namesValue -> namesValue.containsLocalName(lookupLocalDbName) ? Boolean.TRUE : null);
+            if (!Boolean.TRUE.equals(exists)) {
+                LOG.warn("Database {} does not exist in the remote system. Skipping initialization.",
+                        localDbName);
                 return null;
             }
         }
@@ -1225,6 +1217,14 @@ public abstract class ExternalCatalog
             tableAutoAnalyzePolicy = Maps.newHashMap();
         }
         this.dbIdNameIndex = new IdNameIndex("external database");
+    }
+
+    /** Cache-only identity fence for a read through a retained database instance. */
+    public Optional<FeMetaCacheEntry.Observation> observeDatabase(ExternalDatabase<?> database) {
+        if (!initialized || databases == null) {
+            return Optional.empty();
+        }
+        return databases.observe(database.getFullName(), database);
     }
 
     public void addDatabaseForTest(ExternalDatabase<? extends ExternalTable> db) {

@@ -88,8 +88,8 @@ int64_t compute_penalty(const KuromojiDictionary& dict, std::string_view text, u
     bool all_kanji = true;
     for (uint32_t p = start; p < end;) {
         const DecodedCp d = decode_utf8(text, p);
-        const uint8_t cat = dict.char_category(d.cp);
-        if (cat != CAT_KANJI && cat != CAT_KANJINUMERIC) {
+        const auto cat = dict.char_category(d.cp);
+        if (cat != CharCategory::CAT_KANJI && cat != CharCategory::CAT_KANJINUMERIC) {
             all_kanji = false;
         }
         p += d.len;
@@ -173,7 +173,7 @@ void KuromojiViterbi::segment(std::string_view text, std::vector<KuromojiMorphem
 
     // Cache of the current same-category run's byte end, so grouped unknown words are not rescanned at every position inside one run.
     uint32_t cat_run_end = 0;
-    uint8_t cat_run_cat = 0;
+    CharCategory cat_run_cat = CharCategory::CAT_NGRAM;
     bool cat_run_valid = false;
 
     uint32_t pos = 0;
@@ -202,7 +202,7 @@ void KuromojiViterbi::segment(std::string_view text, std::vector<KuromojiMorphem
 
         // Unknown words: when no known word starts here, or the category forces it.
         if (!any_known || _dict.is_invoke(d0.cp)) {
-            const uint8_t cat = _dict.char_category(d0.cp);
+            const auto cat = _dict.char_category(d0.cp);
             uint32_t group_len = d0.len;
             if (_dict.is_group(d0.cp)) {
                 if (!cat_run_valid || cat != cat_run_cat || pos >= cat_run_end) {

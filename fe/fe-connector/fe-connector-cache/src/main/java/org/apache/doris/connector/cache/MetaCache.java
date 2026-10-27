@@ -18,7 +18,10 @@
 package org.apache.doris.connector.cache;
 
 import java.util.Objects;
+import java.util.Optional;
+import java.util.concurrent.CompletionStage;
 import java.util.function.BiConsumer;
+import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
@@ -47,6 +50,16 @@ public final class MetaCache<K, V> {
     public V get(K key, Function<K, V> loader) {
         K nonNullKey = Objects.requireNonNull(key, "key can not be null");
         return delegate.get(nonNullKey, definition.scope(nonNullKey), loader);
+    }
+
+    /**
+     * Loads on the caller when elected, or observes an existing load without blocking this caller.
+     * Cancelling or completing a future obtained from the stage does not affect the shared load.
+     * Callbacks run on the completing thread and must not perform blocking work.
+     */
+    public CompletionStage<V> getOrLoadFuture(K key, Function<K, V> loader) {
+        K nonNullKey = Objects.requireNonNull(key, "key can not be null");
+        return delegate.getOrLoadFuture(nonNullKey, definition.scope(nonNullKey), loader);
     }
 
     /**
@@ -87,6 +100,51 @@ public final class MetaCache<K, V> {
         K nonNullKey = Objects.requireNonNull(key, "key can not be null");
         return delegate.compareAndSet(nonNullKey, definition.scope(nonNullKey), expectedValue, updatedValue,
                 Objects.requireNonNull(commitAction, "commitAction can not be null"));
+    }
+
+    /** Captures an exact retained registration without loading or holding locks across a remote read. */
+    public Optional<Observation> observe(K key, Object expectedValue) {
+        K nonNullKey = Objects.requireNonNull(key, "key");
+        return delegate.observe(nonNullKey, definition.scope(nonNullKey),
+                Objects.requireNonNull(expectedValue, "expectedValue"));
+    }
+
+    /**
+     * A short guarded action may nest observations in parent-to-child order. It must not perform I/O,
+     * re-enter this cache, or invalidate this cache's owner. Returning false leaves this entry unchanged.
+     * Conditional invalidation still removes the observed value if its dependency cleanup throws.
+     */
+    public static final class Observation {
+        private final ObservationOperation operation;
+
+        Observation(ObservationOperation operation) {
+            this.operation = operation;
+        }
+
+        public boolean runIfCurrent(BooleanSupplier action) {
+            return operation.run(false, Objects.requireNonNull(action, "action"), () -> {
+            });
+        }
+
+        public boolean invalidateIfCurrent(BooleanSupplier action) {
+            return invalidateIfCurrent(action, () -> {
+            });
+        }
+
+        /**
+         * Runs the final action after retiring this registration, before releasing its publication guard.
+         * It follows the same parent-to-child lock order and no-I/O/no-reentry contract as the guarded action.
+         * It also runs when authorized dependency cleanup throws, but never when authorization returns false.
+         */
+        public boolean invalidateIfCurrent(BooleanSupplier action, Runnable afterInvalidation) {
+            return operation.run(true, Objects.requireNonNull(action, "action"),
+                    Objects.requireNonNull(afterInvalidation, "afterInvalidation"));
+        }
+    }
+
+    @FunctionalInterface
+    interface ObservationOperation {
+        boolean run(boolean invalidate, BooleanSupplier action, Runnable afterInvalidation);
     }
 
     public void invalidateKey(K key) {

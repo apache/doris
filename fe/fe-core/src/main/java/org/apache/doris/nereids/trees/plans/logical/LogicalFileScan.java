@@ -340,6 +340,9 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         // batch split generation for a no-predicate full scan by materializing this state before dispatch.
         public static SelectedPartitions DEFERRED_PARTITION_PRUNING = new SelectedPartitions(
                 UNKNOWN_TOTAL_PARTITION_NUM, ImmutableMap.of(), false, false, Optional.empty(), State.DEFERRED);
+        /** Connector-owned file planning; an unknown universe, never an empty pruned selection. */
+        public static final SelectedPartitions NATIVE = new SelectedPartitions(
+                UNKNOWN_TOTAL_PARTITION_NUM, ImmutableMap.of(), false, false, Optional.empty(), State.NATIVE);
         /**
          * total partition number
          */
@@ -394,6 +397,7 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         /**
          * Constructor for SelectedPartitions.
          */
+
         public SelectedPartitions(long totalPartitionNum, Map<String, PartitionItem> selectedPartitions,
                 boolean isPruned) {
             this(totalPartitionNum, selectedPartitions, isPruned, false, Optional.empty());
@@ -483,6 +487,10 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
             return state == State.DEFERRED;
         }
 
+        public boolean isNativePlanning() {
+            return state == State.NATIVE;
+        }
+
         @Override
         public boolean equals(Object o) {
             if (this == o) {
@@ -492,7 +500,7 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
                 return false;
             }
             SelectedPartitions that = (SelectedPartitions) o;
-            return isPruned == that.isPruned
+            return state == that.state && isPruned == that.isPruned
                     && hasPartitionPredicate == that.hasPartitionPredicate
                     && state == that.state
                     && Objects.equals(

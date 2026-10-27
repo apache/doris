@@ -27,6 +27,10 @@
 #include "exec/scan/split_source_connector.h"
 #include "format/format_common.h"
 
+namespace doris::format::parquet {
+class ParquetProfileCache;
+}
+
 namespace doris {
 class FileScanner;
 class FileScannerV2;
@@ -40,8 +44,8 @@ public:
     using Parent = FileScanOperatorX;
     using Base = ScanLocalState<FileScanLocalState>;
     ENABLE_FACTORY_CREATOR(FileScanLocalState);
-    FileScanLocalState(RuntimeState* state, OperatorXBase* parent)
-            : ScanLocalState<FileScanLocalState>(state, parent) {}
+    FileScanLocalState(RuntimeState* state, OperatorXBase* parent);
+    ~FileScanLocalState() override;
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
 
@@ -85,6 +89,7 @@ private:
             VectorizedFnCall* fn_call, VExprContext* expr_ctx, Field& constant_val,
             const std::set<std::string> fn_name) const override;
     std::shared_ptr<SplitSourceConnector> _split_source = nullptr;
+    std::unique_ptr<format::parquet::ParquetProfileCache> _parquet_profile_cache;
     int _max_scanners;
     TupleId _output_tuple_id = -1;
 };

@@ -69,7 +69,7 @@ public class IcebergScanRange implements ConnectorScanRange {
     private final String rawPartitionKey;
     private final Long firstRowId;
     private final Long lastUpdatedSequenceNumber;
-    // Identity partition column (lowercased) -> serialized value, already ordered as the path_partition_keys
+    // Identity partition column (case-preserved) -> serialized value, already ordered as the path_partition_keys
     // list, filtered to keys this file carries. Drives columns-from-path. Never null (empty when unpartitioned).
     private final Map<String, String> partitionValues;
     // Whether this range counts toward the EXPLAIN `partition=N/M` / sql_block_rule partition_num display

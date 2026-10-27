@@ -25,7 +25,6 @@ import org.apache.doris.connector.hive.HiveCatalogProperties;
 import org.apache.doris.connector.hive.HiveConnectorMetadata;
 import org.apache.doris.connector.hive.HiveFileListingCache;
 import org.apache.doris.connector.hive.HiveFileStatus;
-import org.apache.doris.connector.hive.HiveReadTransactionManager;
 import org.apache.doris.connector.hive.HiveScanPlanProvider;
 import org.apache.doris.connector.hive.HiveTableHandle;
 import org.apache.doris.connector.hive.HiveTableType;
@@ -210,7 +209,7 @@ public class HiveDatePartitionPruningIntegrationTest {
                     Mockito.anyList(), Mockito.nullable(FileSystem.class))).thenAnswer(invocation ->
                             List.of(new HiveFileStatus(invocation.getArgument(2) + "/data.parquet", 10L, 1L)));
             HiveScanPlanProvider provider = new HiveScanPlanProvider(client, properties, connectorContext,
-                    new HiveReadTransactionManager(), files);
+                    files);
             if (unrepresentable) {
                 Assertions.assertTrue(selected.isNotPruned());
                 Assertions.assertFalse(PluginDrivenScanNode.shouldUseBatchMode(selected, true, true, 1));

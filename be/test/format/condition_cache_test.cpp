@@ -27,7 +27,6 @@
 #include "format/generic_reader.h"
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
-#include "format/table/transactional_hive_common.h"
 
 namespace doris::vectorized {
 
@@ -496,24 +495,6 @@ TEST_F(ConditionCacheDeleteOpsTest, OrcWithPositionDeletes_CacheSkipped) {
     auto reader = OrcReader::create_unique(params, range, 4064, "", nullptr);
     std::vector<int64_t> pos_deletes = {0, 3, 7};
     reader->set_position_delete_rowids(&pos_deletes);
-
-    bool hit = false;
-    std::shared_ptr<std::vector<bool>> cache;
-    std::shared_ptr<ConditionCacheContext> ctx;
-    simulate_init_condition_cache(reader.get(), 99, "/data/file.orc", hit, cache, ctx);
-
-    EXPECT_EQ(ctx, nullptr);
-    EXPECT_EQ(cache, nullptr);
-}
-
-// -- OrcReader: with ACID deletes -> cache skipped --
-TEST_F(ConditionCacheDeleteOpsTest, OrcWithAcidDeletes_CacheSkipped) {
-    TFileScanRangeParams params;
-    TFileRangeDesc range;
-    auto reader = OrcReader::create_unique(params, range, 4064, "", nullptr);
-    AcidRowIDSet acid_deletes;
-    acid_deletes.insert({1, 0, 5});
-    reader->set_delete_rows(&acid_deletes);
 
     bool hit = false;
     std::shared_ptr<std::vector<bool>> cache;

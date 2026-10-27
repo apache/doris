@@ -41,6 +41,7 @@
 #include "common/config.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
+#include "storage/compaction/cumulative_compaction_changelog_policy.h"
 #include "storage/data_dir.h"
 #include "storage/file_header.h"
 #include "storage/olap_common.h"
@@ -195,8 +196,8 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
             time_series_compaction_level_threshold);
     tablet_meta_pb.set_vertical_compaction_num_columns_per_group(
             vertical_compaction_num_columns_per_group);
-    tablet_meta_pb.set_tablet_role(tablet_role == TTabletRole::TABLET_ROLE_ROW_BINLOG
-                                           ? TabletRolePB::TABLET_ROLE_ROW_BINLOG
+    tablet_meta_pb.set_tablet_role(tablet_role == TTabletRole::TABLET_ROLE_CHANGELOG
+                                           ? TabletRolePB::TABLET_ROLE_CHANGELOG
                                            : TabletRolePB::TABLET_ROLE_DATA);
     SchemaCreateOptions schema_create_options_for_data = {
             .col_ordinal_to_unique_id = col_ordinal_to_unique_id,
@@ -270,7 +271,7 @@ TabletMeta::TabletMeta(const TabletMeta& b)
           _delete_bitmap(b._delete_bitmap),
           _binlog_config(b._binlog_config),
           _tablet_role(b._tablet_role),
-          _binlog_tablet_id(b._binlog_tablet_id),
+          _changelog_tablet_id(b._changelog_tablet_id),
           _compaction_policy(b._compaction_policy),
           _time_series_compaction_goal_size_mbytes(b._time_series_compaction_goal_size_mbytes),
           _time_series_compaction_file_count_threshold(
@@ -444,6 +445,9 @@ void TabletMeta::init_schema_from_thrift(const TTabletSchema& tablet_schema,
         break;
     case TCompressionType::LZ4F:
         tablet_schema_pb->set_compression_type(segment_v2::LZ4F);
+        break;
+    case TCompressionType::LZ4HC:
+        tablet_schema_pb->set_compression_type(segment_v2::LZ4HC);
         break;
     case TCompressionType::ZLIB:
         tablet_schema_pb->set_compression_type(segment_v2::ZLIB);
@@ -920,8 +924,16 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
         _binlog_config = tablet_meta_pb.binlog_config();
     }
     _tablet_role = tablet_meta_pb.tablet_role();
-    _binlog_tablet_id = tablet_meta_pb.binlog_tablet_id();
-    _compaction_policy = tablet_meta_pb.compaction_policy();
+    _changelog_tablet_id = tablet_meta_pb.changelog_tablet_id();
+    // The policy of a changelog tablet is chosen by its role, which is persisted as a number,
+    // not by the persisted policy string, which can name a policy this build does not know.
+    // Example: a changelog tablet whose meta was written with an older policy name. Looked
+    // up by that name it would get no policy in local mode (the lookup used to abort the BE)
+    // and the size-based policy in cloud mode, which breaks its level and quick-merge rules.
+    // Every way a meta is built (create, load, clone, cloud sync) comes through here, and a
+    // changelog tablet refuses later policy changes, so the field cannot drift afterwards.
+    _compaction_policy = is_changelog_tablet() ? std::string(CUMULATIVE_CHANGELOG_POLICY)
+                                               : tablet_meta_pb.compaction_policy();
     _time_series_compaction_goal_size_mbytes =
             tablet_meta_pb.time_series_compaction_goal_size_mbytes();
     _time_series_compaction_file_count_threshold =
@@ -954,19 +966,19 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb, bool cloud_get_rowset_
     tablet_meta_pb->set_tablet_type(_tablet_type);
     tablet_meta_pb->set_ttl_seconds(_ttl_seconds);
     switch (tablet_state()) {
-    case TABLET_NOTREADY:
+    case TabletState::TABLET_NOTREADY:
         tablet_meta_pb->set_tablet_state(PB_NOTREADY);
         break;
-    case TABLET_RUNNING:
+    case TabletState::TABLET_RUNNING:
         tablet_meta_pb->set_tablet_state(PB_RUNNING);
         break;
-    case TABLET_TOMBSTONED:
+    case TabletState::TABLET_TOMBSTONED:
         tablet_meta_pb->set_tablet_state(PB_TOMBSTONED);
         break;
-    case TABLET_STOPPED:
+    case TabletState::TABLET_STOPPED:
         tablet_meta_pb->set_tablet_state(PB_STOPPED);
         break;
-    case TABLET_SHUTDOWN:
+    case TabletState::TABLET_SHUTDOWN:
         tablet_meta_pb->set_tablet_state(PB_SHUTDOWN);
         break;
     }
@@ -1025,8 +1037,8 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb, bool cloud_get_rowset_
     }
     _binlog_config.to_pb(tablet_meta_pb->mutable_binlog_config());
     tablet_meta_pb->set_tablet_role(_tablet_role);
-    if (_binlog_tablet_id > 0) {
-        tablet_meta_pb->set_binlog_tablet_id(_binlog_tablet_id);
+    if (_changelog_tablet_id > 0) {
+        tablet_meta_pb->set_changelog_tablet_id(_changelog_tablet_id);
     }
     tablet_meta_pb->set_compaction_policy(compaction_policy());
     tablet_meta_pb->set_time_series_compaction_goal_size_mbytes(
@@ -1275,7 +1287,7 @@ bool operator==(const TabletMeta& a, const TabletMeta& b) {
     if (a._in_restore_mode != b._in_restore_mode) return false;
     if (a._preferred_rowset_type != b._preferred_rowset_type) return false;
     if (a._storage_policy_id != b._storage_policy_id) return false;
-    if (a._binlog_tablet_id != b._binlog_tablet_id) return false;
+    if (a._changelog_tablet_id != b._changelog_tablet_id) return false;
     if (a._compaction_policy != b._compaction_policy) return false;
     if (a._time_series_compaction_goal_size_mbytes != b._time_series_compaction_goal_size_mbytes)
         return false;
@@ -1911,23 +1923,23 @@ DeleteBitmap DeleteBitmap::diffset(const std::set<BitmapKey>& key_set) const {
 
 std::string tablet_state_name(TabletState state) {
     switch (state) {
-    case TABLET_NOTREADY:
+    case TabletState::TABLET_NOTREADY:
         return "TABLET_NOTREADY";
 
-    case TABLET_RUNNING:
+    case TabletState::TABLET_RUNNING:
         return "TABLET_RUNNING";
 
-    case TABLET_TOMBSTONED:
+    case TabletState::TABLET_TOMBSTONED:
         return "TABLET_TOMBSTONED";
 
-    case TABLET_STOPPED:
+    case TabletState::TABLET_STOPPED:
         return "TABLET_STOPPED";
 
-    case TABLET_SHUTDOWN:
+    case TabletState::TABLET_SHUTDOWN:
         return "TABLET_SHUTDOWN";
 
     default:
-        return "TabletState(" + std::to_string(state) + ")";
+        return "TabletState(" + std::to_string(static_cast<int>(state)) + ")";
     }
 }
 

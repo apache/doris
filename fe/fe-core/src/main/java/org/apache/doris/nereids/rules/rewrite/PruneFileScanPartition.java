@@ -67,7 +67,8 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
 
     @Override
     public Rule build() {
-        return logicalFilter(logicalFileScan()).whenNot(p -> p.child().getSelectedPartitions().isPruned)
+        return logicalFilter(logicalFileScan()).whenNot(p -> p.child().getSelectedPartitions().isPruned
+                        || p.child().getSelectedPartitions().isNativePlanning())
                 .thenApply(ctx -> {
                     LogicalFilter<LogicalFileScan> filter = ctx.root;
                     LogicalFileScan scan = filter.child();
@@ -79,6 +80,9 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
                     } else {
                         // set isPruned so that it won't go pass the partition prune again
                         selectedPartitions = new SelectedPartitions(0, ImmutableMap.of(), true);
+                    }
+                    if (selectedPartitions == scan.getSelectedPartitions()) {
+                        return null;
                     }
                     LogicalFileScan rewrittenScan = scan.withSelectedPartitions(selectedPartitions);
                     return new LogicalFilter<>(filter.getConjuncts(), rewrittenScan);
@@ -120,6 +124,21 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
 
     private SelectedPartitions pruneExternalPartitions(ExternalTable externalTable,
             LogicalFilter<LogicalFileScan> filter, LogicalFileScan scan, CascadesContext ctx) {
+        SelectedPartitions initialSelection = scan.getSelectedPartitions();
+        Optional<ExternalTablePreloadInfo> preload = scan.getTableSnapshot().isPresent()
+                || scan.getScanParams().isPresent() ? Optional.empty()
+                : ctx.getStatementContext().getExternalTablePreloadInfo(externalTable.getId());
+        boolean preloadedFilter = preload.isPresent()
+                && preload.get().hasFilteredScanView(scan.getPreloadRelationId());
+        if ((initialSelection.isDeferredPartitionPruning() || initialSelection.isNotPruned())
+                && externalTable instanceof PluginDrivenExternalTable
+                && ((PluginDrivenExternalTable) externalTable).supportsConnectorPartitionPruning()
+                && !preloadedFilter && scan.getTableSnapshot().isEmpty() && scan.getScanParams().isEmpty()
+                && !preload.map(ExternalTablePreloadInfo::hasScanPartitionView).orElse(false)
+                && ctx.getStatementContext().hasAnyPlanReadLockTable()
+                && ctx.getStatementContext().shouldSkipUnpreloadedScanPartitionPruning()) {
+            return initialSelection;
+        }
         Map<String, PartitionItem> selectedPartitionItems = Maps.newHashMap();
         Optional<MvccSnapshot> snapshot = ctx.getStatementContext().getSnapshot(
                 externalTable, scan.getTableSnapshot(), scan.getScanParams());
@@ -166,20 +185,6 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
                 && externalTable instanceof PluginDrivenExternalTable
                 && ((PluginDrivenExternalTable) externalTable).supportsConnectorPartitionPruning()) {
             connectorPredicate = NereidsToConnectorExpressionConverter.convert(filter.getPredicate());
-            Optional<ExternalTablePreloadInfo> preload = scan.getTableSnapshot().isPresent()
-                    || scan.getScanParams().isPresent() ? Optional.empty()
-                    : ctx.getStatementContext().getExternalTablePreloadInfo(externalTable.getId());
-            boolean preloadedFilter = preload.isPresent()
-                    && preload.get().hasFilteredScanView(scan.getPreloadRelationId());
-            if (!preloadedFilter && scan.getTableSnapshot().isEmpty() && scan.getScanParams().isEmpty()
-                    && !preload.map(ExternalTablePreloadInfo::hasScanPartitionView).orElse(false)
-                    && ctx.getStatementContext().hasAnyPlanReadLockTable()
-                    && ctx.getStatementContext().shouldSkipUnpreloadedScanPartitionPruning()) {
-                // Plan-only EXPLAIN with no MV consumer did not warm unfiltered views. A predicate inferred
-                // after collection must not trigger selective OR fallback enumeration under internal locks.
-                // Leave the selection unknown and keep every residual; no physical scan executes here.
-                return SelectedPartitions.NOT_PRUNED;
-            }
             Optional<PluginDrivenExternalTable.ConnectorFilteredPartitionView> connectorPartitions;
             if (preloadedFilter) {
                 connectorPartitions = preload.get().getFilteredScanView(scan.getPreloadRelationId());
@@ -242,12 +247,8 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
 
         for (String name : prunedPartitions) {
             PartitionItem item = partitionItems.get(name);
-            // Within THIS query, nameToPartitionItem and sortedPartitionRanges are built from the same
-            // frozen map. On a cross-query cache HIT, sortedPartitionRanges instead reuses ranges built by
-            // an earlier query keyed by the identical (snapshotId, schemaId) version token -- content is
-            // identical only via the MVCC determinism premise (same version token => same partition set),
-            // not because the two maps are literally the same object. A missing item here means that
-            // premise was violated, so fail loud rather than silently returning a partial scan.
+            // The index and selected map must describe the same pinned partition generation.
+            // Plugin MVCC views publish them together and share the very same PartitionItem objects.
             Preconditions.checkState(item != null,
                     "pruned partition %s is missing in the selected partitions snapshot", name);
             selectedPartitionItems.put(name, item);

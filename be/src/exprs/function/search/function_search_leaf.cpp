@@ -160,17 +160,14 @@ ScalarLeafCompiler::ScalarLeafCompiler(segment_v2::IndexIterator* iterator, Data
 Status ScalarLeafCompiler::compile(const logical::Node& leaf, const SearchLeafContext& ctx,
                                    query_v2::QueryPtr* out) {
     const auto* compare = leaf.as<logical::Compare>();
-    if (compare == nullptr || _iterator == nullptr) {
-        *out = make_unknown_leaf_query(ctx.num_rows);
-        return Status::OK();
-    }
+    DORIS_CHECK(compare != nullptr);
+    DORIS_CHECK(_iterator != nullptr);
     DataTypePtr value_type = unwrap_value_type(_column_type);
     Field value;
     if (Status parsed = parse_scalar_value(value_type, compare->value, &value); !parsed.ok()) {
         LOG(INFO) << "search: scalar leaf value is unsupported, field=" << compare->field.name
                   << ", value='" << compare->value << "', reason=" << parsed.to_string();
-        *out = make_unknown_leaf_query(ctx.num_rows);
-        return Status::OK();
+        return parsed;
     }
 
     segment_v2::InvertedIndexParam param;
@@ -182,17 +179,9 @@ Status ScalarLeafCompiler::compile(const logical::Node& leaf, const SearchLeafCo
     param.roaring = std::make_shared<roaring::Roaring>();
     RETURN_IF_ERROR(_iterator->read_from_index(segment_v2::IndexParam {&param}));
 
-    auto null_bitmap = std::make_shared<roaring::Roaring>();
-    auto has_null = _iterator->has_null();
-    if (has_null.has_value() && has_null.value()) {
-        segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
-        RETURN_IF_ERROR(_iterator->read_null_bitmap(&null_bitmap_cache_handle));
-        if (auto bitmap = null_bitmap_cache_handle.get_bitmap(); bitmap != nullptr) {
-            null_bitmap = bitmap;
-        }
-    }
-    *out = std::make_shared<query_v2::BitSetQuery>(std::move(param.roaring),
-                                                   std::move(null_bitmap));
+    // Physical NULL postings are excluded by the shared SEARCH leaf mask. Never
+    // attach SQL UNKNOWN rows or mutate the reader-owned query cache bitmap here.
+    *out = std::make_shared<query_v2::BitSetQuery>(std::move(param.roaring));
     return Status::OK();
 }
 

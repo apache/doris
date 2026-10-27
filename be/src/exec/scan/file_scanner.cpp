@@ -80,7 +80,6 @@
 #include "format/table/paimon_reader.h"
 #include "format/table/partition_column_filler.h"
 #include "format/table/remote_doris_reader.h"
-#include "format/table/transactional_hive_reader.h"
 #include "format/table/trino_connector_jni_reader.h"
 #include "format/text/text_reader.h"
 #include "io/cache/block_file_cache_profile.h"
@@ -152,6 +151,7 @@ void FileScanner::_configure_file_scan_handlers() {
 }
 
 Status FileScanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
+    RETURN_IF_ERROR(validate_file_scan_support(*_params));
     RETURN_IF_ERROR(Scanner::init(state, conjuncts));
     _get_block_timer =
             ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(), "FileScannerGetBlockTime", 1);
@@ -552,6 +552,8 @@ Status FileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* 
                                           config::ignore_not_found_file_in_external_table)) {
                 _cur_reader_eof = true;
                 COUNTER_UPDATE(_not_found_file_counter, 1);
+                LOG(INFO) << "Skip missing file: query_id=" << print_id(_state->query_id())
+                          << ", path=" << _current_range.path << ", reason=NOT_FOUND";
                 continue;
             } else if (st.is<ErrorCode::END_OF_FILE>()) {
                 _cur_reader_eof = true;
@@ -588,6 +590,8 @@ Status FileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* 
                                           config::ignore_not_found_file_in_external_table)) {
                 _cur_reader_eof = true;
                 COUNTER_UPDATE(_not_found_file_counter, 1);
+                LOG(INFO) << "Skip missing file: query_id=" << print_id(_state->query_id())
+                          << ", path=" << _current_range.path << ", reason=NOT_FOUND";
                 continue;
             }
             RETURN_IF_ERROR(st);
@@ -1026,6 +1030,7 @@ Status FileScanner::_get_next_reader() {
         }
 
         const TFileRangeDesc& range = _current_range;
+        RETURN_IF_ERROR(validate_file_scan_support(*_params, &range));
         _current_range_path = range.path;
 
         if (!_partition_slot_index_map.empty()) {
@@ -1305,6 +1310,8 @@ Status FileScanner::_get_next_reader() {
             if (can_ignore_not_found_file(_current_range,
                                           config::ignore_not_found_file_in_external_table)) {
                 COUNTER_UPDATE(_not_found_file_counter, 1);
+                LOG(INFO) << "Skip missing file: query_id=" << print_id(_state->query_id())
+                          << ", path=" << _current_range.path << ", reason=NOT_FOUND";
                 continue;
             }
             return Status::InternalError("failed to find reader, err: {}", init_status.to_string());
@@ -1450,20 +1457,7 @@ Status FileScanner::_init_orc_reader(FileMetaCache* file_meta_cache_ptr,
     octx.slot_id_to_filter_conjuncts = &_slot_id_to_filter_conjuncts;
 
     if (range.__isset.table_format_params &&
-        range.table_format_params.table_format_type == "transactional_hive") {
-        // TransactionalHiveReader IS-A OrcReader, no wrapping needed
-        auto tran_orc_reader = TransactionalHiveReader::create_unique(
-                _profile, _state, *_params, range, _state->batch_size(), _state->timezone(),
-                _io_ctx, file_meta_cache_ptr);
-        tran_orc_reader->set_create_row_id_column_iterator_func(
-                [this]() -> std::shared_ptr<segment_v2::RowIdColumnIteratorV2> {
-                    return _create_row_id_column_iterator();
-                });
-        init_status = static_cast<GenericReader*>(tran_orc_reader.get())->init_reader(&octx);
-
-        _cur_reader = std::move(tran_orc_reader);
-    } else if (range.__isset.table_format_params &&
-               range.table_format_params.table_format_type == "iceberg") {
+        range.table_format_params.table_format_type == "iceberg") {
         // IcebergOrcReader IS-A OrcReader (CRTP mixin), no wrapping needed
         std::unique_ptr<IcebergOrcReader> iceberg_reader = IcebergOrcReader::create_unique(
                 _kv_cache, _profile, _state, *_params, range, _state->batch_size(),
@@ -1581,6 +1575,7 @@ Status FileScanner::_generate_truncate_columns(bool need_to_get_parsed_schema) {
 }
 
 Status FileScanner::prepare_for_read_lines(const TFileRangeDesc& range) {
+    RETURN_IF_ERROR(validate_file_scan_support(*_params, &range));
     _current_range = range;
 
     _file_cache_statistics.reset(new io::FileCacheStatistics());

@@ -20,6 +20,7 @@ package org.apache.doris.nereids;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.ListPartitionItem;
@@ -85,22 +86,22 @@ import java.util.concurrent.atomic.AtomicReference;
 public class StatementContextTest {
 
     @Test
-    public void testRowBinlogReferenceTsoIsStatementScoped() {
+    public void testChangelogReferenceTsoIsStatementScoped() {
         StatementContext statementContext = new StatementContext();
         AtomicInteger calls = new AtomicInteger();
 
-        statementContext.requireRowBinlogReferenceTso();
-        org.junit.jupiter.api.Assertions.assertTrue(statementContext.isRowBinlogReferenceTsoRequired());
+        statementContext.requireChangelogReferenceTso();
+        org.junit.jupiter.api.Assertions.assertTrue(statementContext.isChangelogReferenceTsoRequired());
         org.junit.jupiter.api.Assertions.assertEquals(101L,
-                statementContext.getOrRegisterRowBinlogReferenceTso(() -> 100L + calls.incrementAndGet()));
+                statementContext.getOrRegisterChangelogReferenceTso(() -> 100L + calls.incrementAndGet()));
         org.junit.jupiter.api.Assertions.assertEquals(101L,
-                statementContext.getOrRegisterRowBinlogReferenceTso(() -> 100L + calls.incrementAndGet()));
+                statementContext.getOrRegisterChangelogReferenceTso(() -> 100L + calls.incrementAndGet()));
         org.junit.jupiter.api.Assertions.assertEquals(1, calls.get());
 
         statementContext.resetConnectorStatementScope();
-        org.junit.jupiter.api.Assertions.assertFalse(statementContext.isRowBinlogReferenceTsoRequired());
+        org.junit.jupiter.api.Assertions.assertFalse(statementContext.isChangelogReferenceTsoRequired());
         org.junit.jupiter.api.Assertions.assertThrows(AnalysisException.class,
-                statementContext::getRowBinlogReferenceTso);
+                statementContext::getChangelogReferenceTso);
     }
 
     @Test
@@ -730,6 +731,7 @@ public class StatementContextTest {
     @Test
     public void testFilteredScanDoesNotWarmUnfilteredPartitionViewBeforeLock() {
         ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        Mockito.when(connectContext.getCurrentUserIdentity()).thenReturn(UserIdentity.ROOT);
         TableIf internalTable = Mockito.mock(TableIf.class);
         PluginDrivenExternalTable hiveExternalTable = Mockito.mock(PluginDrivenExternalTable.class);
         SessionVariable sessionVariable = new SessionVariable();
@@ -778,6 +780,7 @@ public class StatementContextTest {
                 .findFirst().get();
         ConnectContext connectContext = Mockito.mock(ConnectContext.class);
         Mockito.when(connectContext.getSessionVariable()).thenReturn(new SessionVariable());
+        Mockito.when(connectContext.getCurrentUserIdentity()).thenReturn(UserIdentity.ROOT);
         StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("select 1", 0));
         CascadesContext cascadesContext = CascadesContext.initContext(
                 statementContext, plan, PhysicalProperties.ANY);
@@ -830,6 +833,7 @@ public class StatementContextTest {
     private void assertReparsedInternalViewUsesPrelockedFullPartitionView(String viewSql) throws Exception {
         ConnectContext previousContext = ConnectContext.get();
         ConnectContext context = Mockito.mock(ConnectContext.class);
+        Mockito.when(context.getCurrentUserIdentity()).thenReturn(UserIdentity.ROOT);
         SessionVariable variables = new SessionVariable();
         variables.setEnableMaterializedViewRewrite(false);
         variables.setEnableDmlMaterializedViewRewrite(false);
@@ -972,6 +976,7 @@ public class StatementContextTest {
                 .map(node -> (UnboundRelation) node)
                 .filter(node -> node.getNameParts().contains("hive_table")).findFirst().get();
         ConnectContext context = Mockito.mock(ConnectContext.class);
+        Mockito.when(context.getCurrentUserIdentity()).thenReturn(UserIdentity.ROOT);
         SessionVariable variables = new SessionVariable();
         variables.setEnableMaterializedViewRewrite(false);
         variables.setEnableDmlMaterializedViewRewrite(false);
@@ -1084,6 +1089,7 @@ public class StatementContextTest {
                 "select * from hive_catalog.db.hive_table where true = true or hive_table.p = 1");
         UnboundRelation relation = findUnboundRelation(plan);
         ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        Mockito.when(connectContext.getCurrentUserIdentity()).thenReturn(UserIdentity.ROOT);
         TableIf internalTable = Mockito.mock(TableIf.class);
         PluginDrivenExternalTable hiveExternalTable = Mockito.mock(PluginDrivenExternalTable.class);
         SessionVariable sessionVariable = new SessionVariable();
@@ -1126,6 +1132,7 @@ public class StatementContextTest {
                 "select * from hive_catalog.db.hive_table where hive_table.p = 1");
         UnboundRelation relation = findUnboundRelation(plan);
         ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        Mockito.when(connectContext.getCurrentUserIdentity()).thenReturn(UserIdentity.ROOT);
         StatementContext statementContext = Mockito.mock(StatementContext.class);
         CascadesContext cascadesContext = Mockito.mock(CascadesContext.class);
         PluginDrivenExternalTable hiveExternalTable = Mockito.mock(PluginDrivenExternalTable.class);
@@ -1157,6 +1164,7 @@ public class StatementContextTest {
                         + "join hive_catalog.db.hive_table h on i.id = h.id where i.k = 1");
         UnboundRelation relation = findUnboundRelationByName(plan, "hive_table");
         ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        Mockito.when(connectContext.getCurrentUserIdentity()).thenReturn(UserIdentity.ROOT);
         TableIf internalTable = Mockito.mock(TableIf.class);
         PluginDrivenExternalTable hiveExternalTable = Mockito.mock(PluginDrivenExternalTable.class);
         SessionVariable sessionVariable = new SessionVariable();
@@ -1232,6 +1240,7 @@ public class StatementContextTest {
                 "select * from hive_catalog.db.hive_table where abs(1) = 1");
         UnboundRelation relation = findUnboundRelation(plan);
         ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        Mockito.when(connectContext.getCurrentUserIdentity()).thenReturn(UserIdentity.ROOT);
         TableIf internalTable = Mockito.mock(TableIf.class);
         PluginDrivenExternalTable hiveExternalTable = Mockito.mock(PluginDrivenExternalTable.class);
         SessionVariable sessionVariable = new SessionVariable();
@@ -1277,6 +1286,7 @@ public class StatementContextTest {
                         + "(select * from hive_catalog.db.hive_table where abs(1) = 1) h on i.id = h.id");
         UnboundRelation relation = findUnboundRelationByName(plan, "hive_table");
         ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        Mockito.when(connectContext.getCurrentUserIdentity()).thenReturn(UserIdentity.ROOT);
         TableIf internalTable = Mockito.mock(TableIf.class);
         PluginDrivenExternalTable hiveExternalTable = Mockito.mock(PluginDrivenExternalTable.class);
         SessionVariable sessionVariable = new SessionVariable();

@@ -86,6 +86,97 @@ public class SplitAssignmentTest {
         );
     }
 
+    @Test
+    void firstConvertedSplitDoesNotWaitForAnotherBackendAssignment() throws Exception {
+        CountDownLatch assignmentEntered = new CountDownLatch(1);
+        CountDownLatch releaseAssignment = new CountDownLatch(1);
+        CountDownLatch initStarted = new CountDownLatch(1);
+        Mockito.doAnswer(invocation -> {
+            initStarted.countDown();
+            return null;
+        }).when(mockSplitGenerator).startSplit(Mockito.anyInt());
+        Mockito.when(mockBackendPolicy.computeScanRangeAssignment(Mockito.any())).thenAnswer(invocation -> {
+            assignmentEntered.countDown();
+            Assertions.assertTrue(releaseAssignment.await(30, TimeUnit.SECONDS));
+            return ArrayListMultimap.create();
+        });
+        Mockito.when(mockSplitToScanRange.getScanRange(Mockito.any(), Mockito.any(), Mockito.any(),
+                Mockito.any(), Mockito.anyBoolean())).thenReturn(mockScanRangeLocations);
+        ExecutorService workers = Executors.newFixedThreadPool(3);
+        try {
+            Future<?> init = workers.submit(() -> {
+                splitAssignment.init();
+                return null;
+            });
+            Assertions.assertTrue(initStarted.await(5, TimeUnit.SECONDS));
+            Future<?> assigning = workers.submit(() -> splitAssignment.assignBatch(
+                    Collections.singletonList(mockSplit)));
+            Assertions.assertTrue(assignmentEntered.await(5, TimeUnit.SECONDS));
+            Future<?> converted = workers.submit(() -> splitAssignment.createScanRanges(
+                    mockBackend, Collections.singletonList(mockSplit)));
+            converted.get(5, TimeUnit.SECONDS);
+            init.get(5, TimeUnit.SECONDS);
+            Assertions.assertSame(mockSplit, splitAssignment.getSampleSplit());
+            Assertions.assertFalse(assigning.isDone(), "readiness must not wait for unrelated assignment work");
+        } finally {
+            releaseAssignment.countDown();
+            workers.shutdownNow();
+            Assertions.assertTrue(workers.awaitTermination(5, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    void demandCallbackStopsWithTheAssignment() {
+        java.util.concurrent.atomic.AtomicInteger requested = new java.util.concurrent.atomic.AtomicInteger();
+        splitAssignment.setMoreSplitsRequestedCallback(requested::incrementAndGet);
+        splitAssignment.onMoreSplitsRequested();
+        Assertions.assertEquals(1, requested.get());
+        splitAssignment.stop();
+        splitAssignment.onMoreSplitsRequested();
+        splitAssignment.setMoreSplitsRequestedCallback(requested::incrementAndGet);
+        splitAssignment.onMoreSplitsRequested();
+        Assertions.assertEquals(1, requested.get());
+    }
+
+    @Test
+    void asyncResourceRegisteredAfterStopIsClosedImmediately() {
+        java.util.concurrent.atomic.AtomicInteger closes = new java.util.concurrent.atomic.AtomicInteger();
+        splitAssignment.stop();
+        splitAssignment.addCloseable(closes::incrementAndGet);
+        Assertions.assertEquals(1, closes.get());
+        splitAssignment.stop();
+        Assertions.assertEquals(1, closes.get());
+    }
+
+    @Test
+    void stopClosesRegisteredResourceOutsideRegistryLock() {
+        java.util.concurrent.atomic.AtomicInteger closes = new java.util.concurrent.atomic.AtomicInteger();
+        splitAssignment.addCloseable(() -> {
+            closes.incrementAndGet();
+            splitAssignment.addCloseable(closes::incrementAndGet);
+        });
+        splitAssignment.stop();
+        Assertions.assertEquals(2, closes.get());
+    }
+
+    @Test
+    void closingActiveProducerDoesNotTurnSuccessfulStopIntoFailure() throws Exception {
+        splitAssignment.addCloseable(() -> splitAssignment.setException(new UserException("source closed")));
+        Assertions.assertDoesNotThrow(() -> splitAssignment.stop());
+        splitAssignment.setException(new UserException("producer interrupted after stop"));
+        Assertions.assertNull(splitAssignment.getAssignedSplits(mockBackend));
+    }
+
+    @Test
+    void stopPreservesFailurePublishedBeforeCancellation() {
+        UserException failure = new UserException("manifest read failed");
+        splitAssignment.setException(failure);
+        splitAssignment.addCloseable(() -> splitAssignment.setException(new UserException("source closed")));
+        RuntimeException actual = Assertions.assertThrows(RuntimeException.class, () -> splitAssignment.stop());
+        Assertions.assertSame(failure, actual.getCause());
+        Assertions.assertEquals(0, failure.getSuppressed().length);
+    }
+
     // ==================== init() method tests ====================
 
     @Test

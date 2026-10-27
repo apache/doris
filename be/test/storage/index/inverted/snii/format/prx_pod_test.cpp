@@ -1184,13 +1184,7 @@ TEST(SniiPrxPod, FlatBuilderExtraPositionsRejected) {
     }
 }
 
-// ---------------------------------------------------------------------------
-// T14: auto-mode single-encode -- the auto builders derive per-doc deltas once,
-// directly emit a provably smaller singleton RAW frame, and only materialize a
-// throwaway raw plaintext payload when it is large enough (>= 512 B) for zstd.
-// The tests below cover the deterministic raw-build counter seam plus builder
-// byte/codec equivalence.
-// ---------------------------------------------------------------------------
+// Check the auto builders' encoding count and byte-equivalent output.
 
 namespace {
 
@@ -1337,9 +1331,6 @@ TEST(SniiPrxPodCounterTest, LargeWindowStillBuildsRawPlaintextOnce) {
     EXPECT_EQ(prx_raw_build_count(), 1U);
 }
 
-// [perf-deterministic] N consecutive small windows materialize ZERO raw
-// plaintext payloads in aggregate (the per-window throwaway ByteSink is the
-// allocation this task removes for the common Zipfian case).
 TEST(SniiPrxPodCounterTest, ManySmallWindowsBuildZeroRawPlaintext) {
     reset_prx_raw_build_count();
     for (uint32_t w = 0; w < 64; ++w) {
@@ -1462,6 +1453,41 @@ TEST(SniiPrxPodTest, MaterializedRawCandidateMustStrictlyReduceFrame) {
               static_cast<uint8_t>(PrxCodec::kPfor));
 }
 
+// ZSTD replaces a readable PFOR frame only if it saves the configured share of the PFOR frame.
+// PFOR frame 1007 bytes, ZSTD frame 859 bytes: it saves 14.7%.
+TEST(SniiPrxPodTest, ZstdMustSaveTheConfiguredShareOverPfor) {
+    constexpr uint32_t kLimit = 4096;
+    auto select = [&](uint32_t min_saving_percent) {
+        return doris::snii::format::testing::select_auto_prx_codec_for_test(
+                /*pfor_payload_size=*/1000, /*plain_payload_size=*/2000,
+                /*compressed_payload_size=*/850, kLimit, min_saving_percent);
+    };
+    EXPECT_EQ(select(0), static_cast<uint8_t>(PrxCodec::kZstd));
+    EXPECT_EQ(select(10), static_cast<uint8_t>(PrxCodec::kZstd));
+    EXPECT_EQ(select(14), static_cast<uint8_t>(PrxCodec::kZstd));
+    EXPECT_EQ(select(15), static_cast<uint8_t>(PrxCodec::kPfor));
+    EXPECT_EQ(select(20), static_cast<uint8_t>(PrxCodec::kPfor));
+    EXPECT_EQ(select(100), static_cast<uint8_t>(PrxCodec::kPfor));
+}
+
+// The share only protects PFOR: when the PFOR frame exceeds the reader byte limit, ZSTD is the
+// only readable compressed form and is chosen whatever the share.
+TEST(SniiPrxPodTest, ZstdShareDoesNotApplyWhenPforIsUnreadable) {
+    constexpr uint32_t kLimit = 1500;
+    EXPECT_EQ(doris::snii::format::testing::select_auto_prx_codec_for_test(
+                      /*pfor_payload_size=*/1600, /*plain_payload_size=*/1400,
+                      /*compressed_payload_size=*/500, kLimit, /*zstd_min_saving_percent=*/100),
+              static_cast<uint8_t>(PrxCodec::kZstd));
+}
+
+TEST(SniiPrxPodTest, ZstdMinSavingAboveOneHundredPercentIsRejected) {
+    doris::snii::format::PrxWindowLimits limits = doris::snii::format::kReaderPrxWindowLimits;
+    limits.zstd_min_saving_percent = 100;
+    EXPECT_TRUE(doris::snii::format::validate_prx_window_limits(limits).ok());
+    limits.zstd_min_saving_percent = 101;
+    EXPECT_FALSE(doris::snii::format::validate_prx_window_limits(limits).ok());
+}
+
 // [functional] F-RT-small: a small flat window round-trips through the CSR reader
 // (codec=pfor path) back to the original per-doc positions.
 TEST(SniiPrxPodTest, SmallFlatWindowRoundTripsViaCsr) {
@@ -1564,15 +1590,7 @@ TEST(SniiPrxPodTest, NullSinkRejected) {
     EXPECT_TRUE(s2.is<doris::ErrorCode::INVALID_ARGUMENT>()) << s2.to_string();
 }
 
-// ===========================================================================
-// T22 -- single-copy framing (write_pfor / write_raw / write_zstd_compressed +
-// SectionFramer::write) and the bitpack capacity reserve. The framing refactor
-// writes [codec/type][len][payload] DIRECTLY into the caller's sink and crc's
-// that span in place (no temp ByteSink), so these tests pin the on-disk bytes to
-// an INDEPENDENT hand-assembly of the wire frame. A wrong crc range, a view()
-// taken at the wrong time, or a wrong start offset shows up as a byte or Status
-// mismatch. All bytes MUST stay identical to the pre-refactor output.
-// ===========================================================================
+// Compare direct frame writes with independently assembled wire bytes.
 
 namespace {
 

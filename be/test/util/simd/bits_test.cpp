@@ -20,12 +20,79 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
+#include <sys/mman.h>
+#include <unistd.h>
 
 #include <algorithm>
 
 #include "gtest/gtest_pred_impl.h"
 
 namespace doris::simd {
+TEST(BitsTest, ContainsBytesGuardPages) {
+    const size_t page_size = sysconf(_SC_PAGESIZE);
+    void* mapping = mmap(nullptr, page_size * 3, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    ASSERT_NE(mapping, MAP_FAILED);
+    auto* page = static_cast<uint8_t*>(mapping) + page_size;
+    if (mprotect(page, page_size, PROT_READ | PROT_WRITE) != 0) {
+        munmap(mapping, page_size * 3);
+        FAIL() << "mprotect failed";
+    }
+    for (size_t size : {size_t(0), size_t(1), size_t(15), size_t(16), size_t(17), size_t(31),
+                        size_t(32), size_t(33), size_t(65), page_size}) {
+        for (auto* data : {page, page + page_size - size}) {
+            std::fill(data, data + size, 0);
+            EXPECT_FALSE(contain_one(data, size));
+            EXPECT_EQ(contain_zero(data, size), size != 0);
+            std::fill(data, data + size, 255);
+            EXPECT_EQ(contain_one(data, size), size != 0);
+            EXPECT_FALSE(contain_zero(data, size));
+            if (size != 0) {
+                for (size_t position : {size_t(0), size / 2, size - 1}) {
+                    data[position] = 0;
+                    EXPECT_TRUE(contain_zero(data, size));
+                    data[position] = 255;
+                }
+                std::fill(data, data + size, 0);
+                for (size_t position : {size_t(0), size / 2, size - 1}) {
+                    data[position] = 128;
+                    EXPECT_TRUE(contain_one(data, size));
+                    data[position] = 0;
+                }
+            }
+        }
+    }
+    EXPECT_EQ(munmap(mapping, page_size * 3), 0);
+}
+
+TEST(BitsTest, ContainsBytesAtEveryBoundary) {
+    EXPECT_FALSE(contain_one(nullptr, 0));
+    EXPECT_FALSE(contain_zero(nullptr, 0));
+    for (size_t size : {1U, 15U, 16U, 17U, 31U, 32U, 33U, 63U, 64U, 65U, 8160U}) {
+        for (size_t offset : {0U, 1U, 7U, 15U}) {
+            std::vector<uint8_t> storage(size + offset, 0);
+            auto* data = storage.data() + offset;
+            EXPECT_FALSE(contain_one(data, size));
+            EXPECT_TRUE(contain_zero(data, size));
+            for (uint8_t value : {1, 2, 128, 255}) {
+                std::fill(data, data + size, value);
+                EXPECT_TRUE(contain_one(data, size));
+                EXPECT_FALSE(contain_zero(data, size));
+                for (size_t position : {size_t(0), size / 2, size - 1}) {
+                    data[position] = 0;
+                    EXPECT_TRUE(contain_zero(data, size));
+                    data[position] = value;
+                }
+                std::fill(data, data + size, 0);
+                for (size_t position : {size_t(0), size / 2, size - 1}) {
+                    data[position] = value;
+                    EXPECT_TRUE(contain_one(data, size));
+                    data[position] = 0;
+                }
+            }
+        }
+    }
+}
+
 TEST(BitsTest, BytesMaskToBitsMask) {
     // Length determined by architecture (16 on NEON/aarch64, else 32)
     constexpr auto len = bits_mask_length();

@@ -118,19 +118,21 @@ final class IcebergPartitionUtils {
 
     /**
      * Ordered, case-preserved, de-duplicated list of the identity partition column names across <b>all</b>
-     * partition specs of the table (mirrors legacy {@code IcebergUtils.getIdentityPartitionColumns}). This
-     * is the {@code path_partition_keys} payload: it tells FE which slots are partition columns so they are
-     * excluded from the file-decode set (the CI #968880 double-fill guard). Non-identity transforms
-     * (bucket/truncate/year/month/...) are excluded.
+     * partition specs of the table (mirrors legacy {@code IcebergUtils.getIdentityPartitionColumns}). Names
+     * are resolved by field id against the query's authoritative {@code scanSchema}, so current and pinned
+     * reads cannot mix schema generations. This is the {@code path_partition_keys} payload: it tells FE which
+     * slots are partition columns so they are excluded from the file-decode set (the CI #968880 double-fill
+     * guard). Non-identity transforms (bucket/truncate/year/month/...) are excluded.
      */
-    static List<String> getIdentityPartitionColumns(Table table) {
+    static List<String> getIdentityPartitionColumns(Table table, Schema scanSchema) {
         LinkedHashSet<String> partitionColumns = new LinkedHashSet<>();
         for (PartitionSpec spec : table.specs().values()) {
             for (PartitionField partitionField : spec.fields()) {
                 if (!partitionField.transform().isIdentity()) {
                     continue;
                 }
-                String columnName = table.schema().findColumnName(partitionField.sourceId());
+                String columnName =
+                        topLevelSourceColumnName(scanSchema, partitionField.sourceId());
                 if (columnName != null) {
                     partitionColumns.add(columnName);
                 }
@@ -189,12 +191,8 @@ final class IcebergPartitionUtils {
      * mistaken for the top-level column {@code id}: the engine can only materialize a top-level column.
      */
     static String topLevelSourceColumnName(Schema schema, int sourceId) {
-        for (NestedField column : schema.columns()) {
-            if (column.fieldId() == sourceId) {
-                return column.name();
-            }
-        }
-        return null;
+        NestedField column = schema.asStruct().field(sourceId);
+        return column == null ? null : column.name();
     }
 
     /** The spec's <em>identity</em> partition over the top-level column {@code name}, or null. */
@@ -253,11 +251,12 @@ final class IcebergPartitionUtils {
 
     /**
      * Per-file map of identity partition column (case-preserved) to serialized value, skipping non-identity
-     * transforms and BINARY/FIXED columns (utf8 round-trip would corrupt those). Order-preserving
-     * (LinkedHashMap, spec field order). Mirrors legacy {@code IcebergUtils.getIdentityPartitionInfoMap}.
+     * transforms and BINARY/FIXED columns (utf8 round-trip would corrupt those). Keys are resolved by field id
+     * against {@code scanSchema}, matching {@code path_partition_keys}. Order-preserving (LinkedHashMap, spec
+     * field order). Mirrors legacy {@code IcebergUtils.getIdentityPartitionInfoMap}.
      */
     static Map<String, String> getIdentityPartitionInfoMap(PartitionData partitionData,
-            PartitionSpec partitionSpec, Table table, ZoneId zone) {
+            PartitionSpec partitionSpec, Schema scanSchema, ZoneId zone) {
         Map<String, String> partitionInfoMap = new LinkedHashMap<>();
         List<NestedField> fields = partitionData.getPartitionType().asNestedType().fields();
         List<PartitionField> partitionFields = partitionSpec.fields();
@@ -275,7 +274,8 @@ final class IcebergPartitionUtils {
                 continue;
             }
 
-            String columnName = table.schema().findColumnName(partitionField.sourceId());
+            String columnName =
+                    topLevelSourceColumnName(scanSchema, partitionField.sourceId());
             if (columnName == null) {
                 continue;
             }
@@ -876,10 +876,15 @@ final class IcebergPartitionUtils {
     /** Cache-aware overload (PERF-02): see {@link #buildMvccPartitionView(Table, long, TableIdentifier,
      * IcebergPartitionCache)}. Keyed by the table's CURRENT snapshot id. */
     static List<ConnectorPartitionInfo> listPartitions(Table table, TableIdentifier id, IcebergPartitionCache cache) {
+        return listPartitions(table, -1L, id, cache);
+    }
+
+    static List<ConnectorPartitionInfo> listPartitions(Table table, long pinnedSnapshotId,
+            TableIdentifier id, IcebergPartitionCache cache) {
         if (table.spec().isUnpartitioned()) {
             return Collections.emptyList();
         }
-        Snapshot current = table.currentSnapshot();
+        Snapshot current = pinnedSnapshotId >= 0 ? table.snapshot(pinnedSnapshotId) : table.currentSnapshot();
         if (current == null) {
             return Collections.emptyList();
         }

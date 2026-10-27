@@ -494,14 +494,21 @@ DEFINE_mInt32(ordered_data_compaction_min_segment_size, "10485760");
 DEFINE_mInt32(max_base_compaction_threads, "4");
 DEFINE_mInt32(max_cumu_compaction_threads, "-1");
 
-// Binlog Compaction
-DEFINE_mInt64(binlog_compaction_wait_timesec_after_visible, "600");
-DEFINE_mInt64(binlog_compaction_goal_size_mbytes, "128");
-DEFINE_mInt32(binlog_compaction_task_num_per_disk, "4");
-DEFINE_mInt32(binlog_compaction_file_count_threshold, "100");
-DEFINE_mInt32(binlog_level_compaction_max_deltas, "2000");
-DEFINE_mInt64(binlog_compaction_time_threshold_seconds, "3600");
-DEFINE_mInt32(max_binlog_compaction_threads, "-1");
+// Changelog compaction
+// ATTN(changelog-rename): formerly "binlog_compaction_wait_timesec_after_visible"
+DEFINE_mInt64(changelog_compaction_wait_timesec_after_visible, "600");
+// ATTN(changelog-rename): formerly "binlog_compaction_goal_size_mbytes"
+DEFINE_mInt64(changelog_compaction_goal_size_mbytes, "128");
+// ATTN(changelog-rename): formerly "binlog_compaction_task_num_per_disk"
+DEFINE_mInt32(changelog_compaction_task_num_per_disk, "4");
+// ATTN(changelog-rename): formerly "binlog_compaction_file_count_threshold"
+DEFINE_mInt32(changelog_compaction_file_count_threshold, "100");
+// ATTN(changelog-rename): formerly "binlog_level_compaction_max_deltas"
+DEFINE_mInt32(changelog_level_compaction_max_deltas, "2000");
+// ATTN(changelog-rename): formerly "binlog_compaction_time_threshold_seconds"
+DEFINE_mInt64(changelog_compaction_time_threshold_seconds, "3600");
+// ATTN(changelog-rename): formerly "max_binlog_compaction_threads"
+DEFINE_mInt32(max_changelog_compaction_threads, "-1");
 
 DEFINE_Bool(enable_base_compaction_idle_sched, "true");
 DEFINE_mInt64(base_compaction_min_rowset_num, "5");
@@ -527,10 +534,10 @@ DEFINE_mDouble(compaction_promotion_ratio, "0.05");
 DEFINE_mInt64(compaction_promotion_min_size_mbytes, "128");
 
 // When output rowset of cumulative compaction total version count (end_version - start_version)
-// exceed this config count, the rowset will be moved to base compaction
-// NOTE: this config will work for unique key merge-on-write table only, to reduce version count
-// related cost on delete bitmap more effectively.
-DEFINE_mInt64(compaction_promotion_version_count, "1000");
+// exceed this config count, the rowset will be moved to base compaction.
+// NOTE: this config only works for unique key merge-on-write tables. The default maximum value
+// disables version-count-based promotion while retaining the option to enable it when needed.
+DEFINE_mInt64(compaction_promotion_version_count, "9223372036854775807");
 
 // The lower bound size to do cumulative compaction. When total disk size of candidate rowsets is less than
 // this size, size_based policy may not do to cumulative compaction. The unit is m byte.
@@ -1416,29 +1423,16 @@ DEFINE_mDouble(inverted_index_ram_buffer_size, "512");
 // -1 indicates not working.
 // Normally we should not change this, it's useful for testing.
 DEFINE_mInt32(inverted_index_max_buffered_docs, "-1");
-// G16-h: zstd levels for the SNII dict-block compression and the .prx window
-// auto mode. Level 9 (vs the historical 3) shrinks the two largest compressed
-// sections -- textbench: index -457 MB (0.918x -> 0.891x V3) -- for an import
-// CPU cost inside the run-to-run variance band; zstd decode speed does not
-// depend on the level, and warm/cold benches measured no query change.
-// Write side only; segments self-describe their compression.
-// Default 3 since the all-level-3 evaluation (2026-07-11, 4 corpora): vs
-// level 9 the settled index grows only +0.6%..+6.3% (whole table
-// +0.3%..+1.9%) while import index CPU drops 17-24% and full-compaction CPU
-// 8-24%; settled cold-query latency is unchanged (interleaved A/B). The
-// delta+varint-encoded payloads are high-entropy, so level 9's extra search
-// buys almost no ratio. Raise only for size-critical deployments.
+// Zstd levels for SNII DICT blocks and .prx windows. These affect writes; each segment records its compression mode.
 DEFINE_mInt32(snii_dict_block_zstd_level, "3");
 DEFINE_mInt32(snii_prx_zstd_level, "3");
-// Patch C prx tiering: zstd level for the prx region of DIRECT-LOAD segments
-// only (stream/broker load, see IndexColumnWriter::set_direct_load). Inert at
-// the defaults (both levels 3); it exists for size-critical deployments that
-// RAISE snii_prx_zstd_level (e.g. 9) and still want cheap loads: compaction
-// rewrites every segment at snii_prx_zstd_level, so SETTLED data (and the
-// cold-query path over it) is unaffected by the load tier -- measured -290s
-// (httplogs) / -204s (agentlogs) of import index CPU at 3 vs 9. Same clamp
-// [3, 19]. Read at index flush like snii_prx_zstd_level (a mid-load change
-// lands on in-flight segments); the direct-load BIT itself is captured once.
+// A .prx window is stored zstd-compressed only if that frame is smaller than the PFOR one by at
+// least this percentage; 0 picks the smaller frame. Every read of a zstd window pays a
+// decompression that PFOR does not, and on text positions zstd beats PFOR by 20-30% only on the
+// large windows of frequent terms, which are the ones phrase queries read most: 30 costs about 2%
+// of the index size. Readers handle every codec, so changing this never affects existing segments.
+DEFINE_mInt32(snii_prx_zstd_min_saving_percent, "30");
+// Zstd level for direct-load .prx regions. Compaction rewrites them using snii_prx_zstd_level.
 DEFINE_mInt32(snii_prx_zstd_level_direct_load, "3");
 // G16-d: target SNII dict block size in bytes; 0 uses the format default
 // (64 KiB). Larger blocks compress better under the per-block zstd (the dict
@@ -1533,6 +1527,9 @@ DEFINE_Bool(enable_segment_cache_prune, "false");
 
 // enable feature binlog, default false
 DEFINE_Bool(enable_feature_binlog, "false");
+// enable feature changelog, default false
+// ATTN(changelog-rename): formerly "enable_feature_binlog" (non-CCR uses)
+DEFINE_Bool(enable_feature_changelog, "false");
 
 // enable set in BitmapValue
 DEFINE_Bool(enable_set_in_bitmap_value, "true");
@@ -1710,10 +1707,31 @@ DEFINE_mDouble(high_disk_avail_level_diff_usages, "0.15");
 DEFINE_Int32(partition_disk_index_lru_size, "10000");
 // limit the storage space that query spill files can use
 DEFINE_String(spill_storage_root_path, "");
-DEFINE_String(spill_storage_limit, "20%");               // 20%
+DEFINE_String(spill_storage_limit, "20%"); // 20%
+DEFINE_mInt64(spill_storage_limit_bytes, "0");
+DEFINE_Validator(spill_storage_limit_bytes, [](int64_t config) -> bool { return config >= 0; });
 DEFINE_mInt32(spill_gc_interval_ms, "2000");             // 2s
 DEFINE_mInt32(spill_gc_work_time_ms, "2000");            // 2s
 DEFINE_mInt64(spill_file_part_size_bytes, "1073741824"); // 1GB
+DEFINE_String(spill_storage_type, "local");
+// s3: cloud mode only; spill is written to the S3 storage vault under
+// spill/{ip}_{port}/{query_id}/, where ip is the address of this BE and port its
+// heartbeat_service_port.
+// The BE deletes the objects of a spill file when the query is done with it. What a BE that
+// crashed left behind is not deleted by Doris: give the bucket a lifecycle rule that expires
+// the keys under <vault prefix>/spill/ and aborts incomplete multipart uploads.
+// Incomplete multipart uploads from failed or cancelled queries also rely on that rule.
+DEFINE_Validator(spill_storage_type, [](const std::string& config) -> bool {
+    return config == "local" || config == "s3";
+});
+DEFINE_String(spill_s3_storage_vault_id, "");
+DEFINE_mInt64(spill_s3_max_inflight_upload_bytes, "268435456"); // 256MB
+DEFINE_Validator(spill_s3_max_inflight_upload_bytes,
+                 [](int64_t config) -> bool { return config > 0; });
+// The footer probe is bounded by it as well; the rest of a block offset array that does not fit
+// in the probe is read whole, like a single block larger than it.
+DEFINE_mInt64(spill_s3_read_coalesce_bytes, "8388608"); // 8MB
+DEFINE_Validator(spill_s3_read_coalesce_bytes, [](int64_t config) -> bool { return config >= 0; });
 
 // paused query in queue timeout(ms) will be resumed or canceled
 DEFINE_Int64(spill_in_paused_queue_timeout_ms, "60000");

@@ -222,6 +222,7 @@ private:
     std::unique_ptr<io::FileReaderStats> _file_reader_stats;
     std::shared_ptr<io::IOContext> _io_ctx;
     ShardedKVCache* _kv_cache = nullptr;
+    format::parquet::ParquetProfileCache* _parquet_profile_cache = nullptr;
 
     RuntimeProfile::Counter* _scanner_total_timer = nullptr;
     RuntimeProfile::Counter* _init_timer = nullptr;
@@ -242,6 +243,8 @@ private:
     RuntimeProfile::Counter* _adaptive_batch_probe_count_counter = nullptr;
     std::unique_ptr<AdaptiveBlockSizePredictor> _block_size_predictor;
     int64_t _reported_predicate_filtered_rows = 0;
+    int64_t _reported_load_filtered_rows = 0;
+    int64_t _reported_load_unselected_rows = 0;
     int64_t _reported_condition_cache_hit_count = 0;
     int64_t _reported_condition_cache_filtered_rows = 0;
     int64_t _last_read_bytes = 0;

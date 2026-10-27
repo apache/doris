@@ -65,8 +65,8 @@ public class QueryPartitionCollector extends DefaultPlanVisitor<Void, CascadesCo
         // Collect table used partition mapping
         Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap = statementContext
                 .getTableUsedPartitionNameMap();
-        Set<String> tablePartitions = new HashSet<>();
         if (catalogRelation instanceof LogicalOlapScan) {
+            Set<String> tablePartitions = new HashSet<>();
             // Handle olap table
             LogicalOlapScan logicalOlapScan = (LogicalOlapScan) catalogRelation;
             for (Long partitionId : logicalOlapScan.getSelectedPartitionIds()) {
@@ -76,19 +76,21 @@ public class QueryPartitionCollector extends DefaultPlanVisitor<Void, CascadesCo
                     Pair.of(catalogRelation.getRelationId(), tablePartitions));
         } else if (catalogRelation instanceof LogicalFileScan
                 && catalogRelation.getTable() != null
-                && ((ExternalTable) catalogRelation.getTable()).supportInternalPartitionPruned()) {
+                && (((LogicalFileScan) catalogRelation).getSelectedPartitions().isNativePlanning()
+                    || ((ExternalTable) catalogRelation.getTable()).supportInternalPartitionPruned())) {
             LogicalFileScan logicalFileScan = (LogicalFileScan) catalogRelation;
             SelectedPartitions selectedPartitions = logicalFileScan.getSelectedPartitions();
-            if (selectedPartitions.isDeferredPartitionPruning()) {
+            if (selectedPartitions.isNativePlanning()) {
+                tableUsedPartitionNameMap.put(table.getFullQualifiers(), PartitionCompensator.ALL_PARTITIONS);
+            } else if (selectedPartitions.isDeferredPartitionPruning()) {
                 Set<String> deferredPartitions = materializeDeferredPartitions(
                         (PluginDrivenExternalTable) table, logicalFileScan, context);
                 if (deferredPartitions == null) {
                     // The connector view is unavailable: keep the "query all partitions" marker.
                     tableUsedPartitionNameMap.put(table.getFullQualifiers(), PartitionCompensator.ALL_PARTITIONS);
                 } else {
-                    tablePartitions.addAll(deferredPartitions);
                     tableUsedPartitionNameMap.put(table.getFullQualifiers(),
-                            Pair.of(catalogRelation.getRelationId(), tablePartitions));
+                            Pair.of(catalogRelation.getRelationId(), deferredPartitions));
                 }
             } else if (selectedPartitions.isNotPruned()) {
                 // NOT_PRUNED is the "pruning did not run" sentinel, NOT a concrete selection: its map is empty
@@ -98,9 +100,8 @@ public class QueryPartitionCollector extends DefaultPlanVisitor<Void, CascadesCo
                 // partitions at all and reject an otherwise eligible MV rewrite.
                 tableUsedPartitionNameMap.put(table.getFullQualifiers(), PartitionCompensator.ALL_PARTITIONS);
             } else {
-                tablePartitions.addAll(selectedPartitions.selectedPartitions.keySet());
                 tableUsedPartitionNameMap.put(table.getFullQualifiers(),
-                        Pair.of(catalogRelation.getRelationId(), tablePartitions));
+                        Pair.of(catalogRelation.getRelationId(), selectedPartitions.selectedPartitions.keySet()));
             }
         } else {
             // not support get partition scene, we consider query all partitions from table

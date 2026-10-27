@@ -135,13 +135,7 @@ public class CloudSyncVersionDaemon extends MasterDaemon {
                     OlapTable table = tables.get(i);
                     long version = versions.get(i);
                     if (version > table.getCachedTableVersion()) {
-                        tableVersionMap.compute(table, (k, v) -> {
-                            if (v == null || version > v) {
-                                return version;
-                            } else {
-                                return v;
-                            }
-                        });
+                        prepareTableForVersionSync(tableVersionMap, table, version);
                     } else {
                         // update lastTableVersionCachedTimeMs
                         table.setCachedTableVersion(version);
@@ -152,6 +146,24 @@ public class CloudSyncVersionDaemon extends MasterDaemon {
             }
             return null;
         });
+    }
+
+    private void prepareTableForVersionSync(Map<OlapTable, Long> tableVersionMap, OlapTable table, long version) {
+        // Stop serving potentially stale partition caches while refresh is queued or fails.
+        table.readLock();
+        try {
+            table.versionWriteLock();
+            try {
+                for (Partition partition : table.getAllPartitions()) {
+                    ((CloudPartition) partition).invalidateCachedVisibleVersion();
+                }
+            } finally {
+                table.versionWriteUnlock();
+            }
+        } finally {
+            table.readUnlock();
+        }
+        tableVersionMap.merge(table, version, Math::max);
     }
 
     private void syncPartitionVersion(Map<OlapTable, Long> tableVersionMap) {

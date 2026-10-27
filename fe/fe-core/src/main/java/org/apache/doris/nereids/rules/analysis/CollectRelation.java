@@ -237,7 +237,7 @@ public class CollectRelation implements AnalysisRuleFactory {
                             initialPredicate.ifPresent(predicate ->
                                     info.registerScanPredicate(unboundRelation.get().getRelationId(), predicate)));
                 }
-                registerRowBinlogTtl(table, unboundRelation.get(), statementContext);
+                registerChangelogTtl(table, unboundRelation.get(), statementContext);
             }
             if (firstLevel) {
                 statementContext.getOneLevelTables().put(tableQualifier, table);
@@ -355,30 +355,30 @@ public class CollectRelation implements AnalysisRuleFactory {
         statementContext.getAndCacheTable(tableQualifier, tableFrom, unboundRelation);
     }
 
-    private void registerRowBinlogTtl(TableIf table, UnboundRelation relation,
+    private void registerChangelogTtl(TableIf table, UnboundRelation relation,
             StatementContext statementContext) {
         if (table instanceof OlapTable) {
             TableScanParams scanParams = relation.getScanParams();
             // IVM creates stream scans during analysis, after the collector has visited ordinary base scans.
-            // Full refresh can also reconstruct a non-PCT table at its stream snapshot using binlog.
-            boolean ivmReadsBinlog = statementContext.getIvmRewriteContext()
+            // Full refresh can also reconstruct a non-PCT table at its stream snapshot using changelog.
+            boolean ivmReadsChangelog = statementContext.getIvmRewriteContext()
                     .map(context -> context.getMode() == IvmRewriteContext.Mode.INCREMENTAL
                             || context.getMode() == IvmRewriteContext.Mode.FULL
                             && context.getFullRefreshNonPctReadMode().orElse(null) == StreamReadMode.SNAPSHOT)
                     .orElse(false);
-            if (((OlapTable) table).hasRowBinlogTtl()
-                    && (ivmReadsBinlog || scanParams != null && scanParams.incrementalRead()
+            if (((OlapTable) table).hasChangelogTtl()
+                    && (ivmReadsChangelog || scanParams != null && scanParams.incrementalRead()
                             || relation.getTableSnapshot().isPresent()
                             && ((OlapTable) table).isUniqKeyMergeOnWrite())) {
-                statementContext.requireRowBinlogReferenceTso();
+                statementContext.requireChangelogReferenceTso();
             }
             return;
         }
         if (table instanceof BaseTableStream
                 && (relation.getScanParams() == null || relation.getScanParams().isSnapshot())) {
             TableIf baseTable = ((BaseTableStream) table).getBaseTableNullable();
-            if (baseTable instanceof OlapTable && ((OlapTable) baseTable).hasRowBinlogTtl()) {
-                statementContext.requireRowBinlogReferenceTso();
+            if (baseTable instanceof OlapTable && ((OlapTable) baseTable).hasChangelogTtl()) {
+                statementContext.requireChangelogReferenceTso();
             }
         }
     }
@@ -396,14 +396,14 @@ public class CollectRelation implements AnalysisRuleFactory {
 
     private void collectInitialScanPredicates(CascadesContext context, Plan plan, UnboundRelation relation,
             List<Expression> predicates) {
-        if (plan instanceof LogicalFilter && isTransparentFilterChild(plan.child(0), relation)) {
+        if (plan instanceof LogicalFilter && isTransparentFilterChild(context, plan.child(0), relation)) {
             ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(plan, context);
             for (Expression conjunct : ((LogicalFilter<?>) plan).getConjuncts()) {
                 Expression folded = FoldConstantRule.evaluate(conjunct, rewriteContext);
-                if (!BooleanLiteral.TRUE.equals(folded) && !folded.getInputSlots().isEmpty()
-                        && folded.getInputSlots().stream().allMatch(slot -> slot instanceof UnboundSlot
-                                && belongsToRelation((UnboundSlot) slot, plan.child(0), relation))) {
-                    predicates.add(folded);
+                if (!BooleanLiteral.TRUE.equals(folded) && !conjunct.getInputSlots().isEmpty()
+                        && conjunct.getInputSlots().stream().allMatch(slot -> slot instanceof UnboundSlot
+                                && belongsToRelation(context, (UnboundSlot) slot, plan.child(0), relation))) {
+                    predicates.add(conjunct);
                 }
             }
         }
@@ -413,23 +413,26 @@ public class CollectRelation implements AnalysisRuleFactory {
     }
 
     /** Only descend through shapes where pushing a relation-only WHERE predicate preserves rows. */
-    private boolean isTransparentFilterChild(Plan plan, UnboundRelation relation) {
+    private boolean isTransparentFilterChild(CascadesContext context, Plan plan, UnboundRelation relation) {
         if (plan == relation) {
             return true;
         }
-        if (plan instanceof LogicalCheckPolicy || plan instanceof LogicalSubQueryAlias
-                || plan instanceof LogicalFilter) {
-            return isTransparentFilterChild(plan.child(0), relation);
+        if (plan instanceof LogicalCheckPolicy) {
+            return context.getConnectContext().getCurrentUserIdentity().isSystemUser()
+                    && isTransparentFilterChild(context, plan.child(0), relation);
+        }
+        if (plan instanceof LogicalSubQueryAlias || plan instanceof LogicalFilter) {
+            return isTransparentFilterChild(context, plan.child(0), relation);
         }
         if (plan instanceof LogicalJoin) {
             JoinType type = ((LogicalJoin<?, ?>) plan).getJoinType();
             return (type == JoinType.INNER_JOIN || type == JoinType.CROSS_JOIN)
-                    && plan.children().stream().anyMatch(child -> isTransparentFilterChild(child, relation));
+                    && plan.children().stream().anyMatch(child -> isTransparentFilterChild(context, child, relation));
         }
         return false;
     }
 
-    private boolean belongsToRelation(UnboundSlot slot, Plan plan, UnboundRelation relation) {
+    private boolean belongsToRelation(CascadesContext context, UnboundSlot slot, Plan plan, UnboundRelation relation) {
         List<String> qualifier = slot.getQualifier();
         if (plan == relation) {
             List<String> names = relation.getNameParts();
@@ -438,14 +441,14 @@ public class CollectRelation implements AnalysisRuleFactory {
         }
         if (plan instanceof LogicalSubQueryAlias) {
             // A direct table alias hides its original name. Derived/projected aliases are not transparent.
-            return isTransparentFilterChild(plan.child(0), relation)
+            return isTransparentFilterChild(context, plan.child(0), relation)
                     && (qualifier.isEmpty() || qualifier.equals(((LogicalSubQueryAlias<?>) plan).getQualifier()));
         }
         if (plan instanceof LogicalJoin && qualifier.isEmpty()) {
             // Binding must resolve ambiguous bare names; do not guess a branch before analysis.
             return false;
         }
-        return plan.children().stream().anyMatch(child -> isTransparentFilterChild(child, relation)
-                && belongsToRelation(slot, child, relation));
+        return plan.children().stream().anyMatch(child -> isTransparentFilterChild(context, child, relation)
+                && belongsToRelation(context, slot, child, relation));
     }
 }

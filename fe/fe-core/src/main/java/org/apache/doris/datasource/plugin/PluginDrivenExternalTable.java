@@ -128,8 +128,34 @@ public class PluginDrivenExternalTable extends ExternalTable {
      */
     public Optional<ConnectorTableHandle> resolveConnectorTableHandle(
             ConnectorSession session, ConnectorMetadata metadata) {
+        PluginDrivenExternalCatalog owner = (PluginDrivenExternalCatalog) catalog;
+        Connector connector = owner.getConnector();
+        ExternalDatabase<?> database = getDb();
+        boolean invalidateDatabase = owner.getLowerCaseTableNames() != 0;
+        Optional<Runnable> observation = database.observeTableLookup(this, () -> {
+            try {
+                if (invalidateDatabase) {
+                    connector.invalidateDb(db.getRemoteName());
+                } else {
+                    connector.invalidateTable(db.getRemoteName(), getRemoteName());
+                }
+            } finally {
+                if (invalidateDatabase) {
+                    Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(
+                            owner.getId(), database.getId(), database.getFullName());
+                } else {
+                    Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTable(this);
+                }
+            }
+        });
         String dbName = db != null ? db.getRemoteName() : "";
-        return metadata.getTableHandle(session, dbName, getRemoteName());
+        Optional<ConnectorTableHandle> handle = metadata.getTableHandle(session, dbName, getRemoteName());
+        // A view has no table handle. Check live view existence before treating an empty handle as a
+        // dropped table; the cached isView flag can outlive a remote view deletion.
+        if (!handle.isPresent() && !metadata.viewExists(session, dbName, getRemoteName())) {
+            observation.ifPresent(Runnable::run);
+        }
+        return handle;
     }
 
     /**

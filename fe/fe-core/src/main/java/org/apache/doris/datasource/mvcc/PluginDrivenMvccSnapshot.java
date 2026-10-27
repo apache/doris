@@ -22,18 +22,20 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.datasource.SchemaCacheValue;
 
+import com.google.common.base.Suppliers;
+
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.Map;
+import java.util.function.Supplier;
 
 /**
  * Generic MVCC snapshot for plugin-driven (connector SPI) tables.
  *
  * <p>Pins a single point-in-time view of an MVCC-capable connector table for the whole duration of
  * a query: the scalar {@link ConnectorMvccSnapshot} (the snapshot-id pin used for reads) plus the
- * materialized partition view listed at that moment. Holding the materialized view here means every
- * MTMV/MvccTable accessor that receives this snapshot reads the SAME partition set with NO extra
- * connector round-trip (single-pin invariant).</p>
+ * partition view for that same generation. Native file planning can defer partition enumeration; the
+ * first partition-aware accessor loads it once using the already pinned handle and schema. All later
+ * accessors share that immutable view, without resolving latest again (single-pin invariant).</p>
  *
  * <p>Source-agnostic: it carries already-rendered partition names/items and per-partition staleness
  * timestamps, so no data-source-specific logic lives in fe-core. Parity with the legacy
@@ -60,9 +62,10 @@ public class PluginDrivenMvccSnapshot implements MvccSnapshot {
     }
 
     private final ConnectorMvccSnapshot connectorSnapshot;
-    private final Map<String, PartitionItem> nameToPartitionItem;
-    private final Map<String, Long> nameToLastModifiedMillis;
+    private final PluginDrivenPartitionView partitionView;
     private final SchemaCacheValue pinnedSchema;
+    // Memoized per pin, never a new latest read. Released after loading along with its captured loader.
+    private final Supplier<PluginDrivenMvccSnapshot> deferredPartitions;
     // Range-view path (connector-supplied); null/false/0 on the legacy path so its behavior is byte-unchanged.
     private final PartitionType partitionType;   // null => legacy LIST/UNPARTITIONED computed from isPartitionInvalid
     private final boolean snapshotIdFreshness;   // true => getPartitionSnapshot wraps a snapshot id, else a timestamp
@@ -164,19 +167,62 @@ public class PluginDrivenMvccSnapshot implements MvccSnapshot {
             long newestUpdateMonotonicMarker,
             long newestUpdateWallClockMillis,
             PartitionViewState partitionViewState) {
+        this(connectorSnapshot, new PluginDrivenPartitionView(
+                nameToPartitionItem == null ? Collections.emptyMap() : nameToPartitionItem,
+                nameToFreshnessValue == null ? Collections.emptyMap() : nameToFreshnessValue), pinnedSchema,
+                partitionType, snapshotIdFreshness, newestUpdateMonotonicMarker, newestUpdateWallClockMillis,
+                partitionViewState);
+    }
+
+    PluginDrivenMvccSnapshot(ConnectorMvccSnapshot connectorSnapshot, PluginDrivenPartitionView partitionView,
+            SchemaCacheValue pinnedSchema) {
+        this(connectorSnapshot, partitionView, pinnedSchema, null, false, 0L, 0L);
+    }
+
+    PluginDrivenMvccSnapshot(ConnectorMvccSnapshot connectorSnapshot, PluginDrivenPartitionView partitionView,
+            SchemaCacheValue pinnedSchema, PartitionType partitionType, boolean snapshotIdFreshness,
+            long newestUpdateMonotonicMarker, long newestUpdateWallClockMillis) {
+        this(connectorSnapshot, partitionView, pinnedSchema, partitionType, snapshotIdFreshness,
+                newestUpdateMonotonicMarker, newestUpdateWallClockMillis, PartitionViewState.MATERIALIZED);
+    }
+
+    private PluginDrivenMvccSnapshot(ConnectorMvccSnapshot connectorSnapshot, PluginDrivenPartitionView partitionView,
+            SchemaCacheValue pinnedSchema, PartitionType partitionType, boolean snapshotIdFreshness,
+            long newestUpdateMonotonicMarker, long newestUpdateWallClockMillis, PartitionViewState partitionViewState) {
         this.connectorSnapshot = connectorSnapshot;
-        this.nameToPartitionItem = nameToPartitionItem == null
-                ? Collections.emptyMap()
-                : Collections.unmodifiableMap(new HashMap<>(nameToPartitionItem));
-        this.nameToLastModifiedMillis = nameToFreshnessValue == null
-                ? Collections.emptyMap()
-                : Collections.unmodifiableMap(new HashMap<>(nameToFreshnessValue));
+        this.partitionView = partitionView;
+        this.deferredPartitions = null;
         this.pinnedSchema = pinnedSchema;
         this.partitionType = partitionType;
         this.snapshotIdFreshness = snapshotIdFreshness;
         this.newestUpdateMonotonicMarker = newestUpdateMonotonicMarker;
         this.newestUpdateWallClockMillis = newestUpdateWallClockMillis;
         this.partitionViewState = partitionViewState;
+    }
+
+    PluginDrivenMvccSnapshot(ConnectorMvccSnapshot connectorSnapshot, SchemaCacheValue pinnedSchema,
+            Supplier<PluginDrivenMvccSnapshot> partitionLoader) {
+        this.connectorSnapshot = connectorSnapshot;
+        this.pinnedSchema = pinnedSchema;
+        this.partitionView = null;
+        this.partitionType = null;
+        this.snapshotIdFreshness = false;
+        this.newestUpdateMonotonicMarker = 0L;
+        this.newestUpdateWallClockMillis = 0L;
+        this.deferredPartitions = Suppliers.memoize(partitionLoader::get);
+        this.partitionViewState = PartitionViewState.DEFERRED;
+    }
+
+    public boolean hasDeferredPartitions() {
+        return deferredPartitions != null;
+    }
+
+    private PluginDrivenMvccSnapshot partitionSnapshot() {
+        return hasDeferredPartitions() ? deferredPartitions.get() : this;
+    }
+
+    PluginDrivenPartitionView getPartitionView() {
+        return partitionSnapshot().partitionView;
     }
 
     public ConnectorMvccSnapshot getConnectorSnapshot() {
@@ -198,11 +244,11 @@ public class PluginDrivenMvccSnapshot implements MvccSnapshot {
     }
 
     public Map<String, PartitionItem> getNameToPartitionItem() {
-        return nameToPartitionItem;
+        return getPartitionView().getItems();
     }
 
     public Map<String, Long> getNameToLastModifiedMillis() {
-        return nameToLastModifiedMillis;
+        return getPartitionView().getFreshness();
     }
 
     /** Whether the partition view is materialized, even when it is authoritatively empty. */
@@ -223,7 +269,7 @@ public class PluginDrivenMvccSnapshot implements MvccSnapshot {
      * on the legacy path (then the caller computes LIST/UNPARTITIONED from {@link #isPartitionInvalid()}).
      */
     public PartitionType getPartitionType() {
-        return partitionType;
+        return partitionSnapshot().partitionType;
     }
 
     /**
@@ -232,7 +278,7 @@ public class PluginDrivenMvccSnapshot implements MvccSnapshot {
      * {@code MTMVTimestampSnapshot} in {@code getPartitionSnapshot}.
      */
     public boolean isSnapshotIdFreshness() {
-        return snapshotIdFreshness;
+        return partitionSnapshot().snapshotIdFreshness;
     }
 
     /**
@@ -241,7 +287,7 @@ public class PluginDrivenMvccSnapshot implements MvccSnapshot {
      * the dictionary auto-refresh probe compares. Only meaningful when {@link #getPartitionType()} is non-null.
      */
     public long getNewestUpdateMonotonicMarker() {
-        return newestUpdateMonotonicMarker;
+        return partitionSnapshot().newestUpdateMonotonicMarker;
     }
 
     /**
@@ -250,7 +296,7 @@ public class PluginDrivenMvccSnapshot implements MvccSnapshot {
      * the range-view path.
      */
     public long getNewestUpdateWallClockMillis() {
-        return newestUpdateWallClockMillis;
+        return partitionSnapshot().newestUpdateWallClockMillis;
     }
 
     /**
@@ -262,6 +308,6 @@ public class PluginDrivenMvccSnapshot implements MvccSnapshot {
      * flagged invalid. Parity with legacy {@code PaimonPartitionInfo.isPartitionInvalid}.
      */
     public boolean isPartitionInvalid() {
-        return nameToLastModifiedMillis.size() != nameToPartitionItem.size();
+        return getPartitionView().getFreshness().size() != getPartitionView().getItems().size();
     }
 }

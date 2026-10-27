@@ -167,7 +167,7 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
         // filter and no column mask, whichever source governs the table. It predates the plugin contract and
         // is documented as an engine-reserved exemption in fe-authorization/README.md, alongside the two the
         // manager applies; a source is never asked, so it cannot grant these accounts a policy of its own.
-        if (currentUserIdentity.isRootUser() || currentUserIdentity.isAdminUser()) {
+        if (currentUserIdentity.isSystemUser()) {
             return RelatedPolicy.NO_POLICY;
         }
 

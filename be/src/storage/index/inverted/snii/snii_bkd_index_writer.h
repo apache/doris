@@ -62,9 +62,9 @@ public:
     ~SniiBkdIndexColumnWriter() override;
 
     Status init() override;
-    Status add_values(const std::string name, const void* values, size_t count) override;
-    Status add_array_values(size_t field_size, const void* value_ptr, const uint8_t* null_map,
-                            const uint8_t* offsets_ptr, size_t count) override;
+    Status add_values(const uint8_t* values, size_t count) override;
+    Status add_array_values(size_t field_size, const uint8_t* value_ptr, const uint8_t* null_map,
+                            const uint64_t* offsets_ptr, size_t count) override;
     Status add_nulls(uint32_t count) override;
     Status add_array_nulls(const uint8_t* null_map, size_t num_rows) override;
     Status finish() override;
@@ -74,7 +74,7 @@ public:
 private:
     // Encodes one CppType-wide value at `value` through the index's own key
     // coder and appends it as a point for `docid`.
-    Status _add_value(const void* value, uint32_t docid);
+    Status _add_value(const uint8_t* value, uint32_t docid);
 
     IndexFileWriter* _index_file_writer = nullptr;
     const TabletIndex* _index_meta = nullptr;
