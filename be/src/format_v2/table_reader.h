@@ -71,6 +71,7 @@ namespace doris {
 class Block;
 struct DeleteFileDesc;
 class RuntimeState;
+class ShardedKVCache;
 } // namespace doris
 
 namespace doris::format {

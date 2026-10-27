@@ -40,6 +40,7 @@
 #include "core/data_type/primitive_type.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vslot_ref.h"
+#include "format/format_common.h"
 #include "format/table/deletion_vector_reader.h"
 #include "format/table/iceberg_delete_file_reader_helper.h"
 #include "format/table/iceberg_scan_semantics.h"

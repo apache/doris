@@ -89,6 +89,7 @@
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
+#include "storage/segment/column_reader.h"
 
 namespace cctz {
 class time_zone;
