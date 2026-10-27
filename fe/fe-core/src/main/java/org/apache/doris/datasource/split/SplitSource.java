@@ -124,6 +124,13 @@ public class SplitSource {
                 TScanRangeLocations split = splitAssignment.awaitSplit(backend, remainingNanos);
                 if (split != null) {
                     splitAssignment.notifyQueueSpace(backend);
+                    // The awakened producer may fail or stop before this one-split fetch returns.
+                    splitAssignment.getAssignedSplits(backend);
+                    if (splitAssignment.isStop()) {
+                        scanRanges.clear();
+                        isLastBatch.set(true);
+                        break;
+                    }
                     scanRanges.add(split);
                 }
             } catch (InterruptedException e) {

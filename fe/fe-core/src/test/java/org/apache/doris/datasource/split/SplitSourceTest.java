@@ -248,6 +248,42 @@ public class SplitSourceTest {
         }
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void awaitedSingleSplitObservesTerminalStateBeforeReturning(boolean fail) throws Exception {
+        assignment = Mockito.spy(assignment);
+        CountDownLatch waiting = new CountDownLatch(1);
+        Mockito.doAnswer(invocation -> {
+            waiting.countDown();
+            TScanRangeLocations split = (TScanRangeLocations) invocation.callRealMethod();
+            if (fail) {
+                assignment.setException(new UserException("awaited split failure"));
+            } else {
+                assignment.stop();
+            }
+            return split;
+        }).when(assignment).awaitSplit(Mockito.eq(backend), Mockito.anyLong());
+        SplitSource source = new SplitSource(backend, assignment, 1000, 1);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<List<TScanRangeLocations>> fetch = executor.submit(() -> source.getNextBatch(1));
+            Assertions.assertTrue(waiting.await(5, TimeUnit.SECONDS));
+            Assertions.assertEquals(1, assignment.offerBatch(backend,
+                    Collections.singletonList(ranges.get(0)), 0, () -> {}));
+            if (fail) {
+                ExecutionException error = Assertions.assertThrows(ExecutionException.class,
+                        () -> fetch.get(5, TimeUnit.SECONDS));
+                Assertions.assertInstanceOf(UserException.class, error.getCause());
+                Assertions.assertTrue(error.getCause().getMessage().contains("awaited split failure"));
+            } else {
+                Assertions.assertTrue(fetch.get(5, TimeUnit.SECONDS).isEmpty());
+                Assertions.assertTrue(source.getNextBatch(1).isEmpty());
+            }
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
     @Test
     void initialFetchLimitIsIndependentOfProductionAndSubsequentFetches() throws Exception {
         // All eight splits are already produced without a BE request, including a partially drained batch.
