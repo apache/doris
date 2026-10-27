@@ -55,6 +55,7 @@ public:
                          const DescriptorTbl& descs, int parallel_tasks);
 
     Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
+    Status get_block_after_projects(RuntimeState* state, Block* block, bool* eos) override;
 
 protected:
     friend class GroupCommitLocalState;

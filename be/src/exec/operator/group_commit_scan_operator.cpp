@@ -37,6 +37,15 @@ Status GroupCommitOperatorX::get_block_impl(RuntimeState* state, Block* block, b
     return Status::OK();
 }
 
+Status GroupCommitOperatorX::get_block_after_projects(RuntimeState* state, Block* block,
+                                                      bool* eos) {
+    // ScanOperatorX skips operator projections because ordinary scans apply them in Scanner.
+    // Group commit reads queued blocks directly, so it must apply the consumer's projections here.
+    // For example, a producer's [base columns, mv_int, mv_string] must not be interpreted as
+    // the consumer's [base columns, mv_string, mv_int] without projecting from the base columns.
+    return OperatorXBase::get_block_after_projects(state, block, eos);
+}
+
 Status GroupCommitLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(ScanLocalState<GroupCommitLocalState>::init(state, info));
     SCOPED_TIMER(_init_timer);
