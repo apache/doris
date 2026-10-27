@@ -15,29 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Verifies that the buffer flushes of AggValueAggregator (add_row() flushing when the buffered
-// rows reach `max_buffered_rows` or the source Block ends) do not corrupt the aggregate of a key
-// group that spans several flush windows, and that closed groups are emitted in order.
-
-#if defined(__clang__)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wkeyword-macro"
-#endif
-#include "storage/iterator/agg_key_block_iterator.h"
-#if defined(__clang__)
-#pragma clang diagnostic pop
-#endif
+// AggValueAggregator folds key groups given as row ranges of merged Blocks: one group per
+// range set, a group open across Blocks, NULLs skipped by the nullable functions, and whether
+// one-row groups may be copied instead of folded.
 
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include "agent/be_exec_version_manager.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_quantilestate.h"
+#include "storage/iterator/agg_key_block_iterator.h"
 #include "storage/schema.h"
 #include "storage/tablet/tablet_schema.h"
 
@@ -45,169 +41,148 @@ namespace doris {
 
 namespace {
 
-// Builds a 2-column source block: key (Int64, `key_value` for every row) and value (Int64,
-// 1..n_rows). The value column is what the aggregator sums.
-std::shared_ptr<Block> make_source_block(size_t n_rows, int64_t key_value) {
-    auto block = std::make_shared<Block>();
-    auto type = std::make_shared<DataTypeInt64>();
-    auto key_col = ColumnInt64::create();
-    auto val_col = ColumnInt64::create();
-    for (size_t i = 0; i < n_rows; ++i) {
-        key_col->insert_value(key_value);
-        val_col->insert_value(static_cast<int64_t>(i + 1));
+TabletColumnPtr make_column(const std::string& name, FieldAggregationMethod aggregation,
+                            FieldType type, bool is_nullable, int32_t unique_id, bool is_key) {
+    auto column = std::make_shared<TabletColumn>(aggregation, type, is_nullable, unique_id,
+                                                 sizeof(int64_t));
+    column->set_name(name);
+    column->set_is_key(is_key);
+    return column;
+}
+
+// k BIGINT key, v BIGINT with `aggregation`, nullable when `nullable`.
+ReadSchemaSPtr make_read_schema(FieldAggregationMethod aggregation, bool nullable = false) {
+    auto key = make_column("k", FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                           FieldType::OLAP_FIELD_TYPE_BIGINT, false, 0, true);
+    auto value =
+            make_column("v", aggregation, FieldType::OLAP_FIELD_TYPE_BIGINT, nullable, 1, false);
+    DataTypePtr int_type = std::make_shared<DataTypeInt64>();
+    DataTypePtr value_type = nullable ? make_nullable(int_type) : int_type;
+    return std::make_shared<ReadSchema>(std::vector<TabletColumnPtr> {key, value},
+                                        std::vector<DataTypePtr> {int_type, value_type});
+}
+
+// A Block of `values` in column 1 (NULL where nullopt) with key 1 in column 0.
+Block make_block(const ReadSchema& schema, const std::vector<std::optional<int64_t>>& values) {
+    Block block = schema.create_read_block();
+    auto columns_guard = block.mutate_columns_scoped();
+    auto& columns = columns_guard.mutable_columns();
+    for (const auto& value : values) {
+        assert_cast<ColumnInt64&>(*columns[0]).insert_value(1);
+        if (auto* nullable = check_and_get_column<ColumnNullable>(*columns[1])) {
+            nullable->get_null_map_data().push_back(value.has_value() ? 0 : 1);
+            assert_cast<ColumnInt64&>(nullable->get_nested_column())
+                    .insert_value(value.value_or(0));
+        } else {
+            assert_cast<ColumnInt64&>(*columns[1]).insert_value(*value);
+        }
     }
-    block->insert({std::move(key_col), type, "k"});
-    block->insert({std::move(val_col), type, "v"});
     return block;
 }
 
-// Read schema of an AGG_KEYS table {k BIGINT key, v BIGINT SUM}.
-ReadSchemaSPtr make_read_schema() {
-    auto key = std::make_shared<TabletColumn>(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
-                                              FieldType::OLAP_FIELD_TYPE_BIGINT, false, 0,
-                                              sizeof(int64_t));
-    key->set_name("k");
-    key->set_is_key(true);
-    auto val = std::make_shared<TabletColumn>(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_SUM,
-                                              FieldType::OLAP_FIELD_TYPE_BIGINT, false, 1,
-                                              sizeof(int64_t));
-    val->set_name("v");
-    auto type = std::make_shared<DataTypeInt64>();
-    return std::make_shared<ReadSchema>(std::vector<TabletColumnPtr> {key, val},
-                                        std::vector<DataTypePtr> {type, type});
-}
-
-MutableColumns make_target_columns() {
-    MutableColumns cols;
-    cols.emplace_back(ColumnInt64::create()); // key (untouched by the aggregator)
-    cols.emplace_back(ColumnInt64::create()); // aggregated value
-    return cols;
-}
-
-int64_t read_int64(const IColumn& col, size_t row) {
-    return assert_cast<const ColumnInt64&>(col).get_data()[row];
-}
-
-// An aggregator over the value column of make_read_schema() with the given buffer size.
-std::unique_ptr<AggValueAggregator> make_aggregator(size_t max_buffered_rows) {
+std::unique_ptr<AggValueAggregator> make_aggregator(const ReadSchema& schema) {
     auto aggregator = std::make_unique<AggValueAggregator>();
-    EXPECT_TRUE(aggregator
-                        ->init(*make_read_schema(), {1}, BeExecVersionManager::get_newest_version(),
-                               max_buffered_rows)
-                        .ok());
+    EXPECT_TRUE(aggregator->init(schema, {1}, BeExecVersionManager::get_newest_version()).ok());
     return aggregator;
 }
 
-// Feeds rows [begin, end) of `source` as one open group; returns how many flushes add_row()
-// triggered, observed as the buffered rows shrinking instead of growing by one.
-int add_rows(AggValueAggregator& aggregator, const std::shared_ptr<Block>& source, size_t begin,
-             size_t end, MutableColumns& out) {
-    int flushes = 0;
-    size_t buffered_before = aggregator._buffered_rows.size();
-    for (size_t i = begin; i < end; ++i) {
-        aggregator.add_row(
-                IteratorRowRef {
-                        .block = source, .row_pos = static_cast<int>(i), .is_same = i > begin},
-                out);
-        const size_t buffered_after = aggregator._buffered_rows.size();
-        if (buffered_after < buffered_before + 1) {
-            ++flushes;
+std::optional<int64_t> value_at(const IColumn& column, size_t row) {
+    if (const auto* nullable = check_and_get_column<ColumnNullable>(column)) {
+        if (nullable->is_null_at(row)) {
+            return std::nullopt;
         }
-        buffered_before = buffered_after;
+        return assert_cast<const ColumnInt64&>(nullable->get_nested_column()).get_data()[row];
     }
-    return flushes;
+    return assert_cast<const ColumnInt64&>(column).get_data()[row];
 }
 
 } // namespace
 
-// Sanity baseline: a single group whose size is below the buffer size only sees the
-// end-of-Block flush. Verifies the fixture itself is wired correctly.
-TEST(AggValueAggregatorTest, NoMidGroupFlushAggregatesCorrectly) {
-    constexpr size_t kMaxBufferedRows = 16;
-    constexpr size_t kRows = 5;
+TEST(AggValueAggregatorTest, FoldsEachGroupFromItsRowRange) {
+    auto schema = make_read_schema(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_SUM);
+    auto aggregator = make_aggregator(*schema);
+    Block block = make_block(*schema, {1, 2, 3, 4, 5, 6});
+    MutableColumns out = schema->create_read_block().mutate_columns();
 
-    auto source = make_source_block(kRows, /*key_value=*/42);
-    auto aggregator = make_aggregator(kMaxBufferedRows);
-    auto target_columns = make_target_columns();
+    // Groups: rows [0,2) -> 1+2, rows [2,5) -> 3+4+5, row 5 -> 6.
+    aggregator->start_block(block);
+    aggregator->add_rows(block, 0, 2);
+    aggregator->close_group(out);
+    aggregator->add_rows(block, 2, 5);
+    aggregator->close_group(out);
+    aggregator->add_rows(block, 5, 6);
+    aggregator->close_group(out);
 
-    EXPECT_EQ(add_rows(*aggregator, source, 0, kRows, target_columns), 1);
-    // The end-of-Block flush already drained the buffer into the open group's state without
-    // emitting anything.
-    EXPECT_EQ(aggregator->_buffered_rows.size(), 0);
-    EXPECT_EQ(aggregator->_open_group_rows, 0);
-    EXPECT_EQ(target_columns[1]->size(), 0);
-
-    aggregator->close_group();
-    aggregator->flush(target_columns);
-
-    ASSERT_EQ(target_columns[1]->size(), 1);
-    EXPECT_EQ(read_int64(*target_columns[1], 0), 1 + 2 + 3 + 4 + 5);
+    ASSERT_EQ(out[1]->size(), 3);
+    EXPECT_EQ(value_at(*out[1], 0), 3);
+    EXPECT_EQ(value_at(*out[1], 1), 12);
+    EXPECT_EQ(value_at(*out[1], 2), 6);
 }
 
-// A single group of 10 rows with a buffer of 4 flushes mid-group at rows 4 and 8, plus the
-// end-of-Block flush at row 10. The final result must still be the full sum 1..10 = 55.
-TEST(AggValueAggregatorTest, PeriodicFlushPreservesAggregateAcrossWindows) {
-    constexpr size_t kMaxBufferedRows = 4;
-    constexpr size_t kRows = 10;
+TEST(AggValueAggregatorTest, KeepsAGroupOpenAcrossBlocks) {
+    auto schema = make_read_schema(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_MAX);
+    auto aggregator = make_aggregator(*schema);
+    Block first = make_block(*schema, {4, 9, 2});
+    Block second = make_block(*schema, {7, 11});
+    MutableColumns out = schema->create_read_block().mutate_columns();
 
-    auto source = make_source_block(kRows, /*key_value=*/7);
-    auto aggregator = make_aggregator(kMaxBufferedRows);
-    auto target_columns = make_target_columns();
+    // One group from the last two rows of the first Block and the first row of the second.
+    aggregator->start_block(first);
+    aggregator->add_rows(first, 0, 1);
+    aggregator->close_group(out);
+    aggregator->add_rows(first, 1, 3);
+    aggregator->start_block(second);
+    aggregator->add_rows(second, 0, 1);
+    aggregator->close_group(out);
 
-    EXPECT_EQ(add_rows(*aggregator, source, 0, kRows, target_columns), 3);
-    EXPECT_EQ(aggregator->_buffered_rows.size(), 0);
-    EXPECT_EQ(aggregator->_open_group_rows, 0);
-
-    aggregator->close_group();
-    aggregator->flush(target_columns);
-
-    ASSERT_EQ(target_columns[1]->size(), 1);
-    EXPECT_EQ(read_int64(*target_columns[1], 0), 55);
+    ASSERT_EQ(out[1]->size(), 2);
+    EXPECT_EQ(value_at(*out[1], 0), 4);
+    EXPECT_EQ(value_at(*out[1], 1), 9);
 }
 
-// Stress: a single group long enough to trigger many full periodic flushes, followed by the
-// group end. Catches off-by-one bugs in the chunked aggregation.
-TEST(AggValueAggregatorTest, PeriodicFlushManyWindowsSingleGroup) {
-    constexpr size_t kMaxBufferedRows = 4;
-    constexpr size_t kRows = 100; // 25 full windows
+TEST(AggValueAggregatorTest, NullableSumSkipsNulls) {
+    auto schema = make_read_schema(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_SUM,
+                                   /*nullable=*/true);
+    auto aggregator = make_aggregator(*schema);
+    // The first Block holds NULLs, so the nullable function adds row by row; the second holds
+    // none and takes the batch path.
+    Block with_nulls = make_block(*schema, {1, std::nullopt, 3, std::nullopt, std::nullopt});
+    Block without_nulls = make_block(*schema, {10, 20});
+    MutableColumns out = schema->create_read_block().mutate_columns();
 
-    auto source = make_source_block(kRows, /*key_value=*/3);
-    auto aggregator = make_aggregator(kMaxBufferedRows);
-    auto target_columns = make_target_columns();
+    aggregator->start_block(with_nulls);
+    aggregator->add_rows(with_nulls, 0, 3);
+    aggregator->close_group(out);
+    aggregator->add_rows(with_nulls, 3, 5);
+    aggregator->close_group(out);
+    aggregator->start_block(without_nulls);
+    aggregator->add_rows(without_nulls, 0, 2);
+    aggregator->close_group(out);
 
-    add_rows(*aggregator, source, 0, kRows, target_columns);
-    aggregator->close_group();
-    aggregator->flush(target_columns);
-
-    ASSERT_EQ(target_columns[1]->size(), 1);
-    EXPECT_EQ(read_int64(*target_columns[1], 0), static_cast<int64_t>(kRows) * (kRows + 1) / 2);
+    ASSERT_EQ(out[1]->size(), 3);
+    EXPECT_EQ(value_at(*out[1], 0), 4);
+    EXPECT_EQ(value_at(*out[1], 1), std::nullopt);
+    EXPECT_EQ(value_at(*out[1], 2), 30);
 }
 
-// Several groups inside one buffer window: close_group() delimits them and flush() emits one
-// result row per closed group, in order, while the still open group keeps accumulating.
-TEST(AggValueAggregatorTest, ClosedGroupsAreEmittedInOrder) {
-    constexpr size_t kMaxBufferedRows = 8;
-    auto source = make_source_block(/*n_rows=*/6, /*key_value=*/1);
-    auto aggregator = make_aggregator(kMaxBufferedRows);
-    auto target_columns = make_target_columns();
+TEST(AggValueAggregatorTest, OneRowGroupsAreCopiedOnlyForFunctionsReturningTheirInput) {
+    for (auto aggregation : {FieldAggregationMethod::OLAP_FIELD_AGGREGATION_SUM,
+                             FieldAggregationMethod::OLAP_FIELD_AGGREGATION_MIN,
+                             FieldAggregationMethod::OLAP_FIELD_AGGREGATION_MAX,
+                             FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL}) {
+        auto schema = make_read_schema(aggregation);
+        EXPECT_TRUE(make_aggregator(*schema)->returns_single_row_unchanged())
+                << static_cast<int>(aggregation);
+    }
 
-    // Groups: rows [0,2) -> 1+2, rows [2,5) -> 3+4+5, rows [5,6) -> 6 (open).
-    add_rows(*aggregator, source, 0, 2, target_columns);
-    aggregator->close_group();
-    add_rows(*aggregator, source, 2, 5, target_columns);
-    aggregator->close_group();
-    // Row 5 is the Block's last row: add_row() flushes, which emits the two closed groups and
-    // keeps the open group's partial sum.
-    add_rows(*aggregator, source, 5, 6, target_columns);
-    ASSERT_EQ(target_columns[1]->size(), 2);
-    EXPECT_EQ(read_int64(*target_columns[1], 0), 3);
-    EXPECT_EQ(read_int64(*target_columns[1], 1), 12);
-
-    // Closing a group whose rows were all materialized by an earlier flush still emits it.
-    aggregator->close_group();
-    aggregator->flush(target_columns);
-    ASSERT_EQ(target_columns[1]->size(), 3);
-    EXPECT_EQ(read_int64(*target_columns[1], 2), 6);
+    auto key = make_column("k", FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                           FieldType::OLAP_FIELD_TYPE_BIGINT, false, 0, true);
+    auto quantile = make_column("q", FieldAggregationMethod::OLAP_FIELD_AGGREGATION_QUANTILE_UNION,
+                                FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE, false, 1, false);
+    ReadSchema schema(std::vector<TabletColumnPtr> {key, quantile},
+                      std::vector<DataTypePtr> {std::make_shared<DataTypeInt64>(),
+                                                std::make_shared<DataTypeQuantileState>()});
+    EXPECT_FALSE(make_aggregator(schema)->returns_single_row_unchanged());
 }
 
 } // namespace doris

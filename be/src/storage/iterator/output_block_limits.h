@@ -34,6 +34,9 @@ struct OutputBlockLimits {
 
     static constexpr size_t BYTE_BUDGET_CHECK_INTERVAL_ROWS = 64;
 
+    // Whether there is a byte budget at all: adaptive batch sizing is enabled and a budget set.
+    bool has_byte_budget() const;
+
     // Whether `columns` holds at least `preferred_bytes`. Always false when adaptive batch
     // sizing is disabled or no budget is configured.
     bool reached_byte_budget(const MutableColumns& columns) const;

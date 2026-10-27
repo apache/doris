@@ -81,10 +81,12 @@ private:
 // Example with key 1 in child 0 (v = 10) and in child 1 (v = 11): the merge hands out v = 11
 // and then v = 10 with is_same set, and `drop_older_versions` drops v = 10.
 //
-// There are two ways to consume the merge; a consumer uses one of them:
+// There are three ways to consume the merge; a consumer uses one of them:
 //   next_batch(Block*)        copies runs of rows into the caller's Block (DUP_KEYS tables,
 //                             schema changes, TopN); with `drop_older_versions` only the
 //                             first row of every key is copied.
+//   next_batch(Block*, same_key)
+//                             the same, plus a same-key flag per copied row (AGG_KEYS folds).
 //   next_row(IteratorRowRef*) hands out one row at a time with is_same set when its key
 //                             equals the key of the row handed out before it; with
 //                             `drop_older_versions` those rows are not handed out at all. The
@@ -94,6 +96,13 @@ private:
 // other child, which is one of the two children of the heap's root. Only the end of a run
 // touches the heap, so N children interleaving their keys every row cost log N per row, and
 // a rowset whose keys are far from the others costs one comparison per row.
+//
+// next_batch() only records the runs it takes and copies them column by column: every run of
+// the first column, then every run of the second one, and so on, a one-row run with
+// insert_from. Copying run by run with all its columns walks children x columns memory
+// streams at once when keys interleave row by row, which costs up to twice as much on wide
+// rows. The recorded runs point into the children's Blocks, so they are copied before the top
+// child's Block is refilled, before the byte budget is measured and at the end of the batch.
 class VMergeIterator final : public RowwiseIterator {
 public:
     VMergeIterator(std::vector<RowwiseIteratorUPtr> children, ReadSchemaSPtr read_schema,
@@ -107,6 +116,9 @@ public:
 
     Status next_batch(Block* block) override;
 
+    // Not with drop_older_versions: the folds that need the flags keep every row.
+    Status next_batch(Block* block, std::vector<uint8_t>* same_key) override;
+
     Status next_row(IteratorRowRef* ref) override;
 
     const ReadSchema& schema() const override { return *_read_schema; }
@@ -117,6 +129,13 @@ public:
     uint64_t merged_rows() const override { return _merged_rows; }
 
 private:
+    // Rows [pos, pos + rows) of a child's Block, taken by next_batch() but not copied yet.
+    struct TakenRun {
+        uint32_t child = 0;
+        size_t pos = 0;
+        size_t rows = 0;
+    };
+
     // One input of the merge and the Block it is positioned in.
     struct Child {
         RowwiseIteratorUPtr iter;
@@ -161,10 +180,15 @@ private:
     // The end (exclusive) of the run of the top child: its rows from its current row on that
     // sort before the best row of every other child, `cap` at most.
     size_t _run_end(uint32_t top_index, size_t cap) const;
-    // Copy the run of the top child into `columns`, at most `max_rows` rows, and move the
-    // heap on; `*rows` grows by the rows copied. With drop_older_versions the first row of the
-    // run is dropped when it repeats the key copied out last.
-    Status _copy_run(MutableColumns& columns, size_t max_rows, size_t* rows);
+    // The two next_batch() overloads; `same_key` may be null.
+    Status _next_batch(Block* block, std::vector<uint8_t>* same_key);
+    // Take the run of the top child, at most `max_rows` rows, and move the heap on; `*rows`
+    // grows by the rows taken. With drop_older_versions the first row of the run is dropped
+    // when it repeats the key taken last; with `same_key` a flag per taken row is appended.
+    Status _take_run(MutableColumns& columns, size_t max_rows, size_t* rows,
+                     std::vector<uint8_t>* same_key);
+    // Copy `_taken_runs` into `columns` column by column and forget them.
+    void _copy_taken_runs(MutableColumns& columns);
 
     std::vector<Child> _children;
     const ReadSchemaSPtr _read_schema;
@@ -177,9 +201,11 @@ private:
 
     std::vector<uint32_t> _heap;
     uint32_t _second = 0;
-    // One row: the key columns of the last row handed out or copied out. Empty until the
-    // first run ends.
+    // One row: the key columns of the last row handed out or taken. Empty until the first run
+    // ends.
     MutableColumns _last_key;
+    // next_batch(): the runs taken since the last copy, in output order.
+    std::vector<TakenRun> _taken_runs;
     // next_row(): whether a row has been handed out, so the next call advances first.
     bool _row_handed_out = false;
     bool _eof = false;
