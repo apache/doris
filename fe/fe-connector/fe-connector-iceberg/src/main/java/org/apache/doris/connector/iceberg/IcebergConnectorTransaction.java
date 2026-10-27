@@ -710,20 +710,25 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
     }
 
     /**
-     * Affected-row count for the statement, ported verbatim from legacy
-     * {@code IcebergTransaction.getUpdateCnt}: prefer {@code affected_rows} over {@code row_count}, split
-     * data-file rows from delete-file rows (position deletes / deletion vectors), and return the data
-     * rows when present, else the delete rows. For UPDATE/MERGE the data rows already equal the affected
-     * rows; the internal position deletes must not be double-counted.
+     * Affected-row count for the statement. New BE reports the rows affected by standalone DELETE
+     * actions separately from UPDATE's internal delete/insert pair. When that action-scoped count is
+     * present, add it to the data rows. Older BE plans fall back to the legacy data-first heuristic
+     * so a rolling upgrade does not double-count UPDATE's internal position deletes.
      */
     @Override
     public long getUpdateCnt() {
         long dataRows = 0;
         long deleteRows = 0;
+        long deleteOnlyRows = 0;
+        boolean hasActionScopedDeleteRows = false;
         for (TIcebergCommitData commitData : commitDataList) {
             long affectedRows = commitData.isSetAffectedRows()
                     ? commitData.getAffectedRows()
                     : commitData.getRowCount();
+            if (commitData.isSetDeleteOnlyRows()) {
+                hasActionScopedDeleteRows = true;
+                deleteOnlyRows += commitData.getDeleteOnlyRows();
+            }
             if (commitData.isSetFileContent()
                     && (commitData.getFileContent() == TFileContent.POSITION_DELETES
                     || commitData.getFileContent() == TFileContent.DELETION_VECTOR)) {
@@ -731,6 +736,15 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
             } else {
                 dataRows += affectedRows;
             }
+        }
+        if (hasActionScopedDeleteRows) {
+            if (dataRows == 0) {
+                // A mixed-version delete-only MERGE can contain unmarked old-BE producers as well as marked new-BE
+                // producers. The full delete total already contains both; adding only the marked subset would
+                // drop rows reported by the old BEs.
+                return deleteRows;
+            }
+            return dataRows + deleteOnlyRows;
         }
         return dataRows > 0 ? dataRows : deleteRows;
     }

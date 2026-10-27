@@ -136,6 +136,7 @@ Status VIcebergMergeSink::write(RuntimeState* state, Block& block) {
     bool has_insert = false;
     size_t delete_rows = 0;
     size_t insert_rows = 0;
+    size_t delete_only_rows = 0;
 
     for (size_t i = 0; i < output_block.rows(); ++i) {
         int8_t op = static_cast<int8_t>(op_data->get_int(i));
@@ -148,6 +149,9 @@ Status VIcebergMergeSink::write(RuntimeState* state, Block& block) {
             delete_filter[i] = 1;
             has_delete = true;
             ++delete_rows;
+            if (op == kDeleteOperation) {
+                ++delete_only_rows;
+            }
         }
         if (insert_op) {
             insert_filter[i] = 1;
@@ -166,6 +170,7 @@ Status VIcebergMergeSink::write(RuntimeState* state, Block& block) {
     _row_count += output_block.rows();
     _delete_row_count += delete_rows;
     _insert_row_count += insert_rows;
+    _delete_only_row_count += delete_only_rows;
 
     // A delete-only plan omits the data writer, which it does not need and which a BE before Variant
     // writes could not open for a Variant target schema. Reject a mismatched FE plan before
@@ -331,6 +336,7 @@ Status VIcebergMergeSink::close(Status close_status) {
         table_status = _table_writer->close(close_status);
     }
     if (_delete_writer) {
+        _delete_writer->set_delete_only_rows(static_cast<int64_t>(_delete_only_row_count));
         delete_status = _delete_writer->close(close_status);
     }
 
