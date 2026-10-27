@@ -1142,7 +1142,7 @@ TEST_P(TestRowIdConversion, Conversion) {
                                    num_segments, rows_per_segment, overlap, has_delete_handler,
                                    is_vertical_merger);
         }
-        // RowsetReader: VMergeIterator
+        // RowsetReader: VHeapMergeIterator
         {
             uint32_t num_segments = 2;
             SegmentsOverlapPB overlap = OVERLAPPING;
@@ -1158,7 +1158,7 @@ TEST_P(TestRowIdConversion, Conversion) {
                                    num_segments, rows_per_segment, overlap, has_delete_handler,
                                    is_vertical_merger);
         }
-        // RowsetReader: VUnionIterator + VMergeIterator
+        // RowsetReader: VUnionIterator + VHeapMergeIterator
         {
             uint32_t num_segments = 2;
             SegmentsOverlapPB overlap = OVERLAP_UNKNOWN;

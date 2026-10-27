@@ -252,7 +252,7 @@ public:
     // been handed out; a caller never calls next_row() again after EndOfFile.
     // The reference stays valid until the next next_row() call, so a caller copies the row
     // it needs before asking for the next one. `ref->is_same` is set when the row's key
-    // equals the key of the row handed out before it (see VMergeIterator); an iterator
+    // equals the key of the row handed out before it (see VHeapMergeIterator); an iterator
     // without a notion of key leaves it false.
     virtual Status next_row(IteratorRowRef* ref) {
         return Status::InternalError("should not reach here, current class: " +

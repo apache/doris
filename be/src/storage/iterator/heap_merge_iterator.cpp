@@ -15,77 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "storage/iterator/vgeneric_iterators.h"
+#include "storage/iterator/heap_merge_iterator.h"
 
 #include <algorithm>
 #include <memory>
-#include <optional>
 #include <string>
 #include <utility>
 
+#include "common/cast_set.h"
 #include "common/exception.h"
 #include "common/status.h"
 #include "core/block/block.h"
-#include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
-#include "core/data_type/data_type.h"
 #include "runtime/runtime_state.h"
 #include "storage/iterators.h"
-#include "storage/olap_common.h"
 #include "storage/schema.h"
-#include "storage/segment/column_reader.h"
-#include "storage/segment/segment.h"
 #include "storage/tablet/tablet_schema.h"
 
 namespace doris {
-class RuntimeProfile;
 using namespace ErrorCode;
 
-Status VStatisticsIterator::init(const StorageReadOptions& opts) {
-    if (!_init) {
-        _push_down_agg_type_opt = opts.push_down_agg_type_opt;
-
-        if (_push_down_agg_type_opt != TPushAggOp::COUNT) {
-            _column_iterators.resize(_schema.num_block_columns());
-            for (size_t ordinal = 0; ordinal < _schema.num_block_columns(); ++ordinal) {
-                RETURN_IF_ERROR(_segment->new_column_iterator(*_schema.column(ordinal),
-                                                              &_column_iterators[ordinal], &opts));
-            }
-        }
-
-        _target_rows = _push_down_agg_type_opt == TPushAggOp::MINMAX ? 2 : _segment->num_rows();
-        _init = true;
-    }
-    return Status::OK();
-}
-
-Status VStatisticsIterator::next_batch(Block* block) {
-    DCHECK_EQ(block->columns(), _schema.num_block_columns());
-    if (_output_rows < _target_rows) {
-        block->clear_column_data();
-        auto columns_guard = block->mutate_columns_scoped();
-        auto& columns = columns_guard.mutable_columns();
-
-        size_t size = _push_down_agg_type_opt == TPushAggOp::MINMAX
-                              ? 2
-                              : std::min(_target_rows - _output_rows, MAX_ROW_SIZE_IN_COUNT);
-        if (_push_down_agg_type_opt == TPushAggOp::COUNT) {
-            for (auto& column : columns) {
-                column->insert_many_defaults(size);
-            }
-        } else {
-            for (size_t i = 0; i < columns.size(); ++i) {
-                RETURN_IF_ERROR(_column_iterators[i]->next_batch_of_zone_map(&size, columns[i]));
-            }
-        }
-        _output_rows += size;
-        return Status::OK();
-    }
-    return Status::EndOfFile("End of VStatisticsIterator");
-}
-
-VMergeIterator::VMergeIterator(std::vector<RowwiseIteratorUPtr> children,
-                               ReadSchemaSPtr read_schema, MergeDecision decision)
+VHeapMergeIterator::VHeapMergeIterator(std::vector<RowwiseIteratorUPtr> children,
+                                       ReadSchemaSPtr read_schema, MergeDecision decision)
         : _read_schema(std::move(read_schema)), _decision(std::move(decision)) {
     DCHECK(!_decision.drop_older_versions || _decision.compare_whole_key);
     _children.reserve(children.size());
@@ -95,7 +46,7 @@ VMergeIterator::VMergeIterator(std::vector<RowwiseIteratorUPtr> children,
     }
 }
 
-Status VMergeIterator::init(const StorageReadOptions& opts) {
+Status VHeapMergeIterator::init(const StorageReadOptions& opts) {
     DORIS_CHECK_GT(opts.block_row_max, 0);
     _limits = OutputBlockLimits {.max_rows = opts.block_row_max,
                                  .preferred_bytes = opts.preferred_block_size_bytes};
@@ -125,7 +76,7 @@ Status VMergeIterator::init(const StorageReadOptions& opts) {
 // The read-schema ordinals the rows are compared by must exist in the merged Blocks and, when
 // they are the whole key, be key columns: a projection that puts a value column ahead of a
 // key would otherwise be merged by that value (issue #66390).
-Status VMergeIterator::_validate_compare_contract(const Block& block) const {
+Status VHeapMergeIterator::_validate_compare_contract(const Block& block) const {
     const size_t block_columns = block.columns();
     auto contract_error = [&](const std::string& detail) {
         return Status::InternalError(
@@ -151,7 +102,7 @@ Status VMergeIterator::_validate_compare_contract(const Block& block) const {
     return Status::OK();
 }
 
-Status VMergeIterator::_fill(Child& child, bool* exhausted) {
+Status VHeapMergeIterator::_fill(Child& child, bool* exhausted) {
     child.block->clear_column_data();
     Status st = child.iter->next_batch(child.block.get());
     if (st.is<END_OF_FILE>()) {
@@ -172,12 +123,12 @@ Status VMergeIterator::_fill(Child& child, bool* exhausted) {
     return Status::OK();
 }
 
-int VMergeIterator::_compare_keys(const Block& a, size_t a_pos, const Block& b,
-                                  size_t b_pos) const {
+int VHeapMergeIterator::_compare_keys(const Block& a, size_t a_pos, const Block& b,
+                                      size_t b_pos) const {
     return a.compare_at(a_pos, b_pos, &_decision.compare_ordinals, b, -1);
 }
 
-bool VMergeIterator::_less(uint32_t a, size_t a_pos, uint32_t b, size_t b_pos) const {
+bool VHeapMergeIterator::_less(uint32_t a, size_t a_pos, uint32_t b, size_t b_pos) const {
     const Block& a_block = *_children[a].block;
     const Block& b_block = *_children[b].block;
     const int keys = _compare_keys(a_block, a_pos, b_block, b_pos);
@@ -195,7 +146,7 @@ bool VMergeIterator::_less(uint32_t a, size_t a_pos, uint32_t b, size_t b_pos) c
     return _decision.older_first ? a < b : a > b;
 }
 
-void VMergeIterator::_sift_down(size_t index) {
+void VHeapMergeIterator::_sift_down(size_t index) {
     const size_t size = _heap.size();
     while (true) {
         size_t smallest = index;
@@ -215,7 +166,7 @@ void VMergeIterator::_sift_down(size_t index) {
     }
 }
 
-void VMergeIterator::_pop_top() {
+void VHeapMergeIterator::_pop_top() {
     _heap[0] = _heap.back();
     _heap.pop_back();
     if (!_heap.empty()) {
@@ -223,7 +174,7 @@ void VMergeIterator::_pop_top() {
     }
 }
 
-void VMergeIterator::_update_second() {
+void VHeapMergeIterator::_update_second() {
     if (_heap.size() <= 1) {
         return;
     }
@@ -234,7 +185,7 @@ void VMergeIterator::_update_second() {
     }
 }
 
-void VMergeIterator::_remember_key(const Block& block, size_t pos) {
+void VHeapMergeIterator::_remember_key(const Block& block, size_t pos) {
     if (_last_key.empty()) {
         for (uint32_t ordinal : _decision.compare_ordinals) {
             _last_key.push_back(block.get_by_position(ordinal).column->clone_empty());
@@ -247,7 +198,7 @@ void VMergeIterator::_remember_key(const Block& block, size_t pos) {
     }
 }
 
-bool VMergeIterator::_key_equals_remembered(const Block& block, size_t pos) const {
+bool VHeapMergeIterator::_key_equals_remembered(const Block& block, size_t pos) const {
     DCHECK(!_last_key.empty());
     for (size_t i = 0; i < _decision.compare_ordinals.size(); ++i) {
         if (block.get_by_position(_decision.compare_ordinals[i])
@@ -258,7 +209,7 @@ bool VMergeIterator::_key_equals_remembered(const Block& block, size_t pos) cons
     return true;
 }
 
-Status VMergeIterator::_advance_top(bool* same) {
+Status VHeapMergeIterator::_advance_top(bool* same) {
     const uint32_t top_index = _heap[0];
     Child& top = _children[top_index];
     const size_t prev_pos = top.pos;
@@ -283,7 +234,7 @@ Status VMergeIterator::_advance_top(bool* same) {
     return Status::OK();
 }
 
-Status VMergeIterator::next_row(IteratorRowRef* ref) {
+Status VHeapMergeIterator::next_row(IteratorRowRef* ref) {
     DCHECK(!_eof) << "next_row() called after EndOfFile";
     bool same = false;
     if (_row_handed_out) {
@@ -311,7 +262,7 @@ Status VMergeIterator::next_row(IteratorRowRef* ref) {
     return Status::OK();
 }
 
-Status VMergeIterator::_top_moved() {
+Status VHeapMergeIterator::_top_moved() {
     Child& top = _children[_heap[0]];
     if (top.pos == top.rows) {
         bool exhausted = false;
@@ -329,7 +280,7 @@ Status VMergeIterator::_top_moved() {
     return Status::OK();
 }
 
-size_t VMergeIterator::_run_end(uint32_t top_index, size_t cap) const {
+size_t VHeapMergeIterator::_run_end(uint32_t top_index, size_t cap) const {
     if (_heap.size() == 1) {
         return cap;
     }
@@ -341,8 +292,8 @@ size_t VMergeIterator::_run_end(uint32_t top_index, size_t cap) const {
     return end;
 }
 
-Status VMergeIterator::_take_run(MutableColumns& columns, size_t max_rows, size_t* rows,
-                                 std::vector<uint8_t>* same_key) {
+Status VHeapMergeIterator::_take_run(MutableColumns& columns, size_t max_rows, size_t* rows,
+                                     std::vector<uint8_t>* same_key) {
     const uint32_t top_index = _heap[0];
     Child& top = _children[top_index];
     const size_t end = _run_end(top_index, std::min(top.rows, top.pos + max_rows));
@@ -377,7 +328,7 @@ Status VMergeIterator::_take_run(MutableColumns& columns, size_t max_rows, size_
     return Status::OK();
 }
 
-void VMergeIterator::_copy_taken_runs(MutableColumns& columns) {
+void VHeapMergeIterator::_copy_taken_runs(MutableColumns& columns) {
     for (size_t ordinal = 0; ordinal < columns.size(); ++ordinal) {
         IColumn& column = *columns[ordinal];
         for (const TakenRun& run : _taken_runs) {
@@ -392,7 +343,7 @@ void VMergeIterator::_copy_taken_runs(MutableColumns& columns) {
     _taken_runs.clear();
 }
 
-Status VMergeIterator::_next_batch(Block* block, std::vector<uint8_t>* same_key) {
+Status VHeapMergeIterator::_next_batch(Block* block, std::vector<uint8_t>* same_key) {
     DCHECK(!_eof) << "next_batch() called after EndOfFile";
     DCHECK(!_row_handed_out) << "a merge is consumed either by next_batch() or by next_row()";
     DCHECK_EQ(block->columns(), _read_schema->num_block_columns());
@@ -424,17 +375,17 @@ Status VMergeIterator::_next_batch(Block* block, std::vector<uint8_t>* same_key)
     return Status::OK();
 }
 
-Status VMergeIterator::next_batch(Block* block) {
+Status VHeapMergeIterator::next_batch(Block* block) {
     return _next_batch(block, nullptr);
 }
 
-Status VMergeIterator::next_batch(Block* block, std::vector<uint8_t>* same_key) {
+Status VHeapMergeIterator::next_batch(Block* block, std::vector<uint8_t>* same_key) {
     DORIS_CHECK(!_decision.drop_older_versions);
     same_key->clear();
     return _next_batch(block, same_key);
 }
 
-void VMergeIterator::update_profile(RuntimeProfile* profile) {
+void VHeapMergeIterator::update_profile(RuntimeProfile* profile) {
     for (auto& child : _children) {
         if (child.iter != nullptr) {
             child.iter->update_profile(profile);
@@ -442,117 +393,11 @@ void VMergeIterator::update_profile(RuntimeProfile* profile) {
     }
 }
 
-// VUnionIterator reads input iterators one by one. Every input writes the same
-// visible slot prefix; a SegmentIterator may retain delete-predicate columns
-// privately after that prefix.
-class VUnionIterator : public RowwiseIterator {
-public:
-    // Iterators' ownership it transferred to this class.
-    // This class will delete all iterators when destructs
-    // Client should not use iterators anymore.
-    VUnionIterator(std::vector<RowwiseIteratorUPtr>&& v, ReadSchemaSPtr read_schema)
-            : _read_schema(std::move(read_schema)), _origin_iters(std::move(v)) {}
-
-    ~VUnionIterator() override = default;
-
-    Status init(const StorageReadOptions& opts) override;
-
-    Status next_batch(Block* block) override;
-
-    // A union does not compare keys, the way next_row() never flags a row: every flag is 0.
-    // The AGG_KEYS fold reads a union only over rowsets whose keys do not overlap.
-    Status next_batch(Block* block, std::vector<uint8_t>* same_key) override;
-
-    Status next_row(IteratorRowRef* ref) override;
-
-    const ReadSchema& schema() const override { return *_read_schema; }
-
-    void update_profile(RuntimeProfile* profile) override {
-        if (_cur_iter != nullptr) {
-            _cur_iter->update_profile(profile);
-        }
-    }
-
-private:
-    const ReadSchemaSPtr _read_schema;
-    RowwiseIteratorUPtr _cur_iter = nullptr;
-    std::optional<StorageReadOptions> _read_options;
-    std::vector<RowwiseIteratorUPtr> _origin_iters;
-    // next_row(): the Block the handed-out rows reference and the row handed out last.
-    std::shared_ptr<Block> _row_block;
-    size_t _row_pos = 0;
-};
-
-Status VUnionIterator::init(const StorageReadOptions& opts) {
-    _read_options.emplace(opts);
-    if (_origin_iters.empty()) {
-        return Status::OK();
-    }
-
-    // we use back() and pop_back() of std::vector to handle each iterator,
-    // so reverse the vector here to keep result block of next_batch to be
-    // in the same order as the original segments.
-    std::ranges::reverse(_origin_iters);
-
-    _cur_iter = std::move(_origin_iters.back());
-    RETURN_IF_ERROR(_cur_iter->init(*_read_options));
-    return Status::OK();
-}
-
-Status VUnionIterator::next_batch(Block* block) {
-    while (_cur_iter != nullptr) {
-        auto st = _cur_iter->next_batch(block);
-        if (st.is<END_OF_FILE>()) {
-            _origin_iters.pop_back();
-            if (!_origin_iters.empty()) {
-                _cur_iter = std::move(_origin_iters.back());
-                RETURN_IF_ERROR(_cur_iter->init(*_read_options));
-            } else {
-                _cur_iter = nullptr;
-            }
-        } else {
-            return st;
-        }
-    }
-    return Status::EndOfFile("End of VUnionIterator");
-}
-
-Status VUnionIterator::next_batch(Block* block, std::vector<uint8_t>* same_key) {
-    same_key->clear();
-    RETURN_IF_ERROR(next_batch(block));
-    same_key->resize(block->rows(), 0);
-    return Status::OK();
-}
-
-Status VUnionIterator::next_row(IteratorRowRef* ref) {
-    if (_row_block == nullptr) {
-        _row_block = std::make_shared<Block>(_read_schema->create_read_block());
-    }
-    if (_row_pos + 1 < _row_block->rows()) {
-        ++_row_pos;
-    } else {
-        _row_block->clear_column_data();
-        RETURN_IF_ERROR(next_batch(_row_block.get()));
-        _row_pos = 0;
-    }
-    *ref = IteratorRowRef {
-            .block = _row_block, .row_pos = cast_set<int>(_row_pos), .is_same = false};
-    return Status::OK();
-}
-
-RowwiseIteratorUPtr new_merge_iterator(std::vector<RowwiseIteratorUPtr> children,
-                                       ReadSchemaSPtr read_schema, const MergeDecision& decision) {
-    return std::make_unique<VMergeIterator>(std::move(children), std::move(read_schema), decision);
-}
-
-RowwiseIteratorUPtr new_union_iterator(std::vector<RowwiseIteratorUPtr>&& inputs,
-                                       ReadSchemaSPtr read_schema) {
-    return std::make_unique<VUnionIterator>(std::move(inputs), std::move(read_schema));
-}
-
-RowwiseIterator* new_vstatistics_iterator(std::shared_ptr<Segment> segment,
-                                          const ReadSchema& schema) {
-    return new VStatisticsIterator(segment, schema);
+RowwiseIteratorUPtr new_heap_merge_iterator(std::vector<RowwiseIteratorUPtr> children,
+                                            ReadSchemaSPtr read_schema,
+                                            const MergeDecision& decision) {
+    return std::make_unique<VHeapMergeIterator>(std::move(children), std::move(read_schema),
+                                                decision);
 }
 
 } // namespace doris

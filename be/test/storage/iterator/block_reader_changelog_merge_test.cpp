@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// The changelog block iterators over a real VMergeIterator of TWO rowsets holding the SAME
+// The changelog block iterators over a real VHeapMergeIterator of TWO rowsets holding the SAME
 // user key with DIFFERENT TSOs. Unlike block_reader_change_next_block_test.cpp (which injects
 // a fake, already merged row stream), this test drives the merge BlockReader builds for a
 // changelog scan: one child per rowset, the TSO column as the sequence column with the smaller
@@ -53,7 +53,7 @@
 #include "core/data_type/data_type_number.h"
 #include "storage/changelog.h"
 #include "storage/iterator/changelog_block_reader_utils.h"
-#include "storage/iterator/vgeneric_iterators.h"
+#include "storage/iterator/heap_merge_iterator.h"
 #include "storage/iterators.h"
 #include "storage/schema.h"
 #include "storage/tablet/tablet_schema.h"
@@ -195,7 +195,7 @@ void configure_two_rowset_merge(BlockReader& reader, std::vector<Row> rowset0_ro
     decision.sequence_ordinal = TSO_IDX;
     decision.small_sequence_first = true;
     decision.older_first = true;
-    reader._rows_iter = new_merge_iterator(std::move(children), reader._read_schema, decision);
+    reader._rows_iter = new_heap_merge_iterator(std::move(children), reader._read_schema, decision);
     reader._rows_options.block_row_max = batch_size;
     ASSERT_TRUE(reader._rows_iter->init(reader._rows_options).ok());
 }

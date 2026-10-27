@@ -39,7 +39,7 @@
 #include "runtime/runtime_state.h"
 #include "storage/delete/delete_handler.h"
 #include "storage/index/zone_map/zonemap_eval_context.h"
-#include "storage/iterator/vgeneric_iterators.h"
+#include "storage/iterator/statistics_iterator.h"
 #include "storage/iterators.h"
 #include "storage/olap_common.h"
 #include "storage/predicate/block_column_predicate.h"
