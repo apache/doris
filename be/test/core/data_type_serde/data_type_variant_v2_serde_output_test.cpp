@@ -398,6 +398,28 @@ TEST(DataTypeVariantV2SerdeOutputTest, SqlScalarsFollowLegacyOutputAndDataFormat
     expect_text_surfaces(serde, *encoded_doubles, *doubles, double_expected, double_expected);
 }
 
+// A double is rendered with its shortest round-trip form, never a fixed digit count: 16
+// significant digits turned 0.30000000000000004 into 0.3 and 1997.6000000000001 into 1997.6,
+// two different doubles, for every reader of the document text.
+TEST(DataTypeVariantV2SerdeOutputTest, DoublesRenderWithTheirShortestRoundTripForm) {
+    DataTypeVariantV2SerDe serde;
+    auto doubles = typed_doubles({0.30000000000000004, 1997.6000000000001, 1997.6, 0.1, 1e16,
+                                  123456789012345680.0, -2.5e-7});
+    ColumnPtr encoded_doubles = encoded_copy(*doubles);
+    const std::array<std::string_view, 7> expected {"0.30000000000000004",
+                                                    "1997.6000000000001",
+                                                    "1997.6",
+                                                    "0.1",
+                                                    "1e+16",
+                                                    "1.2345678901234568e+17",
+                                                    "-2.5e-07"};
+    expect_text_surfaces(serde, *encoded_doubles, *doubles, expected, expected);
+
+    auto documents = encoded_json({R"({"s":0.30000000000000004,"q":1997.6000000000001})"});
+    EXPECT_EQ(cell_json(serde, *documents, 0),
+              R"({"q":1997.6000000000001,"s":0.30000000000000004})");
+}
+
 TEST(DataTypeVariantV2SerdeOutputTest, NestedValuesUseJsonOutput) {
     DataTypeVariantV2SerDe nested_serde(2);
     auto strings = typed_strings({std::string_view("x"), std::string_view("a\"\n")});
