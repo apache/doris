@@ -353,6 +353,25 @@ TFileRangeDesc make_paimon_jni_range() {
     return range;
 }
 
+TFileRangeDesc make_paimon_rust_range() {
+    TFileRangeDesc range;
+    range.__set_path("/data-placeholder.parquet");
+    range.__set_format_type(TFileFormatType::FORMAT_JNI);
+    TTableFormatFileDesc table_format_params;
+    table_format_params.__set_table_format_type("paimon");
+    TPaimonFileDesc paimon_params;
+    paimon_params.__set_file_format("parquet");
+    paimon_params.__set_reader_type(TPaimonReaderType::PAIMON_RUST);
+    paimon_params.__set_paimon_split("serialized-paimon-split");
+    paimon_params.__set_paimon_table("/paimon/warehouse/db.db/t");
+    paimon_params.__set_db_name("db");
+    paimon_params.__set_table_name("t");
+    paimon_params.__set_paimon_table_schema_json("{}");
+    table_format_params.__set_paimon_params(paimon_params);
+    range.__set_table_format_params(table_format_params);
+    return range;
+}
+
 TFileRangeDesc make_legacy_paimon_native_range(TFileFormatType::type physical_format_type) {
     TFileRangeDesc range = make_paimon_native_range(physical_format_type);
     range.__set_format_type(TFileFormatType::FORMAT_JNI);
@@ -978,12 +997,127 @@ TEST(PaimonReaderTest, AppliesBitmapDeletionVectorFile) {
     std::filesystem::remove_all(test_dir);
 }
 
+// A missing deletion vector must not report NOT_FOUND: FileScannerV2 would take it for a missing data
+// file and skip the whole split, surviving rows included.
+TEST(PaimonReaderTest, MissingDeletionVectorFileFailsSplit) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_paimon_missing_deletion_vector_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    const auto dv_path = (test_dir / "missing-delete-vector.bin").string();
+    write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"});
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    paimon::PaimonReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = &scan_params,
+                                    .io_ctx = io_ctx,
+                                    .runtime_state = &state,
+                                    .scanner_profile = &profile,
+                            })
+                        .ok());
+
+    auto split_options = build_split_options(file_path);
+    split_options.cache = &cache;
+    split_options.current_range.__set_table_format_params(
+            make_paimon_table_format_desc(dv_path, 0, 16));
+    const auto status = reader.prepare_split(split_options);
+
+    EXPECT_TRUE(status.is<ErrorCode::INTERNAL_ERROR>()) << status;
+    EXPECT_NE(status.to_string().find(dv_path), std::string::npos) << status;
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+// Only the deletion vector is snapshot metadata here: a missing data file still reports NOT_FOUND,
+// which FileScannerV2 skips under ignore_not_found_file_in_external_table.
+TEST(PaimonReaderTest, MissingDataFileWithDeletionVectorStillReportsNotFound) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_paimon_missing_data_file_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "missing-split.parquet").string();
+    const auto dv_path = (test_dir / "delete-vector.bin").string();
+    const auto dv_length = write_paimon_deletion_vector_file(dv_path, {0});
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    paimon::PaimonReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = &scan_params,
+                                    .io_ctx = io_ctx,
+                                    .runtime_state = &state,
+                                    .scanner_profile = &profile,
+                            })
+                        .ok());
+
+    SplitReadOptions split_options;
+    split_options.current_range.__set_path(file_path);
+    split_options.current_range.__set_file_size(1024);
+    split_options.cache = &cache;
+    split_options.current_range.__set_table_format_params(
+            make_paimon_table_format_desc(dv_path, 0, dv_length));
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    const auto status = reader.get_block(&block, &eos);
+
+    EXPECT_TRUE(status.is<ErrorCode::NOT_FOUND>()) << status;
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
 TEST(PaimonHybridReaderTest, ClassifiesJniSplitByReaderType) {
     EXPECT_FALSE(paimon::PaimonHybridReader::TEST_is_jni_split(
             make_paimon_native_range(TFileFormatType::FORMAT_PARQUET)));
     EXPECT_FALSE(paimon::PaimonHybridReader::TEST_is_jni_split(
             make_legacy_paimon_native_range(TFileFormatType::FORMAT_PARQUET)));
     EXPECT_TRUE(paimon::PaimonHybridReader::TEST_is_jni_split(make_paimon_jni_range()));
+}
+
+TEST(PaimonHybridReaderTest, ClassifiesRustSplitByReaderType) {
+    // A rust split is neither a JNI split nor a native split; the dispatch order in
+    // _ensure_current_split_reader relies on the rust check running before the JNI one.
+    EXPECT_TRUE(paimon::PaimonHybridReader::TEST_is_rust_split(make_paimon_rust_range()));
+    EXPECT_FALSE(paimon::PaimonHybridReader::TEST_is_rust_split(make_paimon_jni_range()));
+    EXPECT_FALSE(paimon::PaimonHybridReader::TEST_is_rust_split(
+            make_paimon_native_range(TFileFormatType::FORMAT_PARQUET)));
+    EXPECT_FALSE(paimon::PaimonHybridReader::TEST_is_rust_split(
+            make_legacy_paimon_native_range(TFileFormatType::FORMAT_PARQUET)));
+    EXPECT_FALSE(paimon::PaimonHybridReader::TEST_is_jni_split(make_paimon_rust_range()));
+
+    // A serialized split without a reader_type stays on the legacy JNI classification.
+    TFileRangeDesc legacy_split = make_paimon_rust_range();
+    legacy_split.table_format_params.paimon_params.__isset.reader_type = false;
+    EXPECT_FALSE(paimon::PaimonHybridReader::TEST_is_rust_split(legacy_split));
+    EXPECT_TRUE(paimon::PaimonHybridReader::TEST_is_jni_split(legacy_split));
 }
 
 TEST(PaimonHybridReaderTest, ConvertsNativeSplitFileFormat) {
@@ -1026,6 +1160,7 @@ TEST(PaimonHybridReaderTest, NormalizesLegacyNativeSplitFormatBeforeChildPrepare
                 tracking_reader = child.get();
                 return child;
             },
+            [] { return std::make_unique<TableReader>(); },
             [] { return std::make_unique<TableReader>(); });
     ASSERT_TRUE(reader.init({
                                     .projected_columns = {},
@@ -1046,20 +1181,21 @@ TEST(PaimonHybridReaderTest, NormalizesLegacyNativeSplitFormatBeforeChildPrepare
     EXPECT_EQ(tracking_reader->prepared_format, FileFormat::PARQUET);
 }
 
-TEST(PaimonHybridReaderTest, AdaptiveBatchSizeReachesBothChildReaders) {
+TEST(PaimonHybridReaderTest, AdaptiveBatchSizeReachesAllChildReaders) {
     paimon::PaimonHybridReader reader;
     reader.TEST_install_batch_size_children();
     reader.set_batch_size(321);
     const auto child_batch_sizes = reader.TEST_child_batch_sizes();
-    EXPECT_EQ(child_batch_sizes.first, 321);
-    EXPECT_EQ(child_batch_sizes.second, 321);
+    EXPECT_EQ(std::get<0>(child_batch_sizes), 321);
+    EXPECT_EQ(std::get<1>(child_batch_sizes), 321);
+    EXPECT_EQ(std::get<2>(child_batch_sizes), 321);
 }
 
-TEST(PaimonHybridReaderTest, AggregatesConditionCacheHitsFromBothChildren) {
+TEST(PaimonHybridReaderTest, AggregatesConditionCacheHitsFromAllChildren) {
     paimon::PaimonHybridReader reader;
     reader.TEST_install_batch_size_children();
-    reader.TEST_set_child_condition_cache_hits(3, 5);
-    EXPECT_EQ(reader.condition_cache_hit_count(), 8);
+    reader.TEST_set_child_condition_cache_hits(3, 5, 7);
+    EXPECT_EQ(reader.condition_cache_hit_count(), 15);
 }
 
 TEST(PaimonHybridReaderTest, ForwardsLatePredicatesToActiveChild) {
@@ -1073,6 +1209,7 @@ TEST(PaimonHybridReaderTest, ForwardsLatePredicatesToActiveChild) {
                 child = tracking.get();
                 return tracking;
             },
+            [] { return std::make_unique<TableReader>(); },
             [] { return std::make_unique<TableReader>(); });
     ASSERT_TRUE(reader.init({
                                     .projected_columns = {},
@@ -1182,6 +1319,120 @@ TEST(PaimonHybridReaderTest, DispatchesNativeThenJniSplitToMatchingReader) {
     ASSERT_TRUE(reader.close().ok());
 }
 
+TEST(PaimonHybridReaderTest, DispatchesRustSplitToRustChild) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    paimon::PaimonHybridReader reader;
+    SplitFormatTrackingTableReader* tracking_reader = nullptr;
+    reader.TEST_set_child_reader_factories(
+            [] { return std::make_unique<TableReader>(); },
+            [] { return std::make_unique<TableReader>(); },
+            [&] {
+                auto child = std::make_unique<SplitFormatTrackingTableReader>();
+                tracking_reader = child.get();
+                return child;
+            });
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = {},
+                                    .conjuncts = {},
+                                    .format = FileFormat::JNI,
+                                    .scan_params = &scan_params,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                            })
+                        .ok());
+
+    SplitReadOptions rust_split;
+    rust_split.current_range = make_paimon_rust_range();
+    rust_split.current_split_format = FileFormat::JNI;
+    ASSERT_TRUE(reader.prepare_split(rust_split).ok());
+    ASSERT_NE(tracking_reader, nullptr);
+    // A serialized rust split stays on the JNI wrapper format. FE also sets
+    // paimon_params.file_format="parquet" on serialized splits, so normalizing it
+    // to PARQUET would mis-dispatch the split to the native child.
+    EXPECT_EQ(tracking_reader->prepared_format, FileFormat::JNI);
+
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST(PaimonHybridReaderTest, DispatchesNativeThenRustSplitToMatchingReader) {
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+
+    paimon::PaimonHybridReader reader;
+    // The native child is the real PaimonReader over a placeholder path; the rust
+    // child is a tracking stub, proving dispatch reaches it without native
+    // normalization.
+    SplitFormatTrackingTableReader* rust_tracking_reader = nullptr;
+    reader.TEST_set_child_reader_factories(nullptr, nullptr, [&] {
+        auto child = std::make_unique<SplitFormatTrackingTableReader>();
+        rust_tracking_reader = child.get();
+        return child;
+    });
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = {},
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = &scan_params,
+                                    .io_ctx = io_ctx,
+                                    .runtime_state = &state,
+                                    .scanner_profile = &profile,
+                            })
+                        .ok());
+
+    SplitReadOptions native_split;
+    native_split.current_range = make_paimon_native_range(TFileFormatType::FORMAT_PARQUET);
+    native_split.current_split_format = FileFormat::PARQUET;
+    ASSERT_TRUE(reader.prepare_split(native_split).ok());
+
+    SplitReadOptions rust_split;
+    rust_split.current_range = make_paimon_rust_range();
+    rust_split.current_split_format = FileFormat::JNI;
+    ASSERT_TRUE(reader.prepare_split(rust_split).ok());
+    ASSERT_NE(rust_tracking_reader, nullptr);
+    EXPECT_EQ(rust_tracking_reader->prepared_format, FileFormat::JNI);
+
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST(PaimonHybridReaderTest, ForwardsLatePredicatesToRustChild) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    paimon::PaimonHybridReader reader;
+    RefreshTrackingTableReader* rust_child = nullptr;
+    reader.TEST_set_child_reader_factories(
+            [] { return std::make_unique<TableReader>(); },
+            [] { return std::make_unique<TableReader>(); },
+            [&] {
+                auto tracking = std::make_unique<RefreshTrackingTableReader>();
+                rust_child = tracking.get();
+                return tracking;
+            });
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = {},
+                                    .conjuncts = {},
+                                    .format = FileFormat::JNI,
+                                    .scan_params = &scan_params,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                            })
+                        .ok());
+
+    SplitReadOptions rust_split;
+    rust_split.current_range = make_paimon_rust_range();
+    rust_split.current_split_format = FileFormat::JNI;
+    ASSERT_TRUE(reader.prepare_split(rust_split).ok());
+    ASSERT_NE(rust_child, nullptr);
+    ASSERT_TRUE(reader.refresh_conjuncts({}).ok());
+    EXPECT_EQ(rust_child->refresh_count, 1);
+}
+
 TEST(PaimonHybridReaderTest, FirstNativeAndJniChildInitAreCountedOnce) {
     RuntimeProfile profile("test_profile");
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
@@ -1201,6 +1452,7 @@ TEST(PaimonHybridReaderTest, FirstNativeAndJniChildInitAreCountedOnce) {
                             })
                         .ok());
     reader.TEST_set_child_reader_factories([] { return std::make_unique<SlowInitTableReader>(); },
+                                           [] { return std::make_unique<SlowInitTableReader>(); },
                                            [] { return std::make_unique<SlowInitTableReader>(); });
 
     auto* total = profile.get_counter("TableReader");

@@ -29,6 +29,7 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 import org.apache.doris.foundation.security.JdbcDriverUrlSecurity;
+import org.apache.doris.jni.toolkit.jdbc.JdbcExceptionUtils;
 import org.apache.doris.thrift.TJdbcTable;
 import org.apache.doris.thrift.TOdbcTableType;
 import org.apache.doris.thrift.TTableDescriptor;
@@ -163,8 +164,11 @@ public class JdbcDorisConnector implements Connector {
             return ConnectorTestResult.success(
                     "Connected successfully, found " + dbs.size() + " databases");
         } catch (Exception e) {
-            LOG.warn("JDBC connection test failed", e);
-            return ConnectorTestResult.failure("JDBC connection failed: " + e.getMessage());
+            String diagnostic = JdbcExceptionUtils.format("JDBC connection failed", e,
+                    props.getPassword(), props.getJdbcUrl());
+            String diagnosticTrace = JdbcExceptionUtils.stackTrace(e, props.getPassword(), props.getJdbcUrl());
+            LOG.warn("JDBC connection test failed: {}", diagnosticTrace);
+            return ConnectorTestResult.failure(diagnostic);
         }
     }
 
@@ -203,7 +207,7 @@ public class JdbcDorisConnector implements Connector {
         boolean enableMappingVarbinary = props.isEnableMappingVarbinary();
         boolean enableMappingTimestampTz = props.isEnableMappingTimestampTz();
 
-        LOG.info("Creating JDBC connector client for dbType={}, url={}", dbType, jdbcUrl);
+        LOG.info("Creating JDBC connector client for dbType={}", dbType);
         return JdbcConnectorClient.create(
                 dbType, context.getCatalogName(), jdbcUrl, user, password,
                 driverUrl, driverClass,

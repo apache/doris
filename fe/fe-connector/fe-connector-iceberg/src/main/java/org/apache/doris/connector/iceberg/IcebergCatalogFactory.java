@@ -22,6 +22,9 @@ import org.apache.doris.connector.metastore.iceberg.glue.IcebergGlueMetaStorePro
 import org.apache.doris.connector.metastore.iceberg.jdbc.IcebergJdbcMetaStoreProperties;
 import org.apache.doris.connector.metastore.iceberg.rest.IcebergRestMetaStoreProperties;
 import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.filesystem.gcs.auth.GcpCredential;
+import org.apache.doris.filesystem.gcs.auth.GcsAuth;
+import org.apache.doris.filesystem.gcs.auth.GcsAuthResolver;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.filesystem.properties.StorageProperties;
 
@@ -34,6 +37,7 @@ import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.aws.AssumeRoleAwsClientFactory;
 import org.apache.iceberg.aws.AwsClientProperties;
 import org.apache.iceberg.aws.AwsProperties;
+import org.apache.iceberg.aws.HttpClientProperties;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
 import org.apache.iceberg.rest.auth.OAuth2Properties;
 
@@ -141,10 +145,11 @@ public final class IcebergCatalogFactory {
      * mirroring the legacy {@code AbstractIcebergProperties.initializeCatalog} base: (1) seed from ALL
      * raw props (legacy {@code getOrigProps()} copy-all — arbitrary user/iceberg keys pass through to
      * the SDK; the per-flavor appenders + the connector add the derived keys on top), (2) map
-     * {@code warehouse} to {@link CatalogProperties#WAREHOUSE_LOCATION}, (3) add manifest-cache keys.
-     * PURE: depends only on its arguments; {@code metaCacheWeightLimited} is
-     * {@code IcebergConnector#hasMetaCacheWeightLimit}. The flavor's {@code catalog-impl} and the {@code type}
-     * removal are applied by the caller (the connector / per-flavor path).
+     * {@code warehouse} to {@link CatalogProperties#WAREHOUSE_LOCATION}, (3) add manifest-cache keys,
+     * (4) default iceberg-aws's HTTP client to {@code urlconnection}. PURE: depends only on its arguments;
+     * {@code metaCacheWeightLimited} is {@code IcebergConnector#hasMetaCacheWeightLimit}. The flavor's
+     * {@code catalog-impl} and the {@code type} removal are applied by the caller (the connector / per-flavor
+     * path).
      */
     public static Map<String, String> buildBaseCatalogProperties(Map<String, String> props,
             boolean metaCacheWeightLimited) {
@@ -154,7 +159,23 @@ public final class IcebergCatalogFactory {
             opts.put(CatalogProperties.WAREHOUSE_LOCATION, warehouse);
         }
         appendManifestCacheProperties(props, opts, metaCacheWeightLimited);
+        applyDefaultAwsHttpClient(opts);
         return opts;
+    }
+
+    /**
+     * Defaults iceberg-aws's HTTP client to {@code urlconnection} unless {@code opts} sets one. A blank value counts as
+     * unset: iceberg-aws turns an empty type back into its own "apache" default. iceberg-aws's default
+     * "apache" client type is Apache5HttpClient since iceberg 1.12, which needs an AWS SDK newer than the one Doris
+     * pins (2.29.x, see #58566), so every S3FileIO / Glue / STS client iceberg builds from a map without this key fails
+     * with NoClassDefFoundError; url-connection-client ships with that SDK. Every map that ends up building an
+     * iceberg AWS client must go through here. The key travels with S3FileIO's properties, so the BE metadata
+     * scanner, which rebuilds the FileIO from them, uses the same client.
+     */
+    static void applyDefaultAwsHttpClient(Map<String, String> opts) {
+        if (StringUtils.isBlank(opts.get(HttpClientProperties.CLIENT_TYPE))) {
+            opts.put(HttpClientProperties.CLIENT_TYPE, HttpClientProperties.CLIENT_TYPE_URLCONNECTION);
+        }
     }
 
     /**
@@ -432,6 +453,40 @@ public final class IcebergCatalogFactory {
                 // s3tables: bespoke instantiation. Preserve the skeleton's base+impl routing.
                 break;
         }
+        chosenS3.ifPresent(storage -> storage.toBackendProperties().ifPresent(backend -> {
+            Optional<GcsAuth> auth = GcsAuthResolver.resolve(backend.toMap());
+            if (auth.filter(GcsAuth::isAnonymous).isPresent()) {
+                // Glue and REST metadata can require AWS authentication even when GCS objects are public.
+                opts.put(S3FileIOProperties.CLIENT_FACTORY, AnonymousS3FileIOAwsClientFactory.class.getName());
+            }
+            auth.flatMap(GcsAuth::getNativeCredential).ifPresent(credential -> {
+                // HadoopCatalog resolves its namespace filesystem independently of S3FileIO.
+                // Native GCS credentials configure fs.gs.*, so compatibility warehouse schemes
+                // must select that same filesystem before HadoopCatalog initializes.
+                String warehouse = opts.get(CatalogProperties.WAREHOUSE_LOCATION);
+                if (IcebergCatalogProperties.TYPE_HADOOP.equals(flavor) && warehouse != null) {
+                    if (warehouse.regionMatches(true, 0, "s3://", 0, 5)) {
+                        opts.put(CatalogProperties.WAREHOUSE_LOCATION, "gs://" + warehouse.substring(5));
+                    } else if (warehouse.regionMatches(true, 0, "s3a://", 0, 6)) {
+                        opts.put(CatalogProperties.WAREHOUSE_LOCATION, "gs://" + warehouse.substring(6));
+                    }
+                }
+                // Glue already emitted the object-store settings. Its shared client.region belongs
+                // to the metadata client; the GCP FileIO factory resolves its own storage region.
+                if (!IcebergCatalogProperties.TYPE_GLUE.equals(flavor)) {
+                    putS3FileIODialect(opts, storage);
+                }
+                opts.put("provider", "GCP");
+                opts.put(GcpCredential.CREDENTIAL_PROVIDER_TYPE, credential.getCredentialProviderType().name());
+                putIfNotBlank(opts, GcpCredential.IMPERSONATION_SERVICE_ACCOUNT,
+                        credential.getImpersonationServiceAccount());
+                // Keep explicit FileIO choices. By default, S3 aliases use the GCP client factory,
+                // while gs/HDFS paths use HadoopFileIO with the native fs.gs.* configuration
+                // (the plugin does not bundle iceberg-gcp's GCSFileIO).
+                opts.putIfAbsent(CatalogProperties.FILE_IO_IMPL, "org.apache.iceberg.io.ResolvingFileIO");
+                opts.put(S3FileIOProperties.CLIENT_FACTORY, GcpS3FileIOAwsClientFactory.class.getName());
+            });
+        }));
         // The iceberg SDK forbids both "type" and "catalog-impl"; legacy buildIcebergCatalog removes "type".
         opts.remove(CatalogUtil.ICEBERG_CATALOG_TYPE);
         return opts;

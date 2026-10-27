@@ -39,7 +39,7 @@
 #include "runtime/runtime_state.h"
 #include "storage/index/ann/ann_index_iterator.h"
 #include "storage/index/ann/ann_search_params.h"
-#include "storage/index/inverted/inverted_index_query_type.h"
+#include "storage/index/inverted/common/inverted_index_query_type.h"
 
 namespace doris::segment_v2 {
 

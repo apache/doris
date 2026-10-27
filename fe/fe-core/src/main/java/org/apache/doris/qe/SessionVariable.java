@@ -95,6 +95,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String LOCAL_EXCHANGE_FREE_BLOCKS_LIMIT = "local_exchange_free_blocks_limit";
     public static final String SCAN_QUEUE_MEM_LIMIT = "scan_queue_mem_limit";
     public static final String MAX_SCANNERS_CONCURRENCY = "max_scanners_concurrency";
+    public static final String INDEX_DISK_USAGE_MAX_TABLETS = "index_disk_usage_max_tablets";
+    public static final String INDEX_DISK_USAGE_POSITION_DETAIL_MAX_TABLETS =
+            "index_disk_usage_position_detail_max_tablets";
     public static final String MAX_FILE_SCANNERS_CONCURRENCY = "max_file_scanners_concurrency";
     public static final String ENABLE_FILE_SCANNER_V2 = "enable_file_scanner_v2";
     public static final String MIN_SCANNERS_CONCURRENCY = "min_scanners_concurrency";
@@ -585,10 +588,17 @@ public class SessionVariable implements Serializable, Writable {
     // Target file size in bytes for Iceberg write operations
     public static final String ICEBERG_WRITE_TARGET_FILE_SIZE_BYTES = "iceberg_write_target_file_size_bytes";
     public static final String ENABLE_ICEBERG_MERGE_PARTITIONING = "enable_iceberg_merge_partitioning";
+    public static final String ENABLE_PAIMON_WRITE_CHAR_PADDING = "enable_paimon_write_char_padding";
+    public static final String ENABLE_ICEBERG_INTERNAL_PARTITION_PRUNING =
+            "enable_iceberg_internal_partition_pruning";
 
     public static final String NUM_PARTITIONS_IN_BATCH_MODE = "num_partitions_in_batch_mode";
 
     public static final String NUM_FILES_IN_BATCH_MODE = "num_files_in_batch_mode";
+
+    public static final String SPLIT_BATCH_SIZE = "split_batch_size";
+
+    public static final String SPLIT_QUEUE_CAPACITY = "split_queue_capacity";
 
     public static final String FETCH_SPLITS_MAX_WAIT_TIME = "fetch_splits_max_wait_time_ms";
 
@@ -809,6 +819,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String FORCE_JNI_SCANNER = "force_jni_scanner";
 
+    public static final String ENABLE_PAIMON_RUST_READER = "enable_paimon_rust_reader";
+
     public static final String ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE = "enable_count_push_down_for_external_table";
 
     public static final String FETCH_ALL_FE_FOR_SYSTEM_TABLE = "fetch_all_fe_for_system_table";
@@ -870,6 +882,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String COMPUTE_GROUP = "compute_group";
     public static final String DISABLE_EMPTY_PARTITION_PRUNE = "disable_empty_partition_prune";
     public static final String CLOUD_FORCE_SYNC_VERSION = "cloud_force_sync_version";
+    public static final String CLOUD_GET_VERSION_WAIT_FOR_PENDING_TXN = "cloud_get_version_wait_for_pending_txn";
     public static final String CLOUD_PARTITION_VERSION_CACHE_TTL_MS =
             "cloud_partition_version_cache_ttl_ms";
     public static final String CLOUD_TABLE_VERSION_CACHE_TTL_MS =
@@ -1031,6 +1044,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String MULTI_DISTINCT_STRATEGY = "multi_distinct_strategy";
     public static final String AGG_PHASE = "agg_phase";
     public static final String ENABLE_BUCKETED_HASH_AGG = "enable_bucketed_hash_agg";
+    public static final String BUCKETED_AGG_NUM_BUCKETS = "bucketed_agg_num_buckets";
     public static final String BUCKETED_AGG_MIN_INPUT_ROWS = "bucketed_agg_min_input_rows";
     public static final String BUCKETED_AGG_MAX_GROUP_KEYS = "bucketed_agg_max_group_keys";
     public static final String BUCKETED_AGG_HIGH_CARD_THRESHOLD = "bucketed_agg_high_card_threshold";
@@ -1164,6 +1178,15 @@ public class SessionVariable implements Serializable, Writable {
             checker = "checkMaxScannersConcurrency", description = "The max threads to read "
             + "data of ScanNode, default 4")
     public int maxScannersConcurrency = 4;
+
+    @VarAttrDef.VarAttr(name = INDEX_DISK_USAGE_MAX_TABLETS, needForward = true, description = "The max number "
+            + "of tablets index_disk_usage may scan in one query, default 20000")
+    public int indexDiskUsageMaxTablets = 20000;
+
+    @VarAttrDef.VarAttr(name = INDEX_DISK_USAGE_POSITION_DETAIL_MAX_TABLETS, needForward = true,
+            description = "The max number of tablets index_disk_usage may scan when position_detail is enabled, "
+            + "default 10000")
+    public int indexDiskUsagePositionDetailMaxTablets = 10000;
 
     @VarAttrDef.VarAttr(name = MAX_FILE_SCANNERS_CONCURRENCY, needForward = true,
             checker = "checkMaxFileScannersConcurrency", description = "The max threads to "
@@ -2580,6 +2603,15 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = ICEBERG_WRITE_TARGET_FILE_SIZE_BYTES, needForward = true)
     public long icebergWriteTargetFileSizeBytes = 0L;
 
+    // Read by the Paimon connector under this name (PaimonWritePlanProvider.ENABLE_CHAR_PADDING).
+    @VarAttrDef.VarAttr(
+            name = ENABLE_PAIMON_WRITE_CHAR_PADDING,
+            description = "Whether INSERT into a Paimon table pads CHAR(n) values with spaces to n characters, "
+                    + "nested values and static partition values included, as Spark and Flink do. Turn it off to "
+                    + "write them unpadded, as Doris did before, for a table whose CHAR keys an earlier Doris wrote.",
+            needForward = true)
+    public boolean enablePaimonWriteCharPadding = true;
+
     @VarAttrDef.VarAttr(
             name = NUM_PARTITIONS_IN_BATCH_MODE,
             fuzzy = true,
@@ -2594,6 +2626,22 @@ public class SessionVariable implements Serializable, Writable {
             description = "If the number of files exceeds the threshold, scan ranges will be got through batch mode.",
             needForward = true)
     public int numFilesInBatchMode = 1024;
+
+    @VarAttrDef.VarAttr(name = SPLIT_BATCH_SIZE, checker = "checkSplitBatchSize", needForward = true,
+            description = "Maximum number of splits in a producer batch.")
+    public int splitBatchSize = 128;
+
+    @VarAttrDef.VarAttr(name = SPLIT_QUEUE_CAPACITY, checker = "checkSplitQueueCapacity", needForward = true,
+            description = "Maximum number of queued split batches per backend.")
+    public int splitQueueCapacity = 32;
+
+    public void checkSplitBatchSize(String value) throws Exception {
+        checkFieldValue(SPLIT_BATCH_SIZE, 1, value);
+    }
+
+    public void checkSplitQueueCapacity(String value) throws Exception {
+        checkFieldValue(SPLIT_QUEUE_CAPACITY, 1, value);
+    }
 
     @VarAttrDef.VarAttr(
             name = FETCH_SPLITS_MAX_WAIT_TIME,
@@ -2966,6 +3014,11 @@ public class SessionVariable implements Serializable, Writable {
             description = "Force the use of jni mode to read external table")
     private boolean forceJniScanner = false;
 
+    @VarAttrDef.VarAttr(name = ENABLE_PAIMON_RUST_READER,
+            fuzzy = true,
+            description = "Prefer paimon-rust for eligible Paimon reads")
+    private boolean enablePaimonRustReader = false;
+
     @VarAttrDef.VarAttr(name = ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE,
             fuzzy = true,
             description = "enable count(*) pushdown optimization for external table")
@@ -3061,9 +3114,16 @@ public class SessionVariable implements Serializable, Writable {
             + "and serialization/deserialization costs. Enabled by default.")
     public boolean enableBucketedHashAgg = true;
 
+    @VarAttrDef.VarAttr(name = BUCKETED_AGG_NUM_BUCKETS, needForward = true,
+            checker = "checkBucketedAggNumBuckets",
+            description = "Number of hash buckets used by bucketed aggregation. "
+            + "Must be 0 (automatic) or a power of two between 1 and 256. Automatic uses one bucket when both "
+            + "sink and source have one instance on a BE, and 256 buckets otherwise. Default 0.")
+    public int bucketedAggNumBuckets = 0;
+
     @VarAttrDef.VarAttr(name = BUCKETED_AGG_MIN_INPUT_ROWS, fuzzy = true, needForward = true, description = "Minimum "
             + "estimated input rows required for bucketed hash aggregation. When estimated input "
-            + "rows are below this threshold, the data volume is too small for the 256-bucket two-level "
+            + "rows are below this threshold, the data volume is too small for the bucketed "
             + "hash table overhead to be worthwhile. Set to 0 to disable this check. Default 100000.")
     public long bucketedAggMinInputRows = 100000;
 
@@ -3252,11 +3312,15 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = CLOUD_FORCE_SYNC_TABLET_STATS, needForward = true)
     public boolean cloudForceSyncTabletStats = false;
     @VarAttrDef.VarAttr(name = CLOUD_PARTITION_VERSION_CACHE_TTL_MS)
-    public long cloudPartitionVersionCacheTtlMs = Long.MAX_VALUE;
+    public long cloudPartitionVersionCacheTtlMs = 10 * 60 * 1000L;
     @VarAttrDef.VarAttr(name = CLOUD_TABLE_VERSION_CACHE_TTL_MS)
     public long cloudTableVersionCacheTtlMs = Long.MAX_VALUE;
     @VarAttrDef.VarAttr(name = CLOUD_FORCE_SYNC_VERSION, needForward = true)
     public boolean cloudForceSyncVersion = false;
+    @VarAttrDef.VarAttr(name = CLOUD_GET_VERSION_WAIT_FOR_PENDING_TXN, needForward = true,
+            description = "Whether Cloud partition version RPCs wait for pending transactions. "
+                    + "Does not bypass the version cache or override explicitly specified waiting policies.")
+    public boolean cloudGetVersionWaitForPendingTxn = false;
     // CLOUD_VARIABLES_END
 
     // fetch remote schema rpc timeout
@@ -3665,6 +3729,26 @@ public class SessionVariable implements Serializable, Writable {
             description = "Enable merge partitioning for Iceberg UPDATE/DELETE (INSERT by partition columns, "
                     + "DELETE by row_id).")
     public boolean enableIcebergMergePartitioning = true;
+
+    public static final String ICEBERG_PARTITION_OVERWRITE_MODE = "iceberg_partition_overwrite_mode";
+    public static final String ICEBERG_PARTITION_OVERWRITE_MODE_DYNAMIC = "dynamic";
+    public static final String ICEBERG_PARTITION_OVERWRITE_MODE_STATIC = "static";
+    @VarAttrDef.VarAttr(name = ICEBERG_PARTITION_OVERWRITE_MODE, needForward = true,
+            checker = "checkIcebergPartitionOverwriteMode", setter = "setIcebergPartitionOverwriteMode",
+            description = "Scope of INSERT OVERWRITE on an Iceberg table when no PARTITION clause is given. "
+                    + "'static' (default, identical to Spark's default partitionOverwriteMode=static): the "
+                    + "whole table is overwritten, including data written under an older partition spec. "
+                    + "'dynamic' (Hive-compatible and identical to Spark's "
+                    + "spark.sql.sources.partitionOverwriteMode=dynamic): only the partitions the new data "
+                    + "lands in are replaced, so data written under an older partition spec is left untouched.",
+            options = {ICEBERG_PARTITION_OVERWRITE_MODE_STATIC, ICEBERG_PARTITION_OVERWRITE_MODE_DYNAMIC})
+    public String icebergPartitionOverwriteMode = ICEBERG_PARTITION_OVERWRITE_MODE_STATIC;
+
+    @VarAttrDef.VarAttr(name = ENABLE_ICEBERG_INTERNAL_PARTITION_PRUNING,
+            description = "Enable Doris FE partition pruning for Iceberg scans. When disabled, ordinary scans "
+                    + "defer the Doris partition view and rely on Iceberg native file pruning. Materialized view "
+                    + "planning and partition metadata rules still require the full partition view.")
+    public boolean enableIcebergInternalPartitionPruning = false;
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
 
@@ -3844,6 +3928,9 @@ public class SessionVariable implements Serializable, Writable {
         this.orcTinyStripeThresholdBytes = Util.getRandomLong(0, 8L * 1024L * 1024L);
         this.orcOnceMaxReadBytes = Util.getRandomLong(0, 8L * 1024L * 1024L, 16L * 1024L * 1024L);
         this.orcMaxMergeDistanceBytes = Util.getRandomLong(0, 1L * 1024L * 1024L, 10L * 1024L * 1024L);
+
+        // paimon
+        this.enablePaimonRustReader = random.nextBoolean();
 
         // jni
         this.forceJniScanner = random.nextBoolean();
@@ -4906,6 +4993,14 @@ public class SessionVariable implements Serializable, Writable {
         return numFilesInBatchMode;
     }
 
+    public int getSplitBatchSize() {
+        return splitBatchSize;
+    }
+
+    public int getSplitQueueCapacity() {
+        return splitQueueCapacity;
+    }
+
     public long getFetchSplitsMaxWaitTime() {
         return fetchSplitsMaxWaitTime;
     }
@@ -5406,6 +5501,29 @@ public class SessionVariable implements Serializable, Writable {
         parseInsertVisibleTimeoutReturnMode(mode);
     }
 
+    public void checkIcebergPartitionOverwriteMode(String mode) {
+        // Reuse the parser so validation stays consistent with assignment.
+        parseIcebergPartitionOverwriteMode(mode);
+    }
+
+    public void setIcebergPartitionOverwriteMode(String mode) {
+        this.icebergPartitionOverwriteMode = parseIcebergPartitionOverwriteMode(mode);
+    }
+
+    // Parse the stored string case-insensitively; an unsupported value must fail SET/SET_VAR instead of being
+    // silently treated as 'dynamic' by the connector.
+    private static String parseIcebergPartitionOverwriteMode(String mode) {
+        if (mode != null) {
+            String normalized = mode.trim().toLowerCase(Locale.ROOT);
+            if (ICEBERG_PARTITION_OVERWRITE_MODE_DYNAMIC.equals(normalized)
+                    || ICEBERG_PARTITION_OVERWRITE_MODE_STATIC.equals(normalized)) {
+                return normalized;
+            }
+        }
+        throw new UnsupportedOperationException(
+                "iceberg_partition_overwrite_mode must be 'dynamic' or 'static', but was: " + mode);
+    }
+
     // Parse the stored string case-insensitively and expose the enum only to business logic.
     private InsertVisibleTimeoutReturnMode parseInsertVisibleTimeoutReturnMode(String mode) {
         if (StringUtils.isEmpty(mode)) {
@@ -5656,6 +5774,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setFilePresignedUrlTtlSeconds(filePresignedUrlTtlSeconds);
         tResult.setEmbedMaxBatchSize(embedMaxBatchSize);
         tResult.setAiContextWindowSize(aiContextWindowSize);
+        tResult.setEnablePaimonRustReader(enablePaimonRustReader);
         tResult.setCheckOrcInitSargsSuccess(checkOrcInitSargsSuccess);
 
         tResult.setTruncateCharOrVarcharColumns(truncateCharOrVarcharColumns);
@@ -6353,6 +6472,19 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
+    public void checkBucketedAggNumBuckets(String numBucketsStr) {
+        try {
+            int numBuckets = Integer.parseInt(numBucketsStr);
+            if (numBuckets < 0 || numBuckets > 256 || (numBuckets & (numBuckets - 1)) != 0) {
+                throw new InvalidParameterException(
+                        BUCKETED_AGG_NUM_BUCKETS + " must be 0 or a power of two between 1 and 256");
+            }
+        } catch (NumberFormatException e) {
+            throw new InvalidParameterException(
+                    BUCKETED_AGG_NUM_BUCKETS + " must be 0 or a power of two between 1 and 256");
+        }
+    }
+
     public void checkAggPhase(String aggPhaseStr) {
         try {
             long aggPhase = Long.parseLong(aggPhaseStr);
@@ -6480,6 +6612,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isForceJniScanner() {
         return forceJniScanner;
+    }
+
+    public boolean isEnablePaimonRustReader() {
+        return enablePaimonRustReader;
     }
 
     public String getIgnoreSplitType() {

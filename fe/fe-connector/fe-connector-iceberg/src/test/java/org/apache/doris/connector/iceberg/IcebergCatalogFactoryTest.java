@@ -21,12 +21,25 @@ import org.apache.doris.connector.metastore.iceberg.glue.IcebergGlueMetaStorePro
 import org.apache.doris.connector.metastore.iceberg.jdbc.IcebergJdbcMetaStoreProperties;
 import org.apache.doris.connector.metastore.iceberg.rest.IcebergRestMetaStoreProperties;
 import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.filesystem.gcs.GcsFileSystemProperties;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.filesystem.properties.StorageProperties;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.fs.RawLocalFileSystem;
 import org.apache.hadoop.hive.conf.HiveConf;
+import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.aws.AwsClientProperties;
+import org.apache.iceberg.aws.HttpClientProperties;
+import org.apache.iceberg.aws.s3.S3FileIOProperties;
+import org.apache.iceberg.aws.s3.S3InputFile;
+import org.apache.iceberg.hadoop.HadoopFileIO;
+import org.apache.iceberg.hadoop.HadoopInputFile;
+import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.io.InputFile;
+import org.apache.iceberg.io.SeekableInputStream;
 import org.apache.iceberg.rest.responses.ConfigResponse;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -37,7 +50,10 @@ import software.amazon.awssdk.auth.credentials.AwsCredentials;
 import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
 import software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.WebIdentityTokenFileCredentialsProvider;
+import software.amazon.awssdk.services.s3.S3Client;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -213,6 +229,45 @@ public class IcebergCatalogFactoryTest {
                 props("iceberg.catalog.type", "rest", "io.manifest.cache-enabled", "false",
                         "meta.cache.iceberg.manifest.enable", "true"), false);
         Assertions.assertEquals("false", opts.get("io.manifest.cache-enabled"));
+    }
+
+    @Test
+    public void buildBaseDefaultsIcebergAwsHttpClientToUrlConnection() {
+        // WHY: iceberg 1.12's default "apache" client type is Apache5HttpClient, absent from the AWS SDK Doris
+        // pins, so without this default every S3FileIO / Glue / STS client fails with NoClassDefFoundError.
+        // Building a client here runs on the plugin's own SDK, so it fails exactly as production would.
+        // MUTATION: dropping the default -> "apache" -> NoClassDefFoundError -> red.
+        Map<String, String> opts = IcebergCatalogFactory.buildBaseCatalogProperties(
+                props("iceberg.catalog.type", "rest"), false);
+        Assertions.assertEquals(HttpClientProperties.CLIENT_TYPE_URLCONNECTION,
+                opts.get(HttpClientProperties.CLIENT_TYPE));
+        Assertions.assertDoesNotThrow(
+                () -> new HttpClientProperties(opts).applyHttpClientConfigurations(S3Client.builder()));
+    }
+
+    @Test
+    public void buildBaseTreatsABlankHttpClientTypeAsUnset() {
+        // WHY: iceberg-aws maps an empty http-client.type back to its "apache" default (Apache5HttpClient), so an
+        // empty value set at CREATE or by ALTER must get the supported default too. MUTATION: putIfAbsent keeps "" ->
+        // NoClassDefFoundError on the client build -> red.
+        for (String blank : new String[] {"", " "}) {
+            Map<String, String> opts = IcebergCatalogFactory.buildBaseCatalogProperties(
+                    props("iceberg.catalog.type", "rest", HttpClientProperties.CLIENT_TYPE, blank), false);
+            Assertions.assertEquals(HttpClientProperties.CLIENT_TYPE_URLCONNECTION,
+                    opts.get(HttpClientProperties.CLIENT_TYPE));
+            Assertions.assertDoesNotThrow(
+                    () -> new HttpClientProperties(opts).applyHttpClientConfigurations(S3Client.builder()));
+        }
+    }
+
+    @Test
+    public void buildBaseKeepsAnExplicitHttpClientType() {
+        // WHY: the default only fills a missing key; a user's choice is passed through (and "apache" is rejected
+        // at CREATE/ALTER by IcebergCatalogProperties, not silently rewritten here). MUTATION: put instead of
+        // putIfAbsent -> the user's value is overwritten -> red.
+        Map<String, String> opts = IcebergCatalogFactory.buildBaseCatalogProperties(
+                props("iceberg.catalog.type", "rest", HttpClientProperties.CLIENT_TYPE, "apache"), false);
+        Assertions.assertEquals("apache", opts.get(HttpClientProperties.CLIENT_TYPE));
     }
 
     @Test
@@ -1070,4 +1125,117 @@ public class IcebergCatalogFactoryTest {
         }
     }
 
+    @Test
+    void nativeGcpCatalogUsesBearerFileIoAndNativeHadoopConfiguration() {
+        for (String source : new String[] {"DEFAULT", "COMPUTE_ENGINE"}) {
+            Map<String, String> raw = Map.of("provider", "GCP", "warehouse", "gs://bucket/warehouse",
+                    "gs.endpoint", "https://storage.googleapis.com",
+                    "gs.credential_provider_type", source,
+                    "gs.impersonation_service_account", "target@test.iam.gserviceaccount.com");
+            GcsFileSystemProperties storage = GcsFileSystemProperties.of(raw);
+            for (String catalogType : List.of("hadoop", "rest", "jdbc", "hms")) {
+                Map<String, String> properties = new HashMap<>(raw);
+                properties.put("iceberg.catalog.type", catalogType);
+                properties.put("uri", "jdbc".equals(catalogType) ? "jdbc:postgresql://localhost/iceberg"
+                        : "hms".equals(catalogType) ? "thrift://localhost:9083" : "http://localhost:8181");
+                properties.put("jdbc.user", "user");
+                properties.put("jdbc.password", "password");
+                properties.put("iceberg.jdbc.uri", "jdbc:postgresql://localhost/iceberg");
+                Map<String, String> options = IcebergCatalogFactory.buildCatalogProperties(
+                        IcebergCatalogProperties.of(properties), Optional.of(storage), false);
+                Assertions.assertEquals("org.apache.iceberg.io.ResolvingFileIO", options.get("io-impl"));
+                Assertions.assertEquals(GcpS3FileIOAwsClientFactory.class.getName(),
+                        options.get(S3FileIOProperties.CLIENT_FACTORY));
+                Assertions.assertEquals(source, options.get("gs.credential_provider_type"));
+                Assertions.assertEquals("https://storage.googleapis.com", options.get("s3.endpoint"));
+                Assertions.assertEquals("target@test.iam.gserviceaccount.com",
+                        options.get("gs.impersonation_service_account"));
+            }
+            Assertions.assertEquals("com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem",
+                    storage.toHadoopConfigurationMap().get("fs.gs.impl"));
+        }
+    }
+
+    @Test
+    void nativeGcpCatalogPreservesExplicitFileIo(@TempDir java.nio.file.Path temp) throws Exception {
+        Map<String, String> raw = new HashMap<>(Map.of("provider", "GCP",
+                "warehouse", "gs://bucket/warehouse", "iceberg.catalog.type", "rest",
+                "uri", "http://localhost:8181", "gs.credential_provider_type", "COMPUTE_ENGINE",
+                "io-impl", HadoopFileIO.class.getName()));
+        GcsFileSystemProperties storage = GcsFileSystemProperties.of(raw);
+        Map<String, String> options = IcebergCatalogFactory.buildCatalogProperties(
+                IcebergCatalogProperties.of(raw), Optional.of(storage), false);
+        Assertions.assertEquals(HadoopFileIO.class.getName(), options.get("io-impl"));
+        Configuration conf = IcebergCatalogFactory.buildHadoopConfiguration(raw,
+                storage.toHadoopConfigurationMap());
+        java.nio.file.Path metadata = temp.resolve("metadata.json");
+        Files.writeString(metadata, "metadata", StandardCharsets.UTF_8);
+        try (FileIO io = CatalogUtil.loadFileIO(options.get("io-impl"), options, conf);
+                SeekableInputStream in = io.newInputFile(metadata.toUri().toString()).newStream()) {
+            Assertions.assertEquals("metadata", new String(in.readAllBytes(), StandardCharsets.UTF_8));
+        }
+    }
+
+    @Test
+    void nativeGcpRestCatalogRoutesMixedLocationsByScheme() throws Exception {
+        Map<String, String> raw = Map.of("provider", "GCP", "warehouse", "gs://bucket/warehouse",
+                "iceberg.catalog.type", "rest", "uri", "http://localhost:8181",
+                "gs.credential_provider_type", "COMPUTE_ENGINE",
+                "gs.impersonation_service_account", "target@test.iam.gserviceaccount.com");
+        GcsFileSystemProperties storage = GcsFileSystemProperties.of(raw);
+        Map<String, String> options = IcebergCatalogFactory.buildCatalogProperties(
+                IcebergCatalogProperties.of(raw), Optional.of(storage), false);
+        Configuration conf = IcebergCatalogFactory.buildHadoopConfiguration(raw,
+                storage.toHadoopConfigurationMap());
+        // Replace the Hadoop transports only, so the real FileIO dispatch runs without cloud/HDFS services.
+        for (String scheme : List.of("gs", "hdfs")) {
+            conf.set("fs." + scheme + ".impl", RawLocalFileSystem.class.getName());
+            conf.setBoolean("fs." + scheme + ".impl.disable.cache", true);
+        }
+        try (FileIO io = CatalogUtil.loadFileIO(options.get("io-impl"), options, conf)) {
+            for (String location : List.of("gs://bucket/metadata.json", "hdfs://namenode/metadata.json")) {
+                InputFile input = io.newInputFile(location, 10);
+                Assertions.assertInstanceOf(HadoopInputFile.class, input, location);
+                HadoopInputFile hadoopInput = (HadoopInputFile) input;
+                try (FileSystem fs = hadoopInput.getFileSystem()) {
+                    Assertions.assertInstanceOf(RawLocalFileSystem.class, fs);
+                    Assertions.assertEquals("COMPUTE_ENGINE", fs.getConf().get("fs.gs.auth.type"));
+                    Assertions.assertEquals("target@test.iam.gserviceaccount.com",
+                            fs.getConf().get("fs.gs.auth.impersonation.service.account"));
+                }
+            }
+            for (String scheme : List.of("s3", "s3a")) {
+                Assertions.assertInstanceOf(S3InputFile.class, io.newInputFile(scheme + "://bucket/metadata.json", 10));
+            }
+        }
+    }
+
+    @Test
+    void nativeGcpWarehouseAliasesSelectGoogleHadoopFileSystem() throws Exception {
+        for (String scheme : List.of("gs", "s3", "s3a", "S3A")) {
+            Map<String, String> raw = Map.of("provider", "GCP", "warehouse", scheme + "://bucket/warehouse",
+                    "iceberg.catalog.type", "hadoop", "gs.credential_provider_type", "COMPUTE_ENGINE");
+            GcsFileSystemProperties storage = GcsFileSystemProperties.of(raw);
+            Map<String, String> options = IcebergCatalogFactory.buildCatalogProperties(
+                    IcebergCatalogProperties.of(raw), Optional.of(storage), false);
+            String warehouse = options.get("warehouse");
+            Assertions.assertEquals("gs://bucket/warehouse", warehouse);
+            Configuration conf = IcebergCatalogFactory.buildHadoopConfiguration(raw,
+                    storage.toHadoopConfigurationMap());
+            Assertions.assertEquals("com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem",
+                    FileSystem.getFileSystemClass(new Path(warehouse).toUri().getScheme(), conf).getName());
+        }
+    }
+
+    @Test
+    void anonymousGcpCatalogUsesUnsignedFileIo() {
+        Map<String, String> raw = Map.of("provider", "GCP", "warehouse", "gs://bucket/warehouse",
+                "iceberg.catalog.type", "hadoop", "gs.credential_provider_type", "ANONYMOUS");
+        Map<String, String> options = IcebergCatalogFactory.buildCatalogProperties(
+                IcebergCatalogProperties.of(raw),
+                Optional.of(GcsFileSystemProperties.of(raw)), false);
+        Assertions.assertEquals(AnonymousS3FileIOAwsClientFactory.class.getName(),
+                options.get(S3FileIOProperties.CLIENT_FACTORY));
+        Assertions.assertFalse(options.containsKey(AwsClientProperties.CLIENT_CREDENTIALS_PROVIDER));
+    }
 }

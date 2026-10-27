@@ -385,6 +385,18 @@ suite("test_hudi_partition_prune", "p2,external") {
             contains "partition=1/2"
         }
 
+        // Spark SQL escapes timestamp partition values independently of the table URL-encoding flag.
+        // Keep the golden result above and also compare both readers under each partition-listing mode.
+        def originalForceJni = sql("SHOW VARIABLES LIKE 'force_jni_scanner'")[0][1]
+        try {
+            sql """set force_jni_scanner = false"""
+            def nativeTimestampRows = sql(one_partition_timestamp)
+            sql """set force_jni_scanner = true"""
+            assertEquals(nativeTimestampRows, sql(one_partition_timestamp))
+        } finally {
+            sql """set force_jni_scanner = ${originalForceJni}"""
+        }
+
         // A partition that was dropped after the instant being read.
         //
         // Every other table here only ever gains partitions, so "the partitions now" and "the

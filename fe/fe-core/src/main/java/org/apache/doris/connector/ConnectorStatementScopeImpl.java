@@ -63,6 +63,12 @@ public class ConnectorStatementScopeImpl implements ConnectorStatementScope {
     }
 
     @Override
+    @SuppressWarnings("unchecked")
+    public <T> T getIfPresent(String key) {
+        return (T) cache.get(key);
+    }
+
+    @Override
     public <T> T computeIfAbsentForPlanning(String key, Supplier<T> loader) {
         T value = computeIfAbsent(key, loader);
         Preconditions.checkState(!(value instanceof AutoCloseable),

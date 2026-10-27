@@ -196,6 +196,13 @@ static void scatter_scan_blocks_to_result_block(
     }
 }
 
+void RowIdStorageReader::read_by_rowids_for_rpc(const PMultiGetRequestV2& request,
+                                                PMultiGetResponseV2* response) {
+    Status st = Status::OK();
+    ASSIGN_STATUS_IF_CATCH_EXCEPTION(st = read_by_rowids(request, response), st);
+    st.to_protobuf(response->mutable_status());
+}
+
 Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
                                           PMultiGetResponseV2* response) {
     if (request.request_block_descs_size()) {
@@ -336,7 +343,7 @@ Status RowIdStorageReader::read_batch_doris_format_row(
     RowStoreReadStruct row_store_read_struct(row_store_buffer);
     if (request_block_desc.fetch_row_store()) {
         for (int i = 0; i < request_block_desc.slots_size(); ++i) {
-            row_store_read_struct.serdes.emplace_back(slots[i].get_data_type_ptr()->get_serde());
+            row_store_read_struct.serdes.emplace_back(slots[i].type()->get_serde());
             row_store_read_struct.col_uid_to_idx[slots[i].col_unique_id()] = i;
             row_store_read_struct.default_values.emplace_back(slots[i].col_default_value());
         }
@@ -678,6 +685,27 @@ TFileScanRangeParams RowIdStorageReader::build_external_scan_params(
     return params;
 }
 
+void RowIdStorageReader::add_external_fetch_avg_time_profile(
+        const std::vector<ExternalFetchStatistics>& fetch_statistics,
+        RuntimeProfile* runtime_profile, int64_t* init_reader_avg_ms, int64_t* get_block_avg_ms) {
+    // read_by_rowids() reads a request block only when it has a row ID, and every row ID lands
+    // in a scan range, so there is at least one range to average over.
+    DORIS_CHECK(!fetch_statistics.empty());
+    int64_t init_reader_total_ms = 0;
+    int64_t get_block_total_ms = 0;
+    for (const auto& statistics : fetch_statistics) {
+        init_reader_total_ms += statistics.init_reader_ms;
+        get_block_total_ms += statistics.get_block_ms;
+    }
+    const auto range_count = static_cast<int64_t>(fetch_statistics.size());
+    *init_reader_avg_ms = init_reader_total_ms / range_count;
+    *get_block_avg_ms = get_block_total_ms / range_count;
+    runtime_profile->add_info_string(InitReaderAvgTimeProfile,
+                                     std::to_string(*init_reader_avg_ms) + "ms");
+    runtime_profile->add_info_string(GetBlockAvgTimeProfile,
+                                     std::to_string(*get_block_avg_ms) + "ms");
+}
+
 Status RowIdStorageReader::read_batch_external_row(
         const uint64_t workload_group_id, const PRequestBlockDesc& request_block_desc,
         std::shared_ptr<IdFileMap> id_file_map, std::vector<SlotDescriptor>& slots,
@@ -895,8 +923,6 @@ Status RowIdStorageReader::read_batch_external_row(
         size_t idx = 0;
         for (const auto& [_, scan_info] : scan_rows) {
             format_to(file_read_lines_buffer, "{}, ", scan_info.first.size());
-            *init_reader_avg_ms = fetch_statistics[idx].init_reader_ms;
-            *get_block_avg_ms += fetch_statistics[idx].get_block_ms;
             format_to(file_read_bytes_buffer, "{}, ", fetch_statistics[idx].file_read_bytes);
             format_to(file_read_times_buffer, "{}, ", fetch_statistics[idx].file_read_times);
             idx++;
@@ -906,12 +932,8 @@ Status RowIdStorageReader::read_batch_external_row(
         format_to(file_read_bytes_buffer, "]");
         format_to(file_read_times_buffer, "]");
 
-        *init_reader_avg_ms /= fetch_statistics.size();
-        *get_block_avg_ms /= fetch_statistics.size();
-        runtime_profile->add_info_string(InitReaderAvgTimeProfile,
-                                         std::to_string(*init_reader_avg_ms) + "ms");
-        runtime_profile->add_info_string(GetBlockAvgTimeProfile,
-                                         std::to_string(*init_reader_avg_ms) + "ms");
+        add_external_fetch_avg_time_profile(fetch_statistics, runtime_profile.get(),
+                                            init_reader_avg_ms, get_block_avg_ms);
         runtime_profile->add_info_string(FileReadLinesProfile,
                                          fmt::to_string(file_read_lines_buffer));
         runtime_profile->add_info_string(FileScannerV2::FileReadBytesProfile,

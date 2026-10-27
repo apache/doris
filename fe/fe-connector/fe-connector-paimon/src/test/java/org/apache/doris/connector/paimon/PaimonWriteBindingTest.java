@@ -44,6 +44,8 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HexFormat;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -60,6 +62,8 @@ public class PaimonWriteBindingTest {
 
     private static final String DEFAULT_NAME = "__CUSTOM_DEFAULT__";
     private static final String DYNAMIC_OVERWRITE = CoreOptions.DYNAMIC_PARTITION_OVERWRITE.key();
+    private static final Map<String, String> NEW_PARTITION_NAMES =
+            Collections.singletonMap("partition.legacy-name", "false");
 
     private TimeZone jvmZone;
 
@@ -126,12 +130,12 @@ public class PaimonWriteBindingTest {
         FileStoreTable intTable = partitionedTable(warehouse, Collections.emptyMap(),
                 new DataField(1, "part", DataTypes.INT()));
         Assertions.assertEquals("1", PaimonWriteBinding.resolveStaticPartition(intTable,
-                write(true, "part", "true", "1")).get("part"));
+                write(true, "part", "true", "1"), true).get("part"));
 
         FileStoreTable dateTable = partitionedTable(warehouse, Collections.emptyMap(),
                 new DataField(1, "dt", DataTypes.DATE()));
         Assertions.assertEquals("2024-01-01", PaimonWriteBinding.resolveStaticPartition(dateTable,
-                write(true, "dt", "20240101", "2024-01-01")).get("dt"));
+                write(true, "dt", "20240101", "2024-01-01"), true).get("dt"));
     }
 
     @Test
@@ -144,7 +148,7 @@ public class PaimonWriteBindingTest {
 
         DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
                 () -> PaimonWriteBinding.resolveStaticPartition(table,
-                        write(true, "part", DEFAULT_NAME, DEFAULT_NAME)));
+                        write(true, "part", DEFAULT_NAME, DEFAULT_NAME), true));
         Assertions.assertTrue(error.getMessage().contains("cannot be represented"), error.getMessage());
     }
 
@@ -157,7 +161,8 @@ public class PaimonWriteBindingTest {
                 new DataField(1, "part", DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(6)));
 
         String value = PaimonWriteBinding.resolveStaticPartition(table,
-                write(true, "part", "2024-01-15 08:30:45.123456", "2024-01-15 00:30:45.123456+00:00")).get("part");
+                write(true, "part", "2024-01-15 08:30:45.123456", "2024-01-15 00:30:45.123456+00:00"), true)
+                .get("part");
 
         Assertions.assertEquals("2024-01-14 16:30:45.123456", value);
         Assertions.assertEquals(Instant.parse("2024-01-15T00:30:45.123456Z"), parsedByPaimon(table, value));
@@ -172,7 +177,8 @@ public class PaimonWriteBindingTest {
         for (String instant : Arrays.asList("2023-11-05 08:30:00.123456+00:00",
                 "2023-11-05 09:30:00.123456+00:00")) {
             DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
-                    () -> PaimonWriteBinding.resolveStaticPartition(table, write(true, "part", instant, instant)));
+                    () -> PaimonWriteBinding.resolveStaticPartition(table, write(true, "part", instant, instant),
+                            true));
             Assertions.assertTrue(error.getMessage().contains("ambiguous"), error.getMessage());
             Assertions.assertTrue(error.getMessage().contains("America/Los_Angeles"), error.getMessage());
         }
@@ -194,25 +200,91 @@ public class PaimonWriteBindingTest {
     }
 
     @Test
-    public void staticOverwriteRejectsABinaryPartitionValue(@TempDir Path warehouse) {
-        // Paimon's static overwrite takes the UTF-8 bytes of a value's string: "0x4142" names the partition of
-        // those six bytes, not of the two bytes 41 42 the rows carry, so an overwrite without rows would report
-        // success and leave the partition it was given in place. The check comes before the values are cast,
-        // which a binary value may not survive. MUTATION: dropping the check -> red.
+    public void staticBinaryPartitionIsTheTextOfTheBytesTheRowsCarry(@TempDir Path warehouse) {
+        // Paimon's static overwrite takes the UTF-8 bytes of a value's string: "0x4142", as the cast value of a
+        // VARBINARY column reaches the connector, names the partition of those six bytes, not of the two bytes
+        // 41 42 the rows carry, so an overwrite without rows would report success and leave the partition it was
+        // given in place. MUTATION: passing the cast value through -> red.
         Assertions.assertArrayEquals("0x4142".getBytes(StandardCharsets.UTF_8),
                 (byte[]) TypeUtils.castFromString("0x4142", DataTypes.BYTES()));
         for (DataType type : Arrays.asList(DataTypes.BYTES(), DataTypes.VARBINARY(2), DataTypes.BINARY(2))) {
-            FileStoreTable table = partitionedTable(warehouse, Collections.emptyMap(),
-                    new DataField(1, "part", type));
-            ConnectorWriteHandle overwrite = handle(true, Collections.singletonMap("part", "0x4142"), () -> {
-                throw new AssertionError("a binary static partition value must be rejected before it is cast");
-            }, Collections.emptySet());
+            FileStoreTable table = partitionedTable(warehouse, NEW_PARTITION_NAMES, new DataField(1, "part", type));
 
-            DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
-                    () -> PaimonWriteBinding.resolveStaticPartition(table, overwrite));
-            Assertions.assertTrue(error.getMessage().contains("binary partition column 'part'"),
-                    error.getMessage());
+            String value = PaimonWriteBinding.resolveStaticPartition(table, write(true, "part", "AB", "0x4142"),
+                    true).get("part");
+
+            Assertions.assertArrayEquals(new byte[] {0x41, 0x42}, (byte[]) TypeUtils.castFromString(value, type),
+                    type.toString());
         }
+    }
+
+    @Test
+    public void staticBinaryPartitionRejectsBytesThatAreNotUtf8(@TempDir Path warehouse) {
+        // No string's UTF-8 bytes are a lone 0xEF, an overlong '/' or an encoded surrogate, so Paimon's static
+        // overwrite cannot name such a partition; a lenient decoder would name another one through U+FFFD.
+        // MUTATION: decoding with replacement -> red.
+        FileStoreTable table = partitionedTable(warehouse, NEW_PARTITION_NAMES,
+                new DataField(1, "part", DataTypes.BYTES()));
+        for (String castValue : Arrays.asList("0xEF", "0xC0AF", "0xEDA080")) {
+            DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> PaimonWriteBinding.resolveStaticPartition(table, write(true, "part", castValue, castValue),
+                            true));
+            Assertions.assertTrue(error.getMessage().contains("is not UTF-8 text"), error.getMessage());
+        }
+    }
+
+    @Test
+    public void staticBinaryPartitionKeepsTheLengthOfTheBytes(@TempDir Path warehouse) {
+        // The rows keep their bytes whatever the column length, and Paimon's static overwrite keeps them for a
+        // BINARY(n) column too. For a VARBINARY(n) column it fails the commit, after the files are written, when the
+        // bytes are longer, so such a value fails while the write is planned. MUTATION: no length check -> red.
+        FileStoreTable binary = partitionedTable(warehouse, NEW_PARTITION_NAMES,
+                new DataField(1, "part", DataTypes.BINARY(2)));
+        for (String castValue : Arrays.asList("0x41", "0x414243")) {
+            String value = PaimonWriteBinding.resolveStaticPartition(binary,
+                    write(true, "part", castValue, castValue), true).get("part");
+            Assertions.assertArrayEquals(HexFormat.of().parseHex(castValue.substring(2)),
+                    (byte[]) TypeUtils.castFromString(value, DataTypes.BINARY(2)), castValue);
+        }
+
+        FileStoreTable varbinary = partitionedTable(warehouse, NEW_PARTITION_NAMES,
+                new DataField(1, "part", DataTypes.VARBINARY(2)));
+        Assertions.assertEquals("A", PaimonWriteBinding.resolveStaticPartition(varbinary,
+                write(true, "part", "0x41", "0x41"), true).get("part"));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> TypeUtils.castFromString("ABC", DataTypes.VARBINARY(2)));
+        DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
+                () -> PaimonWriteBinding.resolveStaticPartition(varbinary,
+                        write(true, "part", "0x414243", "0x414243"), true));
+        Assertions.assertTrue(error.getMessage().contains("has 3 bytes, more than its type VARBINARY(2) holds"),
+                error.getMessage());
+    }
+
+    @Test
+    public void writeOfABinaryPartitionNeedsNewPartitionNames(@TempDir Path warehouse) {
+        // With partition.legacy-name = true, the default, Paimon names a binary partition after the Java array
+        // object, so the commit of the written files fails and Paimon cannot read the partition back. The write
+        // fails while it is planned; a table with new partition names, or without a binary partition, is written.
+        // MUTATION: dropping the check -> red.
+        PaimonTableHandle handle = new PaimonTableHandle("db", "tbl", Collections.emptyList(),
+                Collections.emptyList());
+        for (DataType type : Arrays.asList(DataTypes.BYTES(), DataTypes.VARBINARY(2), DataTypes.BINARY(2))) {
+            FileStoreTable legacy = partitionedTable(warehouse, Collections.emptyMap(), new DataField(1, "part", type));
+            for (boolean overwrite : new boolean[] {false, true}) {
+                DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
+                        () -> PaimonWriteBinding.create(handle, legacy, Collections.emptyMap(),
+                                write(overwrite, "part", "AB", "0x4142"), true));
+                Assertions.assertTrue(error.getMessage().contains("'partition.legacy-name' = 'false'"),
+                        error.getMessage());
+            }
+            FileStoreTable renamed = partitionedTable(warehouse, NEW_PARTITION_NAMES, new DataField(1, "part", type));
+            Assertions.assertEquals("AB", PaimonWriteBinding.create(handle, renamed, Collections.emptyMap(),
+                    write(true, "part", "AB", "0x4142"), true).getStaticPartition().get("part"));
+        }
+        FileStoreTable legacyString = partitionedTable(warehouse, Collections.emptyMap(),
+                new DataField(1, "part", DataTypes.STRING()));
+        Assertions.assertFalse(PaimonWriteBinding.create(handle, legacyString, Collections.emptyMap(),
+                write(false, "part", "AB", "AB"), true).isOverwrite());
     }
 
     @Test
@@ -226,8 +298,65 @@ public class PaimonWriteBindingTest {
                     Collections::emptyMap, Collections.singleton("part"));
 
             Assertions.assertEquals(DEFAULT_NAME,
-                    PaimonWriteBinding.resolveStaticPartition(table, write).get("part"), type.toString());
+                    PaimonWriteBinding.resolveStaticPartition(table, write, true).get("part"), type.toString());
         }
+    }
+
+    @Test
+    public void staticCharPartitionIsPaddedAsTheRowsAre(@TempDir Path warehouse) {
+        // With padding on, the BE writer pads the rows' CHAR values to the column length, while Paimon parses a
+        // static partition value as it is: an unpadded 'a' would name another partition than the rows reach, and
+        // the commit would fail. Padding counts code points, and a longer value is kept, as it is in the rows.
+        // MUTATION: not padding, or counting UTF-16 units -> red.
+        FileStoreTable table = partitionedTable(warehouse, Collections.emptyMap(),
+                new DataField(1, "part", DataTypes.CHAR(3)));
+        Assertions.assertEquals("a", TypeUtils.castFromString("a", DataTypes.CHAR(3)).toString());
+
+        Assertions.assertEquals("a  ", PaimonWriteBinding.resolveStaticPartition(table,
+                write(true, "part", "a", "a"), true).get("part"));
+        String supplementary = new String(Character.toChars(0x20000));
+        Assertions.assertEquals(supplementary + "  ", PaimonWriteBinding.resolveStaticPartition(table,
+                write(true, "part", supplementary, supplementary), true).get("part"));
+        Assertions.assertEquals("abcd", PaimonWriteBinding.resolveStaticPartition(table,
+                write(true, "part", "abcd", "abcd"), true).get("part"));
+        Assertions.assertEquals("a", PaimonWriteBinding.resolveStaticPartition(table,
+                write(true, "part", "a", "a"), false).get("part"));
+    }
+
+    @Test
+    public void staticCharPartitionOfAnOrcTableIsPaddedAsTheRowsAre(@TempDir Path warehouse) {
+        // The BE writer pads the CHAR values of a table that writes ORC files as it pads those of any table, so the
+        // static partition value of such a table is padded as its rows are. MUTATION: leaving the fields of an ORC
+        // table unpadded -> red.
+        FileStoreTable table = partitionedTable(warehouse,
+                Collections.singletonMap(CoreOptions.FILE_FORMAT.key(), "orc"),
+                new DataField(1, "part", DataTypes.CHAR(3)));
+
+        Assertions.assertEquals("a  ", PaimonWriteBinding.resolveStaticPartition(table,
+                write(true, "part", "a", "a"), true).get("part"));
+    }
+
+    @Test
+    public void staticRowKindFieldPartitionIsLeftUnpaddedAsTheRowsAre(@TempDir Path warehouse) {
+        // The BE writer does not pad the value of the table's rowkind.field, which Paimon reads as a row kind as it
+        // is, so the rows of a CHAR(3) rowkind.field partition column carry '+I'. A padded '+I ' would name
+        // another partition: a nonempty overwrite would fail and an empty one would clear nothing. The other CHAR
+        // partition column is padded as before. MUTATION: padding the rowkind.field value -> red.
+        List<DataField> fields = Arrays.asList(new DataField(0, "id", DataTypes.INT()),
+                new DataField(1, "kind", DataTypes.CHAR(3)), new DataField(2, "code", DataTypes.CHAR(3)));
+        TableSchema schema = new TableSchema(0L, fields, 2, Arrays.asList("kind", "code"),
+                Collections.emptyList(), Collections.singletonMap(CoreOptions.ROWKIND_FIELD.key(), "kind"), "");
+        FileStoreTable table = FileStoreTableFactory.create(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path("file://" + warehouse + "/db.db/tbl"), schema);
+        Map<String, String> spec = new LinkedHashMap<>();
+        spec.put("kind", "+I");
+        spec.put("code", "a");
+
+        Map<String, String> partition = PaimonWriteBinding.resolveStaticPartition(table,
+                handle(true, spec, () -> spec, Collections.emptySet()), true);
+
+        Assertions.assertEquals("+I", partition.get("kind"));
+        Assertions.assertEquals("a  ", partition.get("code"));
     }
 
     @Test
@@ -245,14 +374,14 @@ public class PaimonWriteBindingTest {
 
         PaimonWriteBinding binding = PaimonWriteBinding.create(
                 new PaimonTableHandle("db", "tbl", Collections.emptyList(), Collections.emptyList()),
-                table, Collections.emptyMap(), insert);
+                table, Collections.emptyMap(), insert, true);
 
         Assertions.assertFalse(binding.isOverwrite());
         Assertions.assertTrue(binding.getStaticPartition().isEmpty(), binding.getStaticPartition().toString());
     }
 
     private static void assertStaticLtzRoundTrip(FileStoreTable table, String instant) {
-        String value = PaimonWriteBinding.resolveStaticPartition(table, write(true, "part", instant, instant))
+        String value = PaimonWriteBinding.resolveStaticPartition(table, write(true, "part", instant, instant), true)
                 .get("part");
         Assertions.assertEquals(OffsetDateTime.parse(instant.replace(' ', 'T')).toInstant(),
                 parsedByPaimon(table, value), instant);

@@ -41,6 +41,18 @@ under the License.
     </properties>
 
     <dependencies>
+        <!-- JNI plugins cannot inherit the GCS connector from BE's hadoop_hdfs classpath. -->
+        <dependency>
+            <groupId>com.google.cloud.bigdataoss</groupId>
+            <artifactId>gcs-connector</artifactId>
+            <classifier>shaded</classifier>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>fe-iceberg-common</artifactId>
+            <version>${revision}</version>
+        </dependency>
         <dependency>
             <groupId>org.apache.doris</groupId>
             <artifactId>jni-spi</artifactId>
@@ -100,6 +112,12 @@ under the License.
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>auth</artifactId>
+        </dependency>
+        <!-- The HTTP client the FE sets for iceberg-aws (http-client.type=urlconnection); the serialized S3FileIO
+             carries that setting here. iceberg's default "apache" type needs a newer AWS SDK than Doris ships. -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>url-connection-client</artifactId>
         </dependency>
         <!--
           Hadoop: a task's FileIO is whatever the table was created with, and for every non-S3

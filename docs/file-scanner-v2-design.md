@@ -27,7 +27,8 @@ boundaries rather than isolated acceleration for a particular format.
 - Do not force every optimization onto every reader.
 - Do not expose file-local column positions to the query layer.
 - Do not sacrifice error semantics in order to continue execution.
-- Full support for the Load path is currently out of scope.
+- Do not embed ingestion conversion and validation in Scanner or physical decoders.
+  `LoadTableReader` adapts the existing source/destination tuple protocol at the table-reader layer.
 
 > **Design placement rule:** The correct layer for a capability depends on whether it manages the
 > query, manages a Split, restores table semantics, or interprets a physical file. Layer boundaries
@@ -336,6 +337,40 @@ flowchart LR
 > **In one sentence:** FileScannerV2 separates whether to read, what to read, how to read, how to
 > restore table semantics, and how to account for cost, allowing correctness, performance, and
 > extensibility to evolve independently.
+
+## File Load Adapter
+
+Traditional `FileLoadScanNode` plans keep their existing FE and Thrift representation.
+`LoadTableReader` derives from `TableReader` and consumes `src_tuple_id`, `required_slots`,
+source defaults, pre-filters, destination expressions and strict-mode metadata. It returns the
+original destination tuple, so Scanner continues to apply destination conjuncts before its
+ordinary output projections.
+
+The base reader receives no destination predicates, aggregate pushdown or condition-cache
+snapshot. `LoadTableReader::finalize_chunk()` invokes base finalization to materialize and validate
+the source schema, including path columns, then applies per-record defaults or flexible-update
+missing-column marks, source pre-filters, destination expressions and strict/nullability checks.
+The base read loop owns file opening, batch progression and EOF, without any load-specific state
+or branches. Source schema checks run before the finalization hook changes columns or row counts.
+`LoadTableReader::customize_file_scan_request()` enables malformed-record rejection before the
+physical reader opens. Rejected and unselected rows are counted separately through scanner-local
+IOContext counters. Physical text decoders report malformed records through the same rejected-row
+channel.
+
+JSON field-presence metadata is separate from NULL values and from the immutable read request.
+FileReader reports masks keyed by physical column identity; LoadTableReader translates them using
+TableColumnMapper during finalization, before the physical reader closes. Missing keys in a
+flexible update are rejected, while omitted values and an omitted sequence-map column retain the
+corresponding skip-bitmap marks. A fully rejected batch is not EOF.
+Non-line JSON pipes read successive messages until pipe EOF; chunked HTTP buffers are still
+combined into one document. File ranges in non-line mode remain single-document inputs.
+
+Supported traditional file loads select V2 even when their planner omits query session options.
+`enable_file_scanner_v2` continues to control query scans; Thrift does not distinguish an omitted
+option from its default false value for load plans. Formats outside the load adapter's selection
+remain on their existing path, including Avro and Arrow IPC loads. V2 Arrow support is currently
+limited to the remote-Doris table reader. Load ranges retain FE split boundaries rather than
+publishing additional physical children.
 
 ## Further Reading
 

@@ -34,6 +34,7 @@ import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.UpdatePartitionSpec;
+import org.apache.iceberg.UpdateProperties;
 import org.apache.iceberg.UpdateSchema;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
@@ -43,6 +44,8 @@ import org.apache.iceberg.catalog.ViewCatalog;
 import org.apache.iceberg.exceptions.NoSuchNamespaceException;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.Term;
+import org.apache.iceberg.hadoop.HadoopCatalog;
+import org.apache.iceberg.jdbc.JdbcCatalog;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.view.View;
@@ -52,12 +55,14 @@ import org.apache.logging.log4j.Logger;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -92,6 +97,13 @@ public interface IcebergCatalogOps {
 
     /** Lists the view names in {@code dbName}; empty when the catalog is not a (view-enabled) ViewCatalog. */
     List<String> listViewNames(String dbName);
+
+    /** Lists relations without requiring callers to subtract and then re-add view names. */
+    default List<String> listRelationNames(String dbName) {
+        LinkedHashSet<String> names = new LinkedHashSet<>(listTableNames(dbName));
+        names.addAll(listViewNames(dbName));
+        return new ArrayList<>(names);
+    }
 
     /** Returns {@code true} iff {@code dbName.tableName} exists. */
     boolean tableExists(String dbName, String tableName);
@@ -139,6 +151,12 @@ public interface IcebergCatalogOps {
     /** Renames {@code dbName.oldName} to {@code dbName.newName} (same database). */
     void renameTable(String dbName, String oldName, String newName);
 
+    /**
+     * Sets {@code properties} on {@code dbName.tableName} in ONE {@code UpdateProperties} commit, so iceberg
+     * validates the whole map before any of it is written. Keys not in the map keep their current values.
+     */
+    void setTableProperties(String dbName, String tableName, Map<String, String> properties);
+
     /** The table's storage location, or empty when blank — read BEFORE a drop to prune empty dirs. */
     Optional<String> loadTableLocation(String dbName, String tableName);
 
@@ -161,12 +179,12 @@ public interface IcebergCatalogOps {
 
     /**
      * Modifies a primitive {@code column} (type/comment/nullable) of {@code dbName.tableName}, optional move.
-     * {@code commentSpecified} carries the #65329 "omit-preserves-metadata" semantics: an omitted COMMENT keeps
-     * the column's current doc rather than clearing it (parity with {@link #modifyNestedColumn} and legacy
-     * {@code IcebergMetadataOps.modifyColumn}).
+     * {@code nullableSpecified} / {@code commentSpecified} carry the #65329 "omit-preserves-metadata" semantics:
+     * an omitted NULL keeps the column's current requiredness and an omitted COMMENT keeps its current doc
+     * (parity with {@link #modifyNestedColumn} and legacy {@code IcebergMetadataOps.modifyColumn}).
      */
-    void modifyColumn(String dbName, String tableName, IcebergColumnChange column, boolean commentSpecified,
-            ConnectorColumnPosition position);
+    void modifyColumn(String dbName, String tableName, IcebergColumnChange column, boolean nullableSpecified,
+            boolean commentSpecified, ConnectorColumnPosition position);
 
     /** Reorders the columns of {@code dbName.tableName} to match {@code newOrder} (full ordered name list). */
     void reorderColumns(String dbName, String tableName, List<String> newOrder);
@@ -311,7 +329,17 @@ public interface IcebergCatalogOps {
                 LOG.warn("Iceberg catalog does not support namespaces");
                 return Collections.emptyList();
             }
-            return listNestedNamespaces(rootNamespace());
+            Namespace root = rootNamespace();
+            try {
+                return listNestedNamespaces(root);
+            } catch (NoSuchNamespaceException e) {
+                // Hadoop creates the warehouse lazily with the first namespace. Its absent implicit
+                // root is an empty catalog, unlike a missing named or REST root; I/O errors still fail.
+                if (catalog instanceof HadoopCatalog && root.isEmpty()) {
+                    return Collections.emptyList();
+                }
+                throw e;
+            }
         }
 
         /**
@@ -358,12 +386,7 @@ public interface IcebergCatalogOps {
                     .collect(Collectors.toList());
             // iceberg's listTables also returns views, so subtract the view names when the catalog is a
             // (view-enabled) ViewCatalog — mirrors legacy IcebergMetadataOps.listTableNames.
-            if (!isViewCatalogEnabled()) {
-                return tableNames;
-            }
-            List<String> views = resolveViewCatalog().listViews(ns).stream()
-                    .map(TableIdentifier::name)
-                    .collect(Collectors.toList());
+            List<String> views = listViewNames(dbName);
             if (views.isEmpty()) {
                 return tableNames;
             }
@@ -380,9 +403,18 @@ public interface IcebergCatalogOps {
             if (!isViewCatalogEnabled()) {
                 return Collections.emptyList();
             }
-            return resolveViewCatalog().listViews(toNamespace(dbName)).stream()
+            return probeViews(() -> resolveViewCatalog().listViews(toNamespace(dbName)).stream()
                     .map(TableIdentifier::name)
-                    .collect(Collectors.toList());
+                    .collect(Collectors.toList()), Collections.emptyList());
+        }
+
+        @Override
+        public List<String> listRelationNames(String dbName) {
+            LinkedHashSet<String> names = catalog.listTables(toNamespace(dbName)).stream()
+                    .map(TableIdentifier::name)
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
+            names.addAll(listViewNames(dbName));
+            return new ArrayList<>(names);
         }
 
         @Override
@@ -397,7 +429,7 @@ public interface IcebergCatalogOps {
             if (!isViewCatalogEnabled()) {
                 return false;
             }
-            return resolveViewCatalog().viewExists(toTableIdentifier(dbName, viewName));
+            return probeViews(() -> resolveViewCatalog().viewExists(toTableIdentifier(dbName, viewName)), false);
         }
 
         @Override
@@ -477,6 +509,16 @@ public interface IcebergCatalogOps {
         }
 
         @Override
+        public void setTableProperties(String dbName, String tableName, Map<String, String> properties) {
+            withTable(dbName, tableName, table -> {
+                UpdateProperties updateProperties = table.updateProperties();
+                properties.forEach(updateProperties::set);
+                updateProperties.commit();
+                return null;
+            });
+        }
+
+        @Override
         public Optional<String> loadTableLocation(String dbName, String tableName) {
             return withTable(dbName, tableName, table -> {
                 String location = table.location();
@@ -495,6 +537,10 @@ public interface IcebergCatalogOps {
         public void addColumn(String dbName, String tableName, IcebergColumnChange column,
                 ConnectorColumnPosition position) {
             withTable(dbName, tableName, table -> {
+                if (column.getType().isVariantType()) {
+                    IcebergWriterHelper.validateVariantColumn(table, column.getName());
+                }
+                IcebergWriterHelper.validateNotRowLineageColumn(table, column.getName(), "add");
                 IcebergNestedColumnEvolution.validateNoCaseInsensitiveSiblingCollision(
                         table.schema().asStruct(), "", column.getName(), null, "add");
                 UpdateSchema updateSchema = table.updateSchema();
@@ -509,6 +555,12 @@ public interface IcebergCatalogOps {
         @Override
         public void addColumns(String dbName, String tableName, List<IcebergColumnChange> columns) {
             withTable(dbName, tableName, table -> {
+                for (IcebergColumnChange column : columns) {
+                    if (column.getType().isVariantType()) {
+                        IcebergWriterHelper.validateVariantColumn(table, column.getName());
+                    }
+                    IcebergWriterHelper.validateNotRowLineageColumn(table, column.getName(), "add");
+                }
                 IcebergNestedColumnEvolution.validateNoCaseInsensitiveTopLevelCollisions(table.schema(), columns);
                 UpdateSchema updateSchema = table.updateSchema();
                 for (IcebergColumnChange column : columns) {
@@ -531,6 +583,7 @@ public interface IcebergCatalogOps {
         @Override
         public void renameColumn(String dbName, String tableName, String oldName, String newName) {
             withTable(dbName, tableName, table -> {
+                IcebergWriterHelper.validateNotRowLineageColumn(table, newName, "rename to");
                 IcebergNestedColumnEvolution.renameTopLevelColumn(table, oldName, newName);
                 return null;
             });
@@ -538,7 +591,7 @@ public interface IcebergCatalogOps {
 
         @Override
         public void modifyColumn(String dbName, String tableName, IcebergColumnChange column,
-                boolean commentSpecified, ConnectorColumnPosition position) {
+                boolean nullableSpecified, boolean commentSpecified, ConnectorColumnPosition position) {
             withTable(dbName, tableName, table -> {
                 Schema schema = table.schema();
                 Types.NestedField current = IcebergNestedColumnEvolution.findTopLevelField(
@@ -560,7 +613,17 @@ public interface IcebergCatalogOps {
                 // #65329 omit-preserves: an omitted COMMENT keeps the field's current doc rather than clearing it
                 // (mirror of IcebergNestedColumnEvolution.modifyColumn / legacy IcebergMetadataOps).
                 String targetComment = commentSpecified ? column.getComment() : current.doc();
-                if (newType.isPrimitiveType()) {
+                if (current.type().isVariantType() != newType.isVariantType()) {
+                    throw new DorisConnectorException("Cannot change column type involving Iceberg VARIANT: "
+                            + column.getName() + ": " + current.type() + " -> " + newType);
+                }
+                if (newType.isVariantType()) {
+                    // A VARIANT modify changes only metadata, so it does not check the file format: an existing
+                    // v3 ORC table can hold a VARIANT column although Doris writes VARIANT values only to Parquet.
+                    if (!Objects.equals(current.doc(), targetComment)) {
+                        updateSchema.updateColumnDoc(currentName, targetComment);
+                    }
+                } else if (newType.isPrimitiveType()) {
                     // Reject a complex -> primitive change with a clean message before iceberg's updateColumn leaks
                     // a raw type-diff error — parity with IcebergNestedColumnEvolution.modifyColumn / legacy
                     // IcebergMetadataOps (symmetric with the non-complex -> complex guard below).
@@ -582,7 +645,8 @@ public interface IcebergCatalogOps {
                         updateSchema.updateColumnDoc(currentName, targetComment);
                     }
                 }
-                if (column.isNullable()) {
+                // #65329: only an explicit NULL widens the column; an omitted NULL keeps it required.
+                if (nullableSpecified && column.isNullable()) {
                     updateSchema.makeColumnOptional(currentName);
                 }
                 IcebergNestedColumnEvolution.applyTopLevelPosition(
@@ -830,6 +894,19 @@ public interface IcebergCatalogOps {
                 throw new DorisConnectorException("Iceberg catalog does not support databases (namespaces)");
             }
             return (SupportsNamespaces) catalog;
+        }
+
+        private <T> T probeViews(Supplier<T> probe, T noViews) {
+            try {
+                return probe.get();
+            } catch (UnsupportedOperationException e) {
+                // JdbcCatalog implements ViewCatalog even for V0, which cannot store views. The SDK
+                // rejects these probes before SQL; do not require a V1 migration merely to read tables.
+                if (resolveViewCatalog() instanceof JdbcCatalog) {
+                    return noViews;
+                }
+                throw e;
+            }
         }
 
         /** View filtering is on iff a view catalog is resolvable and (for REST) views are enabled. */

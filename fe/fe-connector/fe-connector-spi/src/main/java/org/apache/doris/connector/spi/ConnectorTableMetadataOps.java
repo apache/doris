@@ -62,12 +62,30 @@ import java.util.Optional;
  */
 public interface ConnectorTableMetadataOps {
 
-    /** Retrieves a table handle for the given database and table name. */
+    /**
+     * Retrieves a table handle for the given database and table name. Empty means the table does not exist;
+     * authentication, transport and other lookup failures must propagate rather than report absence.
+     */
     @ConnectorMustImplement
     default Optional<ConnectorTableHandle> getTableHandle(
             ConnectorSession session, String dbName,
             String tableName) {
         return Optional.empty();
+    }
+
+    /**
+     * Resolves a handle for DDL after the caller has checked live table existence. Connectors whose read handles
+     * require scan-capable metadata may return an identifier-only handle here. Other connectors retain their
+     * existing handle resolution behavior.
+     */
+    default Optional<ConnectorTableHandle> getTableHandleForDdl(
+            ConnectorSession session, String dbName, String tableName) {
+        return getTableHandle(session, dbName, tableName);
+    }
+
+    /** Checks existence without requiring the caller to retain a planning handle or read metadata. */
+    default boolean tableExists(ConnectorSession session, String dbName, String tableName) {
+        return getTableHandle(session, dbName, tableName).isPresent();
     }
 
     /**

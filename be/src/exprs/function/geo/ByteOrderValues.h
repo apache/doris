@@ -34,19 +34,19 @@ namespace doris {
  */
 class ByteOrderValues {
 public:
-    enum EndianType { ENDIAN_BIG = 0, ENDIAN_LITTLE = 1 };
+    enum class EndianType { ENDIAN_BIG = 0, ENDIAN_LITTLE = 1 };
 
-    static int32_t getInt(const unsigned char* buf, int byteOrder);
-    static void putInt(int32_t intValue, unsigned char* buf, int byteOrder);
+    static int32_t getInt(const unsigned char* buf, EndianType byteOrder);
+    static void putInt(int32_t intValue, unsigned char* buf, EndianType byteOrder);
 
-    static uint32_t getUnsigned(const unsigned char* buf, int byteOrder);
-    static void putUnsigned(uint32_t intValue, unsigned char* buf, int byteOrder);
+    static uint32_t getUnsigned(const unsigned char* buf, EndianType byteOrder);
+    static void putUnsigned(uint32_t intValue, unsigned char* buf, EndianType byteOrder);
 
-    static int64_t getLong(const unsigned char* buf, int byteOrder);
-    static void putLong(int64_t longValue, unsigned char* buf, int byteOrder);
+    static int64_t getLong(const unsigned char* buf, EndianType byteOrder);
+    static void putLong(int64_t longValue, unsigned char* buf, EndianType byteOrder);
 
-    static double getDouble(const unsigned char* buf, int byteOrder);
-    static void putDouble(double doubleValue, unsigned char* buf, int byteOrder);
+    static double getDouble(const unsigned char* buf, EndianType byteOrder);
+    static void putDouble(double doubleValue, unsigned char* buf, EndianType byteOrder);
 };
 
 } // namespace doris

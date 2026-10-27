@@ -271,17 +271,21 @@ public class S3EventSourceOffsetProviderTest {
     }
 
     @Test
-    public void testNotificationMetadataDoesNotRequireHead() {
+    public void testNotificationUsesEventSizeAndCurrentTimeWithoutHead() {
         Mockito.when(sqsClient.receiveMessage(Mockito.any(ReceiveMessageRequest.class)))
                 .thenReturn(response(message("literal", record("bucket", "logs/a%2Cb%5B1%5D.csv", 123))));
+        long before = System.currentTimeMillis();
         provider.fetchRemoteMeta(jobProperties(1), tvfProperties);
+        long after = System.currentTimeMillis();
 
         S3EventOffset offset = nextOffset();
         Assertions.assertEquals(Collections.singletonList("logs/a,b[1].csv"), offset.getFiles());
         Assertions.assertEquals("s3://bucket/logs/a,b[1].csv", offset.getFileStatuses().get(0).getPath());
         Assertions.assertEquals(123, offset.getFileStatuses().get(0).getSize());
-        Assertions.assertFalse(offset.toSerializedJson().contains("fileStatuses"));
+        long modificationTime = offset.getFileStatuses().get(0).getModificationTime();
+        Assertions.assertTrue(modificationTime >= before && modificationTime <= after);
         Mockito.verify(s3Client, Mockito.never()).headObject(Mockito.any(HeadObjectRequest.class));
+        Assertions.assertFalse(offset.toSerializedJson().contains("fileStatuses"));
         Mockito.verify(sqsClient, Mockito.never()).deleteMessageBatch(Mockito.any(DeleteMessageBatchRequest.class));
     }
 
@@ -464,7 +468,7 @@ public class S3EventSourceOffsetProviderTest {
         String noTimestamp = record("bucket", "logs/a.csv", 1)
                 .replace("\"eventTime\":\"2026-01-01T00:00:00.000Z\",", "");
         Mockito.when(sqsClient.receiveMessage(Mockito.any(ReceiveMessageRequest.class)))
-                .thenReturn(response(message("missing-time", noTimestamp)));
+                .thenReturn(response(message("missing-time", noTimestamp, record("bucket", "logs/null.csv", 1, null))));
         provider.fetchRemoteMeta(jobProperties(1), tvfProperties);
         provider.updateOffset(nextOffset());
         provider.onTaskCommitted(1, 1);
@@ -599,7 +603,8 @@ public class S3EventSourceOffsetProviderTest {
         String validEvent = message("invalid", record("bucket", "logs/a.csv", 1)).body();
         String unsupportedEvent = validEvent.replace("ObjectCreated:Put", "ObjectRemoved:Delete");
         for (String body : Arrays.asList("", " ", "not-json", "null", "[]", "{}", "{\"Records\":\"invalid\"}",
-                "{\"Records\":[null]}", "{\"Event\":\"s3:TestEvent\"}",
+                "{\"Records\":null}", "{\"Records\":[]}", "{\"Records\":[null]}", "{\"Records\":[42]}",
+                "{\"Event\":\"s3:TestEvent\"}",
                 validEvent + " {}", validEvent + " garbage", unsupportedEvent)) {
             Mockito.clearInvocations(sqsClient);
             Mockito.when(sqsClient.receiveMessage(Mockito.any(ReceiveMessageRequest.class)))
@@ -610,16 +615,84 @@ public class S3EventSourceOffsetProviderTest {
 
             Assertions.assertFalse(provider.hasMoreDataToConsume());
             Assertions.assertNull(provider.getPersistInfo());
-            ArgumentCaptor<DeleteMessageBatchRequest> deleted = ArgumentCaptor.forClass(DeleteMessageBatchRequest.class);
+            ArgumentCaptor<DeleteMessageBatchRequest> deleted =
+                    ArgumentCaptor.forClass(DeleteMessageBatchRequest.class);
             Mockito.verify(sqsClient).deleteMessageBatch(deleted.capture());
             Assertions.assertEquals(Collections.singletonList("invalid"), deleteHandles(deleted.getValue()));
         }
     }
 
     @Test
-    public void testInvalidRecordsDoNotDiscardValidFilesAndDeletionWaitsForCommit() {
+    public void testEventDecodingPreservesSizeTimeAndUnknownFields() {
+        long size = (long) Integer.MAX_VALUE + 1;
+        String eventTime = "2026-01-01T08:00:00.987+08:00";
+        String validRecord = record("bucket", "logs/a+b%2Bc%252F%E4%B8%AD.csv", size, eventTime)
+                .replace("\"size\":" + size, "\"size\":\"" + size + "\"")
+                .replace("\"s3\":{", "\"s3\":{\"futureField\":true,")
+                .replace("\"object\":{", "\"object\":{\"futureField\":[],");
+        String body = message("compatible", validRecord).body()
+                .replace("{\"Records\":", "{/* comment */\"futureField\":{},\"Records\":");
         Mockito.when(sqsClient.receiveMessage(Mockito.any(ReceiveMessageRequest.class)))
-                .thenReturn(response(message("mixed", record("bucket", "logs/a.csv", 1), "null",
+                .thenReturn(response(Message.builder().messageId("compatible").receiptHandle("compatible")
+                        .body(body).build()), ReceiveMessageResponse.builder().build());
+
+        provider.fetchRemoteMeta(jobProperties(2), tvfProperties);
+
+        S3EventOffset offset = nextOffset();
+        Assertions.assertEquals(Collections.singletonList("logs/a b+c%2F中.csv"), offset.getFiles());
+        Assertions.assertEquals(size, offset.getFileStatuses().get(0).getSize());
+        provider.updateOffset(offset);
+        provider.onTaskCommitted(1, size);
+        Assertions.assertEquals(Instant.parse(eventTime).toEpochMilli() / 1000,
+                provider.getLastSourceEventTimestampSeconds());
+    }
+
+    @Test
+    public void testUnusedNotificationMetadataDoesNotPreventIngestion() {
+        String validRecord = record("bucket", "logs/a.csv", 1)
+                .replace("\"userIdentity\":{\"principalId\":\"test\"}", "\"userIdentity\":42")
+                .replace("\"size\":1", "\"size\":1.9");
+        Mockito.when(sqsClient.receiveMessage(Mockito.any(ReceiveMessageRequest.class)))
+                .thenReturn(response(message("unused-metadata", validRecord)),
+                        ReceiveMessageResponse.builder().build());
+
+        provider.fetchRemoteMeta(jobProperties(2), tvfProperties);
+
+        S3EventOffset offset = nextOffset();
+        Assertions.assertEquals(Collections.singletonList("logs/a.csv"), offset.getFiles());
+        Assertions.assertEquals(1, offset.getFileStatuses().get(0).getSize());
+        Mockito.verify(sqsClient, Mockito.never()).deleteMessageBatch(Mockito.any(DeleteMessageBatchRequest.class));
+    }
+
+    @Test
+    public void testMalformedConsumedFieldsDiscardWholeMessage() {
+        String valid = record("bucket", "logs/valid.csv", 1);
+        for (String malformed : Arrays.asList(record("bucket", "logs/bad.csv", 1, "invalid-time"),
+                valid.replace("\"size\":1", "\"size\":\"invalid\""),
+                valid.replace("\"size\":1", "\"size\":9223372036854775808"),
+                valid.replace("\"key\":\"logs/valid.csv\"", "\"key\":{}"))) {
+            Mockito.clearInvocations(sqsClient);
+            Mockito.when(sqsClient.receiveMessage(Mockito.any(ReceiveMessageRequest.class)))
+                    .thenReturn(response(message("malformed", valid, malformed)),
+                            ReceiveMessageResponse.builder().build());
+
+            Assertions.assertDoesNotThrow(() -> provider.fetchRemoteMeta(jobProperties(2), tvfProperties));
+
+            Assertions.assertFalse(provider.hasMoreDataToConsume());
+            ArgumentCaptor<DeleteMessageBatchRequest> deleted =
+                    ArgumentCaptor.forClass(DeleteMessageBatchRequest.class);
+            Mockito.verify(sqsClient).deleteMessageBatch(deleted.capture());
+            Assertions.assertEquals(Collections.singletonList("malformed"), deleteHandles(deleted.getValue()));
+            Mockito.verify(sqsClient, Mockito.never()).changeMessageVisibilityBatch(
+                    Mockito.any(ChangeMessageVisibilityBatchRequest.class));
+        }
+    }
+
+    @Test
+    public void testSkippedRecordsDoNotDiscardValidFilesAndDeletionWaitsForCommit() {
+        Mockito.when(sqsClient.receiveMessage(Mockito.any(ReceiveMessageRequest.class)))
+                .thenReturn(response(message("mixed", record("bucket", "logs/missing.csv", 1),
+                        record("bucket", "logs/a.csv", 1), "null",
                         record("bucket", "logs/deleted.csv", 1).replace("ObjectCreated:Put", "ObjectRemoved:Delete"),
                         "{\"eventSource\":\"aws:s3\",\"eventName\":\"ObjectCreated:Put\"}",
                         record("bucket", "", 1), record("bucket", "logs/invalid.csv", -1),
@@ -629,10 +702,13 @@ public class S3EventSourceOffsetProviderTest {
         provider.fetchRemoteMeta(jobProperties(2), tvfProperties);
 
         S3EventOffset offset = nextOffset();
-        Assertions.assertEquals(Collections.singletonList("logs/a.csv"), offset.getFiles());
+        Assertions.assertEquals(Arrays.asList("logs/missing.csv", "logs/a.csv"), offset.getFiles());
+        Assertions.assertEquals(2, offset.getFileStatuses().size());
+        Assertions.assertEquals("s3://bucket/logs/missing.csv", offset.getFileStatuses().get(0).getPath());
+        Assertions.assertEquals("s3://bucket/logs/a.csv", offset.getFileStatuses().get(1).getPath());
         Mockito.verify(sqsClient, Mockito.never()).deleteMessageBatch(Mockito.any(DeleteMessageBatchRequest.class));
         provider.updateOffset(offset);
-        provider.onTaskCommitted(1, 1);
+        provider.onTaskCommitted(2, 2);
         Mockito.verify(sqsClient, Mockito.never()).deleteMessageBatch(Mockito.any(DeleteMessageBatchRequest.class));
         provider.fetchRemoteMeta(jobProperties(2), tvfProperties);
         ArgumentCaptor<DeleteMessageBatchRequest> deleted = ArgumentCaptor.forClass(DeleteMessageBatchRequest.class);
@@ -761,16 +837,20 @@ public class S3EventSourceOffsetProviderTest {
 
     private void assertResumeReceivesFreshReceipt(boolean running) {
         Mockito.when(sqsClient.receiveMessage(Mockito.any(ReceiveMessageRequest.class)))
-                .thenReturn(response(filesMessage("old", "logs/a.csv")),
-                        response(filesMessage("fresh", "logs/a.csv")));
+                .thenReturn(response(message("old", record("bucket", "logs/a.csv", 19))),
+                        response(message("fresh", record("bucket", "logs/a.csv", 170))));
         provider.fetchRemoteMeta(jobProperties(1), tvfProperties);
         if (running) {
             nextOffset();
         }
         provider.replayIfNeed(Mockito.mock(StreamingInsertJob.class));
         Assertions.assertFalse(provider.hasMoreDataToConsume());
+        long before = System.currentTimeMillis();
         provider.fetchRemoteMeta(jobProperties(1), tvfProperties);
         Assertions.assertEquals(Collections.singletonList("logs/a.csv"), nextOffset().getFiles());
+        Assertions.assertEquals(170, nextOffset().getFileStatuses().get(0).getSize());
+        long modificationTime = nextOffset().getFileStatuses().get(0).getModificationTime();
+        Assertions.assertTrue(modificationTime >= before && modificationTime <= System.currentTimeMillis());
         provider.updateOffset(nextOffset());
         provider.onTaskCommitted(1, 1);
         Mockito.when(sqsClient.receiveMessage(Mockito.any(ReceiveMessageRequest.class)))

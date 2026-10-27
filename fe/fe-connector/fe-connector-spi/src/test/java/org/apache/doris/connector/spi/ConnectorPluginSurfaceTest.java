@@ -20,6 +20,7 @@ package org.apache.doris.connector.spi;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
 import org.apache.doris.connector.spi.write.ConnectorChangelogMode;
 import org.apache.doris.connector.spi.write.ConnectorRowLevelDmlRequest;
@@ -87,23 +88,32 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Major 14 adds ConnectorScanRange#getSplitIdentity to the connector plugin surface.
-        Assertions.assertEquals("14.0", version.getProperty("api.version"));
+        // Major 20 adds deleteUsingMetadata to the connector write surface; major 21 adds
+        // typed filesystem credential descriptions and statement-scoped metadata.
+        // Major 22 adds the metadata-only DDL handle path; major 23 adds the provider's
+        // ConnectorSecuritySurface declaration.
+        Assertions.assertEquals("23.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
     private static final List<Class<?>> FROZEN_TYPES = Arrays.asList(
+            DiagnosticException.class,
             ConnectorProvider.class,
+            ConnectorSecuritySurface.class,
             ConnectorContext.class,
             ConnectorSession.class,
+            ConnectorStatementScope.class,
+            ConnectorStatementScopes.class,
             Connector.class,
             ConnectorColumnHandle.class,
             ConnectorColumn.class,
             ConnectorTableSchema.class,
             org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot.class,
+            org.apache.doris.connector.spi.mvcc.ConnectorSqlCacheVersion.class,
             org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot.Builder.class,
             ConnectorScanPlanProvider.class,
             org.apache.doris.connector.spi.scan.ConnectorScanRange.class,
+            ConnectorScanRequest.class,
             ConnectorWriteHandle.class,
             ConnectorChangelogMode.class,
             ConnectorRowLevelDmlRequest.class,

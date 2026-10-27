@@ -171,7 +171,7 @@ Status JdbcJniReader::_do_get_next_block(Block* block, size_t* read_rows, bool* 
 
 Status JdbcJniReader::_cast_string_to_special_type(const SlotDescriptor* slot_desc, Block* block,
                                                    int column_index, int num_rows) {
-    DataTypePtr target_data_type = slot_desc->get_data_type_ptr();
+    DataTypePtr target_data_type = slot_desc->type();
     std::string target_data_type_name = target_data_type->get_name();
 
     // Build input string type (nullable if slot is nullable)

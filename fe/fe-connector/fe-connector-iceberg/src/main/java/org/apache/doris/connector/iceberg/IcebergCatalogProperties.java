@@ -22,6 +22,8 @@ import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 import org.apache.doris.foundation.property.ConnectorProperty;
 
+import org.apache.iceberg.aws.HttpClientProperties;
+
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Locale;
@@ -143,6 +145,14 @@ public final class IcebergCatalogProperties {
         // DLF only exposes two-level namespaces; applying a synthetic root would make every lookup miss.
         if (TYPE_DLF.equals(flavor) && externalCatalogName != null) {
             throw new IllegalArgumentException("external_catalog.name is not supported for Iceberg DLF catalogs");
+        }
+        // iceberg-aws's "apache" client is Apache5HttpClient, which the AWS SDK Doris ships does not contain;
+        // fail here rather than with a NoClassDefFoundError on the first S3 or Glue call.
+        if (HttpClientProperties.CLIENT_TYPE_APACHE.equalsIgnoreCase(raw.get(HttpClientProperties.CLIENT_TYPE))) {
+            throw new IllegalArgumentException(HttpClientProperties.CLIENT_TYPE + "="
+                    + HttpClientProperties.CLIENT_TYPE_APACHE + " is not supported: it requires an AWS SDK newer than"
+                    + " the one Doris ships. Use " + HttpClientProperties.CLIENT_TYPE_URLCONNECTION
+                    + " (the default) instead.");
         }
         // Selects the backend by flavor and enforces its fail-fast rules -- REST (security/creds enums,
         // OAuth2, signing, AK/SK), Glue (AK/SK-together, endpoint https, at-least-one-credential), JDBC

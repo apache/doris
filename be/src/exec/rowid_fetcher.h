@@ -35,6 +35,7 @@
 
 namespace doris {
 
+class RuntimeProfile;
 class RuntimeState;
 class TQueryOptions;
 class TupleDescriptor;
@@ -81,6 +82,14 @@ public:
     static const std::string TopNLazyMaterializationSecondPhaseSegmentsRead;
 
     static Status read_by_rowids(const PMultiGetRequestV2& request, PMultiGetResponseV2* response);
+
+    // Runs read_by_rowids() for the multiget_data_v2 RPC and serializes the outcome into the
+    // response status. The remote scan scheduler runs the RPC callback on a plain ThreadPool
+    // worker, which has no exception boundary of its own, so a doris::Exception thrown while
+    // reading (for example by a slot of the request whose PTypeNode this BE does not know) is
+    // converted into an error status here instead of terminating the process.
+    static void read_by_rowids_for_rpc(const PMultiGetRequestV2& request,
+                                       PMultiGetResponseV2* response);
 
 private:
     static bool should_use_file_scanner_v2(const TQueryOptions& query_options,
@@ -139,6 +148,16 @@ private:
                                              size_t task_count,
                                              const std::function<std::string(size_t)>& make_task_id,
                                              const std::function<Status(size_t)>& run_task);
+
+    // Reports InitReaderAvgTime and GetBlockAvgTime of one request block: the mean reader-init
+    // and block-read times over its scan ranges, e.g. 20ms and 200ms for two ranges that took
+    // 10/100 ms and 30/300 ms. Both outputs are overwritten rather than accumulated, because an
+    // RPC that fetches two lazily materialized tables reads its two request blocks into the same
+    // caller variables.
+    static void add_external_fetch_avg_time_profile(
+            const std::vector<ExternalFetchStatistics>& fetch_statistics,
+            RuntimeProfile* runtime_profile, int64_t* init_reader_avg_ms,
+            int64_t* get_block_avg_ms);
 
     struct ExternalFetchStatistics {
         int64_t init_reader_ms = 0;

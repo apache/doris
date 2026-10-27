@@ -21,6 +21,7 @@
 
 #include "common/config.h"
 #include "common/status.h"
+#include "cpp/sync_point.h"
 #include "storage/olap_define.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset_meta.h"
@@ -43,8 +44,27 @@ bool SegmentCache::lookup(const SegmentCache::CacheKey& key, SegmentCacheHandle*
 
 void SegmentCache::insert(const SegmentCache::CacheKey& key, SegmentCache::CacheValue& value,
                           SegmentCacheHandle* handle) {
+    // Keep the cache weakly referenced: the cache owns the segment. The raw segment
+    // pointer is only compared while its own initialization invokes the callback.
+    value.segment->set_cache_charge_callback([cache = std::weak_ptr<Cache>(_cache),
+                                              encoded_key = key.encode(),
+                                              segment = value.segment.get()](size_t charge) {
+        auto owner = cache.lock();
+        if (!owner) {
+            return; // The Segment may outlive the cache during shutdown.
+        }
+        auto* entry = owner->lookup(encoded_key);
+        if (entry == nullptr) {
+            return; // Already evicted.
+        }
+        // Another instance of this segment may have replaced the cached entry.
+        if (static_cast<CacheValue*>(owner->value(entry))->segment.get() == segment) {
+            owner->update_charge(entry, charge);
+        }
+        owner->release(entry);
+    });
     auto* lru_handle =
-            LRUCachePolicy::insert(key.encode(), &value, value.segment->meta_mem_usage(),
+            LRUCachePolicy::insert(key.encode(), &value, value.segment->cache_charge(),
                                    value.segment->meta_mem_usage(), CachePriority::NORMAL);
     handle->push_segment(this, lru_handle);
 }
@@ -99,6 +119,7 @@ Status SegmentLoader::load_segments(const BetaRowsetSharedPtr& rowset,
                                     bool need_load_pk_index_and_bf,
                                     OlapReaderStatistics* index_load_stats,
                                     const io::IOContext* io_ctx) {
+    TEST_SYNC_POINT_CALLBACK("SegmentLoader::load_segments", rowset.get());
     if (cache_handle->is_inited()) {
         return Status::OK();
     }

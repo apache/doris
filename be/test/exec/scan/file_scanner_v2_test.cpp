@@ -93,6 +93,22 @@ TFileRangeDesc legacy_paimon_jni_range_without_reader_type() {
     return range;
 }
 
+TFileRangeDesc paimon_rust_jni_range(bool with_schema_json = true) {
+    auto range = range_with_format("paimon", TFileFormatType::FORMAT_JNI);
+    TPaimonFileDesc paimon_params;
+    paimon_params.__set_reader_type(TPaimonReaderType::PAIMON_RUST);
+    paimon_params.__set_file_format("parquet");
+    paimon_params.__set_paimon_split("serialized-rust-split");
+    paimon_params.__set_paimon_table("/paimon/warehouse/db.db/t");
+    paimon_params.__set_db_name("db");
+    paimon_params.__set_table_name("t");
+    if (with_schema_json) {
+        paimon_params.__set_paimon_table_schema_json("{}");
+    }
+    range.table_format_params.__set_paimon_params(std::move(paimon_params));
+    return range;
+}
+
 TEST(FileScannerTest, V1CountPushdownRequiresExplicitCountStarArguments) {
     EXPECT_EQ(TPushAggOp::type::COUNT, FileScanner::TEST_effective_push_down_agg_type(
                                                TPushAggOp::type::COUNT, std::vector<int32_t> {}));
@@ -353,6 +369,7 @@ TEST(FileScannerV2Test, SupportedFormatMatrix) {
             {"hive", TFileFormatType::FORMAT_ARROW, std::nullopt, false},
             {"", TFileFormatType::FORMAT_ARROW, std::nullopt, false},
             {"", TFileFormatType::FORMAT_WAL, std::nullopt, true},
+            {"es", TFileFormatType::FORMAT_ES_HTTP, std::nullopt, true},
             {"", TFileFormatType::FORMAT_ES_HTTP, std::nullopt, false},
             {"", TFileFormatType::FORMAT_LANCE, std::nullopt, false},
     };
@@ -446,7 +463,7 @@ TEST(FileScannerV2Test, ConditionCacheDigestIncludesRuntimeFilterPayload) {
               0);
 }
 
-TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesOnly) {
+TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesAndLoads) {
     TQueryOptions query_options;
     TFileScanRangeParams params;
     params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
@@ -455,15 +472,21 @@ TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesOnly) {
 
     query_options.__set_enable_file_scanner_v2(true);
     EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
-    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, true, params));
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, true, params));
 
     params.__set_format_type(TFileFormatType::FORMAT_WAL);
     EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
     params.__set_format_type(TFileFormatType::FORMAT_JNI);
     EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
 
-    const std::vector<TFileFormatType::type> unsupported_formats {TFileFormatType::FORMAT_ES_HTTP,
-                                                                  TFileFormatType::FORMAT_LANCE};
+    params.__set_format_type(TFileFormatType::FORMAT_ES_HTTP);
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, true, params));
+    query_options.__set_enable_file_scanner_v2(false);
+    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+    query_options.__set_enable_file_scanner_v2(true);
+
+    const std::vector<TFileFormatType::type> unsupported_formats {TFileFormatType::FORMAT_LANCE};
     for (const auto format : unsupported_formats) {
         params.__set_format_type(format);
         EXPECT_FALSE(
@@ -489,7 +512,7 @@ TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesOnly) {
     params.__isset.hive_parquet_time_zone = false;
     params.__set_parquet_timestamp_semantics_version(1);
     EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
-    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, true, params));
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, true, params));
     // Paimon keeps FORMAT_JNI at scan level even when its ranges are native Parquet files.
     params.format_type = TFileFormatType::FORMAT_JNI;
     params.__set_paimon_predicate("encoded-predicate");
@@ -519,7 +542,8 @@ TEST(FileScannerV2Test, IcebergOrcDefaultCannotHideDeferredParquetRanges) {
     // Scanner construction precedes remote split delivery; the default says nothing about
     // retained Parquet files after changing write.format.default to ORC.
     EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(options, false, params));
-    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(options, true, params));
+    // ORC loads select V2 independently of the external-query session option.
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(options, true, params));
     params.__isset.parquet_timestamp_semantics_version = false;
     EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(options, false, params));
     params.__set_hive_parquet_time_zone("");
@@ -560,6 +584,32 @@ TEST(FileScannerV2Test, JniCompatibilityShapesUseV2Scanner) {
     params.__set_format_type(TFileFormatType::FORMAT_JNI);
     EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
     EXPECT_TRUE(FileScannerV2::is_supported(params, legacy_paimon_jni_range_without_reader_type()));
+}
+
+TEST(FileScannerV2Test, PaimonRustSplitUsesV2Scanner) {
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_JNI);
+
+    // A complete rust split (schema json + serialized split) is supported by V2.
+    EXPECT_TRUE(FileScannerV2::is_supported(params, paimon_rust_jni_range()));
+    EXPECT_TRUE(FileScannerV2::TEST_validate_scan_range(params, paimon_rust_jni_range()).ok());
+
+    // The schema-json pipeline field is required: a rust split without it cannot open the
+    // table and is rejected at validation instead of failing deep inside the reader.
+    const auto rust_range_without_schema = paimon_rust_jni_range(/*with_schema_json=*/false);
+    EXPECT_FALSE(FileScannerV2::is_supported(params, rust_range_without_schema));
+    const auto status = FileScannerV2::TEST_validate_scan_range(params, rust_range_without_schema);
+    EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
+
+    // Regression guard: PAIMON_CPP splits must remain on the V1 fallback.
+    auto cpp_range = range_with_format("paimon", TFileFormatType::FORMAT_JNI);
+    {
+        TPaimonFileDesc cpp_paimon_params;
+        cpp_paimon_params.__set_reader_type(TPaimonReaderType::PAIMON_CPP);
+        cpp_paimon_params.__set_file_format("parquet");
+        cpp_range.table_format_params.__set_paimon_params(std::move(cpp_paimon_params));
+    }
+    EXPECT_FALSE(FileScannerV2::is_supported(params, cpp_range));
 }
 
 // Scenario: every range of a fluss scan carries the one table format "fluss", and which side reads

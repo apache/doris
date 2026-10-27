@@ -187,6 +187,7 @@ class ReviewGuidanceTest(unittest.TestCase):
             sed.write_text('#!/bin/bash\nif [ "$1" = -i ]; then shift; exec /usr/bin/sed -i "" "$@"; fi\nexec /usr/bin/sed "$@"\n')
             sed.chmod(0o755)
         env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}",
+               "REVIEW_GH_HELPER": str(SCRIPTS / "review_github_api.py"),
                "REPO": "apache/doris", "PR_NUMBER": "66227", "HEAD_SHA": self.head,
                "BASE_SHA": self.base, "HELPER_REF": self.trusted,
                "REVIEW_CONTEXT_DIR": str(self.context), "REVIEW_CONTEXT_REL": self.context.name,

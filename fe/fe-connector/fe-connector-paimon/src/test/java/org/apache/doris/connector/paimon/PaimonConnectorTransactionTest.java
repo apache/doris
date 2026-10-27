@@ -30,8 +30,8 @@ import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.io.CompactIncrement;
 import org.apache.paimon.io.DataIncrement;
 import org.apache.paimon.io.DataOutputViewStreamWrapper;
+import org.apache.paimon.schema.FileSystemSchemaManager;
 import org.apache.paimon.schema.Schema;
-import org.apache.paimon.schema.SchemaManager;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.DelegatedFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
@@ -85,7 +85,7 @@ public class PaimonConnectorTransactionTest {
         org.apache.paimon.fs.Path location =
                 new org.apache.paimon.fs.Path("file://" + warehouse + "/db.db/tbl");
         LocalFileIO fileIO = LocalFileIO.create();
-        new SchemaManager(fileIO, location).createTable(new Schema(
+        new FileSystemSchemaManager(fileIO, location).createTable(new Schema(
                 Collections.singletonList(ID), Collections.emptyList(), Collections.emptyList(),
                 Collections.emptyMap(), ""));
         table = FileStoreTableFactory.create(fileIO, location);
@@ -207,7 +207,7 @@ public class PaimonConnectorTransactionTest {
                 new PaimonConnectorTransaction(TRANSACTION_ID, new RecordingConnectorContext());
         transaction.bind(PaimonWriteBinding.create(
                 new PaimonTableHandle("db", "tbl", Collections.emptyList(), Collections.emptyList()),
-                target, Collections.emptyMap(), plainInsert()));
+                target, Collections.emptyMap(), plainInsert(), true));
         return transaction;
     }
 
@@ -267,8 +267,8 @@ public class PaimonConnectorTransactionTest {
 
     /**
      * The real table, except that the committer it opens follows the test's script. Reconciliation
-     * still reads the real snapshot manager. The script is transient because the write binding
-     * serializes the table it is given.
+     * still reads the real snapshot manager. The write binding serializes a copy of the real table
+     * for the BE writer; the script is transient all the same.
      */
     private static final class ScriptedTable extends DelegatedFileStoreTable {
         transient int newCommitFailures;
@@ -302,7 +302,8 @@ public class PaimonConnectorTransactionTest {
 
         @Override
         public FileStoreTable copy(TableSchema newTableSchema) {
-            throw new UnsupportedOperationException();
+            // The table the BE writer gets carries doris.write.char-padding; the committer keeps this one.
+            return wrapped().copy(newTableSchema);
         }
 
         @Override

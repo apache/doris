@@ -19,6 +19,10 @@ suite("test_iceberg_timestamp_ns", "p0,external,iceberg") {
     if (!context.config.otherConfigs.get("enableIcebergTest")?.equalsIgnoreCase("true")) {
         return
     }
+    // This suite was written against the dynamic overwrite scope (the previous default). Pin it explicitly
+    // now that iceberg_partition_overwrite_mode defaults to 'static'.
+    sql """ set iceberg_partition_overwrite_mode = 'dynamic' """
+
     String host = context.config.otherConfigs.get("externalEnvIp")
     // The newer REST fixture preserves nanosecond schema defaults; the baseline 1.10 server rescales them.
     String restPort = context.config.otherConfigs.get("iceberg_scan_planning_rest_uri_port")

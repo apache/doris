@@ -46,9 +46,8 @@ suite("test_mow_time_travel_row_policy", "nonConcurrent,p0,auth") {
         PROPERTIES (
             'replication_num' = '1',
             'enable_unique_key_merge_on_write' = 'true',
-            'binlog.enable' = 'true',
-            'binlog.format' = 'ROW',
-            'binlog.need_historical_value' = 'true'
+            'changelog.enable' = 'true',
+            'changelog.need_historical_value' = 'true'
         )
     """
 
@@ -57,7 +56,7 @@ suite("test_mow_time_travel_row_policy", "nonConcurrent,p0,auth") {
     long snapshotTso = sql("SELECT MAX(__DORIS_COMMIT_TSO_COL__) FROM ${dbName}.${tableName}")[0][0] as Long
     sql "SET show_hidden_columns = false"
 
-    // The historical left branch contains unchanged keys 1 and 5. The row-binlog right branch
+    // The historical left branch contains unchanged keys 1 and 5. The changelog right branch
     // restores updated key 2 and deleted key 3. A new key 4 must not appear in the snapshot.
     sql "INSERT INTO ${dbName}.${tableName} VALUES (2, 200, 2000)"
     sql "DELETE FROM ${dbName}.${tableName} WHERE k = 3"
@@ -88,7 +87,7 @@ suite("test_mow_time_travel_row_policy", "nonConcurrent,p0,auth") {
         // Restrictive AND (permissive OR permissive) leaves only key 1 in the latest image.
         order_qt_latest_image "SELECT k, v FROM ${tableName} ORDER BY k"
 
-        // key 1 is supplied by the base-scan branch and key 3 by the row-binlog branch. A
+        // key 1 is supplied by the base-scan branch and key 3 by the changelog branch. A
         // missing policy marker on either scan leaks key 5 or key 2 respectively.
         order_qt_historical_image """
             SELECT k, v FROM ${tableName} FOR VERSION AS OF ${snapshotTso} ORDER BY k

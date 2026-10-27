@@ -26,6 +26,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <chrono>
 #include <cmath>
 #include <cstring>
@@ -74,6 +75,7 @@
 #include "format/format_common.h"
 #include "format/orc/orc_memory_stream_test.h"
 #include "format/table/deletion_vector_reader.h"
+#include "format_v2/parquet/parquet_reader.h"
 #include "format_v2/table_reader.h"
 #include "gen_cpp/Exprs_types.h"
 #include "gen_cpp/ExternalTableSchema_types.h"
@@ -1893,6 +1895,108 @@ TEST(IcebergV2ReaderTest, PreparesIcebergNonFiniteInitialDefaults) {
     }
 }
 
+TEST(IcebergV2ReaderTest, AnnotateVariantInitialDefaultMustBeNull) {
+    const auto variant_type = make_nullable(std::make_shared<DataTypeVariantV2>());
+
+    auto optional_variant =
+            external_schema_field("payload", 1, {}, std::nullopt,
+                                  external_primitive_type(TPrimitiveType::VARIANT), false, true);
+    TFileScanRangeParams valid_scan_params;
+    valid_scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+    valid_scan_params.__set_current_schema_id(100);
+    valid_scan_params.__set_history_schema_info(
+            {external_schema(100, {std::move(optional_variant)})});
+
+    ColumnDefinition valid_column;
+    valid_column.name = "payload";
+    valid_column.type = variant_type;
+    ProjectedColumnBuildContext valid_context {.scan_params = &valid_scan_params};
+    doris::format::iceberg::IcebergTableReader reader;
+    ASSERT_TRUE(reader.annotate_projected_column(TFileScanSlotInfo(), &valid_context, &valid_column)
+                        .ok());
+    ASSERT_TRUE(valid_column.is_optional.has_value());
+    EXPECT_TRUE(*valid_column.is_optional);
+    EXPECT_FALSE(valid_column.initial_default_value.has_value());
+    EXPECT_EQ(valid_column.default_expr, nullptr);
+    ASSERT_TRUE(valid_context.schema_column.has_value());
+    EXPECT_TRUE(valid_context.schema_column->type->equals(*variant_type));
+
+    auto malformed_variant =
+            external_schema_field("payload", 1, {}, "{\"source\":\"malformed\"}",
+                                  external_primitive_type(TPrimitiveType::VARIANT), false, true);
+    TFileScanRangeParams malformed_scan_params;
+    malformed_scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+    malformed_scan_params.__set_current_schema_id(101);
+    malformed_scan_params.__set_history_schema_info(
+            {external_schema(101, {std::move(malformed_variant)})});
+
+    ColumnDefinition malformed_column;
+    malformed_column.name = "payload";
+    malformed_column.type = variant_type;
+    ProjectedColumnBuildContext malformed_context {.scan_params = &malformed_scan_params};
+    const auto status = reader.annotate_projected_column(TFileScanSlotInfo(), &malformed_context,
+                                                         &malformed_column);
+    EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>()) << status;
+    EXPECT_NE(status.to_string().find("VARIANT initial-default for field 'payload' must be NULL"),
+              std::string::npos)
+            << status;
+}
+
+TEST(IcebergV2ReaderTest, StructInitialDefaultKeepsVariantChildNull) {
+    const auto variant_type = make_nullable(std::make_shared<DataTypeVariantV2>());
+    const auto struct_type = make_nullable(
+            std::make_shared<DataTypeStruct>(DataTypes {variant_type}, Strings {"payload"}));
+
+    auto optional_variant =
+            external_schema_field("payload", 2, {}, std::nullopt,
+                                  external_primitive_type(TPrimitiveType::VARIANT), false, true);
+    auto valid_struct =
+            external_struct_schema_field("event", 1, {std::move(optional_variant)}, true, "{}");
+    TFileScanRangeParams valid_scan_params;
+    valid_scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+    valid_scan_params.__set_current_schema_id(100);
+    valid_scan_params.__set_history_schema_info({external_schema(100, {std::move(valid_struct)})});
+
+    ColumnDefinition valid_column;
+    valid_column.name = "event";
+    valid_column.type = struct_type;
+    ProjectedColumnBuildContext valid_context {.scan_params = &valid_scan_params};
+    doris::format::iceberg::IcebergTableReader reader;
+    ASSERT_TRUE(reader.annotate_projected_column(TFileScanSlotInfo(), &valid_context, &valid_column)
+                        .ok());
+    ASSERT_NE(valid_column.default_expr, nullptr);
+    const auto* literal = dynamic_cast<const VLiteral*>(valid_column.default_expr->root().get());
+    ASSERT_NE(literal, nullptr);
+    EXPECT_TRUE(literal->get_data_type()->equals(*struct_type));
+    Field value;
+    literal->get_column_ptr()->get(0, value);
+    const auto& struct_fields = value.get<TYPE_STRUCT>();
+    ASSERT_EQ(struct_fields.size(), 1);
+    EXPECT_TRUE(struct_fields[0].is_null());
+
+    auto malformed_variant =
+            external_schema_field("payload", 2, {}, std::nullopt,
+                                  external_primitive_type(TPrimitiveType::VARIANT), false, true);
+    auto malformed_struct = external_struct_schema_field(
+            "event", 1, {std::move(malformed_variant)}, true, "{\"2\":{\"source\":\"malformed\"}}");
+    TFileScanRangeParams malformed_scan_params;
+    malformed_scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+    malformed_scan_params.__set_current_schema_id(101);
+    malformed_scan_params.__set_history_schema_info(
+            {external_schema(101, {std::move(malformed_struct)})});
+
+    ColumnDefinition malformed_column;
+    malformed_column.name = "event";
+    malformed_column.type = struct_type;
+    ProjectedColumnBuildContext malformed_context {.scan_params = &malformed_scan_params};
+    const auto status = reader.annotate_projected_column(TFileScanSlotInfo(), &malformed_context,
+                                                         &malformed_column);
+    EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>()) << status;
+    EXPECT_NE(status.to_string().find("VARIANT initial-default for field 'payload' must be NULL"),
+              std::string::npos)
+            << status;
+}
+
 TEST(IcebergV2ReaderTest, AnnotateBuildsComplexInitialDefaults) {
     const auto required_int_type = std::make_shared<DataTypeInt32>();
     const auto optional_string_type = make_nullable(std::make_shared<DataTypeString>());
@@ -2025,6 +2129,44 @@ TEST(IcebergV2ReaderTest, AnnotateBuildsComplexInitialDefaults) {
             "\x00\x11\x22\x33\x44\x55\x66\x77\x88\x99\xaa\xbb\xcc\xdd\xee\xff\x00\x11", 18);
     EXPECT_EQ(keys[0].get<TYPE_STRING>(), expected_binary_key);
     EXPECT_EQ(values[0].get<TYPE_INT>(), 9);
+}
+
+TEST(IcebergV2ReaderTest, AnnotateBuildsComplexDoubleDefaultAtFullPrecision) {
+    const auto double_type = std::make_shared<DataTypeFloat64>();
+    const auto list_type = make_nullable(std::make_shared<DataTypeArray>(double_type));
+    auto list_element =
+            external_schema_field("element", 2, {}, std::nullopt,
+                                  external_primitive_type(TPrimitiveType::DOUBLE), false, false);
+    auto list_field = external_schema_field("values", 1, {}, "[0.18172760479972437302]",
+                                            std::nullopt, false, true);
+    schema::external::TArrayField array_metadata;
+    array_metadata.__set_item_field(std::move(list_element));
+    list_field.field_ptr->nestedField.__set_array_field(std::move(array_metadata));
+    list_field.field_ptr->__isset.nestedField = true;
+    TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+    scan_params.__set_current_schema_id(100);
+    scan_params.__set_history_schema_info({external_schema(100, {std::move(list_field)})});
+
+    ColumnDefinition column;
+    column.name = "values";
+    column.type = list_type;
+    ProjectedColumnBuildContext context {.scan_params = &scan_params};
+    doris::format::iceberg::IcebergTableReader reader;
+    const auto status = reader.annotate_projected_column(TFileScanSlotInfo(), &context, &column);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_NE(column.default_expr, nullptr);
+    const auto* literal = dynamic_cast<const VLiteral*>(column.default_expr->root().get());
+    ASSERT_NE(literal, nullptr);
+    const auto literal_column = literal->get_column_ptr()->convert_to_full_column_if_const();
+    const auto& nullable = assert_cast<const ColumnNullable&>(*literal_column);
+    ASSERT_FALSE(nullable.is_null_at(0));
+    const auto& array = assert_cast<const ColumnArray&>(nullable.get_nested_column());
+    const auto& nullable_doubles = assert_cast<const ColumnNullable&>(array.get_data());
+    ASSERT_FALSE(nullable_doubles.is_null_at(0));
+    const auto& doubles = assert_cast<const ColumnFloat64&>(nullable_doubles.get_nested_column());
+    ASSERT_EQ(doubles.size(), 1);
+    EXPECT_EQ(std::bit_cast<uint64_t>(doubles.get_data()[0]), 0x3fc742d9a3b296dcULL);
 }
 
 TEST(IcebergV2ReaderTest, ComplexInitialDefaultPrefersExactChildNameOverAlias) {
@@ -4298,6 +4440,78 @@ TEST(IcebergV2ReaderTest, IcebergMissingWholeStructEqualityKeyMaterializesDefaul
     }
 }
 
+TEST(IcebergV2ReaderTest, IcebergProjectedStructDoesNotReuseReaddedEqualityKeyByName) {
+    const auto run_case = [](FileFormat file_format) {
+        const bool is_parquet = file_format == FileFormat::PARQUET;
+        const std::string format_name = is_parquet ? "parquet" : "orc";
+        const auto test_dir = std::filesystem::temp_directory_path() /
+                              ("doris_v2_missing_reused_equality_key_" + format_name);
+        std::filesystem::remove_all(test_dir);
+        std::filesystem::create_directories(test_dir);
+        const auto file_path = (test_dir / ("split." + format_name)).string();
+        const auto delete_file_path = (test_dir / ("equality-delete." + format_name)).string();
+        if (is_parquet) {
+            write_nested_equality_parquet_file(file_path, {1, 2, 3}, {7, 8, 9},
+                                               {false, false, false}, true, "k", 4);
+            write_nested_equality_parquet_file(delete_file_path, {}, {7}, {false}, true, "k", 3);
+        } else {
+            write_nested_equality_orc_file(file_path, {1, 2, 3}, {7, 8, 9}, {false, false, false},
+                                           "k", 4);
+            write_nested_equality_orc_file(delete_file_path, {}, {7}, {false}, "k", 3);
+        }
+
+        auto payload = external_struct_schema_field(
+                "payload", 1,
+                {external_schema_field("k", 4, {}, std::nullopt,
+                                       external_primitive_type(TPrimitiveType::INT), false, true),
+                 external_schema_field("k", 3, {}, std::nullopt,
+                                       external_primitive_type(TPrimitiveType::INT), false, true)},
+                true);
+        std::vector<schema::external::TSchema> history = {
+                external_schema(-1, {external_schema_field("id", 0), std::move(payload)})};
+
+        const auto int_type = std::make_shared<DataTypeInt32>();
+        std::vector<ColumnDefinition> projected_columns;
+        projected_columns.push_back(make_table_column(0, "id", int_type));
+        auto current_key = make_table_column(4, "k", int_type);
+        auto payload_type = std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"k"});
+        auto projected_payload = make_table_column(1, "payload", payload_type);
+        projected_payload.children = {std::move(current_key)};
+        projected_columns.push_back(std::move(projected_payload));
+        auto scan_params = make_local_scan_params(file_format);
+        scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+        scan_params.__set_current_schema_id(-1);
+        scan_params.__set_history_schema_info(std::move(history));
+
+        RuntimeProfile profile("test_profile");
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        io::FileReaderStats file_reader_stats;
+        io::FileCacheStatistics file_cache_stats;
+        auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+        ShardedKVCache cache(1);
+        doris::format::iceberg::IcebergTableReader reader;
+        init_iceberg_reader(&reader, projected_columns, &scan_params, io_ctx, &state, &profile,
+                            file_format);
+
+        auto split_options = build_split_options(file_path);
+        split_options.cache = &cache;
+        split_options.current_split_format = file_format;
+        const auto thrift_file_format =
+                is_parquet ? TFileFormatType::FORMAT_PARQUET : TFileFormatType::FORMAT_ORC;
+        split_options.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+                file_path,
+                {make_iceberg_equality_delete_file(delete_file_path, {3}, thrift_file_format)}, 3));
+        ASSERT_TRUE(reader.prepare_split(split_options).ok());
+        EXPECT_EQ(read_iceberg_ids(&reader, projected_columns), std::vector<int32_t>({1, 2, 3}));
+        ASSERT_TRUE(reader.close().ok());
+        std::filesystem::remove_all(test_dir);
+    };
+
+    for (const auto file_format : {FileFormat::PARQUET, FileFormat::ORC}) {
+        run_case(file_format);
+    }
+}
+
 // A schema carrier may contain a dropped and a re-added child with the same name. Keep the
 // Parquet/ORC setup identical so both readers prove that equality-key reconstruction follows the
 // exact field-id path instead of attaching both same-name children to one synthetic struct slot.
@@ -6399,6 +6613,42 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteFileSizeUnknownFallsBackToStat) {
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);
+}
+
+TEST(IcebergTableReaderTest, DeleteParquetFactoryReusesScannerCounters) {
+    RuntimeProfile profile("iceberg");
+    doris::format::parquet::ParquetProfileCache cache(&profile);
+    doris::format::iceberg::IcebergTableReader reader;
+    reader._scanner_profile = &profile;
+    reader._parquet_profile_cache = &cache;
+    TFileScanRangeParams params;
+    TQueryOptions options;
+    TQueryGlobals globals;
+    RuntimeState state(options, globals);
+    reader._runtime_state = &state;
+    IcebergDeleteFileIOContext io_context(&state);
+    const auto file_path =
+            (std::filesystem::temp_directory_path() /
+             ("iceberg_profile_" +
+              std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
+              ".parquet"))
+                    .string();
+    write_single_int_parquet_file(file_path, "id", {1}, 1);
+    for (int i = 0; i < 2; ++i) {
+        TIcebergDeleteFileDesc desc;
+        desc.__set_file_format(TFileFormatType::FORMAT_PARQUET);
+        desc.__set_path(file_path);
+        desc.__set_file_size(std::filesystem::file_size(file_path));
+        std::unique_ptr<doris::format::FileReader> file;
+        const auto status = reader._create_delete_file_reader(desc, params, &io_context, &file);
+        ASSERT_TRUE(status.ok()) << status.to_string();
+        auto* parquet = dynamic_cast<doris::format::parquet::ParquetReader*>(file.get());
+        ASSERT_NE(parquet, nullptr);
+        EXPECT_EQ(parquet->_profile_cache, &cache);
+        parquet->_init_profile();
+        EXPECT_EQ(parquet->_parquet_profile.total_time, cache.get().total_time);
+    }
+    std::filesystem::remove(file_path);
 }
 
 } // namespace

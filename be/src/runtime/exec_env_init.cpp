@@ -106,7 +106,7 @@
 #include "storage/cache/page_cache.h"
 #include "storage/id_manager.h"
 #include "storage/index/ann/ann_index_result_cache/ann_index_result_cache.h"
-#include "storage/index/inverted/inverted_index_cache.h"
+#include "storage/index/inverted/common/inverted_index_cache.h"
 #include "storage/olap_define.h"
 #include "storage/options.h"
 #include "storage/segment/condition_cache.h"
@@ -230,12 +230,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     //Only init once before be destroyed
     if (ready()) {
         return Status::OK();
-    }
-    std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> spill_store_map;
-    for (const auto& spill_path : spill_store_paths) {
-        spill_store_map.emplace(spill_path.path, std::make_unique<SpillDataDir>(
-                                                         spill_path.path, spill_path.capacity_bytes,
-                                                         spill_path.storage_medium));
     }
     init_doris_metrics(store_paths);
     _store_paths = store_paths;
@@ -368,7 +362,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _dns_cache = new DNSCache();
     _write_cooldown_meta_executors = std::make_unique<WriteCooldownMetaExecutors>();
 
-    _spill_file_mgr = new SpillFileManager(std::move(spill_store_map));
+    _spill_file_mgr = new SpillFileManager(spill_store_paths);
     _kerberos_ticket_mgr = new kerberos::KerberosTicketMgr(config::kerberos_ccache_path);
     _hdfs_mgr = new io::HdfsMgr();
     _backend_client_cache->init_metrics("backend");
@@ -910,11 +904,14 @@ void ExecEnv::destroy() {
         static_cast<CloudClusterInfo*>(_cluster_info)->stop_bg_worker();
     }
 
+    // The spill manager's GC thread retries remote deletions through the pinned vault file
+    // systems: stop it while the storage engine is alive.
+    SAFE_STOP(_spill_file_mgr);
+
     // StorageEngine must be destoried before _cache_manager destory.
     SAFE_STOP(_storage_engine);
     _storage_engine.reset();
 
-    SAFE_STOP(_spill_file_mgr);
     if (_runtime_query_statistics_mgr) {
         _runtime_query_statistics_mgr->stop_report_thread();
     }

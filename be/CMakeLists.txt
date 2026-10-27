@@ -500,6 +500,10 @@ add_definitions(-DHAVE_INTTYPES_H -DHAVE_NETINET_IN_H)
 # Mac specific definitions - needed for system headers and third-party libs
 if (OS_MACOSX)
     add_definitions(-D_DARWIN_C_SOURCE)
+    # macOS 27's math.h requests only INFINITY/NAN from float.h. libc++'s
+    # float.h include guard then hides the remaining macros on later includes
+    # (e.g. DBL_EPSILON in S2). Load the full header before any source or PCH.
+    add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:SHELL:-include float.h>")
 endif()
 
 if (RECORD_COMPILER_SWITCHES)
@@ -601,6 +605,8 @@ set(CMAKE_CXX_FLAGS "${CXX_COMMON_FLAGS} ${CMAKE_CXX_FLAGS} ${EXTRA_CXX_FLAGS}")
 
 set(CMAKE_C_FLAGS ${CMAKE_CXX_FLAGS})
 
+add_subdirectory(${CONTRIB_PATH}/h3-cmake ${PROJECT_BINARY_DIR}/h3)
+
 # Set include dirs
 include_directories(
     ${CONTRIB_PATH}/apache-orc/c++/include
@@ -686,7 +692,7 @@ set(DORIS_LINK_LIBS
 )
 
 set(absl_DIR ${THIRDPARTY_DIR}/lib/cmake/absl)
-find_package(absl)
+find_package(absl CONFIG REQUIRED PATHS ${absl_DIR} NO_DEFAULT_PATH)
 
 # COMMON_THIRDPARTY are thirdparty dependencies that can run on all platform
 # When adding new dependencies, If you don’t know if it can run on all platforms,
@@ -716,6 +722,14 @@ add_definitions(-DUSE_DORIS_HADOOP_HDFS)
 if (absl_FOUND)
     set(COMMON_THIRDPARTY
         ${COMMON_THIRDPARTY}
+        # Public dependencies of the statically linked google-cloud-cpp common library.
+        absl::base
+        absl::memory
+        absl::optional
+        absl::span
+        absl::str_format
+        absl::time
+        absl::variant
         absl::cord
         absl::cord_internal
         absl::cordz_functions
@@ -764,6 +778,7 @@ set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ic)
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} clucene-core-static)
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} clucene-shared-static)
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} clucene-contribs-lib)
+set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} h3)
 
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ${WL_END_GROUP})
 

@@ -42,12 +42,15 @@ import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TIcebergDeleteFileDesc;
 import org.apache.doris.thrift.TIcebergFileDesc;
+import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TTableFormatFileDesc;
+import org.apache.doris.thrift.schema.external.TField;
 import org.apache.doris.thrift.schema.external.TFieldPtr;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.iceberg.AppendFiles;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
@@ -60,8 +63,10 @@ import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.Metrics;
 import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.RowDelta;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
+import org.apache.iceberg.SnapshotSummary;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.SupportsDistributedScanPlanning;
 import org.apache.iceberg.Table;
@@ -79,8 +84,13 @@ import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.io.OutputFile;
 import org.apache.iceberg.io.StorageCredential;
 import org.apache.iceberg.io.SupportsStorageCredentials;
+import org.apache.iceberg.mapping.MappedField;
+import org.apache.iceberg.mapping.MappedFields;
+import org.apache.iceberg.mapping.NameMapping;
+import org.apache.iceberg.mapping.NameMappingParser;
 import org.apache.iceberg.metrics.ScanReport;
 import org.apache.iceberg.types.Conversions;
+import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.types.Types.NestedField;
 import org.junit.jupiter.api.Assertions;
@@ -101,6 +111,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -109,6 +120,7 @@ import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.UnaryOperator;
+import java.util.stream.Collectors;
 
 /**
  * Tests for {@link IcebergScanPlanProvider}. T01 pinned the capability constants + that {@code planScan}
@@ -188,6 +200,16 @@ public class IcebergScanPlanProviderTest {
     private static Table tableWithIo(Table table, FileIO fileIO) {
         return (Table) Proxy.newProxyInstance(Table.class.getClassLoader(), new Class<?>[] {Table.class},
                 (proxy, method, args) -> method.getName().equals("io") ? fileIO : invoke(method, table, args));
+    }
+
+    private static Table tableWithSchemas(Table table, Schema... schemas) {
+        Map<Integer, Schema> schemasById = new HashMap<>();
+        for (Schema schema : schemas) {
+            schemasById.put(schema.schemaId(), schema);
+        }
+        return (Table) Proxy.newProxyInstance(Table.class.getClassLoader(), new Class<?>[] {Table.class},
+                (proxy, method, args) -> method.getName().equals("schemas")
+                        ? schemasById : invoke(method, table, args));
     }
 
     private static Table serverPlannedTable(Table table, AtomicBoolean localMetadataAccessed) {
@@ -288,6 +310,25 @@ public class IcebergScanPlanProviderTest {
     private static ConnectorScanRange byPath(List<ConnectorScanRange> ranges, String suffix) {
         return ranges.stream().filter(r -> r.getPath().get().endsWith(suffix)).findFirst()
                 .orElseThrow(() -> new AssertionError("no range ending in " + suffix));
+    }
+
+    /** Round-trip the scan properties onto real params and return the top-level fields of the dictionary. */
+    private static List<TFieldPtr> dictRootFields(IcebergScanPlanProvider provider, Map<String, String> props) {
+        TFileScanRangeParams params = new TFileScanRangeParams();
+        provider.populateScanLevelParams(params, props);
+        return params.getHistorySchemaInfo().get(0).getRootField().getFields();
+    }
+
+    private static TField dictFieldById(List<TFieldPtr> fields, int fieldId) {
+        return fields.stream().map(TFieldPtr::getFieldPtr).filter(field -> field.getId() == fieldId)
+                .findFirst().orElseThrow(() -> new AssertionError("no dictionary field with ID " + fieldId));
+    }
+
+    /** The rolling-upgrade fence the scan properties carry for the projected columns, or null when absent. */
+    private static String requiredBackendSemantics(IcebergScanPlanProvider provider, IcebergTableHandle handle,
+            ConnectorColumnHandle... columns) {
+        return provider.getScanNodeProperties(null, handle, Arrays.asList(columns), Optional.empty())
+                .get(ScanNodePropertyKeys.REQUIRED_CURRENT_BACKEND_SEMANTICS);
     }
 
     private static RecordingIcebergCatalogOps opsReturning(Table table) {
@@ -452,8 +493,9 @@ public class IcebergScanPlanProviderTest {
                 estimate.getMessage());
 
         DorisConnectorException lazy = Assertions.assertThrows(DorisConnectorException.class, () -> {
-            try (ConnectorSplitSource source = provider.streamSplits(
-                    emptySession(), handle, Collections.emptyList(), Optional.empty(), -1L)) {
+            try (ConnectorSplitSource source = provider.streamSplits(emptySession(),
+                    ConnectorScanRequest.builder(handle, Collections.emptyList())
+                            .filter(Optional.empty()).limit(-1L).build())) {
                 source.hasNext();
             }
         });
@@ -1121,9 +1163,9 @@ public class IcebergScanPlanProviderTest {
         IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
                 IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table));
         List<ConnectorScanRange> ranges = new ArrayList<>();
-        try (ConnectorSplitSource source = provider.streamSplits(
-                new FakeScanSession("UTC", Collections.emptyMap()),
-                new IcebergTableHandle("db1", "pt"), Collections.emptyList(), Optional.empty(), -1L)) {
+        try (ConnectorSplitSource source = provider.streamSplits(new FakeScanSession("UTC", Collections.emptyMap()),
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "pt"), Collections.emptyList())
+                        .filter(Optional.empty()).limit(-1L).build())) {
             while (source.hasNext()) {
                 ranges.add(source.next());
             }
@@ -1136,6 +1178,167 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertEquals(Collections.singletonList("7"), desc.getColumnsFromPath());
         Assertions.assertEquals(0, desc.getTableFormatParams().getIcebergParams().getPartitionSpecId());
         Assertions.assertEquals("[\"7\"]", desc.getTableFormatParams().getIcebergParams().getPartitionDataJson());
+    }
+
+    @Test
+    public void rowIdScanRejectsFilesWhosePartitionSourceColumnWasDropped() {
+        // From branch-4.x #68481: dropping the source column of a historical partition field leaves the field with
+        // no type, so the file's partition tuple cannot be serialized. An ordinary read does not need it and keeps
+        // working. A scan producing row IDs (DELETE / UPDATE / MERGE) is rejected: the row IDs carry the partition
+        // of the delete files BE writes, and a NULL partition there leaves a delete file Doris cannot read back.
+        IcebergScanPlanProvider provider = providerOver(droppedPartitionSourceTable());
+        ConnectorSession session = new FakeScanSession("UTC", Collections.emptyMap());
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "pt");
+
+        List<ConnectorScanRange> ranges = provider.planScan(session, scanOf(handle).build());
+
+        Assertions.assertEquals(1, ranges.size());
+        TFileRangeDesc desc = populate(ranges.get(0));
+        Assertions.assertEquals(0, desc.getTableFormatParams().getIcebergParams().getPartitionSpecId());
+        Assertions.assertFalse(desc.getTableFormatParams().getIcebergParams().isSetPartitionDataJson());
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> provider.planScan(session, rowIdScanOf(handle).build()));
+        Assertions.assertEquals("Cannot produce Iceberg row IDs with unsupported partition types in spec 0. "
+                + "Rewrite historical data files before DELETE or UPDATE.", ex.getMessage());
+    }
+
+    @Test
+    public void statementReuseStillRejectsRowIdScanWithoutPartitionData() {
+        // The reuse key leaves the projection out, so a row-ID scan served from an ordinary scan's memoized ranges
+        // must still be checked. MUTATION: checking only freshly planned ranges -> the second call returns -> red.
+        IcebergScanPlanProvider provider = providerOver(droppedPartitionSourceTable());
+        ConnectorSession session = reuseSession(new TestStatementScope(), 0L);
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "pt");
+
+        provider.planScan(session, scanOf(handle).build());
+
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> provider.planScan(session, rowIdScanOf(handle).build()));
+    }
+
+    @Test
+    public void streamSplitsRejectsRowIdScanWithoutPartitionData() throws IOException {
+        // Batch mode builds its ranges lazily on the split-pump thread, so it checks each range as it is built.
+        IcebergScanPlanProvider provider = providerOver(droppedPartitionSourceTable());
+        try (ConnectorSplitSource source = provider.streamSplits(new FakeScanSession("UTC", Collections.emptyMap()),
+                rowIdScanOf(new IcebergTableHandle("db1", "pt")).filter(Optional.empty()).limit(-1L).build())) {
+            DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class, source::hasNext);
+            Assertions.assertTrue(ex.getMessage().contains("unsupported partition types in spec 0"), ex.getMessage());
+        }
+    }
+
+    /** A file written under identity(p), after p is removed from the spec and then dropped from the schema. */
+    private static Table droppedPartitionSourceTable() {
+        PartitionSpec spec = PartitionSpec.builderFor(PART_SCHEMA).identity("p").build();
+        Table table = createTable("pt", PART_SCHEMA, spec);
+        table.newAppend()
+                .appendFile(dataFile(spec, "s3://b/db/pt/p=7/old.parquet", 1024, null, "p=7"))
+                .commit();
+        table.updateSpec().removeField("p").commit();
+        table.updateSchema().deleteColumn("p").commit();
+        return table;
+    }
+
+    private static ConnectorScanRequest.Builder rowIdScanOf(IcebergTableHandle handle) {
+        return ConnectorScanRequest.builder(handle, Arrays.asList(new IcebergColumnHandle("id", 1),
+                new IcebergColumnHandle("__DORIS_ICEBERG_ROWID_COL__", -1)));
+    }
+
+    @Test
+    public void rowIdScanKeepsNullOfRetainedVoidFieldWhoseSourceColumnWasDropped() {
+        // A v1 table keeps a removed partition field as void(p), whose value is always null. Dropping p leaves the
+        // field without a type, but a null needs none: DML must keep working on files written under the void spec,
+        // which rewriting historical files cannot get rid of. MUTATION: serializing a null by its type -> red.
+        Table table = retainedVoidFieldTable("pv", true);
+        IcebergScanPlanProvider provider = providerOver(table);
+
+        List<ConnectorScanRange> ranges = provider.planScan(new FakeScanSession("UTC", Collections.emptyMap()),
+                rowIdScanOf(new IcebergTableHandle("db1", "pv")).build());
+
+        Assertions.assertEquals(1, ranges.size());
+        TIcebergFileDesc desc = populate(ranges.get(0)).getTableFormatParams().getIcebergParams();
+        Assertions.assertEquals(1, desc.getPartitionSpecId());
+        Assertions.assertEquals("[null,\"5\"]", desc.getPartitionDataJson());
+    }
+
+    @Test
+    public void rowIdScanAcceptsAllVoidSpecWhoseSourceColumnWasDropped() {
+        // The same evolution when void(p) is the only field left: the spec is no longer partitioned.
+        Table table = retainedVoidFieldTable("pav", false);
+        IcebergScanPlanProvider provider = providerOver(table);
+
+        List<ConnectorScanRange> ranges = provider.planScan(new FakeScanSession("UTC", Collections.emptyMap()),
+                rowIdScanOf(new IcebergTableHandle("db1", "pav")).build());
+
+        Assertions.assertEquals(1, ranges.size());
+        TIcebergFileDesc desc = populate(ranges.get(0)).getTableFormatParams().getIcebergParams();
+        Assertions.assertEquals(1, desc.getPartitionSpecId());
+    }
+
+    @Test
+    public void scannedPartitionCountKeepsPartitionsWhoseSourceColumnWasDropped() {
+        // Files of a historical identity(p) whose source column was dropped have no partition_data_json, but they
+        // are still scanned partitions: EXPLAIN partition=N/M and sql_block_rule partition_num must count them,
+        // each distinct tuple once, as legacy IcebergScanNode did by keying on PartitionData.
+        // MUTATION: counting only ranges with partition_data_json -> 1 -> red.
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "p", Types.IntegerType.get()),
+                Types.NestedField.optional(3, "q", Types.IntegerType.get()));
+        PartitionSpec byP = PartitionSpec.builderFor(schema).identity("p").build();
+        Table table = createTable("pc", schema, byP);
+        table.newAppend()
+                .appendFile(dataFile(byP, "s3://b/db/pc/p=7/a.parquet", 1024, null, "p=7"))
+                .appendFile(dataFile(byP, "s3://b/db/pc/p=7/b.parquet", 1024, null, "p=7"))
+                .appendFile(dataFile(byP, "s3://b/db/pc/p=8/c.parquet", 1024, null, "p=8"))
+                .commit();
+        table.updateSpec().removeField("p").addField("q").commit();
+        table.updateSchema().deleteColumn("p").commit();
+        table.newAppend()
+                .appendFile(dataFile(table.spec(), "s3://b/db/pc/q=1/d.parquet", 1024, null, "q=1"))
+                .commit();
+        IcebergScanPlanProvider provider = providerOver(table);
+
+        List<ConnectorScanRange> ranges = provider.planScan(new FakeScanSession("UTC", Collections.emptyMap()),
+                scanOf(new IcebergTableHandle("db1", "pc")).build());
+
+        Assertions.assertEquals(4, ranges.size());
+        Assertions.assertEquals(OptionalLong.of(3), provider.scannedPartitionCount(ranges));
+    }
+
+    /**
+     * A v1 table partitioned by p (and q when {@code keepQ}): p is removed from the spec, which v1 keeps as
+     * void(p), a file is written under that spec, p is dropped from the schema and the table is upgraded to v2.
+     */
+    private static Table retainedVoidFieldTable(String name, boolean keepQ) {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "p", Types.IntegerType.get()),
+                Types.NestedField.optional(3, "q", Types.IntegerType.get()));
+        PartitionSpec.Builder spec = PartitionSpec.builderFor(schema).identity("p");
+        if (keepQ) {
+            spec.identity("q");
+        }
+        Table table = createTable(name, schema, spec.build(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "1"));
+        table.updateSpec().removeField("p").commit();
+        PartitionSpec voidSpec = table.spec();
+        PartitionData partition = new PartitionData(voidSpec.partitionType());
+        if (keepQ) {
+            partition.set(1, 5);
+        }
+        table.newAppend()
+                .appendFile(DataFiles.builder(voidSpec)
+                        .withPath("s3://b/db/" + name + "/new.parquet")
+                        .withFileSizeInBytes(1024)
+                        .withRecordCount(10)
+                        .withFormat(FileFormat.PARQUET)
+                        .withPartition(partition)
+                        .build())
+                .commit();
+        table.updateSchema().deleteColumn("p").commit();
+        table.updateProperties().set(TableProperties.FORMAT_VERSION, "2").commit();
+        return table;
     }
 
     @Test
@@ -1456,8 +1659,8 @@ public class IcebergScanPlanProviderTest {
 
         DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
                 () -> provider.streamSplits(session,
-                        new IcebergTableHandle("db1", "stream_metadata"), columns,
-                        Optional.empty(), -1L));
+                        ConnectorScanRequest.builder(new IcebergTableHandle("db1", "stream_metadata"), columns)
+                                .filter(Optional.empty()).limit(-1L).build()));
         Assertions.assertEquals(
                 "Iceberg metadata columns are only supported by FileScannerV2 native Parquet/ORC reader; "
                         + "actual reader is JNI",
@@ -1474,8 +1677,8 @@ public class IcebergScanPlanProviderTest {
 
         DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
                 () -> provider.streamSplits(session,
-                        new IcebergTableHandle("db1", "stream_metadata_v2"), columns,
-                        Optional.empty(), -1L));
+                        ConnectorScanRequest.builder(new IcebergTableHandle("db1", "stream_metadata_v2"), columns)
+                                .filter(Optional.empty()).limit(-1L).build()));
         Assertions.assertEquals(
                 "Iceberg metadata columns require FileScannerV2 native Parquet/ORC reader",
                 ex.getMessage());
@@ -1527,6 +1730,26 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertEquals(-1L, params.getCurrentSchemaId());
         Assertions.assertEquals(1, params.getHistorySchemaInfoSize());
         // Keyed off the requested column "id" only (CI #969249: the -1 entry == the scan slots).
+        Assertions.assertEquals(1, params.getHistorySchemaInfo().get(0).getRootField().getFieldsSize());
+        Assertions.assertEquals("id", params.getHistorySchemaInfo().get(0).getRootField()
+                .getFields().get(0).getFieldPtr().getName());
+    }
+
+    @Test
+    public void getScanNodePropertiesLeavesHiddenRowIdOutOfDict() throws Exception {
+        // getColumnHandles returns a handle for the hidden DML row-id column so a DML scan request carries it, but
+        // the column is synthesized by the reader and not in the schema. MUTATION: keeping it in the requested
+        // names -> "requested column ... not found in the table schema" -> red.
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        IcebergScanPlanProvider provider = providerOver(table);
+        List<ConnectorColumnHandle> columns = Arrays.asList(new IcebergColumnHandle("id", 1),
+                new IcebergColumnHandle("__DORIS_ICEBERG_ROWID_COL__", -1));
+
+        Map<String, String> props = provider.getScanNodeProperties(
+                null, new IcebergTableHandle("db1", "t1"), columns, Optional.empty());
+
+        TFileScanRangeParams params = new TFileScanRangeParams();
+        provider.populateScanLevelParams(params, props);
         Assertions.assertEquals(1, params.getHistorySchemaInfo().get(0).getRootField().getFieldsSize());
         Assertions.assertEquals("id", params.getHistorySchemaInfo().get(0).getRootField()
                 .getFields().get(0).getFieldPtr().getName());
@@ -1704,6 +1927,135 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
+    public void equalityCarrierKeepsLatestDefinitionOfDroppedEqualityKey() throws Exception {
+        // BE fills an equality key that an old data file lacks from the key's carrier entry, so a dropped key must
+        // resolve to the latest definition on the scan's lineage: its last name, its optionality and its initial
+        // default. Each schema change is followed by a write, as on a table that keeps ingesting.
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional("k").withId(2).ofType(Types.IntegerType.get())
+                        .withInitialDefault(7).build());
+        Table table = createTable("renamed_dropped_eq_key", schema, PartitionSpec.unpartitioned(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "3"));
+        int keyId = table.schema().findField("k").fieldId();
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/renamed_dropped_eq_key/f1.parquet", 1024, null, null)).commit();
+        table.newRowDelta().addDeletes(equalityDeleteFile(
+                "s3://b/db/renamed_dropped_eq_key/eq.parquet", FileFormat.PARQUET, keyId)).commit();
+        table.updateSchema().renameColumn("k", "k2").commit();
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/renamed_dropped_eq_key/f2.parquet", 1024, null, null)).commit();
+        table.updateSchema().deleteColumn("k2").commit();
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/renamed_dropped_eq_key/f3.parquet", 1024, null, null)).commit();
+
+        IcebergScanPlanProvider provider = providerOver(table);
+        Map<String, String> props = provider.getScanNodeProperties(
+                null, new IcebergTableHandle("db1", "renamed_dropped_eq_key"),
+                Collections.singletonList(new IcebergColumnHandle("id", table.schema().findField("id").fieldId())),
+                Optional.empty());
+
+        TField key = dictFieldById(dictRootFields(provider, props), keyId);
+        Assertions.assertEquals("k2", key.getName());
+        Assertions.assertTrue(key.isIsOptional());
+        Assertions.assertEquals("7", key.getInitialDefaultValue());
+    }
+
+    @Test
+    public void equalityCarrierRestoresDroppedNestedEqualityKeyInsideItsParent() throws Exception {
+        // A dropped nested equality key must come back inside the struct that still exists, after the current
+        // children and with its own initial default, so BE resolves the key's full field-ID path.
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "payload", Types.StructType.of(
+                        Types.NestedField.optional(3, "existing", Types.IntegerType.get()),
+                        Types.NestedField.optional("k").withId(4).ofType(Types.IntegerType.get())
+                                .withInitialDefault(7).build())));
+        Table table = createTable("dropped_nested_eq_key", schema, PartitionSpec.unpartitioned(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "3"));
+        int payloadId = table.schema().findField("payload").fieldId();
+        int existingId = table.schema().findField("payload.existing").fieldId();
+        int keyId = table.schema().findField("payload.k").fieldId();
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/dropped_nested_eq_key/f1.parquet", 1024, null, null)).commit();
+        table.newRowDelta().addDeletes(equalityDeleteFile(
+                "s3://b/db/dropped_nested_eq_key/eq.parquet", FileFormat.PARQUET, keyId)).commit();
+        table.updateSchema().deleteColumn("payload.k").commit();
+
+        List<NestedField> carrier = IcebergScanPlanProvider.schemaForPotentialEqualityDeletes(
+                table, table.newScan(), table.schema());
+        Assertions.assertEquals(2, carrier.size(), "the nested key must not add a second payload column");
+        NestedField payload = carrier.get(1);
+        Assertions.assertEquals(payloadId, payload.fieldId());
+        Assertions.assertTrue(payload.isOptional());
+        Assertions.assertEquals(Arrays.asList(existingId, keyId), payload.type().asStructType().fields()
+                .stream().map(NestedField::fieldId).collect(Collectors.toList()));
+
+        IcebergScanPlanProvider provider = providerOver(table);
+        Map<String, String> props = provider.getScanNodeProperties(
+                null, new IcebergTableHandle("db1", "dropped_nested_eq_key"),
+                Collections.singletonList(new IcebergColumnHandle("id", table.schema().findField("id").fieldId())),
+                Optional.empty());
+        TField payloadField = dictFieldById(dictRootFields(provider, props), payloadId);
+        TField key = dictFieldById(payloadField.getNestedField().getStructField().getFields(), keyId);
+        Assertions.assertEquals("7", key.getInitialDefaultValue());
+    }
+
+    @Test
+    public void equalityCarrierKeepsDroppedNanosecondEqualityKeyAsTimestampNs() throws Exception {
+        // Unzoned nanosecond timestamps are readable, so a dropped nanosecond equality key stays in the carrier as
+        // TIMESTAMP_NS instead of the STRING placeholder that stands in for types Doris cannot read.
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "equality_nanos", Types.TimestampNanoType.withoutZone()));
+        Table table = createTable("dropped_nanos_eq_key", schema, PartitionSpec.unpartitioned(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "3"));
+        int keyId = table.schema().findField("equality_nanos").fieldId();
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/dropped_nanos_eq_key/f1.parquet", 1024, null, null)).commit();
+        table.newRowDelta().addDeletes(equalityDeleteFile(
+                "s3://b/db/dropped_nanos_eq_key/eq.parquet", FileFormat.PARQUET, keyId)).commit();
+        table.updateSchema().deleteColumn("equality_nanos").commit();
+
+        IcebergScanPlanProvider provider = providerOver(table);
+        Map<String, String> props = provider.getScanNodeProperties(
+                null, new IcebergTableHandle("db1", "dropped_nanos_eq_key"),
+                Collections.singletonList(new IcebergColumnHandle("id", table.schema().findField("id").fieldId())),
+                Optional.empty());
+
+        TField key = dictFieldById(dictRootFields(provider, props), keyId);
+        Assertions.assertEquals("equality_nanos", key.getName());
+        Assertions.assertEquals(TPrimitiveType.TIMESTAMP_NS, key.getType().getType());
+    }
+
+    @Test
+    public void equalityCarrierTakesOnlyReferencedFieldsFromAHistoricalSchema() throws Exception {
+        // Only the historical fields that live equality deletes reference may enter the carrier. A sibling
+        // dropped in the same change, here a TIME column Doris cannot read, must stay out of it.
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "equality_key", Types.IntegerType.get()),
+                Types.NestedField.optional(3, "dropped_time", Types.TimeType.get()));
+        Table table = createTable("dropped_unreferenced_sibling", schema, PartitionSpec.unpartitioned(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "2"));
+        int idId = table.schema().findField("id").fieldId();
+        int keyId = table.schema().findField("equality_key").fieldId();
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/dropped_unreferenced_sibling/f1.parquet", 1024, null, null)).commit();
+        table.newRowDelta().addDeletes(equalityDeleteFile(
+                "s3://b/db/dropped_unreferenced_sibling/eq.parquet", FileFormat.PARQUET, keyId)).commit();
+        table.updateSchema().deleteColumn("equality_key").deleteColumn("dropped_time").commit();
+
+        IcebergScanPlanProvider provider = providerOver(table);
+        Map<String, String> props = provider.getScanNodeProperties(
+                null, new IcebergTableHandle("db1", "dropped_unreferenced_sibling"),
+                Collections.singletonList(new IcebergColumnHandle("id", idId)), Optional.empty());
+
+        Assertions.assertEquals(Arrays.asList(idId, keyId), dictRootFields(provider, props).stream()
+                .map(field -> field.getFieldPtr().getId()).collect(Collectors.toList()));
+    }
+
+    @Test
     public void equalityCarrierSizeDoesNotGrowWithUnrelatedSchemaHistory() throws Exception {
         Schema schema = new Schema(
                 Types.NestedField.required(1, "id", Types.IntegerType.get()),
@@ -1724,6 +2076,531 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertEquals(2, carrier.size(),
                 "unrelated schema churn must not increase FE heap or schema RPC size");
         Assertions.assertEquals(table.schema().columns(), carrier);
+    }
+
+    @Test
+    public void equalityCarrierResolvesDroppedKeyWhenSchemaIdIsReused() throws Exception {
+        Schema schema = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()));
+        Table table = createTable("reused_schema_id_eq_key", schema, PartitionSpec.unpartitioned(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "2"));
+        int initialSchemaId = table.schema().schemaId();
+        table.updateSchema().addColumn("k", Types.StringType.get()).commit();
+        int keyId = table.schema().findField("k").fieldId();
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/reused_schema_id_eq_key/f1.parquet", 1024, null, null)).commit();
+        table.newRowDelta().addDeletes(equalityDeleteFile(
+                "s3://b/db/reused_schema_id_eq_key/eq.parquet", FileFormat.PARQUET, keyId)).commit();
+        // Dropping k makes the schema equal to the initial one, so Iceberg reuses the initial schema ID, which the
+        // metadata list holds before the schema that still defines the equality key. The next snapshot carries the
+        // reused ID; only its parent records the schema with k.
+        table.updateSchema().deleteColumn("k").commit();
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/reused_schema_id_eq_key/f2.parquet", 1024, null, null)).commit();
+        Assertions.assertEquals(initialSchemaId, table.schema().schemaId());
+        Assertions.assertEquals(initialSchemaId, table.currentSnapshot().schemaId());
+
+        List<NestedField> carrier = IcebergScanPlanProvider.schemaForPotentialEqualityDeletes(
+                table, table.newScan(), table.schema());
+        Assertions.assertEquals(2, carrier.size(), "the dropped equality key must stay resolvable: " + carrier);
+        Assertions.assertEquals(keyId, carrier.get(1).fieldId());
+        Assertions.assertEquals("k", carrier.get(1).name());
+
+        IcebergScanPlanProvider provider = providerOver(table);
+        Map<String, String> props = provider.getScanNodeProperties(
+                null, new IcebergTableHandle("db1", "reused_schema_id_eq_key"),
+                Collections.singletonList(new IcebergColumnHandle("id", 1)), Optional.empty());
+        TFileScanRangeParams params = new TFileScanRangeParams();
+        provider.populateScanLevelParams(params, props);
+        List<TFieldPtr> fields = params.getHistorySchemaInfo().get(0).getRootField().getFields();
+        Assertions.assertTrue(fields.stream().anyMatch(field -> field.getFieldPtr().getId() == keyId),
+                "the scan dictionary must carry the dropped equality key after the schema ID is reused");
+    }
+
+    @Test
+    public void equalityCarrierKeepsPromotedTypeOfKeyDroppedBeforeItsDeleteCommits() throws Exception {
+        // A writer started after a schema-only promotion of k to LONG writes LONG tombstones, and k is dropped before
+        // its delete commits. The delete snapshot records the schema without k and its parent the INT one, so only
+        // the metadata list knows LONG; an INT carrier would narrow 2147483648 to NULL and match NULL keys.
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "k", Types.IntegerType.get()));
+        Table table = createTable("promoted_dropped_eq_key", schema, PartitionSpec.unpartitioned(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "2"));
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/promoted_dropped_eq_key/f1.parquet", 1024, null, null)).commit();
+        int intSchemaId = table.currentSnapshot().schemaId();
+        table.updateSchema().updateColumn("k", Types.LongType.get()).commit();
+        RowDelta pendingDelete = table.newRowDelta().addDeletes(equalityDeleteFile(
+                "s3://b/db/promoted_dropped_eq_key/eq.parquet", FileFormat.PARQUET, 2));
+        table.updateSchema().deleteColumn("k").commit();
+        pendingDelete.commit();
+        Assertions.assertNull(table.schemas().get(table.currentSnapshot().schemaId()).findField(2));
+        Assertions.assertEquals(intSchemaId, table.snapshot(table.currentSnapshot().parentId()).schemaId());
+
+        List<NestedField> carrier = IcebergScanPlanProvider.schemaForPotentialEqualityDeletes(
+                table, table.newScan(), table.schema());
+        Assertions.assertEquals(2, carrier.size(), "the dropped equality key must stay resolvable: " + carrier);
+        Assertions.assertEquals(2, carrier.get(1).fieldId());
+        Assertions.assertEquals("k", carrier.get(1).name());
+        Assertions.assertEquals(Types.LongType.get(), carrier.get(1).type());
+    }
+
+    @Test
+    public void equalityCarrierKeepsLineageTimestampOfPromotedDateKey() throws Exception {
+        // v3 promotes DATE to an unzoned TIMESTAMP, which TypeUtil.isPromotionAllowed does not know. The delete
+        // snapshot records the TIMESTAMP schema; a DATE carrier would truncate a noon tombstone to its date and
+        // delete the midnight row.
+        Table table = createTable("promoted_date_lineage_eq_key", new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "k", Types.DateType.get())), PartitionSpec.unpartitioned(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "3"));
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/promoted_date_lineage_eq_key/f1.parquet", 1024, null, null)).commit();
+        publishSchema(table, new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "k", Types.TimestampType.withoutZone())), 2);
+        table.newRowDelta().addDeletes(equalityDeleteFile(
+                "s3://b/db/promoted_date_lineage_eq_key/eq.parquet", FileFormat.PARQUET, 2)).commit();
+        table.updateSchema().deleteColumn("k").commit();
+        Assertions.assertEquals(Types.TimestampType.withoutZone(),
+                table.schemas().get(table.currentSnapshot().schemaId()).findType(2));
+
+        List<NestedField> carrier = IcebergScanPlanProvider.schemaForPotentialEqualityDeletes(
+                table, table.newScan(), table.schema());
+        Assertions.assertEquals(2, carrier.size(), "the dropped equality key must stay resolvable: " + carrier);
+        Assertions.assertEquals(Types.TimestampType.withoutZone(), carrier.get(1).type());
+    }
+
+    @Test
+    public void equalityCarrierWidensDateKeyPromotedWithoutASnapshot() throws Exception {
+        // A writer started after a schema-only v3 promotion of k to TIMESTAMP_NS writes TIMESTAMP_NS tombstones,
+        // and k is dropped before its delete commits, so only the metadata list knows the promotion.
+        Table table = createTable("promoted_date_dropped_eq_key", new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "k", Types.DateType.get())), PartitionSpec.unpartitioned(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "3"));
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/promoted_date_dropped_eq_key/f1.parquet", 1024, null, null)).commit();
+        publishSchema(table, new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "k", Types.TimestampNanoType.withoutZone())), 2);
+        RowDelta pendingDelete = table.newRowDelta().addDeletes(equalityDeleteFile(
+                "s3://b/db/promoted_date_dropped_eq_key/eq.parquet", FileFormat.PARQUET, 2));
+        table.updateSchema().deleteColumn("k").commit();
+        pendingDelete.commit();
+        Assertions.assertEquals(Types.DateType.get(), table.schemas()
+                .get(table.snapshot(table.currentSnapshot().parentId()).schemaId()).findType(2));
+
+        List<NestedField> carrier = IcebergScanPlanProvider.schemaForPotentialEqualityDeletes(
+                table, table.newScan(), table.schema());
+        Assertions.assertEquals(2, carrier.size(), "the dropped equality key must stay resolvable: " + carrier);
+        Assertions.assertEquals(Types.TimestampNanoType.withoutZone(), carrier.get(1).type());
+    }
+
+    @Test
+    public void equalityCarrierFollowsUnknownKeyPromotedWithoutASnapshot() throws Exception {
+        // v3 lets UNKNOWN become any type, which TypeUtil.isPromotionAllowed does not know. k is promoted to DATE and
+        // then TIMESTAMP_NS without snapshots, and a pending append and a pending delete commit after k is dropped,
+        // so the only snapshot that records k has it as UNKNOWN. An UNKNOWN carrier is sent as STRING, and V2 would
+        // compare 2024-01-02 with 2024-01-02 00:00:00.000000000 and keep the deleted row.
+        Table table = createTable("promoted_unknown_dropped_eq_key", new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "k", Types.UnknownType.get())), PartitionSpec.unpartitioned(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "3"));
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/promoted_unknown_dropped_eq_key/f1.parquet", 1024, null, null)).commit();
+        publishSchema(table, new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "k", Types.DateType.get())), 2);
+        AppendFiles pendingAppend = table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/promoted_unknown_dropped_eq_key/f2.parquet", 1024, null, null));
+        publishSchema(table, new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "k", Types.TimestampNanoType.withoutZone())), 2);
+        RowDelta pendingDelete = table.newRowDelta().addDeletes(equalityDeleteFile(
+                "s3://b/db/promoted_unknown_dropped_eq_key/eq.parquet", FileFormat.PARQUET, 2));
+        table.updateSchema().deleteColumn("k").commit();
+        pendingAppend.commit();
+        pendingDelete.commit();
+        Assertions.assertEquals(Types.UnknownType.get(), table.schemas().get(table.snapshot(table.snapshot(
+                table.currentSnapshot().parentId()).parentId()).schemaId()).findType(2));
+
+        List<NestedField> carrier = IcebergScanPlanProvider.schemaForPotentialEqualityDeletes(
+                table, table.newScan(), table.schema());
+        Assertions.assertEquals(2, carrier.size(), "the dropped equality key must stay resolvable: " + carrier);
+        Assertions.assertEquals(Types.TimestampNanoType.withoutZone(), carrier.get(1).type());
+        Assertions.assertTrue(carrier.get(1).isOptional(), carrier.toString());
+
+        IcebergScanPlanProvider provider = providerOver(table);
+        Map<String, String> props = provider.getScanNodeProperties(null,
+                new IcebergTableHandle("db1", "promoted_unknown_dropped_eq_key"),
+                Collections.singletonList(new IcebergColumnHandle("id", 1)), Optional.empty());
+        Assertions.assertEquals(TPrimitiveType.TIMESTAMP_NS,
+                dictFieldById(dictRootFields(provider, props), 2).getType().getType());
+    }
+
+    @Test
+    public void equalityCarrierConvertsDefaultsOfDateKeyPromotedToTimestamp() throws Exception {
+        assertPromotedDateKeyDefaults("promoted_date_default_eq_key", Types.TimestampType.withoutZone());
+    }
+
+    @Test
+    public void equalityCarrierConvertsDefaultsOfDateKeyPromotedToTimestampNs() throws Exception {
+        assertPromotedDateKeyDefaults("promoted_date_nanos_default_eq_key", Types.TimestampNanoType.withoutZone());
+    }
+
+    /**
+     * Gives a v3 DATE key both defaults, promotes it to {@code promotedType} without a snapshot and drops it while an
+     * equality delete on it is pending. The lineage selects the DATE definition and the carrier rebuilds it in the
+     * promoted type, which casts its initial default; a DATE literal converts only to DATE, so an unconverted
+     * initial default fails planning with "Cannot cast default value". The rebuilt field has no write default.
+     */
+    private static void assertPromotedDateKeyDefaults(String name, Type promotedType) {
+        Literal<Integer> date = Literal.of("2024-01-02").to(Types.DateType.get());
+        Literal<Long> midnight = Literal.of("2024-01-02T00:00:00").to(promotedType);
+        Table table = createTable(name, new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional("k").withId(2).ofType(Types.DateType.get())
+                        .withInitialDefault(date).withWriteDefault(date).build()), PartitionSpec.unpartitioned(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "3"));
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/" + name + "/f1.parquet", 1024, null, null))
+                .commit();
+        publishSchema(table, new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional("k").withId(2).ofType(promotedType)
+                        .withInitialDefault(midnight).withWriteDefault(midnight).build()), 2);
+        RowDelta pendingDelete = table.newRowDelta().addDeletes(equalityDeleteFile(
+                "s3://b/db/" + name + "/eq.parquet", FileFormat.PARQUET, 2));
+        table.updateSchema().deleteColumn("k").commit();
+        pendingDelete.commit();
+        Assertions.assertEquals(Types.DateType.get(), table.schemas()
+                .get(table.snapshot(table.currentSnapshot().parentId()).schemaId()).findType(2));
+
+        List<NestedField> carrier = IcebergScanPlanProvider.schemaForPotentialEqualityDeletes(
+                table, table.newScan(), table.schema());
+        Assertions.assertEquals(2, carrier.size(), "the dropped equality key must stay resolvable: " + carrier);
+        Assertions.assertEquals(promotedType, carrier.get(1).type());
+        Assertions.assertEquals(midnight, carrier.get(1).initialDefaultLiteral());
+        Assertions.assertNull(carrier.get(1).writeDefaultLiteral());
+
+        IcebergScanPlanProvider provider = providerOver(table);
+        Map<String, String> props = provider.getScanNodeProperties(null, new IcebergTableHandle("db1", name),
+                Collections.singletonList(new IcebergColumnHandle("id", 1)), Optional.empty());
+        Assertions.assertEquals("2024-01-02 00:00:00",
+                dictFieldById(dictRootFields(provider, props), 2).getInitialDefaultValue());
+    }
+
+    @Test
+    public void equalityCarrierDropsStaleWriteDefaultOfPromotedDateKey() throws Exception {
+        // The snapshot that records k has a DATE write default outside the TIMESTAMP_NS range. The write default is
+        // cleared and k is promoted to TIMESTAMP_NS without snapshots, then k is dropped while a delete on it is
+        // pending. No reader uses a write default, so the carrier must not convert the stale one, which overflows.
+        Literal<Integer> outOfRange = Literal.of("1000-01-01").to(Types.DateType.get());
+        Table table = createTable("stale_write_default_eq_key", new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional("k").withId(2).ofType(Types.DateType.get())
+                        .withWriteDefault(outOfRange).build()), PartitionSpec.unpartitioned(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "3"));
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/stale_write_default_eq_key/f1.parquet", 1024, null, null)).commit();
+        table.updateSchema().updateColumnDefault("k", null).commit();
+        publishSchema(table, new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "k", Types.TimestampNanoType.withoutZone())), 2);
+        RowDelta pendingDelete = table.newRowDelta().addDeletes(equalityDeleteFile(
+                "s3://b/db/stale_write_default_eq_key/eq.parquet", FileFormat.PARQUET, 2));
+        table.updateSchema().deleteColumn("k").commit();
+        pendingDelete.commit();
+        Assertions.assertEquals(outOfRange.value(), table.schemas()
+                .get(table.snapshot(table.currentSnapshot().parentId()).schemaId()).findField(2).writeDefault());
+
+        List<NestedField> carrier = IcebergScanPlanProvider.schemaForPotentialEqualityDeletes(
+                table, table.newScan(), table.schema());
+        Assertions.assertEquals(2, carrier.size(), "the dropped equality key must stay resolvable: " + carrier);
+        Assertions.assertEquals(Types.TimestampNanoType.withoutZone(), carrier.get(1).type());
+        Assertions.assertNull(carrier.get(1).initialDefaultLiteral());
+        Assertions.assertNull(carrier.get(1).writeDefaultLiteral());
+
+        IcebergScanPlanProvider provider = providerOver(table);
+        Map<String, String> props = provider.getScanNodeProperties(null,
+                new IcebergTableHandle("db1", "stale_write_default_eq_key"),
+                Collections.singletonList(new IcebergColumnHandle("id", 1)), Optional.empty());
+        Assertions.assertFalse(dictFieldById(dictRootFields(provider, props), 2).isSetInitialDefaultValue());
+    }
+
+    @Test
+    public void equalityCarrierRejectsDateKeyPromotedToTimestampThenTimestampNs() throws Exception {
+        assertUnrelatedDateKeyPromotionsFailPlanning("date_ts_then_ns_eq_key", Types.TimestampType.withoutZone(),
+                Types.TimestampNanoType.withoutZone());
+    }
+
+    @Test
+    public void equalityCarrierRejectsDateKeyPromotedToTimestampNsThenTimestamp() throws Exception {
+        assertUnrelatedDateKeyPromotionsFailPlanning("date_ns_then_ts_eq_key", Types.TimestampNanoType.withoutZone(),
+                Types.TimestampType.withoutZone());
+    }
+
+    /**
+     * Promotes a v3 DATE key to {@code first} without a snapshot, sets the DATE schema current again (publishing the
+     * identical schema reuses its ID), promotes the key to {@code second} and drops it while an equality delete on
+     * it is pending. TIMESTAMP and TIMESTAMP_NS do not promote to each other and the metadata does not record which
+     * one the delete was written in, so planning must fail in either order: a TIMESTAMP carrier would round the
+     * tombstone 2024-01-02T00:00:00.000000001 to midnight and delete the DATE row.
+     */
+    private static void assertUnrelatedDateKeyPromotionsFailPlanning(String name, Type first, Type second) {
+        Schema dateSchema = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "k", Types.DateType.get()));
+        Table table = createTable(name, dateSchema, PartitionSpec.unpartitioned(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "3"));
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/" + name + "/f1.parquet", 1024, null, null))
+                .commit();
+        int dateSchemaId = table.schema().schemaId();
+        publishSchema(table, new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "k", first)), 2);
+        publishSchema(table, dateSchema, 2);
+        Assertions.assertEquals(dateSchemaId, table.schema().schemaId());
+        publishSchema(table, new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "k", second)), 2);
+        RowDelta pendingDelete = table.newRowDelta().addDeletes(equalityDeleteFile(
+                "s3://b/db/" + name + "/eq.parquet", FileFormat.PARQUET, 2));
+        table.updateSchema().deleteColumn("k").commit();
+        pendingDelete.commit();
+        Assertions.assertEquals(Types.DateType.get(), table.schemas()
+                .get(table.snapshot(table.currentSnapshot().parentId()).schemaId()).findType(2));
+
+        IllegalStateException error = Assertions.assertThrows(IllegalStateException.class, () ->
+                IcebergScanPlanProvider.schemaForPotentialEqualityDeletes(table, table.newScan(), table.schema()));
+        Assertions.assertEquals("Iceberg equality-delete field 2 (k) was promoted to both " + first + " and "
+                + second + " in schema history", error.getMessage());
+        IcebergScanPlanProvider provider = providerOver(table);
+        Assertions.assertThrows(IllegalStateException.class, () -> provider.getScanNodeProperties(null,
+                new IcebergTableHandle("db1", name), Collections.singletonList(new IcebergColumnHandle("id", 1)),
+                Optional.empty()));
+    }
+
+    @Test
+    public void equalityCarrierKeepsLineagePromotionBesideAnAbandonedOne() throws Exception {
+        // The schemas of the rollback history above, but the delete commits while TIMESTAMP_NS is current, so the
+        // lineage records TIMESTAMP_NS. The abandoned TIMESTAMP schema is not a promotion of that definition and
+        // must not fail planning.
+        Schema dateSchema = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "k", Types.DateType.get()));
+        Table table = createTable("date_ns_lineage_beside_ts_eq_key", dateSchema, PartitionSpec.unpartitioned(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "3"));
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/date_ns_lineage_beside_ts_eq_key/f1.parquet", 1024, null, null)).commit();
+        publishSchema(table, new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "k", Types.TimestampType.withoutZone())), 2);
+        publishSchema(table, dateSchema, 2);
+        publishSchema(table, new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "k", Types.TimestampNanoType.withoutZone())), 2);
+        table.newRowDelta().addDeletes(equalityDeleteFile(
+                "s3://b/db/date_ns_lineage_beside_ts_eq_key/eq.parquet", FileFormat.PARQUET, 2)).commit();
+        table.updateSchema().deleteColumn("k").commit();
+        Assertions.assertEquals(Types.TimestampNanoType.withoutZone(),
+                table.schemas().get(table.currentSnapshot().schemaId()).findType(2));
+
+        List<NestedField> carrier = IcebergScanPlanProvider.schemaForPotentialEqualityDeletes(
+                table, table.newScan(), table.schema());
+        Assertions.assertEquals(2, carrier.size(), "the dropped equality key must stay resolvable: " + carrier);
+        Assertions.assertEquals(Types.TimestampNanoType.withoutZone(), carrier.get(1).type());
+    }
+
+    @Test
+    public void equalityCarrierRejectsUnknownKeyPromotedToUnrelatedTypes() throws Exception {
+        // v3 lets UNKNOWN become any type. k is promoted to INT, set back to UNKNOWN and promoted to STRING without
+        // snapshots, so INT and STRING are both promotions of the lineage's UNKNOWN. An INT carrier would turn a
+        // non-numeric STRING tombstone into NULL, which matches every row written while k was UNKNOWN.
+        Schema unknownSchema = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "k", Types.UnknownType.get()));
+        Table table = createTable("unknown_int_then_string_eq_key", unknownSchema, PartitionSpec.unpartitioned(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "3"));
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/unknown_int_then_string_eq_key/f1.parquet", 1024, null, null)).commit();
+        publishSchema(table, new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "k", Types.IntegerType.get())), 2);
+        publishSchema(table, unknownSchema, 2);
+        publishSchema(table, new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "k", Types.StringType.get())), 2);
+        RowDelta pendingDelete = table.newRowDelta().addDeletes(equalityDeleteFile(
+                "s3://b/db/unknown_int_then_string_eq_key/eq.parquet", FileFormat.PARQUET, 2));
+        table.updateSchema().deleteColumn("k").commit();
+        pendingDelete.commit();
+        Assertions.assertEquals(Types.UnknownType.get(), table.schemas()
+                .get(table.snapshot(table.currentSnapshot().parentId()).schemaId()).findType(2));
+
+        IllegalStateException error = Assertions.assertThrows(IllegalStateException.class, () ->
+                IcebergScanPlanProvider.schemaForPotentialEqualityDeletes(table, table.newScan(), table.schema()));
+        Assertions.assertEquals("Iceberg equality-delete field 2 (k) was promoted to both int and string"
+                + " in schema history", error.getMessage());
+    }
+
+    @Test
+    public void equalityCarrierKeepsSchemaOnlyOptionalityOfDroppedKey() throws Exception {
+        // k becomes optional without a snapshot, and both a pending delete and an append without k commit after k
+        // is dropped, so every snapshot on the lineage records either no k or the required one. A required carrier
+        // would make both readers reject the appended file for a missing required field.
+        Table table = droppedRequiredKeyTable("optional_dropped_eq_key", true);
+        Assertions.assertTrue(table.schemas().get(table.snapshot(table.snapshot(
+                table.currentSnapshot().parentId()).parentId()).schemaId()).findField(2).isRequired());
+
+        List<NestedField> carrier = IcebergScanPlanProvider.schemaForPotentialEqualityDeletes(
+                table, table.newScan(), table.schema());
+        Assertions.assertEquals(2, carrier.size(), "the dropped equality key must stay resolvable: " + carrier);
+        Assertions.assertTrue(carrier.get(1).isOptional(), carrier.toString());
+        Assertions.assertEquals(Types.IntegerType.get(), carrier.get(1).type());
+    }
+
+    @Test
+    public void equalityCarrierKeepsAlwaysRequiredDroppedKeyRequired() throws Exception {
+        Table table = droppedRequiredKeyTable("required_dropped_eq_key", false);
+
+        List<NestedField> carrier = IcebergScanPlanProvider.schemaForPotentialEqualityDeletes(
+                table, table.newScan(), table.schema());
+        Assertions.assertEquals(2, carrier.size(), "the dropped equality key must stay resolvable: " + carrier);
+        Assertions.assertTrue(carrier.get(1).isRequired(), carrier.toString());
+    }
+
+    /**
+     * Appends a file with a required k, optionally makes k optional without a snapshot, then drops k while an
+     * equality delete on it is pending and commits an append without k before the delete.
+     */
+    private static Table droppedRequiredKeyTable(String name, boolean makeOptional) {
+        Table table = createTable(name, new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "k", Types.IntegerType.get())), PartitionSpec.unpartitioned(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "2"));
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/" + name + "/f1.parquet", 1024, null, null))
+                .commit();
+        if (makeOptional) {
+            table.updateSchema().makeColumnOptional("k").commit();
+        }
+        RowDelta pendingDelete = table.newRowDelta().addDeletes(equalityDeleteFile(
+                "s3://b/db/" + name + "/eq.parquet", FileFormat.PARQUET, 2));
+        table.updateSchema().deleteColumn("k").commit();
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/" + name + "/f2.parquet", 1024, null, null))
+                .commit();
+        pendingDelete.commit();
+        Assertions.assertNull(table.schemas().get(table.currentSnapshot().schemaId()).findField(2));
+        return table;
+    }
+
+    /** Publishes a schema directly: SchemaUpdate in Iceberg 1.12.0 rejects the v3 DATE promotions. */
+    private static void publishSchema(Table table, Schema schema, int lastColumnId) {
+        org.apache.iceberg.TableOperations operations = ((org.apache.iceberg.HasTableOperations) table).operations();
+        org.apache.iceberg.TableMetadata base = operations.current();
+        operations.commit(base, org.apache.iceberg.TableMetadata.buildFrom(base)
+                .setCurrentSchema(schema, lastColumnId).build());
+        table.refresh();
+    }
+
+    @Test
+    public void equalityCarrierResolvesReusedSchemaIdAfterParentSnapshotsExpire() throws Exception {
+        Schema schema = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()));
+        Table table = createTable("reused_schema_id_expired_parent", schema, PartitionSpec.unpartitioned(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "2"));
+        table.updateSchema().addColumn("k", Types.StringType.get()).commit();
+        int keyId = table.schema().findField("k").fieldId();
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/reused_schema_id_expired_parent/f1.parquet", 1024, null, null)).commit();
+        long appendSnapshotId = table.currentSnapshot().snapshotId();
+        table.newRowDelta().addDeletes(equalityDeleteFile(
+                "s3://b/db/reused_schema_id_expired_parent/eq.parquet", FileFormat.PARQUET, keyId)).commit();
+        long deleteSnapshotId = table.currentSnapshot().snapshotId();
+        table.updateSchema().deleteColumn("k").commit();
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/reused_schema_id_expired_parent/f2.parquet", 1024, null, null)).commit();
+        // With the snapshots that recorded k expired, the scan lineage ends at the reused-ID snapshot, so the key
+        // can only come from the metadata schema list, where it sits after the reused schema.
+        table.expireSnapshots().expireSnapshotId(appendSnapshotId).expireSnapshotId(deleteSnapshotId)
+                .cleanExpiredFiles(false).commit();
+        Assertions.assertNull(table.snapshot(table.currentSnapshot().parentId()));
+
+        List<NestedField> carrier = IcebergScanPlanProvider.schemaForPotentialEqualityDeletes(
+                table, table.newScan(), table.schema());
+        Assertions.assertEquals(2, carrier.size(), "the dropped equality key must stay resolvable: " + carrier);
+        Assertions.assertEquals(keyId, carrier.get(1).fieldId());
+        Assertions.assertEquals("k", carrier.get(1).name());
+    }
+
+    @Test
+    public void equalityCarrierPrefersScanLineageOverLaterRenameForTimeTravel() {
+        // The metadata list also holds schemas committed after a time-travel target. A later schema that renames
+        // the key must not win over the definition recorded on the target's own lineage.
+        NestedField id = Types.NestedField.required(1, "id", Types.LongType.get());
+        Schema schemaWithEqualityKey = new Schema(100, Arrays.asList(id, intKeyWithDefault("k")));
+        Schema timeTravelSchema = new Schema(1, Collections.singletonList(id));
+        Schema laterSchema = new Schema(2, Arrays.asList(id, intKeyWithDefault("k2")));
+        Snapshot timeTravelSnapshot = snapshotOf(1001L, 1000L, timeTravelSchema);
+        Table table = tableWithHistory(Arrays.asList(schemaWithEqualityKey, timeTravelSchema, laterSchema),
+                snapshotOf(1000L, null, schemaWithEqualityKey), timeTravelSnapshot);
+
+        List<NestedField> carrier = IcebergScanPlanProvider.schemaForPotentialEqualityDeletes(
+                table, timeTravelSnapshot, timeTravelSchema, Collections.singleton(7));
+        Assertions.assertEquals(2, carrier.size());
+        Assertions.assertEquals(7, carrier.get(1).fieldId());
+        Assertions.assertEquals("k", carrier.get(1).name());
+    }
+
+    @Test
+    public void equalityCarrierKeepsDefaultWhenTimeTravelParentExpiredBeforeLaterRename() {
+        // Once the lineage that recorded the key has expired, the metadata list is the only source left. Its newest
+        // definition may come from a later rename, but the field ID and its initial default stay the same.
+        NestedField id = Types.NestedField.required(1, "id", Types.LongType.get());
+        Schema schemaWithEqualityKey = new Schema(100, Arrays.asList(id, intKeyWithDefault("k")));
+        Schema timeTravelSchema = new Schema(1, Collections.singletonList(id));
+        Schema laterSchema = new Schema(2, Arrays.asList(id, intKeyWithDefault("k2")));
+        Snapshot timeTravelSnapshot = snapshotOf(1001L, 1000L, timeTravelSchema);
+        Table table = tableWithHistory(Arrays.asList(schemaWithEqualityKey, timeTravelSchema, laterSchema),
+                timeTravelSnapshot);
+
+        List<NestedField> carrier = IcebergScanPlanProvider.schemaForPotentialEqualityDeletes(
+                table, timeTravelSnapshot, timeTravelSchema, Collections.singleton(7));
+        Assertions.assertEquals(2, carrier.size());
+        Assertions.assertEquals(7, carrier.get(1).fieldId());
+        Assertions.assertEquals(7, carrier.get(1).initialDefault());
+    }
+
+    private static NestedField intKeyWithDefault(String name) {
+        return Types.NestedField.optional(name).withId(7).ofType(Types.IntegerType.get())
+                .withInitialDefault(7).build();
+    }
+
+    /** A snapshot double exposing only its lineage and the ID of the schema it was written with. */
+    private static Snapshot snapshotOf(long snapshotId, Long parentId, Schema schema) {
+        return (Snapshot) Proxy.newProxyInstance(Snapshot.class.getClassLoader(), new Class<?>[] {Snapshot.class},
+                (proxy, method, args) -> {
+                    switch (method.getName()) {
+                        case "snapshotId":
+                            return snapshotId;
+                        case "parentId":
+                            return parentId;
+                        case "schemaId":
+                            return schema.schemaId();
+                        default:
+                            throw new UnsupportedOperationException(method.getName());
+                    }
+                });
+    }
+
+    /**
+     * A table double exposing only schema history, in metadata-list order, and the retained snapshots. It allows
+     * schema histories that the SDK cannot build, such as a later schema that renames a dropped field ID.
+     */
+    private static Table tableWithHistory(List<Schema> schemas, Snapshot... snapshots) {
+        Map<Integer, Schema> schemasById = new LinkedHashMap<>();
+        for (Schema schema : schemas) {
+            schemasById.put(schema.schemaId(), schema);
+        }
+        Map<Long, Snapshot> snapshotsById = new HashMap<>();
+        for (Snapshot snapshot : snapshots) {
+            snapshotsById.put(snapshot.snapshotId(), snapshot);
+        }
+        return (Table) Proxy.newProxyInstance(Table.class.getClassLoader(), new Class<?>[] {Table.class},
+                (proxy, method, args) -> {
+                    switch (method.getName()) {
+                        case "schemas":
+                            return schemasById;
+                        case "snapshot":
+                            return snapshotsById.get((Long) args[0]);
+                        default:
+                            throw new UnsupportedOperationException(method.getName());
+                    }
+                });
     }
 
     @Test
@@ -1845,8 +2722,9 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertEquals(1L,
                 provider.streamingSplitEstimate(session, handle, Optional.empty(), false),
                 "schema-carrier planning must not retain tasks or disable streaming batch dispatch");
-        try (ConnectorSplitSource source = provider.streamSplits(
-                session, handle, Collections.emptyList(), Optional.empty(), -1L)) {
+        try (ConnectorSplitSource source = provider.streamSplits(session,
+                ConnectorScanRequest.builder(handle, Collections.emptyList())
+                        .filter(Optional.empty()).limit(-1L).build())) {
             Assertions.assertTrue(source.hasNext(),
                     "the first split must be dispatchable without draining all remaining byte splits");
             Assertions.assertEquals(0L, source.next().getStart());
@@ -1904,6 +2782,232 @@ public class IcebergScanPlanProviderTest {
                         table.currentSnapshot()));
         Assertions.assertEquals(0, countingTable.getSnapshotLookupCount(),
                 "the upgrade fence must be conservative and bounded by schema history, not snapshot count");
+    }
+
+    @Test
+    public void missingRequiredFieldFenceFollowsProjection() {
+        // Older files cannot contain a required field added later, and only current backends reject such a file
+        // instead of reading NULL. The fence must therefore follow the projection, nested paths included.
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.LongType.get()),
+                Types.NestedField.optional(2, "payload", Types.StructType.of(
+                        Types.NestedField.optional(3, "existing", Types.IntegerType.get()))));
+        Table table = createTable("required_projection_fence", schema, PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/required_projection_fence/old.parquet", 128, null, null)).commit();
+        table.updateSchema().allowIncompatibleChanges()
+                .addRequiredColumn("required_added", Types.IntegerType.get())
+                .addRequiredColumn("payload", "required_nested", Types.IntegerType.get())
+                .commit();
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/required_projection_fence/new.parquet", 128, null, null)).commit();
+        Schema current = table.schema();
+        int payloadId = current.findField("payload").fieldId();
+        ConnectorColumnHandle payload = new IcebergColumnHandle("payload", payloadId);
+        IcebergScanPlanProvider provider = providerOver(table);
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "required_projection_fence");
+
+        Assertions.assertNull(requiredBackendSemantics(provider, handle,
+                new IcebergColumnHandle("id", current.findField("id").fieldId())));
+        Assertions.assertEquals("Current Iceberg scan semantics", requiredBackendSemantics(provider, handle,
+                new IcebergColumnHandle("required_added", current.findField("required_added").fieldId())));
+        Assertions.assertNull(requiredBackendSemantics(provider, handle, payload.withProjectedFieldIds(
+                ImmutableSet.of(payloadId, current.findField("payload.existing").fieldId()))));
+        Assertions.assertEquals("Current Iceberg scan semantics", requiredBackendSemantics(provider, handle,
+                payload.withProjectedFieldIds(ImmutableSet.of(
+                        payloadId, current.findField("payload.required_nested").fieldId()))));
+    }
+
+    @Test
+    public void requiredCollectionWrappersDoNotTriggerMissingRequiredFieldFence() {
+        // A list element or a map key/value has no value of its own without its collection, so a required wrapper
+        // missing from an older schema never needs the fence; a required struct field inside the element does.
+        Types.NestedField existing = Types.NestedField.optional(32, "existing", Types.IntegerType.get());
+        Schema historicalSchema = new Schema(0, Arrays.asList(
+                Types.NestedField.optional(10, "items", Types.ListType.ofOptional(90, Types.IntegerType.get())),
+                Types.NestedField.optional(20, "entries", Types.MapType.ofOptional(
+                        91, 92, Types.StringType.get(), Types.IntegerType.get())),
+                Types.NestedField.optional(30, "struct_items", Types.ListType.ofOptional(
+                        31, Types.StructType.of(existing)))));
+        Schema scanSchema = new Schema(1, Arrays.asList(
+                Types.NestedField.optional(10, "items", Types.ListType.ofRequired(11, Types.IntegerType.get())),
+                Types.NestedField.optional(20, "entries", Types.MapType.ofRequired(
+                        21, 22, Types.StringType.get(), Types.IntegerType.get())),
+                Types.NestedField.optional(30, "struct_items", Types.ListType.ofOptional(
+                        31, Types.StructType.of(existing,
+                                Types.NestedField.required(33, "required_nested", Types.IntegerType.get()))))));
+        Table snapshotTable = createTable("required_collection_wrappers", SCHEMA, PartitionSpec.unpartitioned());
+        snapshotTable.newAppend().appendFile(dataFile(snapshotTable.spec(),
+                "s3://b/db/required_collection_wrappers/f1.parquet", 128, null, null)).commit();
+        Table table = tableWithSchemas(snapshotTable, historicalSchema, scanSchema);
+        Snapshot snapshot = snapshotTable.currentSnapshot();
+        ConnectorColumnHandle structItems = new IcebergColumnHandle("struct_items", 30);
+
+        Assertions.assertFalse(IcebergScanPlanProvider.selectedHistoryRequiresMissingRequiredFieldRejection(
+                table, scanSchema, IcebergScanPlanProvider.projectedFieldIds(scanSchema, Arrays.asList(
+                        new IcebergColumnHandle("items", 10), new IcebergColumnHandle("entries", 20))),
+                snapshot));
+        // The access path struct_items.*.existing selects the element's child without the element wrapper ID.
+        Assertions.assertFalse(IcebergScanPlanProvider.selectedHistoryRequiresMissingRequiredFieldRejection(
+                table, scanSchema, IcebergScanPlanProvider.projectedFieldIds(scanSchema, Collections.singletonList(
+                        structItems.withProjectedFieldIds(ImmutableSet.of(30, 32)))),
+                snapshot));
+        Assertions.assertTrue(IcebergScanPlanProvider.selectedHistoryRequiresMissingRequiredFieldRejection(
+                table, scanSchema, IcebergScanPlanProvider.projectedFieldIds(scanSchema, Collections.singletonList(
+                        structItems.withProjectedFieldIds(ImmutableSet.of(30, 33)))),
+                snapshot));
+    }
+
+    @Test
+    public void missingRequiredFieldFenceCoversSchemaOnlyTarget() {
+        // A schema-only change has no snapshot of its own, so every selected file predates the required field it
+        // adds; projecting that field still needs the fence.
+        Table table = createTable("schema_only_required", new Schema(
+                Types.NestedField.required(1, "id", Types.LongType.get())), PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/schema_only_required/f1.parquet", 128, null, null)).commit();
+        table.updateSchema().allowIncompatibleChanges()
+                .addRequiredColumn("required_value", Types.IntegerType.get()).commit();
+        Assertions.assertNotEquals(table.schema().schemaId(), table.currentSnapshot().schemaId(),
+                "the selected snapshot must predate the scanned schema");
+        IcebergScanPlanProvider provider = providerOver(table);
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "schema_only_required");
+
+        Assertions.assertEquals("Current Iceberg scan semantics", requiredBackendSemantics(provider, handle,
+                new IcebergColumnHandle("required_value", table.schema().findField("required_value").fieldId())));
+        Assertions.assertNull(requiredBackendSemantics(provider, handle,
+                new IcebergColumnHandle("id", table.schema().findField("id").fieldId())));
+    }
+
+    @Test
+    public void missingRequiredFieldFenceCoversCherryPickedSourceAncestry() {
+        // A cherry-picked snapshot has no parent on the target branch, but its files come from a source branch
+        // whose ancestors were written before the required field existed; projecting that field needs the fence.
+        Table table = createTable("cherry_picked_required", new Schema(
+                Types.NestedField.required(1, "id", Types.LongType.get())), PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/cherry_picked_required/old.parquet", 128, null, null)).toBranch("audit").commit();
+        table.updateSchema().allowIncompatibleChanges()
+                .addRequiredColumn("required_value", Types.IntegerType.get()).commit();
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/cherry_picked_required/new.parquet", 128, null, null)).toBranch("audit").commit();
+        long sourceSnapshotId = table.refs().get("audit").snapshotId();
+        table.manageSnapshots().cherrypick(sourceSnapshotId).commit();
+        Snapshot target = table.currentSnapshot();
+        Assertions.assertNull(target.parentId(), "the target branch must have no snapshot before the picked one");
+        Assertions.assertEquals(String.valueOf(sourceSnapshotId),
+                target.summary().get(SnapshotSummary.SOURCE_SNAPSHOT_ID_PROP));
+        IcebergScanPlanProvider provider = providerOver(table);
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "cherry_picked_required");
+
+        Assertions.assertEquals("Current Iceberg scan semantics", requiredBackendSemantics(provider, handle,
+                new IcebergColumnHandle("required_value", table.schema().findField("required_value").fieldId())));
+        Assertions.assertNull(requiredBackendSemantics(provider, handle,
+                new IcebergColumnHandle("id", table.schema().findField("id").fieldId())));
+    }
+
+    @Test
+    public void nestedInitialDefaultRequiresCurrentBackendSemanticsOnlyWhenProjected() {
+        // Older backends cannot materialize an initial default below the top level. The fence follows the
+        // projected subtree: a top-level scalar default and a struct path that skips the defaulted child stay
+        // schedulable on every backend.
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "payload", Types.StructType.of(
+                        Types.NestedField.optional(3, "existing", Types.IntegerType.get()))));
+        Table table = createTable("nested_default_fence", schema, PartitionSpec.unpartitioned(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "3"));
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/nested_default_fence/f1.parquet", 1024, null, null)).commit();
+        table.updateSchema()
+                .addColumn("scalar", Types.IntegerType.get(), Literal.of(5))
+                .addColumn("payload", "added", Types.IntegerType.get(), Literal.of(7))
+                .commit();
+        Schema current = table.schema();
+        int payloadId = current.findField("payload").fieldId();
+        ConnectorColumnHandle payload = new IcebergColumnHandle("payload", payloadId);
+        IcebergScanPlanProvider provider = providerOver(table);
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "nested_default_fence");
+
+        Assertions.assertNull(requiredBackendSemantics(provider, handle,
+                new IcebergColumnHandle("scalar", current.findField("scalar").fieldId())));
+        Assertions.assertEquals("Current Iceberg scan semantics",
+                requiredBackendSemantics(provider, handle, payload));
+        Assertions.assertNull(requiredBackendSemantics(provider, handle, payload.withProjectedFieldIds(
+                ImmutableSet.of(payloadId, current.findField("payload.existing").fieldId()))));
+        Assertions.assertEquals("Current Iceberg scan semantics", requiredBackendSemantics(provider, handle,
+                payload.withProjectedFieldIds(ImmutableSet.of(
+                        payloadId, current.findField("payload.added").fieldId()))));
+    }
+
+    @Test
+    public void nestedInitialDefaultLeavesSmoothUpgradeRejectionToTheEngine() {
+        // The connector plans the scan and only names the semantics it needs. The engine then refuses to schedule
+        // it with "Current Iceberg scan semantics are unavailable while backend <id> is a smooth upgrade source".
+        Schema schema = new Schema(Types.NestedField.optional(1, "payload", Types.StructType.of(
+                Types.NestedField.optional(2, "existing", Types.IntegerType.get()))));
+        Table table = createTable("nested_default_engine_fence", schema, PartitionSpec.unpartitioned(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "3"));
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/nested_default_engine_fence/f1.parquet", 1024, null, null)).commit();
+        table.updateSchema().addColumn("payload", "added", Types.IntegerType.get(), Literal.of(5)).commit();
+        IcebergScanPlanProvider provider = providerOver(table);
+        ConnectorSession session = new FakeScanSession("UTC",
+                Collections.singletonMap("enable_file_scanner_v2", "true"));
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "nested_default_engine_fence");
+        List<ConnectorColumnHandle> columns = Collections.singletonList(
+                new IcebergColumnHandle("payload", table.schema().findField("payload").fieldId()));
+
+        Assertions.assertEquals(1,
+                provider.planScan(session, ConnectorScanRequest.builder(handle, columns).build()).size());
+        Assertions.assertEquals("Current Iceberg scan semantics",
+                provider.getScanNodeProperties(session, handle, columns, Optional.empty())
+                        .get(ScanNodePropertyKeys.REQUIRED_CURRENT_BACKEND_SEMANTICS));
+    }
+
+    @Test
+    public void nameMappingAliasCollisionRequiresCurrentBackendSemanticsOnlyWhenProjected() {
+        // When a name-mapping alias equals a sibling's current name, older backends may bind the wrong physical
+        // column of an ID-less file. The fence applies when a colliding field is projected and spares the rest.
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "root", Types.StructType.of(
+                        Types.NestedField.optional(3, "renamed_payload",
+                                Types.ListType.ofOptional(4, Types.IntegerType.get())),
+                        Types.NestedField.optional(5, "payload", Types.MapType.ofOptional(
+                                6, 7, Types.StringType.get(), Types.IntegerType.get())),
+                        Types.NestedField.optional(8, "safe", Types.IntegerType.get()))));
+        Table table = createTable("name_alias_collision", schema, PartitionSpec.unpartitioned());
+        Schema current = table.schema();
+        int rootId = current.findField("root").fieldId();
+        int renamedPayloadId = current.findField("root.renamed_payload").fieldId();
+        int payloadId = current.findField("root.payload").fieldId();
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/name_alias_collision/f1.parquet", 1024, null, null)).commit();
+        // Mapped names are unique per level, so the collision is the renamed field's old name that the newer,
+        // unmapped sibling now uses as its current name.
+        table.updateProperties().set(TableProperties.DEFAULT_NAME_MAPPING, NameMappingParser.toJson(
+                NameMapping.of(MappedField.of(rootId, "root", MappedFields.of(
+                        MappedField.of(renamedPayloadId, Arrays.asList("payload", "renamed_payload"))))))).commit();
+        ConnectorColumnHandle root = new IcebergColumnHandle("root", rootId);
+        IcebergScanPlanProvider provider = providerOver(table);
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "name_alias_collision");
+
+        Assertions.assertNull(requiredBackendSemantics(provider, handle,
+                new IcebergColumnHandle("id", current.findField("id").fieldId())));
+        Assertions.assertEquals("Current Iceberg scan semantics",
+                requiredBackendSemantics(provider, handle, root));
+        Assertions.assertNull(requiredBackendSemantics(provider, handle, root.withProjectedFieldIds(
+                ImmutableSet.of(rootId, current.findField("root.safe").fieldId()))));
+        Assertions.assertEquals("Current Iceberg scan semantics", requiredBackendSemantics(provider, handle,
+                root.withProjectedFieldIds(ImmutableSet.of(rootId, renamedPayloadId))));
+
+        // An alias that no sibling currently uses as its name is not a collision.
+        table.updateProperties().set(TableProperties.DEFAULT_NAME_MAPPING, NameMappingParser.toJson(
+                NameMapping.of(MappedField.of(rootId, "root", MappedFields.of(
+                        MappedField.of(renamedPayloadId, Arrays.asList("legacy_payload", "renamed_payload")),
+                        MappedField.of(payloadId, "payload")))))).commit();
+        Assertions.assertNull(requiredBackendSemantics(provider, handle, root));
     }
 
     @Test
@@ -2041,6 +3145,52 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertNull(task.schema().findField("readable_metrics"),
                 "readable_metrics must NOT be in the projected task schema: its bound conversion "
                         + "BufferUnderflows on complex/boolean bound columns when materialised unrequested");
+    }
+
+    @Test
+    public void planSystemTableScanKeepsSplitOffsetsWithTheirFileSizeDependency() throws Exception {
+        List<Long> offsets = Arrays.asList(4L, 2048L);
+        for (PartitionSpec spec : Arrays.asList(PartitionSpec.unpartitioned(),
+                PartitionSpec.builderFor(SCHEMA).identity("id").build())) {
+            Table table = createTable("t1", SCHEMA, spec);
+            table.newAppend().appendFile(dataFile(table.spec(), "data.parquet", 4096, offsets,
+                    spec.isPartitioned() ? "id=1" : null)).commit();
+            IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                    IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table));
+            for (String type : Arrays.asList("files", "data_files", "all_files", "all_data_files")) {
+                for (List<String> names : Arrays.asList(Collections.singletonList("split_offsets"),
+                        Arrays.asList("content", "split_offsets"), Arrays.asList("split_offsets", "content"),
+                        Arrays.asList("split_offsets", "file_size_in_bytes"),
+                        Arrays.asList("file_size_in_bytes", "split_offsets"))) {
+                    List<ConnectorColumnHandle> columns = names.stream()
+                            .map(name -> (ConnectorColumnHandle) new IcebergColumnHandle(name, 1))
+                            .collect(Collectors.toList());
+                    List<ConnectorScanRange> ranges = provider.planScan(null, ConnectorScanRequest.builder(
+                            IcebergTableHandle.forSystemTable("db1", "t1", type, -1L, null, -1L), columns).build());
+                    int rowCount = 0;
+                    for (ConnectorScanRange range : ranges) {
+                        FileScanTask task = IcebergSystemTableSerialization.deserializeFromBase64(
+                                ((IcebergScanRange) range).getSerializedSplit());
+                        try (CloseableIterable<StructLike> rows = task.asDataTask().rows()) {
+                            for (StructLike row : rows) {
+                                Assertions.assertEquals(offsets, row.get(names.indexOf("split_offsets"), List.class),
+                                        type + " " + names);
+                                if (names.contains("content")) {
+                                    Assertions.assertEquals(0, row.get(names.indexOf("content"), Integer.class));
+                                }
+                                if (names.contains("file_size_in_bytes")) {
+                                    Assertions.assertEquals(4096L,
+                                            row.get(names.indexOf("file_size_in_bytes"), Long.class));
+                                }
+                                rowCount++;
+                            }
+                        }
+                        Assertions.assertNull(task.schema().findField("readable_metrics"));
+                    }
+                    Assertions.assertEquals(1, rowCount);
+                }
+            }
+        }
     }
 
     @Test
@@ -2469,8 +3619,9 @@ public class IcebergScanPlanProviderTest {
                         provider.streamingSplitEstimate(batchSession(2, true), handle, filter, false),
                         "the nonmatching manifest must not enable streaming at a two-file threshold");
             }
-            List<ConnectorScanRange> streamed = drain(provider.streamSplits(
-                    batchSession(1, true), handle, Collections.emptyList(), filter, -1L));
+            List<ConnectorScanRange> streamed = drain(provider.streamSplits(batchSession(1, true),
+                    ConnectorScanRequest.builder(handle, Collections.emptyList())
+                            .filter(filter).limit(-1L).build()));
             Assertions.assertEquals(sortedPaths(ranges), sortedPaths(streamed));
         }
     }
@@ -2497,6 +3648,60 @@ public class IcebergScanPlanProviderTest {
         assertHistoricalStreamingDispatch(table, historicalSnapshotId, historicalSchemaId);
     }
 
+    @Test
+    public void cachedStreamingScansKeepPartitionTypesAcrossIntToBigintPromotion() throws IOException {
+        // WHY: the manifest cache shares one decoded manifest across scans, but a scan pinned to the schema before an
+        // INT -> BIGINT promotion of an identity partition binds its residual to INT, while a current scan binds it to
+        // LONG. Values decoded for one binding must not reach the other: the historical scan failed with
+        // "Wrong class, expected java.lang.Integer, but was java.lang.Long" (and the reverse for the current scan).
+        // The position delete in p=1 runs the same partitions through the delete index. MUTATION: reading cached
+        // manifests with table.specs() (or the manifest's own spec) for every scan -> one of the two orders -> red.
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "p", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "value", Types.StringType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("p").build();
+        Table table = createTable("promoted_partition", schema, spec,
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "2"));
+        String location = "s3://b/db/promoted_partition/";
+        table.newRowDelta()
+                .addRows(dataFile(table.spec(), location + "old.parquet", 1024, null, "p=1"))
+                .addDeletes(FileMetadata.deleteFileBuilder(table.spec())
+                        .ofPositionDeletes()
+                        .withPath(location + "old-deletes.parquet")
+                        .withFormat(FileFormat.PARQUET)
+                        .withFileSizeInBytes(128L)
+                        .withRecordCount(1L)
+                        .withPartitionPath("p=1")
+                        .build())
+                .commit();
+        long historicalSnapshotId = table.currentSnapshot().snapshotId();
+        int historicalSchemaId = table.currentSnapshot().schemaId();
+        table.updateSchema().updateColumn("p", Types.LongType.get()).commit();
+        table.newAppend().appendFile(dataFile(table.spec(), location + "new.parquet", 1024, null, "p=2")).commit();
+
+        IcebergTableHandle historical = new IcebergTableHandle("db1", "promoted_partition")
+                .withSnapshot(historicalSnapshotId, null, historicalSchemaId);
+        IcebergTableHandle current = new IcebergTableHandle("db1", "promoted_partition")
+                .withSnapshot(table.currentSnapshot().snapshotId(), null, table.schema().schemaId());
+        ConnectorExpression intFilter = eqInt("p", 1);
+        ConnectorExpression bigintFilter = new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                new ConnectorColumnRef("p", ConnectorType.of("BIGINT")),
+                new ConnectorLiteral(ConnectorType.of("BIGINT"), 1L));
+
+        for (boolean historicalFirst : new boolean[] {true, false}) {
+            IcebergScanPlanProvider provider =
+                    manifestProvider(manifestCacheProps(), table, new IcebergManifestCache());
+            for (int i = 0; i < 2; i++) {
+                boolean scanHistorical = (i == 0) == historicalFirst;
+                List<ConnectorScanRange> ranges = drain(provider.streamSplits(batchSession(1, true),
+                        ConnectorScanRequest.builder(scanHistorical ? historical : current, Collections.emptyList())
+                                .filter(Optional.of(scanHistorical ? intFilter : bigintFilter)).limit(-1L).build()));
+                Assertions.assertEquals(Collections.singletonList(location + "old.parquet"), sortedPaths(ranges),
+                        (scanHistorical ? "historical" : "current") + " scan, historical first=" + historicalFirst);
+            }
+        }
+    }
+
     private static void assertHistoricalStreamingDispatch(
             Table table, long historicalSnapshotId, int historicalSchemaId) throws IOException {
         IcebergTableHandle handle = new IcebergTableHandle("db1", "historical_batch_estimate")
@@ -2506,8 +3711,9 @@ public class IcebergScanPlanProviderTest {
         Optional<ConnectorExpression> filter = Optional.of(eqInt("x", 1));
 
         Assertions.assertEquals(1L, provider.streamingSplitEstimate(session, handle, filter, false));
-        List<ConnectorScanRange> ranges = drain(provider.streamSplits(
-                session, handle, Collections.emptyList(), filter, -1L));
+        List<ConnectorScanRange> ranges = drain(provider.streamSplits(session,
+                ConnectorScanRequest.builder(handle, Collections.emptyList())
+                        .filter(filter).limit(-1L).build()));
         Assertions.assertEquals(1, ranges.size());
         Assertions.assertTrue(ranges.get(0).getPath().get().endsWith("old.parquet"));
     }
@@ -2551,7 +3757,8 @@ public class IcebergScanPlanProviderTest {
                 new IcebergTableHandle("db1", "t1"), Optional.empty(), false),
                 "the pre-pin batch decision must observe the concurrent first append");
         List<ConnectorScanRange> ranges = drain(provider.streamSplits(emptySession(),
-                emptyRead, Collections.emptyList(), Optional.empty(), -1L));
+                ConnectorScanRequest.builder(emptyRead, Collections.emptyList())
+                        .filter(Optional.empty()).limit(-1L).build()));
         Assertions.assertTrue(ranges.isEmpty(),
                 "the post-pin streaming path must preserve the explicitly empty read boundary");
     }
@@ -2778,6 +3985,77 @@ public class IcebergScanPlanProviderTest {
                 .getFields().get(0).getFieldPtr().getName());
         Assertions.assertEquals("name", params.getHistorySchemaInfo().get(0).getRootField()
                 .getFields().get(1).getFieldPtr().getName());
+    }
+
+    @Test
+    public void getScanNodePropertiesUnderTopnPreservesMixedCaseFullSchemaNames() throws Exception {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "ID", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "Name", Types.StringType.get()));
+        Table table = createTable("mixed_topn", schema, PartitionSpec.unpartitioned());
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table));
+
+        Map<String, String> props = provider.getScanNodeProperties(
+                null, new IcebergTableHandle("db1", "mixed_topn").withTopnLazyMaterialize(true),
+                Collections.singletonList(new IcebergColumnHandle("ID", 1)), Optional.empty());
+        TFileScanRangeParams params = new TFileScanRangeParams();
+        provider.populateScanLevelParams(params, props);
+
+        List<TFieldPtr> fields = params.getHistorySchemaInfo().get(0).getRootField().getFields();
+        Assertions.assertEquals("ID", fields.get(0).getFieldPtr().getName());
+        Assertions.assertEquals("Name", fields.get(1).getFieldPtr().getName());
+    }
+
+    @Test
+    public void pinnedMixedCasePartitionUsesOneNameAcrossAllCarriers() throws Exception {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "City", Types.StringType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("City").build();
+        Table table = createTable("mixed_pin", schema, spec,
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "2"));
+        table.newAppend()
+                .appendFile(partitionedFile(spec, "s3://b/db/mixed_pin/City=Beijing/a.parquet",
+                        "Beijing"))
+                .commit();
+        long snapshotId = table.currentSnapshot().snapshotId();
+        long schemaId = table.currentSnapshot().schemaId();
+        table.updateSchema().renameColumn("City", "city").commit();
+
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "mixed_pin")
+                .withSnapshot(snapshotId, null, schemaId);
+        List<ConnectorColumnHandle> columns =
+                Collections.singletonList(new IcebergColumnHandle("City", 2));
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table));
+
+        Map<String, String> props = provider.getScanNodeProperties(
+                null, handle, columns, Optional.empty());
+        Assertions.assertEquals("City", props.get(ScanNodePropertyKeys.PATH_PARTITION_KEYS));
+        TFileScanRangeParams params = new TFileScanRangeParams();
+        provider.populateScanLevelParams(params, props);
+        Assertions.assertEquals("City", params.getHistorySchemaInfo().get(0).getRootField()
+                .getFields().get(1).getFieldPtr().getName());
+
+        List<ConnectorScanRange> ranges = provider.planScan(
+                new FakeScanSession("UTC", Collections.emptyMap()),
+                ConnectorScanRequest.builder(handle, columns).build());
+        Assertions.assertEquals(1, ranges.size());
+        TFileRangeDesc desc = populate(ranges.get(0));
+        Assertions.assertEquals(Collections.singletonList("City"), desc.getColumnsFromPathKeys());
+        Assertions.assertEquals(Collections.singletonList("Beijing"), desc.getColumnsFromPath());
+
+        ConnectorSplitSource splits = provider.streamSplits(
+                new FakeScanSession("UTC", Collections.emptyMap()),
+                ConnectorScanRequest.builder(handle, columns).build());
+        Assertions.assertTrue(splits.hasNext());
+        TFileRangeDesc streamingDesc = populate(splits.next());
+        splits.close();
+        Assertions.assertEquals(Collections.singletonList("City"),
+                streamingDesc.getColumnsFromPathKeys());
+        Assertions.assertEquals(Collections.singletonList("Beijing"),
+                streamingDesc.getColumnsFromPath());
     }
 
     @Test
@@ -3072,7 +4350,8 @@ public class IcebergScanPlanProviderTest {
         // streamed counterpart of planScan's eager enumeration.
         IcebergScanPlanProvider provider = providerOver(threeFileTable());
         List<ConnectorScanRange> ranges = drain(provider.streamSplits(emptySession(),
-                new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty(), -1L));
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "t1"), Collections.emptyList())
+                        .filter(Optional.empty()).limit(-1L).build()));
         Set<String> paths = ranges.stream()
                 .map(r -> ((IcebergScanRange) r).getOriginalPath()).collect(ImmutableSet.toImmutableSet());
         Assertions.assertEquals(
@@ -3090,7 +4369,8 @@ public class IcebergScanPlanProviderTest {
         IcebergTableHandle scoped = new IcebergTableHandle("db1", "t1").withRewriteFileScope(
                 ImmutableSet.of("s3://b/db/t1/f1.parquet", "s3://b/db/t1/f3.parquet"));
         List<ConnectorScanRange> ranges = drain(provider.streamSplits(emptySession(),
-                scoped, Collections.emptyList(), Optional.empty(), -1L));
+                ConnectorScanRequest.builder(scoped, Collections.emptyList())
+                        .filter(Optional.empty()).limit(-1L).build()));
         Set<String> paths = ranges.stream()
                 .map(r -> ((IcebergScanRange) r).getOriginalPath()).collect(ImmutableSet.toImmutableSet());
         Assertions.assertEquals(
@@ -3104,7 +4384,8 @@ public class IcebergScanPlanProviderTest {
         // guard in next() -> NPE/wrong instead of NoSuchElementException -> red.
         IcebergScanPlanProvider provider = providerOver(threeFileTable());
         ConnectorSplitSource source = provider.streamSplits(new FakeScanSession("UTC", Collections.emptyMap()),
-                new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty(), -1L);
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "t1"), Collections.emptyList())
+                        .filter(Optional.empty()).limit(-1L).build());
         while (source.hasNext()) {
             source.next();
         }
@@ -3119,7 +4400,8 @@ public class IcebergScanPlanProviderTest {
         // underlying planFiles() iterable. MUTATION: dropping the `iterator != null` guard in close() -> NPE -> red.
         IcebergScanPlanProvider provider = providerOver(threeFileTable());
         ConnectorSplitSource source = provider.streamSplits(emptySession(),
-                new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty(), -1L);
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "t1"), Collections.emptyList())
+                        .filter(Optional.empty()).limit(-1L).build());
         Assertions.assertDoesNotThrow(source::close);
     }
 
@@ -3768,12 +5050,16 @@ public class IcebergScanPlanProviderTest {
 
         // Cache OFF: the streaming SDK planFiles() path (the pre-PERF-04 behavior).
         List<ConnectorScanRange> sdk = drain(new IcebergScanPlanProvider(IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table))
-                .streamSplits(emptySession(), handle, Collections.emptyList(), Optional.empty(), -1L));
+                .streamSplits(emptySession(),
+                        ConnectorScanRequest.builder(handle, Collections.emptyList())
+                                .filter(Optional.empty()).limit(-1L).build()));
         // Cache ON: streaming must now read manifests THROUGH the cache and yield the SAME files (PERF-04 C17).
         // MUTATION: streaming still bypasses the cache (scan.planFiles()) -> cache stays empty -> red.
         IcebergManifestCache cache = new IcebergManifestCache();
         List<ConnectorScanRange> cached = drain(manifestProvider(manifestCacheProps(), table, cache)
-                .streamSplits(emptySession(), handle, Collections.emptyList(), Optional.empty(), -1L));
+                .streamSplits(emptySession(),
+                        ConnectorScanRequest.builder(handle, Collections.emptyList())
+                                .filter(Optional.empty()).limit(-1L).build()));
 
         Assertions.assertEquals(sortedPaths(sdk), sortedPaths(cached));
         Assertions.assertEquals(3, cached.size());
@@ -3792,10 +5078,14 @@ public class IcebergScanPlanProviderTest {
         Optional<ConnectorExpression> wherePeq1 = Optional.of(eqInt("p", 1));
 
         List<ConnectorScanRange> sdk = drain(new IcebergScanPlanProvider(IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table))
-                .streamSplits(emptySession(), handle, Collections.emptyList(), wherePeq1, -1L));
+                .streamSplits(emptySession(),
+                        ConnectorScanRequest.builder(handle, Collections.emptyList())
+                                .filter(wherePeq1).limit(-1L).build()));
         IcebergManifestCache cache = new IcebergManifestCache();
         List<ConnectorScanRange> cached = drain(manifestProvider(manifestCacheProps(), table, cache)
-                .streamSplits(emptySession(), handle, Collections.emptyList(), wherePeq1, -1L));
+                .streamSplits(emptySession(),
+                        ConnectorScanRequest.builder(handle, Collections.emptyList())
+                                .filter(wherePeq1).limit(-1L).build()));
 
         // Partition prune (ManifestEvaluator + residual) keeps only p=1 in BOTH paths. MUTATION: the lazy iterator
         // dropping the residual/metrics prune -> p=2 leaks in -> sizes differ -> red.
@@ -3821,7 +5111,9 @@ public class IcebergScanPlanProviderTest {
 
         IcebergManifestCache cache = new IcebergManifestCache();
         List<ConnectorScanRange> cached = drain(manifestProvider(manifestCacheProps(), table, cache)
-                .streamSplits(emptySession(), handle, Collections.emptyList(), Optional.empty(), -1L));
+                .streamSplits(emptySession(),
+                        ConnectorScanRequest.builder(handle, Collections.emptyList())
+                                .filter(Optional.empty()).limit(-1L).build()));
         Assertions.assertEquals(3, cached.size(), "the lazy iterator must flat-map across all data manifests");
     }
 
@@ -4000,8 +5292,9 @@ public class IcebergScanPlanProviderTest {
         IcebergManifestCache cache = new IcebergManifestCache();
 
         List<ConnectorScanRange> ranges = drain(manifestProvider(manifestCacheProps(), reloaded, cache)
-                .streamSplits(emptySession(), new IcebergTableHandle("db1", "dropped_cache_key"),
-                        Collections.emptyList(), Optional.empty(), -1L));
+                .streamSplits(emptySession(),
+                        ConnectorScanRequest.builder(new IcebergTableHandle("db1", "dropped_cache_key"), Collections.emptyList())
+                                .filter(Optional.empty()).limit(-1L).build()));
 
         Assertions.assertEquals(1, ranges.size());
         Assertions.assertEquals(1, deleteCount(ranges.get(0)));

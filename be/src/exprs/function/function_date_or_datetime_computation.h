@@ -606,56 +606,31 @@ struct SubtractSecondMicrosecondImpl
     static constexpr auto name = "second_microsecond_sub";
 };
 
-#define DECLARE_DATE_FUNCTIONS(NAME, FN_NAME, RETURN_TYPE, STMT)                                \
-    template <PrimitiveType DateType>                                                           \
-    struct NAME {                                                                               \
-        using ValueType = typename PrimitiveTypeTraits<DateType>::DataType::FieldType;          \
-        using DateValueType = typename PrimitiveTypeTraits<DateType>::CppType;                  \
-        static constexpr PrimitiveType ArgPType = DateType;                                     \
-        static constexpr PrimitiveType IntervalPType = DateType;                                \
-        static constexpr PrimitiveType ReturnType = PrimitiveType::RETURN_TYPE;                 \
-                                                                                                \
-        static constexpr auto name = #FN_NAME;                                                  \
-        static constexpr auto is_nullable = false;                                              \
-        static inline typename PrimitiveTypeTraits<RETURN_TYPE>::DataType::FieldType execute(   \
-                const ValueType& t0, const ValueType& t1) {                                     \
-            return execute_mixed<DateType>(t0, t1);                                             \
-        }                                                                                       \
-        template <PrimitiveType OtherType>                                                      \
-        static inline typename PrimitiveTypeTraits<RETURN_TYPE>::DataType::FieldType            \
-        execute_mixed(const ValueType& t0,                                                      \
-                      const typename PrimitiveTypeTraits<OtherType>::DataType::FieldType& t1) { \
-            using OtherValueType = typename PrimitiveTypeTraits<OtherType>::CppType;            \
-            const auto& ts0 = reinterpret_cast<const DateValueType&>(t0);                       \
-            const auto& ts1 = reinterpret_cast<const OtherValueType&>(t1);                      \
-            return (STMT);                                                                      \
-        }                                                                                       \
-        static DataTypes get_variadic_argument_types() {                                        \
-            return {std::make_shared<typename PrimitiveTypeTraits<DateType>::DataType>(),       \
-                    std::make_shared<typename PrimitiveTypeTraits<DateType>::DataType>()};      \
-        }                                                                                       \
+#define DECLARE_DATE_FUNCTIONS(NAME, FN_NAME, RETURN_TYPE, STMT)                              \
+    template <PrimitiveType DateType>                                                         \
+    struct NAME {                                                                             \
+        using ValueType = typename PrimitiveTypeTraits<DateType>::DataType::FieldType;        \
+        using DateValueType = typename PrimitiveTypeTraits<DateType>::CppType;                \
+        static constexpr PrimitiveType ArgPType = DateType;                                   \
+        static constexpr PrimitiveType IntervalPType = DateType;                              \
+        static constexpr PrimitiveType ReturnType = PrimitiveType::RETURN_TYPE;               \
+                                                                                              \
+        static constexpr auto name = #FN_NAME;                                                \
+        static constexpr auto is_nullable = false;                                            \
+        static inline typename PrimitiveTypeTraits<RETURN_TYPE>::DataType::FieldType execute( \
+                const ValueType& t0, const ValueType& t1) {                                   \
+            const auto& ts0 = reinterpret_cast<const DateValueType&>(t0);                     \
+            const auto& ts1 = reinterpret_cast<const DateValueType&>(t1);                     \
+            return (STMT);                                                                    \
+        }                                                                                     \
+        static DataTypes get_variadic_argument_types() {                                      \
+            return {std::make_shared<typename PrimitiveTypeTraits<DateType>::DataType>(),     \
+                    std::make_shared<typename PrimitiveTypeTraits<DateType>::DataType>()};    \
+        }                                                                                     \
     };
 
 DECLARE_DATE_FUNCTIONS(DateDiffImpl, datediff, TYPE_INT, (ts0.daynr() - ts1.daynr()));
 
-template <PrimitiveType LeftType, PrimitiveType RightType,
-          template <PrimitiveType> typename Transform>
-struct MixedDateTimeFunctionImpl : Transform<LeftType> {
-    static constexpr PrimitiveType ArgPType = LeftType;
-    static constexpr PrimitiveType IntervalPType = RightType;
-
-    using LeftFieldType = typename PrimitiveTypeTraits<LeftType>::DataType::FieldType;
-    using RightFieldType = typename PrimitiveTypeTraits<RightType>::DataType::FieldType;
-
-    static inline auto execute(const LeftFieldType& left, const RightFieldType& right) {
-        return Transform<LeftType>::template execute_mixed<RightType>(left, right);
-    }
-
-    static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<typename PrimitiveTypeTraits<LeftType>::DataType>(),
-                std::make_shared<typename PrimitiveTypeTraits<RightType>::DataType>()};
-    }
-};
 // DECLARE_DATE_FUNCTIONS(TimeDiffImpl, timediff, DataTypeTime, ts0.datetime_diff_in_seconds(ts1));
 // Expands to below here because it use Time type which need some special deal.
 template <PrimitiveType DateType>
@@ -699,30 +674,8 @@ struct TimeDiffImpl {
     }
 };
 
-template <PrimitiveType LeftType, PrimitiveType RightType>
-struct MixedTimeDiffImpl : TimeDiffImpl<LeftType> {
-    static constexpr PrimitiveType ArgPType = LeftType;
-    static constexpr PrimitiveType IntervalPType = RightType;
-    using LeftFieldType = typename PrimitiveTypeTraits<LeftType>::DataType::FieldType;
-    using RightFieldType = typename PrimitiveTypeTraits<RightType>::DataType::FieldType;
-    using LeftValueType = typename PrimitiveTypeTraits<LeftType>::CppType;
-    using RightValueType = typename PrimitiveTypeTraits<RightType>::CppType;
-
-    static inline DataTypeTimeV2::FieldType execute(const LeftFieldType& left,
-                                                    const RightFieldType& right) {
-        const auto& left_value = reinterpret_cast<const LeftValueType&>(left);
-        const auto& right_value = reinterpret_cast<const RightValueType&>(right);
-        return TimeValue::limit_with_bound(left_value.datetime_diff_in_microseconds(right_value));
-    }
-
-    static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<typename PrimitiveTypeTraits<LeftType>::DataType>(),
-                std::make_shared<typename PrimitiveTypeTraits<RightType>::DataType>()};
-    }
-};
-
-template <TimeUnit UNIT, typename T0, typename T1>
-int64_t diff_on_utc_datetime(const T0& ts1, const T1& ts0) {
+template <TimeUnit UNIT, typename T>
+int64_t diff_on_utc_datetime(const T& ts1, const T& ts0) {
     return datetime_diff<UNIT>(ts1, ts0);
 }
 
@@ -767,62 +720,6 @@ struct NanoSecondsDiffImpl {
     static DataTypes get_variadic_argument_types() {
         return {std::make_shared<typename PrimitiveTypeTraits<ArgPType>::DataType>(),
                 std::make_shared<typename PrimitiveTypeTraits<ArgPType>::DataType>()};
-    }
-};
-
-template <PrimitiveType LeftType, PrimitiveType RightType>
-struct MixedNanoSecondsDiffImpl : NanoSecondsDiffImpl {
-    static_assert(LeftType == TYPE_TIMESTAMP_NS || RightType == TYPE_TIMESTAMP_NS);
-    static constexpr PrimitiveType ArgPType = LeftType;
-    static constexpr PrimitiveType IntervalPType = RightType;
-    using LeftFieldType = typename PrimitiveTypeTraits<LeftType>::DataType::FieldType;
-    using RightFieldType = typename PrimitiveTypeTraits<RightType>::DataType::FieldType;
-    using LeftValueType = typename PrimitiveTypeTraits<LeftType>::CppType;
-    using RightValueType = typename PrimitiveTypeTraits<RightType>::CppType;
-
-    static inline int64_t execute(const LeftFieldType& left, const RightFieldType& right) {
-        const auto& left_value = reinterpret_cast<const LeftValueType&>(left);
-        const auto& right_value = reinterpret_cast<const RightValueType&>(right);
-        const auto left_datetime = [&] {
-            if constexpr (LeftType == TYPE_TIMESTAMP_NS) {
-                return left_value.to_datetime();
-            } else {
-                return left_value;
-            }
-        }();
-        const auto right_datetime = [&] {
-            if constexpr (RightType == TYPE_TIMESTAMP_NS) {
-                return right_value.to_datetime();
-            } else {
-                return right_value;
-            }
-        }();
-        const uint32_t left_nanosecond = [&] {
-            if constexpr (LeftType == TYPE_TIMESTAMP_NS) {
-                return left_value.nanosecond();
-            } else {
-                return left_value.microsecond() * 1000;
-            }
-        }();
-        const uint32_t right_nanosecond = [&] {
-            if constexpr (RightType == TYPE_TIMESTAMP_NS) {
-                return right_value.nanosecond();
-            } else {
-                return right_value.microsecond() * 1000;
-            }
-        }();
-        const __int128 difference = datetime_diff_in_nanoseconds(right_datetime, right_nanosecond,
-                                                                 left_datetime, left_nanosecond);
-        if (difference < std::numeric_limits<int64_t>::min() ||
-            difference > std::numeric_limits<int64_t>::max()) [[unlikely]] {
-            throw Exception(ErrorCode::OUT_OF_BOUND, "Operation {} out of range", name);
-        }
-        return static_cast<int64_t>(difference);
-    }
-
-    static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<typename PrimitiveTypeTraits<LeftType>::DataType>(),
-                std::make_shared<typename PrimitiveTypeTraits<RightType>::DataType>()};
     }
 };
 

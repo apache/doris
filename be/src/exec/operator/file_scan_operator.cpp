@@ -35,6 +35,7 @@
 #include "exec/scan/scanner_context.h"
 #include "format/format_common.h"
 #include "format/table/iceberg_scan_semantics.h"
+#include "format_v2/parquet/parquet_profile.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_manager.h"
 
@@ -68,6 +69,11 @@ int file_scanners_per_instance(RuntimeState* state) {
 }
 
 } // namespace
+
+FileScanLocalState::FileScanLocalState(RuntimeState* state, OperatorXBase* parent)
+        : ScanLocalState<FileScanLocalState>(state, parent) {}
+
+FileScanLocalState::~FileScanLocalState() = default;
 
 PushDownType FileScanLocalState::_should_push_down_binary_predicate(
         VectorizedFnCall* fn_call, VExprContext* expr_ctx, Field& constant_val,
@@ -149,6 +155,36 @@ bool FileScanLocalState::TEST_should_use_file_scanner_v2(const TQueryOptions& qu
 bool FileScanLocalState::should_use_file_scanner_v2(const TQueryOptions& query_options,
                                                     bool is_load,
                                                     const TFileScanRangeParams& scan_params) {
+    if (is_load) {
+        // ADBC and Fluss are query-only connectors. Their default Parquet format must not
+        // admit them to the ordinary file-load conversion path.
+        if (scan_params.__isset.table_format_params &&
+            (scan_params.table_format_params.table_format_type == "adbc" ||
+             scan_params.table_format_params.table_format_type == "fluss")) {
+            return false;
+        }
+        // Load planners omit query session options. Thrift's default makes an omitted V2
+        // option indistinguishable from false, so ingestion selects by format instead.
+        switch (scan_params.format_type) {
+        case TFileFormatType::FORMAT_PARQUET:
+        case TFileFormatType::FORMAT_ORC:
+        case TFileFormatType::FORMAT_JSON:
+        case TFileFormatType::FORMAT_CSV_PLAIN:
+        case TFileFormatType::FORMAT_CSV_GZ:
+        case TFileFormatType::FORMAT_CSV_BZ2:
+        case TFileFormatType::FORMAT_CSV_LZ4FRAME:
+        case TFileFormatType::FORMAT_CSV_LZ4BLOCK:
+        case TFileFormatType::FORMAT_CSV_LZOP:
+        case TFileFormatType::FORMAT_CSV_DEFLATE:
+        case TFileFormatType::FORMAT_CSV_SNAPPYBLOCK:
+        case TFileFormatType::FORMAT_PROTO:
+        case TFileFormatType::FORMAT_TEXT:
+        case TFileFormatType::FORMAT_WAL:
+            return true;
+        default:
+            return false;
+        }
+    }
     // ADBC only has a FileScannerV2 reader, and enable_file_scanner_v2 is a session variable marked
     // fuzzy=true, so the regression harness flips it to false at random. Without letting adbc
     // through unconditionally, those queries land in v1, which has no "adbc" branch, and come back
@@ -188,7 +224,6 @@ bool FileScanLocalState::should_use_file_scanner_v2(const TQueryOptions& query_o
     // after scanner construction. Keep versioned Iceberg scans on V2 without eagerly listing
     // every file.
     return scanner_v2_requested && !is_load &&
-           scan_params.format_type != TFileFormatType::FORMAT_ES_HTTP &&
            scan_params.format_type != TFileFormatType::FORMAT_LANCE && !is_transactional_hive;
 }
 
@@ -224,13 +259,17 @@ Status FileScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
             is_count_star_pushdown() && _split_source->all_ranges_have_table_level_row_count();
     if (!is_load && !use_file_scanner_v2 && !metadata_only_count &&
         std::ranges::any_of(output_tuple_desc->slots(), [](const SlotDescriptor* slot) {
-            return contains_variant_type(slot->get_data_type_ptr());
+            return contains_variant_type(slot->type());
         })) {
         // A syntactic COUNT(*) alone is insufficient: every assigned range must prove that the
         // legacy scanner will emit metadata counts without decoding a Variant carrier.
         return Status::NotSupported(
                 "External VARIANT columns require FileScannerV2; the legacy file scanner does "
                 "not support VARIANT");
+    }
+    if (use_file_scanner_v2) {
+        _parquet_profile_cache =
+                std::make_unique<format::parquet::ParquetProfileCache>(_scanner_profile.get());
     }
     for (int i = 0; i < _max_scanners; ++i) {
         ScannerSPtr scanner;

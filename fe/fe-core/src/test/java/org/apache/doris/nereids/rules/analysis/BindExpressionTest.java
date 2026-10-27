@@ -17,23 +17,48 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.NereidsException;
+import org.apache.doris.nereids.CTEContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.pattern.GeneratedPlanPatterns;
 import org.apache.doris.nereids.rules.RulePromise;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayHourAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HourSecondSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MicroSecondsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MicroSecondsSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearMonthAdd;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeOperation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.types.ConnectorComputeVariantType;
+import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.SmallIntType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 
 class BindExpressionTest extends TestWithFeService implements GeneratedPlanPatterns {
 
@@ -248,4 +273,44 @@ class BindExpressionTest extends TestWithFeService implements GeneratedPlanPatte
         return RulePromise.REWRITE;
     }
 
+    @Test
+    void testRowLevelMergeOutputIsCoercedByPosition() {
+        // A data column named like the operation routing column is matched by its position, so it is still cast to
+        // its target type. Matching by name skipped every cast of such an output.
+        List<NamedExpression> output = ImmutableList.of(
+                new Alias(new TinyIntLiteral((byte) 3), MergeOperation.OPERATION_COLUMN),
+                new SlotReference(Column.ICEBERG_ROWID_COL, StringType.INSTANCE),
+                new Alias(new IntegerLiteral(7), MergeOperation.OPERATION_COLUMN));
+        List<Column> columns = ImmutableList.of(
+                new Column(MergeOperation.OPERATION_COLUMN, PrimitiveType.SMALLINT));
+
+        List<NamedExpression> coerced = BindExpression.coerceMergeOutput(columns, output);
+
+        Assertions.assertEquals(3, coerced.size());
+        Assertions.assertEquals(SmallIntType.INSTANCE, coerced.get(2).getDataType());
+        Assertions.assertEquals(MergeOperation.OPERATION_COLUMN, coerced.get(2).getName());
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> BindExpression.coerceMergeOutput(columns, output.subList(0, 2)));
+        Assertions.assertTrue(exception.getMessage().contains("not aligned"), exception.getMessage());
+    }
+
+    @Test
+    void testRowLevelMergeValidatesVariantTargetNamedLikeTheOperationColumn() {
+        // The Variant target named like the operation routing column is traced at its own position.
+        LogicalOneRowRelation input = new LogicalOneRowRelation(new RelationId(1), ImmutableList.of(
+                new Alias(new NullLiteral(ConnectorComputeVariantType.INSTANCE), "source_payload")));
+        Slot sourcePayload = input.getOutput().get(0);
+        LogicalProject<?> source = new LogicalProject<>(ImmutableList.of(
+                new Alias(new TinyIntLiteral((byte) 3), MergeOperation.OPERATION_COLUMN),
+                new Alias(new StringLiteral("row"), Column.ICEBERG_ROWID_COL),
+                new Alias(new If(BooleanLiteral.TRUE, new Cast(sourcePayload, IntegerType.INSTANCE),
+                        new IntegerLiteral(1)), MergeOperation.OPERATION_COLUMN)), input);
+        List<Column> columns = ImmutableList.of(new Column(
+                MergeOperation.OPERATION_COLUMN, ConnectorComputeVariantType.INSTANCE.toCatalogDataType()));
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> BindExpression.validateMergeNoLossyCoercion(columns, source, new CTEContext()));
+        Assertions.assertTrue(exception.getMessage().contains("input column 'operation'"), exception.getMessage());
+    }
 }

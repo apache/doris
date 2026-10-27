@@ -98,7 +98,7 @@ private:
     size_t _remain_element_capacity {0};
     uint64_t _raw_data_size = 0;
     typedef typename TypeTraits<Type>::CppType CppType;
-    enum { SIZE_OF_TYPE = TypeTraits<Type>::size };
+    static constexpr size_t SIZE_OF_TYPE = TypeTraits<Type>::size;
 };
 
 template <FieldType Type>
@@ -244,7 +244,7 @@ private:
     uint32_t _num_elems;
     uint32_t _cur_idx;
     typedef typename TypeTraits<Type>::CppType CppType;
-    enum { SIZE_OF_TYPE = TypeTraits<Type>::size };
+    static constexpr size_t SIZE_OF_TYPE = TypeTraits<Type>::size;
 
     std::vector<std::conditional_t<std::is_same_v<CppType, bool>, uint8_t, CppType>> _buffer;
 };

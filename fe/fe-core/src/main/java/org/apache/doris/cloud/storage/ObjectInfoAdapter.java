@@ -22,6 +22,7 @@ import org.apache.doris.cloud.proto.Cloud.StagePB;
 import org.apache.doris.cloud.proto.Cloud.StagePB.StageAccessType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.datasource.storage.ObjectStorageCredentialAdapter;
 import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.filesystem.spi.ObjFileSystem;
 import org.apache.doris.filesystem.spi.StsCredentials;
@@ -70,12 +71,22 @@ public class ObjectInfoAdapter {
      * it separately to {@code listObjectsWithPrefix} / {@code headObjectWithMeta}.
      */
     public static StorageAdapter toStorageAdapter(ObjectInfo obj) {
+        if (obj.getCredential() != null) {
+            Map<String, String> properties = buildS3CompatibleProps(obj);
+            properties.put("provider", obj.getProvider().name());
+            properties.putAll(ObjectStorageCredentialAdapter.toProperties(
+                    obj.getProvider().name(), obj.getCredential()));
+            return StorageAdapter.of(properties);
+        }
         switch (obj.getProvider()) {
             case OSS:
                 return StorageAdapter.ofProvider("OSS", buildS3CompatibleProps(obj));
             case S3:
-            case GCP:
                 return StorageAdapter.ofProvider("S3", buildS3CompatibleProps(obj));
+            case GCP:
+                Map<String, String> gcpProperties = buildS3CompatibleProps(obj);
+                gcpProperties.put("provider", "GCP");
+                return StorageAdapter.ofProvider("GCS", gcpProperties);
             case COS:
                 return StorageAdapter.ofProvider("COS", buildS3CompatibleProps(obj));
             case OBS:

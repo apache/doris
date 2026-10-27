@@ -102,6 +102,49 @@ Status append_flight_variant_value(VariantRef value, VariantBatchBuilder::Row& o
     return Status::OK();
 }
 
+// The dictionary that a writer gives each Variant row; see with_row_metadata().
+enum class VariantRowMetadata {
+    // Flight sends every row with a dictionary of only the keys it uses.
+    OWN_KEYS,
+    // Table writers keep the dictionary a row shares with its batch unless it is more than
+    // SHARED_METADATA_SLACK bytes larger than the row's value.
+    BOUNDED,
+};
+
+// Rows encoded together, such as the rows of one parse_json() call, share one dictionary of all
+// their keys, and a table writer copies the dictionary into every row. 4064 rows with a distinct
+// 250-byte key each share a 1 MiB dictionary, so copying it costs 4 GiB, past the 2 GiB that an
+// Arrow binary array holds. A row whose dictionary exceeds its value by more than this slack gets
+// its own keys instead, which bounds the copied metadata by the value bytes plus 1 KiB a row. A
+// smaller dictionary is kept: the rows of a batch then carry the same metadata, which Parquet
+// dictionary-encodes.
+constexpr size_t SHARED_METADATA_SLACK = 1024;
+
+// Re-encodes `value` with a dictionary of only the keys it uses, kept alive by `owner`, when
+// `policy` asks for that and the dictionary holds keys the row does not use. For example, under
+// BOUNDED, {"a": 1} keeps a shared dictionary [a, b] but gets [a] when the dictionary also holds
+// 4000 other keys.
+Status with_row_metadata(VariantRef& value, VariantRowMetadata policy,
+                         std::optional<VariantBatchBuilder>& owner) {
+    const auto keys = value.metadata.dict_size();
+    // An empty dictionary or an object using every key already has row-local metadata.
+    if (keys == 0 ||
+        (value.basic_type() == VariantBasicType::OBJECT && value.num_elements() == keys)) {
+        return Status::OK();
+    }
+    if (policy == VariantRowMetadata::BOUNDED &&
+        value.metadata.size <= value.value.size + SHARED_METADATA_SLACK) {
+        return Status::OK();
+    }
+    VariantBatchBuilder encoder;
+    auto row = encoder.begin_row();
+    RETURN_IF_ERROR(append_flight_variant_value(value, row));
+    row.finish();
+    owner.emplace(encoder.finish_batch());
+    value = owner->value_at(0);
+    return Status::OK();
+}
+
 using MetaIdsColumn = ColumnVector<TYPE_UINT32>;
 
 std::span<const NullMap::value_type> forced_nulls(const NullMap* null_map) {
@@ -336,7 +379,11 @@ Status write_binary_variant_arrow(const IColumn& column, const NullMap* null_map
             column, start, end, outer_nulls,
             [&](size_t) { require_variant_arrow_status(builder.AppendNull()); },
             [&](size_t row, VariantRef value) {
+                std::optional<VariantBatchBuilder> own_keys;
                 try {
+                    // Check and validate the row as it is written: a row given its own keys is
+                    // validated against them instead of the dictionary its batch shares.
+                    THROW_IF_ERROR(with_row_metadata(value, VariantRowMetadata::BOUNDED, own_keys));
                     constexpr size_t BINARY_VARIANT_SIZE_LIMIT = 128 * 1024 * 1024;
                     if (value.value.size > BINARY_VARIANT_SIZE_LIMIT ||
                         value.metadata.size > BINARY_VARIANT_SIZE_LIMIT) {
@@ -586,12 +633,20 @@ void require_jsonb_write(bool written, const char* operation) {
     }
 }
 
+// Most JSON text read here was written by a Variant serde, for example into an aggregate state, so
+// it must read back every value a Variant can hold, including keys longer than the parse limit. A
+// CAST from a JSON string to ARRAY<VARIANT> or STRUCT also passes the elements it splits out.
+JsonToVariantOptions serde_json_options() {
+    return {.max_json_key_length = std::numeric_limits<uint32_t>::max(),
+            .throw_on_invalid_json = false};
+}
+
 } // namespace
 
 Status DataTypeVariantV2SerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                               const FormatOptions&) const {
     RETURN_IF_CATCH_EXCEPTION({
-        JsonStringToVariantEncoder encoder;
+        JsonStringToVariantEncoder encoder(serde_json_options());
         encoder.add_json({slice.data, slice.size});
         VariantBatchBuilder block = encoder.finish_batch();
         destination(column).insert_encoded_batch(block);
@@ -634,7 +689,7 @@ Status DataTypeVariantV2SerDe::deserialize_column_from_json_vector(IColumn& colu
         if (slices.empty()) {
             return Status::OK();
         }
-        JsonStringToVariantEncoder encoder;
+        JsonStringToVariantEncoder encoder(serde_json_options());
         for (const Slice& slice : slices) {
             encoder.add_json({slice.data, slice.size});
         }
@@ -776,7 +831,7 @@ Status write_arrow(const IColumn& column, const NullMap* null_map, Builder& buil
 
 Status write_parquet_variant_arrow(const IColumn& column, const NullMap* null_map,
                                    arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
-                                   bool compact_metadata) {
+                                   VariantRowMetadata row_metadata) {
     if (start < 0 || end < start) {
         return Status::InvalidArgument("Invalid Variant Arrow row range [{}, {})", start, end);
     }
@@ -807,22 +862,10 @@ Status write_parquet_variant_arrow(const IColumn& column, const NullMap* null_ma
                 if (!status.ok()) {
                     return;
                 }
-                std::optional<VariantBatchBuilder> compacted;
-                if (compact_metadata) {
-                    const auto keys = value.metadata.dict_size();
-                    // An empty dictionary or an object using every key already has row-local metadata.
-                    if (keys != 0 && (value.basic_type() != VariantBasicType::OBJECT ||
-                                      value.num_elements() != keys)) {
-                        VariantBatchBuilder encoder;
-                        auto row = encoder.begin_row();
-                        status = append_flight_variant_value(value, row);
-                        if (!status.ok()) {
-                            return;
-                        }
-                        row.finish();
-                        compacted.emplace(encoder.finish_batch());
-                        value = compacted->value_at(0);
-                    }
+                std::optional<VariantBatchBuilder> own_keys;
+                status = with_row_metadata(value, row_metadata, own_keys);
+                if (!status.ok()) {
+                    return;
                 }
                 if (value.metadata.size > std::numeric_limits<int32_t>::max() ||
                     value.value.size > std::numeric_limits<int32_t>::max()) {
@@ -901,7 +944,8 @@ Status DataTypeVariantV2SerDe::write_column_to_arrow(const IColumn& column, cons
         const size_t first = checked_row(start);
         const size_t last = checked_row(end);
         if (is_native_arrow_type(*array_builder->type())) {
-            return write_parquet_variant_arrow(column, null_map, array_builder, start, end, true);
+            return write_parquet_variant_arrow(column, null_map, array_builder, start, end,
+                                               VariantRowMetadata::OWN_KEYS);
         }
         if (array_builder->type()->id() == arrow::Type::STRING) {
             return write_arrow(column, null_map, assert_cast<arrow::StringBuilder&>(*array_builder),
@@ -944,9 +988,11 @@ Status DataTypeVariantV2SerDe::write_column_to_iceberg_arrow(
         const std::shared_ptr<const IDataType>&, const IColumn& column, const NullMap* null_map,
         const std::shared_ptr<arrow::Field>&, arrow::ArrayBuilder* array_builder, int64_t start,
         int64_t end, const cctz::time_zone&) const {
-    // Table writers retain their validated dictionary; Flight compacts each transmitted row.
+    // A row keeps a small dictionary shared with its batch and gets its own keys instead of a
+    // large one; Flight compacts each transmitted row.
     RETURN_IF_CATCH_EXCEPTION({
-        return write_parquet_variant_arrow(column, null_map, array_builder, start, end, false);
+        return write_parquet_variant_arrow(column, null_map, array_builder, start, end,
+                                           VariantRowMetadata::BOUNDED);
     });
     return Status::OK();
 }
