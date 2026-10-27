@@ -103,7 +103,7 @@ public class LogicalPlanDeepCopierTest {
         ExternalTable table = Mockito.mock(ExternalTable.class);
         Map<String, PartitionItem> partitionItems = ImmutableMap.of(
                 "p1", Mockito.mock(PartitionItem.class));
-        SelectedPartitions selectedPartitions = new SelectedPartitions(2, partitionItems, true);
+        SelectedPartitions selectedPartitions = new SelectedPartitions(2, partitionItems, true, true);
         Mockito.when(table.initSelectedPartitions(Mockito.any())).thenReturn(selectedPartitions);
         Slot output = new SlotReference("p1", IntegerType.INSTANCE, true);
         LogicalFileScan relationPlan = new LogicalFileScan(PlanConstructor.getNextRelationId(), table,
@@ -117,6 +117,7 @@ public class LogicalPlanDeepCopierTest {
 
         Assertions.assertTrue(relationPlan.getSelectedPartitions().isPruned);
         Assertions.assertFalse(copiedPlan.getSelectedPartitions().isPruned);
+        Assertions.assertTrue(copiedPlan.hasPartitionPredicate());
         Assertions.assertEquals(relationPlan.getSelectedPartitions().totalPartitionNum,
                 copiedPlan.getSelectedPartitions().totalPartitionNum);
         Assertions.assertEquals(relationPlan.getSelectedPartitions().selectedPartitions.keySet(),

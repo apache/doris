@@ -127,6 +127,10 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
             sortedPartitionRanges = scan.getSelectedPartitions().sortedPartitionRanges
                     .or(() -> (Optional) externalTable.getSortedPartitionRanges(scan))
                     .or(() -> Optional.ofNullable(SortedPartitionRanges.build(nameToPartitionItem)));
+            if (nameToPartitionItem.size() < scan.getSelectedPartitions().totalPartitionNum) {
+                sortedPartitionRanges = sortedPartitionRanges.map(
+                        ranges -> ranges.restrictTo(nameToPartitionItem.keySet()));
+            }
         }
         PartitionPruneResult<String> result = PartitionPruner.pruneWithResult(
                 partitionSlots, filter.getPredicate(), nameToPartitionItem, ctx,
@@ -141,7 +145,9 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
                     "pruned partition %s is missing in the selected partitions snapshot", name);
             selectedPartitionItems.put(name, item);
         }
+        boolean hasPartitionPredicate = result.hasPartitionPredicate
+                || scan.getSelectedPartitions().hasPartitionPredicate;
         return new SelectedPartitions(nameToPartitionItem.size(), selectedPartitionItems, true,
-                result.hasPartitionPredicate);
+                hasPartitionPredicate);
     }
 }

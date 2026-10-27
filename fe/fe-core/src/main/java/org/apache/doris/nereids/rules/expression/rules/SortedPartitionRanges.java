@@ -26,6 +26,7 @@ import com.google.common.collect.Range;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /** SortedPartitionRanges */
 public class SortedPartitionRanges<K> {
@@ -83,6 +84,28 @@ public class SortedPartitionRanges<K> {
         });
 
         return new SortedPartitionRanges<>(sortedRanges, defaultPartitions);
+    }
+
+    /**
+     * Keep only the entries whose partition id is present in {@code partitionIds}.
+     */
+    public SortedPartitionRanges<K> restrictTo(Set<K> partitionIds) {
+        Objects.requireNonNull(partitionIds, "partitionIds can not be null");
+        List<PartitionItemAndRange<K>> restrictedRanges
+                = Lists.newArrayListWithCapacity(sortedPartitions.size());
+        for (PartitionItemAndRange<K> partition : sortedPartitions) {
+            if (partitionIds.contains(partition.id)) {
+                restrictedRanges.add(partition);
+            }
+        }
+        List<PartitionItemAndId<K>> restrictedDefaults
+                = Lists.newArrayListWithCapacity(defaultPartitions.size());
+        for (PartitionItemAndId<K> partition : defaultPartitions) {
+            if (partitionIds.contains(partition.id)) {
+                restrictedDefaults.add(partition);
+            }
+        }
+        return new SortedPartitionRanges<>(restrictedRanges, restrictedDefaults);
     }
 
     /** PartitionItemAndRange */
