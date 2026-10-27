@@ -70,6 +70,12 @@ public:
     /// close() drops the current part and returns that failure.
     Status close();
 
+    /// Largest serialized record and source Block written to this file, across all parts.
+    /// Analytic replay uses these values before opening its readers.
+    size_t max_record_bytes() const { return _max_record_bytes; }
+    size_t max_block_bytes() const { return _max_block_bytes; }
+    size_t max_footer_bytes() const { return _max_footer_bytes; }
+
 private:
     Status _close_impl(const std::shared_ptr<SpillFile>& spill_file);
 
@@ -141,6 +147,9 @@ private:
     bool _closed = false;
     // First failed write_block(); every later write and close() returns it.
     Status _write_status;
+    size_t _max_record_bytes = 0;
+    size_t _max_block_bytes = 0;
+    size_t _max_footer_bytes = 0;
 
     // ── Counters ──
     RuntimeProfile::Counter* _write_file_timer = nullptr;
