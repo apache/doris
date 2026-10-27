@@ -2678,7 +2678,7 @@ TEST_F(CollectionStatisticsTest, CollectConvertsAnalyzerFailureToStatus) {
     EXPECT_TRUE(collect_infos.empty());
 }
 
-TEST_F(CollectionStatisticsTest, CollectPhrasePrefixExcludesScoringTail) {
+TEST_F(CollectionStatisticsTest, CollectPhrasePrefixRegistersTheTailForExpansion) {
     auto tablet_schema = create_tablet_schema_with_inverted_index();
     auto match_expr = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
     match_expr->set_opcode(TExprOpcode::MATCH_PHRASE_PREFIX);
@@ -2700,6 +2700,34 @@ TEST_F(CollectionStatisticsTest, CollectPhrasePrefixExcludesScoringTail) {
     ASSERT_EQ(collect_info.logical_scoring_leaves[0].clauses.size(), 2u);
     EXPECT_EQ(collect_info.logical_scoring_leaves[0].clauses[0].position, 1);
     EXPECT_EQ(collect_info.logical_scoring_leaves[0].clauses[1].position, 2);
+    // The tail is no scoring term: segments expand it, and the terms it expands to are scored.
+    ASSERT_EQ(collect_info.scoring_prefixes.size(), 1u);
+    EXPECT_EQ(collect_info.scoring_prefixes[0].prefix, "gamma");
+    EXPECT_EQ(collect_info.scoring_prefixes[0].max_expansions, 50);
+}
+
+TEST_F(CollectionStatisticsTest, CollectRepeatedPhrasePrefixRegistersTheTailOnce) {
+    auto tablet_schema = create_tablet_schema_with_inverted_index();
+    MatchPredicateCollector collector;
+    CollectInfoMap collect_infos;
+    for (const char* query : {"alpha gamma", "beta gamma", "alpha gamma"}) {
+        auto match_expr =
+                std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
+        match_expr->set_opcode(TExprOpcode::MATCH_PHRASE_PREFIX);
+        match_expr->_children.push_back(
+                std::make_shared<collection_statistics::MockVSlotRef>("content", SlotId(1)));
+        match_expr->_children.push_back(
+                std::make_shared<collection_statistics::MockVLiteral>(query));
+        auto status =
+                collector.collect(runtime_state_.get(), tablet_schema, match_expr, &collect_infos);
+        ASSERT_TRUE(status.ok()) << status.msg();
+    }
+
+    ASSERT_EQ(collect_infos.size(), 1u);
+    const auto& collect_info = collect_infos.begin()->second;
+    EXPECT_EQ(collect_info.unique_terms, std::vector<std::string>({"alpha", "beta"}));
+    ASSERT_EQ(collect_info.scoring_prefixes.size(), 1u);
+    EXPECT_EQ(collect_info.scoring_prefixes[0].prefix, "gamma");
 }
 
 TEST_F(CollectionStatisticsTest, CollectSingleTermPhrasePrefixHasEmptyScoringLeaf) {
@@ -2721,6 +2749,8 @@ TEST_F(CollectionStatisticsTest, CollectSingleTermPhrasePrefixHasEmptyScoringLea
     EXPECT_TRUE(collect_info.unique_terms.empty());
     ASSERT_EQ(collect_info.logical_scoring_leaves.size(), 1u);
     EXPECT_TRUE(collect_info.logical_scoring_leaves[0].clauses.empty());
+    // A prefix alone scores a constant and needs no statistics.
+    EXPECT_TRUE(collect_info.scoring_prefixes.empty());
 }
 
 TEST_F(CollectionStatisticsTest, SearchMatchCollectsRawExecutionTerm) {

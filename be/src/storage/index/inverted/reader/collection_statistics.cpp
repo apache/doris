@@ -22,6 +22,7 @@
 #include <iterator>
 #include <set>
 #include <sstream>
+#include <unordered_set>
 
 #include "common/exception.h"
 #include "core/column/column_vector.h"
@@ -40,6 +41,7 @@
 #include "storage/index/inverted/clucene/spi/clucene_index_source.h"
 #include "storage/index/inverted/common/inverted_index_cache.h"
 #include "storage/index/inverted/common/string_helper.h"
+#include "storage/index/inverted/query/exec/term_pattern.h"
 #include "storage/index/inverted/snii/reader/snii_index_source.h"
 #include "storage/index/inverted/snii/snii_doris_adapter.h"
 #include "storage/iterators.h"
@@ -115,6 +117,35 @@ void add_term_doc_frequency(
         const std::wstring& field, const std::wstring& logical_term, uint64_t doc_frequency) {
     DORIS_CHECK(logical_frequencies != nullptr);
     (*logical_frequencies)[field][logical_term] += doc_frequency;
+}
+
+Status segment_scoring_terms(index_query::IndexSource& source, const CollectInfo& collect_info,
+                             std::unordered_map<std::wstring, std::set<std::wstring>>* expansions,
+                             std::vector<std::string>* terms) {
+    DORIS_CHECK(expansions != nullptr);
+    DORIS_CHECK(terms != nullptr);
+    *terms = collect_info.unique_terms;
+    std::unordered_set<std::string> listed(terms->begin(), terms->end());
+    for (const auto& scoring_prefix : collect_info.scoring_prefixes) {
+        index_query::TermPattern pattern;
+        RETURN_IF_ERROR(index_query::TermPattern::create(index_query::TermPatternKind::kPrefix,
+                                                         scoring_prefix.prefix, &pattern));
+        std::vector<std::string> expanded;
+        RETURN_IF_ERROR(source.expand_terms(
+                pattern,
+                index_query::expansion_limit(index_query::TermPatternKind::kPrefix,
+                                             scoring_prefix.max_expansions),
+                &expanded));
+        auto& prefix_terms = (*expansions)[segment_v2::inverted_index::StringHelper::to_wstring(
+                scoring_prefix.prefix)];
+        for (auto& term : expanded) {
+            prefix_terms.insert(segment_v2::inverted_index::StringHelper::to_wstring(term));
+            if (listed.insert(term).second) {
+                terms->push_back(std::move(term));
+            }
+        }
+    }
+    return Status::OK();
 }
 
 Status sum_non_null_norm_lengths(index_query::IndexSource& source,
@@ -513,7 +544,11 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
                     segment_v2::IndexReaderHelper::is_normalizer_only(
                             collect_info.index_meta->properties())));
 
-            for (const auto& logical_term_bytes : collect_info.unique_terms) {
+            std::vector<std::string> segment_terms;
+            RETURN_IF_ERROR(collection_statistics_detail::segment_scoring_terms(
+                    source, collect_info, &segment_accumulator.prefix_expansions[ws_field_name],
+                    &segment_terms));
+            for (const auto& logical_term_bytes : segment_terms) {
                 const auto logical_term =
                         segment_v2::inverted_index::StringHelper::to_wstring(logical_term_bytes);
                 uint64_t doc_frequency = 0;
@@ -647,7 +682,10 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
         _total_num_tokens[ws_field_name] +=
                 scoring_stats.has_norms ? scoring_stats.token_count : scoring_stats.doc_count;
 
-        for (const auto& logical_term_bytes : collect_info.unique_terms) {
+        std::vector<std::string> segment_terms;
+        RETURN_IF_ERROR(collection_statistics_detail::segment_scoring_terms(
+                *source, collect_info, &_prefix_expansions[ws_field_name], &segment_terms));
+        for (const auto& logical_term_bytes : segment_terms) {
             const auto logical_term =
                     segment_v2::inverted_index::StringHelper::to_wstring(logical_term_bytes);
             uint64_t doc_frequency = 0;
@@ -703,6 +741,11 @@ void CollectionStatistics::commit_snii_scoring_segment(
             _term_doc_freqs[field_name][term] += doc_freq;
         }
     }
+    for (const auto& [field_name, prefixes] : segment_accumulator.prefix_expansions) {
+        for (const auto& [prefix, terms] : prefixes) {
+            _prefix_expansions[field_name][prefix].insert(terms.begin(), terms.end());
+        }
+    }
     _total_num_docs += segment_accumulator.doc_count;
     _avg_dl_by_col.clear();
     _idf_by_col_term.clear();
@@ -713,6 +756,7 @@ void CollectionStatistics::clear() {
     _counted_hidden_docs = false;
     _total_num_tokens.clear();
     _term_doc_freqs.clear();
+    _prefix_expansions.clear();
     _avg_dl_by_col.clear();
     _idf_by_col_term.clear();
 }
@@ -722,6 +766,7 @@ void CollectionStatistics::copy_collected_from(const CollectionStatistics& other
     _counted_hidden_docs = other._counted_hidden_docs;
     _total_num_tokens = other._total_num_tokens;
     _term_doc_freqs = other._term_doc_freqs;
+    _prefix_expansions = other._prefix_expansions;
     _avg_dl_by_col.clear();
     _idf_by_col_term.clear();
 }
@@ -799,6 +844,27 @@ float CollectionStatistics::get_or_calculate_avg_dl(const std::wstring& lucene_c
     float avg_dl = total_doc_cnt > 0 ? float((double)total_term_cnt / (double)total_doc_cnt) : 1.0F;
     _avg_dl_by_col[lucene_col_name] = avg_dl;
     return avg_dl;
+}
+
+std::vector<std::wstring> CollectionStatistics::get_prefix_expansions(
+        const std::wstring& lucene_col_name, const std::wstring& prefix) {
+    const auto field = _prefix_expansions.find(lucene_col_name);
+    if (field == _prefix_expansions.end()) {
+        return {};
+    }
+    const auto expansions = field->second.find(prefix);
+    if (expansions == field->second.end()) {
+        return {};
+    }
+    // A merge-on-write scan hides rows: a term whose documents are all hidden was expanded in
+    // its segment but has no document frequency left, and its idf would be that of an absent term.
+    std::vector<std::wstring> terms;
+    for (const auto& term : expansions->second) {
+        if (get_term_doc_freq_by_col(lucene_col_name, term) > 0) {
+            terms.push_back(term);
+        }
+    }
+    return terms;
 }
 
 float CollectionStatistics::get_or_calculate_idf(const std::wstring& lucene_col_name,

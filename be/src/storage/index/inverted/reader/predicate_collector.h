@@ -56,9 +56,17 @@ struct LogicalScoringLeaf {
     std::vector<LogicalScoringClause> clauses;
 };
 
+// The last term of a scored phrase prefix, whose idf is the sum of the idfs of the terms it
+// expands to, as many as `max_expansions` in each segment.
+struct LogicalScoringPrefix {
+    std::string prefix;
+    int32_t max_expansions = 0;
+};
+
 struct CollectInfo {
     std::vector<std::string> unique_terms;
     std::unordered_map<std::string, uint32_t> unique_term_slots;
+    std::vector<LogicalScoringPrefix> scoring_prefixes;
     std::vector<LogicalScoringLeaf> logical_scoring_leaves;
     std::shared_ptr<const TabletIndex> owned_index_meta;
     const TabletIndex* index_meta = nullptr;
@@ -78,6 +86,9 @@ Result<std::vector<segment_v2::TermInfo>> analyze_plain_query(
         const std::string& value, const InvertedIndexAnalyzerCtx& analyzer_ctx);
 Status append_scoring_leaf(CollectInfo* collect_info,
                            const std::vector<segment_v2::TermInfo>& term_infos);
+// Registers the prefix of a scored phrase prefix once, however many predicates repeat it.
+void append_scoring_prefix(CollectInfo* collect_info, const segment_v2::TermInfo& prefix,
+                           int32_t max_expansions);
 Result<const TabletIndex*> select_index_meta(const std::vector<const TabletIndex*>& index_metas,
                                              FieldType field_type,
                                              segment_v2::InvertedIndexQueryType query_type,

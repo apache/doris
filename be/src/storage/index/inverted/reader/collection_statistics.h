@@ -21,6 +21,7 @@
 #include <functional>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <span>
 #include <string>
 #include <string_view>
@@ -106,15 +107,27 @@ public:
                                              const std::wstring& term);
     MOCK_FUNCTION float get_or_calculate_avg_dl(const std::wstring& lucene_col_name);
 
+    // The terms the collected `prefix` expanded to in any segment of the tablet and that some
+    // returned row holds, in dictionary order; their idfs are in get_or_calculate_idf. None for a
+    // prefix that was not collected, as for a SEARCH predicate.
+    MOCK_FUNCTION std::vector<std::wstring> get_prefix_expansions(
+            const std::wstring& lucene_col_name, const std::wstring& prefix);
+
     // Replaces the collected counters with those of `other`. The derived idf/avgdl caches are
     // reset rather than copied, so the copy can be used by another thread without sharing them.
     void copy_collected_from(const CollectionStatistics& other);
 
 private:
+    // The terms each collected prefix expanded to, by field and prefix.
+    using PrefixExpansions =
+            std::unordered_map<std::wstring,
+                               std::unordered_map<std::wstring, std::set<std::wstring>>>;
+
     struct SniiScoringSegmentAccumulator {
         uint64_t doc_count = 0;
         std::unordered_map<std::wstring, uint64_t> token_counts;
         std::unordered_map<std::wstring, std::unordered_map<std::wstring, uint64_t>> term_doc_freqs;
+        PrefixExpansions prefix_expansions;
     };
 
     Status extract_collect_info(RuntimeState* state,
@@ -143,6 +156,7 @@ private:
     bool _counted_hidden_docs = false;
     std::unordered_map<std::wstring, uint64_t> _total_num_tokens;
     std::unordered_map<std::wstring, std::unordered_map<std::wstring, uint64_t>> _term_doc_freqs;
+    PrefixExpansions _prefix_expansions;
 
     std::unordered_map<std::wstring, float> _avg_dl_by_col;
     std::unordered_map<std::wstring, std::unordered_map<std::wstring, float>> _idf_by_col_term;
@@ -229,6 +243,17 @@ Status exclude_hidden_docs(std::span<const uint32_t> hidden_docs, const roaring:
                            uint64_t non_null_length_sum,
                            const SumNormLengthsOf& sum_norm_lengths_of,
                            index_query::IndexScoringStats* stats);
+
+// The terms whose document frequencies a segment adds for `collect_info`: its scoring terms, then
+// each term its prefixes expand to in `source`, so that a phrase prefix is scored on the same
+// tablet statistics as the other terms. A term met twice is listed once, as its documents count
+// once. The expansions of each prefix, of this segment alone, are added to `expansions`.
+//
+// Example: "red r" collects red and, in a segment holding red, rose and run, the terms red (already
+// listed), rose and run, and records {red, rose, run} for the prefix "r".
+Status segment_scoring_terms(index_query::IndexSource& source, const CollectInfo& collect_info,
+                             std::unordered_map<std::wstring, std::set<std::wstring>>* expansions,
+                             std::vector<std::string>* terms);
 
 // Takes from a term's document frequency the documents of `hidden_docs` that hold it.
 Status exclude_hidden_term_docs(index_query::IndexSource& source, std::string_view term,

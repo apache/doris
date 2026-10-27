@@ -22,6 +22,7 @@
 #include <sys/resource.h>
 
 #include <array>
+#include <cmath>
 #include <memory>
 #include <roaring/roaring.hh>
 #include <set>
@@ -380,6 +381,133 @@ TEST_F(PhrasePrefixQueryV2Test, scorer_with_scoring) {
     auto scorer = w->scorer(exec_ctx, "");
     auto docs = collect_docs(scorer);
     EXPECT_GT(docs.size(), 0);
+
+    _CLDECDELETE(dir);
+}
+
+// --- PhrasePrefixWeight scorer: the expanded terms count in the idf ---
+
+// "quick bro" expands to brother and brown, "quick brot" to brother alone: a document holding
+// "quick brother" scores on the idf of the phrase terms plus that of every term the prefix expands
+// to, all of them from the statistics of the tablet. Those statistics describe 1000 documents
+// where the segment holds 20, so an idf read from the segment would differ.
+TEST_F(PhrasePrefixQueryV2Test, prefix_expansions_add_their_idf_to_the_score) {
+    auto ctx = std::make_shared<IndexQueryContext>();
+    ctx->collection_statistics = std::make_shared<CollectionStatistics>();
+    ctx->collection_similarity = std::make_shared<CollectionSimilarity>();
+
+    auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
+    auto reader = make_shared_reader(lucene::index::IndexReader::open(dir, true));
+    const std::wstring field = StringHelper::to_wstring("content");
+    auto& stats = *ctx->collection_statistics;
+    stats._total_num_docs = 1000;
+    stats._total_num_tokens[field] = 8000;
+    stats._term_doc_freqs[field][StringHelper::to_wstring("quick")] = 100;
+    stats._term_doc_freqs[field][StringHelper::to_wstring("brother")] = 3;
+    stats._term_doc_freqs[field][StringHelper::to_wstring("brown")] = 400;
+    stats._prefix_expansions[field][StringHelper::to_wstring("bro")] = {
+            StringHelper::to_wstring("brother"), StringHelper::to_wstring("brown")};
+    stats._prefix_expansions[field][StringHelper::to_wstring("brot")] = {
+            StringHelper::to_wstring("brother")};
+
+    const auto score_of_brother = [&](const std::string& prefix) {
+        PhrasePrefixQuery q(ctx, field, make_term_infos({"quick", prefix}));
+        auto w = q.weight(true);
+        QueryExecutionContext exec_ctx;
+        exec_ctx.segment_num_rows = reader->maxDoc();
+        exec_ctx.field_sources.emplace(field, clucene_index_source(reader, field, nullptr));
+        auto scorer = w->scorer(exec_ctx, "");
+        EXPECT_EQ(scorer->seek(10), 10);
+        return scorer->score();
+    };
+    const auto idf = [&](const std::string& term) {
+        return stats.get_or_calculate_idf(field, StringHelper::to_wstring(term));
+    };
+    const float avgdl = stats.get_or_calculate_avg_dl(field);
+
+    BM25Similarity brother_only(idf("quick") + idf("brother"), avgdl);
+    BM25Similarity brother_and_brown(idf("quick") + idf("brother") + idf("brown"), avgdl);
+    // The document holds the phrase once and the source reports no norms.
+    EXPECT_FLOAT_EQ(score_of_brother("brot"), brother_only.score(1.0F, 1));
+    EXPECT_FLOAT_EQ(score_of_brother("bro"), brother_and_brown.score(1.0F, 1));
+    EXPECT_GT(score_of_brother("bro"), score_of_brother("brot"));
+
+    _CLDECDELETE(dir);
+}
+
+// A statistics object that collected no expansion of the prefix, as for a SEARCH predicate, scores
+// the phrase terms alone.
+TEST_F(PhrasePrefixQueryV2Test, prefix_without_collected_expansions_scores_the_phrase_terms) {
+    auto ctx = std::make_shared<IndexQueryContext>();
+    ctx->collection_statistics = std::make_shared<CollectionStatistics>();
+    ctx->collection_similarity = std::make_shared<CollectionSimilarity>();
+
+    auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
+    auto reader = make_shared_reader(lucene::index::IndexReader::open(dir, true));
+    const std::wstring field = StringHelper::to_wstring("content");
+    auto& stats = *ctx->collection_statistics;
+    stats._total_num_docs = 1000;
+    stats._total_num_tokens[field] = 8000;
+    stats._term_doc_freqs[field][StringHelper::to_wstring("quick")] = 100;
+
+    PhrasePrefixQuery q(ctx, field, make_term_infos({"quick", "bro"}));
+    auto w = q.weight(true);
+    QueryExecutionContext exec_ctx;
+    exec_ctx.segment_num_rows = reader->maxDoc();
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader, field, nullptr));
+    auto scorer = w->scorer(exec_ctx, "");
+    ASSERT_EQ(scorer->seek(10), 10);
+
+    BM25Similarity quick_only(stats.get_or_calculate_idf(field, StringHelper::to_wstring("quick")),
+                              stats.get_or_calculate_avg_dl(field));
+    EXPECT_FLOAT_EQ(scorer->score(), quick_only.score(1.0F, 1));
+
+    _CLDECDELETE(dir);
+}
+
+// --- segment statistics: the terms a prefix expands to ---
+
+// "quick bro" collects quick, then the terms of the segment starting with bro. A term the scoring
+// terms already hold is listed once, and each prefix keeps the terms it expanded to.
+TEST_F(PhrasePrefixQueryV2Test, segment_statistics_count_the_terms_a_prefix_expands_to) {
+    auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
+    auto reader = make_shared_reader(lucene::index::IndexReader::open(dir, true));
+    const std::wstring field = StringHelper::to_wstring("content");
+    auto source = clucene_index_source(reader, field, nullptr);
+
+    CollectInfo collect_info;
+    TermInfo quick;
+    quick.term = std::string("quick");
+    ASSERT_TRUE(scoring_collection_detail::append_scoring_leaf(&collect_info, {quick}).ok());
+    TermInfo bro;
+    bro.term = std::string("bro");
+    scoring_collection_detail::append_scoring_prefix(&collect_info, bro, 50);
+    TermInfo quic;
+    quic.term = std::string("quic");
+    scoring_collection_detail::append_scoring_prefix(&collect_info, quic, 50);
+
+    std::unordered_map<std::wstring, std::set<std::wstring>> expansions;
+    std::vector<std::string> terms;
+    ASSERT_TRUE(collection_statistics_detail::segment_scoring_terms(*source, collect_info,
+                                                                    &expansions, &terms)
+                        .ok());
+    // quick is held twice, as a scoring term and as an expansion of quic, and listed once.
+    EXPECT_EQ(terms, (std::vector<std::string> {"quick", "brother", "brown", "quickly"}));
+    EXPECT_EQ(expansions[StringHelper::to_wstring("bro")],
+              (std::set<std::wstring> {StringHelper::to_wstring("brother"),
+                                       StringHelper::to_wstring("brown")}));
+    EXPECT_EQ(expansions[StringHelper::to_wstring("quic")],
+              (std::set<std::wstring> {StringHelper::to_wstring("quick"),
+                                       StringHelper::to_wstring("quickly")}));
+
+    // At most max_expansions terms of the dictionary, in order.
+    CollectInfo limited;
+    scoring_collection_detail::append_scoring_prefix(&limited, bro, 1);
+    expansions.clear();
+    ASSERT_TRUE(collection_statistics_detail::segment_scoring_terms(*source, limited, &expansions,
+                                                                    &terms)
+                        .ok());
+    EXPECT_EQ(terms, (std::vector<std::string> {"brother"}));
 
     _CLDECDELETE(dir);
 }
