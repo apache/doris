@@ -31,6 +31,7 @@ suite("test_iceberg_partition_enforced_filters",
         CREATE DATABASE IF NOT EXISTS demo.partition_enforced_filters_db;
         DROP TABLE IF EXISTS demo.partition_enforced_filters_db.transformed;
         DROP TABLE IF EXISTS demo.partition_enforced_filters_db.unpartitioned;
+        DROP TABLE IF EXISTS demo.partition_enforced_filters_db.numeric_truncated;
         CREATE TABLE demo.partition_enforced_filters_db.transformed (
             id INT, ts TIMESTAMP_NTZ, amount INT
         ) USING iceberg PARTITIONED BY (months(ts))
@@ -49,6 +50,15 @@ suite("test_iceberg_partition_enforced_filters",
         CREATE TABLE demo.partition_enforced_filters_db.unpartitioned
         USING iceberg TBLPROPERTIES ('write.format.default'='parquet')
         AS SELECT * FROM demo.partition_enforced_filters_db.transformed;
+        CREATE TABLE demo.partition_enforced_filters_db.numeric_truncated (
+            id INT, big_id BIGINT, amount INT
+        ) USING iceberg PARTITIONED BY (truncate(10, id), truncate(10, big_id))
+        TBLPROPERTIES ('format-version'='2', 'write.format.default'='parquet',
+            'write.metadata.metrics.default'='none');
+        INSERT INTO demo.partition_enforced_filters_db.numeric_truncated VALUES
+            (CAST('-2147483648' AS INT), CAST('-9223372036854775808' AS BIGINT), 10),
+            (CAST('-2147483647' AS INT), CAST('-9223372036854775807' AS BIGINT), 20),
+            (7, 7, 30), (NULL, NULL, 40);
     """
     sql "drop catalog if exists iceberg_partition_enforced_filters"
     sql """create catalog iceberg_partition_enforced_filters properties (
@@ -82,6 +92,14 @@ suite("test_iceberg_partition_enforced_filters",
                     def expected = sql(query.replace("SOURCE_TABLE", "${db}.unpartitioned"))
                     def actual = sql(query.replace("SOURCE_TABLE", "${db}.transformed"))
                     assertEquals(expected, actual)
+                }
+                // Missing column bounds must not let an overflowing truncate partition remove
+                // the row filter, whether the filtered column is projected or used only by it.
+                ["id", "big_id"].each { column ->
+                    assertEquals([[7]], sql("select ${column} from ${db}.numeric_truncated " +
+                            "where ${column} >= 0 order by ${column}"))
+                    assertEquals([[30]], sql("select sum(amount) from ${db}.numeric_truncated " +
+                            "where ${column} >= 0"))
                 }
             }
         }

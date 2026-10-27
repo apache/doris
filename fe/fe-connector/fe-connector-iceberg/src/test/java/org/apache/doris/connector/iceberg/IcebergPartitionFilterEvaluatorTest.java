@@ -26,10 +26,19 @@ import org.apache.doris.connector.spi.pushdown.ConnectorIn;
 import org.apache.doris.connector.spi.pushdown.ConnectorIsNull;
 import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
 
+import org.apache.iceberg.DataFile;
+import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.expressions.Evaluator;
+import org.apache.iceberg.expressions.Expression;
+import org.apache.iceberg.expressions.Expressions;
+import org.apache.iceberg.expressions.InclusiveMetricsEvaluator;
+import org.apache.iceberg.expressions.Projections;
+import org.apache.iceberg.expressions.ResidualEvaluator;
 import org.apache.iceberg.transforms.Transforms;
+import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -90,7 +99,7 @@ class IcebergPartitionFilterEvaluatorTest {
     }
 
     @Test
-    void truncateProvesRangeButBucketDoesNotProveEquality() {
+    void numericTruncateRetainsValueFiltersAndBucketCannotProveEquality() {
         PartitionSpec truncate = PartitionSpec.builderFor(SCHEMA).truncate("id", 10).build();
         PartitionData values = new PartitionData(truncate.partitionType());
         values.set(0, 20);
@@ -98,14 +107,80 @@ class IcebergPartitionFilterEvaluatorTest {
                 0, intPredicate(ConnectorComparison.Operator.GE, 20),
                 1, intPredicate(ConnectorComparison.Operator.LT, 30),
                 2, intPredicate(ConnectorComparison.Operator.EQ, 21));
-        Assertions.assertEquals(Set.of(0, 1), new IcebergPartitionFilterEvaluator(
-                SCHEMA, truncate, values, ZoneOffset.UTC).enforced(predicates));
+        Assertions.assertTrue(new IcebergPartitionFilterEvaluator(
+                SCHEMA, truncate, values, ZoneOffset.UTC).enforced(predicates).isEmpty());
 
         PartitionSpec bucket = PartitionSpec.builderFor(SCHEMA).bucket("id", 16).build();
         PartitionData bucketValues = new PartitionData(bucket.partitionType());
         bucketValues.set(0, Transforms.<Integer>bucket(16).bind(Types.IntegerType.get()).apply(21));
         Assertions.assertTrue(new IcebergPartitionFilterEvaluator(SCHEMA, bucket, bucketValues, ZoneOffset.UTC)
                 .enforced(Map.of(2, intPredicate(ConnectorComparison.Operator.EQ, 21))).isEmpty());
+    }
+
+    @Test
+    void overflowingIntTruncateRetainsFilterWithoutFileMetrics() {
+        assertTruncateRetainsFilter(Types.IntegerType.get(), ConnectorType.of("INT"), Integer.MIN_VALUE,
+                ConnectorComparison.Operator.GE, 0L, Expressions.greaterThanOrEqual("id", 0));
+    }
+
+    @Test
+    void overflowingLongTruncateRetainsFilterWithoutFileMetrics() {
+        assertTruncateRetainsFilter(Types.LongType.get(), ConnectorType.of("BIGINT"), Long.MIN_VALUE,
+                ConnectorComparison.Operator.GE, 0L, Expressions.greaterThanOrEqual("id", 0L));
+    }
+
+    @Test
+    void overflowingTruncateLiteralCannotProveAnOrdinaryPartition() {
+        assertTruncateRetainsFilter(Types.IntegerType.get(), ConnectorType.of("INT"), 21,
+                ConnectorComparison.Operator.LT, (long) Integer.MIN_VALUE + 1,
+                Expressions.lessThan("id", Integer.MIN_VALUE + 1));
+        assertTruncateRetainsFilter(Types.LongType.get(), ConnectorType.of("BIGINT"), 21L,
+                ConnectorComparison.Operator.LT, Long.MIN_VALUE + 1,
+                Expressions.lessThan("id", Long.MIN_VALUE + 1));
+    }
+
+    @Test
+    void numericTruncateKeepsNotInButStillProvesNullnessAndOtherPartitionFields() {
+        PartitionSpec spec = PartitionSpec.builderFor(SCHEMA).truncate("id", 10).day("ts").build();
+        PartitionData partition = new PartitionData(spec.partitionType());
+        partition.set(0, 20);
+        partition.set(1, Math.toIntExact(LocalDate.of(2026, 10, 12).toEpochDay()));
+        ConnectorColumnRef id = new ConnectorColumnRef("id", ConnectorType.of("INT"));
+        Map<Integer, ConnectorExpression> predicates = Map.of(
+                0, new ConnectorIn(id, List.of(ConnectorLiteral.ofInt(1)), true),
+                1, new ConnectorIsNull(id, true),
+                2, timestampPredicate(ConnectorComparison.Operator.GE, "2026-10-12T00:00:00"));
+        Assertions.assertEquals(Set.of(1, 2), new IcebergPartitionFilterEvaluator(
+                SCHEMA, spec, partition, ZoneOffset.UTC).enforced(predicates));
+        partition.set(0, null);
+        Assertions.assertEquals(Set.of(3), new IcebergPartitionFilterEvaluator(
+                SCHEMA, spec, partition, ZoneOffset.UTC).enforced(Map.of(3, new ConnectorIsNull(id, false))));
+    }
+
+    private static void assertTruncateRetainsFilter(Type icebergType, ConnectorType dorisType, Number rowValue,
+            ConnectorComparison.Operator operator, long literal, Expression rowFilter) {
+        Schema schema = new Schema(Types.NestedField.optional(1, "id", icebergType));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).truncate("id", 10).build();
+        PartitionData partition = new PartitionData(spec.partitionType());
+        partition.set(0, Transforms.<Number>truncate(10).bind(icebergType).apply(rowValue));
+        DataFile file = DataFiles.builder(spec).withPath("data/truncate-overflow.parquet")
+                .withPartition(partition).withFileSizeInBytes(1024).withRecordCount(1).build();
+        PartitionData row = new PartitionData(schema.asStruct());
+        row.set(0, rowValue);
+        Assertions.assertFalse(new Evaluator(schema.asStruct(), rowFilter).eval(row));
+        Assertions.assertNull(file.lowerBounds());
+        Assertions.assertNull(file.upperBounds());
+        Assertions.assertTrue(new Evaluator(spec.partitionType(), Projections.inclusive(spec).project(rowFilter))
+                .eval(file.partition()));
+        Assertions.assertTrue(new InclusiveMetricsEvaluator(schema, rowFilter).eval(file));
+        // A TRUE residual from Iceberg is insufficient: numeric truncate can wrap either the
+        // signed-minimum row value or the predicate boundary, even with ordinary partition values.
+        Assertions.assertEquals(Expression.Operation.TRUE,
+                ResidualEvaluator.of(spec, rowFilter, true).residualFor(file.partition()).op());
+        ConnectorExpression predicate = new ConnectorComparison(operator,
+                new ConnectorColumnRef("id", dorisType), new ConnectorLiteral(dorisType, literal));
+        Assertions.assertTrue(new IcebergPartitionFilterEvaluator(schema, spec, partition, ZoneOffset.UTC)
+                .enforced(Map.of(0, predicate)).isEmpty());
     }
 
     @Test

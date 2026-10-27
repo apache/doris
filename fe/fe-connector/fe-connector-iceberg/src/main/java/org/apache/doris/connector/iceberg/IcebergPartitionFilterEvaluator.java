@@ -157,6 +157,15 @@ final class IcebergPartitionFilterEvaluator implements Serializable {
         if (!exactColumn(column)) {
             return null;
         }
+        Types.NestedField source = schema.findField(column.getColumnName());
+        // Iceberg numeric truncate and its strict projection can overflow at signed minima,
+        // for both partition values and predicate bounds. A TRUE residual alone cannot prove
+        // these value filters redundant; keep them until wraparound can be excluded exactly.
+        if ((source.type().typeId() == Type.TypeID.INTEGER || source.type().typeId() == Type.TypeID.LONG)
+                && spec.fields().stream().anyMatch(field -> field.sourceId() == source.fieldId()
+                        && field.transform().toString().startsWith("truncate["))) {
+            return null;
+        }
         List<Expression> converted = new IcebergPredicateConverter(schema, zone).convert(expression);
         if (converted.size() != 1) {
             return null;
