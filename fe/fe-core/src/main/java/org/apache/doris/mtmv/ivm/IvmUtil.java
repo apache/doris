@@ -250,6 +250,16 @@ public class IvmUtil {
     public static final long DEFAULT_MINMAX_TOP_K = 8;
 
     /**
+     * Upper bound of the {@code ivm_minmax_top_k} property.
+     *
+     * <p>This bound belongs to the IVM state, not to the {@code min_topk}/{@code max_topk}
+     * aggregate: the aggregate has no upper bound, because its list is bounded by the group's
+     * distinct values. Here the list is a persisted hidden state of every group row and is
+     * rewritten on each refresh, so an unbounded K is not acceptable.
+     */
+    public static final long MAX_IVM_MINMAX_TOP_K = 65536;
+
+    /**
      * Creates a hidden ColumnDefinition for the IVM row-id column. */
     public static ColumnDefinition newIvmRowIdColumnDefinition(DataType type, boolean isNullable) {
         ColumnDefinition columnDefinition = new ColumnDefinition(
