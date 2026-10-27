@@ -187,6 +187,31 @@ suite("test_array_sorted_merge") {
         FROM (SELECT min_topk(i, 2) AS s FROM (SELECT 1 AS i) t) x
     """
 
+    // A pushed scan filter can expose the repeated expression as a virtual column, which the
+    // merge lambda then captures. The virtual column is materialized lazily from its input
+    // column, so the private merge block has to carry that input as well; copying only the
+    // placeholder slot made the lazy abs(lim) read a padded column of the wrong type.
+    sql """DROP TABLE IF EXISTS array_sorted_merge_virtual_capture"""
+    sql """
+        CREATE TABLE array_sorted_merge_virtual_capture (
+            lim INT NOT NULL,
+            l ARRAY<INT>,
+            r ARRAY<INT>
+        )
+        DUPLICATE KEY(lim)
+        DISTRIBUTED BY HASH(lim) BUCKETS 1
+        PROPERTIES ("replication_num" = "1")
+    """
+    sql """INSERT INTO array_sorted_merge_virtual_capture VALUES (2, [1], [1])"""
+    sql """SET experimental_enable_virtual_slot_for_cse = true"""
+    order_qt_virtual_column_capture """
+        SELECT lim FROM array_sorted_merge_virtual_capture
+        WHERE abs(lim) > 0 AND abs(lim) < 10
+          AND cardinality(array_sorted_merge(
+                  (a, b) -> IF(a = b AND a < abs(lim), a, NULL), l, r, true)) = 1
+    """
+    sql """SET experimental_enable_virtual_slot_for_cse = false"""
+
     test {
         sql """SELECT array_sorted_merge(
                    (a, b) -> CAST(a + element_at(array_map(x -> x + a, [1]), 1) AS INT),

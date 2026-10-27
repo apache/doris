@@ -40,6 +40,7 @@
 #include "exprs/lambda_function/lambda_function_factory.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
+#include "exprs/virtual_slot_ref.h"
 #include "exprs/vlambda_function_expr.h"
 
 namespace doris {
@@ -102,6 +103,26 @@ public:
                                                      shadowed_names));
         }
         return Status::OK();
+    }
+
+    /// A virtual column is materialized lazily on first read, from an expression over its own
+    /// input columns; its block entry starts as a ColumnNothing placeholder and the virtual slot
+    /// only records its own column id. Copying just that id into the private lambda block leaves
+    /// the inputs behind the padded "temp" columns, so the lazy evaluation reads a wrong-typed
+    /// column. Collect the virtual expressions' inputs as well, so they are copied with their
+    /// real types and the evaluation reads the current row.
+    static void collect_virtual_capture_inputs(const VExprSPtr& expr, std::set<int>& column_ids) {
+        if (expr->node_type() == TExprNodeType::VIRTUAL_SLOT_REF) {
+            const auto* virtual_slot = assert_cast<const VirtualSlotRef*>(expr.get());
+            const auto virtual_expr = virtual_slot->get_virtual_column_expr();
+            if (virtual_expr != nullptr) {
+                virtual_expr->collect_slot_column_ids(column_ids);
+                collect_virtual_capture_inputs(virtual_expr, column_ids);
+            }
+        }
+        for (const auto& child : expr->children()) {
+            collect_virtual_capture_inputs(child, column_ids);
+        }
     }
 
     Status prepare(RuntimeState* state, const VExprSPtrs& children) override {
@@ -170,6 +191,7 @@ public:
         // take the positions after the last captured column and are bound by name.
         std::set<int> captured_ids;
         children[0]->collect_slot_column_ids(captured_ids);
+        collect_virtual_capture_inputs(children[0], captured_ids);
         // An enclosing lambda's argument is a name reference rather than a slot, and this
         // function executes its lambda against a block of its own that hides the parent frames.
         // Publish the visible binding values under their names in that block, so the reference
