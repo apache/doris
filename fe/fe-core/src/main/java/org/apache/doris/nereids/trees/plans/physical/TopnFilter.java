@@ -19,8 +19,10 @@ package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToThriftVisitor;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.algebra.TopN;
+import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.SortNode;
 import org.apache.doris.thrift.TTopnFilterDesc;
@@ -70,6 +72,15 @@ public class TopnFilter {
         tFilter.setSourceNodeId(legacySortNode.getId().asInt());
         tFilter.setIsAsc(topn.getOrderKeys().get(0).isAsc());
         tFilter.setNullFirst(topn.getOrderKeys().get(0).isNullFirst());
+        // A join below TopN can produce several candidates from one scan row. Discarding that
+        // row on equality could remove candidates still needed by TopN. Only enable strict
+        // bounds when the retained candidates come directly from this one scan.
+        tFilter.setIsStrict(topn instanceof PhysicalTopN
+                && topn.getOrderKeys().size() == 1
+                && legacyTargets.size() == 1
+                && legacySortNode.getChild(0) instanceof OlapScanNode
+                && legacyTargets.containsKey(legacySortNode.getChild(0))
+                && legacyTargets.values().iterator().next() instanceof SlotRef);
         for (ScanNode scan : legacyTargets.keySet()) {
             tFilter.putToTargetNodeIdToTargetExpr(scan.getId().asInt(),
                     ExprToThriftVisitor.treeToThrift(legacyTargets.get(scan)));

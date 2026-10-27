@@ -76,7 +76,18 @@ void execute_topn_raw_comparison(const uint8_t* values, size_t num_values, const
 
 template <typename T>
 bool topn_raw_scalar_matches(const T& value, const T& bound, RawComparisonOp op) {
-    return op == RawComparisonOp::LE ? value <= bound : value >= bound;
+    switch (op) {
+    case RawComparisonOp::LT:
+        return value < bound;
+    case RawComparisonOp::LE:
+        return value <= bound;
+    case RawComparisonOp::GT:
+        return value > bound;
+    case RawComparisonOp::GE:
+        return value >= bound;
+    default:
+        throw Exception(ErrorCode::INTERNAL_ERROR, "Invalid TopN comparison operator");
+    }
 }
 
 template <PrimitiveType PT>
@@ -92,7 +103,14 @@ void execute_topn_raw_scalar(const uint8_t* values, size_t num_values, const Fie
 }
 
 bool topn_string_matches(int comparison, RawComparisonOp op) {
-    return op == RawComparisonOp::LE ? comparison <= 0 : comparison >= 0;
+    return topn_raw_scalar_matches(comparison, 0, op);
+}
+
+RawComparisonOp topn_comparison_op(const RuntimePredicate& predicate) {
+    if (predicate.is_asc()) {
+        return predicate.is_strict() ? RawComparisonOp::LT : RawComparisonOp::LE;
+    }
+    return predicate.is_strict() ? RawComparisonOp::GT : RawComparisonOp::GE;
 }
 
 } // namespace
@@ -172,7 +190,7 @@ Status VTopNPred::execute_on_raw_fixed_values(const uint8_t* values, size_t num_
                                      type_to_string(bound.get_type()),
                                      type_to_string(primitive_type));
     }
-    const auto op = _predicate->is_asc() ? RawComparisonOp::LE : RawComparisonOp::GE;
+    const auto op = topn_comparison_op(*_predicate);
     switch (primitive_type) {
     case TYPE_INT:
         execute_topn_raw_comparison<int32_t, TYPE_INT>(values, num_values, bound, op, matches);
@@ -261,7 +279,7 @@ Status VTopNPred::execute_on_raw_binary_values(const StringRef* values, size_t n
                                      type_to_string(bound.get_type()),
                                      type_to_string(primitive_type));
     }
-    const auto op = _predicate->is_asc() ? RawComparisonOp::LE : RawComparisonOp::GE;
+    const auto op = topn_comparison_op(*_predicate);
     for (size_t row = 0; row < num_values; ++row) {
         matches[row] &= topn_string_matches(values[row].compare(bound_ref), op) ? 1 : 0;
     }
@@ -299,6 +317,7 @@ ZoneMapFilterResult VTopNPred::evaluate_dictionary_filter(const DictionaryEvalCo
     if (!expr_zonemap::field_types_compatible(bound.get_type(), primitive_type)) {
         return ZoneMapFilterResult::kUnsupported;
     }
+    const auto op = topn_comparison_op(*_predicate);
     for (const Field& value : dictionary->values) {
         if (value.is_null()) {
             continue;
@@ -306,7 +325,7 @@ ZoneMapFilterResult VTopNPred::evaluate_dictionary_filter(const DictionaryEvalCo
         if (!expr_zonemap::field_types_compatible(value.get_type(), primitive_type)) {
             return ZoneMapFilterResult::kUnsupported;
         }
-        if ((_predicate->is_asc() && value <= bound) || (!_predicate->is_asc() && value >= bound)) {
+        if (topn_raw_scalar_matches(value, bound, op)) {
             return ZoneMapFilterResult::kMayMatch;
         }
     }

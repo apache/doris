@@ -83,6 +83,22 @@ public:
 
     bool is_asc() const { return _is_asc; }
 
+    bool is_strict() const { return _is_strict; }
+
+    const char* comparison_function() const {
+        if (_is_asc) {
+            return _is_strict ? "lt" : "le";
+        }
+        return _is_strict ? "gt" : "ge";
+    }
+
+    TExprOpcode::type comparison_opcode() const {
+        if (_is_asc) {
+            return _is_strict ? TExprOpcode::LT : TExprOpcode::LE;
+        }
+        return _is_strict ? TExprOpcode::GT : TExprOpcode::GE;
+    }
+
     bool nulls_first() const { return _nulls_first; }
 
     bool target_is_slot(int32_t target_node_id) const {
@@ -130,6 +146,7 @@ private:
 
     bool _nulls_first;
     bool _is_asc;
+    const bool _is_strict;
     std::map<int32_t, TargetContext> _contexts;
 
     Field _orderby_extrem {PrimitiveType::TYPE_NULL};
