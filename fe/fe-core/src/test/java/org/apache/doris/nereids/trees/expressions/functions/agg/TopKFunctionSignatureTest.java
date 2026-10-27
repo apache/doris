@@ -77,12 +77,9 @@ class TopKFunctionSignatureTest {
                 () -> new MinTopK(value, NullLiteral.INSTANCE).checkLegalityAfterRewrite());
         Assertions.assertThrows(AnalysisException.class,
                 () -> new MinTopK(value, new BigIntLiteral(-1)).checkLegalityAfterRewrite());
-        Assertions.assertThrows(AnalysisException.class,
-                () -> new MaxTopK(value, new BigIntLiteral(TopKFunction.MAX_TOPK_K + 1))
-                        .checkLegalityAfterRewrite());
+        // There is no upper bound: a large k is valid, the list is bounded by the distinct values.
         Assertions.assertDoesNotThrow(
-                () -> new MinTopK(value, new BigIntLiteral(TopKFunction.MAX_TOPK_K))
-                        .checkLegalityAfterRewrite());
+                () -> new MaxTopK(value, new BigIntLiteral(1_000_000)).checkLegalityAfterRewrite());
 
         Expression varbinary = SlotReference.of("v", VarBinaryType.INSTANCE);
         Assertions.assertThrows(AnalysisException.class,

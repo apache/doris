@@ -55,9 +55,6 @@ import java.util.List;
 public abstract class TopKFunction extends NotNullableAggregateFunction
         implements CustomSignature {
 
-    /** Upper bound of k, shared with the BE implementation. */
-    public static final long MAX_TOPK_K = 65536;
-
     protected TopKFunction(String name, boolean distinct, List<Expression> children) {
         super(name, distinct, false, children);
     }
@@ -94,9 +91,12 @@ public abstract class TopKFunction extends NotNullableAggregateFunction
             throw new AnalysisException(getName() + " requires a non-null constant count: " + toSql());
         }
         double value = ((Literal) count).getDouble();
-        if (value < 0 || value > MAX_TOPK_K || value != Math.floor(value)) {
-            throw new AnalysisException(getName() + " requires 0 <= count <= " + MAX_TOPK_K
-                    + ", but got " + count.toSql());
+        // There is no upper bound: the list holds at most the group's distinct values, so the
+        // state stays bounded by the data rather than by k. The IVM property that feeds this
+        // aggregate keeps its own, much tighter bound.
+        if (value < 0 || value != Math.floor(value)) {
+            throw new AnalysisException(getName() + " requires a non-negative constant count, but got "
+                    + count.toSql());
         }
     }
 

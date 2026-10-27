@@ -169,20 +169,20 @@ suite("min_max_topk") {
     """
     sql "set parallel_pipeline_task_num = 0"
 
-    // A large k is accepted; MAX_TOPK_K + 1 is rejected.
+    // k has no upper bound: the list is bounded by the group's distinct values.
     order_qt_max_k_accepted """
         SELECT min_topk(i, 65536), max_topk(i, 65536)
         FROM min_max_topk_t WHERE id = 1
     """
 
-    test {
-        sql "SELECT min_topk(i, 65537) FROM min_max_topk_t"
-        exception "min_topk requires 0 <= count <= 65536"
-    }
+    order_qt_large_k """
+        SELECT min_topk(i, 65537), max_topk(i, 100000)
+        FROM min_max_topk_t WHERE id = 1
+    """
 
     test {
         sql "SELECT max_topk(i, -1) FROM min_max_topk_t"
-        exception "max_topk requires 0 <= count <= 65536"
+        exception "max_topk requires a non-negative constant count"
     }
 
     test {

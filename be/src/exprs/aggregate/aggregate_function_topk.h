@@ -43,9 +43,6 @@
 
 namespace doris {
 
-/// Upper bound of k, shared with FE TopKFunction.MAX_TOPK_K.
-constexpr int64_t MAX_TOPK_K = 65536;
-
 /**
  * State shared by min_topk and max_topk.
  *
@@ -232,11 +229,11 @@ private:
                 assert_cast<const ColumnInt64&, TypeCheckOnRelease::DISABLE>(*nested).get_element(
                         row_num);
         if (!state.has_k) {
-            if (UNLIKELY(value < 0 || value > MAX_TOPK_K)) {
+            if (UNLIKELY(value < 0)) {
                 throw Exception(ErrorCode::INVALID_ARGUMENT,
-                                "the count of min_topk and max_topk must be a constant "
-                                "between 0 and {}, but got {}",
-                                MAX_TOPK_K, value);
+                                "the count of min_topk and max_topk must be a non-negative "
+                                "constant, but got {}",
+                                value);
             }
             state.has_k = true;
             state.k = value;
