@@ -22,6 +22,7 @@ import org.apache.doris.analysis.ColumnAccessPath;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TableSample;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.ToSqlParams;
@@ -92,6 +93,7 @@ import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
+import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 import org.apache.doris.thrift.TUnit;
@@ -106,6 +108,8 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -196,6 +200,8 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     private Map<String, String> scanNodeProperties;
     // Maps filtered conjunct indices (after CAST removal) back to original conjunct indices
     private List<Integer> filteredToOriginalIndex;
+    private volatile Map<Integer, ConnectorExpression> partitionProofConjuncts;
+    private Map<Expr, Integer> partitionProofConjunctIds;
 
     // Memoized resolveScanProvider() result, keyed on currentHandle identity. See resolveScanProvider().
     // Volatile so the concurrent partition-batch appendBatch threads read a self-consistent (handle, provider).
@@ -1284,6 +1290,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         scanNodeProperties = null;
         cachedPropertiesResult = null;
         filteredToOriginalIndex = null;
+        partitionProofConjuncts = null;
     }
 
     /**
@@ -2384,12 +2391,67 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
         // Delegate format-specific Thrift construction to the connector SPI
         scanRange.populateRangeParams(tableFormatFileDesc, rangeDesc);
+        Set<Integer> enforced = scanRange.getPartitionEnforcedConjuncts(getPartitionProofConjuncts());
+        if (!enforced.isEmpty()) {
+            rangeDesc.setPartitionEnforcedConjunctIds(new ArrayList<>(enforced));
+        }
         if (rangeDesc.getFormatType() == TFileFormatType.FORMAT_PARQUET) {
             // Mixed JNI/native scans must retain the Parquet contract after subsequent non-Parquet ranges.
             params.setContainsNativeParquet(true);
         }
 
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
+    }
+
+    static Map<Integer, ConnectorExpression> buildPartitionProofConjuncts(List<Expr> expressions) {
+        Map<Integer, ConnectorExpression> result = new LinkedHashMap<>();
+        for (int i = 0; i < expressions.size(); i++) {
+            // The neutral converter strips CASTs. A pruning approximation cannot authorize
+            // removing the original CAST predicate, even if the connector accepts it for pruning.
+            if (!containsCastExpr(expressions.get(i))) {
+                result.put(i, ExprToConnectorExpressionConverter.convert(expressions.get(i)));
+            }
+        }
+        return Collections.unmodifiableMap(result);
+    }
+
+    private Map<Integer, ConnectorExpression> getPartitionProofConjuncts() {
+        Map<Integer, ConnectorExpression> result = partitionProofConjuncts;
+        if (result == null) {
+            synchronized (this) {
+                result = partitionProofConjuncts;
+                if (result == null) {
+                    Map<Expr, Integer> ids = new IdentityHashMap<>();
+                    for (int i = 0; i < conjuncts.size(); i++) {
+                        ids.put(conjuncts.get(i), i);
+                    }
+                    partitionProofConjunctIds = ids;
+                    result = buildPartitionProofConjuncts(conjuncts);
+                    partitionProofConjuncts = result;
+                }
+            }
+        }
+        return result;
+    }
+
+    @Override
+    protected void toThrift(TPlanNode planNode) {
+        super.toThrift(planNode);
+        getPartitionProofConjuncts();
+        for (int i = 0; i < planNode.getConjunctsSize(); i++) {
+            // Source-side pushdown may have removed other conjuncts since ranges were generated.
+            // Preserve their original identities rather than renumbering the remaining vector.
+            planNode.getConjuncts().get(i).setFileScanConjunctId(partitionProofConjunctIds.get(conjuncts.get(i)));
+        }
+        List<Expr> outputExpressions = getPointQueryProjectList();
+        if (outputExpressions == null || outputExpressions.isEmpty()
+                || pushDownAggNoGroupingOp != TPushAggOp.NONE) {
+            return;
+        }
+        Set<SlotId> outputSlots = new HashSet<>();
+        outputExpressions.forEach(expr -> Expr.extractSlots(expr, outputSlots));
+        params.getRequiredSlots().forEach(slot ->
+                slot.setIsFilterOnly(!outputSlots.contains(new SlotId(slot.getSlotId()))));
     }
 
 

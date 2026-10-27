@@ -7752,5 +7752,64 @@ TEST(IcebergTableReaderTest, DeleteParquetFactoryReusesScannerCounters) {
     std::filesystem::remove(file_path);
 }
 
+TEST(IcebergV2ReaderTest, PartitionProofSkipsOnlyUnconsumedFilterColumns) {
+    std::vector<ColumnDefinition> columns(2);
+    for (size_t i = 0; i < columns.size(); ++i) {
+        columns[i].identifier = Field::create_field<TYPE_INT>(static_cast<int32_t>(i + 1));
+        columns[i].local_id = static_cast<int32_t>(i);
+        columns[i].name = i == 0 ? "amount" : "id";
+        columns[i].type = make_nullable(std::make_shared<DataTypeInt32>());
+    }
+    columns[1].is_filter_only = true;
+    IcebergTableReaderScanRequestTestHelper reader;
+    ASSERT_TRUE(reader.init_for_scan_request_test(columns).ok());
+    reader._current_file_range_desc.__set_partition_enforced_conjunct_ids({4});
+    TableColumnMapperOptions options;
+    reader.configure_mapper_options(&options);
+    ASSERT_EQ(options.unused_columns, std::vector<GlobalIndex>({GlobalIndex(1)}));
+    TableColumnMapper mapper(options);
+    ASSERT_TRUE(mapper.create_mapping(columns, {}, columns).ok());
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({}, columns, &request, reader._runtime_state).ok());
+    EXPECT_EQ(projection_ids(request.non_predicate_columns), std::vector<int32_t>({0}));
+    EXPECT_TRUE(mapper.mappings()[1].constant_index.has_value());
+
+    // The same slot is still required by any residual or late runtime predicate.
+    reader._conjuncts = {VExprContext::create_shared(table_int32_greater_than_expr(1, 1, 0))};
+    reader.configure_mapper_options(&options);
+    EXPECT_TRUE(options.unused_columns.empty());
+    auto runtime_predicate = table_int32_greater_than_expr(1, 1, 0);
+    const auto node = table_function_node(
+            "gt", make_nullable(std::make_shared<DataTypeUInt8>()),
+            {make_nullable(std::make_shared<DataTypeInt32>()), std::make_shared<DataTypeInt32>()},
+            TExprNodeType::BINARY_PRED, TExprOpcode::GT);
+    reader._conjuncts = {VExprContext::create_shared(
+            RuntimeFilterExpr::create_shared(node, runtime_predicate, 0.4, false, 7))};
+    reader.configure_mapper_options(&options);
+    EXPECT_TRUE(options.unused_columns.empty());
+    reader._conjuncts.clear();
+    reader._all_runtime_filters_applied_for_split = false;
+    reader.configure_mapper_options(&options);
+    EXPECT_TRUE(options.unused_columns.empty());
+    reader._all_runtime_filters_applied_for_split = true;
+    reader._equality_delete_filters.emplace_back();
+    reader.configure_mapper_options(&options);
+    EXPECT_TRUE(options.unused_columns.empty());
+    reader._equality_delete_filters.clear();
+
+    // Phase-two row-id fetches may now output a column that phase one only filtered on.
+    reader._row_ids = std::vector<int64_t> {0};
+    reader.configure_mapper_options(&options);
+    EXPECT_TRUE(options.unused_columns.empty());
+    reader._row_ids.reset();
+    reader._projected_columns[1].is_filter_only = false;
+    reader.configure_mapper_options(&options);
+    EXPECT_TRUE(options.unused_columns.empty());
+    reader._projected_columns[1].is_filter_only = true;
+    reader._current_file_range_desc.__isset.partition_enforced_conjunct_ids = false;
+    reader.configure_mapper_options(&options);
+    EXPECT_TRUE(options.unused_columns.empty());
+}
+
 } // namespace
 } // namespace doris::format

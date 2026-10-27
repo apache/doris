@@ -170,6 +170,7 @@ private:
     Status _build_default_expr(const TFileScanSlotInfo& slot_info, VExprContextSPtr* ctx) const;
     static format::ColumnDefinition _build_table_column(const SlotDescriptor* slot_desc);
     Status _build_table_conjuncts(VExprContextSPtrs* conjuncts) const;
+    void _refresh_split_conjuncts();
     static Status _to_file_format(TFileFormatType::type format_type,
                                   format::FileFormat* file_format);
     void _reset_adaptive_batch_size_state();
@@ -207,6 +208,7 @@ private:
 
     std::unique_ptr<format::TableReader> _table_reader;
     std::vector<format::ColumnDefinition> _projected_columns;
+    VExprContextSPtrs _split_conjuncts;
     bool _has_variant_projection = false;
     // File formats without embedded schema, such as CSV, still need the FE slot descriptors in
     // file-column order. This mirrors old FileScanner::_file_slot_descs and is passed only to

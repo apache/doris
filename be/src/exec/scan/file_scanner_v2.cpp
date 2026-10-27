@@ -513,6 +513,7 @@ Status FileScannerV2::_get_block_impl(RuntimeState* state, Block* block, bool* e
 
         {
             if (_table_reader_rf_num != _applied_rf_num) {
+                _refresh_split_conjuncts();
                 VExprContextSPtrs refreshed_conjuncts;
                 RETURN_IF_ERROR(_build_table_conjuncts(&refreshed_conjuncts));
                 RETURN_IF_ERROR(_table_reader->refresh_conjuncts(std::move(refreshed_conjuncts)));
@@ -563,8 +564,10 @@ Status FileScannerV2::_get_block_impl(RuntimeState* state, Block* block, bool* e
 }
 
 Status FileScannerV2::_filter_output_block(Block* block) {
-    return _contextualize_output_filter_status(Scanner::_filter_output_block(block),
-                                               _get_current_format_type());
+    const auto old_rows = block->rows();
+    auto status = VExprContext::filter_block(_split_conjuncts, block, block->columns());
+    _counter.num_rows_unselected += old_rows - block->rows();
+    return _contextualize_output_filter_status(std::move(status), _get_current_format_type());
 }
 
 bool FileScannerV2::_can_merge_padding_blocks(const Block& /*left*/, const Block& /*right*/) const {
@@ -648,6 +651,7 @@ Status FileScannerV2::_prepare_next_split(bool* eos) {
 }
 
 Status FileScannerV2::_init_table_reader(const TFileRangeDesc& range) {
+    _refresh_split_conjuncts();
     const auto format_type = get_range_format_type(*_params, range);
     format::FileFormat file_format;
     RETURN_IF_ERROR(_to_file_format(format_type, &file_format));
@@ -822,6 +826,7 @@ Status FileScannerV2::_create_table_reader_for_format(
 
 Status FileScannerV2::_prepare_table_reader_split(const TFileRangeDesc& range,
                                                   std::map<std::string, Field> partition_values) {
+    _refresh_split_conjuncts();
     const auto format_type = get_range_format_type(*_params, range);
     format::FileFormat current_split_format;
     RETURN_IF_ERROR(_to_file_format(format_type, &current_split_format));
@@ -983,6 +988,7 @@ Status FileScannerV2::_build_projected_columns(const format::TableReader& table_
         auto column = _build_table_column(it->second);
         column.is_synthesized =
                 slot_info.__isset.category && slot_info.category == TColumnCategory::SYNTHESIZED;
+        column.is_filter_only = slot_info.__isset.is_filter_only && slot_info.is_filter_only;
         _has_variant_projection = _has_variant_projection || contains_variant_type(column.type);
         build_context.slot_desc = it->second;
         if (column.name.starts_with(BeConsts::GLOBAL_ROWID_COL)) {
@@ -1048,14 +1054,34 @@ format::ColumnDefinition FileScannerV2::_build_table_column(const SlotDescriptor
     return column;
 }
 
+void FileScannerV2::_refresh_split_conjuncts() {
+    _split_conjuncts.clear();
+    _split_conjuncts.reserve(_conjuncts.size());
+    for (const auto& conjunct : _conjuncts) {
+        const auto& root = conjunct->root();
+        const auto id = root->file_scan_conjunct_id();
+        // Rebuild from the full scanner snapshot on every split and RF update. For example,
+        // day(ts) may prove a bound for one file while the next file uses an older month spec.
+        // Runtime/TopN predicates have no static identity and must always reach both layers.
+        const bool enforced =
+                !_is_load && id >= 0 && !root->is_rf_wrapper() && !root->is_topn_filter() &&
+                _current_range.__isset.partition_enforced_conjunct_ids &&
+                std::ranges::find(_current_range.partition_enforced_conjunct_ids, id) !=
+                        _current_range.partition_enforced_conjunct_ids.end();
+        if (!enforced) {
+            _split_conjuncts.push_back(conjunct);
+        }
+    }
+}
+
 Status FileScannerV2::_build_table_conjuncts(VExprContextSPtrs* conjuncts) const {
     DORIS_CHECK(conjuncts != nullptr);
     conjuncts->clear();
     if (_is_load) {
         return Status::OK();
     }
-    conjuncts->reserve(_conjuncts.size());
-    for (const auto& conjunct : _conjuncts) {
+    conjuncts->reserve(_split_conjuncts.size());
+    for (const auto& conjunct : _split_conjuncts) {
         VExprSPtr root;
         RETURN_IF_ERROR(format::clone_table_expr_tree(conjunct->root(), &root));
         RETURN_IF_ERROR(rewrite_slot_refs_to_global_index(&root, _slot_id_to_global_index));

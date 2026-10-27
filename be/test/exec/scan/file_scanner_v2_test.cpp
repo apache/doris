@@ -1276,4 +1276,46 @@ TEST(FileScannerTest, PartitionPruningStopsAtUnsafePredicate) {
     EXPECT_EQ(partition_conjuncts[0], conjuncts[0]);
 }
 
+TEST(FileScannerV2Test, PartitionProofUsesStaticIdentityAndResetsAcrossSplits) {
+    RuntimeState state;
+    RuntimeProfile profile("partition-proof");
+    FileScannerV2 scanner(&state, &profile, nullptr);
+    auto static_predicate = [](int id) {
+        TExprNode node;
+        bool value = true;
+        EXPECT_TRUE(create_texpr_literal_node<TYPE_BOOLEAN>(&value, &node).ok());
+        TExpr expression;
+        expression.__set_nodes({node});
+        expression.__set_file_scan_conjunct_id(id);
+        VExprContextSPtr context;
+        EXPECT_TRUE(VExpr::create_expr_tree(expression, context).ok());
+        return context;
+    };
+    auto proved = static_predicate(4);
+    auto remaining = static_predicate(9);
+    auto dynamic =
+            runtime_filter_context(VLiteral::create_shared(std::make_shared<DataTypeUInt8>(),
+                                                           Field::create_field<TYPE_BOOLEAN>(true)),
+                                   7);
+    scanner._conjuncts = {remaining, dynamic, proved};
+    scanner._current_range.__set_partition_enforced_conjunct_ids({4});
+    scanner._refresh_split_conjuncts();
+    ASSERT_EQ(scanner._split_conjuncts.size(), 2);
+    EXPECT_EQ(scanner._split_conjuncts[0], remaining);
+    EXPECT_EQ(scanner._split_conjuncts[1], dynamic);
+
+    // A late RF can reorder the scanner's vector. Only the original static id is proved.
+    scanner._conjuncts = {proved, dynamic, remaining};
+    scanner._refresh_split_conjuncts();
+    ASSERT_EQ(scanner._split_conjuncts.size(), 2);
+    EXPECT_EQ(scanner._split_conjuncts[0], dynamic);
+    scanner._current_range = TFileRangeDesc();
+    scanner._refresh_split_conjuncts();
+    EXPECT_EQ(scanner._split_conjuncts.size(), 3);
+
+    VExprSPtr cloned;
+    ASSERT_TRUE(format::clone_table_expr_tree(proved->root(), &cloned).ok());
+    EXPECT_EQ(cloned->file_scan_conjunct_id(), 4);
+}
+
 } // namespace doris

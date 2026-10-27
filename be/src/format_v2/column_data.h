@@ -297,6 +297,9 @@ struct ColumnDefinition {
     bool is_synthesized = false;
     // File-local column kind. For table/global columns this remains DATA_COLUMN.
     ColumnType column_type = ColumnType::DATA_COLUMN;
+    // FE proves the scan output projections never consume this slot. It may still be read for
+    // residual/runtime filters and deletes until TableReader proves it unused for this split.
+    bool is_filter_only = false;
 
     bool has_identifier() const { return !identifier.is_null(); }
     bool has_identifier_field_id() const { return identifier.get_type() == TYPE_INT; }
