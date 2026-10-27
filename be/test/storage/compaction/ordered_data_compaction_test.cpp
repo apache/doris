@@ -401,7 +401,7 @@ protected:
                                             ColumnId hidden_column_id) {
         auto read_schema = std::make_shared<ReadSchema>(project_columns_by_ordinal(
                 tablet_schema->columns(), std::vector<ColumnId> {0, hidden_column_id}));
-        EXPECT_TRUE(read_schema->init_from_tablet_schema(*tablet_schema, false, false).ok());
+        EXPECT_TRUE(read_schema->init_from_tablet_schema(*tablet_schema, false).ok());
         RowsetReaderContext reader_context;
         reader_context.read_schema = read_schema;
         RowsetReaderSharedPtr reader;
