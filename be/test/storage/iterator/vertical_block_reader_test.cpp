@@ -25,72 +25,47 @@ namespace doris {
 
 class VerticalBlockReaderTestAccessor {
 public:
-    static void append_grouped_iterator_init_flags(const RowsetMeta& rowset_meta,
+    static std::vector<size_t> segment_group_sizes(const RowsetMeta& rowset_meta,
                                                    std::pair<int64_t, int64_t> segment_offsets,
-                                                   size_t added_iterators,
-                                                   std::vector<bool>* iterator_init_flags) {
-        VerticalBlockReader::_append_grouped_iterator_init_flags(
-                rowset_meta, segment_offsets, added_iterators, iterator_init_flags);
-    }
-
-    static std::vector<bool> grouped_iterator_init_flags(
-            const RowsetMeta& rowset_meta, std::pair<int64_t, int64_t> segment_offsets,
-            size_t added_iterators) {
-        std::vector<bool> iterator_init_flags;
-        append_grouped_iterator_init_flags(rowset_meta, segment_offsets, added_iterators,
-                                           &iterator_init_flags);
-        return iterator_init_flags;
+                                                   size_t num_segment_iters) {
+        return VerticalBlockReader::_segment_group_sizes(rowset_meta, segment_offsets,
+                                                         num_segment_iters);
     }
 };
 
-TEST(VerticalBlockReaderTest, GroupedIteratorInitFlagsForWholeRowset) {
+TEST(VerticalBlockReaderTest, SegmentGroupSizesForWholeRowset) {
     RowsetMeta rowset_meta;
     rowset_meta.set_num_segments(5);
     rowset_meta.set_segment_group_sizes({2, 2, 1});
 
-    EXPECT_EQ(VerticalBlockReaderTestAccessor::grouped_iterator_init_flags(rowset_meta, {0, 0}, 5),
-              std::vector<bool>({true, false, true, false, true}));
+    EXPECT_EQ(VerticalBlockReaderTestAccessor::segment_group_sizes(rowset_meta, {0, 0}, 5),
+              std::vector<size_t>({2, 2, 1}));
 }
 
-TEST(VerticalBlockReaderTest, GroupedIteratorInitFlagsForSegmentRange) {
+TEST(VerticalBlockReaderTest, SegmentGroupSizesForSegmentRange) {
     RowsetMeta rowset_meta;
     rowset_meta.set_num_segments(8);
     rowset_meta.set_segment_group_sizes({3, 2, 3});
 
-    EXPECT_EQ(VerticalBlockReaderTestAccessor::grouped_iterator_init_flags(rowset_meta, {0, 3}, 3),
-              std::vector<bool>({true, false, false}));
-    EXPECT_EQ(VerticalBlockReaderTestAccessor::grouped_iterator_init_flags(rowset_meta, {1, 3}, 2),
-              std::vector<bool>({true, false}));
-    EXPECT_EQ(VerticalBlockReaderTestAccessor::grouped_iterator_init_flags(rowset_meta, {1, 2}, 1),
-              std::vector<bool>({true}));
-    EXPECT_EQ(VerticalBlockReaderTestAccessor::grouped_iterator_init_flags(rowset_meta, {1, 4}, 3),
-              std::vector<bool>({true, false, true}));
-    EXPECT_EQ(VerticalBlockReaderTestAccessor::grouped_iterator_init_flags(rowset_meta, {3, 5}, 2),
-              std::vector<bool>({true, false}));
-    EXPECT_EQ(VerticalBlockReaderTestAccessor::grouped_iterator_init_flags(rowset_meta, {4, 7}, 3),
-              std::vector<bool>({true, true, false}));
-    EXPECT_EQ(VerticalBlockReaderTestAccessor::grouped_iterator_init_flags(rowset_meta, {5, 8}, 3),
-              std::vector<bool>({true, false, false}));
-    EXPECT_EQ(VerticalBlockReaderTestAccessor::grouped_iterator_init_flags(rowset_meta, {7, 8}, 1),
-              std::vector<bool>({true}));
+    EXPECT_EQ(VerticalBlockReaderTestAccessor::segment_group_sizes(rowset_meta, {0, 3}, 3),
+              std::vector<size_t>({3}));
+    EXPECT_EQ(VerticalBlockReaderTestAccessor::segment_group_sizes(rowset_meta, {1, 3}, 2),
+              std::vector<size_t>({2}));
+    EXPECT_EQ(VerticalBlockReaderTestAccessor::segment_group_sizes(rowset_meta, {1, 2}, 1),
+              std::vector<size_t>({1}));
+    EXPECT_EQ(VerticalBlockReaderTestAccessor::segment_group_sizes(rowset_meta, {1, 4}, 3),
+              std::vector<size_t>({2, 1}));
+    EXPECT_EQ(VerticalBlockReaderTestAccessor::segment_group_sizes(rowset_meta, {3, 5}, 2),
+              std::vector<size_t>({2}));
+    EXPECT_EQ(VerticalBlockReaderTestAccessor::segment_group_sizes(rowset_meta, {4, 7}, 3),
+              std::vector<size_t>({1, 2}));
+    EXPECT_EQ(VerticalBlockReaderTestAccessor::segment_group_sizes(rowset_meta, {5, 8}, 3),
+              std::vector<size_t>({3}));
+    EXPECT_EQ(VerticalBlockReaderTestAccessor::segment_group_sizes(rowset_meta, {7, 8}, 1),
+              std::vector<size_t>({1}));
 }
 
-TEST(VerticalBlockReaderTest, GroupedIteratorInitFlagsAppendToExistingFlags) {
-    RowsetMeta rowset_meta;
-    rowset_meta.set_num_segments(5);
-    rowset_meta.set_segment_group_sizes({2, 2, 1});
-    std::vector<bool> iterator_init_flags {false, true};
-
-    VerticalBlockReaderTestAccessor::append_grouped_iterator_init_flags(rowset_meta, {1, 4}, 3,
-                                                                        &iterator_init_flags);
-    EXPECT_EQ(iterator_init_flags, std::vector<bool>({false, true, true, true, false}));
-
-    VerticalBlockReaderTestAccessor::append_grouped_iterator_init_flags(rowset_meta, {4, 5}, 1,
-                                                                        &iterator_init_flags);
-    EXPECT_EQ(iterator_init_flags, std::vector<bool>({false, true, true, true, false, true}));
-}
-
-TEST(VerticalBlockReaderTest, GroupedIteratorInitFlagsRejectInvalidInput) {
+TEST(VerticalBlockReaderTest, SegmentGroupSizesRejectInvalidInput) {
     RowsetMeta rowset_meta;
     rowset_meta.set_num_segments(5);
     rowset_meta.set_segment_group_sizes({2, 2, 1});
@@ -107,29 +82,29 @@ TEST(VerticalBlockReaderTest, GroupedIteratorInitFlagsRejectInvalidInput) {
     GTEST_FLAG_SET(death_test_style, "threadsafe");
     EXPECT_DEATH(
             {
-                static_cast<void>(VerticalBlockReaderTestAccessor::grouped_iterator_init_flags(
-                        rowset_meta, {1, 4}, 2));
+                static_cast<void>(VerticalBlockReaderTestAccessor::segment_group_sizes(rowset_meta,
+                                                                                       {1, 4}, 2));
             },
             "Check failed");
     EXPECT_DEATH(
             {
-                static_cast<void>(VerticalBlockReaderTestAccessor::grouped_iterator_init_flags(
-                        rowset_meta, {0, 6}, 6));
+                static_cast<void>(VerticalBlockReaderTestAccessor::segment_group_sizes(rowset_meta,
+                                                                                       {0, 6}, 6));
             },
             "Check failed");
     EXPECT_DEATH(
             {
-                static_cast<void>(VerticalBlockReaderTestAccessor::grouped_iterator_init_flags(
+                static_cast<void>(VerticalBlockReaderTestAccessor::segment_group_sizes(
                         invalid_group_layout, {0, 0}, 5));
             },
             "Check failed");
 #else
     EXPECT_ANY_THROW(static_cast<void>(
-            VerticalBlockReaderTestAccessor::grouped_iterator_init_flags(rowset_meta, {1, 4}, 2)));
+            VerticalBlockReaderTestAccessor::segment_group_sizes(rowset_meta, {1, 4}, 2)));
     EXPECT_ANY_THROW(static_cast<void>(
-            VerticalBlockReaderTestAccessor::grouped_iterator_init_flags(rowset_meta, {0, 6}, 6)));
-    EXPECT_ANY_THROW(static_cast<void>(VerticalBlockReaderTestAccessor::grouped_iterator_init_flags(
-            invalid_group_layout, {0, 0}, 5)));
+            VerticalBlockReaderTestAccessor::segment_group_sizes(rowset_meta, {0, 6}, 6)));
+    EXPECT_ANY_THROW(static_cast<void>(
+            VerticalBlockReaderTestAccessor::segment_group_sizes(invalid_group_layout, {0, 0}, 5)));
 #endif
 }
 

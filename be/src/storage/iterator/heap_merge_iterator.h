@@ -44,12 +44,15 @@ class RuntimeState;
 // Example with key 1 in child 0 (v = 10) and in child 1 (v = 11): the merge hands out v = 11
 // and then v = 10 with is_same set, and `drop_older_versions` drops v = 10.
 //
-// There are three ways to consume the merge; a consumer uses one of them:
+// There are four ways to consume the merge; a consumer uses one of them:
 //   next_batch(Block*)        copies runs of rows into the caller's Block (DUP_KEYS tables,
 //                             schema changes, TopN); with `drop_older_versions` only the
 //                             first row of every key is copied.
 //   next_batch(Block*, same_key)
 //                             the same, plus a same-key flag per copied row (AGG_KEYS folds).
+//   next_batch(Block*, runs)  the same as next_batch(Block*), plus the child of every row
+//                             taken, a dropped row included (the key group of a vertical
+//                             compaction records where its rows came from).
 //   next_row(IteratorRowRef*) hands out one row at a time with is_same set when its key
 //                             equals the key of the row handed out before it; with
 //                             `drop_older_versions` those rows are not handed out at all. The
@@ -68,6 +71,16 @@ class RuntimeState;
 // child's Block is refilled, before the byte budget is measured and at the end of the batch.
 class VHeapMergeIterator final : public RowwiseIterator {
 public:
+    // Rows next_batch(Block*, runs) took from one child in a row, in merge order: `rows` rows
+    // of child `child`, the first of them `first_same` when its key equals the key of the row
+    // taken before it. With drop_older_versions that first row is dropped: it counts in `rows`
+    // but is not copied.
+    struct MergedRun {
+        uint32_t child = 0;
+        uint32_t rows = 0;
+        bool first_same = false;
+    };
+
     VHeapMergeIterator(std::vector<RowwiseIteratorUPtr> children, ReadSchemaSPtr read_schema,
                        MergeDecision decision);
 
@@ -81,6 +94,10 @@ public:
 
     // Not with drop_older_versions: the folds that need the flags keep every row.
     Status next_batch(Block* block, std::vector<uint8_t>* same_key) override;
+
+    // `runs` describes the rows taken, also when it returns EndOfFile: the last rows taken may
+    // all be dropped.
+    Status next_batch(Block* block, std::vector<MergedRun>* runs);
 
     Status next_row(IteratorRowRef* ref) override;
 
@@ -143,13 +160,14 @@ private:
     // The end (exclusive) of the run of the top child: its rows from its current row on that
     // sort before the best row of every other child, `cap` at most.
     size_t _run_end(uint32_t top_index, size_t cap) const;
-    // The two next_batch() overloads; `same_key` may be null.
-    Status _next_batch(Block* block, std::vector<uint8_t>* same_key);
+    // The three next_batch() overloads; `same_key` and `runs` may be null.
+    Status _next_batch(Block* block, std::vector<uint8_t>* same_key, std::vector<MergedRun>* runs);
     // Take the run of the top child, at most `max_rows` rows, and move the heap on; `*rows`
     // grows by the rows taken. With drop_older_versions the first row of the run is dropped
-    // when it repeats the key taken last; with `same_key` a flag per taken row is appended.
+    // when it repeats the key taken last; with `same_key` a flag per taken row is appended,
+    // with `runs` the run.
     Status _take_run(MutableColumns& columns, size_t max_rows, size_t* rows,
-                     std::vector<uint8_t>* same_key);
+                     std::vector<uint8_t>* same_key, std::vector<MergedRun>* runs);
     // Copy `_taken_runs` into `columns` column by column and forget them.
     void _copy_taken_runs(MutableColumns& columns);
 

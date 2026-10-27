@@ -1167,6 +1167,83 @@ TEST(VGenericIteratorsTest, MergeNextBatchFlagsRepeatedKeysAcrossBlocks) {
     }
 }
 
+// Read every row of `iter` through next_batch(Block*, runs) and expand the runs into `taken`:
+// per row taken, its child and whether its key repeats the key of the row taken before it.
+// `copied_keys` gets the keys of the rows copied into the Blocks, which are all the rows taken
+// but the dropped ones. Returns the status that ended the read, EndOfFile when every row was read.
+static Status read_taken_rows(VHeapMergeIterator* iter, ReadSchema& schema, bool drop,
+                              std::vector<std::pair<uint32_t, bool>>* taken,
+                              std::vector<int64_t>* copied_keys) {
+    Block block;
+    create_block(schema, block);
+    std::vector<VHeapMergeIterator::MergedRun> runs;
+    while (true) {
+        block.clear_column_data();
+        Status st = iter->next_batch(&block, &runs);
+        if (!st.ok() && !st.is<END_OF_FILE>()) {
+            return st;
+        }
+        size_t copied = 0;
+        for (const auto& run : runs) {
+            for (uint32_t row = 0; row < run.rows; ++row) {
+                const bool same = row == 0 && run.first_same;
+                taken->emplace_back(run.child, same);
+                copied += drop && same ? 0 : 1;
+            }
+        }
+        if (copied != block.rows()) {
+            return Status::InternalError("{} rows copied, the runs say {}", block.rows(), copied);
+        }
+        for (size_t i = 0; i < block.rows(); ++i) {
+            copied_keys->push_back(key_at(block, i));
+        }
+        if (!st.ok()) {
+            return st;
+        }
+    }
+}
+
+// next_batch(Block*, runs) reports the child of every row taken, a row dropped by
+// drop_older_versions included, so that the runs replay the merge row by row. Children 0, 1 and
+// 2 hold keys [0, 100), [0, 200) and [0, 300); a later child goes first, so key 0 is taken from
+// children 2, 1 and 0, and with drop_older_versions only the row of child 2 is copied.
+TEST(VGenericIteratorsTest, MergeNextBatchReportsTheChildOfEveryRow) {
+    std::vector<std::pair<uint32_t, bool>> expected_taken;
+    for (int64_t key = 0; key < 300; ++key) {
+        expected_taken.emplace_back(2, false);
+        if (key < 200) {
+            expected_taken.emplace_back(1, true);
+        }
+        if (key < 100) {
+            expected_taken.emplace_back(0, true);
+        }
+    }
+    for (const bool drop : {false, true}) {
+        SCOPED_TRACE(drop ? "drop_older_versions" : "every row");
+        auto schema = create_schema();
+        auto output_schema = std::make_shared<ReadSchema>(schema);
+        std::vector<RowwiseIteratorUPtr> inputs;
+        inputs.push_back(new_auto_increment_iterator(schema, 100));
+        inputs.push_back(new_auto_increment_iterator(schema, 200));
+        inputs.push_back(new_auto_increment_iterator(schema, 300));
+        VHeapMergeIterator iter(std::move(inputs), output_schema,
+                                merge_decision(*output_schema, -1, false, false, drop));
+        OlapReaderStatistics stats;
+        StorageReadOptions opts(stats);
+        opts.block_row_max = 7;
+        ASSERT_TRUE(iter.init(opts).ok());
+
+        std::vector<std::pair<uint32_t, bool>> taken;
+        std::vector<int64_t> copied_keys;
+        Status st = read_taken_rows(&iter, schema, drop, &taken, &copied_keys);
+        EXPECT_TRUE(st.is<END_OF_FILE>()) << st;
+        EXPECT_EQ(taken, expected_taken);
+        EXPECT_EQ(copied_keys.size(), drop ? 300 : 600);
+        EXPECT_TRUE(std::ranges::is_sorted(copied_keys));
+        EXPECT_EQ(iter.merged_rows(), drop ? 300 : 0);
+    }
+}
+
 // A union does not compare keys: next_batch(Block*, same_key) flags no row.
 TEST(VGenericIteratorsTest, UnionNextBatchFlagsNoRow) {
     auto schema = create_schema();
