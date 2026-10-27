@@ -212,3 +212,10 @@ false	false	true	true	true	true	true
 5	true	true
 6	false	false
 
+-- !geography_raw_polygon_contacts --
+1	false	false
+2	false	false
+3	true	true
+4	true	true
+5	true	true
+

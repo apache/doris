@@ -496,6 +496,28 @@ public:
     using LineEdges = std::set<LineEdge, std::less<>, CustomStdAllocator<LineEdge>>;
     using PolygonEdges = std::array<LineEdges, 2>;
 
+    struct RawEdges {
+        LineEdges line;
+        PolygonEdges polygon;
+
+        auto vertices(const GeographyCoordinates& raw) const {
+            std::set<GeographyVertex, std::less<>, CustomStdAllocator<GeographyVertex>> result;
+            // A pole-alias line can have no edges but still denotes one canonical position.
+            result.insert(raw.sequences.front().front());
+            const auto append = [&](const LineEdges& edges) {
+                for (const auto& [a, b] : edges) {
+                    result.insert(a);
+                    result.insert(b);
+                }
+            };
+            append(line);
+            for (const auto& ring_edges : polygon) {
+                append(ring_edges);
+            }
+            return result;
+        }
+    };
+
     GeographyCoordinates left;
     GeographyCoordinates right;
 
@@ -953,14 +975,14 @@ private:
 
 static void geography_shape_index(const GeoShape& shape, const GeographyCoordinates& raw,
                                   const GeographyEdgeNodes& nodes, MutableS2ShapeIndex* index,
-                                  GeographyEdgeNodes::PolygonEdges* raw_polygon_edges = nullptr) {
+                                  GeographyEdgeNodes::RawEdges* raw_edges = nullptr) {
     switch (shape.type()) {
     case GeoShapeType::GEO_SHAPE_POINT:
         index->Add(std::make_unique<S2PointVectorShape>(
                 std::vector<S2Point> {raw.sequences.front().front().point}));
         break;
     case GeoShapeType::GEO_SHAPE_LINE_STRING:
-        nodes.add_line(raw, index);
+        nodes.add_line(raw, index, raw_edges == nullptr ? nullptr : &raw_edges->line);
         break;
     case GeoShapeType::GEO_SHAPE_POLYGON: {
         const auto& depths = assert_cast<const GeoPolygon&>(shape).calculation_ring_depths();
@@ -977,9 +999,9 @@ static void geography_shape_index(const GeoShape& shape, const GeographyCoordina
                 for (size_t k = 0; k + 1 < edge.size(); ++k) {
                     // Keep raw apex 58 distinct from 58+ulp before S2 conversion. Depth parity
                     // preserves shell/hole roles; duplicate aliases and synthetic points add no edge.
-                    if (raw_polygon_edges != nullptr && edge[k] != edge[k + 1]) {
-                        (*raw_polygon_edges)[depths[i] % 2].emplace(std::min(edge[k], edge[k + 1]),
-                                                                    std::max(edge[k], edge[k + 1]));
+                    if (raw_edges != nullptr && edge[k] != edge[k + 1]) {
+                        raw_edges->polygon[depths[i] % 2].emplace(std::min(edge[k], edge[k + 1]),
+                                                                  std::max(edge[k], edge[k + 1]));
                     }
                     vertices.push_back(edge[k].point);
                     // Use the same stable long arcs for interiors and distances.
@@ -1113,10 +1135,8 @@ static Status geography_relation(std::string_view name, const GeoShape& lhs, con
     MutableS2ShapeIndex left;
     MutableS2ShapeIndex right;
     const GeographyEdgeNodes nodes(left_wkb, right_wkb);
-    GeographyEdgeNodes::LineEdges left_edges;
-    GeographyEdgeNodes::LineEdges right_edges;
-    GeographyEdgeNodes::PolygonEdges left_polygon_edges;
-    GeographyEdgeNodes::PolygonEdges right_polygon_edges;
+    GeographyEdgeNodes::RawEdges left_edges;
+    GeographyEdgeNodes::RawEdges right_edges;
     const bool raw_polygon_coverage = lhs.type() == GeoShapeType::GEO_SHAPE_POLYGON &&
                                       rhs.type() == GeoShapeType::GEO_SHAPE_POLYGON &&
                                       (containment || name == "st_equals" || name == "st_overlaps");
@@ -1126,31 +1146,28 @@ static Status geography_relation(std::string_view name, const GeoShape& lhs, con
             container.type() == GeoShapeType::GEO_SHAPE_LINE_STRING &&
             value.type() == GeoShapeType::GEO_SHAPE_LINE_STRING &&
             (containment || name == "st_equals" || name == "st_overlaps" || name == "st_touches");
-    if (raw_line_coverage) {
-        nodes.add_line(name == "st_within" ? nodes.right : nodes.left, &left, &left_edges);
-        nodes.add_line(name == "st_within" ? nodes.left : nodes.right, &right, &right_edges);
-    } else {
-        geography_shape_index(container, name == "st_within" ? nodes.right : nodes.left, nodes,
-                              &left, raw_polygon_coverage ? &left_polygon_edges : nullptr);
-        geography_shape_index(value, name == "st_within" ? nodes.left : nodes.right, nodes, &right,
-                              raw_polygon_coverage ? &right_polygon_edges : nullptr);
-    }
+    const bool raw_coverage = raw_line_coverage || raw_polygon_coverage || name == "st_touches";
+    geography_shape_index(container, name == "st_within" ? nodes.right : nodes.left, nodes, &left,
+                          raw_coverage ? &left_edges : nullptr);
+    geography_shape_index(value, name == "st_within" ? nodes.left : nodes.right, nodes, &right,
+                          raw_coverage ? &right_edges : nullptr);
     S2BooleanOperation::Options options;
     options.set_polygon_model(S2BooleanOperation::PolygonModel::CLOSED);
     options.set_polyline_model(S2BooleanOperation::PolylineModel::CLOSED);
     options.set_polyline_loops_have_boundaries(false);
     const auto shares_raw_line_edge = [&] {
-        return std::ranges::any_of(left_edges,
-                                   [&](const auto& edge) { return right_edges.contains(edge); });
+        return std::ranges::any_of(
+                left_edges.line, [&](const auto& edge) { return right_edges.line.contains(edge); });
     };
     if (name == "st_equals") {
-        *result = left_edges == right_edges && left_polygon_edges == right_polygon_edges &&
+        *result = left_edges.line == right_edges.line &&
+                  left_edges.polygon == right_edges.polygon &&
                   S2BooleanOperation::Equals(left, right, options);
         return Status::OK();
     }
     // Different raw triangle apexes can produce the same S2 region. Boundary identity decides
     // equality, but cannot decide which raw region contains the other; do not accept a false bool.
-    if (raw_polygon_coverage && left_polygon_edges != right_polygon_edges &&
+    if (raw_polygon_coverage && left_edges.polygon != right_edges.polygon &&
         S2BooleanOperation::Equals(left, right, options)) {
         return Status::NotSupported(
                 "{} does not support distinct raw Polygon boundaries with the same spherical "
@@ -1163,8 +1180,8 @@ static Status geography_relation(std::string_view name, const GeoShape& lhs, con
         return Status::OK();
     }
     const auto covers = [&](bool reverse) {
-        const auto& a = reverse ? right_edges : left_edges;
-        const auto& b = reverse ? left_edges : right_edges;
+        const auto& a = reverse ? right_edges.line : left_edges.line;
+        const auto& b = reverse ? left_edges.line : right_edges.line;
         return (!raw_line_coverage || std::ranges::includes(a, b)) &&
                S2BooleanOperation::Contains(reverse ? right : left, reverse ? left : right,
                                             options);
@@ -1209,6 +1226,29 @@ static Status geography_relation(std::string_view name, const GeoShape& lhs, con
             *result = !shares_raw_line_edge() &&
                       (nodes.line_boundary_touches(nodes.left, nodes.right) ||
                        nodes.line_boundary_touches(nodes.right, nodes.left));
+        } else if (*result) {
+            // A line endpoint at latitude 58 and polygon apex at 58+ulp can share an S2Point
+            // without raw contact. Existing noding supplies true vertex/edge contacts, including
+            // holes and overlapping boundaries, without treating synthetic midpoints as witnesses.
+            const auto left_vertices = left_edges.vertices(nodes.left);
+            const auto right_vertices = right_edges.vertices(nodes.right);
+            *result = std::ranges::any_of(left_vertices, [&](const auto& vertex) {
+                return right_vertices.contains(vertex);
+            });
+            const auto& line =
+                    lhs.type() == GeoShapeType::GEO_SHAPE_LINE_STRING ? left_edges : right_edges;
+            const auto& polygon =
+                    lhs.type() == GeoShapeType::GEO_SHAPE_POLYGON ? left_edges : right_edges;
+            // Raw (0,58)->(0,58+ulp) can enter a polygon although its S2 edge disappears.
+            // Only a shared raw boundary edge proves this collapsed segment stays on the boundary.
+            if (*result && std::ranges::any_of(line.line, [&](const auto& edge) {
+                    return edge.first.point == edge.second.point &&
+                           !polygon.polygon[0].contains(edge) && !polygon.polygon[1].contains(edge);
+                })) {
+                return Status::NotSupported(
+                        "st_touches does not support collapsed raw line edges outside the Polygon "
+                        "boundary");
+            }
         }
         return Status::OK();
     }

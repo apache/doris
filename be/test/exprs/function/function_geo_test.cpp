@@ -835,6 +835,62 @@ TEST(VGeoFunctionsTest, GeographyPolygonRawBoundariesRetainEquivalentRegions) {
     }
 }
 
+TEST(VGeoFunctionsTest, GeographyTouchesRejectsRoundedPolygonContact) {
+    const std::string polygon = "POLYGON ((0 58.00000000000001,1 59,-1 59,0 58.00000000000001))";
+    const std::string line = "LINESTRING (0 57,0 58)";
+    expect_geography_relation("st_touches", line, polygon, false);
+    expect_geography_relation("st_touches", polygon, line, false);
+    const std::string southern = "POLYGON ((0 58,1 57,-1 57,0 58))";
+    expect_geography_relation("st_touches", southern, polygon, false);
+    expect_geography_relation("st_touches", polygon, southern, false);
+    const std::string contact = "LINESTRING (0 57,0 58.00000000000001)";
+    expect_geography_relation("st_touches", contact, polygon, true);
+    expect_geography_relation("st_touches", polygon, contact, true);
+    const std::vector<std::pair<std::string, std::string>> touching = {
+            {"LINESTRING (0 57,0 59)", "POLYGON ((0 58,1 59,1 57,0 58))"},
+            {"LINESTRING (-1 59,0 59)", "POLYGON ((0 58,0 60,1 60,1 58,0 58))"},
+            {"LINESTRING (0 58.5,0 59.5)", "POLYGON ((0 58,0 60,1 60,1 58,0 58))"},
+            {"LINESTRING (0 58,0 58.00000000000001,0 59.5)",
+             "POLYGON ((0 58,0 60,1 60,1 58,0 58))"},
+            {"LINESTRING (0 58,-1 57,1 57,0 58)", "POLYGON ((0 58,1 59,-1 59,0 58))"},
+            {"LINESTRING (-180 57,-180 59)", "POLYGON ((180 58,-179 59,-179 57,180 58))"},
+            {"LINESTRING (0 90,90 90)", "POLYGON ((0 90,0 80,90 80,0 90))"},
+            {southern, "POLYGON ((0 58,1 59,-1 59,0 58))"},
+            {"LINESTRING (0.5 0,0 0)",
+             "POLYGON ((-2 -2,2 -2,2 2,-2 2,-2 -2),(0 -1,0 1,1 1,1 -1,0 -1))"}};
+    for (const auto& [left, right] : touching) {
+        expect_geography_relation("st_touches", left, right, true);
+        expect_geography_relation("st_touches", right, left, true);
+    }
+    const std::string crossing = "LINESTRING (-1 59,0 59,1 59)";
+    const std::string square = "POLYGON ((0 58,0 60,1 60,1 58,0 58))";
+    expect_geography_relation("st_touches", crossing, square, false);
+    expect_geography_relation("st_touches", square, crossing, false);
+}
+
+TEST(VGeoFunctionsTest, GeographyTouchesRejectsCollapsedLinePolygonInterior) {
+    const std::vector<std::pair<std::string, std::string>> cases {
+            {"LINESTRING (0 57,0 58.00000000000001)", "POLYGON ((0 58,1 59,-1 59,0 58))"},
+            {"LINESTRING (0 57,0 58,0 58.00000000000001)",
+             "POLYGON ((0 58.00000000000001,1 59,-1 59,0 58.00000000000001))"}};
+    for (const auto& [line, polygon] : cases) {
+        for (const bool reverse : {false, true}) {
+            Block block;
+            const auto type = make_nullable(std::make_shared<DataTypeUInt8>());
+            const auto status =
+                    execute_geography_test("st_touches",
+                                           {geography_test_hex(reverse ? polygon : line),
+                                            geography_test_hex(reverse ? line : polygon)},
+                                           type, &block);
+            EXPECT_FALSE(status.ok());
+            EXPECT_NE(status.to_string().find(
+                              "collapsed raw line edges outside the Polygon boundary"),
+                      std::string::npos)
+                    << status.to_string();
+        }
+    }
+}
+
 TEST(VGeoFunctionsTest, GeographyTouchesRejectsRoundedLineEndpointGap) {
     const std::string line = "LINESTRING (0 57,0 58)";
     const std::string gap = "LINESTRING (0 58.00000000000001,0 59)";
