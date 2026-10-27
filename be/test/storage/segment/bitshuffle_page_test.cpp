@@ -22,6 +22,7 @@
 #include <memory>
 
 #include "core/assert_cast.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/uint24.h"
@@ -423,8 +424,8 @@ TEST_F(BitShufflePageTest, TestBitShuffleDateV1DecodesIntoDates) {
     }
 }
 
-// Rows read by id into a ColumnDate come back as their dates.
-TEST_F(BitShufflePageTest, TestBitShuffleDateV1ReadsRowIdsIntoDates) {
+// Rows read by id into a Nullable over ColumnDate come back as their dates, none of them NULL.
+TEST_F(BitShufflePageTest, TestBitShuffleDateV1ReadsRowIdsIntoNullableDates) {
     std::vector<VecDateTimeValue> days;
     std::unique_ptr<DataPage> decoded_page;
     Slice page;
@@ -435,12 +436,15 @@ TEST_F(BitShufflePageTest, TestBitShuffleDateV1ReadsRowIdsIntoDates) {
     ASSERT_TRUE(decoder.init().ok());
 
     const segment_v2::rowid_t rowids[] = {1, 3, 6};
-    MutableColumnPtr picked = ColumnDate::create();
+    MutableColumnPtr picked = ColumnNullable::create(ColumnDate::create(), ColumnUInt8::create());
     size_t n = 3;
     ASSERT_TRUE(decoder.read_by_rowids(rowids, 0, &n, picked).ok());
     ASSERT_EQ(n, 3);
-    const auto& picked_dates = assert_cast<const ColumnDate&>(*picked).get_data();
+    const auto& nullable = assert_cast<const ColumnNullable&>(*picked);
+    const auto& picked_dates =
+            assert_cast<const ColumnDate&>(nullable.get_nested_column()).get_data();
     for (size_t i = 0; i < 3; ++i) {
+        EXPECT_FALSE(nullable.is_null_at(i));
         EXPECT_EQ(picked_dates[i], days[rowids[i]]) << "row id " << rowids[i];
     }
 }

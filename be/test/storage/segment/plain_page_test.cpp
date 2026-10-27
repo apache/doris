@@ -23,6 +23,7 @@
 
 #include "common/logging.h"
 #include "core/assert_cast.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/uint24.h"
@@ -314,8 +315,8 @@ TEST_F(PlainPageTest, TestDateV1PlainPageDecodesIntoDates) {
     }
 }
 
-// Rows read by id into a ColumnDate come back as their dates.
-TEST_F(PlainPageTest, TestDateV1PlainPageReadsRowIdsIntoDates) {
+// Rows read by id into a Nullable over ColumnDate come back as their dates, none of them NULL.
+TEST_F(PlainPageTest, TestDateV1PlainPageReadsRowIdsIntoNullableDates) {
     std::vector<VecDateTimeValue> days;
     OwnedSlice page;
     ASSERT_NO_FATAL_FAILURE(build_date_v1_page(&days, &page));
@@ -324,12 +325,15 @@ TEST_F(PlainPageTest, TestDateV1PlainPageReadsRowIdsIntoDates) {
     ASSERT_TRUE(decoder.init().ok());
 
     const rowid_t rowids[] = {1, 3, 6};
-    MutableColumnPtr picked = ColumnDate::create();
+    MutableColumnPtr picked = ColumnNullable::create(ColumnDate::create(), ColumnUInt8::create());
     size_t n = 3;
     ASSERT_TRUE(decoder.read_by_rowids(rowids, 0, &n, picked).ok());
     ASSERT_EQ(n, 3);
-    const auto& picked_dates = assert_cast<const ColumnDate&>(*picked).get_data();
+    const auto& nullable = assert_cast<const ColumnNullable&>(*picked);
+    const auto& picked_dates =
+            assert_cast<const ColumnDate&>(nullable.get_nested_column()).get_data();
     for (size_t i = 0; i < 3; ++i) {
+        EXPECT_FALSE(nullable.is_null_at(i));
         EXPECT_EQ(picked_dates[i], days[rowids[i]]) << "row id " << rowids[i];
     }
 }

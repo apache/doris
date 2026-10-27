@@ -68,9 +68,9 @@ class IColumn;
 //
 // The fixed-width layouts also read back. to_primitive is the inverse of to_storage for one
 // value, and storage_to_column(values, n, dst) appends the n stored values at `values`, which
-// need not be aligned, to `dst`, the column of the PrimitiveType: FileColumnIterator peels a
-// Nullable off first, as ScalarColumnWriter::append does. The page decoders read through it,
-// and the zone map turns its stored bounds back with to_primitive.
+// need not be aligned, to `dst` as PrimitiveValues: the column of the PrimitiveType, or a
+// Nullable over it whose n new rows are marked not NULL, as a page holds no NULL row. The page
+// decoders read through it, and the zone map turns its stored bounds back with to_primitive.
 template <FieldType FT>
 struct StorageLayout;
 
