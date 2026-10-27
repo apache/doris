@@ -28,6 +28,8 @@ import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.filesystem.properties.FileSystemProperties;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
+import org.apache.doris.filesystem.spi.S3CompatibleFileSystem;
+import org.apache.doris.filesystem.spi.S3CompatibleFileSystem.DeterministicPathOptions;
 import org.apache.doris.service.FrontendOptions;
 
 import org.apache.logging.log4j.LogManager;
@@ -100,7 +102,7 @@ public final class FileSystemFactory {
         Map<String, String> normalizedProperties = StorageAdapter.withHadoopConfigDir(properties);
         FileSystemPluginManager mgr = pluginManager;
         if (mgr != null) {
-            return mgr.createFileSystem(normalizedProperties);
+            return withRuntimeListingOptions(mgr.createFileSystem(normalizedProperties));
         }
         // Fallback: ServiceLoader discovery (unit-test / migration path)
         List<FileSystemProvider> providers = getProviders();
@@ -109,7 +111,7 @@ public final class FileSystemFactory {
             if (provider.supports(normalizedProperties)) {
                 LOG.debug("FileSystemFactory: selected SPI provider '{}' for keys={}",
                         provider.name(), properties.keySet());
-                return provider.create(normalizedProperties);
+                return withRuntimeListingOptions(provider.create(normalizedProperties));
             }
             tried.add(provider.name());
         }
@@ -171,10 +173,10 @@ public final class FileSystemFactory {
         for (FileSystemProvider provider : providers) {
             if (provider.name().equalsIgnoreCase(providerName)) {
                 try {
-                    return provider.createUntyped(spiProperties);
+                    return withRuntimeListingOptions(provider.createUntyped(spiProperties));
                 } catch (UnsupportedOperationException e) {
                     // Providers without typed creation (BROKER/LOCAL) keep the map entry point.
-                    return provider.create(new HashMap<>(spiProperties.rawProperties()));
+                    return withRuntimeListingOptions(provider.create(new HashMap<>(spiProperties.rawProperties())));
                 }
             }
         }
@@ -192,6 +194,16 @@ public final class FileSystemFactory {
     public static org.apache.doris.filesystem.FileSystem getFileSystem(StorageAdapter adapter)
             throws IOException {
         return getFileSystem(adapter.getSpiProperties());
+    }
+
+    private static org.apache.doris.filesystem.FileSystem withRuntimeListingOptions(
+            org.apache.doris.filesystem.FileSystem fileSystem) {
+        if (fileSystem instanceof S3CompatibleFileSystem) {
+            ((S3CompatibleFileSystem) fileSystem).setDeterministicPathOptionsSupplier(
+                    () -> new DeterministicPathOptions(
+                            Config.s3_skip_list_for_deterministic_path, Config.s3_head_request_max_paths));
+        }
+        return fileSystem;
     }
 
     /**

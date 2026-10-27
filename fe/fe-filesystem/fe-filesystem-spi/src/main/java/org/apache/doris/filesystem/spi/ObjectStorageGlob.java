@@ -70,7 +70,7 @@ public final class ObjectStorageGlob {
 
     /** Returns safe list prefixes sorted in the provider's key order. */
     public static List<String> expandedGlobListPrefixes(String globPattern, Comparator<String> keyOrder) {
-        List<String> prefixes = expandGlobListPrefixes(globPattern, true);
+        List<String> prefixes = expandGlobListPrefixes(globPattern, true, MAX_EXPANDED_GLOB_LIST_PREFIXES);
         if (prefixes == null) {
             return List.of(longestNonGlobPrefix(globPattern));
         }
@@ -79,7 +79,13 @@ public final class ObjectStorageGlob {
         return sorted;
     }
 
-    private static List<String> expandGlobListPrefixes(String globPattern, boolean allowPartialPrefix) {
+    /** Expands complete candidate keys without prefix compaction, using the caller's bound. */
+    static List<String> expandGlobKeys(String globPattern, int maxExpansions) {
+        return expandGlobListPrefixes(expandNumericRanges(globPattern, maxExpansions), false, maxExpansions);
+    }
+
+    private static List<String> expandGlobListPrefixes(
+            String globPattern, boolean allowPartialPrefix, int maxExpansions) {
         List<String> prefixes = new ArrayList<>();
         prefixes.add("");
         int i = 0;
@@ -99,11 +105,11 @@ public final class ObjectStorageGlob {
                 continue;
             }
             if (c == '[') {
-                PrefixExpansion charClass = expandCharacterClass(globPattern, i);
+                PrefixExpansion charClass = expandCharacterClass(globPattern, i, maxExpansions);
                 if (charClass == null) {
                     return allowPartialPrefix ? compactPrefixes(prefixes) : null;
                 }
-                prefixes = appendAlternatives(prefixes, charClass.values);
+                prefixes = appendAlternatives(prefixes, charClass.values, maxExpansions);
                 if (prefixes == null) {
                     return null;
                 }
@@ -111,11 +117,11 @@ public final class ObjectStorageGlob {
                 continue;
             }
             if (c == '{') {
-                PrefixExpansion brace = expandBraceGroup(globPattern, i);
+                PrefixExpansion brace = expandBraceGroup(globPattern, i, maxExpansions);
                 if (brace == null) {
                     return allowPartialPrefix ? compactPrefixes(prefixes) : null;
                 }
-                prefixes = appendAlternatives(prefixes, brace.values);
+                prefixes = appendAlternatives(prefixes, brace.values, maxExpansions);
                 if (prefixes == null) {
                     return null;
                 }
@@ -135,9 +141,10 @@ public final class ObjectStorageGlob {
         }
     }
 
-    private static List<String> appendAlternatives(List<String> prefixes, List<String> alternatives) {
+    private static List<String> appendAlternatives(
+            List<String> prefixes, List<String> alternatives, int maxExpansions) {
         long expandedSize = (long) prefixes.size() * alternatives.size();
-        if (expandedSize > MAX_EXPANDED_GLOB_LIST_PREFIXES) {
+        if (expandedSize > maxExpansions) {
             return null;
         }
         List<String> expanded = new ArrayList<>((int) expandedSize);
@@ -149,7 +156,7 @@ public final class ObjectStorageGlob {
         return expanded;
     }
 
-    private static PrefixExpansion expandCharacterClass(String globPattern, int openIndex) {
+    private static PrefixExpansion expandCharacterClass(String globPattern, int openIndex, int maxExpansions) {
         int closeIndex = findClosingBracket(globPattern, openIndex);
         if (closeIndex < 0 || closeIndex == openIndex + 1) {
             return null;
@@ -171,9 +178,9 @@ public final class ObjectStorageGlob {
             if (i + 2 < closeIndex && globPattern.charAt(i + 1) == '-') {
                 char rangeEnd = globPattern.charAt(i + 2);
                 int step = current <= rangeEnd ? 1 : -1;
-                for (char ch = current; step > 0 ? ch <= rangeEnd : ch >= rangeEnd; ch += step) {
-                    values.add(String.valueOf(ch));
-                    if (values.size() > MAX_EXPANDED_GLOB_LIST_PREFIXES) {
+                for (int ch = current; step > 0 ? ch <= rangeEnd : ch >= rangeEnd; ch += step) {
+                    values.add(String.valueOf((char) ch));
+                    if (values.size() > maxExpansions) {
                         return null;
                     }
                 }
@@ -209,7 +216,7 @@ public final class ObjectStorageGlob {
         return false;
     }
 
-    private static PrefixExpansion expandBraceGroup(String globPattern, int openIndex) {
+    private static PrefixExpansion expandBraceGroup(String globPattern, int openIndex, int maxExpansions) {
         int closeIndex = findClosingBrace(globPattern, openIndex);
         if (closeIndex < 0) {
             return null;
@@ -224,12 +231,12 @@ public final class ObjectStorageGlob {
             if (containsNumericRange(alternative)) {
                 return null;
             }
-            List<String> expandedAlternative = expandGlobListPrefixes(alternative, false);
+            List<String> expandedAlternative = expandGlobListPrefixes(alternative, false, maxExpansions);
             if (expandedAlternative == null) {
                 return null;
             }
             values.addAll(expandedAlternative);
-            if (values.size() > MAX_EXPANDED_GLOB_LIST_PREFIXES) {
+            if (values.size() > maxExpansions) {
                 return null;
             }
         }
@@ -342,6 +349,10 @@ public final class ObjectStorageGlob {
      * Expands bounded {N..M} numeric ranges inside brace groups into comma-separated alternatives.
      */
     public static String expandNumericRanges(String pattern) {
+        return expandNumericRanges(pattern, MAX_EXPANDED_GLOB_LIST_PREFIXES);
+    }
+
+    private static String expandNumericRanges(String pattern, int maxExpansions) {
         StringBuilder expanded = new StringBuilder();
         for (int i = 0; i < pattern.length(); i++) {
             char c = pattern.charAt(i);
@@ -362,7 +373,7 @@ public final class ObjectStorageGlob {
                 int closeIndex = findClosingBrace(pattern, i);
                 if (closeIndex >= 0) {
                     expanded.append('{').append(expandNumericBraceGroup(
-                            pattern.substring(i + 1, closeIndex))).append('}');
+                            pattern.substring(i + 1, closeIndex), maxExpansions)).append('}');
                     i = closeIndex;
                 } else {
                     expanded.append(c);
@@ -374,14 +385,14 @@ public final class ObjectStorageGlob {
         return expanded.toString();
     }
 
-    private static String expandNumericBraceGroup(String content) {
+    private static String expandNumericBraceGroup(String content, int maxExpansions) {
         List<String> segments = splitBraceAlternatives(content);
         boolean isMixed = segments.size() > 1;
         LinkedHashSet<String> values = new LinkedHashSet<>();
         for (String segment : segments) {
             Matcher range = numericRangeMatcher(segment, isMixed);
             if (range == null) {
-                values.add(expandNumericRanges(segment));
+                values.add(expandNumericRanges(segment, maxExpansions));
             } else {
                 long from;
                 long to;
@@ -392,7 +403,7 @@ public final class ObjectStorageGlob {
                     return content;
                 }
                 long cardinality = numericRangeCardinality(from, to);
-                if (cardinality < 0 || cardinality > MAX_EXPANDED_GLOB_LIST_PREFIXES - values.size()) {
+                if (cardinality < 0 || cardinality > maxExpansions - values.size()) {
                     return content;
                 }
                 long step = from <= to ? 1L : -1L;
@@ -403,7 +414,7 @@ public final class ObjectStorageGlob {
                     values.add(formatRangeValue(value, width, zeroPad));
                 }
             }
-            if (values.size() > MAX_EXPANDED_GLOB_LIST_PREFIXES) {
+            if (values.size() > maxExpansions) {
                 return content;
             }
         }

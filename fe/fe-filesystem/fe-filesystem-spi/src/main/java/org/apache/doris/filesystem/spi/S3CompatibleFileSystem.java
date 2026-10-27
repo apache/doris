@@ -33,9 +33,12 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 
 /**
@@ -52,8 +55,19 @@ import java.util.regex.Pattern;
  */
 public abstract class S3CompatibleFileSystem extends ObjFileSystem {
 
+    private static final System.Logger LOG = System.getLogger(S3CompatibleFileSystem.class.getName());
+
     // Object stores do not have real directories; use a zero-byte marker with trailing slash.
     private static final String DIR_MARKER_SUFFIX = "/";
+
+    /** Per-call HEAD policy; non-positive bounds disable the optimization, as in legacy S3. */
+    public record DeterministicPathOptions(boolean enabled, int maxPaths) {
+    }
+
+    private static final DeterministicPathOptions DEFAULT_DETERMINISTIC_PATH_OPTIONS =
+            new DeterministicPathOptions(true, 100);
+    private volatile Supplier<DeterministicPathOptions> deterministicPathOptions =
+            () -> DEFAULT_DETERMINISTIC_PATH_OPTIONS;
 
     private final boolean usePathStyle;
     private final Set<String> supportedSchemes;
@@ -63,6 +77,15 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
         super(objStorage);
         this.usePathStyle = usePathStyle;
         this.supportedSchemes = supportedSchemes;
+    }
+
+    /**
+     * Supplies mutable host settings without rebuilding cached storage clients or rebinding
+     * provider properties. The supplier must be thread-safe and perform no I/O; each glob call
+     * reads it once so its entire listing uses the same policy.
+     */
+    public void setDeterministicPathOptionsSupplier(Supplier<DeterministicPathOptions> supplier) {
+        deterministicPathOptions = Objects.requireNonNull(supplier, "supplier");
     }
 
     @Override
@@ -863,6 +886,60 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
         return Pattern.compile(globToRegex(ObjectStorageGlob.expandNumericRanges(keyPattern)));
     }
 
+    private static List<String> expandDeterministicKeyPattern(String pattern, int maxPaths) {
+        // Keep the original deterministic-path boundary, including escaped glob literals.
+        if (maxPaths <= 0 || pattern.isEmpty() || pattern.endsWith(DIR_MARKER_SUFFIX)
+                || pattern.indexOf('*') >= 0 || pattern.indexOf('?') >= 0 || pattern.indexOf('\\') >= 0) {
+            return null;
+        }
+        List<String> expanded = ObjectStorageGlob.expandGlobKeys(pattern, maxPaths);
+        // ObjectStorageUri strips leading key slashes. Such expansions must use LIST, otherwise
+        // a HEAD for "/foo.csv" would select the different object "foo.csv".
+        if (expanded == null || expanded.stream().anyMatch(key -> key.isEmpty()
+                || key.startsWith(DIR_MARKER_SUFFIX) || key.endsWith(DIR_MARKER_SUFFIX))) {
+            return null;
+        }
+        List<String> keys = new ArrayList<>(new LinkedHashSet<>(expanded));
+        keys.sort(ObjectStorageGlob::compareUtf8Binary);
+        return keys;
+    }
+
+    private RemoteObject headObjectIfPresent(String path) throws IOException {
+        try {
+            return objStorage.headObject(path);
+        } catch (IOException e) {
+            if (isNotFoundError(e)) {
+                return null;
+            }
+            throw e;
+        }
+    }
+
+    private GlobListing globListDeterministicKeys(String bucket, String patternPrefix, String base,
+            List<String> keys, Pattern matcher) throws IOException {
+        List<FileEntry> files = new ArrayList<>();
+        String lastMatchedKey = "";
+        for (String key : keys) {
+            // Prefix expansion can include keys excluded by character-class intersections.
+            if (!matcher.matcher(key).matches()) {
+                continue;
+            }
+            RemoteObject obj = headObjectIfPresent(base + key);
+            if (obj == null) {
+                continue;
+            }
+            String objectKey = obj.getKey();
+            files.add(new FileEntry(
+                    Location.of(base + objectKey),
+                    obj.getSize(),
+                    false,
+                    obj.getModificationTime(),
+                    List.of()));
+            lastMatchedKey = objectKey;
+        }
+        return new GlobListing(files, bucket, patternPrefix, lastMatchedKey);
+    }
+
     @Override
     public GlobListing globListWithLimit(Location path, String startAfter, long maxBytes,
             long maxFiles) throws IOException {
@@ -874,12 +951,30 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
         String base = uriBase(uri, parsed);
 
         String expandedKeyPattern = ObjectStorageGlob.expandNumericRanges(keyPattern);
+        Pattern matcher = Pattern.compile(globToRegex(expandedKeyPattern));
+        String listPrefix = globListPrefix(expandedKeyPattern);
+        // Preserve #60414's eligibility: path-style addressing and incremental/limited reads
+        // must keep LIST semantics. Even an empty, non-null cursor selects the LIST path.
+        DeterministicPathOptions options = deterministicPathOptions.get();
+        if (options.enabled() && !usePathStyle
+                && maxBytes <= 0 && maxFiles <= 0 && startAfter == null) {
+            try {
+                List<String> deterministicKeys = expandDeterministicKeyPattern(
+                        keyPattern, options.maxPaths());
+                if (deterministicKeys != null) {
+                    return globListDeterministicKeys(bucket, listPrefix, base,
+                            deterministicKeys, matcher);
+                }
+            } catch (IOException | RuntimeException e) {
+                // Discard partial HEAD results and retry the complete pattern through LIST.
+                LOG.log(System.Logger.Level.WARNING, "Failed to use HEAD requests, falling back to listing", e);
+            }
+        }
+
         // Translate the glob to a regex and match against the raw object storage key. We do NOT
         // route through java.nio.file.Paths because (a) on Windows the filesystem
         // separator is '\' which would corrupt object storage keys, and (b) Paths.get rejects keys
         // containing characters illegal in the host OS path syntax (':', '\', etc.).
-        Pattern matcher = Pattern.compile(globToRegex(expandedKeyPattern));
-        String listPrefix = globListPrefix(expandedKeyPattern);
         List<String> listPrefixes = globListPrefixes(expandedKeyPattern, listPrefix);
 
         List<FileEntry> files = new ArrayList<>();
