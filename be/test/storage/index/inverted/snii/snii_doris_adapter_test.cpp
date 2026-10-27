@@ -1105,6 +1105,20 @@ TEST(DorisSniiFileReaderInlineReadTest, SlowReadsReturnToThePool) {
     EXPECT_EQ(on_caller_last, 0U);
 }
 
+// Slow remote reads must not lower the local reads' chance of being read inline: with tiered
+// storage one BE serves local and remote rowsets, and only local readers consult the average.
+TEST(DorisSniiFileReaderInlineReadTest, RemoteReadsDoNotSlowTheLocalEstimate) {
+    InlineReadConfigGuard config_guard(4);
+    for (int batch = 0; batch < 12; ++batch) {
+        io::FileCacheStatistics remote_stats;
+        EXPECT_EQ(reads_on_calling_thread(/*local_fs=*/false, 4, &remote_stats,
+                                          std::chrono::microseconds(1000)),
+                  0U);
+    }
+    io::FileCacheStatistics local_stats;
+    EXPECT_EQ(reads_on_calling_thread(/*local_fs=*/true, 4, &local_stats), 4U);
+}
+
 // A batch above the byte limit fans out even when reads are fast.
 TEST(DorisSniiFileReaderInlineReadTest, LargeBytesBatchStillFansOut) {
     InlineReadConfigGuard config_guard(4);

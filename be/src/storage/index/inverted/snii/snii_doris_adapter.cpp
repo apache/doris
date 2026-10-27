@@ -273,7 +273,9 @@ Status DorisSniiFileReader::read_batch(const std::vector<::doris::snii::io::Rang
 
     // Run the planned physical reads, concurrently when a pool is available.
     auto run_segment = [&](size_t s) {
-        const bool timed = segs[s].len <= kInlineMaxBatchBytes;
+        // Only local reads are timed: the average decides about local readers, and a remote or
+        // cached-remote read takes a millisecond that says nothing about the page cache.
+        const bool timed = _local_fs && segs[s].len <= kInlineMaxBatchBytes;
         const auto begin =
                 timed ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point {};
         seg_status[s] = _read_at(segs[s].offset, segs[s].len, &outs->buffers[s], &seg_io_ctx[s]);
