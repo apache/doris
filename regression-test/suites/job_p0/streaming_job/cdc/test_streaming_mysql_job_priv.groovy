@@ -123,8 +123,6 @@ suite("test_streaming_mysql_job_priv", "p0,external,mysql,external_docker,extern
                         TO DATABASE ${currentDb} ("table.create.properties.replication_num" = "1")"""
                 exception "HTTP/HTTPS CDC driver URLs require ADMIN privilege"
             }
-        }
-        connect(user, "${pwd}", url) {
             sql """CREATE JOB ${jobName}
                     ON STREAMING
                     FROM MYSQL (

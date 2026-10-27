@@ -147,17 +147,30 @@ suite("test_streaming_job_cdc_stream_mysql", "p0,external,mysql,external_docker,
             s.size() == 1 && s.get(0).get(0) == "PAUSED"
         })
 
-        connectToDoris(driverUser, "123456", driverUserUrl) {
-            test {
-                sql """ALTER JOB ${jobName} ${insertSql.replace(driver_url, driver_url + '?admin_check=1')}"""
-                exception "HTTP/HTTPS CDC driver URLs require ADMIN privilege"
+        String driverResource = "test_streaming_cdc_mysql_driver_resource"
+        try_sql """DROP RESOURCE '${driverResource}'"""
+        try {
+            sql """CREATE RESOURCE '${driverResource}' PROPERTIES (
+                "type" = "jdbc",
+                "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
+                "user" = "root", "password" = "123456",
+                "driver_url" = "${driver_url}", "driver_class" = "com.mysql.cj.jdbc.Driver"
+            )"""
+            // ALTER does not read the local jar; the conflicting SQL must be rejected first.
+            sql """ALTER RESOURCE '${driverResource}' PROPERTIES ("driver_url" = "file:///trusted/mysql.jar")"""
+            sql """GRANT USAGE_PRIV ON RESOURCE '${driverResource}' TO '${driverUser}'"""
+            String inheritedDriverSql = insertSql.replace('"driver_url"',
+                    '"resource" = "' + driverResource + '", "Driver_url"')
+                    .replace(driver_url, 'https://example.invalid/driver.jar')
+                    .replace('com.mysql.cj.jdbc.Driver', 'example.InvalidDriver')
+            connectToDoris(driverUser, "123456", driverUserUrl) {
+                test {
+                    sql """ALTER JOB ${jobName} ${inheritedDriverSql}"""
+                    exception "HTTP/HTTPS CDC driver URLs require ADMIN privilege"
+                }
             }
-            String duplicateDriverSql = insertSql.replace('"driver_url"',
-                    '"driver_url" = "file:///trusted/mysql.jar", "Driver_url"')
-            test {
-                sql """ALTER JOB ${jobName} ${duplicateDriverSql}"""
-                exception "Duplicate property (case-insensitive)"
-            }
+        } finally {
+            sql """DROP RESOURCE '${driverResource}'"""
         }
         sql """DROP USER '${driverUser}'"""
 

@@ -309,9 +309,6 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
                         "The uri property cannot be modified in ALTER JOB");
                 break;
             case "cdc_stream":
-                CdcStreamTableValuedFunction.validateProperties(inputTvf.getProperties().getMap());
-                StreamingJobUtils.checkCdcDriverPrivilege(ConnectContext.get(),
-                        inputTvf.getProperties().getMap().get(DataSourceConfigKeys.DRIVER_URL));
                 // type, jdbc_url, database, schema, and table identify the source and cannot be changed.
                 // snapshot_split_key determines persisted split boundaries and cannot be changed.
                 // slot_name / publication_name are fixed at create time to keep ownership stable.
@@ -331,6 +328,8 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
                                     inputTvf.getProperties().getMap().get(unmodifiable)),
                             "The '%s' property cannot be modified in ALTER JOB for cdc_stream", unmodifiable);
                 }
+                // Validate merged resource properties as the ALTER caller, before schema discovery.
+                new CdcStreamTableValuedFunction(inputTvf.getProperties().getMap()).checkAuth(ConnectContext.get());
                 break;
             default:
                 throw new IllegalArgumentException("Unsupported tvf type:" + inputTvf.getFunctionName());
