@@ -72,6 +72,7 @@
 #include "exprs/vexpr.h"
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
+#include "exprs/vtopn_pred.h"
 #include "format/format_common.h"
 #include "format/orc/orc_memory_stream_test.h"
 #include "format/table/deletion_vector_reader.h"
@@ -85,7 +86,9 @@
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "storage/segment/condition_cache.h"
+#include "testutil/mock/mock_query_context.h"
 #include "util/debug_points.h"
+#include "util/defer_op.h"
 #include "util/hash_util.hpp"
 #include "util/url_coding.h"
 
@@ -1724,6 +1727,160 @@ VExprContextSPtr prepared_conjunct(RuntimeState* state, const VExprSPtr& expr) {
 void apply_final_conjuncts(Block* block, const VExprContextSPtrs& conjuncts) {
     const auto status = VExprContext::filter_block(conjuncts, block, block->columns());
     ASSERT_TRUE(status.ok()) << status;
+}
+
+struct EvolutionTopNFilter {
+    std::shared_ptr<MockQueryContext> query_context;
+    VExprContextSPtr conjunct;
+};
+
+EvolutionTopNFilter make_evolution_topn_filter(RuntimeState* state, bool ascending) {
+    const auto type = make_nullable(std::make_shared<DataTypeInt32>());
+    TExpr target;
+    TExprNode slot;
+    slot.__set_node_type(TExprNodeType::SLOT_REF);
+    slot.__set_type(type->to_thrift());
+    slot.__set_num_children(0);
+    TSlotRef slot_ref;
+    slot_ref.__set_slot_id(0);
+    slot_ref.__set_tuple_id(0);
+    slot.__set_slot_ref(slot_ref);
+    target.nodes.push_back(slot);
+    TTopnFilterDesc desc;
+    desc.__set_source_node_id(10);
+    desc.__set_is_asc(ascending);
+    desc.__set_null_first(false);
+    desc.__set_target_node_id_to_target_expr({{20, target}});
+    auto query = MockQueryContext::create();
+    state->_query_ctx = query.get();
+    query->init_runtime_predicates({desc});
+    auto& predicate = query->get_runtime_predicate(10);
+    predicate.set_detected_source();
+    DORIS_CHECK(predicate.init_target(20, {}, -1).ok());
+    TExprNode topn_node;
+    topn_node.__set_type(std::make_shared<DataTypeUInt8>()->to_thrift());
+    topn_node.__set_is_nullable(true);
+    auto topn = VTopNPred::create_shared(topn_node, 10, nullptr);
+    topn->add_child(VSlotRef::create_shared(0, 0, -1, type, "k"));
+    return {.query_context = std::move(query), .conjunct = prepared_conjunct(state, topn)};
+}
+
+void write_topn_evolution_file(const std::string& path, bool ascending, bool nested) {
+    constexpr int GROUP_ROWS = 4096;
+    arrow::Int32Builder keys;
+    arrow::Date32Builder dates;
+    for (int row = 0; row < GROUP_ROWS * 4; ++row) {
+        const bool bad = row < GROUP_ROWS;
+        const int key = (bad == ascending) ? 100 : 0;
+        DORIS_CHECK(keys.Append(key).ok());
+        DORIS_CHECK(dates.Append(bad ? -354285 : 19724).ok());
+    }
+    auto key_field = arrow::field("k", arrow::int32(), true,
+                                  arrow::key_value_metadata({"PARQUET:field_id"}, {"1"}));
+    auto date_field = arrow::field("ts", arrow::date32(), true,
+                                   arrow::key_value_metadata({"PARQUET:field_id"}, {"2"}));
+    std::shared_ptr<arrow::Array> date_values = dates.Finish().ValueOrDie();
+    if (nested) {
+        date_values = arrow::StructArray::Make({date_values}, {date_field}).ValueOrDie();
+        date_field = arrow::field("outer", date_values->type(), true,
+                                  arrow::key_value_metadata({"PARQUET:field_id"}, {"3"}));
+    }
+    auto table = arrow::Table::Make(arrow::schema({key_field, date_field}),
+                                    {keys.Finish().ValueOrDie(), date_values});
+    auto out = arrow::io::FileOutputStream::Open(path).ValueOrDie();
+    ::parquet::WriterProperties::Builder properties;
+    properties.disable_dictionary();
+    properties.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    DORIS_CHECK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, GROUP_ROWS,
+                                             properties.build())
+                        .ok());
+    DORIS_CHECK(out->Close().ok());
+}
+
+std::vector<ColumnDefinition> topn_evolution_columns(bool promote, bool nested) {
+    DataTypePtr date_type = promote ? DataTypePtr(std::make_shared<DataTypeTimeStampNs>())
+                                    : DataTypePtr(std::make_shared<DataTypeDateV2>());
+    auto date = make_table_column(2, "ts", date_type);
+    if (nested) {
+        auto outer = make_table_column(
+                3, "outer",
+                std::make_shared<DataTypeStruct>(DataTypes {date.type}, Strings {"ts"}));
+        outer.children = {date};
+        date = outer;
+    }
+    return {make_table_column(1, "k", std::make_shared<DataTypeInt32>()), date};
+}
+
+TEST(IcebergV2ReaderTest, TopNReorderingPreservesImplicitProjectionOverflow) {
+    const auto dir = std::filesystem::temp_directory_path() / "topn_evolution_projection";
+    std::filesystem::create_directories(dir);
+    Defer cleanup([&] { std::filesystem::remove_all(dir); });
+    for (const bool ascending : {false, true}) {
+        for (const bool nested : {false, true}) {
+            const auto path = (dir / (std::string(ascending ? "asc" : "desc") +
+                                      (nested ? "_nested.parquet" : ".parquet")))
+                                      .string();
+            // Physical RG0 overflows only during DATE -> TIMESTAMP_NS materialization. All later
+            // groups have better TopN keys, so visiting them first can hide the failure entirely.
+            write_topn_evolution_file(path, ascending, nested);
+            for (const bool promote : {false, true}) {
+                for (const bool strict : {false, true}) {
+                    SCOPED_TRACE(testing::Message()
+                                 << "ascending=" << ascending << " nested=" << nested
+                                 << " promote=" << promote << " strict=" << strict);
+                    TQueryOptions options;
+                    options.__set_enable_strict_cast(strict);
+                    options.__set_batch_size(4096);
+                    RuntimeState state {options, TQueryGlobals()};
+                    auto filter = make_evolution_topn_filter(&state, ascending);
+                    const auto columns = topn_evolution_columns(promote, nested);
+                    auto scan_params = make_local_parquet_scan_params();
+                    RuntimeProfile profile("topn_evolution");
+                    iceberg::IcebergTableReader reader;
+                    ASSERT_TRUE(reader.init({.projected_columns = columns,
+                                             .conjuncts = {filter.conjunct},
+                                             .format = FileFormat::PARQUET,
+                                             .scan_params = &scan_params,
+                                             .io_ctx = nullptr,
+                                             .runtime_state = &state,
+                                             .scanner_profile = &profile})
+                                        .ok());
+                    ASSERT_TRUE(reader.prepare_split(build_split_options(path)).ok());
+                    bool eos = false;
+                    size_t rows = 0;
+                    Status status;
+                    while (!eos) {
+                        Block block = build_table_block(columns);
+                        status = reader.get_block(&block, &eos);
+                        if (!status.ok()) {
+                            break;
+                        }
+                        rows += block.rows();
+                        if (block.rows() > 0) {
+                            const auto& values = assert_cast<const ColumnNullable&>(
+                                                         *block.get_by_position(0).column)
+                                                         .get_nested_column();
+                            EXPECT_EQ(assert_cast<const ColumnInt32&>(values).get_element(0),
+                                      ascending ? 0 : 100);
+                            ASSERT_TRUE(filter.query_context->get_runtime_predicate(10)
+                                                .update(Field::create_field<TYPE_INT>(
+                                                        ascending ? 0 : 100))
+                                                .ok());
+                        }
+                    }
+                    EXPECT_EQ(status.ok(), !promote) << status;
+                    if (promote) {
+                        EXPECT_NE(status.to_string().find("TIMESTAMP_NS overflow"),
+                                  std::string::npos);
+                    } else {
+                        EXPECT_EQ(rows, 3 * 4096);
+                    }
+                    ASSERT_TRUE(reader.close().ok());
+                    filter.conjunct->close();
+                }
+            }
+        }
+    }
 }
 
 TEST(IcebergV2ReaderTest, DatePromotionToNanosecondsChecksOverflow) {

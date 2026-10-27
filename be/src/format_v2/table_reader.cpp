@@ -1183,8 +1183,6 @@ Status TableReader::refresh_conjuncts(VExprContextSPtrs conjuncts) {
             _file_scan_request == nullptr ? nullptr
                                           : &_file_scan_request->non_predicate_positions));
     refreshed_request->row_ids = _row_ids;
-    refreshed_request->allow_row_reordering =
-            std::ranges::all_of(_conjuncts, _is_safe_to_pre_execute);
     // A refresh does not prove that every future runtime filter has arrived. Keep carrier values
     // available whenever the split started with pending filters.
     if (_push_down_agg_type == TPushAggOp::type::COUNT && _push_down_count_columns.has_value() &&
@@ -1196,6 +1194,7 @@ Status TableReader::refresh_conjuncts(VExprContextSPtrs conjuncts) {
     RETURN_IF_ERROR(customize_file_scan_request(refreshed_request.get()));
     RETURN_IF_ERROR(
             refreshed_mapper->reconcile_scan_request_after_customization(refreshed_request.get()));
+    refreshed_request->allow_row_reordering &= _is_safe_to_reorder_rows(*refreshed_mapper);
     if (_file_scan_request == nullptr ||
         !same_physical_scan_layout(*refreshed_request, *_file_scan_request)) {
         // A reader cannot reinterpret columns already materialized with another block layout.
@@ -1614,6 +1613,15 @@ bool TableReader::_is_safe_to_pre_execute(const VExprContextSPtr& conjunct) {
     // non-deterministic or error-preserving expressions can change their row-level semantics,
     // even when every referenced slot is a partition column or maps to a constant entry.
     return predicate->is_safe_to_execute_on_selected_rows();
+}
+
+bool TableReader::_is_safe_to_reorder_rows(const TableColumnMapper& mapper) const {
+    // FE/scan conjuncts cannot see implicit materialization: an unrelated DATE -> TIMESTAMP_NS
+    // output can overflow. Only direct mappings are proven safe, including their nested children;
+    // a complex remap can run child casts even when its outer projection is a SlotRef.
+    return std::ranges::all_of(_conjuncts, _is_safe_to_pre_execute) &&
+           std::ranges::all_of(mapper.mappings(),
+                               [](const ColumnMapping& mapping) { return mapping.is_trivial; });
 }
 
 Status TableReader::_build_partition_prune_block(Block* block) const {

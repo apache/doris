@@ -461,8 +461,6 @@ protected:
         RETURN_IF_ERROR(_data_reader.column_mapper->create_scan_request(
                 _table_filters, _projected_columns, file_request.get(), _runtime_state));
         file_request->row_ids = _row_ids;
-        file_request->allow_row_reordering =
-                std::ranges::all_of(_conjuncts, _is_safe_to_pre_execute);
         _constant_pruning_safe_filter_count =
                 std::min(_constant_pruning_safe_filter_count,
                          file_request->constant_pruning_safe_table_filter_count);
@@ -493,6 +491,7 @@ protected:
         RETURN_IF_ERROR(_data_reader.column_mapper->reconcile_scan_request_after_customization(
                 file_request.get()));
         RETURN_IF_ERROR(validate_file_mapping(*_data_reader.column_mapper));
+        file_request->allow_row_reordering &= _is_safe_to_reorder_rows(*_data_reader.column_mapper);
         RETURN_IF_ERROR(_open_local_filter_exprs(*file_request));
         _data_reader.file_block_layout.clear();
         _data_reader.block_template.clear();
@@ -552,6 +551,7 @@ protected:
     Status _evaluate_partition_prune_conjuncts(const VExprContextSPtrs& conjuncts,
                                                bool* can_filter_all);
     static bool _is_safe_to_pre_execute(const VExprContextSPtr& conjunct);
+    bool _is_safe_to_reorder_rows(const TableColumnMapper& mapper) const;
     Status _build_partition_prune_block(Block* block) const;
     Status _open_local_filter_exprs(const FileScanRequest& file_request);
     Status _init_reader_condition_cache(const FileScanRequest& file_request);
