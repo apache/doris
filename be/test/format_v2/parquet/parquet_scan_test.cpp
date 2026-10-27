@@ -4910,7 +4910,7 @@ TEST_F(ParquetScanTest, TopNOrderUsesLocalizedSlotInsteadOfPhysicalColumnOrdinal
 }
 
 TEST_F(ParquetScanTest, TopNMissingStatisticsAndPruningFenceKeepPhysicalOrder) {
-    for (const int scenario : {0, 1, 2, 3}) {
+    for (const int scenario : {0, 1, 2}) {
         auto table = arrow::Table::Make(arrow::schema({arrow::field("k", arrow::int32(), false)}),
                                         {build_int32_array({8, 9, 4, 5, 0, 1})});
         write_table(_file_path, table, 2, false, false, scenario != 0);
@@ -4929,8 +4929,6 @@ TEST_F(ParquetScanTest, TopNMissingStatisticsAndPruningFenceKeepPhysicalOrder) {
             // A preceding evaluation-sensitive conjunct prevents metadata pruning and reordering.
             request->metadata_pruning_safe_conjunct_count = 0;
         } else if (scenario == 2) {
-            request->allow_row_reordering = false;
-        } else if (scenario == 3) {
             request->row_ids = std::vector<int64_t> {0, 3, 4};
         }
         ASSERT_TRUE(reader->open(request).ok());
@@ -4945,7 +4943,7 @@ TEST_F(ParquetScanTest, TopNMissingStatisticsAndPruningFenceKeepPhysicalOrder) {
                 actual.push_back(column.get_element(row));
             }
         }
-        EXPECT_EQ(actual, scenario == 3 ? (std::vector<int32_t> {8, 5, 0})
+        EXPECT_EQ(actual, scenario == 2 ? (std::vector<int32_t> {8, 5, 0})
                                         : (std::vector<int32_t> {8, 9, 4, 5, 0, 1}));
         prepared.conjunct->close();
     }

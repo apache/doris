@@ -158,15 +158,10 @@ public class ExpressionUtils {
      * A date add/subtract with literal zero is an identity and remains safe to push through.
      */
     public static boolean requiresDateArithmeticProtection(Expression expression, Plan input) {
-        return containsUnsafeDateArithmetic(expression)
+        return expression.anyMatch(expr -> isUnsafeDateArithmetic((Expression) expr))
                 && input.anyMatch(plan -> plan instanceof Filter || plan instanceof Join || plan instanceof Limit
                         || plan instanceof Except || plan instanceof Intersect || plan instanceof Generate
                         || plan instanceof LogicalCTEConsumer || plan instanceof PhysicalCTEConsumer);
-    }
-
-    /** Whether nested date arithmetic can throw, excluding literal-zero add/subtract identities. */
-    public static boolean containsUnsafeDateArithmetic(Expression expression) {
-        return expression.anyMatch(expr -> isUnsafeDateArithmetic((Expression) expr));
     }
 
     private static boolean isUnsafeDateArithmetic(Expression expression) {

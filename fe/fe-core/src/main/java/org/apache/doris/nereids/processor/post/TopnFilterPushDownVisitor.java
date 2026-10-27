@@ -19,33 +19,17 @@ package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.nereids.processor.post.TopnFilterPushDownVisitor.PushDownContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.And;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.GreaterThan;
-import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
-import org.apache.doris.nereids.trees.expressions.InPredicate;
-import org.apache.doris.nereids.trees.expressions.IsNull;
-import org.apache.doris.nereids.trees.expressions.LessThan;
-import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.Not;
-import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
-import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.functions.DateAddSubMonotonic;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitors;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.TopN;
 import org.apache.doris.nereids.trees.plans.algebra.Union;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
@@ -57,7 +41,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
-import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
 
@@ -99,29 +82,20 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
 
     @Override
     public Boolean visit(Plan plan, PushDownContext ctx) {
-        // Unknown operators may enforce constraints absent from getExpressions(), e.g. AssertNumRows.
-        // Each traversable operator must explicitly establish that reducing its input is safe.
-        return false;
-    }
-
-    @Override
-    public Boolean visitPhysicalDistribute(PhysicalDistribute<? extends Plan> distribute, PushDownContext ctx) {
-        return distribute.child().accept(this, ctx);
-    }
-
-    @Override
-    public Boolean visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, PushDownContext ctx) {
-        return !hasEvaluationSensitiveExpressions(filter) && filter.child().accept(this, ctx);
+        // A bound on a grouping key can exclude whole groups. Stopping at unlisted operators
+        // here would disable existing scan filters below aggregates and their join inputs.
+        boolean pushed = false;
+        for (Plan child : plan.children()) {
+            pushed |= child.accept(this, ctx);
+        }
+        return pushed;
     }
 
     @Override
     public Boolean visitPhysicalProject(
             PhysicalProject<? extends Plan> project, PushDownContext ctx) {
-        // TopN may skip or reorder rows before assert_true or overflowing date arithmetic runs.
-        if (hasEvaluationSensitiveExpressions(project)) {
-            return false;
-        }
-        // Expand safe aliases in the probe, e.g. x -> substring(name, 1, 5).
+        // project ( A+1 as x)
+        // probeExpr: abs(x) => abs(A+1)
         PushDownContext ctxProjectProbeExpr = ctx;
         Map<Expression, Expression> replaceMap = Maps.newHashMap();
         for (NamedExpression ne : project.getProjects()) {
@@ -136,46 +110,9 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
         return project.child().accept(this, ctxProjectProbeExpr);
     }
 
-    private static boolean hasEvaluationSensitiveExpressions(Plan plan) {
-        return plan.getExpressions().stream().anyMatch(expression -> !safeOnReducedInput(expression));
-    }
-
-    private static boolean safeOnReducedInput(Expression expression) {
-        // Determinism and monotonicity do not imply total evaluation: from_second(-1), for example,
-        // throws. Keep a closed set of proven-total expressions instead of enumerating throwing
-        // functions. Unknown functions, casts and UDFs must preserve their original evaluation domain.
-        if (expression instanceof Slot || expression instanceof Literal) {
-            return true;
-        }
-        boolean safeNode = expression instanceof Alias || expression instanceof Nullable
-                || expression instanceof And || expression instanceof Or || expression instanceof Not
-                || expression instanceof IsNull;
-        if (expression instanceof EqualTo || expression instanceof NullSafeEqual
-                || expression instanceof LessThan || expression instanceof LessThanEqual
-                || expression instanceof GreaterThan || expression instanceof GreaterThanEqual
-                || expression instanceof InPredicate) {
-            safeNode = expression.children().stream().allMatch(child -> {
-                DataType type = child.getDataType();
-                return type.isNumericType() || type.isBooleanType() || type.isStringLikeType()
-                        || type.isDateLikeType() || type.isTimeType() || type.isIPType()
-                        || type.isUuidType() || type.isNullType();
-            });
-        } else if (expression instanceof Substring) {
-            safeNode = expression.children().subList(1, expression.arity()).stream()
-                    .allMatch(Literal.class::isInstance);
-        } else if (expression instanceof DateAddSubMonotonic) {
-            // Zero intervals are identities on already-typed dates; nonzero arithmetic can overflow.
-            safeNode = !ExpressionUtils.containsUnsafeDateArithmetic(expression);
-        }
-        return safeNode && expression.children().stream().allMatch(TopnFilterPushDownVisitor::safeOnReducedInput);
-    }
-
     @Override
     public Boolean visitPhysicalSetOperation(
             PhysicalSetOperation setOperation, PushDownContext ctx) {
-        if (hasEvaluationSensitiveExpressions(setOperation)) {
-            return false;
-        }
         boolean pushedDown = false;
         if (setOperation.arity() > 0) {
             pushedDown = pushDownFilterToSetOperatorChild(setOperation, ctx, 0);
@@ -223,7 +160,7 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
 
     @Override
     public Boolean visitPhysicalTopN(PhysicalTopN<? extends Plan> topn, PushDownContext ctx) {
-        if (topn.equals(ctx.topn) && !hasEvaluationSensitiveExpressions(topn)) {
+        if (topn.equals(ctx.topn)) {
             return topn.child().accept(this, ctx);
         }
         return false;
@@ -257,10 +194,6 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
     @Override
     public Boolean visitPhysicalHashJoin(PhysicalHashJoin<? extends Plan, ? extends Plan> join,
             PushDownContext ctx) {
-        // Scan conjuncts cannot fence ON expressions retained on the join, including mark predicates.
-        if (hasEvaluationSensitiveExpressions(join)) {
-            return false;
-        }
         if (ctx.nullsFirst && (join.getJoinType().isOuterJoin() || join.getJoinType().isAsofOuterJoin())) {
             // topn-filter can be pushed down to the left child of leftOuterJoin
             // and to the right child of rightOuterJoin,
@@ -294,9 +227,6 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
     @Override
     public Boolean visitPhysicalNestedLoopJoin(PhysicalNestedLoopJoin<? extends Plan, ? extends Plan> join,
             PushDownContext ctx) {
-        if (hasEvaluationSensitiveExpressions(join)) {
-            return false;
-        }
         if (ctx.nullsFirst && join.getJoinType().isOuterJoin()) {
             // topn-filter can be pushed down to the left child of leftOuterJoin
             // and to the right child of rightOuterJoin,
@@ -313,8 +243,7 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
 
     @Override
     public Boolean visitPhysicalRelation(PhysicalRelation relation, PushDownContext ctx) {
-        if (supportPhysicalRelations(relation) && safeOnReducedInput(ctx.probeExpr)
-                && relation.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
+        if (supportPhysicalRelations(relation) && relation.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
             // in ut, relation.getStats() may return null
             if (relation.getStats() == null || ConnectContext.get() == null
                     || ConnectContext.get().getSessionVariable() == null

@@ -1768,7 +1768,6 @@ TEST(TableReaderTest, UnsafePredicateStaysOnScannerPath) {
     ASSERT_NE(fake_state->last_request, nullptr);
     ASSERT_EQ(fake_state->last_request->conjuncts.size(), 1);
     EXPECT_EQ(fake_state->last_request->metadata_pruning_safe_conjunct_count, 0);
-    EXPECT_FALSE(fake_state->last_request->allow_row_reordering);
     EXPECT_FALSE(predicate_executed);
     ASSERT_TRUE(reader.close().ok());
 }
@@ -2069,44 +2068,6 @@ TEST(TableReaderTest, ActiveReaderQueuesRefreshedRuntimeFilterRequest) {
     EXPECT_NE(profile.get_counter("RefreshConjunctsTime"), nullptr);
     EXPECT_NE(profile.get_counter("FileReaderRefreshScanRequestTime"), nullptr);
     ASSERT_TRUE(reader.close().ok());
-}
-
-TEST(TableReaderTest, ImplicitProjectionFencesReorderingAcrossRequestRefresh) {
-    for (const bool promote : {false, true}) {
-        std::vector<ColumnDefinition> file_schema {
-                make_file_column(0, "id", std::make_shared<DataTypeInt32>())};
-        DataTypePtr table_type = promote ? DataTypePtr(std::make_shared<DataTypeInt64>())
-                                         : DataTypePtr(std::make_shared<DataTypeInt32>());
-        std::vector<ColumnDefinition> columns {make_table_column(0, "id", table_type)};
-        set_name_identifiers(&columns);
-        RuntimeState state {TQueryOptions(), TQueryGlobals()};
-        auto fake_state = std::make_shared<FakeFileReaderState>();
-        fake_state->eof_with_first_batch = false;
-        FakeTableReader reader(file_schema, fake_state);
-        ASSERT_TRUE(reader.init({.projected_columns = columns,
-                                 .conjuncts = {},
-                                 .format = FileFormat::PARQUET,
-                                 .scan_params = nullptr,
-                                 .io_ctx = nullptr,
-                                 .runtime_state = &state,
-                                 .scanner_profile = nullptr})
-                            .ok());
-        SplitReadOptions split;
-        split.current_range.__set_path("projection-safety-input");
-        ASSERT_TRUE(reader.prepare_split(split).ok());
-        Block block = build_table_block(columns);
-        bool eos = false;
-        ASSERT_TRUE(reader.get_block(&block, &eos).ok());
-        ASSERT_EQ(block.rows(), 2);
-        ASSERT_FALSE(eos);
-        ASSERT_NE(fake_state->last_request, nullptr);
-        EXPECT_EQ(fake_state->last_request->allow_row_reordering, !promote);
-        ASSERT_TRUE(reader.refresh_conjuncts({}).ok());
-        ASSERT_EQ(fake_state->refresh_count, 1);
-        ASSERT_NE(fake_state->pending_request, nullptr);
-        EXPECT_EQ(fake_state->pending_request->allow_row_reordering, !promote);
-        ASSERT_TRUE(reader.close().ok());
-    }
 }
 
 TEST(TableReaderTest, RefreshKeepsActiveMappingProjectionSnapshot) {

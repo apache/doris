@@ -1477,9 +1477,9 @@ void ParquetScanScheduler::prepare_topn_row_group_order(
         const auto& chunk = group.columns[schema.leaf_column_id];
         return chunk.__isset.meta_data && chunk.meta_data.__isset.statistics;
     });
-    // Files without statistics cannot benefit from repeated footer checks. Row-ID fetches promise
-    // increasing positions, and an unsafe table expression must continue observing file order.
-    if (!_topn_footer_recheck || request.row_ids.has_value() || !request.allow_row_reordering ||
+    // Scheduling need not evaluate conversions in groups excluded by TopN. Reuse the request's
+    // existing metadata-pruning boundary; row-ID fetches still require increasing file positions.
+    if (!_topn_footer_recheck || request.row_ids.has_value() ||
         safe_count != request.conjuncts.size() || _scan_plan->row_groups.size() < 2) {
         return;
     }
