@@ -55,6 +55,10 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
                 + "DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')");
         createTable("CREATE TABLE uuid_topn (id INT, u UUID) DUPLICATE KEY(id) "
                 + "DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')");
+        createTable("CREATE TABLE topn_nested_fields (id INT, "
+                + "ts STRUCT<a: TIMESTAMPTZ(0), b: TIMESTAMPTZ(0)>, "
+                + "si STRUCT<a: INT, b: INT>, sd STRUCT<a: DATE, b: DATE>) DUPLICATE KEY(id) "
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')");
     }
 
     @Test
@@ -125,6 +129,42 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
             connectContext.getSessionVariable().topnFilterRatio = previousRatio;
             connectContext.getSessionVariable().pushTopnToAgg = previousPushTopn;
             connectContext.getSessionVariable().setDisableJoinReorder(previousJoinReorder);
+            connectContext.getSessionVariable().setDisableNereidsRules(previousDisabledRules);
+        }
+    }
+
+    @Test
+    public void testTopNFilterSupportsNestedOrderKeyWithSiblingPredicate() {
+        double previousRatio = connectContext.getSessionVariable().topnFilterRatio;
+        boolean previousPrune = connectContext.getSessionVariable().enablePruneNestedColumns;
+        String previousDisabledRules = String.join(",",
+                connectContext.getSessionVariable().getDisableNereidsRuleNames());
+        connectContext.getSessionVariable().topnFilterRatio = 1000000;
+        connectContext.getSessionVariable().enablePruneNestedColumns = true;
+        // Empty unit-test tables must retain scans to exercise nested access-path translation.
+        connectContext.getSessionVariable().setDisableNereidsRules(previousDisabledRules + ",PRUNE_EMPTY_PARTITION");
+        try {
+            for (String column : List.of("ts", "si", "sd")) {
+                for (String direction : List.of("ASC", "DESC")) {
+                    String sql = "SELECT struct_element(" + column + ", 'a') FROM topn_nested_fields "
+                            + "WHERE struct_element(" + column + ", 'b') IS NOT NULL "
+                            + "ORDER BY 1 " + direction + " NULLS LAST LIMIT 1";
+                    PlanChecker.from(connectContext).checkPlannerResult(sql, planner -> {
+                        String explain = planner.getFragments().stream()
+                                .map(fragment -> fragment.getExplainString(TExplainLevel.NORMAL))
+                                .collect(Collectors.joining("\n"));
+                        // TopN must retain its order field when the predicate reads only a sibling's nulls.
+                        Assertions.assertTrue(explain.contains("TOPN OPT:"), explain);
+                        Assertions.assertTrue(explain.contains("all access paths: ["
+                                + column + ".a, " + column + ".b.NULL]"), explain);
+                        Assertions.assertTrue(explain.contains("predicate access paths: ["
+                                + column + ".b.NULL]"), explain);
+                    });
+                }
+            }
+        } finally {
+            connectContext.getSessionVariable().topnFilterRatio = previousRatio;
+            connectContext.getSessionVariable().enablePruneNestedColumns = previousPrune;
             connectContext.getSessionVariable().setDisableNereidsRules(previousDisabledRules);
         }
     }
