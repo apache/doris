@@ -187,12 +187,14 @@ public class Config extends ConfigBase {
             + "removed labels can be reused.")
     public static int streaming_label_keep_max_second = 43200; // 12 hour
 
-    @ConfField(mutable = true, masterOnly = true, description = "For ALTER and EXPORT jobs, remove the finished job "
-            + "if expired.")
+    @ConfField(mutable = true, masterOnly = true, description = "For ALTER jobs, remove the finished job if "
+            + "expired. For EXPORT jobs, retain the job for at least five minutes after its finish time "
+            + "and remove it after this time.")
     public static int history_job_keep_max_second = 7 * 24 * 3600; // 7 days
 
-    @ConfField(mutable = true, masterOnly = true, description = "For EXPORT jobs, if the number of EXPORT jobs in the "
-            + "system exceeds this value, the oldest records will " + "be deleted.")
+    @ConfField(mutable = true, masterOnly = true, description = "For EXPORT jobs, if the number of jobs exceeds "
+            + "this value, finished and cancelled jobs are removed by finish time, oldest first, "
+            + "after the five-minute minimum retention.")
     public static int max_export_history_job_num = 1000;
 
     @ConfField(description = "The cleanup interval for transactions, in seconds. In each cycle, expired historical "
