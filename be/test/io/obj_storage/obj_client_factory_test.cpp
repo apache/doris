@@ -32,7 +32,7 @@
 #include "common/config.h"
 #include "cpp/obj-client/s3_obj_storage_client.h"
 #include "cpp/sync_point.h"
-#include "io/fs/s3_file_system.h"
+#include "io/fs/obj_storage_file_system.h"
 #include "io/obj_storage/obj_client_holder.h"
 #include "io/obj_storage/obj_storage_config.h"
 #include "io/obj_storage/obj_storage_config_resolver.h"

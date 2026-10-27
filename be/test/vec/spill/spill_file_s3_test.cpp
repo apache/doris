@@ -54,7 +54,7 @@
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
-#include "io/fs/s3_file_system.h"
+#include "io/fs/obj_storage_file_system.h"
 #include "io/obj_storage/obj_client_factory.h"
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
@@ -433,7 +433,7 @@ public:
 
         auto s3_conf = io::make_test_s3_storage_config(
                 kBucket, kVaultPrefix, "http://spill-mock-endpoint", "region", "ak", "sk");
-        auto fs_or = io::S3FileSystem::create(s3_conf, "spill_s3_test_vault");
+        auto fs_or = io::ObjStorageFileSystem::create(s3_conf, "spill_s3_test_vault");
         ASSERT_TRUE(fs_or.has_value()) << fs_or.error();
         _s3_fs = fs_or.value();
     }
@@ -772,7 +772,7 @@ protected:
     }
 
     static inline std::shared_ptr<MockObjStorageClient> _mock_client;
-    static inline std::shared_ptr<io::S3FileSystem> _s3_fs;
+    static inline std::shared_ptr<io::ObjStorageFileSystem> _s3_fs;
     static inline bool _owned_upload_pool = false;
     static inline bool _owned_close_pool = false;
 
@@ -815,7 +815,7 @@ TEST_F(SpillFileS3Test, SelectVaultFileSystem) {
     auto make_fs = [](const std::string& id) {
         auto conf = io::make_test_s3_storage_config(
                 kBucket, "vault_" + id, "http://spill-mock-endpoint", "region", "ak", "sk");
-        auto fs = io::S3FileSystem::create(conf, id);
+        auto fs = io::ObjStorageFileSystem::create(conf, id);
         EXPECT_TRUE(fs.has_value()) << fs.error();
         return io::RemoteFileSystemSPtr(fs.value());
     };
@@ -859,7 +859,7 @@ TEST_F(SpillFileS3Test, VaultChangeKeepsExistingFilesAndPendingDeletesPinned) {
 
     auto second_conf = io::make_test_s3_storage_config(
             kBucket, "spill_s3_second_vault", "http://spill-mock-endpoint", "region", "ak", "sk");
-    auto second_fs_or = io::S3FileSystem::create(second_conf, "spill_s3_second_vault");
+    auto second_fs_or = io::ObjStorageFileSystem::create(second_conf, "spill_s3_second_vault");
     ASSERT_TRUE(second_fs_or.has_value()) << second_fs_or.error();
     _data_dir->init_remote_fs(second_fs_or.value(), kEndpoint);
 
@@ -2100,7 +2100,7 @@ TEST_F(SpillFileS3Test, LateUploadFailureDrainsPart) {
     ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
 }
 
-// CreateMultipartUpload fails after the first buffer filled. S3FileWriter keeps that full buffer
+// CreateMultipartUpload fails after the first buffer filled. ObjStorageFileWriter keeps that full buffer
 // without counting it, so another append (the footer of close()) would overflow it: the part
 // must refuse every append after a failed one, and no upload may be issued.
 TEST_F(SpillFileS3Test, CreateMultipartFailureIsSafe) {

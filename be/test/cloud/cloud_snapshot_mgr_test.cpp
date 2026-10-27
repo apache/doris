@@ -23,8 +23,8 @@
 #include <vector>
 
 #include "cloud/cloud_storage_engine.h"
+#include "io/fs/obj_storage_file_system.h"
 #include "io/fs/remote_file_system.h"
-#include "io/fs/s3_file_system.h"
 #include "testutil/obj_storage_test_util.h"
 #include "util/s3_util.h"
 
@@ -40,7 +40,8 @@ io::ObjStorageConfig create_test_s3_conf() {
 class CloudSnapshotMgrTest : public testing::Test {
 protected:
     void SetUp() override {
-        _fs = io::S3FileSystem::create(create_test_s3_conf(), io::FileSystem::TMP_FS_ID).value();
+        _fs = io::ObjStorageFileSystem::create(create_test_s3_conf(), io::FileSystem::TMP_FS_ID)
+                      .value();
         _engine = std::make_unique<CloudStorageEngine>(EngineOptions {});
         _snapshot_mgr = std::make_unique<CloudSnapshotMgr>(*_engine);
     }

@@ -26,8 +26,8 @@ namespace doris::io {
 ObjClientFactory::ObjClientFactory() {
     // Complete AWS SDK initialization before this singleton finishes construction. Function
     // local statics are destroyed in reverse order of construction, so the cached AWS
-    // clients held by the providers are released before S3ClientFactory shuts the SDK down.
-    S3ClientFactory::instance();
+    // clients held by the providers are released before AwsSdkManager shuts the SDK down.
+    AwsSdkManager::instance();
 }
 
 ObjClientFactory& ObjClientFactory::instance() {

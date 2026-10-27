@@ -17,7 +17,7 @@
 
 #include "io/fs/connectivity/s3_connectivity_tester.h"
 
-#include "io/fs/s3_file_system.h"
+#include "io/fs/obj_storage_file_system.h"
 #include "io/obj_storage/obj_client_factory.h"
 #include "io/obj_storage/obj_storage_config_resolver.h"
 #include "io/obj_storage/obj_storage_uri.h"

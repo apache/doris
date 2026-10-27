@@ -31,7 +31,7 @@ namespace doris::io {
 
 // One immutable generation of an ObjClientHolder. The config and the client built from it
 // are published together, so a caller never pairs a new config with an old client. For
-// example, a reset from ak1 to ak2 that races with full_s3_path() and get() lets each
+// example, a reset from ak1 to ak2 that races with display_path() and get() lets each
 // caller see either (ak1 config, ak1 client) or (ak2 config, ak2 client), never a mix.
 struct ObjClientState {
     ObjClientConfig config;
@@ -42,7 +42,7 @@ struct ObjClientState {
 };
 
 // In runtime, credentials may be modified, and the original client instance will be replaced.
-// The S3FileReader cached by the Segment must hold a shared ObjClientHolder in order
+// The ObjStorageFileReader cached by the Segment must hold a shared ObjClientHolder in order
 // to access the data with the latest credentials.
 //
 // The holder owns an immutable ObjClientState and replaces it as a whole. A request takes
@@ -79,7 +79,7 @@ public:
     Result<int64_t> object_file_size(const std::string& bucket, const std::string& key) const;
 
     // For error messages: endpoint/bucket/key.
-    std::string full_s3_path(std::string_view bucket, std::string_view key) const;
+    std::string display_path(std::string_view bucket, std::string_view key) const;
 
 #ifdef BE_TEST
     // Publishes a new generation that keeps the current config and uses `client`.

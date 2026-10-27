@@ -24,8 +24,8 @@
 #include "common/status.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
+#include "io/fs/obj_storage_file_system.h"
 #include "io/fs/path.h"
-#include "io/fs/s3_file_system.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -34,16 +34,16 @@ class RuntimeProfile;
 namespace io {
 struct IOContext;
 
-class S3FileReader final : public FileReader {
+class ObjStorageFileReader final : public FileReader {
 public:
     static Result<FileReaderSPtr> create(std::shared_ptr<const ObjClientHolder> client,
                                          std::string bucket, std::string key, int64_t file_size,
                                          RuntimeProfile* profile);
 
-    S3FileReader(std::shared_ptr<const ObjClientHolder> client, std::string bucket, std::string key,
-                 size_t file_size, RuntimeProfile* profile);
+    ObjStorageFileReader(std::shared_ptr<const ObjClientHolder> client, std::string bucket,
+                         std::string key, size_t file_size, RuntimeProfile* profile);
 
-    ~S3FileReader() override;
+    ~ObjStorageFileReader() override;
 
     Status close() override;
 

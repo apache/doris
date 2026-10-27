@@ -61,11 +61,11 @@ std::string hide_access_key(const std::string& ak);
 
 // Owns the AWS SDK lifetime and the AWS helpers shared by object storage clients and other AWS
 // users (e.g. Kinesis). Object storage clients themselves come from io::ObjClientFactory.
-class S3ClientFactory {
+class AwsSdkManager {
 public:
-    ~S3ClientFactory();
+    ~AwsSdkManager();
 
-    static S3ClientFactory& instance();
+    static AwsSdkManager& instance();
 
     static Aws::Client::ClientConfiguration& getClientConfiguration() {
         // The default constructor of ClientConfiguration will do some http call
@@ -89,7 +89,7 @@ private:
     FRIEND_TEST(S3ClientFactoryTest, RefreshCaCertForCredentialsProvider);
 #endif
     std::string _get_ca_cert_file_path();
-    S3ClientFactory();
+    AwsSdkManager();
 
     Aws::SDKOptions _aws_options;
     std::mutex _ca_cert_lock;

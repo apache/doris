@@ -19,7 +19,7 @@
 #include <gtest/gtest.h>
 #include <sys/resource.h>
 
-#include "io/fs/s3_file_system.h"
+#include "io/fs/obj_storage_file_system.h"
 #include "storage/rowset/rowset_meta.h"
 #include "storage/storage_policy.h"
 #include "testutil/obj_storage_test_util.h"
@@ -29,7 +29,7 @@ namespace doris {
 TEST(StorageResourceTest, RemotePath) {
     io::ObjStorageConfig s3_conf =
             io::make_test_s3_storage_config("bucket", "prefix", "endpoint", "region", "ak", "sk");
-    auto res = io::S3FileSystem::create(std::move(s3_conf), io::FileSystem::TMP_FS_ID);
+    auto res = io::ObjStorageFileSystem::create(std::move(s3_conf), io::FileSystem::TMP_FS_ID);
     ASSERT_TRUE(res.has_value()) << res.error();
 
     StorageResource storage_resource(res.value()); // path v0

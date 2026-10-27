@@ -67,7 +67,7 @@
 
 namespace doris {
 
-S3ClientFactory::S3ClientFactory() {
+AwsSdkManager::AwsSdkManager() {
     _aws_options = Aws::SDKOptions {};
     auto logLevel = static_cast<Aws::Utils::Logging::LogLevel>(config::aws_log_level);
     _aws_options.loggingOptions.logLevel = logLevel;
@@ -109,16 +109,16 @@ S3ClientFactory::S3ClientFactory() {
 #endif
 }
 
-S3ClientFactory::~S3ClientFactory() {
+AwsSdkManager::~AwsSdkManager() {
     Aws::ShutdownAPI(_aws_options);
 }
 
-S3ClientFactory& S3ClientFactory::instance() {
-    static S3ClientFactory ret;
+AwsSdkManager& AwsSdkManager::instance() {
+    static AwsSdkManager ret;
     return ret;
 }
 
-std::string S3ClientFactory::_get_ca_cert_file_path() {
+std::string AwsSdkManager::_get_ca_cert_file_path() {
     std::lock_guard lock(_ca_cert_lock);
     if (_ca_cert_file_path.empty()) {
         _ca_cert_file_path = get_valid_ca_cert_path(doris::split(config::ca_cert_file_paths, ";"));
@@ -126,8 +126,8 @@ std::string S3ClientFactory::_get_ca_cert_file_path() {
     return _ca_cert_file_path;
 }
 
-AwsCredentialResult S3ClientFactory::create_aws_credentials_provider(const io::S3AuthConfig& auth) {
-    auto sts_config = S3ClientFactory::getClientConfiguration();
+AwsCredentialResult AwsSdkManager::create_aws_credentials_provider(const io::S3AuthConfig& auth) {
+    auto sts_config = AwsSdkManager::getClientConfiguration();
     auto ca_cert_file_path = _get_ca_cert_file_path();
     if (!ca_cert_file_path.empty()) {
         sts_config.caFile = ca_cert_file_path;

@@ -26,8 +26,8 @@
 #include "exec/pipeline/pipeline_fragment_context.h"
 #include "exec/sink/writer/vhive_partition_writer.h"
 #include "format/transformer/vfile_format_transformer.h"
-#include "io/fs/s3_file_system.h"
-#include "io/fs/s3_file_writer.h"
+#include "io/fs/obj_storage_file_system.h"
+#include "io/fs/obj_storage_file_writer.h"
 #include "runtime/exec_env.h"
 #include "testutil/mock/mock_runtime_state.h"
 
@@ -139,9 +139,9 @@ std::unique_ptr<VHivePartitionWriter> create_closed_hive_writer(
     }
     auto holder = std::make_shared<io::ObjClientHolder>(std::move(client_config));
     holder->set_client_for_test(client);
-    io::FileWriterOptions options {.used_by_s3_committer = true};
-    auto file_writer =
-            std::make_unique<io::S3FileWriter>(holder, "bucket", "table/part.parquet", &options);
+    io::FileWriterOptions options {.deferred_completion = true};
+    auto file_writer = std::make_unique<io::ObjStorageFileWriter>(holder, "bucket",
+                                                                  "table/part.parquet", &options);
     file_writer->_upload_id = "upload-id";
     if (!staged_block_id.empty()) {
         file_writer->_completed_parts.push_back(

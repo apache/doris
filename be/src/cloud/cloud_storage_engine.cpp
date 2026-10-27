@@ -54,7 +54,7 @@
 #include "io/cache/file_cache_common.h"
 #include "io/fs/file_system.h"
 #include "io/fs/hdfs_file_system.h"
-#include "io/fs/s3_file_system.h"
+#include "io/fs/obj_storage_file_system.h"
 #include "io/hdfs_util.h"
 #include "io/io_common.h"
 #include "load/memtable/memtable_flush_executor.h"
@@ -148,7 +148,7 @@ struct VaultCreateFSVisitor {
         LOG(INFO) << "get new s3 info: " << s3_conf.to_string() << " resource_id=" << id
                   << " check_fs: " << check_fs;
 
-        auto fs = DORIS_TRY(io::S3FileSystem::create(s3_conf, id));
+        auto fs = DORIS_TRY(io::ObjStorageFileSystem::create(s3_conf, id));
         const auto* s3 = std::get_if<io::S3ClientConfig>(&s3_conf.client.backend);
         if (check_fs && s3 != nullptr && !s3->auth.role_arn.empty()) {
             bool res = false;
@@ -187,8 +187,8 @@ struct RefreshFSVaultVisitor {
             : id(id), fs(std::move(fs)), path_format(path_format) {}
 
     Status operator()(const io::ObjStorageConfig& s3_conf) const {
-        DCHECK_EQ(fs->type(), io::FileSystemType::S3) << id;
-        auto s3_fs = std::static_pointer_cast<io::S3FileSystem>(fs);
+        DCHECK_EQ(fs->type(), io::FileSystemType::OBJECT_STORAGE) << id;
+        auto s3_fs = std::static_pointer_cast<io::ObjStorageFileSystem>(fs);
         auto client_holder = s3_fs->client_holder();
         auto st = client_holder->reset(s3_conf.client);
         if (!st.ok()) {

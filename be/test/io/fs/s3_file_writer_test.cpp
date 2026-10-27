@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "io/fs/s3_file_writer.h"
-
 #include <aws/core/utils/HashingUtils.h>
 #include <aws/s3/S3Client.h>
 #include <aws/s3/model/AbortMultipartUploadRequest.h>
@@ -55,8 +53,9 @@
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
-#include "io/fs/s3_file_bufferpool.h"
-#include "io/fs/s3_file_system.h"
+#include "io/fs/obj_storage_file_buffer_pool.h"
+#include "io/fs/obj_storage_file_system.h"
+#include "io/fs/obj_storage_file_writer.h"
 #include "io/io_common.h"
 #include "runtime/exec_env.h"
 #include "storage/index/index_file_writer.h"
@@ -71,7 +70,7 @@ using namespace doris::io;
 
 namespace doris {
 
-static std::shared_ptr<io::S3FileSystem> s3_fs {nullptr};
+static std::shared_ptr<io::ObjStorageFileSystem> s3_fs {nullptr};
 
 // This MockS3Client is only responsible for handling normal situations,
 // while error injection is left to other macros to resolve
@@ -292,7 +291,7 @@ public:
                 "fake_s3_bucket", "s3_file_writer_test", "fake_s3_endpoint", "fake_s3_region",
                 "fake_ak", "fake_sk");
         LOG_INFO("s3 conf is {}", s3_conf.to_string());
-        auto res = io::S3FileSystem::create(std::move(s3_conf), io::FileSystem::TMP_FS_ID);
+        auto res = io::ObjStorageFileSystem::create(std::move(s3_conf), io::FileSystem::TMP_FS_ID);
         ASSERT_TRUE(res.has_value()) << res.error();
         s3_fs = res.value();
 
@@ -457,11 +456,13 @@ TEST_F(S3FileWriterTest, offset_test) {
         constexpr size_t slice_num = 10;
         std::array<Slice, slice_num> slices;
         slices.fill(slice);
-        int cur_part_num = dynamic_cast<io::S3FileWriter*>(s3_file_writer.get())->_cur_part_num;
+        int cur_part_num =
+                dynamic_cast<io::ObjStorageFileWriter*>(s3_file_writer.get())->_cur_part_num;
         for (auto s : slices) {
             st = s3_file_writer->append(s);
             ASSERT_TRUE(st.ok()) << st;
-            cur_part_num = dynamic_cast<io::S3FileWriter*>(s3_file_writer.get())->_cur_part_num;
+            cur_part_num =
+                    dynamic_cast<io::ObjStorageFileWriter*>(s3_file_writer.get())->_cur_part_num;
             const auto& buffer = bufs.at(cur_part_num);
             offset += s.get_size();
             ASSERT_EQ(buffer->get_file_offset(), 0);
@@ -481,11 +482,12 @@ TEST_F(S3FileWriterTest, offset_test) {
         constexpr size_t slice_num = 1024;
         std::array<Slice, slice_num> slices;
         slices.fill(slice);
-        int cur_part_num = dynamic_cast<io::S3FileWriter*>(s3_file_writer.get())->_cur_part_num;
+        int cur_part_num =
+                dynamic_cast<io::ObjStorageFileWriter*>(s3_file_writer.get())->_cur_part_num;
         for (auto s : slices) {
             st = s3_file_writer->append(s);
             ASSERT_TRUE(st.ok()) << st;
-            auto ptr = dynamic_cast<io::S3FileWriter*>(s3_file_writer.get());
+            auto ptr = dynamic_cast<io::ObjStorageFileWriter*>(s3_file_writer.get());
             cur_part_num = ptr->_cur_part_num;
             const auto& buffer = bufs.at(cur_part_num);
             offset += s.get_size();
@@ -507,7 +509,7 @@ TEST_F(S3FileWriterTest, put_object_io_error) {
         // handle io error
         LOG(INFO) << "set put object to error";
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
-        io::S3FileWriter* writer = try_any_cast<io::S3FileWriter*>(outcome.at(0));
+        io::ObjStorageFileWriter* writer = try_any_cast<io::ObjStorageFileWriter*>(outcome.at(0));
         auto* buf = try_any_cast<io::UploadFileBuffer*>(outcome.at(1));
         writer->_st = Status::IOError(
                 "failed to put object (bucket={}, key={}, upload_id={}, exception=inject "
@@ -950,7 +952,7 @@ TEST_F(S3FileWriterTest, close_error) {
         // handle io error
         LOG(INFO) << "set put object to error";
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
-        io::S3FileWriter* writer = try_any_cast<io::S3FileWriter*>(values.at(0));
+        io::ObjStorageFileWriter* writer = try_any_cast<io::ObjStorageFileWriter*>(values.at(0));
         io::UploadFileBuffer* buf = try_any_cast<io::UploadFileBuffer*>(values.at(1));
         writer->_st = Status::IOError(
                 "failed to put object (bucket={}, key={}, upload_id={}, exception=inject "
@@ -1315,16 +1317,17 @@ private:
 } // namespace io
 
 /**
- * Create a mock S3 client and a S3FileWriter.
- * @return A tuple containing the mock S3 client and the S3FileWriter.
+ * Create a mock S3 client and a ObjStorageFileWriter.
+ * @return A tuple containing the mock S3 client and the ObjStorageFileWriter.
  */
-std::tuple<std::shared_ptr<SimpleMockObjStorageClient>, std::shared_ptr<S3FileWriter>>
+std::tuple<std::shared_ptr<SimpleMockObjStorageClient>, std::shared_ptr<ObjStorageFileWriter>>
 create_s3_client(const std::string& path) {
     doris::io::FileWriterOptions opts;
     io::FileWriterPtr file_writer;
     auto st = s3_fs->create_file(path, &file_writer, &opts);
     EXPECT_TRUE(st.ok()) << st;
-    std::shared_ptr<S3FileWriter> s3_file_writer(static_cast<S3FileWriter*>(file_writer.release()));
+    std::shared_ptr<ObjStorageFileWriter> s3_file_writer(
+            static_cast<ObjStorageFileWriter*>(file_writer.release()));
     auto holder = std::make_shared<ObjClientHolder>(ObjClientConfig {});
     auto mock_client = std::make_shared<SimpleMockObjStorageClient>();
     holder->set_client_for_test(mock_client);
@@ -1333,7 +1336,7 @@ create_s3_client(const std::string& path) {
 }
 
 /**
- * Generate test data for S3FileWriter boundary tests.
+ * Generate test data for ObjStorageFileWriter boundary tests.
  * Returns a vector of sizes that we'll use to generate data on demand.
  * This way we don't need to hold all the data in memory at once.
  */
@@ -1531,7 +1534,7 @@ TEST_F(S3FileWriterTest, test_empty_file) {
     auto holder = std::make_shared<ObjClientHolder>(ObjClientConfig {});
     auto mock_client = std::make_shared<SimpleMockObjStorageClient>();
     holder->set_client_for_test(mock_client);
-    dynamic_cast<io::S3FileWriter*>(file_writer.get())->_obj_client = holder;
+    dynamic_cast<io::ObjStorageFileWriter*>(file_writer.get())->_obj_client = holder;
     auto* s3_writer = file_writer.get();
     const auto file_path = s3_writer->path().native();
     auto fs = io::global_local_filesystem();

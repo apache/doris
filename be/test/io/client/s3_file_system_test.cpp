@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "io/fs/s3_file_system.h"
-
 #include <aws/s3/S3Client.h>
 #include <aws/s3/model/DeleteObjectsResult.h>
 #include <aws/s3/model/Error.h>
@@ -34,6 +32,7 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
+#include "io/fs/obj_storage_file_system.h"
 #include "runtime/exec_env.h"
 #include "testutil/obj_storage_test_util.h"
 #include "util/defer_op.h"
@@ -206,7 +205,7 @@ protected:
             auth.external_id = config_->get_external_id();
         }
 
-        s3_fs_ = DORIS_TRY(io::S3FileSystem::create(s3_conf, MOCK_S3_FS_ID));
+        s3_fs_ = DORIS_TRY(io::ObjStorageFileSystem::create(s3_conf, MOCK_S3_FS_ID));
         return Status::OK();
     }
 
@@ -228,7 +227,7 @@ protected:
     }
 
     std::shared_ptr<S3TestConfig> config_;
-    std::shared_ptr<io::S3FileSystem> s3_fs_;
+    std::shared_ptr<io::ObjStorageFileSystem> s3_fs_;
 };
 
 // Test: Simple put object test

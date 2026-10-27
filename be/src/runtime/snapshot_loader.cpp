@@ -44,9 +44,9 @@
 #include "io/fs/file_system.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/local_file_system.h"
+#include "io/fs/obj_storage_file_system.h"
 #include "io/fs/path.h"
 #include "io/fs/remote_file_system.h"
-#include "io/fs/s3_file_system.h"
 #include "io/hdfs_builder.h"
 #include "io/obj_storage/obj_storage_config_resolver.h"
 #include "io/obj_storage/obj_storage_uri.h"
@@ -190,7 +190,7 @@ Status upload_with_checksum(io::RemoteFileSystem& fs, std::string_view local_pat
         RETURN_IF_ERROR(fs.rename(temp, full_remote_path));
         break;
     }
-    case io::FileSystemType::S3:
+    case io::FileSystemType::OBJECT_STORAGE:
         RETURN_IF_ERROR(fs.upload(local_path, full_remote_path));
         break;
     default:
@@ -760,8 +760,8 @@ Status BaseSnapshotLoader::init(TStorageBackendType::type type, const std::strin
     if (TStorageBackendType::type::S3 == type || TStorageBackendType::type::AZURE == type) {
         auto uri = DORIS_TRY(io::ObjStorageUri::parse_s3(location));
         auto config = DORIS_TRY(io::ObjStorageConfigResolver::from_properties(_prop, uri));
-        _remote_fs =
-                DORIS_TRY(io::S3FileSystem::create(std::move(config), io::FileSystem::TMP_FS_ID));
+        _remote_fs = DORIS_TRY(
+                io::ObjStorageFileSystem::create(std::move(config), io::FileSystem::TMP_FS_ID));
     } else if (TStorageBackendType::type::HDFS == type) {
         THdfsParams hdfs_params = parse_properties(_prop);
         _remote_fs = DORIS_TRY(io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name,

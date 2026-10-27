@@ -252,7 +252,7 @@ bool CloudRowsetBuilder::is_s3_storage() const {
     if (_rowset_writer == nullptr) {
         return false;
     }
-    return _rowset_writer->context().fs()->type() == io::FileSystemType::S3;
+    return _rowset_writer->context().fs()->type() == io::FileSystemType::OBJECT_STORAGE;
 }
 
 Status CloudRowsetBuilder::commit_rowset(const std::string& job_id, int64_t table_id) {

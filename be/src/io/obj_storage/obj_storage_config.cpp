@@ -90,7 +90,7 @@ ObjStorageProvider backend_provider(const AzureClientConfig&) {
 }
 
 // The rules every client request is checked against before anything is built or looked up;
-// they are the checks the former S3ClientFactory::create applied to the flat configuration.
+// they are the checks the former AwsSdkManager::create applied to the flat configuration.
 Status validate_client_backend(const S3ClientConfig& s3) {
     if (s3.endpoint.empty()) {
         return Status::InvalidArgument<false>("Invalid s3 conf, empty endpoint");

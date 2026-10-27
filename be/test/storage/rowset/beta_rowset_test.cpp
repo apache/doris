@@ -46,7 +46,7 @@
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
-#include "io/fs/s3_file_system.h"
+#include "io/fs/obj_storage_file_system.h"
 #include "json2pb/json_to_pb.h"
 #include "runtime/exec_env.h"
 #include "storage/data_dir.h"
@@ -306,7 +306,7 @@ TEST_F(BetaRowsetTest, ReadTest) {
     io::ObjStorageConfig s3_conf =
             io::make_test_s3_storage_config("bucket", "prefix", "endpoint", "region", "ak", "sk");
     std::string resource_id = "10000";
-    auto res = io::S3FileSystem::create(std::move(s3_conf), io::FileSystem::TMP_FS_ID);
+    auto res = io::ObjStorageFileSystem::create(std::move(s3_conf), io::FileSystem::TMP_FS_ID);
     ASSERT_TRUE(res.has_value()) << res.error();
     auto fs = res.value();
     StorageResource storage_resource(fs);

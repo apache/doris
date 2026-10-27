@@ -142,7 +142,7 @@ OUT="$("${PYTHON}" "${GATE}" --closure common/status.h 2>&1)"; EC=$?
 [ "${EC}" -eq 0 ] || fail "--closure expected exit 0, got ${EC}"
 echo "${OUT}" | grep -q "common/status.h: .* project header(s)" \
     || fail "--closure output missing summary line"
-OUT="$("${PYTHON}" "${GATE}" --reach io/fs/s3_file_system.h 2>&1)"; EC=$?
+OUT="$("${PYTHON}" "${GATE}" --reach io/fs/obj_storage_file_system.h 2>&1)"; EC=$?
 [ "${EC}" -eq 0 ] || fail "--reach expected exit 0, got ${EC}"
 echo "${OUT}" | grep -q "via this edge alone" \
     || fail "--reach output missing edge ranking"

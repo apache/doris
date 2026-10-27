@@ -40,9 +40,9 @@
 #include "io/fs/http_file_system.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/multi_table_pipe.h"
-#include "io/fs/s3_file_reader.h"
-#include "io/fs/s3_file_system.h"
-#include "io/fs/s3_file_writer.h"
+#include "io/fs/obj_storage_file_reader.h"
+#include "io/fs/obj_storage_file_system.h"
+#include "io/fs/obj_storage_file_writer.h"
 #include "io/fs/stream_load_pipe.h"
 #include "io/hdfs_builder.h"
 #include "io/hdfs_util.h"
@@ -157,7 +157,8 @@ Result<io::FileSystemSPtr> FileFactory::create_fs(const io::FSPropertiesRef& fs_
         if (!resolved.has_value()) {
             return ResultError(std::move(resolved).error());
         }
-        return io::S3FileSystem::create(std::move(resolved->config), io::FileSystem::TMP_FS_ID);
+        return io::ObjStorageFileSystem::create(std::move(resolved->config),
+                                                io::FileSystem::TMP_FS_ID);
     }
     case TFileType::FILE_HDFS: {
         std::string fs_name = _get_fs_name(file_description);
@@ -222,9 +223,9 @@ Result<io::FileWriterPtr> FileFactory::create_file_writer(
         }
         auto client = std::make_shared<io::ObjClientHolder>(std::move(resolved->config.client));
         RETURN_IF_ERROR_RESULT(client->init());
-        return std::make_unique<io::S3FileWriter>(std::move(client),
-                                                  std::move(resolved->config.bucket),
-                                                  std::move(resolved->key), &options);
+        return std::make_unique<io::ObjStorageFileWriter>(std::move(client),
+                                                          std::move(resolved->config.bucket),
+                                                          std::move(resolved->key), &options);
     }
     case TFileType::FILE_HDFS: {
         THdfsParams hdfs_params = parse_properties(properties);
@@ -275,8 +276,8 @@ Result<io::FileReaderSPtr> FileFactory::_create_file_reader_internal(
         RETURN_IF_ERROR_RESULT(client_holder->init());
         auto options = with_storage_in_cache_key(reader_options,
                                                  client_holder->state()->config.endpoint());
-        return io::S3FileReader::create(std::move(client_holder), bucket, key,
-                                        file_description.file_size, profile)
+        return io::ObjStorageFileReader::create(std::move(client_holder), bucket, key,
+                                                file_description.file_size, profile)
                 .and_then([&options](auto&& reader) {
                     return io::create_cached_file_reader(std::move(reader), options);
                 });

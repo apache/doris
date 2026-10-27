@@ -97,13 +97,13 @@ Result<int64_t> ObjClientHolder::object_file_size(const std::string& bucket,
     if (resp.resp.status.code != ErrorCode::OK) {
         return ResultError(std::move(Status(resp.resp.status.code, std::move(resp.resp.status.msg))
                                              .append(fmt::format("failed to head s3 file {}",
-                                                                 full_s3_path(bucket, key)))));
+                                                                 display_path(bucket, key)))));
     }
 
     return resp.file_size;
 }
 
-std::string ObjClientHolder::full_s3_path(std::string_view bucket, std::string_view key) const {
+std::string ObjClientHolder::display_path(std::string_view bucket, std::string_view key) const {
     return fmt::format("{}/{}/{}", state()->config.endpoint(), bucket, key);
 }
 

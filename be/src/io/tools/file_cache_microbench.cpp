@@ -52,8 +52,8 @@
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/cached_remote_file_reader.h"
 #include "io/file_factory.h"
-#include "io/fs/s3_file_system.h"
-#include "io/fs/s3_file_writer.h"
+#include "io/fs/obj_storage_file_system.h"
+#include "io/fs/obj_storage_file_writer.h"
 #include "rapidjson/document.h"
 #include "rapidjson/stringbuffer.h"
 #include "rapidjson/writer.h"
@@ -339,7 +339,7 @@ public:
     doris::Status close() { return _writer.close(); }
 
 private:
-    doris::io::S3FileWriter _writer;
+    doris::io::ObjStorageFileWriter _writer;
     std::shared_ptr<doris::S3RateLimiterHolder> _rate_limiter;
 };
 

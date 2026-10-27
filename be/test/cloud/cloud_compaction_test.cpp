@@ -38,7 +38,7 @@
 #include "cloud/config.h"
 #include "common/metrics/doris_metrics.h"
 #include "cpp/sync_point.h"
-#include "io/fs/s3_file_system.h"
+#include "io/fs/obj_storage_file_system.h"
 #include "json2pb/json_to_pb.h"
 #include "storage/changelog.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
@@ -1167,7 +1167,7 @@ TEST_F(CloudCompactionTest, test_set_storage_resource_from_input_rowsets) {
     io::ObjStorageConfig s3_conf =
             io::make_test_s3_storage_config("bucket", "prefix", "endpoint", "region", "ak", "sk");
     std::string resource_id = "10000";
-    auto res = io::S3FileSystem::create(std::move(s3_conf), resource_id);
+    auto res = io::ObjStorageFileSystem::create(std::move(s3_conf), resource_id);
     ASSERT_TRUE(res.has_value()) << res.error();
     auto fs = res.value();
     StorageResource storage_resource(fs);

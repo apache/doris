@@ -29,22 +29,22 @@
 #include "cpp/obj-client/obj_storage_client.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
+#include "io/fs/obj_storage_file_buffer_pool.h"
 #include "io/fs/path.h"
-#include "io/fs/s3_file_bufferpool.h"
 
 namespace doris {
 
 namespace io {
 struct S3FileBuffer;
-class S3FileSystem;
+class ObjStorageFileSystem;
 struct AsyncCloseStatusPack;
 class ObjClientHolder;
 
-class S3FileWriter final : public FileWriter {
+class ObjStorageFileWriter final : public FileWriter {
 public:
-    S3FileWriter(std::shared_ptr<ObjClientHolder> client, std::string bucket, std::string key,
-                 const FileWriterOptions* opts);
-    ~S3FileWriter() override;
+    ObjStorageFileWriter(std::shared_ptr<ObjClientHolder> client, std::string bucket,
+                         std::string key, const FileWriterOptions* opts);
+    ~ObjStorageFileWriter() override;
 
     Status appendv(const Slice* data, size_t data_cnt) override;
 
@@ -93,14 +93,12 @@ private:
 
     std::shared_ptr<FileBuffer> _pending_buf;
 
-    // S3 committer will start multipart uploading all files on BE side,
-    // and then complete multipart upload these files on FE side.
-    // If you do not complete multi parts of a file, the file will not be visible.
-    // So in this way, the atomicity of a single file can be guaranteed. But it still cannot
-    // guarantee the atomicity of multiple files.
-    // Because hive committers have best-effort semantics,
-    // this shortens the inconsistent time window.
-    bool _used_by_s3_committer;
+    // BE stages every file as an uncompleted upload (S3 multipart parts or Azure blocks), and
+    // the FE coordinator completes them at commit. An uncompleted file is not visible, so a
+    // single file is atomic. Multiple files are still not atomic, but because Hive committers
+    // have best-effort semantics, this shortens the inconsistent time window.
+    // The coordinator must support the client's ObjStorageCapabilities::deferred_completion.
+    bool _deferred_completion;
     std::unique_ptr<AsyncCloseStatusPack> _async_close_pack;
     State _state {State::OPENED};
     std::shared_ptr<ObjClientHolder> _obj_client;

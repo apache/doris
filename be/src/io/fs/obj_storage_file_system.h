@@ -44,11 +44,12 @@ namespace doris::io {
 //     In this case, the root prefix is not used.
 //  2. only key: path/to/file.txt
 //      In this case, the final key will be "prefix + path/to/file.txt"
-class S3FileSystem final : public RemoteFileSystem {
+class ObjStorageFileSystem final : public RemoteFileSystem {
 public:
-    static Result<std::shared_ptr<S3FileSystem>> create(ObjStorageConfig config, std::string id);
+    static Result<std::shared_ptr<ObjStorageFileSystem>> create(ObjStorageConfig config,
+                                                                std::string id);
 
-    ~S3FileSystem() override;
+    ~ObjStorageFileSystem() override;
 
     const std::shared_ptr<ObjClientHolder>& client_holder() const { return _client; }
 
@@ -92,14 +93,14 @@ protected:
     }
 
 private:
-    S3FileSystem(ObjStorageConfig config, std::string id);
+    ObjStorageFileSystem(ObjStorageConfig config, std::string id);
 
     Status init();
 
     Result<std::string> _get_key(const Path& full_path) const;
 
     // For error msg
-    std::string full_s3_path(std::string_view key) const;
+    std::string display_path(std::string_view key) const;
 
     std::string _bucket;
     std::string _prefix;

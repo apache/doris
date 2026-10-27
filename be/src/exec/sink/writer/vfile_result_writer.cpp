@@ -51,7 +51,7 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/local_file_system.h"
-#include "io/fs/s3_file_system.h"
+#include "io/fs/obj_storage_file_system.h"
 #include "io/hdfs_builder.h"
 #include "io/obj_storage/obj_storage_config_resolver.h"
 #include "io/obj_storage/obj_storage_uri.h"
@@ -447,7 +447,8 @@ Status VFileResultWriter::_delete_dir() {
         auto location = DORIS_TRY(io::ObjStorageUri::parse_s3(dir));
         auto config = DORIS_TRY(io::ObjStorageConfigResolver::from_properties(
                 _file_opts->broker_properties, location));
-        auto fs = DORIS_TRY(io::S3FileSystem::create(std::move(config), io::FileSystem::TMP_FS_ID));
+        auto fs = DORIS_TRY(
+                io::ObjStorageFileSystem::create(std::move(config), io::FileSystem::TMP_FS_ID));
         return fs->delete_directory(dir);
     }
     default:

@@ -75,7 +75,7 @@
 #include "cpp/obj-client/s3_obj_storage_client.h"
 #include "cpp/sync_point.h"
 #include "io/fs/err_utils.h"
-#include "io/fs/s3_file_system.h"
+#include "io/fs/obj_storage_file_system.h"
 #include "io/obj_storage/obj_client_factory.h"
 #include "io/obj_storage/obj_client_holder.h"
 #include "io/obj_storage/obj_storage_config_resolver.h"
@@ -88,7 +88,7 @@
 namespace doris {
 
 class S3ClientFactoryTest : public testing::Test {
-    FRIEND_TEST(S3ClientFactoryTest, S3ClientFactory);
+    FRIEND_TEST(S3ClientFactoryTest, AwsSdkManager);
 
 protected:
     void TearDown() override {
@@ -527,7 +527,7 @@ TEST_F(S3ClientFactoryTest, GcpErrorLogPresigningUsesUploadedKey) {
                 .prefix = prefix,
                 .client = make_gcp_native_conf(),
         };
-        io::S3FileSystem fs(std::move(conf), "gcp-error-log-test");
+        io::ObjStorageFileSystem fs(std::move(conf), "gcp-error-log-test");
         const std::string expected_key =
                 prefix.empty() ? "error_log/id" : "instance-prefix/error_log/id";
         io::Path upload_path;
@@ -626,7 +626,7 @@ TEST_F(S3ClientFactoryTest, GcpServiceAccountEmailValidation) {
 }
 
 TEST_F(S3ClientFactoryTest, AwsCredentialsProvider) {
-    S3ClientFactory& factory = S3ClientFactory::instance();
+    AwsSdkManager& factory = AwsSdkManager::instance();
     io::S3AuthConfig anonymous_conf;
     io::S3AuthConfig ak_sk_conf;
     ak_sk_conf.access_key = "ak";
@@ -714,7 +714,7 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProvider) {
 }
 
 TEST_F(S3ClientFactoryTest, RefreshCaCertForCredentialsProvider) {
-    auto& factory = S3ClientFactory::instance();
+    auto& factory = AwsSdkManager::instance();
     auto old_ca_cert_file_paths = config::ca_cert_file_paths;
     std::string old_ca_cert_file_path;
     {
@@ -753,7 +753,7 @@ TEST_F(S3ClientFactoryTest, RefreshCaCertForCredentialsProvider) {
 }
 
 TEST_F(S3ClientFactoryTest, SetS3ClientDefaultHttpScheme) {
-    S3ClientFactory::instance();
+    AwsSdkManager::instance();
     Aws::Client::ClientConfiguration client_config;
     client_config.endpointOverride = "example.com:9000";
 
@@ -1020,7 +1020,7 @@ TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ConfCredentialValidation) {
 }
 
 TEST_F(S3ClientFactoryTest, AwsCredentialsProviderV2ProviderTypeWithoutRoleArn) {
-    S3ClientFactory& factory = S3ClientFactory::instance();
+    AwsSdkManager& factory = AwsSdkManager::instance();
     config::aws_credentials_provider_version = "v2";
 
     io::S3AuthConfig default_conf;
@@ -1073,7 +1073,7 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProviderV2ProviderTypeWithoutRoleArn) 
 }
 
 TEST_F(S3ClientFactoryTest, AwsCredentialsProviderV2WithRoleArnAlwaysAssumeRole) {
-    S3ClientFactory& factory = S3ClientFactory::instance();
+    AwsSdkManager& factory = AwsSdkManager::instance();
     config::aws_credentials_provider_version = "v2";
 
     std::vector<CredProviderType> provider_types = {
@@ -1095,7 +1095,7 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProviderV2WithRoleArnAlwaysAssumeRole)
 }
 
 TEST_F(S3ClientFactoryTest, AwsCredentialsProviderV2SimpleWithoutAkSkUsesDefaultChain) {
-    S3ClientFactory& factory = S3ClientFactory::instance();
+    AwsSdkManager& factory = AwsSdkManager::instance();
     config::aws_credentials_provider_version = "v2";
 
     io::S3AuthConfig conf;
@@ -1108,7 +1108,7 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProviderV2SimpleWithoutAkSkUsesDefault
 }
 
 TEST_F(S3ClientFactoryTest, AwsCredentialsProviderAkSkTakePrecedenceOverRoleArn) {
-    S3ClientFactory& factory = S3ClientFactory::instance();
+    AwsSdkManager& factory = AwsSdkManager::instance();
     io::S3AuthConfig conf;
     conf.access_key = "ak";
     conf.secret_key = "sk";
@@ -1130,7 +1130,7 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProviderAkSkTakePrecedenceOverRoleArn)
 }
 
 TEST_F(S3ClientFactoryTest, AwsCredentialsProviderV1RoleArnDefaultFallback) {
-    S3ClientFactory& factory = S3ClientFactory::instance();
+    AwsSdkManager& factory = AwsSdkManager::instance();
     config::aws_credentials_provider_version = "v1";
 
     io::S3AuthConfig conf;
@@ -1144,7 +1144,7 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProviderV1RoleArnDefaultFallback) {
 }
 
 TEST_F(S3ClientFactoryTest, AwsCredentialsProviderV1PartialCredentialsUseDefaultChain) {
-    S3ClientFactory& factory = S3ClientFactory::instance();
+    AwsSdkManager& factory = AwsSdkManager::instance();
     config::aws_credentials_provider_version = "v1";
 
     for (bool provide_access_key : {false, true}) {
@@ -1188,7 +1188,7 @@ Aws::Auth::GeneralHTTPCredentialsProvider* find_http_provider(
 // up the current contents. Passing the value read at construction time works
 // until the first rotation and then fails with AccessDenied.
 TEST_F(S3ClientFactoryTest, CustomChainReadsRotatedTokenFileForPodIdentity) {
-    (void)S3ClientFactory::instance();
+    (void)AwsSdkManager::instance();
 
     ContainerCredentialsEndpoint endpoint;
     ASSERT_TRUE(endpoint.start());
@@ -1228,7 +1228,7 @@ TEST_F(S3ClientFactoryTest, CustomChainReadsRotatedTokenFileForPodIdentity) {
 // AWS_CONTAINER_CREDENTIALS_RELATIVE_URI leaves this provider with an empty URI, no HTTP client and
 // no credentials on every standard EKS deployment.
 TEST_F(S3ClientFactoryTest, ContainerProviderTypeReadsRotatedTokenFileForPodIdentity) {
-    S3ClientFactory& factory = S3ClientFactory::instance();
+    AwsSdkManager& factory = AwsSdkManager::instance();
     config::aws_credentials_provider_version = "v2";
 
     ContainerCredentialsEndpoint endpoint;
@@ -1259,7 +1259,7 @@ TEST_F(S3ClientFactoryTest, ContainerProviderTypeReadsRotatedTokenFileForPodIden
 }
 
 TEST_F(S3ClientFactoryTest, ContainerProviderTypeForwardsInlineAuthorizationToken) {
-    S3ClientFactory& factory = S3ClientFactory::instance();
+    AwsSdkManager& factory = AwsSdkManager::instance();
     config::aws_credentials_provider_version = "v2";
 
     ContainerCredentialsEndpoint endpoint;
@@ -1282,7 +1282,7 @@ TEST_F(S3ClientFactoryTest, ContainerProviderTypeForwardsInlineAuthorizationToke
 }
 
 TEST_F(S3ClientFactoryTest, ContainerProviderTypeStillHonoursEcsRelativeUri) {
-    S3ClientFactory& factory = S3ClientFactory::instance();
+    AwsSdkManager& factory = AwsSdkManager::instance();
     config::aws_credentials_provider_version = "v2";
 
     ContainerCredentialsEnvGuard env;
@@ -1300,7 +1300,7 @@ TEST_F(S3ClientFactoryTest, ContainerProviderTypeStillHonoursEcsRelativeUri) {
 // discriminator the two tests above rely on: IsValid() really does distinguish a wired provider
 // from an inert one, so their assertions cannot pass vacuously.
 TEST_F(S3ClientFactoryTest, ContainerProviderTypeIsUnusableWithoutAnyUri) {
-    S3ClientFactory& factory = S3ClientFactory::instance();
+    AwsSdkManager& factory = AwsSdkManager::instance();
     config::aws_credentials_provider_version = "v2";
 
     // Constructing the guard is the whole setup: it clears all four AWS_CONTAINER_* variables, so
@@ -1320,7 +1320,7 @@ TEST_F(S3ClientFactoryTest, ContainerProviderTypeIsUnusableWithoutAnyUri) {
 // asked for that base provider here - a v2 request with no role_arn returns it unwrapped - so the
 // assertion is about the base itself rather than the STS wrapper around it.
 TEST_F(S3ClientFactoryTest, ContainerProviderTypeIsUsableAsStsBaseProvider) {
-    (void)S3ClientFactory::instance();
+    (void)AwsSdkManager::instance();
 
     ContainerCredentialsEndpoint endpoint;
     ASSERT_TRUE(endpoint.start());
