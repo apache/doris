@@ -109,11 +109,15 @@ private:
             DORIS_CLOUD_DEFER {
                 _count.signal();
             };
+            // Destroy the callback before signaling, whether it is run or skipped, so the
+            // resources captured by it (e.g. an object deletion permit) are released before
+            // `when_all()` returns, instead of being held by a skipped task until `_reset()`.
+            auto callback = std::move(_callback);
             if (stop_token) {
                 _valid = false;
                 return;
             }
-            T t = _callback();
+            T t = callback();
             // We'll return this task result to user even if this task return error
             // So we don't set _valid to false here
             bool bypass_cancel = false;

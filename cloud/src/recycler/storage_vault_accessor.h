@@ -20,6 +20,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace Aws::S3 {
@@ -61,23 +62,29 @@ public:
 
     const std::string& uri() const { return uri_; }
 
+    // `task_name` of the delete functions is the recycle task deleting the files. The object
+    // storage accessor paces the deletions of each task separately (see ObjDeleteGroup), an empty
+    // one is paced with the other deletions without a task name.
+
     // If `expiration_time` > 0, only delete objects with mtime earlier than `expiration_time`.
     // returns 0 for success otherwise error
-    virtual int delete_prefix(const std::string& path_prefix, int64_t expiration_time = 0) = 0;
+    virtual int delete_prefix(const std::string& path_prefix, int64_t expiration_time = 0,
+                              std::string_view task_name = {}) = 0;
 
     // returns 0 for success otherwise error
-    virtual int delete_directory(const std::string& dir_path) = 0;
+    virtual int delete_directory(const std::string& dir_path, std::string_view task_name = {}) = 0;
 
     // Delete all files in the storage vault.
     // If `expiration_time` > 0, only delete objects with mtime earlier than `expiration_time`.
     // returns 0 for success otherwise error
-    virtual int delete_all(int64_t expiration_time = 0) = 0;
+    virtual int delete_all(int64_t expiration_time = 0, std::string_view task_name = {}) = 0;
 
     // returns 0 for success otherwise error
-    virtual int delete_files(const std::vector<std::string>& paths) = 0;
+    virtual int delete_files(const std::vector<std::string>& paths,
+                             std::string_view task_name = {}) = 0;
 
     // returns 0 for success otherwise error
-    virtual int delete_file(const std::string& path) = 0;
+    virtual int delete_file(const std::string& path, std::string_view task_name = {}) = 0;
 
     // List directory recursively
     // returns 0 for success (even if directory does not exist), otherwise error

@@ -7287,7 +7287,7 @@ TEST(RecyclerTest, delete_rowset_data) {
                 auto rowset = create_rowset("recycle_tmp_rowsets", tablet_id_base + j,
                                             index_id_base + j % 4, 5, schemas[i % 5], txn_id);
                 create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, i & 1, false, j < 10);
-                ASSERT_EQ(0, recycler.delete_rowset_data(rowset));
+                ASSERT_EQ(0, recycler.delete_rowset_data(rowset, "recycle_rowsets"));
             }
         }
 
@@ -7344,7 +7344,7 @@ TEST(RecyclerTest, delete_rowset_data) {
             create_recycle_rowset(txn_kv.get(), accessor.get(), rowset, RecycleRowsetPB::COMPACT,
                                   true, i < 100);
             ASSERT_EQ(0, recycler.delete_rowset_data(rowset.resource_id(), rowset.tablet_id(),
-                                                     rowset.rowset_id_v2()));
+                                                     rowset.rowset_id_v2(), "recycle_rowsets"));
         }
         std::unique_ptr<ListIterator> list_iter;
         ASSERT_EQ(0, accessor->list_all(&list_iter));
@@ -7428,7 +7428,7 @@ TEST(RecyclerTest, delete_v2_inverted_index_with_segment_list) {
                   0);
     }
 
-    ASSERT_EQ(recycler.delete_rowset_data(rowset), 0);
+    ASSERT_EQ(recycler.delete_rowset_data(rowset, "recycle_rowsets"), 0);
     for (auto segment_id : segment_ids) {
         EXPECT_EQ(accessor->exists(
                           segment_path(rowset.tablet_id(), rowset.rowset_id_v2(), segment_id)),
@@ -7509,7 +7509,7 @@ TEST(RecyclerTest, delete_rowset_data_without_delete_bitmap_meta) {
     });
     sp->enable_processing();
 
-    ASSERT_EQ(recycler.delete_rowset_data(rowset), 0);
+    ASSERT_EQ(recycler.delete_rowset_data(rowset, "recycle_rowsets"), 0);
     ASSERT_EQ(deleted_paths.size(), 1)
             << " size: " << deleted_paths.size() << " content: "
             << std::accumulate(deleted_paths.begin(), deleted_paths.end(), std::string(),
@@ -7755,7 +7755,7 @@ TEST(RecyclerTest, delete_rowset_data_packed_file_single_rowset) {
         ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
     }
 
-    ASSERT_EQ(0, recycler.delete_rowset_data(rowset));
+    ASSERT_EQ(0, recycler.delete_rowset_data(rowset, "recycle_rowsets"));
 
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
@@ -8599,7 +8599,7 @@ TEST(RecyclerTest, delete_rowset_data_without_inverted_index_storage_format) {
                 auto rowset = create_rowset("recycle_tmp_rowsets", tablet_id_base + j,
                                             index_id_base + j % 4, 5, schemas[i % 5], txn_id);
                 create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, i & 1, false, j < 10);
-                ASSERT_EQ(0, recycler.delete_rowset_data(rowset));
+                ASSERT_EQ(0, recycler.delete_rowset_data(rowset, "recycle_rowsets"));
             }
         }
 
@@ -8656,7 +8656,7 @@ TEST(RecyclerTest, delete_rowset_data_without_inverted_index_storage_format) {
             create_recycle_rowset(txn_kv.get(), accessor.get(), rowset, RecycleRowsetPB::COMPACT,
                                   true, i < 100);
             ASSERT_EQ(0, recycler.delete_rowset_data(rowset.resource_id(), rowset.tablet_id(),
-                                                     rowset.rowset_id_v2()));
+                                                     rowset.rowset_id_v2(), "recycle_rowsets"));
         }
         std::unique_ptr<ListIterator> list_iter;
         ASSERT_EQ(0, accessor->list_all(&list_iter));

@@ -39,6 +39,10 @@ ObjStorageStatus obj_storage_status_from_http_code(int http_code, std::string me
     }
 }
 
+bool obj_storage_throttled_http_code(int http_code) {
+    return http_code == 429 || http_code == 503;
+}
+
 std::unique_ptr<ObjStorageListIterator> ObjStorageClient::list_objects(const ObjStoragePath& opts) {
     return std::make_unique<ObjStorageListIterator>(shared_from_this(), opts);
 }
@@ -109,6 +113,9 @@ ObjStorageResponse delete_objects_recursively(
         list_path.prefix = list_path.key;
     }
     auto delete_batch_size = std::max<size_t>(1, client->capabilities().max_delete_batch);
+    if (delete_options.max_delete_batch > 0) {
+        delete_batch_size = std::min(delete_batch_size, delete_options.max_delete_batch);
+    }
     TEST_SYNC_POINT_CALLBACK("ObjStorageClient::delete_objects_recursively_", &delete_batch_size);
     delete_batch_size = std::max<size_t>(1, delete_batch_size);
     const auto max_tasks_per_batch = std::max<size_t>(1, delete_options.max_tasks_per_batch);
@@ -159,6 +166,7 @@ ObjStorageResponse delete_objects_recursively(
         return response;
     };
     auto submit_delete_task = [&]() -> bool {
+        const size_t num_keys = keys.size();
         ObjStorageDeleteTask task = [client, bucket = path.bucket,
                                      batch = std::move(keys)]() mutable {
             return client->delete_objects(ObjStoragePath {.bucket = std::move(bucket)},
@@ -169,7 +177,7 @@ ObjStorageResponse delete_objects_recursively(
 
         ObjStorageResponse response;
         if (delete_options.executor) {
-            response = delete_options.executor->submit(std::move(task));
+            response = delete_options.executor->submit(std::move(task), num_keys);
         } else {
             response = task();
         }

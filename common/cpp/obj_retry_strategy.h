@@ -29,6 +29,8 @@ void record_object_request_failed(int http_code);
 
 class S3CustomRetryStrategy final : public Aws::Client::DefaultRetryStrategy {
 public:
+    // If `retry_slow_down` is false, the throttling responses (503 SlowDown and 429) are not
+    // retried, they are returned to a caller handling the throttling itself.
     S3CustomRetryStrategy(int maxRetries, bool retry_slow_down = true);
     ~S3CustomRetryStrategy() override;
 

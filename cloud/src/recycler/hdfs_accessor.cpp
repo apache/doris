@@ -368,7 +368,8 @@ int HdfsAccessor::init() {
     return 0;
 }
 
-int HdfsAccessor::delete_prefix(const std::string& path_prefix, int64_t expiration_time) {
+int HdfsAccessor::delete_prefix(const std::string& path_prefix, int64_t expiration_time,
+                                std::string_view /*task_name*/) {
     auto uri = to_uri(path_prefix);
     LOG(INFO) << "delete prefix, uri=" << uri;
     // If path prefix exists, assume it is a dir or a file.
@@ -448,7 +449,7 @@ int HdfsAccessor::delete_directory_impl(const std::string& dir_path) {
     return 0;
 }
 
-int HdfsAccessor::delete_directory(const std::string& dir_path) {
+int HdfsAccessor::delete_directory(const std::string& dir_path, std::string_view /*task_name*/) {
     auto norm_dir_path = dir_path;
     strip_leading(norm_dir_path, "/");
     if (norm_dir_path.empty()) {
@@ -459,7 +460,7 @@ int HdfsAccessor::delete_directory(const std::string& dir_path) {
     return delete_directory_impl(norm_dir_path);
 }
 
-int HdfsAccessor::delete_all(int64_t expiration_time) {
+int HdfsAccessor::delete_all(int64_t expiration_time, std::string_view /*task_name*/) {
     if (expiration_time <= 0) {
         return delete_directory_impl("");
     }
@@ -483,7 +484,8 @@ int HdfsAccessor::delete_all(int64_t expiration_time) {
     return ret;
 }
 
-int HdfsAccessor::delete_files(const std::vector<std::string>& paths) {
+int HdfsAccessor::delete_files(const std::vector<std::string>& paths,
+                               std::string_view /*task_name*/) {
     int ret = 0;
     for (auto&& path : paths) {
         int del_ret = delete_file(path);
@@ -495,7 +497,7 @@ int HdfsAccessor::delete_files(const std::vector<std::string>& paths) {
     return ret;
 }
 
-int HdfsAccessor::delete_file(const std::string& relative_path) {
+int HdfsAccessor::delete_file(const std::string& relative_path, std::string_view /*task_name*/) {
     // FIXME(plat1ko): Can we distinguish between RPC failure and the file not existing via
     // `hdfsDelete`'s return value or errno to avoid exist rpc?
     int ret = exists(relative_path);
