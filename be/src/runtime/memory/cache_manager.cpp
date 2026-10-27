@@ -17,21 +17,53 @@
 
 #include "runtime/memory/cache_manager.h"
 
+#include <utility>
+#include <vector>
+
 #include "runtime/memory/cache_policy.h"
 #include "runtime/runtime_profile.h"
 
 namespace doris {
+namespace {
+
+// Declare before the manager lock: detached values survive unregistering their
+// policy and are destroyed only after unlocking, including on exception paths.
+class DeferredCacheReleases {
+public:
+    ~DeferredCacheReleases() {
+        for (auto& release : _releases) {
+            release();
+        }
+    }
+
+    void reserve(size_t size) { _releases.reserve(size); }
+    void take(CachePolicy& policy) {
+        if (auto release = policy.take_deferred_release()) {
+            _releases.emplace_back(std::move(release));
+        }
+    }
+
+private:
+    std::vector<std::function<void()>> _releases;
+};
+
+} // namespace
 
 int64_t CacheManager::for_each_cache_prune_stale_wrap(
         std::function<void(CachePolicy* cache_policy)> func, RuntimeProfile* profile) {
     int64_t freed_size = 0;
+    DeferredCacheReleases releases;
     std::lock_guard<std::mutex> l(_caches_lock);
+    // Allocate before pruning, so collecting an action cannot allocate/fail
+    // while it already owns SDK clients under the manager lock.
+    releases.reserve(_caches.size());
     for (const auto& pair : _caches) {
         auto* cache_policy = pair.second;
         if (!cache_policy->enable_prune()) {
             continue;
         }
         func(cache_policy);
+        releases.take(*cache_policy);
         freed_size += cache_policy->profile()->get_counter("FreedMemory")->value();
         if (cache_policy->profile()->get_counter("FreedMemory")->value() != 0 && profile) {
             profile->add_child(cache_policy->profile(), true, nullptr);
@@ -57,16 +89,25 @@ int64_t CacheManager::for_each_cache_prune_all(RuntimeProfile* profile, bool for
 }
 
 int64_t CacheManager::cache_prune_all(CachePolicy::CacheType type, bool force) {
+    DeferredCacheReleases releases;
     std::lock_guard<std::mutex> l(_caches_lock);
+    // Allocate before pruning, so collecting an action cannot allocate/fail
+    // while it already owns SDK clients under the manager lock.
+    releases.reserve(_caches.size());
     auto* cache_policy = _caches[type];
     cache_policy->prune_all(force);
+    releases.take(*cache_policy);
     return cache_policy->profile()->get_counter("FreedMemory")->value();
 }
 
 int64_t CacheManager::for_each_cache_refresh_capacity(double adjust_weighted,
                                                       RuntimeProfile* profile) {
     int64_t freed_size = 0;
+    DeferredCacheReleases releases;
     std::lock_guard<std::mutex> l(_caches_lock);
+    // Allocate before pruning, so collecting an action cannot allocate/fail
+    // while it already owns SDK clients under the manager lock.
+    releases.reserve(_caches.size());
     for (const auto& pair : _caches) {
         auto* cache_policy = pair.second;
         if (!cache_policy->enable_prune()) {
@@ -82,6 +123,7 @@ int64_t CacheManager::for_each_cache_refresh_capacity(double adjust_weighted,
             continue;
         }
         cache_policy->adjust_capacity_weighted(adjust_weighted);
+        releases.take(*cache_policy);
         freed_size += cache_policy->profile()->get_counter("FreedMemory")->value();
         if (cache_policy->profile()->get_counter("FreedMemory")->value() != 0 && profile) {
             profile->add_child(cache_policy->profile(), true, nullptr);
@@ -91,9 +133,14 @@ int64_t CacheManager::for_each_cache_refresh_capacity(double adjust_weighted,
 }
 
 void CacheManager::for_each_cache_reset_initial_capacity(double adjust_weighted) {
+    DeferredCacheReleases releases;
     std::lock_guard<std::mutex> l(_caches_lock);
+    // Allocate before pruning, so collecting an action cannot allocate/fail
+    // while it already owns SDK clients under the manager lock.
+    releases.reserve(_caches.size());
     for (const auto& pair : _caches) {
         pair.second->reset_initial_capacity(adjust_weighted);
+        releases.take(*pair.second);
     }
 }
 
