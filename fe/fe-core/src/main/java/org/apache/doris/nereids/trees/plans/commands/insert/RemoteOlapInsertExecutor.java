@@ -201,7 +201,9 @@ public class RemoteOlapInsertExecutor extends OlapInsertExecutor {
 
         TCommitRemoteTxnRequest request = new TCommitRemoteTxnRequest();
         request.setTxnId(txnId);
-        request.setWriteSchemas(Collections.singletonList(TxnWriteSchemaSnapshotCodec.toThrift(writeSchemaSnapshot)));
+        request.setWriteSchemas(Collections.singletonList(
+                TxnWriteSchemaSnapshotCodec.toThrift(writeSchemaSnapshot)
+                        .setTableId(((RemoteOlapTable) table).getRemoteTableId())));
         request.setCatalog(database.getCatalog().getName());
         request.setDb(database.getFullName());
         request.setTbl(table.getName());

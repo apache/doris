@@ -46,10 +46,14 @@ class TxnWriteSchemaSnapshotTest {
                 Collections.emptyMap(), false);
         Assertions.assertEquals(snapshot, TxnWriteSchemaSnapshotCodec.fromThrift(
                 TxnWriteSchemaSnapshotCodec.toThrift(snapshot)));
-        Assertions.assertThrows(IllegalArgumentException.class, () -> TxnWriteSchemaSnapshotCodec.fromThrift(
-                TxnWriteSchemaSnapshotCodec.toThrift(snapshot), 1, 99));
-        Assertions.assertThrows(IllegalArgumentException.class, () -> TxnWriteSchemaSnapshotCodec.fromThrift(
-                TxnWriteSchemaSnapshotCodec.toThrift(snapshot), 99, 2));
+        IllegalArgumentException missingIndex = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> TxnWriteSchemaSnapshotCodec.fromThrift(
+                        TxnWriteSchemaSnapshotCodec.toThrift(snapshot), 1, 99));
+        Assertions.assertTrue(missingIndex.getMessage().contains("base index 99"));
+        IllegalArgumentException wrongTable = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> TxnWriteSchemaSnapshotCodec.fromThrift(
+                        TxnWriteSchemaSnapshotCodec.toThrift(snapshot), 99, 2));
+        Assertions.assertTrue(wrongTable.getMessage().contains("table ID mismatch: expected 99, actual 1"));
     }
 
     @Test

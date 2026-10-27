@@ -39,8 +39,18 @@ import java.util.concurrent.ConcurrentHashMap;
 public class RemoteOlapTable extends OlapTable {
     private static final Logger LOG = LogManager.getLogger(RemoteOlapTable.class);
 
+    // getId() is rewritten to a local catalog ID; commits must retain the destination identity.
+    private final long remoteTableId;
     private RemoteDorisExternalCatalog catalog;
     private RemoteDorisExternalDatabase database;
+
+    private RemoteOlapTable(long remoteTableId) {
+        this.remoteTableId = remoteTableId;
+    }
+
+    public long getRemoteTableId() {
+        return remoteTableId;
+    }
 
     public RemoteDorisExternalCatalog getCatalog() {
         return catalog;
@@ -61,7 +71,7 @@ public class RemoteOlapTable extends OlapTable {
 
     public static RemoteOlapTable fromOlapTable(OlapTable olapTable) {
         try {
-            RemoteOlapTable externalOlapTable = new RemoteOlapTable();
+            RemoteOlapTable externalOlapTable = new RemoteOlapTable(olapTable.getId());
             Class<?> currentClass = olapTable.getClass();
             while (currentClass != null) {
                 for (Field field : currentClass.getDeclaredFields()) {
