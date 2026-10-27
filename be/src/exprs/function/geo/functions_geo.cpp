@@ -41,7 +41,15 @@
 #include <array>
 #include <bit>
 #include <boost/iterator/iterator_facade.hpp>
+// cpp_int needs no quadmath wrappers. Boost's float128 numeric_limits specialization
+// conflicts with libstdc++ 15's native specialization in the GCC performance build.
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ >= 15
+#define BOOST_CSTDFLOAT_NO_LIBQUADMATH_SUPPORT
+#endif
 #include <boost/multiprecision/cpp_int.hpp>
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ >= 15
+#undef BOOST_CSTDFLOAT_NO_LIBQUADMATH_SUPPORT
+#endif
 #include <cmath>
 #include <cstdint>
 #include <limits>

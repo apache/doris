@@ -42,6 +42,35 @@
 
 namespace doris {
 
+TEST(DataTypeSpatialTest, WireIdsDoNotReuseReleaseFileTypes) {
+    // branch-4.1 FILE uses protobuf 45 and Thrift 47, independently of whether
+    // mixed-version spatial execution is supported. Old FILE must remain unsupported.
+    EXPECT_EQ(PGenericType::GEOMETRY, 46);
+    EXPECT_EQ(PGenericType::GEOGRAPHY, 47);
+    EXPECT_EQ(TPrimitiveType::GEOMETRY, 48);
+    EXPECT_EQ(TPrimitiveType::GEOGRAPHY, 49);
+}
+
+TEST(DataTypeSpatialTest, ReleaseFileProtobufMetadataRemainsUnsupported) {
+    PColumnMeta file_meta;
+    // Parse release FILE's wire field (type, tag 2, value 45). Reserved proto2 enum
+    // values remain unknown fields; the type defaults to UNKNOWN, never GEOMETRY.
+    ASSERT_TRUE(file_meta.ParseFromString(std::string("\x10\x2d", 2)));
+    file_meta.set_is_nullable(false);
+    for (size_t child = 0; child < 6; ++child) {
+        file_meta.add_children()->set_type(PGenericType::STRING);
+    }
+    EXPECT_THROW(DataTypeFactory::instance().create_data_type(file_meta), doris::Exception);
+}
+
+TEST(DataTypeSpatialTest, ReleaseFileThriftDescriptorRemainsUnsupported) {
+    auto file_desc = create_type_desc(TYPE_GEOMETRY);
+    // Intentionally inject branch-4.1's FILE wire value to test unknown-type rejection.
+    // NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange)
+    file_desc.types[0].scalar_type.type = static_cast<TPrimitiveType::type>(47);
+    EXPECT_DEATH(DataTypeFactory::instance().create_data_type(file_desc), "meet unknown type 47");
+}
+
 static void check_spatial_multikey_sort(PrimitiveType primitive, int nullable, int direction,
                                         int nulls_direction, size_t limit) {
     auto values = ColumnSpatial::create(primitive);

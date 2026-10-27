@@ -105,8 +105,9 @@ enum TPrimitiveType {
   TIMESTAMPTZ = 44, // timestamp with time zone
   TIMESTAMP_NS = 45, // signed nanoseconds since the Unix epoch
   UUID = 46,
-  GEOMETRY = 47,
-  GEOGRAPHY = 48
+  // 47 is FILE in branch-4.1; keep its wire identity reserved.
+  GEOMETRY = 48,
+  GEOGRAPHY = 49
 }
 
 enum TTypeNodeType {
