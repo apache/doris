@@ -190,6 +190,11 @@ public abstract class AbstractCdcSourceReader implements SourceReader {
      */
     @Override
     public String serializeTableSchemas() throws IOException {
+        return serializeTableSchemas(tableSchemas);
+    }
+
+    protected static String serializeTableSchemas(
+            Map<TableId, TableChanges.TableChange> tableSchemas) throws IOException {
         if (tableSchemas == null || tableSchemas.isEmpty()) {
             return null;
         }

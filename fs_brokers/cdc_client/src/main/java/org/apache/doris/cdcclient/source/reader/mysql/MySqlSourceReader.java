@@ -33,6 +33,7 @@ import org.apache.doris.job.cdc.request.FetchTableSplitsRequest;
 import org.apache.doris.job.cdc.request.JobBaseConfig;
 import org.apache.doris.job.cdc.request.JobBaseRecordRequest;
 import org.apache.doris.job.cdc.response.FetchEndOffsetResult;
+import org.apache.doris.job.cdc.response.FetchTableSplitsResult;
 import org.apache.doris.job.cdc.split.AbstractSourceSplit;
 import org.apache.doris.job.cdc.split.BinlogSplit;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
@@ -67,7 +68,6 @@ import org.apache.flink.cdc.connectors.mysql.source.utils.ChunkUtils;
 import org.apache.flink.cdc.connectors.mysql.source.utils.RecordUtils;
 import org.apache.flink.cdc.connectors.mysql.source.utils.StatementUtils;
 import org.apache.flink.cdc.connectors.mysql.source.utils.TableDiscoveryUtils;
-import org.apache.flink.cdc.connectors.mysql.table.StartupMode;
 import org.apache.flink.cdc.connectors.mysql.table.StartupOptions;
 import org.apache.flink.table.catalog.ObjectPath;
 import org.apache.flink.table.types.logical.RowType;
@@ -162,11 +162,11 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
      * PKs go through a single splitChunks() call returning all chunks at once, so batchSize is only
      * effective on the uneven path.
      *
-     * <p>Only INITIAL/SNAPSHOT startup modes go through the chunk path; other modes return a single
-     * BinlogSplit instead.
+     * <p>FE decides when snapshots are needed, including for tables added to an incremental job.
      */
     @Override
-    public List<AbstractSourceSplit> getSourceSplits(FetchTableSplitsRequest ftsReq) {
+    public FetchTableSplitsResult<AbstractSourceSplit> getSourceSplits(
+            FetchTableSplitsRequest ftsReq) {
         LOG.info(
                 "Get table {} splits for job {} (nextSplitId={}, nextSplitStart={})",
                 ftsReq.getSnapshotTable(),
@@ -174,16 +174,6 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
                 ftsReq.getNextSplitId(),
                 java.util.Arrays.toString(ftsReq.getNextSplitStart()));
         MySqlSourceConfig sourceConfig = getSourceConfig(ftsReq);
-        StartupMode startupMode = sourceConfig.getStartupOptions().startupMode;
-
-        if (!startupMode.equals(StartupMode.INITIAL) && !startupMode.equals(StartupMode.SNAPSHOT)) {
-            BinlogSplit binlogSplit = new BinlogSplit();
-            binlogSplit.setSplitId(BINLOG_SPLIT_ID);
-            binlogSplit.setStartingOffset(
-                    sourceConfig.getStartupOptions().binlogOffset.getOffset());
-            return Collections.singletonList(binlogSplit);
-        }
-
         String database = ftsReq.getConfig().get(DataSourceConfigKeys.DATABASE);
         TableId tableId = TableId.parse(database + "." + ftsReq.getSnapshotTable());
         int batchSize = ftsReq.getBatchSize() == null ? 100 : ftsReq.getBatchSize();
@@ -205,9 +195,13 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
         try {
             splitter.open();
             List<AbstractSourceSplit> result = new ArrayList<>();
+            String tableSchema = null;
             while (result.size() < batchSize) {
                 List<MySqlSnapshotSplit> chunks = splitter.splitChunks(partition, tableId);
                 for (MySqlSnapshotSplit chunk : chunks) {
+                    if (ftsReq.isIncludeTableSchema() && tableSchema == null) {
+                        tableSchema = serializeTableSchemas(chunk.getTableSchemas());
+                    }
                     result.add(toDorisSnapshotSplit(chunk));
                 }
                 if (!splitter.hasNextChunk()) {
@@ -220,7 +214,7 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
                     tableId,
                     ftsReq.getNextSplitId(),
                     splitter.hasNextChunk());
-            return result;
+            return new FetchTableSplitsResult<>(result, tableSchema);
         } catch (Exception e) {
             throw new RuntimeException("Failed to generate splits for " + tableId, e);
         } finally {
@@ -278,6 +272,8 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
 
     @Override
     public SplitReadResult prepareAndSubmitSplit(JobBaseRecordRequest baseReq) throws Exception {
+        // Load tableSchemas from FE if available (avoids re-discover on restart).
+        tryLoadTableSchemasFromRequest(baseReq);
         Map<String, Object> offsetMeta = baseReq.getMeta();
         if (offsetMeta == null || offsetMeta.isEmpty()) {
             throw new RuntimeException("miss meta offset");
@@ -435,8 +431,6 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
     /** Prepare binlog split */
     private synchronized SplitReadResult prepareBinlogSplit(
             Map<String, Object> offsetMeta, JobBaseRecordRequest baseReq) throws Exception {
-        // Load tableSchemas from FE if available (avoids re-discover on restart)
-        tryLoadTableSchemasFromRequest(baseReq);
         Tuple2<MySqlSplit, Boolean> splitFlag = createBinlogSplit(offsetMeta, baseReq);
         MySqlBinlogSplit newBinlogSplit = (MySqlBinlogSplit) splitFlag.f0;
 
@@ -720,8 +714,7 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
         SnapshotSplit snapshotSplit = objectMapper.convertValue(offset, SnapshotSplit.class);
         TableId tableId = TableId.parse(snapshotSplit.getTableId());
         List<String> splitKeys = snapshotSplit.getSplitKey();
-        Map<TableId, TableChanges.TableChange> tableSchemas = getTableSchemas(jobConfig);
-        TableChanges.TableChange tableChange = tableSchemas.get(tableId);
+        TableChanges.TableChange tableChange = getTableSchema(tableId, jobConfig);
         Preconditions.checkNotNull(
                 tableChange, "Can not find table " + tableId + " in job " + jobConfig.getJobId());
         // only support one split key
@@ -1253,6 +1246,26 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
         BinlogOffset binlogOffset1 = new BinlogOffset(offsetFirst);
         BinlogOffset binlogOffset2 = new BinlogOffset(offsetSecond);
         return binlogOffset1.compareTo(binlogOffset2);
+    }
+
+    private TableChanges.TableChange getTableSchema(TableId tableId, JobBaseConfig config) {
+        Map<TableId, TableChanges.TableChange> schemas = getTableSchemas(config);
+        TableChanges.TableChange tableChange = schemas.get(tableId);
+        if (tableChange == null) {
+            // Preserve the retained tables' offset-aligned schemas when adding a missing table.
+            MySqlSourceConfig sourceConfig = getSourceConfig(config);
+            try (MySqlConnection jdbc = DebeziumUtils.createMySqlConnection(sourceConfig)) {
+                MySqlSchema schema =
+                        new MySqlSchema(sourceConfig, DebeziumUtils.isTableIdCaseSensitive(jdbc));
+                MySqlPartition partition =
+                        new MySqlPartition(sourceConfig.getMySqlConnectorConfig().getLogicalName());
+                tableChange = schema.getTableSchema(partition, jdbc, tableId);
+                schemas.put(tableId, tableChange);
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to resolve table schema for " + tableId, e);
+            }
+        }
+        return tableChange;
     }
 
     private Map<TableId, TableChanges.TableChange> getTableSchemas(JobBaseConfig config) {

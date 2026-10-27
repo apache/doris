@@ -17,6 +17,7 @@
 
 package org.apache.doris.job.offset.jdbc;
 
+import org.apache.doris.job.cdc.response.FetchTableSplitsResult;
 import org.apache.doris.job.cdc.split.BinlogSplit;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
 import org.apache.doris.job.exception.JobException;
@@ -77,12 +78,13 @@ public class JdbcSourceOffsetProviderAsyncSplitTest {
         }
 
         @Override
-        protected List<SnapshotSplit> rpcFetchSplitsBatch(String table, Object[] startVal, Integer splitId) {
+        protected FetchTableSplitsResult<SnapshotSplit> rpcFetchSplitsBatch(
+                String table, Object[] startVal, Integer splitId) {
             rpcCalls.add(new RpcCall(table, startVal, splitId));
             if (mockBatches.isEmpty()) {
-                return Collections.emptyList();
+                return new FetchTableSplitsResult<>(Collections.emptyList(), null);
             }
-            return mockBatches.poll();
+            return new FetchTableSplitsResult<>(mockBatches.poll(), null);
         }
 
         @Override

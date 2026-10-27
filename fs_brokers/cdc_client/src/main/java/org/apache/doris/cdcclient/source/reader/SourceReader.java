@@ -25,6 +25,7 @@ import org.apache.doris.job.cdc.request.FetchTableSplitsRequest;
 import org.apache.doris.job.cdc.request.JobBaseConfig;
 import org.apache.doris.job.cdc.request.JobBaseRecordRequest;
 import org.apache.doris.job.cdc.response.FetchEndOffsetResult;
+import org.apache.doris.job.cdc.response.FetchTableSplitsResult;
 import org.apache.doris.job.cdc.split.AbstractSourceSplit;
 
 import org.apache.flink.api.connector.source.SourceSplit;
@@ -32,7 +33,6 @@ import org.apache.kafka.connect.source.SourceRecord;
 
 import java.io.IOException;
 import java.util.Iterator;
-import java.util.List;
 import java.util.Map;
 
 import io.debezium.relational.TableId;
@@ -53,7 +53,7 @@ public interface SourceReader {
             String jobId, DataSource dataSource, Map<String, String> config) {}
 
     /** Divide the data to be read. For example: split mysql to chunks */
-    List<AbstractSourceSplit> getSourceSplits(FetchTableSplitsRequest config);
+    FetchTableSplitsResult<AbstractSourceSplit> getSourceSplits(FetchTableSplitsRequest config);
 
     /** Construct a split and submit a split reading task. */
     SplitReadResult prepareAndSubmitSplit(JobBaseRecordRequest baseReq) throws Exception;

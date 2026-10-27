@@ -1424,10 +1424,8 @@ public final class MetricRepo {
                 String jobId = String.valueOf(sJob.getJobId());
                 String jobName = sJob.getJobName();
 
-                // tvfType != null: TVF mode, uses jobStatistic
-                // tvfType == null: multi-table mode (FROM...TO), uses nonTxnJobStatistic
                 final StreamingJobStatistic stat;
-                if (sJob.getTvfType() != null) {
+                if (sJob.isTvfJob()) {
                     stat = sJob.getJobStatistic() != null ? sJob.getJobStatistic() : new StreamingJobStatistic();
                 } else {
                     stat = sJob.getNonTxnJobStatistic() != null

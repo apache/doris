@@ -178,7 +178,8 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
                 if (targetPropModified) {
                     DataSourceConfigValidator.validateTarget(this.getTargetProperties());
                 }
-                if (!propModified && !targetPropModified && !sourcePropModified) {
+                if (!propModified && !targetPropModified && !sourcePropModified
+                        && !sourceProperties.containsKey(DataSourceConfigKeys.INCLUDE_TABLES)) {
                     throw new AnalysisException("No properties or source or target properties changed in ALTER JOB");
                 }
             }
@@ -207,13 +208,6 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
                     originSourceProperties.get(DataSourceConfigKeys.SCHEMA),
                     sourceProperties.get(DataSourceConfigKeys.SCHEMA)),
                     "The schema property cannot be modified in ALTER JOB");
-        }
-
-        if (sourceProperties.containsKey(DataSourceConfigKeys.INCLUDE_TABLES)) {
-            Preconditions.checkArgument(Objects.equals(
-                    originSourceProperties.get(DataSourceConfigKeys.INCLUDE_TABLES),
-                    sourceProperties.get(DataSourceConfigKeys.INCLUDE_TABLES)),
-                    "The include_tables property cannot be modified in ALTER JOB");
         }
 
         if (sourceProperties.containsKey(DataSourceConfigKeys.EXCLUDE_TABLES)) {

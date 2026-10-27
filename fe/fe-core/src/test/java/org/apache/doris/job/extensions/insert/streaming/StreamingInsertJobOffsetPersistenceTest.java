@@ -23,17 +23,22 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.request.CommitOffsetRequest;
+import org.apache.doris.job.cdc.response.FetchTableSplitsResult;
+import org.apache.doris.job.cdc.split.BinlogSplit;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
+import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.manager.JobManager;
 import org.apache.doris.job.manager.StreamingTaskManager;
 import org.apache.doris.job.offset.SourceOffsetProvider;
+import org.apache.doris.job.offset.jdbc.JdbcOffset;
 import org.apache.doris.job.offset.jdbc.JdbcSourceOffsetProvider;
 import org.apache.doris.job.offset.jdbc.JdbcTvfSourceOffsetProvider;
 import org.apache.doris.job.offset.s3.S3Offset;
 import org.apache.doris.job.offset.s3.S3SourceOffsetProvider;
+import org.apache.doris.job.util.StreamingJobUtils;
 import org.apache.doris.nereids.trees.plans.commands.AlterJobCommand;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.tablefunction.CdcStreamTableValuedFunction;
@@ -42,6 +47,7 @@ import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TxnStateCallbackFactory;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
@@ -54,6 +60,142 @@ import java.util.Map;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class StreamingInsertJobOffsetPersistenceTest {
+
+    @Test
+    public void testFetchedSchemaIsJournaledOnFirstChunkCommit() throws Exception {
+        String addedSchema = "[{\"i\":\"public.added\",\"c\":{}}]";
+        SchemaFetchProvider provider = new SchemaFetchProvider(addedSchema, List.of(
+                new SnapshotSplit("public.added:0", "public.added", List.of("id"),
+                        null, new Object[] {10}, null),
+                new SnapshotSplit("public.added:1", "public.added", List.of("id"),
+                        new Object[] {10}, null, null)));
+        provider.updateOffset(new JdbcOffset(List.of(new BinlogSplit(Map.of("lsn", "100")))));
+        provider.setTableSchemas("[{\"i\":\"public.retained\",\"c\":{}}]");
+        provider.applyIncludeTablesChange(List.of("retained", "added"), List.of("added"));
+        TestStreamingInsertJob job = newJob(provider, 1017L);
+        job.setOffsetProviderPersist(provider.getPersistInfo());
+        provider.markTableSchemasPersisted(provider.getTableSchemas());
+        try (MockedStatic<StreamingJobUtils> utilities = Mockito.mockStatic(StreamingJobUtils.class)) {
+            utilities.when(() -> StreamingJobUtils.upsertChunkList(Mockito.eq(9001L), Mockito.eq("added"),
+                    Mockito.anyList())).thenAnswer(invocation -> {
+                        Assertions.assertEquals(0, job.journalCount);
+                        Assertions.assertEquals(0, provider.pendingSplitCount());
+                        List<SnapshotSplit> chunks = invocation.getArgument(2);
+                        Assertions.assertFalse(new ObjectMapper().writeValueAsString(chunks).contains("tableSchema"));
+                        return null;
+                    });
+            provider.advanceSplits();
+            Assertions.assertEquals(0, job.journalCount);
+            Assertions.assertEquals(2, provider.pendingSplitCount());
+            Assertions.assertTrue(provider.isTableSchemasDirty());
+            Assertions.assertTrue(provider.getTableSchemas().contains("public.added"));
+
+            job.commitOffset(snapshotRequest(1017L, "public.added:0", null));
+            Assertions.assertEquals(1, job.journalCount);
+            Assertions.assertFalse(provider.isTableSchemasDirty());
+            JdbcSourceOffsetProvider persisted = GsonUtils.GSON.fromJson(job.getOffsetProviderPersist(),
+                    JdbcSourceOffsetProvider.class);
+            Assertions.assertEquals(provider.getTableSchemas(), persisted.getTableSchemas());
+        }
+    }
+
+    @Test
+    public void testAlterTablesAndPropertiesUsesMergedConfiguration() throws Exception {
+        SourceOffsetProvider provider = Mockito.mock(SourceOffsetProvider.class);
+        Mockito.when(provider.getPersistInfo()).thenReturn("updated-state");
+        TestStreamingInsertJob job = Mockito.spy(newJob(provider, 1017L));
+        job.setJobStatus(JobStatus.PAUSED);
+        Mockito.doNothing().when(job).replayOffsetProviderIfNeed();
+        Deencapsulation.setField(job, "dataSourceType", DataSourceType.MYSQL);
+        Deencapsulation.setField(job, "syncTables", List.of("retained"));
+        Map<String, String> original = Map.of(DataSourceConfigKeys.JDBC_URL,
+                "jdbc:mysql://127.0.0.1:3306/source_db", DataSourceConfigKeys.INCLUDE_TABLES, "retained",
+                DataSourceConfigKeys.USER, "old_user", DataSourceConfigKeys.PASSWORD, "old_password");
+        Deencapsulation.setField(job, "sourceProperties", original);
+        job.getTargetProperties().put("replication_num", "1");
+        Map<String, String> sourceChanges = Map.of(DataSourceConfigKeys.INCLUDE_TABLES, "retained,added",
+                DataSourceConfigKeys.USER, "new_user", DataSourceConfigKeys.PASSWORD, "new_password");
+        Map<String, String> expectedSource = new HashMap<>(original);
+        expectedSource.putAll(sourceChanges);
+        Map<String, String> expectedConverted = new HashMap<>(expectedSource);
+        expectedConverted.put(DataSourceConfigKeys.JDBC_URL, StreamingJdbcUrlNormalizer.normalize(
+                DataSourceType.MYSQL, expectedSource.get(DataSourceConfigKeys.JDBC_URL)));
+        Map<String, String> expectedTarget = Map.of("replication_num", "3");
+        AlterJobCommand command = new AlterJobCommand("test_job",
+                Map.of(StreamingJobProperties.MAX_INTERVAL_SECOND_PROPERTY, "20"), null,
+                "mysql", null, sourceChanges, expectedTarget);
+
+        try (MockedStatic<StreamingJobUtils> utilities = Mockito.mockStatic(StreamingJobUtils.class)) {
+            utilities.when(() -> StreamingJobUtils.convertCertFile(Mockito.anyLong(), Mockito.anyMap()))
+                    .thenAnswer(invocation -> new HashMap<>(invocation.<Map<String, String>>getArgument(1)));
+            job.alterJob(command);
+            utilities.verify(() -> StreamingJobUtils.convertCertFile(Mockito.anyLong(), Mockito.eq(expectedSource)),
+                    Mockito.times(1));
+            utilities.verify(() -> StreamingJobUtils.validateAndCreateTables(Mockito.any(),
+                    Mockito.eq(DataSourceType.MYSQL), Mockito.eq(expectedConverted), Mockito.eq(expectedTarget),
+                    Mockito.eq(List.of("retained", "added")), Mockito.eq(List.of("added"))));
+        }
+        Mockito.verify(provider).validateAlterIncludeTables(List.of("retained", "added"));
+        Mockito.verify(provider).ensureInitialized(9001L, expectedConverted);
+        Assertions.assertEquals(expectedSource, job.getSourceProperties());
+        Assertions.assertEquals(expectedTarget, job.getTargetProperties());
+        Assertions.assertEquals(List.of("retained", "added"), job.getSyncTables());
+        Assertions.assertEquals("20", job.getProperties().get(StreamingJobProperties.MAX_INTERVAL_SECOND_PROPERTY));
+        Assertions.assertEquals("updated-state", job.getOffsetProviderPersist());
+        Assertions.assertEquals(1, job.journalCount);
+    }
+
+    @Test
+    public void testAlterChecksPublicationBeforeChangingTableSet() throws Exception {
+        SourceOffsetProvider originalProvider = Mockito.mock(SourceOffsetProvider.class);
+        TestStreamingInsertJob job = Mockito.spy(newJob(originalProvider, 1017L));
+        job.setJobStatus(JobStatus.PAUSED);
+        Map<String, String> originalProperties = Map.of(DataSourceConfigKeys.JDBC_URL,
+                "jdbc:postgresql://127.0.0.1:5432/source_db", DataSourceConfigKeys.INCLUDE_TABLES, "retained");
+        Deencapsulation.setField(job, "dataSourceType", DataSourceType.POSTGRES);
+        Deencapsulation.setField(job, "sourceProperties", originalProperties);
+        Deencapsulation.setField(job, "syncTables", Collections.singletonList("retained"));
+        job.setOffsetProviderPersist("original-state");
+        AlterJobCommand command = new AlterJobCommand("test_job", Collections.emptyMap(), null,
+                "postgres", null, Collections.singletonMap(DataSourceConfigKeys.INCLUDE_TABLES, "retained,added"),
+                Collections.emptyMap());
+
+        try (MockedStatic<StreamingJobUtils> utilities = Mockito.mockStatic(StreamingJobUtils.class);
+                MockedStatic<PostgresResourceValidator> publications =
+                        Mockito.mockStatic(PostgresResourceValidator.class)) {
+            publications.when(() -> PostgresResourceValidator.ensurePublicationCoversTables(
+                    Mockito.anyMap(), Mockito.eq("9001"), Mockito.eq(List.of("retained", "added"))))
+                    .thenThrow(new JobException("publication test_pub is missing required tables: [public.added]"));
+            utilities.when(() -> StreamingJobUtils.convertCertFile(Mockito.anyLong(), Mockito.anyMap()))
+                    .thenAnswer(invocation -> new HashMap<>(invocation.<Map<String, String>>getArgument(1)));
+
+            JobException failure = Assertions.assertThrows(JobException.class, () -> job.alterJob(command));
+            Assertions.assertTrue(failure.getMessage().contains("is missing required tables: [public.added]"));
+            Assertions.assertSame(originalProvider, job.offsetProvider);
+            Assertions.assertEquals(originalProperties, job.getSourceProperties());
+            Assertions.assertEquals(Collections.singletonList("retained"), job.getSyncTables());
+            Assertions.assertEquals("original-state", job.getOffsetProviderPersist());
+            Assertions.assertEquals(JobStatus.PAUSED, job.getJobStatus());
+            Assertions.assertEquals(0, job.journalCount);
+        }
+    }
+
+    @Test
+    public void testAlterRejectsEmptyIncludeTablesWithoutMutation() {
+        for (String includeTables : List.of("", " ", ",,")) {
+            TestStreamingInsertJob job = newJob(new JdbcSourceOffsetProvider(), 1017L);
+            job.setJobStatus(JobStatus.PAUSED);
+            Map<String, String> sourceProperties = Map.of(DataSourceConfigKeys.INCLUDE_TABLES, "retained");
+            Deencapsulation.setField(job, "sourceProperties", sourceProperties);
+            AlterJobCommand command = new AlterJobCommand("test_job", Collections.emptyMap(), null,
+                    "mysql", null, Map.of(DataSourceConfigKeys.INCLUDE_TABLES, includeTables),
+                    Collections.emptyMap());
+            AnalysisException error = Assertions.assertThrows(AnalysisException.class, () -> job.alterJob(command));
+            Assertions.assertEquals("include_tables cannot be empty", error.getDetailMessage());
+            Assertions.assertEquals(sourceProperties, job.getSourceProperties());
+            Assertions.assertEquals(0, job.journalCount);
+        }
+    }
 
     @Test
     public void testAlterValidatesServerIdAgainstMergedParallelismBeforeMutation() {
@@ -544,6 +686,24 @@ public class StreamingInsertJobOffsetPersistenceTest {
         request.setTaskId(taskId);
         request.setOffset("[{\"splitId\":\"binlog-split\",\"lsn\":\"" + lsn + "\"}]");
         return request;
+    }
+
+    private static class SchemaFetchProvider extends JdbcSourceOffsetProvider {
+        private final transient String schema;
+        private final transient List<SnapshotSplit> splits;
+
+        SchemaFetchProvider(String schema, List<SnapshotSplit> splits) {
+            super(9001L, DataSourceType.POSTGRES, new HashMap<>());
+            this.schema = schema;
+            this.splits = splits;
+        }
+
+        @Override
+        protected FetchTableSplitsResult<SnapshotSplit> rpcFetchSplitsBatch(
+                String table, Object[] start, Integer splitId) {
+            Assertions.assertEquals("added", table);
+            return new FetchTableSplitsResult<>(splits, schema);
+        }
     }
 
     private static class TestStreamingInsertJob extends StreamingInsertJob {

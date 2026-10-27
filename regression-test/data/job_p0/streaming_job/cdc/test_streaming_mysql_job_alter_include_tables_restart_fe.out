@@ -1,0 +1,9 @@
+-- Expected results derived from the source writes and synchronization rules before execution.
+-- !retained_after_restart --
+1	1
+2	-2
+3	3
+
+-- !added_after_restart --
+200	20281	21171
+

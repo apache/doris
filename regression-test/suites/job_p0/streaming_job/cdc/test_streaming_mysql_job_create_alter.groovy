@@ -367,15 +367,16 @@ suite("test_streaming_mysql_job_create_alter", "p0,external,mysql,external_docke
             exception "The database property cannot be modified in ALTER JOB"
         }
 
-        // alter include tables
+        // Table-set and offset changes must use separate ALTER statements.
         test {
             sql """ALTER JOB ${jobName}
+                PROPERTIES ("offset" = '{"file":"mysql-bin.000001","pos":"4"}')
                 FROM MYSQL (
                     "include_tables" = "changeTable"
                 )
                 TO DATABASE ${currentDb}
             """
-            exception "The include_tables property cannot be modified in ALTER JOB"
+            exception "Cannot alter include_tables and offset together"
         }
 
         // alter exclude tables

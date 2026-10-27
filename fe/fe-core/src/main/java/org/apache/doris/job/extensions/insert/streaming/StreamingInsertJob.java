@@ -103,7 +103,9 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -414,9 +416,13 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         return value;
     }
 
+    public boolean isTvfJob() {
+        return tvfType != null;
+    }
+
     private SourceOffsetProvider createOffsetProvider(Map<String, String> jdbcSourceProps) {
         SourceOffsetProvider provider;
-        if (tvfType != null) {
+        if (isTvfJob()) {
             provider = SourceOffsetProviderFactory.createSourceOffsetProvider(tvfType, jobProperties);
         } else {
             provider = new JdbcSourceOffsetProvider(getJobId(), dataSourceType, jdbcSourceProps);
@@ -500,7 +506,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
      */
     public void validateAlterOffset(String offset) throws AnalysisException {
         try {
-            if (tvfType != null) {
+            if (isTvfJob()) {
                 offsetProvider.ensureInitialized(getJobId(), getOriginTvfProps());
             }
             offsetProvider.validateAlterOffset(offset);
@@ -535,6 +541,15 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             List<String> logParts = new ArrayList<>();
 
             validateComputeGroupProperty(alterJobCommand.getProperties());
+            List<String> updatedTables = null;
+            if (alterJobCommand.getSourceProperties().containsKey(DataSourceConfigKeys.INCLUDE_TABLES)) {
+                String includeTables = alterJobCommand.getSourceProperties().get(DataSourceConfigKeys.INCLUDE_TABLES);
+                updatedTables = StringUtils.isBlank(includeTables) ? Collections.emptyList()
+                        : new ArrayList<>(new LinkedHashSet<>(Arrays.asList(includeTables.split(","))));
+                if (updatedTables.isEmpty()) {
+                    throw new AnalysisException("include_tables cannot be empty");
+                }
+            }
 
             // Prepare the merged source properties before mutating the job.
             Map<String, String> mergedSourceProperties = null;
@@ -549,6 +564,13 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 }
                 newConvertedSourceProperties = buildConvertedSourceProperties(mergedSourceProperties);
             }
+            Map<String, String> mergedTargetProperties = targetProperties;
+            if (!alterJobCommand.getTargetProperties().isEmpty()) {
+                mergedTargetProperties = new HashMap<>(targetProperties);
+                mergedTargetProperties.putAll(alterJobCommand.getTargetProperties());
+            }
+            alterIncludeTables(alterJobCommand, updatedTables,
+                    newConvertedSourceProperties, mergedTargetProperties);
 
             // update sql
             if (StringUtils.isNotEmpty(alterJobCommand.getSql())) {
@@ -589,13 +611,55 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
             // update target properties
             if (!alterJobCommand.getTargetProperties().isEmpty()) {
-                this.targetProperties.putAll(alterJobCommand.getTargetProperties());
+                this.targetProperties = mergedTargetProperties;
                 logParts.add("target properties: " + alterJobCommand.getTargetProperties());
             }
             log.info("Alter streaming job {}, {}", getJobId(), String.join(", ", logParts));
             logUpdateOperation();
         } finally {
             writeUnlock();
+        }
+    }
+
+    private void alterIncludeTables(AlterJobCommand command, List<String> updatedTables,
+            Map<String, String> newConvertedSourceProperties, Map<String, String> mergedTargetProperties)
+            throws AnalysisException, JobException {
+        if (updatedTables == null || new HashSet<>(updatedTables).equals(new HashSet<>(syncTables))) {
+            return;
+        }
+        if (command.getProperties().containsKey(StreamingJobProperties.OFFSET_PROPERTY)) {
+            throw new AnalysisException("Cannot alter include_tables and offset together");
+        }
+        // A paused job may not have restored its committed progress after an FE restart.
+        replayOffsetProviderIfNeed();
+        offsetProvider.validateAlterIncludeTables(updatedTables);
+        List<String> addedTables = new ArrayList<>(updatedTables);
+        addedTables.removeAll(syncTables);
+        prepareIncludeTablesChange(newConvertedSourceProperties, mergedTargetProperties, updatedTables, addedTables);
+
+        offsetProvider.applyIncludeTablesChange(updatedTables, addedTables);
+        offsetProvider.ensureInitialized(getJobId(), newConvertedSourceProperties);
+        syncTables = updatedTables;
+        offsetProviderPersist = offsetProvider.getPersistInfo();
+        needRebuildReader = true;
+    }
+
+    private void prepareIncludeTablesChange(Map<String, String> newConvertedProperties,
+            Map<String, String> newTargetProperties, List<String> updatedTables, List<String> addedTables)
+            throws JobException {
+        try {
+            StreamingJobUtils.validateAndCreateTables(targetDb, dataSourceType,
+                    newConvertedProperties, newTargetProperties, updatedTables, addedTables);
+            if (dataSourceType == DataSourceType.POSTGRES) {
+                PostgresResourceValidator.ensurePublicationCoversTables(
+                        newConvertedProperties, String.valueOf(getJobId()), updatedTables);
+            }
+            // Clear stale chunks so re-added tables restart splitting; an empty list means no saved splits.
+            for (String table : addedTables) {
+                StreamingJobUtils.upsertChunkList(getJobId(), table, Collections.emptyList());
+            }
+        } catch (Exception e) {
+            throw new JobException("Failed to prepare include_tables change: " + e.getMessage(), e);
         }
     }
 
@@ -622,7 +686,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     private void prepareSchemaChangeResume(JobStatus status) {
-        if (tvfType != null) {
+        if (isTvfJob()) {
             return;
         }
         // Schema-change failures cannot auto-resume, so this transition confirms user acceptance.
@@ -676,7 +740,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         }
     }
 
-    private boolean tryPauseJob(FailureReason reason) throws JobException {
+    boolean tryPauseJob(FailureReason reason) throws JobException {
         lock.writeLock().lock();
         try {
             if (!isActive()
@@ -764,7 +828,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     protected AbstractStreamingTask createStreamingTask() throws JobException {
-        if (tvfType != null) {
+        if (isTvfJob()) {
             this.runningStreamTask = createStreamingInsertTask();
         } else {
             this.runningStreamTask = createStreamingMultiTblTask();
@@ -822,7 +886,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     private Map<String, String> getProviderProps() throws JobException {
-        return tvfType != null ? getOriginTvfProps() : getConvertedSourceProperties();
+        return isTvfJob() ? getOriginTvfProps() : getConvertedSourceProperties();
     }
 
     protected AbstractStreamingTask createStreamingInsertTask() {
@@ -1157,7 +1221,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             modifyPropertiesInternal(replayJob.getProperties());
             if (replayPersistInfo != null) {
                 setOffsetProviderPersist(replayPersistInfo);
-                if (tvfType != null) {
+                if (isTvfJob()) {
                     offsetProvider.restoreFromPersistInfo(offsetProviderPersist);
                 }
             } else {
@@ -1187,6 +1251,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         if (replayJob.getTargetProperties() != null) {
             this.targetProperties = replayJob.getTargetProperties();
         }
+        this.syncTables = replayJob.syncTables;
         setExecuteSql(replayJob.getExecuteSql());
         // SQL-derived caches must be invalidated together so the next parse uses the replayed SQL.
         this.baseCommand = null;
@@ -1276,7 +1341,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         } else {
             trow.addToColumnValue(new TCell().setStringVal(""));
         }
-        if (tvfType != null) {
+        if (isTvfJob()) {
             trow.addToColumnValue(new TCell().setStringVal(
                     jobStatistic == null ? "" : jobStatistic.toJson()));
         } else {
@@ -1590,7 +1655,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         }
         if (offsetProvider == null) {
             offsetProvider = createOffsetProvider(sourceProperties);
-            if (tvfType != null) {
+            if (isTvfJob()) {
                 offsetProvider.restoreFromPersistInfo(offsetProviderPersist);
             }
         }
@@ -1776,6 +1841,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     private void persistOffsetProviderIfNeed(
             JdbcSourceOffsetProvider jdbcOffsetProvider, long currentTimeMs) {
+        String schemas = jdbcOffsetProvider.getTableSchemas();
         this.offsetProviderPersist = jdbcOffsetProvider.getPersistInfo();
         if (this.offsetProviderPersist == null) {
             return;
@@ -1787,7 +1853,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
         logUpdateOperation(jdbcOffsetProvider.isTableSchemasDirty()
                 ? offsetProviderPersist : jdbcOffsetProvider.getPersistInfoWithoutTableSchemas());
-        jdbcOffsetProvider.markTableSchemasPersisted();
+        jdbcOffsetProvider.markTableSchemasPersisted(schemas);
         lastOffsetPersistTimeMs = currentTimeMs;
     }
 
@@ -1818,7 +1884,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         closeOffsetProvider();
 
         // s3 tvf clean offset
-        if (tvfType != null && Config.isCloudMode()) {
+        if (isTvfJob() && Config.isCloudMode()) {
             Cloud.DeleteStreamingJobResponse resp = null;
             try {
                 Cloud.DeleteStreamingJobRequest req = Cloud.DeleteStreamingJobRequest.newBuilder()

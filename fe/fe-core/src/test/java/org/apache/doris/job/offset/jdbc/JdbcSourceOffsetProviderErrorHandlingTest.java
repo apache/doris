@@ -17,6 +17,7 @@
 
 package org.apache.doris.job.offset.jdbc;
 
+import org.apache.doris.job.cdc.response.FetchTableSplitsResult;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
 import org.apache.doris.job.exception.JobException;
 
@@ -25,7 +26,6 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -39,12 +39,13 @@ public class JdbcSourceOffsetProviderErrorHandlingTest {
     public void testParseSuccessEnvelopeReturnsTypedPayload() throws JobException {
         JdbcSourceOffsetProvider provider = new JdbcSourceOffsetProvider();
         String response = "{\"code\":0,\"msg\":\"Success\","
-                + "\"data\":[{\"splitId\":\"db.t:0\",\"tableId\":\"db.t\"}]}";
-        List<SnapshotSplit> splits =
-                provider.parseCdcResponseData(response, new TypeReference<List<SnapshotSplit>>() {});
-        Assertions.assertEquals(1, splits.size());
-        Assertions.assertEquals("db.t:0", splits.get(0).getSplitId());
-        Assertions.assertEquals("db.t", splits.get(0).getTableId());
+                + "\"data\":{\"splits\":[{\"splitId\":\"db.t:0\",\"tableId\":\"db.t\"}]}}";
+        FetchTableSplitsResult<SnapshotSplit> result = provider.parseCdcResponseData(response,
+                new TypeReference<FetchTableSplitsResult<SnapshotSplit>>() {});
+        Assertions.assertEquals(1, result.getSplits().size());
+        Assertions.assertEquals("db.t:0", result.getSplits().get(0).getSplitId());
+        Assertions.assertEquals("db.t", result.getSplits().get(0).getTableId());
+        Assertions.assertNull(result.getTableSchema());
     }
 
     @Test
@@ -53,7 +54,7 @@ public class JdbcSourceOffsetProviderErrorHandlingTest {
         String realError = "permission denied for database regression_db";
         String response = "{\"code\":1,\"msg\":\"Internal Error\",\"data\":\"" + realError + "\"}";
         try {
-            provider.parseCdcResponseData(response, new TypeReference<List<SnapshotSplit>>() {});
+            provider.parseCdcResponseData(response, new TypeReference<FetchTableSplitsResult<SnapshotSplit>>() {});
             Assertions.fail("a failed envelope must throw");
         } catch (JobException e) {
             Assertions.assertEquals(realError, e.getMessage());
@@ -65,7 +66,7 @@ public class JdbcSourceOffsetProviderErrorHandlingTest {
         JdbcSourceOffsetProvider provider = new JdbcSourceOffsetProvider();
         String response = "{\"code\":1,\"msg\":\"cdc_client is unavailable\",\"data\":null}";
         try {
-            provider.parseCdcResponseData(response, new TypeReference<List<SnapshotSplit>>() {});
+            provider.parseCdcResponseData(response, new TypeReference<FetchTableSplitsResult<SnapshotSplit>>() {});
             Assertions.fail("a failed envelope must throw");
         } catch (JobException e) {
             Assertions.assertEquals("cdc_client is unavailable", e.getMessage());
