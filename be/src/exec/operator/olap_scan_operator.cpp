@@ -574,6 +574,12 @@ Status OlapScanLocalState::_should_push_down_function_filter(VectorizedFnCall* f
             DCHECK(is_string_type(children[1 - i]->data_type()->get_primitive_type()));
             std::shared_ptr<ConstantExprResult> const_col_wrapper;
             RETURN_IF_ERROR(children[1 - i]->get_const_col(expr_ctx, &const_col_wrapper));
+            // LIKE/NOT LIKE with a NULL pattern must retain expression evaluation: the storage
+            // predicate only receives a StringRef and would interpret NULL as an empty pattern.
+            if (const_col_wrapper->column().is_null_at(0)) {
+                pdt = PushDownType::UNACCEPTABLE;
+                return Status::OK();
+            }
             *constant_str = const_col_wrapper->column().get_data_at(0);
         }
     }
