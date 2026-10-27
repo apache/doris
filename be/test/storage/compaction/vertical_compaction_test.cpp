@@ -59,7 +59,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "storage/delete/delete_handler.h"
-#include "storage/iterator/vertical_merge_iterator.h"
+#include "storage/iterator/row_sources_buffer.h"
 #include "storage/merger.h"
 #include "storage/olap_common.h"
 #include "storage/olap_tuple.h"
