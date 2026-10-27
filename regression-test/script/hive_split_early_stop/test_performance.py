@@ -16,10 +16,12 @@
 # under the License.
 
 import json
+import tempfile
 import unittest
 from collections import defaultdict
+from pathlib import Path
 
-from performance import SCENARIOS, measured_cases
+from performance import MILLION_SCENARIO, SCENARIOS, RequestLog, measured_cases
 
 
 class PerformanceTest(unittest.TestCase):
@@ -28,10 +30,12 @@ class PerformanceTest(unittest.TestCase):
         samples = defaultdict(list)
         for index, name in enumerate(SCENARIOS):
             begin, returned = 1000 + index * 20000, 1050 + index * 20000
+            if name == "timeout_sum":
+                returned = begin + 3050
             end = returned + (1000 if name.startswith("full_") else 10000)
             cached = name.endswith("_cached")
             observation = dict(run="before", scenario=name, repetition=0, phase=name, begin_ms=begin,
-                               return_ms=returned, signal_ms=begin + 30, observed_ms=end, elapsed_ms=50,
+                               return_ms=returned, signal_ms=begin + 30, observed_ms=end, elapsed_ms=returned - begin,
                                counts={"LIST": 0 if cached else 1})
             observations.append(observation)
             if not cached:
@@ -95,6 +99,44 @@ class PerformanceTest(unittest.TestCase):
         listings.append(dict(phase="planning", action="GET", time_ms=1020))
         with self.assertRaisesRegex(ValueError, "did not occur before"):
             measured_cases(log, "before", 1, listings, samples, ("cancel_before_read",))
+
+    def test_indexed_log_matches_in_memory_analysis_with_interleaved_phases(self):
+        observations, events, samples = self.inputs()
+        # A delayed worker can append a previous phase after a new phase starts.
+        events.append(dict(events[0], time_ms=observations[0]["return_ms"] + 11000))
+        log = "All suites success.\n" + "\n".join("SPLIT_PERF " + json.dumps(item) for item in observations)
+        expected = measured_cases(log, "before", 1, events, samples)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "requests.jsonl"
+            path.write_text("".join(json.dumps(event) + "\n" for event in events))
+            indexed = RequestLog(path)
+            self.assertEqual([], list(indexed.for_phase("absent")))
+            actual = measured_cases(log, "before", 1, indexed, samples)
+        self.assertEqual(expected, actual)
+        self.assertEqual(11000, actual[0]["last_list_after_return_until_idle_ms"])
+        self.assertEqual(1, actual[0]["file_requests_after_exit_deadline"])
+
+    def test_unrelated_early_timeout_cannot_count_as_a_query_deadline(self):
+        observations, events, samples = self.inputs()
+        next(item for item in observations if item["scenario"] == "timeout_sum")["elapsed_ms"] = 1000
+        with self.assertRaisesRegex(ValueError, "before its three-second"):
+            self.analyze(observations, events, samples)
+
+    def test_million_file_comparison_requires_the_additional_full_scan(self):
+        observations, events, samples = self.inputs()
+        observation = dict(observations[-1], scenario=MILLION_SCENARIO, phase="million", counts={"LIST": 1})
+        observations.append(observation)
+        events.extend([dict(phase="million", time_ms=observation["begin_ms"] + 10,
+                            action="LIST", synthetic_listing=False),
+                       dict(phase="million", time_ms=observation["begin_ms"] + 20, action="GET")])
+        log = "All suites success.\n" + "\n".join("SPLIT_PERF " + json.dumps(item) for item in observations)
+        cases = measured_cases(log, "before", 1, events, samples, million_file_scan=True)
+        self.assertEqual(MILLION_SCENARIO, cases[-1]["scenario"])
+        self.assertEqual(1, cases[-1]["get_total"])
+        with self.assertRaisesRegex(ValueError, "missing, repeated"):
+            measured_cases(log, "before", 1, events, samples)
+        with self.assertRaisesRegex(ValueError, "missing, repeated"):
+            measured_cases(log.rsplit("\n", 1)[0], "before", 1, events, samples, million_file_scan=True)
 
 
 if __name__ == "__main__":

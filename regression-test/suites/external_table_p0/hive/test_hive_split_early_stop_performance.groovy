@@ -35,6 +35,8 @@ suite("test_hive_split_early_stop_performance", "external") {
             ?.toString()?.toBoolean() ?: false
     boolean steadyOnly = context.config.otherConfigs.get("hiveSplitPerfSteadyLimitOnly")
             ?.toString()?.toBoolean() ?: false
+    boolean millionFileScan = context.config.otherConfigs.get("hiveSplitPerfMillionFileScan")
+            ?.toString()?.toBoolean() ?: false
     int repetitions = context.config.otherConfigs.get("hiveSplitPerfRepetitions")?.toString()?.toInteger() ?: 3
     def metrics = { -> new JsonSlurper().parse(new URL(fixtureUrl + "/__metrics")) }
     def control = { Map settings ->
@@ -151,7 +153,8 @@ suite("test_hive_split_early_stop_performance", "external") {
             measure("timeout_sum", repetition, 10000L) {
                 test {
                     sql "select sum(id) from ${table}"
-                    exception "timeout"
+                    // The BE Split fetch path reports "Timeout"; the FE deadline reports "timeout".
+                    exception "imeout"
                 }
                 return null
             }
@@ -170,6 +173,13 @@ suite("test_hive_split_early_stop_performance", "external") {
             benchmarkSuite."order_qt_cache_warmup_${repetition}"("select count(*), sum(id) from ${cacheTable} where p<100")
             measure("full_sum_10000_cached", repetition, 1000L) {
                 benchmarkSuite."order_qt_full_cached_${repetition}"("select count(*), sum(id) from ${cacheTable} where p<100")
+                return null
+            }
+        }
+        if (millionFileScan) {
+            sql "set query_timeout=3600"
+            measure("full_sum_1000000_batch", 0, 1000L) {
+                order_qt_million_files "select count(*), sum(id) from ${table}"
                 return null
             }
         }

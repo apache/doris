@@ -270,7 +270,25 @@ cases; complete-scan phase totals exclude the separate cache warmup. Use the
 initial changed-version pass to assess drift, and compare baseline with the
 changed-version repeat after both have exercised the same BE caches. Shared-host
 load and framework/proxy overhead limit conclusions about absolute throughput
-or small latency differences. No full million-file SUM completion is implied.
+or small latency differences.
+Changed-version early-stop observations require no active upstream requests
+after the ten-second observation and no new LIST, GET or HEAD requests after
+that deadline during draining. A timeout observation shorter than 2.9 seconds
+cannot stand in for the configured three-second query deadline.
+
+For an additional end-to-end complete scan of all one million physical files,
+set `hiveSplitPerfMillionFileScan = "true"` in both main-pass configs. After the
+repeated scenarios, each pass runs an unfiltered `count(*), sum(id)` once, with
+a one-hour query deadline. For scans exceeding the runner's default 30-minute
+JDBC socket timeout, set `socketTimeout=3700000` in the configured JDBC URL.
+Generate the baseline output through the runner,
+check that both values are 1000000, and compare the changed version against it.
+Add `--million-file-scan` to the report command; it rejects either pass if the
+additional observation is missing. Report this single-sample throughput result
+separately from the repeated early-stop measurements. Neither version flushes
+the OS page cache, and the observing HTTP proxy can limit absolute throughput.
+The report indexes the request log by phase and streams GET records, avoiding
+memory use proportional to the number of file reads.
 
 To isolate cancellation before BE reads, prepare two more pass configs with
 unique run names and `hiveSplitPerfPlanningCancelOnly = "true"`. This mode

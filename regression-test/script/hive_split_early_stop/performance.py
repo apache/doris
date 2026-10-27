@@ -33,6 +33,32 @@ from report import physical_evidence, require
 
 SCENARIOS = ("limit10_cold_metadata", "limit10_warm_metadata", "cancel_sum", "timeout_sum",
              "full_sum_10000_batch", "full_sum_10000_sync", "full_sum_10000_cached")
+MILLION_SCENARIO = "full_sum_1000000_batch"
+
+
+class RequestLog:
+    """Index phase byte ranges without retaining millions of GET records in memory."""
+
+    def __init__(self, path):
+        self.path, self.ranges = path, {}
+        with path.open("rb") as source:
+            while True:
+                start = source.tell()
+                line = source.readline()
+                if not line:
+                    break
+                phase = json.loads(line)["phase"]
+                bounds = self.ranges.setdefault(phase, [start, source.tell()])
+                bounds[1] = source.tell()
+
+    def for_phase(self, phase):
+        start, end = self.ranges.get(phase, (0, 0))
+        with self.path.open("rb") as source:
+            source.seek(start)
+            while source.tell() < end:
+                event = json.loads(source.readline())
+                if event["phase"] == phase:
+                    yield event
 
 
 def process_sample(pid):
@@ -94,46 +120,64 @@ def run(args):
     print("Completed benchmark pass: " + args.label)
 
 
-def measured_cases(log, label, repetitions, events, samples, scenarios=SCENARIOS):
+def measured_cases(log, label, repetitions, events, samples, scenarios=SCENARIOS, million_file_scan=False):
     require("All suites success." in log, label + ": runner did not succeed")
     cases = [json.loads(line.split("SPLIT_PERF ", 1)[1]) for line in log.splitlines() if "SPLIT_PERF {" in line]
-    require([(item["scenario"], item["repetition"]) for item in cases]
-            == [(name, repetition) for repetition in range(repetitions) for name in scenarios],
+    expected = [(name, repetition) for repetition in range(repetitions) for name in scenarios]
+    if million_file_scan:
+        expected.append((MILLION_SCENARIO, 0))
+    require([(item["scenario"], item["repetition"]) for item in cases] == expected,
             label + ": missing, repeated or out-of-order scenarios")
     for item in cases:
         require(item["run"] == label, "Configuration label does not match the measured run")
         begin, returned, end = (item[key] for key in ("begin_ms", "return_ms", "observed_ms"))
         window = 1000 if item["scenario"].startswith("full_") else 10000
         require(begin <= returned and end >= returned + window, "Incomplete performance observation")
-        requests = [event for event in events if event["phase"] == item["phase"]
-                    and begin <= event["time_ms"] <= end]
-        listings = [event for event in requests if event["action"] == "LIST"]
-        require(all(event.get("synthetic_listing") is False for event in listings), "Synthetic physical listing")
+        phase_events = events.for_phase(item["phase"]) if isinstance(events, RequestLog) else (
+            event for event in events if event["phase"] == item["phase"])
+        item.update(list_total=0, list_after_return=0, list_after_signal=0, get_total=0)
+        listing_times, drained_times = [], []
+        reads_before_signal, listings_before_signal = 0, 0
+        late_file_requests = 0
+        for event in phase_events:
+            when = event["time_ms"]
+            if when < begin:
+                continue
+            late_file_requests += when >= returned + 10000 and event["action"] in ("LIST", "GET", "HEAD")
+            if event["action"] == "LIST":
+                drained_times.append(when)
+            if when > end:
+                continue
+            if event["action"] == "LIST":
+                require(event.get("synthetic_listing") is False, "Synthetic physical listing")
+                listing_times.append(when)
+                item["list_total"] += 1
+                item["list_after_return"] += when > returned
+                item["list_after_signal"] += when > item["signal_ms"]
+                listings_before_signal += when <= item["signal_ms"]
+            elif event["action"] == "GET":
+                item["get_total"] += 1
+                reads_before_signal += when <= item["signal_ms"]
         # The HTTP metrics snapshot precedes the client's observation marker. Additional
         # requests can arrive in between; the event log covers the whole measured window.
-        require(len(listings) >= item["counts"]["LIST"], "Request log is missing proxy-counted listings")
-        item["list_total"] = len(listings)
-        item["list_after_return"] = sum(event["time_ms"] > returned for event in listings)
-        item["list_after_signal"] = sum(event["time_ms"] > item["signal_ms"] for event in listings)
+        require(item["list_total"] >= item["counts"]["LIST"], "Request log is missing proxy-counted listings")
         item["return_after_signal_ms"] = returned - item["signal_ms"]
-        item["get_total"] = sum(event["action"] == "GET" for event in requests)
         if not item["scenario"].startswith("full_"):
-            drained = [event for event in events if event["phase"] == item["phase"]
-                       and event["time_ms"] >= begin and event["action"] == "LIST"]
-            item["list_until_idle"] = len(drained)
+            item["file_requests_after_exit_deadline"] = late_file_requests
+            item["list_until_idle"] = len(drained_times)
             item["last_list_after_return_until_idle_ms"] = max(
-                (event["time_ms"] - returned for event in drained), default=0)
+                (when - returned for when in drained_times), default=0)
         item["last_list_after_return_ms"] = max(
-            (event["time_ms"] - returned for event in listings), default=0)
+            (when - returned for when in listing_times), default=0)
         if item["scenario"] == "cancel_sum":
-            require(any(event["action"] == "GET" and event["time_ms"] <= item["signal_ms"] for event in requests),
-                    "Cancelled SUM did not reach BE file reads")
+            require(reads_before_signal > 0, "Cancelled SUM did not reach BE file reads")
         if item["scenario"] == "cancel_before_read":
-            require(sum(event["time_ms"] <= item["signal_ms"] for event in listings) >= 8
-                    and not any(event["action"] == "GET" and event["time_ms"] <= item["signal_ms"]
-                                for event in requests), "Cancellation did not occur before BE file reads")
+            require(listings_before_signal >= 8 and reads_before_signal == 0,
+                    "Cancellation did not occur before BE file reads")
         if item["scenario"] == "full_sum_10000_cached":
-            require(not listings, "Timed cache-hit query missed the file-list cache")
+            require(item["list_total"] == 0, "Timed cache-hit query missed the file-list cache")
+        if item["scenario"] == "timeout_sum":
+            require(item["elapsed_ms"] >= 2900, "SUM failed before its three-second query deadline")
         for role in ("fe", "be", "be2"):
             rows = samples[role]
             prior = [row for row in rows if row["time_ms"] <= begin]
@@ -155,7 +199,7 @@ def measured_cases(log, label, repetitions, events, samples, scenarios=SCENARIOS
 
 def summarize(args):
     (args.output / "performance-results.json").unlink(missing_ok=True)
-    events = [json.loads(line) for line in (args.output / "s3-requests.jsonl").read_text().splitlines()]
+    events = RequestLog(args.output / "s3-requests.jsonl")
     groups = defaultdict(list)
     all_cases = []
     passes = [(label, "before", SCENARIOS) for label in args.before]
@@ -177,15 +221,22 @@ def summarize(args):
                 row["cpu_seconds"] = float(row["cpu_seconds"])
                 samples[row["role"]].append(row)
         cases = measured_cases((args.output / label / "regression.log").read_text(),
-                               label, args.repetitions, events, samples, scenarios)
+                               label, args.repetitions, events, samples, scenarios,
+                               million_file_scan=args.million_file_scan and scenarios == SCENARIOS)
         for item in cases:
+            if version == "after" and not item["scenario"].startswith("full_"):
+                require(item["file_requests_after_exit_deadline"] == 0,
+                        label + ": file requests continued after the ten-second exit deadline")
+                require(item["active_at_observation"] == 0,
+                        label + ": file requests were still active at the exit deadline")
             groups[(version, item["scenario"])].append(item)
         all_cases.extend(cases)
     metrics = ("elapsed_ms", "return_after_signal_ms", "list_total", "list_after_return", "list_after_signal",
-               "get_total", "fe_query_cpu_s", "fe_post_return_cpu_s",
+               "get_total", "last_list_after_return_ms", "fe_query_cpu_s", "fe_post_return_cpu_s",
                "fe_peak_rss_mb", "fe_rss_change_mb", "host_load1_median")
     comparison = []
-    scenarios = SCENARIOS + (("cancel_before_read",) if args.planning_before else ())
+    scenarios = SCENARIOS + ((MILLION_SCENARIO,) if args.million_file_scan else ())
+    scenarios += ("cancel_before_read",) if args.planning_before else ()
     scenarios += ("limit10_steady",) if args.steady_before else ()
     for scenario in scenarios:
         entry = {"scenario": scenario}
@@ -205,7 +256,9 @@ def summarize(args):
               "notes": ["Real physical files, zero artificial delay, no Java agent; both versions use the same proxy.",
                         "Cold means refreshed catalog metadata, not a cold OS page cache or JVM.",
                         "CPU and RSS use external /proc sampling every 100 ms; RSS is not retained Java heap.",
-                        "Full SUM covers 100 partitions and 10000 files; early-stop queries select 10000 partitions."]}
+                        "Full SUM controls cover 100 partitions and 10000 files; early-stop queries select 10000 partitions."]}
+    if args.million_file_scan:
+        result["notes"].append("An additional complete SUM scans all 10000 partitions and 1000000 files once per pass.")
     result["physical_dataset"] = physical_evidence(
         json.loads((args.output / "fixture.json").read_text()),
         json.loads((args.output / "hms-fixture.json").read_text()),
@@ -233,6 +286,7 @@ def main():
     report.add_argument("--before", nargs="+", required=True)
     report.add_argument("--after", nargs="+", required=True)
     report.add_argument("--repetitions", type=int, default=3)
+    report.add_argument("--million-file-scan", action="store_true", help="Require one complete million-file SUM per pass")
     report.add_argument("--planning-before", help="Optional cancel-before-file-read baseline pass")
     report.add_argument("--planning-after", help="Optional cancel-before-file-read changed-version pass")
     report.add_argument("--steady-before", help="Optional consecutive warm LIMIT baseline pass")
