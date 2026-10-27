@@ -974,6 +974,114 @@ static Status build_equality_delete_key_expr(
     return build_nested_equality_delete_key_expr(path, std::move(root_expr), key_expr);
 }
 
+static int equality_delete_integer_width(PrimitiveType type) {
+    switch (type) {
+    case TYPE_TINYINT:
+        return 1;
+    case TYPE_SMALLINT:
+        return 2;
+    case TYPE_INT:
+        return 4;
+    case TYPE_BIGINT:
+        return 8;
+    case TYPE_LARGEINT:
+        return 16;
+    default:
+        return 0;
+    }
+}
+
+// Whether every `from` value converts exactly to a `to` value that compares equal to the same
+// Iceberg value. These are the Iceberg promotions (INT -> LONG, FLOAT -> DOUBLE, decimal
+// precision, DATE -> TIMESTAMP and DATE -> TIMESTAMP_NS), a wider fractional scale of the same
+// date-time kind, and STRING -> VARBINARY: an Iceberg BINARY key decodes as either one, depending
+// on enable_mapping_varbinary, and both hold the same bytes. TIMESTAMP -> TIMESTAMP_NS is not an
+// Iceberg promotion, but a delete can be prepared under a nanosecond schema that the table later
+// abandons. Scaling microseconds by 1000 is exact, whereas rounding the tombstone
+// 12:00:00.000000500 to microseconds would delete the data key 12:00:00.000000.
+static bool is_equality_delete_widening(const DataTypePtr& from, const DataTypePtr& to) {
+    const auto from_type = remove_nullable(from);
+    const auto to_type = remove_nullable(to);
+    if (from_type->equals(*to_type)) {
+        return true;
+    }
+    const auto from_primitive = from_type->get_primitive_type();
+    const auto to_primitive = to_type->get_primitive_type();
+    if (const int from_width = equality_delete_integer_width(from_primitive); from_width > 0) {
+        return equality_delete_integer_width(to_primitive) >= from_width;
+    }
+    switch (from_primitive) {
+    case TYPE_FLOAT:
+        return to_primitive == TYPE_DOUBLE;
+    case TYPE_DECIMAL32:
+    case TYPE_DECIMAL64:
+    case TYPE_DECIMAL128I:
+    case TYPE_DECIMAL256:
+        return is_decimalv3(to_primitive) && to_type->get_scale() == from_type->get_scale() &&
+               to_type->get_precision() >= from_type->get_precision();
+    case TYPE_DATEV2:
+        return to_primitive == TYPE_DATETIMEV2 || to_primitive == TYPE_TIMESTAMP_NS;
+    case TYPE_DATETIMEV2:
+        return (to_primitive == TYPE_DATETIMEV2 &&
+                to_type->get_scale() >= from_type->get_scale()) ||
+               to_primitive == TYPE_TIMESTAMP_NS;
+    case TYPE_TIMESTAMPTZ:
+    case TYPE_TIMEV2:
+        return to_primitive == from_primitive && to_type->get_scale() >= from_type->get_scale();
+    case TYPE_VARCHAR:
+        return to_primitive == TYPE_STRING || to_primitive == TYPE_VARBINARY;
+    case TYPE_STRING:
+        return to_primitive == TYPE_VARBINARY;
+    default:
+        return false;
+    }
+}
+
+// Iceberg equality is by value, so a key is compared in the wider of the delete file's and the
+// data file's key types, and neither side is narrowed. One scan-wide table type cannot serve: after
+// expireSnapshots().cleanExpiredMetadata(true) drops the schema of a schema-only INT -> LONG
+// promotion, the table type of a dropped key is INT while its tombstones are LONG, and casting
+// 4294967296 to INT yields NULL, which deletes the rows whose key is NULL.
+static Status equality_delete_comparison_type(int field_id, const DataTypePtr& delete_type,
+                                              const DataTypePtr& data_type,
+                                              const std::string& data_file_path,
+                                              DataTypePtr* comparison_type) {
+    DORIS_CHECK(delete_type != nullptr);
+    DORIS_CHECK(data_type != nullptr);
+    DORIS_CHECK(comparison_type != nullptr);
+    if (is_equality_delete_widening(delete_type, data_type)) {
+        *comparison_type = remove_nullable(data_type);
+        return Status::OK();
+    }
+    if (is_equality_delete_widening(data_type, delete_type)) {
+        *comparison_type = remove_nullable(delete_type);
+        return Status::OK();
+    }
+    // No promotion leads from one type to the other, so no third type compares them faithfully:
+    // STRING tombstones cast to an INT key would delete the row with key 1 for the string "1".
+    return Status::NotSupported(
+            "Iceberg equality delete field id {} is {} in the delete file and {} for data file "
+            "{}, and neither type converts exactly to the other",
+            field_id, remove_nullable(delete_type)->get_name(),
+            remove_nullable(data_type)->get_name(), data_file_path);
+}
+
+// Makes `key_expr` yield `comparison_type`, keeping its nullability.
+static VExprSPtr cast_equality_delete_key(VExprSPtr key_expr, const DataTypePtr& comparison_type) {
+    DORIS_CHECK(key_expr != nullptr);
+    DORIS_CHECK(comparison_type != nullptr);
+    const auto& source_type = key_expr->data_type();
+    if (remove_nullable(source_type)->equals(*remove_nullable(comparison_type))) {
+        return key_expr;
+    }
+    auto cast_expr = EvolutionCast::create_shared(source_type->is_nullable()
+                                                          ? make_nullable(comparison_type)
+                                                          : remove_nullable(comparison_type),
+                                                  false, true);
+    cast_expr->add_child(std::move(key_expr));
+    return cast_expr;
+}
+
 Status IcebergTableReader::annotate_projected_column(const TFileScanSlotInfo& slot_info,
                                                      format::ProjectedColumnBuildContext* context,
                                                      format::ColumnDefinition* column) const {
@@ -1173,16 +1281,20 @@ std::string IcebergTableReader::debug_string() const {
             equality_filters << ", ";
         }
         const auto& filter = _equality_delete_filters[idx];
+        const auto append_types = [&equality_filters](const std::vector<DataTypePtr>& types) {
+            for (size_t type_idx = 0; type_idx < types.size(); ++type_idx) {
+                if (type_idx > 0) {
+                    equality_filters << ", ";
+                }
+                equality_filters << (types[type_idx] == nullptr ? "null"
+                                                                : types[type_idx]->get_name());
+            }
+        };
         equality_filters << "EqualityDeleteFilter{field_ids="
                          << join_values_for_debug(filter.field_ids) << ", key_types=[";
-        for (size_t type_idx = 0; type_idx < filter.key_types.size(); ++type_idx) {
-            if (type_idx > 0) {
-                equality_filters << ", ";
-            }
-            equality_filters << (filter.key_types[type_idx] == nullptr
-                                         ? "null"
-                                         : filter.key_types[type_idx]->get_name());
-        }
+        append_types(filter.key_types);
+        equality_filters << "], delete_key_types=[";
+        append_types(filter.delete_key_types);
         equality_filters << "], delete_block_rows=" << filter.delete_block.rows()
                          << ", delete_block_columns=" << filter.delete_block.columns() << "}";
     }
@@ -1542,9 +1654,10 @@ void IcebergTableReader::_append_equality_delete_row_count_carrier(
 Status IcebergTableReader::_build_missing_equality_delete_key_expr(
         const EqualityDeleteFilter& filter, size_t key_idx,
         const EqualityDeleteColumnPath& data_path, format::FileScanRequest* const request,
-        VExprSPtr* const key_expr) {
+        VExprSPtr* const key_expr, DataTypePtr* const comparison_type) {
     DORIS_CHECK(request != nullptr);
     DORIS_CHECK(key_expr != nullptr);
+    DORIS_CHECK(comparison_type != nullptr);
     auto table_path = _find_table_column_path_by_field_id(filter.field_ids[key_idx],
                                                           filter.key_types[key_idx], true);
     if (!table_path.has_value() || data_path.size() >= table_path->size()) {
@@ -1569,11 +1682,18 @@ Status IcebergTableReader::_build_missing_equality_delete_key_expr(
     const auto* table_leaf = missing_path.back();
     DORIS_CHECK(table_leaf != nullptr);
     DORIS_CHECK(table_leaf->type != nullptr);
-    if (!table_leaf->type->equals(*filter.key_types[key_idx])) {
-        auto cast_expr = EvolutionCast::create_shared(filter.key_types[key_idx]);
-        cast_expr->add_child(default_expr);
-        default_expr = std::move(cast_expr);
+    if (missing_root.initial_default_value.has_value()) {
+        RETURN_IF_ERROR(equality_delete_comparison_type(
+                filter.field_ids[key_idx], filter.delete_key_types[key_idx], table_leaf->type,
+                _data_file_path(), comparison_type));
+    } else {
+        // Without an initial default the key is NULL in this file whatever its table type, so it
+        // is compared in the delete file's type, to which the table type need not convert: a
+        // dropped key whose retained schemas only typed it Iceberg `unknown` arrives as STRING,
+        // while its tombstones are, for example, DATE.
+        *comparison_type = remove_nullable(filter.delete_key_types[key_idx]);
     }
+    default_expr = cast_equality_delete_key(std::move(default_expr), *comparison_type);
     if (data_path.empty()) {
         *key_expr = std::move(default_expr);
         return Status::OK();
@@ -1586,8 +1706,7 @@ Status IcebergTableReader::_build_missing_equality_delete_key_expr(
     VExprSPtr ancestor_expr;
     RETURN_IF_ERROR(build_equality_delete_key_expr(data_path, block_position, &ancestor_expr));
     auto combined_expr = std::make_shared<AncestorNullDefaultExpr>(
-            make_nullable(filter.key_types[key_idx]),
-            ancestor_expr->expr_name() + "." + table_leaf->name);
+            make_nullable(*comparison_type), ancestor_expr->expr_name() + "." + table_leaf->name);
     combined_expr->add_child(ancestor_expr);
     combined_expr->add_child(default_expr);
     *key_expr = std::move(combined_expr);
@@ -1597,37 +1716,54 @@ Status IcebergTableReader::_build_missing_equality_delete_key_expr(
 Status IcebergTableReader::_append_equality_delete_predicates(format::FileScanRequest* request) {
     DORIS_CHECK(request != nullptr);
     for (const auto& filter : _equality_delete_filters) {
-        auto delete_predicate = std::make_shared<EqualityDeletePredicate>(
-                filter.delete_block, filter.field_ids, filter.hash_index);
         DCHECK_EQ(filter.field_ids.size(), filter.key_types.size());
+        DCHECK_EQ(filter.field_ids.size(), filter.delete_key_types.size());
+        VExprSPtrs key_exprs;
+        DataTypes comparison_types;
         bool has_missing_key = false;
         for (size_t idx = 0; idx < filter.field_ids.size(); ++idx) {
             EqualityDeleteColumnPath data_path;
             bool complete_path = false;
             RETURN_IF_ERROR(
                     _find_equality_delete_data_field(filter, idx, &data_path, &complete_path));
-            if (!complete_path) {
-                VExprSPtr key_expr;
-                RETURN_IF_ERROR(_build_missing_equality_delete_key_expr(filter, idx, data_path,
-                                                                        request, &key_expr));
-                delete_predicate->add_child(key_expr);
-                has_missing_key = true;
-                continue;
-            }
-            const auto* root = data_path.front();
-            const auto* field = data_path.back();
-            const auto field_column_id = format::LocalColumnId(root->file_local_id());
-            _append_file_scan_column(request, field_column_id, &request->predicate_columns);
-            const auto block_position = request->local_positions.at(field_column_id).value();
             VExprSPtr key_expr;
-            RETURN_IF_ERROR(build_equality_delete_key_expr(data_path, block_position, &key_expr));
-            if (field->type->equals(*filter.key_types[idx])) {
-                delete_predicate->add_child(key_expr);
+            DataTypePtr comparison_type;
+            if (!complete_path) {
+                RETURN_IF_ERROR(_build_missing_equality_delete_key_expr(
+                        filter, idx, data_path, request, &key_expr, &comparison_type));
+                has_missing_key = true;
             } else {
-                auto cast_expr = EvolutionCast::create_shared(filter.key_types[idx]);
-                cast_expr->add_child(key_expr);
-                delete_predicate->add_child(cast_expr);
+                const auto* root = data_path.front();
+                const auto field_column_id = format::LocalColumnId(root->file_local_id());
+                _append_file_scan_column(request, field_column_id, &request->predicate_columns);
+                const auto block_position = request->local_positions.at(field_column_id).value();
+                RETURN_IF_ERROR(
+                        build_equality_delete_key_expr(data_path, block_position, &key_expr));
+                RETURN_IF_ERROR(equality_delete_comparison_type(
+                        filter.field_ids[idx], filter.delete_key_types[idx], key_expr->data_type(),
+                        _data_file_path(), &comparison_type));
+                key_expr = cast_equality_delete_key(std::move(key_expr), comparison_type);
             }
+            key_exprs.push_back(std::move(key_expr));
+            comparison_types.push_back(std::move(comparison_type));
+        }
+        // A data file can hold a key in a wider type than the delete file, e.g. a LONG written
+        // after an INT -> LONG promotion against INT tombstones written before it. The tombstones
+        // are then widened once per scanner and cached, instead of narrowing every data value.
+        EqualityDeleteFilter converted;
+        const bool needs_conversion = !std::ranges::equal(
+                filter.delete_key_types, comparison_types,
+                [](const DataTypePtr& delete_type, const DataTypePtr& comparison_type) {
+                    return remove_nullable(delete_type)->equals(*comparison_type);
+                });
+        if (needs_conversion) {
+            RETURN_IF_ERROR(_convert_equality_delete_filter(filter, comparison_types, &converted));
+        }
+        const auto& compared = needs_conversion ? converted : filter;
+        auto delete_predicate = std::make_shared<EqualityDeletePredicate>(
+                compared.delete_block, filter.field_ids, compared.hash_index);
+        for (auto& key_expr : key_exprs) {
+            delete_predicate->add_child(std::move(key_expr));
         }
         if (has_missing_key && request->predicate_columns.empty()) {
             _append_equality_delete_row_count_carrier(request);
@@ -1635,6 +1771,69 @@ Status IcebergTableReader::_append_equality_delete_predicates(format::FileScanRe
         request->delete_conjuncts.push_back(
                 VExprContext::create_shared(std::move(delete_predicate)));
     }
+    return Status::OK();
+}
+
+Status IcebergTableReader::_convert_equality_delete_filter(const EqualityDeleteFilter& filter,
+                                                           const DataTypes& comparison_types,
+                                                           EqualityDeleteFilter* result) {
+    DORIS_CHECK(_split_cache != nullptr);
+    DORIS_CHECK(result != nullptr);
+    DORIS_CHECK(comparison_types.size() == filter.delete_key_types.size());
+    std::ostringstream cache_key;
+    cache_key << filter.cache_key << ":compare";
+    for (const auto& type : comparison_types) {
+        cache_key << ':' << type->get_name();
+    }
+    Status convert_status = Status::OK();
+    bool cache_hit = false;
+    auto* cached_filter = _split_cache->get<EqualityDeleteFilter>(
+            cache_key.str(),
+            [&]() -> EqualityDeleteFilter* {
+                auto converted = std::make_unique<EqualityDeleteFilter>();
+                convert_status = _build_converted_equality_delete_filter(filter, comparison_types,
+                                                                         converted.get());
+                if (!convert_status.ok()) {
+                    return nullptr;
+                }
+                converted->cache_key = cache_key.str();
+                return converted.release();
+            },
+            &cache_hit);
+    RETURN_IF_ERROR(convert_status);
+    DORIS_CHECK(cached_filter != nullptr);
+    if (!cache_hit) {
+        COUNTER_UPDATE(_profile.equality_delete_hash_index_memory,
+                       static_cast<int64_t>(cached_filter->hash_index->memory_usage()));
+    }
+    *result = *cached_filter;
+    return Status::OK();
+}
+
+Status IcebergTableReader::_build_converted_equality_delete_filter(
+        const EqualityDeleteFilter& filter, const DataTypes& comparison_types,
+        EqualityDeleteFilter* result) const {
+    DORIS_CHECK(result != nullptr);
+    result->field_ids = filter.field_ids;
+    result->field_names = filter.field_names;
+    result->key_types = filter.key_types;
+    Block delete_block = filter.delete_block;
+    RowDescriptor row_desc;
+    for (size_t index = 0; index < comparison_types.size(); ++index) {
+        const auto& entry = delete_block.get_by_position(index);
+        VExprSPtr key_expr = VSlotRef::create_shared(cast_set<int>(index), cast_set<int>(index), -1,
+                                                     entry.type, entry.name);
+        auto context = VExprContext::create_shared(
+                cast_equality_delete_key(std::move(key_expr), comparison_types[index]));
+        RETURN_IF_ERROR(context->prepare(_runtime_state, row_desc));
+        RETURN_IF_ERROR(context->open(_runtime_state));
+        ColumnWithTypeAndName key;
+        RETURN_IF_ERROR(context->execute(&delete_block, key));
+        key.name = entry.name;
+        result->delete_key_types.push_back(key.type);
+        result->delete_block.insert(std::move(key));
+    }
+    result->hash_index = EqualityDeletePredicate::build_hash_index(result->delete_block);
     return Status::OK();
 }
 
@@ -1828,10 +2027,10 @@ Status IcebergTableReader::_resolve_equality_delete_fields(
             return Status::NotSupported(
                     "Iceberg equality delete does not support complex column {}", field->name);
         }
-        // Equality comparison must run in the promoted (current snapshot schema) type domain.
-        // Narrowing a wider data key into a historical delete-file type is lossy: an INT overflow
-        // becomes NULL, and NULL-safe equality then matches a NULL delete key. Delete values are
-        // promoted into this same domain when the delete file is read.
+        // The delete block keeps the delete file's own key type. Each data file's predicate
+        // compares a key in the wider of this type and its own (equality_delete_comparison_type):
+        // narrowing to either side is lossy, as an INT overflow becomes NULL and NULL-safe
+        // equality then matches a NULL key.
         const DataTypePtr delete_file_type =
                 path.size() > 1 ? make_nullable(field->type) : field->type;
         DataTypePtr key_type = delete_file_type;
@@ -1843,6 +2042,7 @@ Status IcebergTableReader::_resolve_equality_delete_fields(
         result->field_ids.push_back(field_id);
         result->field_names.push_back(field->name);
         result->key_types.push_back(key_type);
+        result->delete_key_types.push_back(delete_file_type);
     }
     return Status::OK();
 }
@@ -1890,14 +2090,7 @@ Status IcebergTableReader::_load_equality_delete_file(const TIcebergDeleteFileDe
         VExprSPtr key_expr;
         RETURN_IF_ERROR(build_equality_delete_key_expr(
                 path, request->local_positions.at(root_column_id).value(), &key_expr));
-        const auto& key_type = result->key_types[index];
-        if (!key_expr->data_type()->equals(*key_type)) {
-            // Historical delete values share the promoted comparison domain. DATE-to-nanos
-            // must report overflow rather than turn a non-NULL equality key into NULL.
-            auto cast_expr = EvolutionCast::create_shared(key_type);
-            cast_expr->add_child(key_expr);
-            key_expr = std::move(cast_expr);
-        }
+        DORIS_CHECK(key_expr->data_type()->equals(*result->delete_key_types[index]));
         auto context = VExprContext::create_shared(std::move(key_expr));
         RETURN_IF_ERROR(context->prepare(_runtime_state, row_desc));
         RETURN_IF_ERROR(context->open(_runtime_state));
@@ -1908,7 +2101,7 @@ Status IcebergTableReader::_load_equality_delete_file(const TIcebergDeleteFileDe
     Block delete_block_template;
     for (size_t index = 0; index < delete_paths.size(); ++index) {
         const auto* field = delete_paths[index].back();
-        const auto& key_type = result->key_types[index];
+        const auto& key_type = result->delete_key_types[index];
         delete_block_template.insert({key_type->create_column(), key_type, field->name});
     }
     MutableBlock mutable_delete_block(delete_block_template.clone_empty());
@@ -1942,8 +2135,8 @@ Status IcebergTableReader::_read_equality_delete_file(const TIcebergDeleteFileDe
     std::ostringstream cache_key;
     cache_key << _delete_file_cache_key("iceberg_v2_equality_delete_", delete_file.path);
     if (scan_params.__isset.current_schema_id) {
-        // The promoted comparison type depends on the current snapshot schema, so a cached filter
-        // must not be reused across schemas.
+        // The table-side key types depend on the current snapshot schema, so a cached filter must
+        // not be reused across schemas.
         cache_key << ":schema=" << scan_params.current_schema_id;
     }
     cache_key << ':' << delete_file.field_ids.size();
@@ -1964,6 +2157,7 @@ Status IcebergTableReader::_read_equality_delete_file(const TIcebergDeleteFileDe
                 if (!read_status.ok()) {
                     return nullptr;
                 }
+                result->cache_key = cache_key.str();
                 return result.release();
             },
             &cache_hit);

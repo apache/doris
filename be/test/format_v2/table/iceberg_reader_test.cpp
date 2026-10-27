@@ -4964,6 +4964,296 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeletePromotesHistoricalDeleteKeyToCurr
     std::filesystem::remove_all(test_dir);
 }
 
+template <typename Builder, typename Value>
+std::shared_ptr<arrow::Array> build_nullable_array(
+        Builder* builder, const std::vector<std::optional<Value>>& values) {
+    for (const auto& value : values) {
+        if (value.has_value()) {
+            EXPECT_TRUE(builder->Append(*value).ok());
+        } else {
+            EXPECT_TRUE(builder->AppendNull().ok());
+        }
+    }
+    return finish_array(builder);
+}
+
+std::shared_ptr<arrow::Array> build_nullable_int32_keys(
+        const std::vector<std::optional<int32_t>>& values) {
+    arrow::Int32Builder builder;
+    return build_nullable_array(&builder, values);
+}
+
+std::shared_ptr<arrow::Array> build_date32_keys(const std::vector<std::optional<int32_t>>& days) {
+    arrow::Date32Builder builder;
+    return build_nullable_array(&builder, days);
+}
+
+std::shared_ptr<arrow::Array> build_timestamp_keys(
+        arrow::TimeUnit::type unit, const std::vector<std::optional<int64_t>>& ticks) {
+    arrow::TimestampBuilder builder(arrow::timestamp(unit), arrow::default_memory_pool());
+    return build_nullable_array(&builder, ticks);
+}
+
+void write_parquet_table(const std::string& file_path, const std::shared_ptr<arrow::Table>& table) {
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+    ::parquet::WriterProperties::Builder builder;
+    builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    builder.compression(::parquet::Compression::UNCOMPRESSED);
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out,
+                                                      std::max<int64_t>(table->num_rows(), 1),
+                                                      builder.build()));
+}
+
+// Writes `id` (field id 0) and, unless `keys` is null, the nullable key `k` (field id 1).
+void write_id_and_key_parquet_file(const std::string& file_path, const std::vector<int32_t>& ids,
+                                   const std::shared_ptr<arrow::Array>& keys) {
+    std::vector<std::shared_ptr<arrow::Field>> fields {
+            arrow::field("id", arrow::int32(), false)
+                    ->WithMetadata(arrow::key_value_metadata({"PARQUET:field_id"}, {"0"}))};
+    std::vector<std::shared_ptr<arrow::Array>> columns {build_int32_array(ids)};
+    if (keys != nullptr) {
+        fields.push_back(
+                arrow::field("k", keys->type(), true)
+                        ->WithMetadata(arrow::key_value_metadata({"PARQUET:field_id"}, {"1"})));
+        columns.push_back(keys);
+    }
+    write_parquet_table(file_path, arrow::Table::Make(arrow::schema(fields), columns));
+}
+
+struct KeyDataFile {
+    std::vector<int32_t> ids;
+    // nullptr: the data file has no `k`, as one written before the key was added.
+    std::shared_ptr<arrow::Array> keys;
+};
+
+// Reads each data file as one split of a single reader. Every split carries the same equality
+// delete file on `k` (field id 1) holding `delete_keys`, and `key_field` describes `k` in the
+// scan's schema metadata, as the FE sends it. Returns the surviving ids of each split.
+Status read_ids_after_key_equality_delete(const std::string& test_name,
+                                          const std::vector<KeyDataFile>& data_files,
+                                          const std::shared_ptr<arrow::Array>& delete_keys,
+                                          schema::external::TFieldPtr key_field,
+                                          std::vector<std::vector<int32_t>>* ids_per_split) {
+    const auto test_dir = std::filesystem::temp_directory_path() / test_name;
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+    const auto delete_file_path = (test_dir / "equality-delete.parquet").string();
+    write_parquet_table(
+            delete_file_path,
+            arrow::Table::Make(arrow::schema({arrow::field("k", delete_keys->type(), true)
+                                                      ->WithMetadata(arrow::key_value_metadata(
+                                                              {"PARQUET:field_id"}, {"1"}))}),
+                               {delete_keys}));
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    auto scan_params = make_local_parquet_scan_params();
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+    scan_params.__set_current_schema_id(100);
+    scan_params.__set_history_schema_info(
+            {external_schema(100, {external_schema_field("id", 0), std::move(key_field)})});
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    doris::format::iceberg::IcebergTableReader reader;
+    init_iceberg_reader(&reader, projected_columns, &scan_params, io_ctx, &state, &profile);
+    for (size_t index = 0; index < data_files.size(); ++index) {
+        const auto file_path = (test_dir / ("data-" + std::to_string(index) + ".parquet")).string();
+        write_id_and_key_parquet_file(file_path, data_files[index].ids, data_files[index].keys);
+        auto split_options = build_split_options(file_path);
+        split_options.cache = &cache;
+        split_options.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+                file_path, {make_iceberg_equality_delete_file(delete_file_path, {1})}));
+        RETURN_IF_ERROR(reader.prepare_split(split_options));
+        std::vector<int32_t> ids;
+        bool eos = false;
+        while (!eos) {
+            Block block = build_table_block(projected_columns);
+            RETURN_IF_ERROR(reader.get_block(&block, &eos));
+            if (block.rows() == 0) {
+                continue;
+            }
+            const auto& id_column =
+                    assert_cast<const ColumnInt32&>(expect_not_null_table_column(block, 0));
+            for (size_t row = 0; row < block.rows(); ++row) {
+                ids.push_back(id_column.get_element(row));
+            }
+        }
+        ids_per_split->push_back(std::move(ids));
+    }
+    RETURN_IF_ERROR(reader.close());
+    std::filesystem::remove_all(test_dir);
+    return Status::OK();
+}
+
+constexpr int64_t MICROS_PER_DAY = 86400LL * 1000 * 1000;
+constexpr int32_t DAYS_1000_01_01 = -354285;
+constexpr int32_t DAYS_1600_01_01 = -135140;
+constexpr int32_t DAYS_2000_01_01 = 10957;
+constexpr int32_t DAYS_2024_01_02 = 19724;
+constexpr int32_t DAYS_2024_01_03 = 19725;
+
+// After expireSnapshots().cleanExpiredMetadata(true) removes the schema of a schema-only
+// INT -> LONG promotion, the FE types a dropped key INT although its tombstones are LONG.
+// Comparing in INT turned 4294967296 into NULL, which deleted the NULL key of the old file and
+// the 4294967296 key of the new one together.
+TEST(IcebergV2ReaderTest, IcebergEqualityDeleteKeepsWideTombstonesUnderNarrowTableType) {
+    std::vector<std::vector<int32_t>> ids;
+    const auto status = read_ids_after_key_equality_delete(
+            "doris_iceberg_equality_delete_narrow_table_type",
+            {{.ids = {1, 2, 3}, .keys = build_nullable_int32_keys({std::nullopt, 0, 1})},
+             {.ids = {4, 5}, .keys = build_nullable_int64_array({std::nullopt, 4294967296})}},
+            build_nullable_int64_array({4294967296}),
+            external_schema_field("k", 1, {}, std::nullopt,
+                                  external_primitive_type(TPrimitiveType::INT), false, true),
+            &ids);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(ids, (std::vector<std::vector<int32_t>> {{1, 2, 3}, {4}}));
+}
+
+// INT tombstones written before an INT -> LONG promotion meet LONG data files and INT data files
+// of the same scan. LONG files compare in LONG through a widened copy of the delete block, which
+// the third split takes from the scanner cache; the INT file uses the delete block as read.
+TEST(IcebergV2ReaderTest, IcebergEqualityDeleteWidensTombstonesPerDataFileType) {
+    std::vector<std::vector<int32_t>> ids;
+    const auto status = read_ids_after_key_equality_delete(
+            "doris_iceberg_equality_delete_widened_per_data_file",
+            {{.ids = {1, 2}, .keys = build_nullable_int64_array({7, 4294967303})},
+             {.ids = {3, 4}, .keys = build_nullable_int32_keys({7, 8})},
+             {.ids = {5, 6}, .keys = build_nullable_int64_array({4294967303, 7})}},
+            build_nullable_int32_keys({7}),
+            external_schema_field("k", 1, {}, std::nullopt,
+                                  external_primitive_type(TPrimitiveType::BIGINT), false, true),
+            &ids);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(ids, (std::vector<std::vector<int32_t>> {{2}, {4}, {5}}));
+}
+
+// A read pinned before a later DATE -> TIMESTAMP_NS promotion gets the promoted table type. The
+// DATE tombstone and the DATE data compare as DATE, so 1000-01-01 does not have to fit
+// TIMESTAMP_NS (1677-09-21..2262-04-11) and the scan no longer fails with an overflow.
+TEST(IcebergV2ReaderTest, IcebergEqualityDeleteComparesDatesUnderNanosecondTableType) {
+    std::vector<std::vector<int32_t>> ids;
+    const auto status = read_ids_after_key_equality_delete(
+            "doris_iceberg_equality_delete_wide_table_type",
+            {{.ids = {1, 2}, .keys = build_date32_keys({DAYS_1000_01_01, DAYS_2000_01_01})}},
+            build_date32_keys({DAYS_1000_01_01}),
+            external_schema_field("k", 1, {}, std::nullopt,
+                                  external_primitive_type(TPrimitiveType::TIMESTAMP_NS), false,
+                                  true),
+            &ids);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(ids, (std::vector<std::vector<int32_t>> {{2}}));
+}
+
+// The FE encodes an Iceberg `unknown` key as STRING when no retained schema gives it a concrete
+// type. Comparing as STRING made the DATE key "2024-01-02" differ from the TIMESTAMP_NS tombstone
+// "2024-01-02 00:00:00.000000000", so the deleted row stayed visible.
+TEST(IcebergV2ReaderTest, IcebergEqualityDeleteIgnoresUnknownTableTypeForDateAndNanosKeys) {
+    std::vector<std::vector<int32_t>> ids;
+    const auto status = read_ids_after_key_equality_delete(
+            "doris_iceberg_equality_delete_unknown_table_type",
+            {{.ids = {1, 2}, .keys = build_date32_keys({DAYS_2024_01_02, DAYS_2024_01_03})}},
+            build_timestamp_keys(arrow::TimeUnit::NANO, {DAYS_2024_01_02 * MICROS_PER_DAY * 1000}),
+            external_schema_field("k", 1, {}, std::nullopt,
+                                  external_primitive_type(TPrimitiveType::STRING), false, true),
+            &ids);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(ids, (std::vector<std::vector<int32_t>> {{2}}));
+}
+
+// A delete prepared under a TIMESTAMP_NS schema that the table later abandoned holds nanosecond
+// tombstones while the table type is TIMESTAMP. Rounding the tombstone 12:00:00.000000500 to
+// microseconds matched one of the microsecond keys; in nanoseconds it matches neither.
+TEST(IcebergV2ReaderTest, IcebergEqualityDeleteComparesNanosecondTombstonesInNanoseconds) {
+    const int64_t noon_micros = DAYS_2024_01_02 * MICROS_PER_DAY + 12LL * 3600 * 1000 * 1000;
+    std::vector<std::vector<int32_t>> ids;
+    const auto status = read_ids_after_key_equality_delete(
+            "doris_iceberg_equality_delete_abandoned_nanos",
+            {{.ids = {1, 2},
+              .keys = build_timestamp_keys(arrow::TimeUnit::MICRO,
+                                           {noon_micros, noon_micros + 1})}},
+            build_timestamp_keys(arrow::TimeUnit::NANO, {noon_micros * 1000 + 500}),
+            external_schema_field("k", 1, {}, std::nullopt,
+                                  external_primitive_type(TPrimitiveType::DATETIMEV2, -1, 6), false,
+                                  true),
+            &ids);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(ids, (std::vector<std::vector<int32_t>> {{1, 2}}));
+}
+
+// Comparing microsecond keys in nanoseconds must fail for a key outside 1677-09-21..2262-04-11.
+// A non-strict cast would turn 1600-01-01 into NULL, and the NULL tombstone would delete it.
+TEST(IcebergV2ReaderTest, IcebergEqualityDeleteRejectsMicrosOutsideNanosecondRange) {
+    std::vector<std::vector<int32_t>> ids;
+    const auto status = read_ids_after_key_equality_delete(
+            "doris_iceberg_equality_delete_micros_outside_nanos",
+            {{.ids = {1, 2},
+              .keys = build_timestamp_keys(
+                      arrow::TimeUnit::MICRO,
+                      {DAYS_1600_01_01 * MICROS_PER_DAY, DAYS_2024_01_02 * MICROS_PER_DAY})}},
+            build_timestamp_keys(arrow::TimeUnit::NANO, {std::nullopt}),
+            external_schema_field("k", 1, {}, std::nullopt,
+                                  external_primitive_type(TPrimitiveType::DATETIMEV2, -1, 6), false,
+                                  true),
+            &ids);
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("TIMESTAMP_NS overflow"), std::string::npos) << status;
+}
+
+// A data file without the key compares its initial default, typed by the table, against the
+// tombstones in the wider of the two types: INT default 5 matches the LONG tombstone 5.
+TEST(IcebergV2ReaderTest, IcebergEqualityDeleteWidensMissingKeyDefaultToTombstoneType) {
+    std::vector<std::vector<int32_t>> ids;
+    const auto status = read_ids_after_key_equality_delete(
+            "doris_iceberg_equality_delete_missing_key_default_widened",
+            {{.ids = {1, 2, 3}, .keys = nullptr}}, build_nullable_int64_array({5}),
+            external_schema_field("k", 1, {}, "5", external_primitive_type(TPrimitiveType::INT),
+                                  false, true),
+            &ids);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(ids, (std::vector<std::vector<int32_t>> {std::vector<int32_t> {}}));
+}
+
+// Without an initial default a missing key is NULL whatever the table type, so it is compared in
+// the tombstones' type even when the table type cannot convert to it (`unknown` arrives as
+// STRING): the NULL tombstone deletes every row, the DATE one deletes none.
+TEST(IcebergV2ReaderTest, IcebergEqualityDeleteMatchesNullMissingKeyUnderUnknownTableType) {
+    std::vector<std::vector<int32_t>> ids;
+    const auto status = read_ids_after_key_equality_delete(
+            "doris_iceberg_equality_delete_missing_key_unknown_type",
+            {{.ids = {1, 2}, .keys = nullptr}}, build_date32_keys({std::nullopt, DAYS_2024_01_02}),
+            external_schema_field("k", 1, {}, std::nullopt,
+                                  external_primitive_type(TPrimitiveType::STRING), false, true),
+            &ids);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(ids, (std::vector<std::vector<int32_t>> {std::vector<int32_t> {}}));
+}
+
+// Keys whose types do not convert exactly in either direction fail the scan instead of being
+// compared in a third type.
+TEST(IcebergV2ReaderTest, IcebergEqualityDeleteRejectsIncomparableKeyTypes) {
+    std::vector<std::vector<int32_t>> ids;
+    const auto status = read_ids_after_key_equality_delete(
+            "doris_iceberg_equality_delete_incomparable_types",
+            {{.ids = {1}, .keys = build_nullable_int32_keys({1})}},
+            build_nullable_string_array({"1"}),
+            external_schema_field("k", 1, {}, std::nullopt,
+                                  external_primitive_type(TPrimitiveType::INT), false, true),
+            &ids);
+    ASSERT_FALSE(status.ok());
+    EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
+    EXPECT_NE(status.to_string().find("neither type converts exactly to the other"),
+              std::string::npos)
+            << status;
+}
+
 TEST(IcebergV2ReaderTest, IcebergEqualityDeleteMatchesNullForMissingDataColumn) {
     const auto test_dir = std::filesystem::temp_directory_path() /
                           "doris_iceberg_equality_delete_missing_column_test";

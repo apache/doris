@@ -180,7 +180,15 @@ private:
                                                    size_t key_idx,
                                                    const EqualityDeleteColumnPath& data_path,
                                                    format::FileScanRequest* request,
-                                                   VExprSPtr* key_expr);
+                                                   VExprSPtr* key_expr,
+                                                   DataTypePtr* comparison_type);
+    // Returns `filter` with its delete keys converted to `comparison_types`, cached per scanner.
+    Status _convert_equality_delete_filter(const EqualityDeleteFilter& filter,
+                                           const DataTypes& comparison_types,
+                                           EqualityDeleteFilter* result);
+    Status _build_converted_equality_delete_filter(const EqualityDeleteFilter& filter,
+                                                   const DataTypes& comparison_types,
+                                                   EqualityDeleteFilter* result) const;
     Status _find_equality_delete_data_field(const EqualityDeleteFilter& filter, size_t key_idx,
                                             EqualityDeleteColumnPath* data_path,
                                             bool* complete_path) const;
@@ -238,9 +246,17 @@ private:
         // Delete-file names are retained for Iceberg tables imported from formats that did not
         // persist field ids. In BY_NAME mode they are the fallback binding key.
         std::vector<std::string> field_names;
+        // Table-side types of the keys, from the scan's schema metadata. They resolve table
+        // fields and build defaults for keys a data file lacks; they do not decide the
+        // comparison type.
         std::vector<DataTypePtr> key_types;
+        // Types of the delete block columns: the delete file's own key types, or the comparison
+        // types of a converted filter.
+        std::vector<DataTypePtr> delete_key_types;
         Block delete_block;
         std::shared_ptr<const EqualityDeleteHashIndex> hash_index;
+        // Split-cache key of this filter, extended by the comparison types for converted copies.
+        std::string cache_key;
     };
     std::vector<EqualityDeleteFilter> _equality_delete_filters;
     // Scanner-shared cache supplied in SplitReadOptions. Parsed delete files outlive one data-file
