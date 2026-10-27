@@ -146,6 +146,8 @@ public class ConnectorExecuteActionTest {
         Mockito.verify(f.procedureOps).execute(Mockito.eq(f.session), Mockito.eq(f.handle),
                 Mockito.eq("rollback_to_snapshot"), Mockito.eq(f.props),
                 Mockito.isNull(), Mockito.eq(Collections.emptyList()));
+        Mockito.verify(f.metadata, Mockito.never()).getTableHandle(
+                Mockito.any(), Mockito.anyString(), Mockito.anyString());
 
         // The ConnectorProcedureResult was converted into a CommonResultSet (columns via ConnectorColumnConverter).
         List<String> colNames = Arrays.asList(rs.getMetaData().getColumns().get(0).getName(),
@@ -232,6 +234,9 @@ public class ConnectorExecuteActionTest {
         // no groups so the driver takes the early return without opening a transaction, and stub the connector's
         // result rendering (the result SHAPE is the connector's, so the mock must supply it).
         Fixture f = new Fixture();
+        ConnectorTableHandle scanHandle = Mockito.mock(ConnectorTableHandle.class);
+        Mockito.when(f.metadata.getTableHandle(f.session, REMOTE_DB, REMOTE_TBL))
+                .thenReturn(Optional.of(scanHandle));
         Mockito.when(f.procedureOps.getExecutionMode("rewrite_data_files"))
                 .thenReturn(ProcedureExecutionMode.DISTRIBUTED);
         Mockito.when(f.procedureOps.planRewrite(Mockito.any(), Mockito.any(), Mockito.anyString(),
@@ -244,9 +249,10 @@ public class ConnectorExecuteActionTest {
         ConnectorExecuteAction action = new ConnectorExecuteAction("rewrite_data_files",
                 f.props, Optional.empty(), Optional.of(where), f.table);
         ResultSet rs = action.execute(f.table);
+        Mockito.verify(f.metadata).getTableHandle(f.session, REMOTE_DB, REMOTE_TBL);
 
         ArgumentCaptor<ConnectorPredicate> captor = ArgumentCaptor.forClass(ConnectorPredicate.class);
-        Mockito.verify(f.procedureOps).planRewrite(Mockito.any(), Mockito.any(),
+        Mockito.verify(f.procedureOps).planRewrite(Mockito.eq(f.session), Mockito.eq(scanHandle),
                 Mockito.eq("rewrite_data_files"), Mockito.anyMap(), captor.capture(), Mockito.anyList());
         ConnectorPredicate lowered = captor.getValue();
         Assertions.assertNotNull(lowered,
@@ -338,7 +344,7 @@ public class ConnectorExecuteActionTest {
     @Test
     public void executeThrowsWhenTableHandleMissing() {
         Fixture f = new Fixture();
-        Mockito.when(f.metadata.getTableHandle(Mockito.any(), Mockito.anyString(), Mockito.anyString()))
+        Mockito.when(f.metadata.getTableHandleForDdl(Mockito.any(), Mockito.anyString(), Mockito.anyString()))
                 .thenReturn(Optional.empty());
 
         ConnectorExecuteAction action = new ConnectorExecuteAction("rollback_to_snapshot",
@@ -485,6 +491,8 @@ public class ConnectorExecuteActionTest {
             // default method, so the per-handle overload must be stubbed explicitly or it returns null.
             Mockito.when(connector.getProcedureOps(Mockito.any())).thenReturn(procedureOps);
             Mockito.when(metadata.getTableHandle(Mockito.any(ConnectorSession.class),
+                    Mockito.anyString(), Mockito.anyString())).thenReturn(Optional.of(handle));
+            Mockito.when(metadata.getTableHandleForDdl(Mockito.any(ConnectorSession.class),
                     Mockito.anyString(), Mockito.anyString())).thenReturn(Optional.of(handle));
 
             TestPluginCatalog catalog = new TestPluginCatalog(connector, session);

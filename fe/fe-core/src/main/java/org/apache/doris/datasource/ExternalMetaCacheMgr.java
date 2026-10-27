@@ -32,6 +32,7 @@ import org.apache.doris.datasource.metacache.ExternalMetaCache;
 import org.apache.doris.datasource.metacache.MetaCacheEntryDef;
 import org.apache.doris.datasource.metacache.MetaCacheEntryInvalidation;
 import org.apache.doris.datasource.metacache.MetaCacheEntryStats;
+import org.apache.doris.datasource.mvcc.PluginDrivenPartitionView;
 import org.apache.doris.fs.FileSystemCache;
 
 import com.github.benmanes.caffeine.cache.stats.CacheStats;
@@ -50,6 +51,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import javax.annotation.Nullable;
 
 /**
@@ -479,6 +481,15 @@ public class ExternalMetaCacheMgr {
         }
     }
 
+    /** The caller resolves connector metadata first; this cache only reuses its FE projection. */
+    public PluginDrivenPartitionView getPartitionView(ExternalTable table, PluginDrivenPartitionView.Key key,
+            Function<PluginDrivenPartitionView.Key, PluginDrivenPartitionView> loader) {
+        long catalogId = table.getCatalog().getId();
+        prepareCatalogByEngine(catalogId, ENGINE_DEFAULT);
+        return engine(ENGINE_DEFAULT).entry(catalogId, "partition_view",
+                PluginDrivenPartitionView.Key.class, PluginDrivenPartitionView.class).get(key, loader);
+    }
+
     public FileSystemCache getFsCache() {
         return fsCache;
     }
@@ -523,10 +534,11 @@ public class ExternalMetaCacheMgr {
      * <p>Registered entries:
      * <ul>
      *   <li>{@code schema}: schema-only cache keyed by {@link SchemaCacheKey}</li>
+     *   <li>{@code partition_view}: FE partition items and their sorted pruning index</li>
      * </ul>
      *
-     * <p>This class keeps compatibility for generic external engines and routes only schema
-     * loading/invalidation. No engine-specific metadata (partitions/files/snapshots) is cached.
+     * <p>Connector metadata is still loaded by the connector; only source-independent FE projections
+     * are stored here, with the same catalog/database/table invalidation as schemas.
      */
     private static class DefaultExternalMetaCache extends ExternalCatalogMetaCache {
         DefaultExternalMetaCache(String engine, ExecutorService refreshExecutor) {
@@ -540,6 +552,11 @@ public class ExternalMetaCacheMgr {
                     MetaCacheEntryInvalidation.forTableIdentity(
                             key -> key.getNameMapping().getLocalDbName(),
                             key -> key.getNameMapping().getLocalTblName())));
+            registerEntry(MetaCacheEntryDef.contextualOnly(
+                    "partition_view", PluginDrivenPartitionView.Key.class, PluginDrivenPartitionView.class,
+                    defaultEntryCacheSpec(), MetaCacheEntryInvalidation.forTableIdentity(
+                            PluginDrivenPartitionView.Key::getDatabase, PluginDrivenPartitionView.Key::getTable))
+                    .withSizeEstimator(PluginDrivenPartitionView::estimateSize));
         }
 
         @Override

@@ -58,6 +58,9 @@ public:
     // clear scroll context from elasticsearch
     Status close();
 
+    static std::string extract_hostname(std::string host);
+    static std::string select_host(const std::map<std::string, std::string>& properties);
+
 private:
     std::string _target;
     std::string _user_name;

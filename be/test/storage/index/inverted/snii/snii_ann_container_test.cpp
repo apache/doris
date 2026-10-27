@@ -15,30 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// P9-4: an ANN index living inside a SNII container.
-//
-// The container format reserved LogicalIndexKind::kAnn from the start, and its
-// blob logical index is a table of named opaque sub-files -- which is exactly
-// what faiss emits. What was missing was the adapter on both ends:
-//
-//   write: the ANN writer had nowhere to write, because SNII opens no CLucene
-//          filesystem directory. It now gets a bounded, file-backed staging
-//          directory (open_ann_directory) that begin_close() seals into a kAnn
-//          blob.
-//   read:  _open() refused too. A blob entry records ABSOLUTE container offsets,
-//          the same thing a V2 compound entry records, so DorisCompoundReader is
-//          reused over the container stream rather than reimplemented.
-//
-// ORACLE DESIGN. The obvious test -- read the container at blob.offset and
-// compare against what the directory serves for blob.name -- is a TAUTOLOGY:
-// DorisCompoundReader's entry offset IS blob.offset, so both sides read the same
-// place and a seal that recorded every offset as 0 passes green. Everything here
-// is therefore checked against an oracle that does NOT come from the directory:
-//
-//   * a synthetic blob whose bytes this file chose before sealing, so a wrong
-//     offset yields bytes that simply are not the expected ones;
-//   * faiss itself, which cannot deserialize an index assembled from the wrong
-//     extents.
+// Checks ANN staging, sealing, and reads through the SNII container. Validates file extents against known bytes and Faiss deserialization.
 
 #include <CLucene.h>
 #include <gen_cpp/olap_file.pb.h>
