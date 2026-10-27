@@ -36,11 +36,17 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 
 import java.util.List;
+import java.util.regex.Pattern;
 
 /**
  * show proc command
  */
 public class ShowProcCommand extends ShowCommand {
+    // Match the repeated slashes and whitespace accepted by ProcService.open().
+    private static final Pattern LOCAL_QUERY_PATH = Pattern.compile(
+            "[ \\t\\r\\n]*/+(?:current_queries|current_query_stmts|current_backend_instances)/*(?:[ \\t\\r\\n].*)?",
+            Pattern.DOTALL);
+
     private final String path;
 
     /**
@@ -98,6 +104,10 @@ public class ShowProcCommand extends ShowCommand {
 
     @Override
     public RedirectStatus toRedirectStatus() {
+        // These nodes read this FE's coordinators, not cluster-wide query state.
+        if (LOCAL_QUERY_PATH.matcher(path).matches()) {
+            return RedirectStatus.NO_FORWARD;
+        }
         if (ConnectContext.get().getSessionVariable().getForwardToMaster()) {
             return RedirectStatus.FORWARD_NO_SYNC;
         } else {
