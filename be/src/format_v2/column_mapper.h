@@ -182,7 +182,8 @@ struct TableColumnMapperOptions {
     bool truncate_datetimev2_precision_for_paimon = false;
     // Split-local slots with no remaining filter or output consumer. Preserve their block
     // positions using typed placeholders without requesting a physical column.
-    std::vector<GlobalIndex> unused_columns;
+    // Keep an explicit default so callers that designate only earlier options compile with -Werror.
+    std::vector<GlobalIndex> unused_columns = {};
 
     std::string debug_string() const;
 };
