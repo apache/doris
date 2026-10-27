@@ -153,8 +153,12 @@ public:
         auto size = static_cast<int64_t>(state.counts.size());
         buf.write_binary(size);
         write_column(buf, *state.value_column);
-        buf.write(reinterpret_cast<const char*>(state.counts.data()),
-                  state.counts.size() * sizeof(int64_t));
+        if (size != 0) {
+            // An empty list keeps an empty vector, whose data() is null; passing it to memcpy is
+            // undefined even for a zero length.
+            buf.write(reinterpret_cast<const char*>(state.counts.data()),
+                      state.counts.size() * sizeof(int64_t));
+        }
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
@@ -167,7 +171,9 @@ public:
         state.value_column = read_column(buf);
         DCHECK_EQ(static_cast<int64_t>(state.value_column->size()), size);
         state.counts.resize(size);
-        buf.read(reinterpret_cast<char*>(state.counts.data()), size * sizeof(int64_t));
+        if (size != 0) {
+            buf.read(reinterpret_cast<char*>(state.counts.data()), size * sizeof(int64_t));
+        }
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {

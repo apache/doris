@@ -264,6 +264,9 @@ TEST(TopKTest, SerializeDeserializeRoundTrip) {
     };
 
     round_trip({3, 1, 2, 1, 4}, 2);
+    // An empty state (no rows for the group, or every value NULL) keeps an empty count vector,
+    // whose data() is null; the serialized form must not hand it to memcpy.
+    round_trip({}, 2);
     // 65 distinct INTs = 260 bytes, above SERIALIZED_MEM_SIZE_LIMIT: the serde compresses the
     // value column and the encoded end pointer is earlier than the declared capacity.
     std::vector<int32_t> compressed;
