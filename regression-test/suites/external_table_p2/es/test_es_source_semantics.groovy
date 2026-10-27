@@ -154,18 +154,24 @@ suite("test_es_source_semantics", "p2,external") {
     ]
     request("DELETE", "doris_source_safety_arrays")
     request("PUT", "doris_source_safety_arrays", [settings: [number_of_shards: 2, number_of_replicas: 0],
-        mappings: [properties: [row_id: properties.row_id, limited: properties.limited, body: properties.body]]])
+        mappings: [properties: [row_id: properties.row_id, limited: properties.limited, body: properties.body,
+            sibling: [type: "keyword"]]]])
     def arrayValues = [["cat", "elephant"], ["cat"], [], [null], "cat", "elephant"]
+    def siblingValues = [["cat"], "cat", ["cat", "dog"], [], [null], null]
     arrayValues.eachWithIndex { value, i ->
-        request("PUT", "doris_source_safety_arrays/_doc/${i + 1}", [row_id: i + 1, limited: value, body: value])
+        request("PUT", "doris_source_safety_arrays/_doc/${i + 1}",
+                [row_id: i + 1, limited: value, body: value, sibling: siblingValues[i]])
     }
     request("POST", "doris_source_safety_arrays/_refresh")
     sql "drop table if exists es_source_array_expected"
-    sql """create table es_source_array_expected (row_id bigint, limited string, body string)
+    sql """create table es_source_array_expected (row_id bigint, limited string, body string, sibling string)
         distributed by hash(row_id) buckets 1 properties("replication_num"="1")"""
     def arrayRows = arrayValues.withIndex().collect { value, i ->
         String text = value instanceof List ? JsonOutput.toJson(value) : value
-        "(${i + 1},'${text}','${text}')"
+        def sibling = siblingValues[i]
+        String siblingSql = sibling == null ? "NULL"
+                : "'${sibling instanceof List ? JsonOutput.toJson(sibling) : sibling}'"
+        "(${i + 1},'${text}','${text}',${siblingSql})"
     }.join(",")
     sql "insert into es_source_array_expected values ${arrayRows}"
     def arrayExpectedTable = "internal.${context.dbName}.es_source_array_expected"
@@ -173,6 +179,11 @@ suite("test_es_source_semantics", "p2,external") {
         "limited = '[\"cat\",\"elephant\"]'", "limited is null", "limited is not null",
         "body = 'cat'", "body in ('cat', 'four')", "body != 'cat'", "body is null",
         "limited = 'cat' or body = 'elephant'", "not (limited = 'cat' and body = 'cat')"]
+    def siblingPredicates = ["sibling = 'cat'", "sibling in ('cat', 'dog')", "sibling != 'cat'",
+        "sibling = '[\"cat\"]'", "sibling is null", "sibling is not null", "sibling <=> null",
+        "sibling like '[%'", "sibling not in ('cat')", "not (sibling = 'cat')",
+        "sibling = 'cat' or row_id = 1", "sibling = 'cat' and row_id > 0",
+        "not (sibling = 'cat' and row_id = 1)"]
     def originalV2 = sql("show variables like 'enable_file_scanner_v2'")[0][1]
     def originalParallel = sql("show variables like 'enable_es_parallel_scroll'")[0][1]
     def originalBatch = sql("show variables like 'batch_size'")[0][1]
@@ -206,15 +217,30 @@ suite("test_es_source_semantics", "p2,external") {
                     quickTest("${tag}_selected_values", selectedValueQuery)
                     mixedNativePredicates.eachWithIndex { pair, i ->
                         def query = "select row_id from doris_source_safety_a where ${pair[0]} order by row_id"
-                        quickTest("${tag}_native_${i}", query,
-                                "select row_id from ${expectedTable} where ${pair[1]} order by row_id")
-                        quickTest("${tag}_native_${i}", query)
+                        if (!docvalues && i < 3) {
+                            // Source STRING OR branches cannot share a local residual with esquery.
+                            test {
+                                sql query
+                                exception "Cannot evaluate esquery locally"
+                            }
+                        } else {
+                            quickTest("${tag}_native_${i}", query,
+                                    "select row_id from ${expectedTable} where ${pair[1]} order by row_id")
+                            quickTest("${tag}_native_${i}", query)
+                        }
                     }
                     ["doris_source_safety_hidden", "doris_source_safety_included"].eachWithIndex { index, i ->
                         def query = "select row_id from ${index} where tenant = 'B' or ${nativeTerm} order by row_id"
-                        quickTest("${tag}_preserved_source_${i}", query,
-                                "select row_id from ${expectedTable} where tenant = 'B' or tenant = 'A' order by row_id")
-                        quickTest("${tag}_preserved_source_${i}", query)
+                        if (!docvalues) {
+                            test {
+                                sql query
+                                exception "Cannot evaluate esquery locally"
+                            }
+                        } else {
+                            quickTest("${tag}_preserved_source_${i}", query,
+                                    "select row_id from ${expectedTable} where tenant = 'B' or tenant = 'A' order by row_id")
+                            quickTest("${tag}_preserved_source_${i}", query)
+                        }
                     }
                     quickTest("${tag}_arrays", "select row_id, limited, body from doris_source_safety_arrays order by row_id",
                             "select row_id, limited, body from ${arrayExpectedTable} order by row_id")
@@ -224,6 +250,41 @@ suite("test_es_source_semantics", "p2,external") {
                         quickTest("${tag}_array_predicate_${i}", query,
                                 "select row_id from ${arrayExpectedTable} where ${predicate} order by row_id")
                         quickTest("${tag}_array_predicate_${i}", query)
+                    }
+                    // Projecting limited forces source reads for the entire scan, including sibling.
+                    // Compare its STRING predicates to an internal table, not to ES array membership.
+                    siblingPredicates.eachWithIndex { predicate, i ->
+                        def query = "select row_id, limited, sibling from doris_source_safety_arrays " +
+                                "where ${predicate} order by row_id"
+                        quickTest("${tag}_sibling_${i}", query,
+                                "select row_id, limited, sibling from ${arrayExpectedTable} where ${predicate} order by row_id")
+                        quickTest("${tag}_sibling_${i}", query)
+                    }
+                    def unprojectedSibling = "select row_id, limited from doris_source_safety_arrays " +
+                            "where sibling = '[\"cat\"]' order by row_id"
+                    quickTest("${tag}_sibling_filter_only", unprojectedSibling,
+                            "select row_id, limited from ${arrayExpectedTable} where sibling = '[\"cat\"]' order by row_id")
+                    quickTest("${tag}_sibling_filter_only", unprojectedSibling)
+                    quickTest("${tag}_sibling_limit", "select row_id, limited, sibling from doris_source_safety_arrays " +
+                            "where sibling = 'cat' limit 1")
+                    def onlySibling = "select sibling from doris_source_safety_arrays where row_id = 1 and sibling = 'cat'"
+                    quickTest("${tag}_sibling_docvalue_control", onlySibling,
+                            docvalues ? "select cast('cat' as string)" : "select cast('cat' as string) where false")
+                    quickTest("${tag}_sibling_docvalue_control", onlySibling)
+                    def nativeSibling = """esquery(sibling, '{"term":{"sibling":"cat"}}')"""
+                    def nativeSiblingQuery = "select row_id, limited, sibling from doris_source_safety_arrays " +
+                            "where ${nativeSibling} order by row_id"
+                    quickTest("${tag}_sibling_native", nativeSiblingQuery,
+                            "select row_id, limited, sibling from ${arrayExpectedTable} where row_id in (1,2,3) order by row_id")
+                    quickTest("${tag}_sibling_native", nativeSiblingQuery)
+                    def siblingAnd = "select row_id, limited, sibling from doris_source_safety_arrays " +
+                            "where sibling = 'cat' and ${nativeSibling} order by row_id"
+                    quickTest("${tag}_sibling_native_and", siblingAnd,
+                            "select row_id, limited, sibling from ${arrayExpectedTable} where sibling = 'cat' order by row_id")
+                    quickTest("${tag}_sibling_native_and", siblingAnd)
+                    test {
+                        sql "select limited, sibling from doris_source_safety_arrays where sibling = 'cat' or ${nativeSibling}"
+                        exception "Cannot evaluate esquery locally"
                     }
                     // Native esquery intentionally matches array elements; ordinary SQL above compares
                     // the STRING Doris reads. Keep both contracts explicit instead of guessing scalar shape.

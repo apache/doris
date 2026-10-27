@@ -82,38 +82,12 @@
 3	Lion	cat
 4	\N	\N
 
--- !dv_false_v2_false_parallel_false_native_0 --
-1
-2
-3
-4
-
--- !dv_false_v2_false_parallel_false_native_1 --
-1
-3
-
--- !dv_false_v2_false_parallel_false_native_2 --
-1
-3
-
 -- !dv_false_v2_false_parallel_false_native_3 --
 
 -- !dv_false_v2_false_parallel_false_native_4 --
 
 -- !dv_false_v2_false_parallel_false_native_5 --
 1
-
--- !dv_false_v2_false_parallel_false_preserved_source_0 --
-1
-2
-3
-4
-
--- !dv_false_v2_false_parallel_false_preserved_source_1 --
-1
-2
-3
-4
 
 -- !dv_false_v2_false_parallel_false_arrays --
 1	["cat","elephant"]	["cat","elephant"]
@@ -174,6 +148,83 @@
 3
 4
 6
+
+-- !dv_false_v2_false_parallel_false_sibling_0 --
+2	["cat"]	cat
+
+-- !dv_false_v2_false_parallel_false_sibling_1 --
+2	["cat"]	cat
+
+-- !dv_false_v2_false_parallel_false_sibling_2 --
+1	["cat","elephant"]	["cat"]
+3	[]	["cat","dog"]
+4	[null]	[]
+5	cat	[null]
+
+-- !dv_false_v2_false_parallel_false_sibling_3 --
+1	["cat","elephant"]	["cat"]
+
+-- !dv_false_v2_false_parallel_false_sibling_4 --
+6	elephant	\N
+
+-- !dv_false_v2_false_parallel_false_sibling_5 --
+1	["cat","elephant"]	["cat"]
+2	["cat"]	cat
+3	[]	["cat","dog"]
+4	[null]	[]
+5	cat	[null]
+
+-- !dv_false_v2_false_parallel_false_sibling_6 --
+6	elephant	\N
+
+-- !dv_false_v2_false_parallel_false_sibling_7 --
+1	["cat","elephant"]	["cat"]
+3	[]	["cat","dog"]
+4	[null]	[]
+5	cat	[null]
+
+-- !dv_false_v2_false_parallel_false_sibling_8 --
+1	["cat","elephant"]	["cat"]
+3	[]	["cat","dog"]
+4	[null]	[]
+5	cat	[null]
+
+-- !dv_false_v2_false_parallel_false_sibling_9 --
+1	["cat","elephant"]	["cat"]
+3	[]	["cat","dog"]
+4	[null]	[]
+5	cat	[null]
+
+-- !dv_false_v2_false_parallel_false_sibling_10 --
+1	["cat","elephant"]	["cat"]
+2	["cat"]	cat
+
+-- !dv_false_v2_false_parallel_false_sibling_11 --
+2	["cat"]	cat
+
+-- !dv_false_v2_false_parallel_false_sibling_12 --
+1	["cat","elephant"]	["cat"]
+2	["cat"]	cat
+3	[]	["cat","dog"]
+4	[null]	[]
+5	cat	[null]
+6	elephant	\N
+
+-- !dv_false_v2_false_parallel_false_sibling_filter_only --
+1	["cat","elephant"]
+
+-- !dv_false_v2_false_parallel_false_sibling_limit --
+2	["cat"]	cat
+
+-- !dv_false_v2_false_parallel_false_sibling_docvalue_control --
+
+-- !dv_false_v2_false_parallel_false_sibling_native --
+1	["cat","elephant"]	["cat"]
+2	["cat"]	cat
+3	[]	["cat","dog"]
+
+-- !dv_false_v2_false_parallel_false_sibling_native_and --
+2	["cat"]	cat
 
 -- !dv_false_v2_false_parallel_false_native_arrays --
 1
@@ -331,38 +382,12 @@
 3	Lion	cat
 4	\N	\N
 
--- !dv_false_v2_false_parallel_true_native_0 --
-1
-2
-3
-4
-
--- !dv_false_v2_false_parallel_true_native_1 --
-1
-3
-
--- !dv_false_v2_false_parallel_true_native_2 --
-1
-3
-
 -- !dv_false_v2_false_parallel_true_native_3 --
 
 -- !dv_false_v2_false_parallel_true_native_4 --
 
 -- !dv_false_v2_false_parallel_true_native_5 --
 1
-
--- !dv_false_v2_false_parallel_true_preserved_source_0 --
-1
-2
-3
-4
-
--- !dv_false_v2_false_parallel_true_preserved_source_1 --
-1
-2
-3
-4
 
 -- !dv_false_v2_false_parallel_true_arrays --
 1	["cat","elephant"]	["cat","elephant"]
@@ -423,6 +448,83 @@
 3
 4
 6
+
+-- !dv_false_v2_false_parallel_true_sibling_0 --
+2	["cat"]	cat
+
+-- !dv_false_v2_false_parallel_true_sibling_1 --
+2	["cat"]	cat
+
+-- !dv_false_v2_false_parallel_true_sibling_2 --
+1	["cat","elephant"]	["cat"]
+3	[]	["cat","dog"]
+4	[null]	[]
+5	cat	[null]
+
+-- !dv_false_v2_false_parallel_true_sibling_3 --
+1	["cat","elephant"]	["cat"]
+
+-- !dv_false_v2_false_parallel_true_sibling_4 --
+6	elephant	\N
+
+-- !dv_false_v2_false_parallel_true_sibling_5 --
+1	["cat","elephant"]	["cat"]
+2	["cat"]	cat
+3	[]	["cat","dog"]
+4	[null]	[]
+5	cat	[null]
+
+-- !dv_false_v2_false_parallel_true_sibling_6 --
+6	elephant	\N
+
+-- !dv_false_v2_false_parallel_true_sibling_7 --
+1	["cat","elephant"]	["cat"]
+3	[]	["cat","dog"]
+4	[null]	[]
+5	cat	[null]
+
+-- !dv_false_v2_false_parallel_true_sibling_8 --
+1	["cat","elephant"]	["cat"]
+3	[]	["cat","dog"]
+4	[null]	[]
+5	cat	[null]
+
+-- !dv_false_v2_false_parallel_true_sibling_9 --
+1	["cat","elephant"]	["cat"]
+3	[]	["cat","dog"]
+4	[null]	[]
+5	cat	[null]
+
+-- !dv_false_v2_false_parallel_true_sibling_10 --
+1	["cat","elephant"]	["cat"]
+2	["cat"]	cat
+
+-- !dv_false_v2_false_parallel_true_sibling_11 --
+2	["cat"]	cat
+
+-- !dv_false_v2_false_parallel_true_sibling_12 --
+1	["cat","elephant"]	["cat"]
+2	["cat"]	cat
+3	[]	["cat","dog"]
+4	[null]	[]
+5	cat	[null]
+6	elephant	\N
+
+-- !dv_false_v2_false_parallel_true_sibling_filter_only --
+1	["cat","elephant"]
+
+-- !dv_false_v2_false_parallel_true_sibling_limit --
+2	["cat"]	cat
+
+-- !dv_false_v2_false_parallel_true_sibling_docvalue_control --
+
+-- !dv_false_v2_false_parallel_true_sibling_native --
+1	["cat","elephant"]	["cat"]
+2	["cat"]	cat
+3	[]	["cat","dog"]
+
+-- !dv_false_v2_false_parallel_true_sibling_native_and --
+2	["cat"]	cat
 
 -- !dv_false_v2_false_parallel_true_native_arrays --
 1
@@ -580,38 +682,12 @@
 3	Lion	cat
 4	\N	\N
 
--- !dv_false_v2_true_parallel_false_native_0 --
-1
-2
-3
-4
-
--- !dv_false_v2_true_parallel_false_native_1 --
-1
-3
-
--- !dv_false_v2_true_parallel_false_native_2 --
-1
-3
-
 -- !dv_false_v2_true_parallel_false_native_3 --
 
 -- !dv_false_v2_true_parallel_false_native_4 --
 
 -- !dv_false_v2_true_parallel_false_native_5 --
 1
-
--- !dv_false_v2_true_parallel_false_preserved_source_0 --
-1
-2
-3
-4
-
--- !dv_false_v2_true_parallel_false_preserved_source_1 --
-1
-2
-3
-4
 
 -- !dv_false_v2_true_parallel_false_arrays --
 1	["cat","elephant"]	["cat","elephant"]
@@ -672,6 +748,83 @@
 3
 4
 6
+
+-- !dv_false_v2_true_parallel_false_sibling_0 --
+2	["cat"]	cat
+
+-- !dv_false_v2_true_parallel_false_sibling_1 --
+2	["cat"]	cat
+
+-- !dv_false_v2_true_parallel_false_sibling_2 --
+1	["cat","elephant"]	["cat"]
+3	[]	["cat","dog"]
+4	[null]	[]
+5	cat	[null]
+
+-- !dv_false_v2_true_parallel_false_sibling_3 --
+1	["cat","elephant"]	["cat"]
+
+-- !dv_false_v2_true_parallel_false_sibling_4 --
+6	elephant	\N
+
+-- !dv_false_v2_true_parallel_false_sibling_5 --
+1	["cat","elephant"]	["cat"]
+2	["cat"]	cat
+3	[]	["cat","dog"]
+4	[null]	[]
+5	cat	[null]
+
+-- !dv_false_v2_true_parallel_false_sibling_6 --
+6	elephant	\N
+
+-- !dv_false_v2_true_parallel_false_sibling_7 --
+1	["cat","elephant"]	["cat"]
+3	[]	["cat","dog"]
+4	[null]	[]
+5	cat	[null]
+
+-- !dv_false_v2_true_parallel_false_sibling_8 --
+1	["cat","elephant"]	["cat"]
+3	[]	["cat","dog"]
+4	[null]	[]
+5	cat	[null]
+
+-- !dv_false_v2_true_parallel_false_sibling_9 --
+1	["cat","elephant"]	["cat"]
+3	[]	["cat","dog"]
+4	[null]	[]
+5	cat	[null]
+
+-- !dv_false_v2_true_parallel_false_sibling_10 --
+1	["cat","elephant"]	["cat"]
+2	["cat"]	cat
+
+-- !dv_false_v2_true_parallel_false_sibling_11 --
+2	["cat"]	cat
+
+-- !dv_false_v2_true_parallel_false_sibling_12 --
+1	["cat","elephant"]	["cat"]
+2	["cat"]	cat
+3	[]	["cat","dog"]
+4	[null]	[]
+5	cat	[null]
+6	elephant	\N
+
+-- !dv_false_v2_true_parallel_false_sibling_filter_only --
+1	["cat","elephant"]
+
+-- !dv_false_v2_true_parallel_false_sibling_limit --
+2	["cat"]	cat
+
+-- !dv_false_v2_true_parallel_false_sibling_docvalue_control --
+
+-- !dv_false_v2_true_parallel_false_sibling_native --
+1	["cat","elephant"]	["cat"]
+2	["cat"]	cat
+3	[]	["cat","dog"]
+
+-- !dv_false_v2_true_parallel_false_sibling_native_and --
+2	["cat"]	cat
 
 -- !dv_false_v2_true_parallel_false_native_arrays --
 1
@@ -829,38 +982,12 @@
 3	Lion	cat
 4	\N	\N
 
--- !dv_false_v2_true_parallel_true_native_0 --
-1
-2
-3
-4
-
--- !dv_false_v2_true_parallel_true_native_1 --
-1
-3
-
--- !dv_false_v2_true_parallel_true_native_2 --
-1
-3
-
 -- !dv_false_v2_true_parallel_true_native_3 --
 
 -- !dv_false_v2_true_parallel_true_native_4 --
 
 -- !dv_false_v2_true_parallel_true_native_5 --
 1
-
--- !dv_false_v2_true_parallel_true_preserved_source_0 --
-1
-2
-3
-4
-
--- !dv_false_v2_true_parallel_true_preserved_source_1 --
-1
-2
-3
-4
 
 -- !dv_false_v2_true_parallel_true_arrays --
 1	["cat","elephant"]	["cat","elephant"]
@@ -921,6 +1048,83 @@
 3
 4
 6
+
+-- !dv_false_v2_true_parallel_true_sibling_0 --
+2	["cat"]	cat
+
+-- !dv_false_v2_true_parallel_true_sibling_1 --
+2	["cat"]	cat
+
+-- !dv_false_v2_true_parallel_true_sibling_2 --
+1	["cat","elephant"]	["cat"]
+3	[]	["cat","dog"]
+4	[null]	[]
+5	cat	[null]
+
+-- !dv_false_v2_true_parallel_true_sibling_3 --
+1	["cat","elephant"]	["cat"]
+
+-- !dv_false_v2_true_parallel_true_sibling_4 --
+6	elephant	\N
+
+-- !dv_false_v2_true_parallel_true_sibling_5 --
+1	["cat","elephant"]	["cat"]
+2	["cat"]	cat
+3	[]	["cat","dog"]
+4	[null]	[]
+5	cat	[null]
+
+-- !dv_false_v2_true_parallel_true_sibling_6 --
+6	elephant	\N
+
+-- !dv_false_v2_true_parallel_true_sibling_7 --
+1	["cat","elephant"]	["cat"]
+3	[]	["cat","dog"]
+4	[null]	[]
+5	cat	[null]
+
+-- !dv_false_v2_true_parallel_true_sibling_8 --
+1	["cat","elephant"]	["cat"]
+3	[]	["cat","dog"]
+4	[null]	[]
+5	cat	[null]
+
+-- !dv_false_v2_true_parallel_true_sibling_9 --
+1	["cat","elephant"]	["cat"]
+3	[]	["cat","dog"]
+4	[null]	[]
+5	cat	[null]
+
+-- !dv_false_v2_true_parallel_true_sibling_10 --
+1	["cat","elephant"]	["cat"]
+2	["cat"]	cat
+
+-- !dv_false_v2_true_parallel_true_sibling_11 --
+2	["cat"]	cat
+
+-- !dv_false_v2_true_parallel_true_sibling_12 --
+1	["cat","elephant"]	["cat"]
+2	["cat"]	cat
+3	[]	["cat","dog"]
+4	[null]	[]
+5	cat	[null]
+6	elephant	\N
+
+-- !dv_false_v2_true_parallel_true_sibling_filter_only --
+1	["cat","elephant"]
+
+-- !dv_false_v2_true_parallel_true_sibling_limit --
+2	["cat"]	cat
+
+-- !dv_false_v2_true_parallel_true_sibling_docvalue_control --
+
+-- !dv_false_v2_true_parallel_true_sibling_native --
+1	["cat","elephant"]	["cat"]
+2	["cat"]	cat
+3	[]	["cat","dog"]
+
+-- !dv_false_v2_true_parallel_true_sibling_native_and --
+2	["cat"]	cat
 
 -- !dv_false_v2_true_parallel_true_native_arrays --
 1
@@ -1171,6 +1375,84 @@
 4
 6
 
+-- !dv_true_v2_false_parallel_false_sibling_0 --
+2	["cat"]	cat
+
+-- !dv_true_v2_false_parallel_false_sibling_1 --
+2	["cat"]	cat
+
+-- !dv_true_v2_false_parallel_false_sibling_2 --
+1	["cat","elephant"]	["cat"]
+3	[]	["cat","dog"]
+4	[null]	[]
+5	cat	[null]
+
+-- !dv_true_v2_false_parallel_false_sibling_3 --
+1	["cat","elephant"]	["cat"]
+
+-- !dv_true_v2_false_parallel_false_sibling_4 --
+6	elephant	\N
+
+-- !dv_true_v2_false_parallel_false_sibling_5 --
+1	["cat","elephant"]	["cat"]
+2	["cat"]	cat
+3	[]	["cat","dog"]
+4	[null]	[]
+5	cat	[null]
+
+-- !dv_true_v2_false_parallel_false_sibling_6 --
+6	elephant	\N
+
+-- !dv_true_v2_false_parallel_false_sibling_7 --
+1	["cat","elephant"]	["cat"]
+3	[]	["cat","dog"]
+4	[null]	[]
+5	cat	[null]
+
+-- !dv_true_v2_false_parallel_false_sibling_8 --
+1	["cat","elephant"]	["cat"]
+3	[]	["cat","dog"]
+4	[null]	[]
+5	cat	[null]
+
+-- !dv_true_v2_false_parallel_false_sibling_9 --
+1	["cat","elephant"]	["cat"]
+3	[]	["cat","dog"]
+4	[null]	[]
+5	cat	[null]
+
+-- !dv_true_v2_false_parallel_false_sibling_10 --
+1	["cat","elephant"]	["cat"]
+2	["cat"]	cat
+
+-- !dv_true_v2_false_parallel_false_sibling_11 --
+2	["cat"]	cat
+
+-- !dv_true_v2_false_parallel_false_sibling_12 --
+1	["cat","elephant"]	["cat"]
+2	["cat"]	cat
+3	[]	["cat","dog"]
+4	[null]	[]
+5	cat	[null]
+6	elephant	\N
+
+-- !dv_true_v2_false_parallel_false_sibling_filter_only --
+1	["cat","elephant"]
+
+-- !dv_true_v2_false_parallel_false_sibling_limit --
+2	["cat"]	cat
+
+-- !dv_true_v2_false_parallel_false_sibling_docvalue_control --
+cat
+
+-- !dv_true_v2_false_parallel_false_sibling_native --
+1	["cat","elephant"]	["cat"]
+2	["cat"]	cat
+3	[]	["cat","dog"]
+
+-- !dv_true_v2_false_parallel_false_sibling_native_and --
+2	["cat"]	cat
+
 -- !dv_true_v2_false_parallel_false_native_arrays --
 1
 2
@@ -1419,6 +1701,84 @@
 3
 4
 6
+
+-- !dv_true_v2_false_parallel_true_sibling_0 --
+2	["cat"]	cat
+
+-- !dv_true_v2_false_parallel_true_sibling_1 --
+2	["cat"]	cat
+
+-- !dv_true_v2_false_parallel_true_sibling_2 --
+1	["cat","elephant"]	["cat"]
+3	[]	["cat","dog"]
+4	[null]	[]
+5	cat	[null]
+
+-- !dv_true_v2_false_parallel_true_sibling_3 --
+1	["cat","elephant"]	["cat"]
+
+-- !dv_true_v2_false_parallel_true_sibling_4 --
+6	elephant	\N
+
+-- !dv_true_v2_false_parallel_true_sibling_5 --
+1	["cat","elephant"]	["cat"]
+2	["cat"]	cat
+3	[]	["cat","dog"]
+4	[null]	[]
+5	cat	[null]
+
+-- !dv_true_v2_false_parallel_true_sibling_6 --
+6	elephant	\N
+
+-- !dv_true_v2_false_parallel_true_sibling_7 --
+1	["cat","elephant"]	["cat"]
+3	[]	["cat","dog"]
+4	[null]	[]
+5	cat	[null]
+
+-- !dv_true_v2_false_parallel_true_sibling_8 --
+1	["cat","elephant"]	["cat"]
+3	[]	["cat","dog"]
+4	[null]	[]
+5	cat	[null]
+
+-- !dv_true_v2_false_parallel_true_sibling_9 --
+1	["cat","elephant"]	["cat"]
+3	[]	["cat","dog"]
+4	[null]	[]
+5	cat	[null]
+
+-- !dv_true_v2_false_parallel_true_sibling_10 --
+1	["cat","elephant"]	["cat"]
+2	["cat"]	cat
+
+-- !dv_true_v2_false_parallel_true_sibling_11 --
+2	["cat"]	cat
+
+-- !dv_true_v2_false_parallel_true_sibling_12 --
+1	["cat","elephant"]	["cat"]
+2	["cat"]	cat
+3	[]	["cat","dog"]
+4	[null]	[]
+5	cat	[null]
+6	elephant	\N
+
+-- !dv_true_v2_false_parallel_true_sibling_filter_only --
+1	["cat","elephant"]
+
+-- !dv_true_v2_false_parallel_true_sibling_limit --
+2	["cat"]	cat
+
+-- !dv_true_v2_false_parallel_true_sibling_docvalue_control --
+cat
+
+-- !dv_true_v2_false_parallel_true_sibling_native --
+1	["cat","elephant"]	["cat"]
+2	["cat"]	cat
+3	[]	["cat","dog"]
+
+-- !dv_true_v2_false_parallel_true_sibling_native_and --
+2	["cat"]	cat
 
 -- !dv_true_v2_false_parallel_true_native_arrays --
 1
@@ -1669,6 +2029,84 @@
 4
 6
 
+-- !dv_true_v2_true_parallel_false_sibling_0 --
+2	["cat"]	cat
+
+-- !dv_true_v2_true_parallel_false_sibling_1 --
+2	["cat"]	cat
+
+-- !dv_true_v2_true_parallel_false_sibling_2 --
+1	["cat","elephant"]	["cat"]
+3	[]	["cat","dog"]
+4	[null]	[]
+5	cat	[null]
+
+-- !dv_true_v2_true_parallel_false_sibling_3 --
+1	["cat","elephant"]	["cat"]
+
+-- !dv_true_v2_true_parallel_false_sibling_4 --
+6	elephant	\N
+
+-- !dv_true_v2_true_parallel_false_sibling_5 --
+1	["cat","elephant"]	["cat"]
+2	["cat"]	cat
+3	[]	["cat","dog"]
+4	[null]	[]
+5	cat	[null]
+
+-- !dv_true_v2_true_parallel_false_sibling_6 --
+6	elephant	\N
+
+-- !dv_true_v2_true_parallel_false_sibling_7 --
+1	["cat","elephant"]	["cat"]
+3	[]	["cat","dog"]
+4	[null]	[]
+5	cat	[null]
+
+-- !dv_true_v2_true_parallel_false_sibling_8 --
+1	["cat","elephant"]	["cat"]
+3	[]	["cat","dog"]
+4	[null]	[]
+5	cat	[null]
+
+-- !dv_true_v2_true_parallel_false_sibling_9 --
+1	["cat","elephant"]	["cat"]
+3	[]	["cat","dog"]
+4	[null]	[]
+5	cat	[null]
+
+-- !dv_true_v2_true_parallel_false_sibling_10 --
+1	["cat","elephant"]	["cat"]
+2	["cat"]	cat
+
+-- !dv_true_v2_true_parallel_false_sibling_11 --
+2	["cat"]	cat
+
+-- !dv_true_v2_true_parallel_false_sibling_12 --
+1	["cat","elephant"]	["cat"]
+2	["cat"]	cat
+3	[]	["cat","dog"]
+4	[null]	[]
+5	cat	[null]
+6	elephant	\N
+
+-- !dv_true_v2_true_parallel_false_sibling_filter_only --
+1	["cat","elephant"]
+
+-- !dv_true_v2_true_parallel_false_sibling_limit --
+2	["cat"]	cat
+
+-- !dv_true_v2_true_parallel_false_sibling_docvalue_control --
+cat
+
+-- !dv_true_v2_true_parallel_false_sibling_native --
+1	["cat","elephant"]	["cat"]
+2	["cat"]	cat
+3	[]	["cat","dog"]
+
+-- !dv_true_v2_true_parallel_false_sibling_native_and --
+2	["cat"]	cat
+
 -- !dv_true_v2_true_parallel_false_native_arrays --
 1
 2
@@ -1917,6 +2355,84 @@
 3
 4
 6
+
+-- !dv_true_v2_true_parallel_true_sibling_0 --
+2	["cat"]	cat
+
+-- !dv_true_v2_true_parallel_true_sibling_1 --
+2	["cat"]	cat
+
+-- !dv_true_v2_true_parallel_true_sibling_2 --
+1	["cat","elephant"]	["cat"]
+3	[]	["cat","dog"]
+4	[null]	[]
+5	cat	[null]
+
+-- !dv_true_v2_true_parallel_true_sibling_3 --
+1	["cat","elephant"]	["cat"]
+
+-- !dv_true_v2_true_parallel_true_sibling_4 --
+6	elephant	\N
+
+-- !dv_true_v2_true_parallel_true_sibling_5 --
+1	["cat","elephant"]	["cat"]
+2	["cat"]	cat
+3	[]	["cat","dog"]
+4	[null]	[]
+5	cat	[null]
+
+-- !dv_true_v2_true_parallel_true_sibling_6 --
+6	elephant	\N
+
+-- !dv_true_v2_true_parallel_true_sibling_7 --
+1	["cat","elephant"]	["cat"]
+3	[]	["cat","dog"]
+4	[null]	[]
+5	cat	[null]
+
+-- !dv_true_v2_true_parallel_true_sibling_8 --
+1	["cat","elephant"]	["cat"]
+3	[]	["cat","dog"]
+4	[null]	[]
+5	cat	[null]
+
+-- !dv_true_v2_true_parallel_true_sibling_9 --
+1	["cat","elephant"]	["cat"]
+3	[]	["cat","dog"]
+4	[null]	[]
+5	cat	[null]
+
+-- !dv_true_v2_true_parallel_true_sibling_10 --
+1	["cat","elephant"]	["cat"]
+2	["cat"]	cat
+
+-- !dv_true_v2_true_parallel_true_sibling_11 --
+2	["cat"]	cat
+
+-- !dv_true_v2_true_parallel_true_sibling_12 --
+1	["cat","elephant"]	["cat"]
+2	["cat"]	cat
+3	[]	["cat","dog"]
+4	[null]	[]
+5	cat	[null]
+6	elephant	\N
+
+-- !dv_true_v2_true_parallel_true_sibling_filter_only --
+1	["cat","elephant"]
+
+-- !dv_true_v2_true_parallel_true_sibling_limit --
+2	["cat"]	cat
+
+-- !dv_true_v2_true_parallel_true_sibling_docvalue_control --
+cat
+
+-- !dv_true_v2_true_parallel_true_sibling_native --
+1	["cat","elephant"]	["cat"]
+2	["cat"]	cat
+3	[]	["cat","dog"]
+
+-- !dv_true_v2_true_parallel_true_sibling_native_and --
+2	["cat"]	cat
 
 -- !dv_true_v2_true_parallel_true_native_arrays --
 1
