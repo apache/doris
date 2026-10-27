@@ -96,6 +96,106 @@ public class MetaCacheTest {
     }
 
     @Test
+    public void testMissingObservationRetiresObjectOmittedByNamesRefresh() {
+        metaCache.refreshNames();
+        metaCache.updateCache("a", "a", "old", 1L);
+        metaCache.updateCache("b", "b", "sibling", 2L);
+        metaCache.refreshNames();
+        Assert.assertTrue(metaCache.listNames().isEmpty());
+        Assert.assertEquals("old", metaCache.getMetaObjById(1L, false).get());
+        AtomicInteger cleaned = new AtomicInteger();
+        Optional<Runnable> observation = metaCache.observeLookup("a", "a", "old", false,
+                cleaned::incrementAndGet);
+        Assert.assertTrue(observation.isPresent());
+        observation.get().run();
+        Assert.assertEquals(1, cleaned.get());
+        Assert.assertFalse(metaCache.tryGetMetaObj("a").isPresent());
+        Assert.assertFalse(metaCache.getNameByIdIfPresent(1L).isPresent());
+        Assert.assertEquals("sibling", metaCache.getMetaObjById(2L, false).get());
+    }
+
+    @Test
+    public void testOmittedNameObservationKeepsSameNameReplacement() {
+        metaCache.refreshNames();
+        metaCache.updateCache("a", "a", "old", 1L);
+        metaCache.refreshNames();
+        AtomicInteger cleaned = new AtomicInteger();
+        Runnable oldMissing = metaCache.observeLookup("a", "a", "old", false, cleaned::incrementAndGet).get();
+        metaCache.updateCache("a", "a", "new", 1L);
+        oldMissing.run();
+        Assert.assertEquals(0, cleaned.get());
+        Assert.assertEquals("new", metaCache.getMetaObjById(1L, false).get());
+        Assert.assertTrue(metaCache.listNames().contains("a"));
+    }
+
+    @Test
+    public void testOmittedNameObservationDoesNotCrossNamesRefresh() {
+        metaCache.refreshNames();
+        metaCache.updateCache("a", "a", "old", 1L);
+        metaCache.refreshNames();
+        AtomicInteger cleaned = new AtomicInteger();
+        Runnable oldMissing = metaCache.observeLookup("a", "a", "old", false, cleaned::incrementAndGet).get();
+        metaCache.refreshNames();
+        oldMissing.run();
+        Assert.assertEquals(0, cleaned.get());
+        Assert.assertEquals("old", metaCache.getMetaObjById(1L, false).get());
+    }
+
+    @Test
+    public void testOmittedNameObservationDoesNotCrossMetadataRefresh() {
+        metaCache.refreshNames();
+        metaCache.updateCache("a", "a", "old", 1L);
+        metaCache.refreshNames();
+        AtomicInteger cleaned = new AtomicInteger();
+        Runnable oldMissing = metaCache.observeLookup("a", "a", "old", false, cleaned::incrementAndGet).get();
+        metaCache.beginMetadataRefresh().run();
+        oldMissing.run();
+        Assert.assertEquals(0, cleaned.get());
+        Assert.assertEquals("old", metaCache.getMetaObjById(1L, false).get());
+    }
+
+    @Test
+    public void testOmittedNameCanRetireCaseFoldedScopeWithoutReplacement() {
+        metaCache.refreshNames();
+        metaCache.updateCache("Foo", "Foo", "old", 1L);
+        metaCache.updateCache("sibling", "sibling", "sibling", 2L);
+        metaCache.refreshNames();
+        AtomicInteger cleaned = new AtomicInteger();
+        metaCache.observeLookup("Foo", "Foo", "old", true, cleaned::incrementAndGet).get().run();
+        Assert.assertEquals(1, cleaned.get());
+        Assert.assertFalse(metaCache.tryGetMetaObj("Foo").isPresent());
+        Assert.assertFalse(metaCache.getNameByIdIfPresent(1L).isPresent());
+        Assert.assertFalse(metaCache.getNameByIdIfPresent(2L).isPresent());
+    }
+
+    @Test
+    public void testOmittedCaseNameDoesNotRetirePublishedFoldedReplacement() {
+        metaCache.refreshNames();
+        metaCache.updateCache("Foo", "Foo", "old", 1L);
+        metaCache.refreshNames();
+        metaCache.updateCache("FOO", "FOO", "new", 2L);
+        AtomicInteger cleaned = new AtomicInteger();
+        metaCache.observeLookup("Foo", "Foo", "old", true, cleaned::incrementAndGet).get().run();
+        Assert.assertEquals(0, cleaned.get());
+        Assert.assertEquals("new", metaCache.tryGetMetaObj("FOO").get());
+        Assert.assertEquals("new", metaCache.getMetaObjById(2L, false).get());
+        Assert.assertTrue(metaCache.listNames().contains("FOO"));
+    }
+
+    @Test
+    public void testMissingObservationRejectsConflictingPresentRemoteName() {
+        metaCache.refreshNames();
+        metaCache.updateCache("other", "a", "old", 1L);
+        Assert.assertFalse(metaCache.observeLookup("a", "a", "old", false, () -> { }).isPresent());
+    }
+
+    @Test
+    public void testMissingObservationRequiresCompleteNames() {
+        metaCache.updateCache("a", "a", "old", 1L);
+        Assert.assertFalse(metaCache.observeLookup("a", "a", "old", false, () -> { }).isPresent());
+    }
+
+    @Test
     public void testMetadataRefreshRetainsLookupAndRejectsOldMissing() {
         metaCache.refreshNames();
         metaCache.updateCache("a", "a", "old", 1L);

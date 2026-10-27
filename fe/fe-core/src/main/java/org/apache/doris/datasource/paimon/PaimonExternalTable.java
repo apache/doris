@@ -391,8 +391,8 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
         // Dictionary loading records getTableSnapshot(), whose version is the Paimon snapshot ID.
         // Use the same monotonic version here instead of deriving a timestamp from partition
         // metadata. Partition metadata can intentionally be UNPRUNABLE and contain no Doris map.
-        return getPaimonSnapshotCacheValue(Optional.empty(), Optional.empty())
-                .getSnapshot().getSnapshotId();
+        return withMissingTableRepair(() -> getPaimonSnapshotCacheValue(Optional.empty(), Optional.empty())
+                .getSnapshot().getSnapshotId());
     }
 
     @Override
@@ -581,7 +581,7 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
             return ((PaimonMvccSnapshot) snapshot.get()).getSnapshotCacheValue();
         } else {
             // Use new lazy-loading snapshot cache API
-            return PaimonUtils.getSnapshotCacheValue(snapshot, this);
+            return withMissingTableRepair(() -> PaimonUtils.getSnapshotCacheValue(snapshot, this));
         }
     }
 

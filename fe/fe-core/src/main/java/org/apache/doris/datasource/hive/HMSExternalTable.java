@@ -1372,25 +1372,11 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     public HiveExternalMetaCache.HivePartitionValues getHivePartitionValues(Optional<MvccSnapshot> snapshot) {
-        long startTime = System.currentTimeMillis();
-        HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                .hive(getCatalog().getId());
-        try {
-            List<Type> partitionColumnTypes = this.getPartitionColumnTypes(snapshot);
-            HiveExternalMetaCache.HivePartitionValues partitionValues = cache.getPartitionValues(this,
-                    partitionColumnTypes);
-            SummaryProfile summaryProfile = SummaryProfile.getSummaryProfile(null);
-            if (summaryProfile != null) {
-                summaryProfile.addExternalTableGetPartitionValuesTime(System.currentTimeMillis() - startTime);
-            }
-            return partitionValues;
-        } catch (Exception e) {
-            if (e.getMessage().contains(HiveExternalMetaCache.ERR_CACHE_INCONSISTENCY)) {
-                LOG.warn("Hive metastore cache inconsistency detected for table: {}.{}.{}. "
-                                + "Clearing cache and retrying to get partition values.",
-                        this.getCatalog().getName(), this.getDbName(), this.getName(), e);
-                Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableByEngine(
-                        getCatalog().getId(), getMetaCacheEngine(), getDbName(), getName());
+        return withMissingTableRepair(() -> {
+            long startTime = System.currentTimeMillis();
+            HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                    .hive(getCatalog().getId());
+            try {
                 List<Type> partitionColumnTypes = this.getPartitionColumnTypes(snapshot);
                 HiveExternalMetaCache.HivePartitionValues partitionValues = cache.getPartitionValues(this,
                         partitionColumnTypes);
@@ -1399,9 +1385,25 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                     summaryProfile.addExternalTableGetPartitionValuesTime(System.currentTimeMillis() - startTime);
                 }
                 return partitionValues;
-            } else {
-                throw e;
+            } catch (Exception e) {
+                if (e.getMessage().contains(HiveExternalMetaCache.ERR_CACHE_INCONSISTENCY)) {
+                    LOG.warn("Hive metastore cache inconsistency detected for table: {}.{}.{}. "
+                                    + "Clearing cache and retrying to get partition values.",
+                            this.getCatalog().getName(), this.getDbName(), this.getName(), e);
+                    Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableByEngine(
+                            getCatalog().getId(), getMetaCacheEngine(), getDbName(), getName());
+                    List<Type> partitionColumnTypes = this.getPartitionColumnTypes(snapshot);
+                    HiveExternalMetaCache.HivePartitionValues partitionValues = cache.getPartitionValues(this,
+                            partitionColumnTypes);
+                    SummaryProfile summaryProfile = SummaryProfile.getSummaryProfile(null);
+                    if (summaryProfile != null) {
+                        summaryProfile.addExternalTableGetPartitionValuesTime(System.currentTimeMillis() - startTime);
+                    }
+                    return partitionValues;
+                } else {
+                    throw e;
+                }
             }
-        }
+        });
     }
 }
