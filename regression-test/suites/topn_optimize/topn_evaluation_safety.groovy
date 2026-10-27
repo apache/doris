@@ -18,7 +18,7 @@
 suite("topn_evaluation_safety", "p0") {
     sql "DROP TABLE IF EXISTS topn_error_input"
     sql "DROP TABLE IF EXISTS topn_error_build"
-    sql """CREATE TABLE topn_error_input (id INT, k INT, d DATE)
+    sql """CREATE TABLE topn_error_input (id INT, k INT, d DATE, ts BIGINT)
         DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
         PROPERTIES("replication_num"="1")"""
     sql """CREATE TABLE topn_error_build (id INT)
@@ -26,9 +26,10 @@ suite("topn_evaluation_safety", "p0") {
         PROPERTIES("replication_num"="1")"""
     // The first physical key carries the error; later batches contain the best TopN keys.
     sql """INSERT INTO topn_error_input
-        SELECT 0, 100, CAST('9999-12-31' AS DATE)
+        SELECT 0, 100, CAST('9999-12-31' AS DATE), CAST(-1 AS BIGINT)
         UNION ALL
-        SELECT number + 1, 0, CAST('2020-01-01' AS DATE) FROM numbers("number"="8192")"""
+        SELECT number + 1, 0, CAST('2020-01-01' AS DATE), CAST(0 AS BIGINT)
+        FROM numbers("number"="8192")"""
     sql "INSERT INTO topn_error_build SELECT id FROM topn_error_input"
     sql "SET topn_filter_ratio = 1000000"
     // Isolate runtime filtering from ordered scan/TopN pushdown and fix the join's probe side.
@@ -57,6 +58,43 @@ suite("topn_evaluation_safety", "p0") {
         test {
             sql joinQuery
             exception "topn join error"
+        }
+    }
+
+    // Residual WHERE predicates are attached to the join only after the TopN visitor runs.
+    String whereQuery = """SELECT l.k FROM topn_error_input l JOIN [broadcast] topn_error_build r
+        ON l.id = r.id WHERE assert_true(l.k < 3, 'topn where error') ORDER BY l.k LIMIT 1"""
+    explain {
+        sql whereQuery
+        notContains "TOPN OPT:"
+    }
+    test {
+        sql whereQuery
+        exception "topn where error"
+    }
+
+    String generateQuery = """SELECT k, checked FROM topn_error_input
+        LATERAL VIEW explode(array(assert_true(k < 3, 'topn generator error'))) lv AS checked
+        ORDER BY k, checked LIMIT 1"""
+    explain {
+        sql generateQuery
+        notContains "TOPN OPT:"
+    }
+    test {
+        sql generateQuery
+        exception "topn generator error"
+    }
+
+    // These deterministic conversions can throw and are not in the date-add/subtract hierarchy.
+    for (String function : ['from_second', 'from_millisecond', 'from_microsecond']) {
+        String epochQuery = "SELECT k, ${function}(ts) AS v FROM topn_error_input ORDER BY k, v LIMIT 1"
+        explain {
+            sql epochQuery
+            notContains "TOPN OPT:"
+        }
+        test {
+            sql epochQuery
+            exception "out of range"
         }
     }
 

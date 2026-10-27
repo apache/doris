@@ -21,6 +21,8 @@ import org.apache.doris.nereids.datasets.ssb.SSBTestBase;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.post.TopnFilterContext;
+import org.apache.doris.nereids.processor.post.TopnFilterPushDownVisitor;
+import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -29,6 +31,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.SortPhase;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
@@ -54,7 +59,7 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
         super.runBeforeAll();
         createTable("CREATE TABLE uuid_topn (id INT, u UUID) DUPLICATE KEY(id) "
                 + "DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')");
-        createTable("CREATE TABLE topn_safety (id INT, k INT, d DATE) DUPLICATE KEY(id) "
+        createTable("CREATE TABLE topn_safety (id INT, k INT, d DATE, ts BIGINT) DUPLICATE KEY(id) "
                 + "DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')");
     }
 
@@ -122,6 +127,61 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
                 + "ON l.id = r.id ORDER BY l.k LIMIT 1", PhysicalHashJoin.class, true);
         assertTopNFilterBoundary("SELECT l.k FROM topn_safety l JOIN topn_safety r "
                 + "ON l.id < r.id ORDER BY l.k LIMIT 1", PhysicalNestedLoopJoin.class, true);
+        assertTopNFilterBoundary("SELECT k FROM topn_safety WHERE k < 3 ORDER BY k LIMIT 1",
+                PhysicalFilter.class, true);
+    }
+
+    @Test
+    public void testTopNFilterDoesNotCrossResidualWhereAboveJoin() {
+        assertTopNFilterBoundary("SELECT l.k FROM topn_safety l JOIN topn_safety r ON l.id = r.id "
+                + "WHERE assert_true(l.k < 3, 'bad') ORDER BY l.k LIMIT 1",
+                PhysicalFilter.class, false);
+    }
+
+    @Test
+    public void testTopNFilterStopsAtGenerators() {
+        for (String argument : List.of("k", "assert_true(k < 3, 'bad')")) {
+            assertTopNFilterBoundary("SELECT k, item FROM topn_safety "
+                    + "LATERAL VIEW explode(array(" + argument + ")) lv AS item ORDER BY k, item LIMIT 1",
+                    PhysicalGenerate.class, false);
+        }
+    }
+
+    @Test
+    public void testTopNFilterDoesNotCrossEpochConversion() {
+        for (String function : List.of("from_second", "from_millisecond", "from_microsecond")) {
+            assertTopNFilterBoundary("SELECT k, " + function + "(ts) AS v FROM topn_safety "
+                    + "ORDER BY k, v LIMIT 1", PhysicalProject.class, false);
+        }
+    }
+
+    @Test
+    public void testTopNFilterRequiresProvenExpressionSafety() {
+        for (String expression : List.of("mod(ts, -1)", "cast(ts AS INT)", "abs(ts)")) {
+            assertTopNFilterBoundary("SELECT k, " + expression + " AS v FROM topn_safety "
+                    + "ORDER BY k, v LIMIT 1", PhysicalProject.class, false);
+        }
+    }
+
+    @Test
+    public void testTopNFilterStopsAtCardinalityAssertionsWithNoExpressions() {
+        PlanChecker checker = PlanChecker.from(connectContext)
+                .analyze("SELECT k FROM topn_safety ORDER BY k LIMIT 1").rewrite().implement();
+        List<PhysicalTopN<? extends Plan>> topNs = checker.getPhysicalPlan().collectToList(node ->
+                node instanceof PhysicalTopN && ((PhysicalTopN<?>) node).getSortPhase().isLocal());
+        Assertions.assertEquals(1, topNs.size());
+        PhysicalTopN<? extends Plan> topN = topNs.get(0);
+        Plan child = topN.child();
+        Plan assertion = new PhysicalAssertNumRows<>(
+                new AssertNumRowsElement(1, "SELECT k FROM topn_safety", AssertNumRowsElement.Assertion.LE),
+                child.getLogicalProperties(), child);
+        PhysicalTopN<? extends Plan> guarded = topN.withChildren(List.of(assertion));
+        TopnFilterContext filters = new TopnFilterContext();
+        Assertions.assertTrue(assertion.getExpressions().isEmpty());
+        Assertions.assertFalse(guarded.accept(new TopnFilterPushDownVisitor(filters),
+                new TopnFilterPushDownVisitor.PushDownContext(guarded,
+                        guarded.getOrderKeys().get(0).getExpr(), true)));
+        Assertions.assertTrue(filters.getTopnFilters().isEmpty());
     }
 
     private void assertTopNFilterBoundary(String sql, Class<? extends Plan> boundary, boolean expectFilter) {
