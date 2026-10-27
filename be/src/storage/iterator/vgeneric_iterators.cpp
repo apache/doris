@@ -341,54 +341,80 @@ size_t VMergeIterator::_run_end(uint32_t top_index, size_t cap) const {
     return end;
 }
 
-Status VMergeIterator::_copy_run(MutableColumns& columns, size_t max_rows, size_t* rows) {
+Status VMergeIterator::_take_run(MutableColumns& columns, size_t max_rows, size_t* rows,
+                                 std::vector<uint8_t>* same_key) {
     const uint32_t top_index = _heap[0];
     Child& top = _children[top_index];
     const size_t end = _run_end(top_index, std::min(top.rows, top.pos + max_rows));
     size_t start = top.pos;
-    // drop_older_versions: only the first row of the run can repeat the key copied out last,
-    // since a child holds every key once.
-    if (_decision.drop_older_versions && !_last_key.empty() &&
-        _key_equals_remembered(*top.block, start)) {
+    // Only the first row of the run can repeat the key taken last, since a child holds every
+    // key once.
+    const bool track_key = _decision.drop_older_versions || same_key != nullptr;
+    const bool repeats_last_key =
+            track_key && !_last_key.empty() && _key_equals_remembered(*top.block, start);
+    if (_decision.drop_older_versions && repeats_last_key) {
         ++start;
         ++_merged_rows;
     }
     if (end > start) {
-        RETURN_IF_CATCH_EXCEPTION({
-            for (size_t ordinal = 0; ordinal < columns.size(); ++ordinal) {
-                columns[ordinal]->insert_range_from(*top.block->get_by_position(ordinal).column,
-                                                    start, end - start);
-            }
-        });
+        _taken_runs.push_back({.child = top_index, .pos = start, .rows = end - start});
         *rows += end - start;
-        if (_decision.drop_older_versions) {
+        if (same_key != nullptr) {
+            same_key->push_back(repeats_last_key ? 1 : 0);
+            same_key->resize(same_key->size() + (end - start - 1), 0);
+        }
+        if (track_key) {
             _remember_key(*top.block, end - 1);
         }
     }
     top.pos = end;
+    if (top.pos == top.rows) {
+        // _top_moved() refills or releases this Block, which the taken runs may point into.
+        RETURN_IF_CATCH_EXCEPTION(_copy_taken_runs(columns));
+    }
     RETURN_IF_ERROR(_top_moved());
     _update_second();
     return Status::OK();
 }
 
-Status VMergeIterator::next_batch(Block* block) {
+void VMergeIterator::_copy_taken_runs(MutableColumns& columns) {
+    for (size_t ordinal = 0; ordinal < columns.size(); ++ordinal) {
+        IColumn& column = *columns[ordinal];
+        for (const TakenRun& run : _taken_runs) {
+            const IColumn& source = *_children[run.child].block->get_by_position(ordinal).column;
+            if (run.rows == 1) {
+                column.insert_from(source, run.pos);
+            } else {
+                column.insert_range_from(source, run.pos, run.rows);
+            }
+        }
+    }
+    _taken_runs.clear();
+}
+
+Status VMergeIterator::_next_batch(Block* block, std::vector<uint8_t>* same_key) {
     DCHECK(!_eof) << "next_batch() called after EndOfFile";
     DCHECK(!_row_handed_out) << "a merge is consumed either by next_batch() or by next_row()";
     DCHECK_EQ(block->columns(), _read_schema->num_block_columns());
+    DCHECK(_taken_runs.empty());
     size_t rows = 0;
     size_t rows_at_last_check = 0;
     {
         auto columns_guard = block->mutate_columns_scoped();
         auto& columns = columns_guard.mutable_columns();
         while (rows < _limits.max_rows && !_heap.empty()) {
-            RETURN_IF_ERROR(_copy_run(columns, _limits.max_rows - rows, &rows));
-            if (rows - rows_at_last_check >= OutputBlockLimits::BYTE_BUDGET_CHECK_INTERVAL_ROWS) {
+            RETURN_IF_ERROR(_take_run(columns, _limits.max_rows - rows, &rows, same_key));
+            if (_limits.has_byte_budget() &&
+                rows - rows_at_last_check >= OutputBlockLimits::BYTE_BUDGET_CHECK_INTERVAL_ROWS) {
                 rows_at_last_check = rows;
+                // The budget measures the copied columns.
+                RETURN_IF_CATCH_EXCEPTION(_copy_taken_runs(columns));
                 if (_limits.reached_byte_budget(columns)) {
                     break;
                 }
             }
         }
+        RETURN_IF_CATCH_EXCEPTION(_copy_taken_runs(columns));
     }
     if (rows == 0) {
         DCHECK(_heap.empty());
@@ -396,6 +422,16 @@ Status VMergeIterator::next_batch(Block* block) {
         return Status::EndOfFile("no more rows to merge");
     }
     return Status::OK();
+}
+
+Status VMergeIterator::next_batch(Block* block) {
+    return _next_batch(block, nullptr);
+}
+
+Status VMergeIterator::next_batch(Block* block, std::vector<uint8_t>* same_key) {
+    DORIS_CHECK(!_decision.drop_older_versions);
+    same_key->clear();
+    return _next_batch(block, same_key);
 }
 
 void VMergeIterator::update_profile(RuntimeProfile* profile) {
@@ -422,6 +458,10 @@ public:
     Status init(const StorageReadOptions& opts) override;
 
     Status next_batch(Block* block) override;
+
+    // A union does not compare keys, the way next_row() never flags a row: every flag is 0.
+    // The AGG_KEYS fold reads a union only over rowsets whose keys do not overlap.
+    Status next_batch(Block* block, std::vector<uint8_t>* same_key) override;
 
     Status next_row(IteratorRowRef* ref) override;
 
@@ -475,6 +515,13 @@ Status VUnionIterator::next_batch(Block* block) {
         }
     }
     return Status::EndOfFile("End of VUnionIterator");
+}
+
+Status VUnionIterator::next_batch(Block* block, std::vector<uint8_t>* same_key) {
+    same_key->clear();
+    RETURN_IF_ERROR(next_batch(block));
+    same_key->resize(block->rows(), 0);
+    return Status::OK();
 }
 
 Status VUnionIterator::next_row(IteratorRowRef* ref) {

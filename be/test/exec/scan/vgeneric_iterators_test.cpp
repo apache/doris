@@ -1098,6 +1098,93 @@ TEST(VGenericIteratorsTest, MergeNextBatchHonorsTheRowLimit) {
     EXPECT_TRUE(std::ranges::is_sorted(keys));
 }
 
+// One row read through next_batch(Block*, same_key): its key and its same-key flag.
+struct FlaggedRow {
+    int64_t key;
+    bool same;
+};
+
+// Read every row of `iter` through next_batch(Block*, same_key) into `rows`; returns the status
+// that ended the read, EndOfFile when every row was read. The value columns of the test schema
+// must stay with their key (column 1 = key + 1, column 2 = key + 2), and there must be one flag
+// per row.
+static Status read_flagged_rows(RowwiseIterator* iter, ReadSchema& schema,
+                                std::vector<FlaggedRow>* rows) {
+    Block block;
+    create_block(schema, block);
+    std::vector<uint8_t> same_key;
+    while (true) {
+        block.clear_column_data();
+        Status st = iter->next_batch(&block, &same_key);
+        if (!st.ok()) {
+            return st;
+        }
+        if (same_key.size() != block.rows()) {
+            return Status::InternalError("{} same-key flags for {} rows", same_key.size(),
+                                         block.rows());
+        }
+        for (size_t i = 0; i < block.rows(); ++i) {
+            const int64_t key = key_at(block, i);
+            if ((*block.get_by_position(1).column)[i].get<TYPE_INT>() != key + 1 ||
+                (*block.get_by_position(2).column)[i].get<TYPE_BIGINT>() != key + 2) {
+                return Status::InternalError("the value columns of key {} moved", key);
+            }
+            rows->push_back({.key = key, .same = same_key[i] != 0});
+        }
+    }
+}
+
+// next_batch(Block*, same_key) copies the rows in merge order and flags every row whose key
+// repeats the key of the row before it, also when the two rows land in different Blocks: with
+// 7-row Blocks the three copies of a key straddle Block boundaries. Key 0 comes three times
+// (flags 0, 1, 1), key 150 twice, key 250 once.
+TEST(VGenericIteratorsTest, MergeNextBatchFlagsRepeatedKeysAcrossBlocks) {
+    auto schema = create_schema();
+    auto output_schema = std::make_shared<ReadSchema>(schema);
+    std::vector<RowwiseIteratorUPtr> inputs;
+    inputs.push_back(new_auto_increment_iterator(schema, 100));
+    inputs.push_back(new_auto_increment_iterator(schema, 200));
+    inputs.push_back(new_auto_increment_iterator(schema, 300));
+    auto iter = new_merge_iterator(std::move(inputs), output_schema,
+                                   merge_decision(*output_schema, -1, false, false, false));
+    OlapReaderStatistics stats;
+    StorageReadOptions opts(stats);
+    opts.block_row_max = 7;
+    ASSERT_TRUE(iter->init(opts).ok());
+
+    std::vector<FlaggedRow> rows;
+    Status st = read_flagged_rows(iter.get(), schema, &rows);
+    EXPECT_TRUE(st.is<END_OF_FILE>()) << st;
+    ASSERT_EQ(rows.size(), 600);
+    size_t i = 0;
+    for (int64_t key = 0; key < 300; ++key) {
+        const int copies = (key < 100 ? 1 : 0) + (key < 200 ? 1 : 0) + 1;
+        for (int copy = 0; copy < copies; ++copy, ++i) {
+            EXPECT_EQ(rows[i].key, key) << "row " << i;
+            EXPECT_EQ(rows[i].same, copy > 0) << "row " << i;
+        }
+    }
+}
+
+// A union does not compare keys: next_batch(Block*, same_key) flags no row.
+TEST(VGenericIteratorsTest, UnionNextBatchFlagsNoRow) {
+    auto schema = create_schema();
+    auto output_schema = std::make_shared<ReadSchema>(schema);
+    std::vector<RowwiseIteratorUPtr> inputs;
+    inputs.push_back(new_auto_increment_iterator(schema, 100));
+    inputs.push_back(new_auto_increment_iterator(schema, 200));
+    auto iter = new_union_iterator(std::move(inputs), output_schema);
+    OlapReaderStatistics stats;
+    StorageReadOptions opts(stats);
+    ASSERT_TRUE(iter->init(opts).ok());
+
+    std::vector<FlaggedRow> rows;
+    Status st = read_flagged_rows(iter.get(), schema, &rows);
+    EXPECT_TRUE(st.is<END_OF_FILE>()) << st;
+    EXPECT_EQ(rows.size(), 300);
+    EXPECT_TRUE(std::ranges::none_of(rows, [](const FlaggedRow& row) { return row.same; }));
+}
+
 // A union hands its rows out through next_row() too, child after child, never flagged.
 TEST(VGenericIteratorsTest, UnionNextRowWalksEveryRow) {
     auto schema = create_schema();

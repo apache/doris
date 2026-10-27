@@ -238,6 +238,15 @@ public:
                                      demangle(typeid(*this).name()));
     }
 
+    // next_batch(Block*), and `same_key` gets one flag per row of `block`: 1 when the row's key
+    // equals the key of the row before it (the first row of a batch is compared with the last
+    // row of the previous batch), 0 otherwise. Example: batches k1 k1 k2 | k2 k3 give the flags
+    // 0 1 0 | 1 0. An iterator whose rows never repeat a key sets every flag to 0.
+    virtual Status next_batch(Block* block, std::vector<uint8_t>* same_key) {
+        return Status::InternalError("should not reach here, current class: " +
+                                     demangle(typeid(*this).name()));
+    }
+
     // Hand out the next row as a reference into one of this iterator's Blocks, in the same
     // order next_batch() would copy the rows. Return OK, or EndOfFile once every row has
     // been handed out; a caller never calls next_row() again after EndOfFile.

@@ -19,6 +19,9 @@
 
 #include <glog/logging.h>
 
+#include <algorithm>
+#include <utility>
+
 #include "common/exception.h"
 #include "exprs/aggregate/aggregate_function_reader.h"
 #include "storage/iterators.h"
@@ -26,224 +29,274 @@
 
 namespace doris {
 
+namespace {
+
+// Whether the `_reader` function of `aggregation` returns the single input of a one-row group
+// unchanged: the sum, extremum or replacement of one value is that value, and the union of one
+// HLL or bitmap holds the same values.
+bool reader_function_returns_single_input(FieldAggregationMethod aggregation) {
+    switch (aggregation) {
+    case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_SUM:
+    case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_MIN:
+    case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_MAX:
+    case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE:
+    case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL:
+    case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_HLL_UNION:
+    case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_BITMAP_UNION:
+        return true;
+    default:
+        return false;
+    }
+}
+
+} // namespace
+
 AggValueAggregator::~AggValueAggregator() {
     for (auto& column : _columns) {
         column.function->destroy(column.place);
-        delete[] column.place;
     }
 }
 
 Status AggValueAggregator::init(const ReadSchema& read_schema, std::vector<uint32_t> agg_ordinals,
-                                int be_exec_version, size_t max_buffered_rows) {
+                                int be_exec_version) {
     DCHECK(_columns.empty());
     _agg_ordinals = std::move(agg_ordinals);
-    _max_buffered_rows = max_buffered_rows;
     _columns.reserve(_agg_ordinals.size());
     for (auto ordinal : _agg_ordinals) {
         const auto& tablet_column = *read_schema.column(ordinal);
         const auto& data_type = read_schema.data_type(ordinal);
         AggregateFunctionPtr function =
                 tablet_column.get_aggregate_function(AGG_READER_SUFFIX, be_exec_version, data_type);
-        // Every aggregate value column must resolve its reader aggregate function.
+        // Every folded value column must resolve its reader aggregate function.
         if (!function) {
             return Status::InternalError(
                     "Failed to init the reader aggregate function of column {} (ordinal {})",
                     tablet_column.name(), ordinal);
         }
-        AggColumn column;
-        column.ordinal = ordinal;
-        column.function = function;
-        // Fixed-length columns are written by position (replace_column_data), so the buffer
-        // is pre-filled with `max_buffered_rows` default rows.
-        column.buffer = data_type->create_column();
-        column.buffer->insert_many_defaults(_max_buffered_rows);
-        column.variable_length = column.buffer->is_variable_length();
-        const IColumn* columns[] = {column.buffer.get()};
+        const auto column = data_type->create_column();
+        const IColumn* columns[] = {column.get()};
         function->check_input_columns_type(columns);
-        function->check_result_column_type(*column.buffer);
+        function->check_result_column_type(*column);
+        _returns_single_row_unchanged =
+                _returns_single_row_unchanged &&
+                reader_function_returns_single_input(tablet_column.aggregation());
 
-        column.place = new char[function->size_of_data()];
-        SAFE_CREATE(function->create(column.place), { delete[] column.place; });
-        _columns.push_back(std::move(column));
+        AggregateDataPtr place =
+                _state_arena.aligned_alloc(function->size_of_data(), function->align_of_data());
+        // A throwing create() leaves the memory to the arena; the places created before are in
+        // _columns, which is reserved, and the destructor destroys them.
+        function->create(place);
+        _columns.push_back({.ordinal = ordinal,
+                            .function = std::move(function),
+                            .place = place,
+                            .block_has_null = false});
     }
     return Status::OK();
 }
 
-void AggValueAggregator::add_row(const IteratorRowRef& row, MutableColumns& out) {
-    _buffered_rows.push_back(row);
-    _open_group_rows++;
-
-    // The merge iterator refreshes a Block once its last row is consumed, which would leave
-    // the buffered references dangling; so the references are materialized here at the
-    // latest. This relies on every row of a Block being handed out: an AGG_KEYS merge never
-    // drops rows (MergeDecision::drop_older_versions), so the last row of a Block is always
-    // seen here before the Block is refilled. The buffer sized `_max_buffered_rows` bounds
-    // the references as well.
-    const bool is_last_row_of_block = row.block->rows() == row.row_pos + 1;
-    if (is_last_row_of_block || _buffered_rows.size() == _max_buffered_rows) {
-        flush(out);
-    }
-}
-
-void AggValueAggregator::close_group() {
-    _closed_group_rows.push_back(_open_group_rows);
-    _open_group_rows = 0;
-}
-
-void AggValueAggregator::flush(MutableColumns& out) {
-    const size_t rows = _materialize_buffered_rows();
+void AggValueAggregator::start_block(const Block& block) {
+    const size_t rows = block.rows();
     for (auto& column : _columns) {
-        column.buffer_has_null = column.buffer->has_null(0, rows);
-    }
-
-    size_t begin = 0;
-    for (size_t group_rows : _closed_group_rows) {
-        _aggregate_rows(begin, group_rows, /*close=*/true, out);
-        begin += group_rows;
-    }
-    _closed_group_rows.clear();
-
-    // The open group continues in the rows still to come: keep its state in the places.
-    const size_t open_group_rows = _open_group_rows;
-    _open_group_rows = 0;
-    if (open_group_rows > 0) {
-        _aggregate_rows(begin, open_group_rows, /*close=*/false, out);
+        column.block_has_null = block.get_by_position(column.ordinal).column->has_null(0, rows);
     }
 }
 
-size_t AggValueAggregator::_materialize_buffered_rows() {
-    const size_t rows = _buffered_rows.size();
-    for (size_t i = 0; i < rows; ++i) {
-        const auto& row = _buffered_rows[i];
-        _rows_by_block[row.block.get()].emplace_back(row.row_pos, static_cast<int>(i));
-    }
-
+void AggValueAggregator::add_rows(const Block& block, size_t begin, size_t end) {
+    DCHECK_LT(begin, end);
     for (auto& column : _columns) {
-        auto& buffer = *column.buffer;
-        if (column.variable_length) {
-            // Variable-length values cannot be replaced in place: rebuild the buffer in order.
-            buffer.clear();
-            for (const auto& row : _buffered_rows) {
-                buffer.insert_from(*row.block->get_by_position(column.ordinal).column, row.row_pos);
-            }
-        } else {
-            for (const auto& [block, positions] : _rows_by_block) {
-                if (positions.empty()) {
-                    continue;
-                }
-                const auto& src_column = *block->get_by_position(column.ordinal).column;
-                for (const auto& [src_pos, dst_pos] : positions) {
-                    buffer.replace_column_data(src_column, src_pos, dst_pos);
-                }
-            }
-        }
+        const IColumn* source = block.get_by_position(column.ordinal).column.get();
+        column.function->add_batch_range(begin, end - 1, column.place, &source, _arena,
+                                         column.block_has_null);
     }
-
-    for (auto& [_, positions] : _rows_by_block) {
-        positions.clear();
-    }
-    _buffered_rows.clear();
-    return rows;
 }
 
-void AggValueAggregator::_aggregate_rows(size_t begin, size_t rows, bool close,
-                                         MutableColumns& out) {
+void AggValueAggregator::close_group(MutableColumns& out) {
     for (auto& column : _columns) {
-        // A closed group whose rows were all materialized by an earlier flush has no rows left
-        // here (rows == 0); its result is still in the place.
-        if (rows > 0) {
-            const IColumn* buffer = column.buffer.get();
-            column.function->add_batch_range(begin, begin + rows - 1, column.place, &buffer, _arena,
-                                             column.buffer_has_null);
-        }
-        if (close) {
-            column.function->insert_result_into(column.place, *out[column.ordinal]);
-            column.function->reset(column.place);
-        }
+        column.function->insert_result_into(column.place, *out[column.ordinal]);
+        column.function->reset(column.place);
     }
-    if (close) {
-        _arena.clear();
-    }
+    _arena.clear();
 }
 
 AggKeyBlockIterator::AggKeyBlockIterator(RowwiseIterator* rows, OutputBlockLimits limits,
                                          ReadSchemaSPtr read_schema, int be_exec_version,
                                          uint64_t* merged_rows)
-        : _cursor(rows),
+        : _rows(rows),
           _limits(limits),
           _read_schema(std::move(read_schema)),
           _be_exec_version(be_exec_version),
           _merged_rows(merged_rows) {}
 
 Status AggKeyBlockIterator::init() {
-    // Every merge and caller Block has the exact read-schema layout: the key columns are
-    // copied, every other column is an aggregate value column.
+    // Every merged and caller Block has the exact read-schema layout: the key columns and the
+    // REPLACE columns are copied from a group's first row, every other column is folded.
     std::vector<uint32_t> agg_ordinals;
     const auto num_block_columns = static_cast<uint32_t>(_read_schema->num_block_columns());
     for (uint32_t ordinal = 0; ordinal < num_block_columns; ++ordinal) {
-        if (_read_schema->column(ordinal)->is_key()) {
-            _key_ordinals.push_back(ordinal);
+        const auto& column = *_read_schema->column(ordinal);
+        if (column.is_key() ||
+            column.aggregation() == FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE) {
+            _head_ordinals.push_back(ordinal);
         } else {
             agg_ordinals.push_back(ordinal);
         }
     }
-    RETURN_IF_ERROR(_aggregator.init(*_read_schema, std::move(agg_ordinals), _be_exec_version,
-                                     _limits.max_rows));
-    return _cursor.init();
+    RETURN_IF_ERROR(_aggregator.init(*_read_schema, std::move(agg_ordinals), _be_exec_version));
+    _copy_one_row_groups = _aggregator.returns_single_row_unchanged();
+    _merged = _read_schema->create_read_block();
+    return Status::OK();
 }
 
-Status AggKeyBlockIterator::_append_key_columns(MutableColumns& columns) {
-    const IteratorRowRef& row = _cursor.row();
+Status AggKeyBlockIterator::_read_merged_block() {
+    _merged.clear_column_data();
+    _pos = 0;
+    Status st = _rows->next_batch(&_merged, &_same_key);
+    if (st.is<ErrorCode::END_OF_FILE>()) {
+        _rows_eof = true;
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(st);
+    DCHECK_EQ(_same_key.size(), _merged.rows());
+    _aggregator.start_block(_merged);
+    return Status::OK();
+}
+
+size_t AggKeyBlockIterator::_group_end(size_t begin) const {
+    size_t end = begin + 1;
+    while (end < _same_key.size() && _same_key[end]) {
+        ++end;
+    }
+    return end;
+}
+
+Status AggKeyBlockIterator::_copy_heads(MutableColumns& columns) {
+    if (_heads.empty()) {
+        return Status::OK();
+    }
     RETURN_IF_CATCH_EXCEPTION({
-        for (auto ordinal : _key_ordinals) {
-            columns[ordinal]->insert_from(*row.block->get_by_position(ordinal).column, row.row_pos);
+        for (auto ordinal : _head_ordinals) {
+            columns[ordinal]->insert_indices_from(*_merged.get_by_position(ordinal).column,
+                                                  _heads.data(), _heads.data() + _heads.size());
+        }
+    });
+    _heads.clear();
+    return Status::OK();
+}
+
+Status AggKeyBlockIterator::_copy_single_rows(MutableColumns& columns, size_t begin, size_t end) {
+    for (size_t row = begin; row < end; ++row) {
+        _heads.push_back(static_cast<uint32_t>(row));
+    }
+    RETURN_IF_CATCH_EXCEPTION({
+        for (auto ordinal : _aggregator.agg_ordinals()) {
+            columns[ordinal]->insert_range_from(*_merged.get_by_position(ordinal).column, begin,
+                                                end - begin);
         }
     });
     return Status::OK();
 }
 
+Status AggKeyBlockIterator::_advance_merged_block(MutableColumns& columns,
+                                                  OutputProgress* progress) {
+    // The collected heads point into `_merged`: copy them before it is refilled.
+    RETURN_IF_ERROR(_copy_heads(columns));
+    RETURN_IF_ERROR(_read_merged_block());
+    if (_rows_eof) {
+        if (_group_open) {
+            _aggregator.close_group(columns);
+            _group_open = false;
+            ++progress->rows;
+        }
+        _done = true;
+    }
+    return Status::OK();
+}
+
+Status AggKeyBlockIterator::_output_full(MutableColumns& columns, OutputProgress* progress,
+                                         bool* full) {
+    *full = progress->rows == _limits.max_rows;
+    if (!*full && _limits.has_byte_budget() &&
+        progress->rows - progress->rows_at_last_check >=
+                OutputBlockLimits::BYTE_BUDGET_CHECK_INTERVAL_ROWS) {
+        progress->rows_at_last_check = progress->rows;
+        // The budget measures the copied columns.
+        RETURN_IF_ERROR(_copy_heads(columns));
+        *full = _limits.reached_byte_budget(columns);
+    }
+    return Status::OK();
+}
+
+size_t AggKeyBlockIterator::_one_row_groups_end(size_t room) const {
+    // Row r is a one-row group when the row after it starts another group of this merged
+    // Block; the last row of the Block may go on into the next one.
+    const size_t limit = std::min(_merged.rows() - 1, _pos + room);
+    size_t end = _pos;
+    while (end < limit && !_same_key[end + 1]) {
+        ++end;
+    }
+    return end;
+}
+
+Status AggKeyBlockIterator::_fold_merged_rows(MutableColumns& columns, OutputProgress* progress,
+                                              bool* full) {
+    while (_pos < _merged.rows()) {
+        if (_same_key[_pos]) {
+            // The open group goes on from the previous merged Block.
+            DCHECK(_group_open && _pos == 0);
+            const size_t end = _group_end(_pos);
+            _aggregator.add_rows(_merged, _pos, end);
+            progress->merged_rows += end - _pos;
+            _pos = end;
+            continue;
+        }
+        // Row `_pos` starts a group; stopping in front of it is safe since it is unconsumed.
+        if (_group_open) {
+            _aggregator.close_group(columns);
+            _group_open = false;
+            ++progress->rows;
+        }
+        RETURN_IF_ERROR(_output_full(columns, progress, full));
+        if (*full) {
+            return Status::OK();
+        }
+        if (_copy_one_row_groups) {
+            const size_t end = _one_row_groups_end(_limits.max_rows - progress->rows);
+            if (end > _pos) {
+                RETURN_IF_ERROR(_copy_single_rows(columns, _pos, end));
+                progress->rows += end - _pos;
+                _pos = end;
+                continue;
+            }
+        }
+        _heads.push_back(static_cast<uint32_t>(_pos));
+        const size_t end = _group_end(_pos);
+        _aggregator.add_rows(_merged, _pos, end);
+        progress->merged_rows += end - _pos - 1;
+        _group_open = true;
+        _pos = end;
+    }
+    return Status::OK();
+}
+
 Status AggKeyBlockIterator::next_block(Block* block, bool* eof) {
-    if (UNLIKELY(_cursor.eof())) {
+    if (_done) {
         *eof = true;
         return Status::OK();
     }
-    *eof = false;
-
     auto target_columns_guard = block->mutate_columns_scoped();
-    auto& target_columns = target_columns_guard.mutable_columns();
-
-    // The cursor's row always starts a key group: the previous call stopped right before it.
-    RETURN_IF_ERROR(_append_key_columns(target_columns));
-    size_t rows = 1;
-    size_t merged_rows = 0;
-    _aggregator.add_row(_cursor.row(), target_columns);
-
-    while (true) {
-        RETURN_IF_ERROR(_cursor.advance());
-        if (_cursor.eof()) {
-            break;
-        }
-
-        if (!_cursor.row().is_same) {
-            // The row starts a new group and is still unconsumed, so stopping here is safe.
-            if (rows == _limits.max_rows || _limits.reached_byte_budget_at(rows, target_columns)) {
-                break;
-            }
-            _aggregator.close_group();
-            RETURN_IF_ERROR(_append_key_columns(target_columns));
-            rows++;
+    auto& columns = target_columns_guard.mutable_columns();
+    OutputProgress progress;
+    bool full = false;
+    while (!full && !_done) {
+        if (_pos == _merged.rows()) {
+            RETURN_IF_ERROR(_advance_merged_block(columns, &progress));
         } else {
-            merged_rows++;
+            RETURN_IF_ERROR(_fold_merged_rows(columns, &progress, &full));
         }
-        _aggregator.add_row(_cursor.row(), target_columns);
     }
-
-    // The loop only stops at eof or on the first row of a new key, so the last group of this
-    // Block is complete: close it and emit every group buffered so far.
-    _aggregator.close_group();
-    _aggregator.flush(target_columns);
-
-    *_merged_rows += merged_rows;
+    RETURN_IF_ERROR(_copy_heads(columns));
+    *_merged_rows += progress.merged_rows;
+    *eof = progress.rows == 0;
     return Status::OK();
 }
 

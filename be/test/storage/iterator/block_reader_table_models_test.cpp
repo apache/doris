@@ -536,6 +536,55 @@ TEST_F(BlockReaderAggKeysTest, CompactionFoldsEveryKeyGroup) {
     EXPECT_EQ(opened->reader.merged_rows(), 3);
 }
 
+// AGG_KEYS with one-row and several-row groups mixed: keys 1 and 3 have several versions (key 3
+// in both overlapping segments of the first rowset and in the second rowset), the others one.
+// The one-row groups are copied as they are, the others folded, and the REPLACE column comes
+// from the newest row while REPLACE_IF_NOT_NULL is folded. The batch sizes cut the merged and
+// the output Blocks inside stretches of one-row groups and inside the groups of keys 1 and 3.
+TEST_F(BlockReaderTableModelsTest, AggKeysCopyOneRowGroupsAndFoldTheOthers) {
+    auto schema = make_schema(KeysType::AGG_KEYS, {{"k", "INT", true},
+                                                   {"s", "BIGINT", false, "SUM"},
+                                                   {"lo", "INT", false, "MIN"},
+                                                   {"hi", "INT", false, "MAX"},
+                                                   {"r", "VARCHAR", false, "REPLACE"},
+                                                   {"rn", "BIGINT", false, "REPLACE_IF_NOT_NULL"}});
+    auto tablet = create_tablet(*schema, /*enable_unique_key_merge_on_write=*/false);
+    const std::vector<RowsetSharedPtr> rowsets = {
+            write_rowset(
+                    schema,
+                    {{{1, 1, 5, 5, 100, 1000},
+                      {3, 3, 7, 7, 300, 3000},
+                      {5, 5, 9, 9, 500, 5000},
+                      {7, 7, 2, 2, 700, 7000}},
+                     {{2, 2, 4, 4, 200, 2000}, {3, 30, 1, 1, 301, 3001}, {8, 8, 6, 6, 800, 8000}}},
+                    /*version=*/2),
+            write_rowset(
+                    schema,
+                    {{{3, 300, 8, 8, 302, 3002}, {4, 4, 3, 3, 400, 4000}, {6, 6, 1, 1, 600, 6000}}},
+                    /*version=*/3),
+            write_rowset(schema, {{{1, 10, 2, 9, 101, 1001}, {9, 9, 5, 5, 900, 9000}}},
+                         /*version=*/4),
+    };
+    const std::vector<Row> folded = {
+            {1, 11, 2, 9, 101, 1001}, {2, 2, 4, 4, 200, 2000}, {3, 333, 1, 8, 302, 3002},
+            {4, 4, 3, 3, 400, 4000},  {5, 5, 9, 9, 500, 5000}, {6, 6, 1, 1, 600, 6000},
+            {7, 7, 2, 2, 700, 7000},  {8, 8, 6, 6, 800, 8000}, {9, 9, 5, 5, 900, 9000}};
+    for (size_t batch_size : {1, 2, 3, 4, 5, 100}) {
+        SCOPED_TRACE("batch_size=" + std::to_string(batch_size));
+        auto opened = open_reader(tablet, schema, rowsets, ReadSpec().batch(batch_size));
+        EXPECT_TRUE(uses_iterator<AggKeyBlockIterator>(opened->reader));
+        EXPECT_EQ(opened->drain(), folded);
+        // 12 stored rows, 9 keys.
+        EXPECT_EQ(opened->reader.merged_rows(), 3);
+    }
+    auto compaction =
+            open_reader(tablet, schema, rowsets,
+                        ReadSpec().type(ReaderType::READER_CUMULATIVE_COMPACTION).batch(4));
+    EXPECT_TRUE(uses_iterator<AggKeyBlockIterator>(compaction->reader));
+    EXPECT_EQ(compaction->drain(), folded);
+    EXPECT_EQ(compaction->reader.merged_rows(), 3);
+}
+
 // UNIQUE_KEYS merge-on-read: the second rowset overwrites keys 2 and 3 of the first one and
 // marks key 3 deleted.
 class BlockReaderUniqueKeysTest : public BlockReaderTableModelsTest {

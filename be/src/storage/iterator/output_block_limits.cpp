@@ -22,9 +22,12 @@
 
 namespace doris {
 
+bool OutputBlockLimits::has_byte_budget() const {
+    return config::enable_adaptive_batch_size && preferred_bytes > 0;
+}
+
 bool OutputBlockLimits::reached_byte_budget(const MutableColumns& columns) const {
-    return config::enable_adaptive_batch_size && preferred_bytes > 0 &&
-           Block::columns_byte_size(columns) >= preferred_bytes;
+    return has_byte_budget() && Block::columns_byte_size(columns) >= preferred_bytes;
 }
 
 } // namespace doris
