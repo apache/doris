@@ -61,6 +61,8 @@ public class LocalTableValuedFunction extends ExternalFileTableValuedFunction {
     private boolean sharedStorage = false;
 
     public LocalTableValuedFunction(Map<String, String> properties) throws AnalysisException {
+        checkAccess();
+
         // 1. analyze common properties
         Map<String, String> props = super.parseCommonProperties(properties);
 
@@ -133,6 +135,11 @@ public class LocalTableValuedFunction extends ExternalFileTableValuedFunction {
         } catch (Exception e) {
             throw new AnalysisException("get file list from backend failed. " + e.getMessage());
         }
+    }
+
+    /** Reject LOCAL before property parsing, file discovery or sink binding. */
+    public static void checkAccess() {
+        throw new org.apache.doris.nereids.exceptions.AnalysisException("LOCAL TVF is disabled.");
     }
 
     @Override
