@@ -29,6 +29,7 @@
 #include "core/column/column_const.h"
 #include "core/column/column_map.h"
 #include "core/data_type/data_type_map.h"
+#include "core/data_type_serde/arrow_parent_nulls.h"
 #include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/complex_type_deserialize_util.h"
 #include "core/data_type_serde/orc_serde_utils.h"
@@ -573,12 +574,23 @@ Status DataTypeMapSerDe::read_column_from_arrow(IColumn& column, const arrow::Ar
         // convert to doris offset, start from offsets.back()
         offsets_data.emplace_back(prev_size + current_offset - arrow_nested_start_offset);
     }
-    RETURN_IF_ERROR(key_serde->read_column_from_arrow(
-            column_map.get_keys(), concrete_map->keys().get(), arrow_nested_start_offset,
-            arrow_nested_end_offset, ctz));
-    RETURN_IF_ERROR(value_serde->read_column_from_arrow(
-            column_map.get_values(), concrete_map->items().get(), arrow_nested_start_offset,
-            arrow_nested_end_offset, ctz));
+    // The entries of a NULL map row are unspecified, as under a NULL list row, and are not decoded.
+    const auto entry_slots = [concrete_map](int64_t row) {
+        return std::pair<int64_t, int64_t>(concrete_map->value_offset(row),
+                                           concrete_map->value_offset(row + 1));
+    };
+    std::shared_ptr<arrow::Array> keys;
+    RETURN_IF_ERROR(mask_arrow_children_hidden_by_null_parents(
+            *concrete_map, start, end, concrete_map->keys(), entry_slots, &keys));
+    std::shared_ptr<arrow::Array> items;
+    RETURN_IF_ERROR(mask_arrow_children_hidden_by_null_parents(
+            *concrete_map, start, end, concrete_map->items(), entry_slots, &items));
+    RETURN_IF_ERROR(key_serde->read_column_from_arrow(column_map.get_keys(), keys.get(),
+                                                      arrow_nested_start_offset,
+                                                      arrow_nested_end_offset, ctz));
+    RETURN_IF_ERROR(value_serde->read_column_from_arrow(column_map.get_values(), items.get(),
+                                                        arrow_nested_start_offset,
+                                                        arrow_nested_end_offset, ctz));
     return Status::OK();
 }
 
