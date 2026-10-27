@@ -24,6 +24,7 @@
 
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
+#include "storage/index/index_iterator.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/olap_common.h"
 #include "storage/schema.h"

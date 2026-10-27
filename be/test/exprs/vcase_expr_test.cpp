@@ -593,7 +593,7 @@ void check_simple_case_lookup(size_t branches, bool repeated_limbs = false) {
         }
     }();
     auto result_type = std::make_shared<DataTypeInt32>();
-    const auto key = [repeated_limbs](int value) {
+    const auto key = [=](int value) {
         if constexpr (pt == TYPE_STRING) {
             // Exercise empty, embedded-NUL and non-inline string keys.
             std::string text = value == 0 ? "" : std::string(40, 'x') + std::to_string(value);
@@ -615,7 +615,8 @@ void check_simple_case_lookup(size_t branches, bool repeated_limbs = false) {
             }
             return Field::create_field<pt>(Value(raw));
         } else {
-            return Field::create_field<pt>(value);
+            using Value = typename PrimitiveTypeTraits<pt>::CppType;
+            return Field::create_field<pt>(Value(value));
         }
     };
     const size_t rows = std::max(size_t(257), branches + 1);
