@@ -687,7 +687,7 @@ public class MetaCache<T> {
         }
     }
 
-    /** Fences old object loads while retaining unrelated cached objects and their ID mappings. */
+    /** Fences old objects while retaining unrelated numeric routes for fresh reload after wide retirement. */
     public void invalidateLookup(String localName, boolean allObjects) {
         metaObjLifecycleLock.writeLock().lock();
         try {
@@ -697,11 +697,15 @@ public class MetaCache<T> {
                 lookupObservationGeneration++;
                 if (allObjects) {
                     metaObjCache.invalidateAll();
-                    idToName.clear();
                 } else {
                     metaObjCache.invalidate(localName);
-                    idToName.entrySet().removeIf(entry -> entry.getValue().equals(localName));
                 }
+                // Only the target's routes retire. Surviving siblings must reload by ID without
+                // requiring a foreground named lookup to register their identities again.
+                String foldedName = allObjects ? localName.toLowerCase(Locale.ROOT) : localName;
+                idToName.entrySet().removeIf(entry -> allObjects
+                        ? entry.getValue().toLowerCase(Locale.ROOT).equals(foldedName)
+                        : entry.getValue().equals(localName));
             }
         } finally {
             metaObjLifecycleLock.writeLock().unlock();
