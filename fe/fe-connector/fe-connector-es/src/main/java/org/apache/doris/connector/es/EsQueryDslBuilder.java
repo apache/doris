@@ -46,6 +46,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Converts {@link ConnectorExpression} filter trees into Elasticsearch Query DSL JSON strings.
@@ -104,6 +105,16 @@ public final class EsQueryDslBuilder {
             Map<String, String> column2typeMap,
             boolean likePushDown,
             List<String> needCompatDateFields) {
+        return buildQueryDslWithResult(filter, fieldsContext, column2typeMap, likePushDown,
+                needCompatDateFields, Collections.emptySet());
+    }
+
+    public static EsQueryDslResult buildQueryDslWithResult(ConnectorExpression filter,
+            Map<String, String> fieldsContext,
+            Map<String, String> column2typeMap,
+            boolean likePushDown,
+            List<String> needCompatDateFields,
+            Set<String> sourceValueUnsafeFields) {
         if (filter == null) {
             return new EsQueryDslResult(matchAllQuery(), Collections.emptyList());
         }
@@ -116,6 +127,10 @@ public final class EsQueryDslBuilder {
             List<Integer> notPushedIndices = new ArrayList<>();
 
             for (int i = 0; i < conjuncts.size(); i++) {
+                if (referencesUnsafeSourceField(conjuncts.get(i), sourceValueUnsafeFields)) {
+                    notPushedIndices.add(i);
+                    continue;
+                }
                 List<ConnectorExpression> tempNotPushed = new ArrayList<>();
                 String dsl = toEsDsl(conjuncts.get(i), tempNotPushed, fieldsContext,
                         likePushDown, needCompatDateFields, column2typeMap);
@@ -143,6 +158,11 @@ public final class EsQueryDslBuilder {
             return new EsQueryDslResult(queryDsl, notPushedIndices);
         }
 
+        // Dropping a source-value predicate after translating a transformed/missing index value
+        // cannot be repaired by a residual: matching source documents may already be absent.
+        if (referencesUnsafeSourceField(filter, sourceValueUnsafeFields)) {
+            return new EsQueryDslResult(matchAllQuery(), Collections.singletonList(0));
+        }
         // Single expression (not AND)
         List<ConnectorExpression> notPushDownList = new ArrayList<>();
         String dsl = toEsDsl(filter, notPushDownList, fieldsContext,
@@ -153,6 +173,23 @@ public final class EsQueryDslBuilder {
             return new EsQueryDslResult(matchAllQuery(), Collections.singletonList(0));
         }
         return new EsQueryDslResult(dsl, Collections.emptyList());
+    }
+
+    private static boolean referencesUnsafeSourceField(ConnectorExpression expression, Set<String> unsafeFields) {
+        if (expression instanceof ConnectorFunctionCall
+                && "esquery".equals(((ConnectorFunctionCall) expression).getFunctionName())) {
+            // esquery explicitly requests ES index semantics rather than SQL source-value semantics.
+            return false;
+        }
+        if (expression instanceof ConnectorColumnRef) {
+            return unsafeFields.contains(((ConnectorColumnRef) expression).getColumnName());
+        }
+        for (ConnectorExpression child : expression.getChildren()) {
+            if (referencesUnsafeSourceField(child, unsafeFields)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

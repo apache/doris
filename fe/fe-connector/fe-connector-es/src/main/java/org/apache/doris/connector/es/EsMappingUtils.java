@@ -153,7 +153,71 @@ public final class EsMappingUtils {
             resolveKeywordFields(fieldContext, fieldObject, colName, fieldType);
             resolveDocValuesFields(fieldContext, fieldObject, colName, fieldType);
         }
+        resolveSourceValueSafety(fieldContext, indexMapping, mappingType);
         return fieldContext;
+    }
+
+    private static void resolveSourceValueSafety(EsFieldContext context, String indexMapping, String mappingType) {
+        try {
+            // An alias can span mappings. Every backing index must preserve source semantics before
+            // a predicate may remove rows or doc_values may replace the value returned to Doris.
+            for (JsonNode index : MAPPER.readTree(indexMapping)) {
+                ObjectNode root = getRootSchema((ObjectNode) index.get("mappings"), mappingType, new ArrayList<>());
+                JsonNode properties = root.path("properties");
+                JsonNode source = root.path("_source");
+                boolean filteredSource = !source.path("enabled").asBoolean(true)
+                        || source.has("includes") || source.has("excludes");
+                Set<String> copyTargets = new HashSet<>();
+                collectCopyTargets(properties, copyTargets);
+                Set<String> columns = new HashSet<>(context.getColumn2typeMap().keySet());
+                properties.fieldNames().forEachRemaining(columns::add);
+                for (String column : columns) {
+                    JsonNode field = properties.path(column);
+                    String indexedPath = context.getFetchFieldsContext().get(column);
+                    JsonNode indexedField = field;
+                    if (indexedPath != null) {
+                        indexedField = field.path("fields").path(indexedPath.substring(column.length() + 1));
+                    }
+                    if (filteredSource || field.isMissingNode() || root.path("runtime").has(column)
+                            || copyTargets.contains(column) || changesSourceValue(field)
+                            || changesSourceValue(indexedField) || hasUnsafeKeywordSubfield(field)) {
+                        context.getSourceValueUnsafeFields().add(column);
+                    }
+                }
+            }
+        } catch (IOException e) {
+            throw new DorisConnectorException("Failed to parse ES mapping: " + e.getMessage());
+        }
+        // Local residuals must read the original value, including with explicit doc_values=true.
+        context.getSourceValueUnsafeFields().forEach(context.getDocValueFieldsContext()::remove);
+    }
+
+    private static boolean hasUnsafeKeywordSubfield(JsonNode field) {
+        for (JsonNode subfield : field.path("fields")) {
+            if ("keyword".equals(subfield.path("type").asText()) && changesSourceValue(subfield)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean changesSourceValue(JsonNode field) {
+        return field.isMissingNode() || field.has("ignore_above") || field.has("normalizer")
+                || field.has("null_value") || field.path("ignore_malformed").asBoolean(false)
+                || !field.path("index").asBoolean(true);
+    }
+
+    private static void collectCopyTargets(JsonNode properties, Set<String> targets) {
+        for (JsonNode field : properties) {
+            JsonNode copyTo = field.path("copy_to");
+            if (copyTo.isTextual()) {
+                targets.add(copyTo.asText());
+            } else if (copyTo.isArray()) {
+                copyTo.forEach(target -> targets.add(target.asText()));
+            }
+            collectCopyTargets(field.path("properties"), targets);
+            collectCopyTargets(field.path("fields"), targets);
+        }
     }
 
     private static void resolveDateFields(EsFieldContext context, ObjectNode fieldObject,

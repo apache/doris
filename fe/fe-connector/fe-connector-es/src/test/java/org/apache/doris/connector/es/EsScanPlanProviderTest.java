@@ -21,10 +21,23 @@ import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorContractValidator;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.NamedColumnHandle;
+import org.apache.doris.connector.spi.pushdown.ConnectorAnd;
+import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
+import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.pushdown.ConnectorFunctionCall;
+import org.apache.doris.connector.spi.pushdown.ConnectorIn;
+import org.apache.doris.connector.spi.pushdown.ConnectorIsNull;
+import org.apache.doris.connector.spi.pushdown.ConnectorLike;
+import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
+import org.apache.doris.connector.spi.pushdown.ConnectorNot;
+import org.apache.doris.connector.spi.pushdown.ConnectorOr;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
+import org.apache.doris.connector.spi.scan.ScanNodePropertiesResult;
 import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
 import org.apache.doris.thrift.TFileScanRangeParams;
 
@@ -569,6 +582,158 @@ class EsScanPlanProviderTest {
             Assertions.assertFalse(populateWith(pushdownProps(values[0], values[1], values[2]))
                     .getEsProperties().containsKey("limit"), Arrays.toString(values));
         }
+    }
+
+    private static ConnectorColumnRef sourceColumn(String name) {
+        return new ConnectorColumnRef(name, ConnectorType.of("VARCHAR"));
+    }
+
+    private static ConnectorExpression sourceEquals(String name, String value) {
+        return new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                sourceColumn(name), ConnectorLiteral.ofString(value));
+    }
+
+    private static ScanNodePropertiesResult propertiesForMapping(String mapping, ConnectorExpression filter) {
+        CountingRestClient client = new CountingRestClient() {
+            @Override
+            public String getMapping(String indexName) {
+                return mapping;
+            }
+        };
+        return new EsScanPlanProvider(client, minimalProps()).getScanNodePropertiesResult(
+                EMPTY_SESSION, new EsTableHandle("test"),
+                Arrays.asList(new NamedColumnHandle("a"), new NamedColumnHandle("b")), Optional.of(filter));
+    }
+
+    private static String mappingWithField(String field) {
+        return "{\"test\":{\"mappings\":{\"properties\":{\"a\":" + field
+                + ",\"b\":{\"type\":\"keyword\"}}}}}";
+    }
+
+    @Test
+    void sourceChangingMappingsRetainEverySqlPredicateAndDisableDocvalues() {
+        List<String> unsafeFields = Arrays.asList(
+                "{\"type\":\"keyword\",\"ignore_above\":4,\"doc_values\":true}",
+                "{\"type\":\"keyword\",\"normalizer\":\"lowercase\"}",
+                "{\"type\":\"keyword\",\"null_value\":\"missing\"}",
+                "{\"type\":\"keyword\",\"index\":false}",
+                "{\"type\":\"long\",\"ignore_malformed\":true}",
+                "{\"type\":\"text\",\"fields\":{\"raw\":{\"type\":\"keyword\",\"ignore_above\":4}}}",
+                "{\"type\":\"text\",\"fields\":{\"raw\":{\"type\":\"keyword\",\"normalizer\":\"lowercase\"}}}",
+                "{\"type\":\"text\",\"fields\":{\"raw\":{\"type\":\"keyword\",\"null_value\":\"missing\"}}}");
+        List<ConnectorExpression> predicates = new java.util.ArrayList<>();
+        for (ConnectorComparison.Operator op : ConnectorComparison.Operator.values()) {
+            predicates.add(new ConnectorComparison(op, sourceColumn("a"), ConnectorLiteral.ofString("elephant")));
+        }
+        predicates.add(new ConnectorIn(sourceColumn("a"),
+                Collections.singletonList(ConnectorLiteral.ofString("elephant")), false));
+        predicates.add(new ConnectorIn(sourceColumn("a"),
+                Collections.singletonList(ConnectorLiteral.ofString("elephant")), true));
+        predicates.add(new ConnectorIsNull(sourceColumn("a"), false));
+        predicates.add(new ConnectorIsNull(sourceColumn("a"), true));
+        predicates.add(new ConnectorLike(ConnectorLike.Operator.LIKE, sourceColumn("a"),
+                ConnectorLiteral.ofString("ele%")));
+        predicates.add(new ConnectorLike(ConnectorLike.Operator.REGEXP, sourceColumn("a"),
+                ConnectorLiteral.ofString("ele.*")));
+        for (String field : unsafeFields) {
+            for (ConnectorExpression predicate : predicates) {
+                ScanNodePropertiesResult result = propertiesForMapping(mappingWithField(field), predicate);
+                Assertions.assertEquals(Collections.singleton(0), result.getNotPushedConjunctIndices(), field);
+                Assertions.assertEquals(EsQueryDslBuilder.matchAllQuery(),
+                        result.getProperties().get("query_dsl"), field);
+                Assertions.assertEquals("0", result.getProperties().get("doc_values_mode"), field);
+            }
+        }
+    }
+
+    @Test
+    void unsafeSourcePredicatesPreserveBooleanResidualsAndNativeEsquery() {
+        String mapping = mappingWithField("{\"type\":\"keyword\",\"ignore_above\":4}");
+        ConnectorExpression unsafe = sourceEquals("a", "elephant");
+        ConnectorExpression safe = sourceEquals("b", "ok");
+        ScanNodePropertiesResult and = propertiesForMapping(mapping,
+                new ConnectorAnd(Arrays.asList(unsafe, safe)));
+        Assertions.assertEquals(Collections.singleton(0), and.getNotPushedConjunctIndices());
+        Assertions.assertEquals("{\"term\":{\"b\":\"ok\"}}", and.getProperties().get("query_dsl"));
+        for (ConnectorExpression expression : Arrays.asList(
+                new ConnectorOr(Arrays.asList(unsafe, safe)), new ConnectorNot(unsafe),
+                new ConnectorNot(new ConnectorAnd(Arrays.asList(unsafe, safe))),
+                new ConnectorOr(Arrays.asList(new ConnectorAnd(Arrays.asList(unsafe, safe)), safe)))) {
+            ScanNodePropertiesResult result = propertiesForMapping(mapping, expression);
+            Assertions.assertEquals(Collections.singleton(0), result.getNotPushedConjunctIndices());
+            Assertions.assertEquals(EsQueryDslBuilder.matchAllQuery(), result.getProperties().get("query_dsl"));
+        }
+        ConnectorExpression nativeQuery = new ConnectorFunctionCall("esquery", ConnectorType.of("BOOLEAN"),
+                Arrays.asList(sourceColumn("a"), ConnectorLiteral.ofString("{\"term\":{\"a\":\"elephant\"}}")));
+        Assertions.assertTrue(propertiesForMapping(mapping, nativeQuery).getNotPushedConjunctIndices().isEmpty());
+        Assertions.assertTrue(propertiesForMapping(mappingWithField("{\"type\":\"keyword\"}"),
+                unsafe).getNotPushedConjunctIndices().isEmpty());
+    }
+
+    @Test
+    void sourceFilteringCopyTargetsRuntimeAndEveryBackingMappingAreChecked() {
+        String safe = mappingWithField("{\"type\":\"keyword\"}");
+        List<String> mappings = Arrays.asList(
+                safe.replace("\"properties\":", "\"_source\":{\"excludes\":[\"a\"]},\"properties\":"),
+                safe.replace("\"properties\":", "\"_source\":{\"includes\":[\"b\"]},\"properties\":"),
+                safe.replace("\"properties\":", "\"runtime\":{\"a\":{\"type\":\"keyword\"}},\"properties\":"),
+                safe.replace("\"b\":{\"type\":\"keyword\"}",
+                        "\"b\":{\"type\":\"keyword\",\"copy_to\":\"a\"}"),
+                safe.substring(0, safe.length() - 1) + ",\"second\":{\"mappings\":{\"properties\":"
+                        + "{\"a\":{\"type\":\"keyword\",\"ignore_above\":4},\"b\":{\"type\":\"keyword\"}}}}}");
+        for (String mapping : mappings) {
+            ScanNodePropertiesResult result = propertiesForMapping(mapping, sourceEquals("a", "elephant"));
+            Assertions.assertEquals(Collections.singleton(0), result.getNotPushedConjunctIndices(), mapping);
+            Assertions.assertEquals(EsQueryDslBuilder.matchAllQuery(), result.getProperties().get("query_dsl"));
+            Assertions.assertEquals("0", result.getProperties().get("doc_values_mode"));
+        }
+    }
+
+    @Test
+    void aliasesUseOneOriginalTargetAcrossBackingIndicesAndSharedShardIds() {
+        for (int backingCount : new int[]{1, 2}) {
+            CountingRestClient client = new CountingRestClient() {
+                @Override
+                public EsShardPartitions searchShards(String indexName) {
+                    EsShardPartitions partitions = new EsShardPartitions(indexName);
+                    for (int backing = 0; backing < backingCount; backing++) {
+                        for (int shard = 0; shard < 2; shard++) {
+                            partitions.addShardRouting(backing * 2 + shard, Collections.singletonList(
+                                    new EsShardRouting("backing_" + backing, shard, true, "node1")));
+                        }
+                    }
+                    return partitions;
+                }
+            };
+            ConnectorScanRequest request = ConnectorScanRequest.builder(
+                    new EsTableHandle("filtered_alias"), Collections.emptyList()).build();
+            for (boolean parallel : new boolean[]{false, true}) {
+                List<ConnectorScanRange> ranges = new EsScanPlanProvider(client, minimalProps()).planScan(
+                        new TestSession(ConnectorStatementScope.NONE,
+                                Collections.singletonMap("enable_es_parallel_scroll", String.valueOf(parallel))),
+                        request);
+                Assertions.assertEquals(1, ranges.size());
+                Assertions.assertEquals("filtered_alias", ranges.get(0).getProperties().get("index"));
+                Assertions.assertEquals("-1", ranges.get(0).getProperties().get("shard_id"));
+            }
+        }
+    }
+
+    @Test
+    void unprojectedUnsafeFilterColumnIsStillRetained() {
+        CountingRestClient client = new CountingRestClient() {
+            @Override
+            public String getMapping(String indexName) {
+                return mappingWithField("{\"type\":\"text\",\"fields\":{\"raw\":"
+                        + "{\"type\":\"keyword\",\"ignore_above\":4}}}");
+            }
+        };
+        ScanNodePropertiesResult result = new EsScanPlanProvider(client, minimalProps())
+                .getScanNodePropertiesResult(EMPTY_SESSION, new EsTableHandle("test"),
+                        Collections.singletonList(new NamedColumnHandle("b")),
+                        Optional.of(sourceEquals("a", "elephant")));
+        Assertions.assertEquals(Collections.singleton(0), result.getNotPushedConjunctIndices());
+        Assertions.assertEquals(EsQueryDslBuilder.matchAllQuery(), result.getProperties().get("query_dsl"));
     }
 
 }

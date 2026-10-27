@@ -131,7 +131,11 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
         List<ConnectorScanRange> ranges = new ArrayList<>();
         Map<Integer, List<EsShardRouting>> routingsMap = shardPartitions.getShardRoutings();
 
-        if (!enableParallelScroll) {
+        // Replacing an alias with a backing index loses its filter and search routing. Keep one
+        // scroll on the original target: per-shard requests on a multi-index alias repeat shard IDs.
+        boolean resolvesToBackingIndices = routingsMap.values().stream().flatMap(List::stream)
+                .anyMatch(routing -> !indexName.equals(routing.getIndexName()));
+        if (!enableParallelScroll || resolvesToBackingIndices) {
             // Single query mode: one scan range for the whole index
             List<String> hosts = collectAllHosts(routingsMap);
             ranges.add(new EsScanRange(
@@ -270,7 +274,9 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
 
         return EsQueryDslBuilder.buildQueryDslWithResult(
                 filter.get(), fieldsContext, column2typeMap,
-                props.isLikePushDown(), needCompatDateFields);
+                props.isLikePushDown(), needCompatDateFields,
+                state.getFieldContext() != null
+                        ? state.getFieldContext().getSourceValueUnsafeFields() : Collections.emptySet());
     }
 
     private EsMetadataState fetchMetadataState(ConnectorSession session, EsTableHandle handle,
