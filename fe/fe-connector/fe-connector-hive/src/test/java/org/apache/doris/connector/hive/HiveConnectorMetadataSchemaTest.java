@@ -74,6 +74,22 @@ public class HiveConnectorMetadataSchemaTest {
         return new ConnectorColumn(name, ConnectorType.of(typeName), null, true, null);
     }
 
+    @Test
+    public void testHiveColumnCommentsIncludePartitionColumns() {
+        HmsTableInfo table = HmsTableInfo.builder()
+                .dbName("db").tableName("t")
+                .inputFormat(PARQUET_INPUT_FORMAT)
+                .columns(Collections.singletonList(
+                        new ConnectorColumn("id", ConnectorType.of("INT"), "编号's note", true, null)))
+                .partitionKeys(Collections.singletonList(
+                        new ConnectorColumn("dt", ConnectorType.of("STRING"), "分区日期", true, null)))
+                .build();
+
+        ConnectorTableSchema schema = schemaOf(table);
+        Assertions.assertEquals("编号's note", columnByName(schema, "id").getComment());
+        Assertions.assertEquals("分区日期", columnByName(schema, "dt").getComment());
+    }
+
     private static HmsTableInfo.Builder partitionedTable() {
         return HmsTableInfo.builder()
                 .dbName("db").tableName("t")
