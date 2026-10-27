@@ -29,6 +29,7 @@
 #include <arrow/type.h>
 #include <arrow/util/decimal.h>
 #include <arrow/util/key_value_metadata.h>
+#include <gtest/gtest.h>
 #include <lance/lance.h>
 
 #include <algorithm>
@@ -1362,7 +1363,9 @@ TEST(LanceTableReaderSnapshotTest, ProfileReportsObservedSessionCacheMisses) {
     LanceTableReader reader;
     ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
     ASSERT_TRUE(prepare_range(&reader, make_latest_lance_range(dataset_uri)).ok());
-    ASSERT_TRUE(reader.close().ok());
+    TRuntimeProfileTree saved;
+    profile.to_thrift(&saved);
+    ASSERT_EQ("true", saved.nodes[0].info_strings.at("LanceSessionCacheStatsAvailable"));
     LanceSessionManager::CacheStatistics after;
     ASSERT_TRUE(LanceSessionManager::instance().get_cache_statistics(&after).ok());
     for (const char* name : {"LanceSessionIndexCacheMisses", "LanceSessionMetadataCacheMisses"}) {

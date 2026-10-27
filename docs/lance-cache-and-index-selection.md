@@ -9,9 +9,13 @@ The `LanceReader / LanceSessionCache` profile group contains:
 | `LanceSessionIndexCacheMisses` | Increase in the BE-wide Lance Session index-cache miss counter during this reader's dataset-open windows. |
 | `LanceSessionMetadataCacheMisses` | Increase in the BE-wide Lance Session metadata-cache miss counter during the same windows, including dataset opening. |
 
-The reader takes a baseline before opening its dataset and publishes the difference
-when closing it. Reopening a dataset adds another observation window; closing a
-reader twice does not count the same window twice. `LanceSessionCacheStatsAvailable`
+The reader takes a baseline before opening its dataset. Profile serialization samples
+active observation windows before copying counters and availability information, even
+if an early LIMIT leaves a worker blocked in a native read. Dataset close publishes
+the remaining delta and ends the window. Sampling and close share a synchronized
+baseline, so repeated snapshots and close do not count the same delta twice.
+Reopening a dataset adds another observation window. Activity after the final Profile
+snapshot is outside that saved observation. `LanceSessionCacheStatsAvailable`
 is `true` only after statistics have been collected successfully for every observed
 window. When it is `false`, zero counters do not establish that the caches had no misses.
 

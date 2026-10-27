@@ -34,6 +34,7 @@
 #include "exec/common/endian.h"
 #include "format_v2/lance/lance_reader_helper.h"
 #include "format_v2/lance/lance_runtime_filter_helper.h"
+#include "format_v2/lance/lance_session_cache_profile.h"
 #include "format_v2/lance/lance_session_manager.h"
 #include "runtime/file_scan_profile.h"
 #include "runtime/runtime_state.h"
@@ -122,15 +123,17 @@ Status LanceTableReader::init(TableReadOptions&& options) {
                                  file_scan_profile::TABLE_READER, 1);
     _dataset_open_time = add_lance_counter(_scanner_profile, "LanceDatasetOpenTime", TUnit::TIME_NS,
                                            LANCE_TIMING_PROFILE);
-    _session_index_cache_misses = add_lance_counter(
+    auto* session_index_cache_misses = add_lance_counter(
             _scanner_profile, "LanceSessionIndexCacheMisses", TUnit::UNIT, "LanceSessionCache");
-    _session_metadata_cache_misses = add_lance_counter(
+    auto* session_metadata_cache_misses = add_lance_counter(
             _scanner_profile, "LanceSessionMetadataCacheMisses", TUnit::UNIT, "LanceSessionCache");
     _scanner_profile->add_info_string(
             "LanceSessionCacheStatsScope",
             "BE-wide changes during dataset-open windows; includes concurrent readers; "
             "overlapping windows must not be summed as query-exclusive misses");
     _scanner_profile->add_info_string("LanceSessionCacheStatsAvailable", "false");
+    _session_cache_profile = std::make_unique<LanceSessionCacheProfile>(
+            _scanner_profile, session_index_cache_misses, session_metadata_cache_misses);
     _arrow_to_doris_block_time = add_lance_counter(_scanner_profile, "LanceArrowToDorisBlockTime",
                                                    TUnit::TIME_NS, LANCE_TIMING_PROFILE);
     _data_cache_bytes_read_from_cache =
@@ -662,17 +665,13 @@ Status LanceTableReader::_open_dataset(const DatasetKey& key) {
     {
         SCOPED_TIMER(_dataset_open_time);
         auto& session = LanceSessionManager::instance();
-        _session_cache_statistics_valid =
-                session.get_cache_statistics(&_session_cache_statistics).ok();
-        if (!_session_cache_statistics_valid) {
-            _session_cache_statistics_complete = false;
-            _scanner_profile->add_info_string("LanceSessionCacheStatsAvailable", "false");
-        }
+        _session_cache_profile->start();
         LanceDataset* raw_dataset = nullptr;
         Status status = session.open_dataset(
                 key.uri.c_str(), key.storage_options.empty() ? nullptr : storage_option_ptrs.data(),
                 static_cast<uint64_t>(key.version), &raw_dataset);
         if (!status.ok()) {
+            _session_cache_profile->stop();
             return status.prepend(fmt::format("Lance dataset version {} at {}: ", key.version,
                                               display_uri(key.uri)));
         }
@@ -1285,8 +1284,10 @@ void LanceTableReader::_close_dataset() {
         lance_fts_query_context_close(_fts_query_context);
         _fts_query_context = nullptr;
     }
+    if (_session_cache_profile != nullptr) {
+        _session_cache_profile->stop();
+    }
     if (_dataset != nullptr) {
-        _collect_session_cache_statistics();
         _collect_data_cache_statistics();
         lance_dataset_close(_dataset);
         _dataset = nullptr;
@@ -1295,36 +1296,6 @@ void LanceTableReader::_close_dataset() {
     _dataset_fragment_ids.reset();
     _opened_version = 0;
     _record_batch_converter.reset_schema();
-}
-
-void LanceTableReader::_collect_session_cache_statistics() {
-    if (!_session_cache_statistics_valid) {
-        return;
-    }
-    LanceSessionManager::CacheStatistics current;
-    const auto status = LanceSessionManager::instance().get_cache_statistics(&current);
-    if (!status.ok()) {
-        _session_cache_statistics_complete = false;
-        _scanner_profile->add_info_string("LanceSessionCacheStatsAvailable", "false");
-        LOG(WARNING) << status;
-        return;
-    }
-    // Session counters are monotonic and shared. Subtract the last snapshot exactly once
-    // per window; sampling them never resets counters used by other readers or metrics.
-    const auto update = [](RuntimeProfile::Counter* counter, uint64_t before, uint64_t after) {
-        if (counter != nullptr && after >= before) {
-            const auto delta =
-                    std::min<uint64_t>(after - before, std::numeric_limits<int64_t>::max());
-            COUNTER_UPDATE(counter, static_cast<int64_t>(delta));
-        }
-    };
-    update(_session_index_cache_misses, _session_cache_statistics.index_cache_misses,
-           current.index_cache_misses);
-    update(_session_metadata_cache_misses, _session_cache_statistics.metadata_cache_misses,
-           current.metadata_cache_misses);
-    _session_cache_statistics = current;
-    _scanner_profile->add_info_string("LanceSessionCacheStatsAvailable",
-                                      _session_cache_statistics_complete ? "true" : "false");
 }
 
 void LanceTableReader::_collect_data_cache_statistics() {
