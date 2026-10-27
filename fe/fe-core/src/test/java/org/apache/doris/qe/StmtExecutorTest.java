@@ -23,6 +23,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Status;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.nereids.StatementContext;
@@ -32,6 +33,7 @@ import org.apache.doris.planner.ResultFileSink;
 import org.apache.doris.qe.CommonResultSet.CommonResultSetMetaData;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.thrift.TQueryOptions;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -78,6 +80,21 @@ public class StmtExecutorTest extends TestWithFeService {
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
         stmtExecutor.execute();
         Assert.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
+    }
+
+    @Test
+    public void testCancelBeforeCoordinatorIsStickyAndReplayed() {
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
+        Status first = new Status(TStatusCode.CANCELLED, "first cancellation");
+        Status second = new Status(TStatusCode.CANCELLED, "second cancellation");
+
+        stmtExecutor.cancel(first, false);
+        stmtExecutor.cancel(second, false);
+
+        Assertions.assertSame(first, stmtExecutor.getPendingCancelReason());
+        Coordinator coordinator = Mockito.mock(Coordinator.class);
+        stmtExecutor.setCoord(coordinator);
+        Mockito.verify(coordinator).cancel(first);
     }
 
     // The deferral gate (#67503): a coordinator is kept alive past GetFlightInfo only when the BE

@@ -19,16 +19,21 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.iceberg.IcebergConflictDetectionFilterUtils;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
+import org.apache.doris.datasource.iceberg.IcebergMetadataDelete;
+import org.apache.doris.datasource.iceberg.IcebergMetadataDeletePredicate;
 import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergNereidsUtils;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.PlannerHook;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -58,10 +63,14 @@ import org.apache.doris.qe.StmtExecutor;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import org.apache.iceberg.Table;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.concurrent.Callable;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * DELETE command for Iceberg tables.
@@ -78,6 +87,7 @@ import java.util.concurrent.Callable;
  *   3. Commit the DeleteFile to Iceberg table using RowDelta API
  */
 public class IcebergDeleteCommand extends Command implements ForwardWithSync, Explainable {
+    private static final Logger LOG = LogManager.getLogger(IcebergDeleteCommand.class);
 
     protected final List<String> nameParts;
     protected final String tableAlias;
@@ -131,12 +141,20 @@ public class IcebergDeleteCommand extends Command implements ForwardWithSync, Ex
         long previousTargetTableId = ctx.getIcebergRowIdTargetTableId();
         ctx.setIcebergRowIdTargetTableId(icebergTable.getId());
         try {
-            LogicalPlan deleteQueryPlan = completeQueryPlan(ctx, logicalQuery, icebergTable);
+            Optional<MvccSnapshot> targetSnapshot = loadTargetSnapshot(ctx, icebergTable);
+            Table targetIcebergTable = loadTargetIcebergTable(targetSnapshot);
+            LogicalPlan deleteQueryPlan = completeQueryPlan(
+                    ctx, logicalQuery, icebergTable, targetSnapshot, targetIcebergTable);
             executeWithExternalTableBatchModeDisabled(ctx, () -> {
                 // Create planner and plan the delete operation
                 NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
                 LogicalPlanAdapter logicalPlanAdapter =
                         new LogicalPlanAdapter(deleteQueryPlan, ctx.getStatementContext());
+                boolean tryMetadataDelete = partitions.isEmpty() && !isTempPart;
+                AtomicReference<Plan> analyzedPlan = new AtomicReference<>();
+                if (tryMetadataDelete) {
+                    captureAnalyzedPlan(ctx, analyzedPlan);
+                }
 
                 // Plan the delete query to generate physical plan and distributed plan
                 planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
@@ -144,6 +162,24 @@ public class IcebergDeleteCommand extends Command implements ForwardWithSync, Ex
                 // Set planner in executor for later use
                 executor.setPlanner(planner);
                 executor.checkBlockRules();
+
+                if (tryMetadataDelete) {
+                    throwIfCancelled(executor, ctx);
+                    Optional<org.apache.iceberg.expressions.Expression> deleteExpression =
+                            IcebergMetadataDeletePredicate.build(
+                                    targetIcebergTable, analyzedPlan.get(), icebergTable.getId());
+                    if (deleteExpression.isPresent()) {
+                        OptionalLong deletedRows = IcebergMetadataDelete.execute(
+                                icebergTable, targetIcebergTable, deleteExpression.get(),
+                                () -> executor.getPendingCancelReason() != null || ctx.isKilled());
+                        if (deletedRows.isPresent()) {
+                            reportMetadataDelete(ctx, icebergTable, deletedRows.getAsLong());
+                            return null;
+                        }
+                    }
+                    throwIfCancelled(executor, ctx);
+                }
+
                 Optional<org.apache.iceberg.expressions.Expression> conflictFilter =
                         IcebergConflictDetectionFilterUtils.buildConflictDetectionFilter(
                                 planner.getAnalyzedPlan(), icebergTable);
@@ -202,13 +238,9 @@ public class IcebergDeleteCommand extends Command implements ForwardWithSync, Ex
      * Select $row_id (file_path, row_position, partition info).
      */
     private LogicalPlan completeQueryPlan(ConnectContext ctx, LogicalPlan logicalQuery,
-                                         IcebergExternalTable icebergTable) {
-        Optional<MvccSnapshot> targetSnapshot = ctx.getStatementContext()
-                .loadSnapshots(icebergTable, Optional.empty(), Optional.empty());
-        Table targetIcebergTable = ((IcebergMvccSnapshot) targetSnapshot.orElseThrow(
-                () -> new AnalysisException("Iceberg delete target snapshot is not available")))
-                .getSnapshotCacheValue().getIcebergTable().orElseThrow(
-                        () -> new AnalysisException("Iceberg delete target metadata is not available"));
+                                         IcebergExternalTable icebergTable,
+                                         Optional<MvccSnapshot> targetSnapshot,
+                                         Table targetIcebergTable) {
         LogicalPlan queryPlan = buildPositionDeletePlan(ctx, logicalQuery, icebergTable);
 
         // Convert output to NamedExpression list
@@ -238,6 +270,19 @@ public class IcebergDeleteCommand extends Command implements ForwardWithSync, Ex
         );
 
         return deleteSink;
+    }
+
+    private Optional<MvccSnapshot> loadTargetSnapshot(
+            ConnectContext ctx, IcebergExternalTable icebergTable) {
+        return ctx.getStatementContext()
+                .loadSnapshots(icebergTable, Optional.empty(), Optional.empty());
+    }
+
+    private Table loadTargetIcebergTable(Optional<MvccSnapshot> targetSnapshot) {
+        return ((IcebergMvccSnapshot) targetSnapshot.orElseThrow(
+                () -> new AnalysisException("Iceberg delete target snapshot is not available")))
+                .getSnapshotCacheValue().getIcebergTable().orElseThrow(
+                        () -> new AnalysisException("Iceberg delete target metadata is not available"));
     }
 
     /**
@@ -301,9 +346,48 @@ public class IcebergDeleteCommand extends Command implements ForwardWithSync, Ex
         long previousTargetTableId = ctx.getIcebergRowIdTargetTableId();
         ctx.setIcebergRowIdTargetTableId(table.getId());
         try {
-            return completeQueryPlan(ctx, logicalQuery, icebergTable);
+            Optional<MvccSnapshot> targetSnapshot = loadTargetSnapshot(ctx, icebergTable);
+            Table targetIcebergTable = loadTargetIcebergTable(targetSnapshot);
+            return completeQueryPlan(
+                    ctx, logicalQuery, icebergTable, targetSnapshot, targetIcebergTable);
         } finally {
             ctx.setIcebergRowIdTargetTableId(previousTargetTableId);
+        }
+    }
+
+    @VisibleForTesting
+    static void captureAnalyzedPlan(ConnectContext ctx, AtomicReference<Plan> analyzedPlan) {
+        ctx.getStatementContext().addPlannerHook(new PlannerHook() {
+            @Override
+            public void afterAnalyze(NereidsPlanner planner) {
+                if (planner.getCascadesContext() != null
+                        && planner.getCascadesContext().getRewritePlan() != null) {
+                    analyzedPlan.set(planner.getCascadesContext().getRewritePlan());
+                }
+            }
+        });
+    }
+
+    @VisibleForTesting
+    static void throwIfCancelled(StmtExecutor executor, ConnectContext ctx) throws UserException {
+        if (executor.getPendingCancelReason() != null) {
+            throw new UserException(executor.getPendingCancelReason().getErrorMsg());
+        }
+        if (ctx.isKilled()) {
+            throw new UserException("query was cancelled");
+        }
+    }
+
+    private static void reportMetadataDelete(
+            ConnectContext ctx, IcebergExternalTable table, long deletedRows) {
+        ctx.getState().setOk(deletedRows, 0, "{'status':'COMMITTED'}");
+        ctx.updateReturnRows((int) deletedRows);
+        try {
+            Env.getCurrentEnv().getRefreshManager().refreshTableAfterCommit(table);
+        } catch (Exception e) {
+            // The remote delete is already durable. A refresh failure must not make the client retry it.
+            LOG.warn("Post-commit refresh failed for table {}. Data was committed successfully.",
+                    table.getName(), e);
         }
     }
 

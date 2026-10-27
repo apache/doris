@@ -19,11 +19,24 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.StructType;
+import org.apache.doris.common.Status;
+import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.IcebergRowId;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.PlannerHook;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TStatusCode;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mockito;
+
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Unit tests for IcebergDeleteCommand.
@@ -87,5 +100,40 @@ public class IcebergDeleteCommandTest {
 
         Assertions.assertEquals("expected", exception.getMessage());
         Assertions.assertFalse(ctx.getSessionVariable().enableExternalTableBatchMode);
+    }
+
+    @Test
+    public void deleteCapturesThePreRewriteAnalyzedPlanLocally() {
+        ConnectContext ctx = Mockito.mock(ConnectContext.class);
+        StatementContext statementContext = Mockito.mock(StatementContext.class);
+        Mockito.when(ctx.getStatementContext()).thenReturn(statementContext);
+        AtomicReference<Plan> captured = new AtomicReference<>();
+
+        IcebergDeleteCommand.captureAnalyzedPlan(ctx, captured);
+
+        ArgumentCaptor<PlannerHook> captor = ArgumentCaptor.forClass(PlannerHook.class);
+        Mockito.verify(statementContext).addPlannerHook(captor.capture());
+        NereidsPlanner planner = Mockito.mock(NereidsPlanner.class);
+        CascadesContext cascadesContext = Mockito.mock(CascadesContext.class);
+        Plan analyzed = Mockito.mock(Plan.class);
+        Mockito.when(planner.getCascadesContext()).thenReturn(cascadesContext);
+        Mockito.when(cascadesContext.getRewritePlan()).thenReturn(analyzed);
+
+        captor.getValue().afterAnalyze(planner);
+
+        Assertions.assertSame(analyzed, captured.get());
+    }
+
+    @Test
+    public void retainedCancellationIsReplayedBeforeMetadataDelete() {
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        Mockito.when(executor.getPendingCancelReason())
+                .thenReturn(new Status(TStatusCode.CANCELLED, "query was killed"));
+
+        UserException exception = Assertions.assertThrows(
+                UserException.class, () -> IcebergDeleteCommand.throwIfCancelled(
+                        executor, Mockito.mock(ConnectContext.class)));
+
+        Assertions.assertTrue(exception.getMessage().contains("query was killed"));
     }
 }
