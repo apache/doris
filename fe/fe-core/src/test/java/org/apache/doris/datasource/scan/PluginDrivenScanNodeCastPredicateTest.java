@@ -18,6 +18,10 @@
 package org.apache.doris.datasource.scan;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToThriftVisitor;
+import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.connector.spi.ConnectorMetadata;
@@ -25,6 +29,10 @@ import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TFileScanRangeParams;
+import org.apache.doris.thrift.TFileScanSlotInfo;
+import org.apache.doris.thrift.TPlanNode;
+import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
@@ -33,8 +41,10 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mockito;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -102,6 +112,46 @@ public class PluginDrivenScanNodeCastPredicateTest extends TestWithFeService {
         Assertions.assertEquals(Collections.singletonList(plainIndex),
                 Deencapsulation.getField(node, "filteredToOriginalIndex"));
         Assertions.assertEquals(before, conjuncts);
+    }
+
+    @Test
+    public void partitionProofSkipsCastsWithoutRenumberingOtherConjuncts() throws Exception {
+        List<Expr> conjuncts = planConjuncts("cast(code as int) = 5 and id = 1");
+        int plainIndex = PluginDrivenScanNode.containsCastExpr(conjuncts.get(0)) ? 1 : 0;
+        Map<Integer, ConnectorExpression> candidates = PluginDrivenScanNode.buildPartitionProofConjuncts(conjuncts);
+        Assertions.assertEquals(Collections.singleton(plainIndex), candidates.keySet());
+        Assertions.assertTrue(candidates.get(plainIndex) instanceof ConnectorComparison);
+        Assertions.assertEquals(2, conjuncts.size());
+    }
+
+    @Test
+    public void wireProofIdentitySurvivesPruningAndMarksOnlyUnprojectedSlots() throws Exception {
+        List<Expr> planned = planConjuncts("cast(code as int) = 5 and id = 1");
+        Expr cast = planned.stream().filter(PluginDrivenScanNode::containsCastExpr).findFirst().get();
+        Expr plain = planned.stream().filter(expr -> !PluginDrivenScanNode.containsCastExpr(expr)).findFirst().get();
+        List<Expr> conjuncts = new ArrayList<>(List.of(cast, plain));
+        PluginDrivenScanNode node = nodeWith(conjuncts, false);
+        Map<Integer, ConnectorExpression> candidates = Deencapsulation.invoke(node, "getPartitionProofConjuncts");
+        Assertions.assertEquals(Collections.singleton(1), candidates.keySet());
+
+        SlotRef output = plain.getInputSlotRef().iterator().next();
+        SlotRef filterOnly = cast.getInputSlotRef().iterator().next();
+        TFileScanRangeParams params = new TFileScanRangeParams().setRequiredSlots(List.of(
+                new TFileScanSlotInfo().setSlotId(output.getSlotId().asInt()),
+                new TFileScanSlotInfo().setSlotId(filterOnly.getSlotId().asInt())));
+        Deencapsulation.setField(node, "params", params);
+        Deencapsulation.setField(node, "desc", new TupleDescriptor(new TupleId(1)));
+        Deencapsulation.setField(node, "pushDownCountSlotIds", Collections.emptyList());
+        Deencapsulation.setField(node, "pushDownAggNoGroupingOp", TPushAggOp.NONE);
+        Deencapsulation.setField(node, "intermediateProjectListList", Collections.emptyList());
+        node.setProjectList(List.of(output));
+        Mockito.doReturn(false).when(node).useTopnFilter();
+        conjuncts.remove(0);
+        TPlanNode thrift = new TPlanNode().setConjuncts(List.of(ExprToThriftVisitor.treeToThrift(plain)));
+        node.toThrift(thrift);
+        Assertions.assertEquals(1, thrift.getConjuncts().get(0).getFileScanConjunctId());
+        Assertions.assertFalse(params.getRequiredSlots().get(0).isIsFilterOnly());
+        Assertions.assertTrue(params.getRequiredSlots().get(1).isIsFilterOnly());
     }
 
     @ParameterizedTest

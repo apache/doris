@@ -88,7 +88,8 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        Assertions.assertEquals("28.0", version.getProperty("api.version"));
+        // Per-range partition proofs extend the published major-28 surface and need a distinct version.
+        Assertions.assertEquals("29.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */

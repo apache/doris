@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
@@ -32,6 +33,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * A single Iceberg scan range (split), mirroring the paimon connector's {@code PaimonScanRange}.
@@ -48,6 +50,7 @@ import java.util.Optional;
  * The field-id history dictionary (T06, scan-level) lands later.</p>
  */
 public class IcebergScanRange implements ConnectorScanRange {
+    private final IcebergPartitionFilterEvaluator partitionFilterEvaluator;
 
     private static final long serialVersionUID = 1L;
 
@@ -127,7 +130,13 @@ public class IcebergScanRange implements ConnectorScanRange {
     private final Long positionDeleteContentOffset;
     private final Long positionDeleteContentSizeInBytes;
 
+    @Override
+    public Set<Integer> getPartitionEnforcedConjuncts(Map<Integer, ConnectorExpression> conjuncts) {
+        return partitionFilterEvaluator == null ? Collections.emptySet() : partitionFilterEvaluator.enforced(conjuncts);
+    }
+
     private IcebergScanRange(Builder builder) {
+        this.partitionFilterEvaluator = builder.partitionFilterEvaluator;
         this.path = builder.path;
         // Default the raw original path to the (possibly already-raw) path when a caller does not split them
         // — keeps single-arg .path(...) callers (and the prior behavior) intact.
@@ -485,6 +494,8 @@ public class IcebergScanRange implements ConnectorScanRange {
      * {@code new IcebergScanRange.Builder()}).
      */
     public static class Builder {
+        private IcebergPartitionFilterEvaluator partitionFilterEvaluator;
+
         private String path;
         private String originalPath;
         private long start;
@@ -644,6 +655,11 @@ public class IcebergScanRange implements ConnectorScanRange {
         /** The scan-level weight denominator (legacy {@code IcebergScanNode.targetSplitSize}); default -1. */
         public Builder targetSplitSize(long targetSplitSize) {
             this.targetSplitSize = targetSplitSize;
+            return this;
+        }
+
+        Builder partitionFilterEvaluator(IcebergPartitionFilterEvaluator evaluator) {
+            this.partitionFilterEvaluator = evaluator;
             return this;
         }
 
