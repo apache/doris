@@ -584,12 +584,16 @@ public class MetaCache<T> {
         return Optional.ofNullable(withMetaObjLifecycleReadLock(() -> idToName.get(id)));
     }
 
+    /** Comparison key only: cache slots and displayed names keep their original spelling. */
+    private static String lookupIdentityKey(String name, boolean ignoreCase) {
+        return ignoreCase ? name.toLowerCase(Locale.ROOT) : name;
+    }
+
     /** Snapshot resident object identities matching a DROP alias under the catalog's name mode. */
     public List<Pair<String, Long>> getCachedIdentitiesMatching(String name, boolean ignoreCase) {
-        String foldedName = ignoreCase ? name.toLowerCase(Locale.ROOT) : name;
+        String foldedName = lookupIdentityKey(name, ignoreCase);
         return withMetaObjLifecycleReadLock(() -> idToName.entrySet().stream()
-                .filter(entry -> ignoreCase ? entry.getValue().toLowerCase(Locale.ROOT).equals(foldedName)
-                        : entry.getValue().equals(name))
+                .filter(entry -> lookupIdentityKey(entry.getValue(), ignoreCase).equals(foldedName))
                 .map(entry -> Pair.of(entry.getValue(), entry.getKey()))
                 .collect(Collectors.toList()));
     }
@@ -702,10 +706,9 @@ public class MetaCache<T> {
                 }
                 // Only the target's routes retire. Surviving siblings must reload by ID without
                 // requiring a foreground named lookup to register their identities again.
-                String foldedName = allObjects ? localName.toLowerCase(Locale.ROOT) : localName;
-                idToName.entrySet().removeIf(entry -> allObjects
-                        ? entry.getValue().toLowerCase(Locale.ROOT).equals(foldedName)
-                        : entry.getValue().equals(localName));
+                String foldedName = lookupIdentityKey(localName, allObjects);
+                idToName.entrySet().removeIf(entry ->
+                        lookupIdentityKey(entry.getValue(), allObjects).equals(foldedName));
             }
         } finally {
             metaObjLifecycleLock.writeLock().unlock();
@@ -762,10 +765,14 @@ public class MetaCache<T> {
                             }
                             // Case-folded catalogs can retain Foo's old object after a names refresh
                             // has published a new FOO identity. Do not widen that old miss to the DB.
-                            if (pair == null && allObjects && names.names.values().stream().anyMatch(current ->
-                                    current.value().equalsIgnoreCase(localName)
-                                            || current.key().equalsIgnoreCase(remoteName))) {
-                                return;
+                            if (pair == null && allObjects) {
+                                String localKey = lookupIdentityKey(localName, true);
+                                String remoteKey = lookupIdentityKey(remoteName, true);
+                                if (names.names.values().stream().anyMatch(current ->
+                                        lookupIdentityKey(current.value(), true).equals(localKey)
+                                                || lookupIdentityKey(current.key(), true).equals(remoteKey))) {
+                                    return;
+                                }
                             }
                             try {
                                 invalidateMetadata.run();

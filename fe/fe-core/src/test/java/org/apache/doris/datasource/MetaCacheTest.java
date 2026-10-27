@@ -287,6 +287,64 @@ public class MetaCacheTest {
     }
 
     @Test
+    public void testOmittedObservationDistinguishesRootUnicodeSibling() throws Exception {
+        verifyLookupIdentityContract("I", "ı", true, false);
+        verifyLookupIdentityContract("İ", "i", true, false);
+    }
+
+    @Test
+    public void testOmittedObservationProtectsRootUnicodeReplacement() throws Exception {
+        // ROOT lowercasing maps capital dotted I to i followed by the combining dot.
+        verifyLookupIdentityContract("İ", "i̇", true, true);
+    }
+
+    @Test
+    public void testCaseSensitiveObservationDoesNotFoldNames() throws Exception {
+        verifyLookupIdentityContract("Foo", "FOO", false, false);
+        verifyLookupIdentityContract("I", "i", false, false);
+    }
+
+    @Test
+    public void testCaseFoldedObservationAndIdsAgreeForAsciiReplacement() throws Exception {
+        verifyLookupIdentityContract("Foo", "FOO", true, true);
+    }
+
+    private void verifyLookupIdentityContract(String original, String current, boolean ignoreCase,
+            boolean replacement) throws Exception {
+        ExecutorService executor = Executors.newCachedThreadPool();
+        AtomicReference<List<Pair<String, String>>> remote = new AtomicReference<>(
+                Lists.newArrayList(Pair.of(original, original)));
+        MetaCache<String> cache = new MetaCache<>("identity-contract", executor,
+                OptionalLong.empty(), OptionalLong.empty(), 10, ignored -> remote.get(),
+                name -> Optional.of("fresh-" + name), null);
+        try {
+            cache.refreshNames();
+            cache.updateCache(original, original, "old", 1L);
+            remote.set(Lists.newArrayList(Pair.of(current, current)));
+            cache.refreshNames();
+            cache.updateCache(current, current, "new", 2L);
+            // Selection, replacement protection and retirement must use the same identity relation.
+            Assert.assertEquals(replacement ? 2 : 1,
+                    cache.getCachedIdentitiesMatching(original, ignoreCase).size());
+            AtomicInteger cleaned = new AtomicInteger();
+            cache.observeLookup(original, original, "old", ignoreCase, cleaned::incrementAndGet).get().run();
+            Assert.assertEquals(replacement ? 0 : 1, cleaned.get());
+            Assert.assertEquals(current, cache.getNameByIdIfPresent(2L).get());
+            if (replacement) {
+                Assert.assertEquals("new", cache.tryGetMetaObj(current).get());
+                Assert.assertEquals("new", cache.getMetaObjById(2L, false).get());
+            } else {
+                Assert.assertFalse(cache.getNameByIdIfPresent(1L).isPresent());
+                Assert.assertFalse(cache.tryGetMetaObj(original).isPresent());
+                cache.refreshNames();
+                Assert.assertEquals(ignoreCase ? "fresh-" + current : "new", cache.getMetaObjById(2L, false).get());
+            }
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testMetadataRefreshRetainsLookupAndRejectsOldMissing() {
         metaCache.refreshNames();
         metaCache.updateCache("a", "a", "old", 1L);
