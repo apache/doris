@@ -31,6 +31,7 @@ import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundInlineTable;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Default;
@@ -505,6 +506,27 @@ public class InsertUtilsTest {
                     table, Optional.empty(), Optional.empty());
             UnboundOneRowRelation oneRow = (UnboundOneRowRelation) noFrom.child(0);
             Assertions.assertEquals(writeDefault, oneRow.getProjects().get(1).child(0));
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void writeOnlyDefaultInStarReplacementResolvesByTargetColumnName() {
+        // INSERT INTO t(id, name) SELECT src.* EXCEPT(score) REPLACE(DEFAULT(name) AS name) FROM src: the
+        // replacement belongs to the INSERT's own select list, so DEFAULT(name) names the target column whatever
+        // src.name's default is. UnboundStar keeps its replacements outside its expression children.
+        ConnectContext ctx = MemoTestUtils.createConnectContext();
+        try {
+            PluginDrivenExternalTable table = pinWriterSchema(ctx, true);
+            Plan normalized = InsertUtils.normalizePlan(connectorSink(ImmutableList.of("id", "name"),
+                    PARSER.parseSingle("select src.* except(score) replace(DEFAULT(name) as name) from src")
+                            .child(0)),
+                    table, Optional.empty(), Optional.empty());
+            UnboundStar star = (UnboundStar) ((LogicalProject<?>) normalized.child(0)).getProjects().get(0);
+            Assertions.assertEquals(PARSER.parseExpression("'write-name'"), star.getReplacedAlias().get(0).child(0));
+            Assertions.assertEquals(ImmutableList.of("src"), star.getQualifier());
+            Assertions.assertEquals(ImmutableList.of(new UnboundSlot("score")), star.getExceptedSlots());
         } finally {
             ConnectContext.remove();
         }

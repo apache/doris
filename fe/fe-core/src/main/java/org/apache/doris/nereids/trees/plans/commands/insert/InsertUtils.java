@@ -527,13 +527,22 @@ public class InsertUtils {
         if (!writeOnlyDefaultColumns.isPresent()) {
             return value;
         }
+        if (value instanceof UnboundStar) {
+            // SELECT * REPLACE(expr AS c) keeps its replacements in the star, not as expression children, so
+            // resolving the star's expression tree would leave a DEFAULT(c) there to bind against the source.
+            UnboundStar star = (UnboundStar) value;
+            return new UnboundStar(star.getQualifier(), star.getExceptedSlots(), star.getReplacedAlias().stream()
+                    .map(replace -> resolveDefaultReferences(replace, writeOnlyDefaultColumns, table, targetNameParts))
+                    .collect(ImmutableList.toImmutableList()), star.getIndexInSqlString());
+        }
         return (NamedExpression) ConnectorWriteSchemaUtils.resolveDefaultReferences(value,
                 writeOnlyDefaultColumns.get(), (ExternalTable) table, ConnectContext.get(), targetNameParts, null);
     }
 
     /**
-     * Resolve DEFAULT(column) in the select lists of an INSERT ... SELECT by name against the target's pinned
-     * writer schema, before the source relations are bound, so it names a target column whatever the source is.
+     * Resolve DEFAULT(column) in the select lists of an INSERT ... SELECT, including the replacements of
+     * SELECT * REPLACE, by name against the target's pinned writer schema, before the source relations are
+     * bound, so it names a target column whatever the source is.
      * A derived table in FROM is a query of its own: DEFAULT(column) in it names a column of its own FROM clause,
      * as without this resolution, so it is left alone.
      */
