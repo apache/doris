@@ -505,14 +505,11 @@ public abstract class FileQueryScanNode extends FileScanNode {
         FileSplit fileSplit = (FileSplit) split;
         TScanRangeLocations curLocations = newLocations();
         // If fileSplit has partition values, use the values collected from hive partitions.
-        // Otherwise, use the values in file path. Migrated tables emit PluginDrivenSplit (never a HiveSplit)
-        // and always carry connector-supplied partition values, so isACID stays false: the connector owns
-        // ACID delta-dir handling and rewrites columns-from-path in its ConnectorScanRange.populateRangeParams.
-        boolean isACID = false;
+        // Otherwise, parse partition values from the file path.
         FilePartitionUtils.ParsedColumnsFromPath partitionValuesFromPath =
                 fileSplit.getPartitionValues() == null
                         ? FilePartitionUtils.parseColumnsFromPathWithNullInfo(
-                                fileSplit.getPathString(), pathPartitionKeys, false, isACID)
+                                fileSplit.getPathString(), pathPartitionKeys, false)
                         : FilePartitionUtils.normalizeColumnsFromPath(fileSplit.getPartitionValues());
 
         TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath.getValues(),

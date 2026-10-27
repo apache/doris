@@ -1877,7 +1877,7 @@ TEST_F(OlapTypeTest, from_olap_string_strings) {
         std::string expected;
     };
     std::vector<Case> cases = {
-            // CHAR(N) ZoneMap min/max from the convertor is padded with '\0'
+            // CHAR(N) ZoneMap min/max from the column writer is padded with '\0'
             // — strnlen recovers the logical content.
             {TYPE_CHAR, std::string("abc", 3) + std::string(7, '\0'), "abc"},
             {TYPE_CHAR, std::string(10, '\0'), ""},

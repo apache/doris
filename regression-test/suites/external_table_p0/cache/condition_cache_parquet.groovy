@@ -19,6 +19,9 @@ import java.util.regex.Pattern
 import groovy.json.JsonSlurper
 
 suite("condition_cache_parquet", "tvf,external,external_docker") {
+    logger.info("Skip: this suite requires LOCAL TVF, which is disabled.")
+    return
+
     def getProfileList = {
         def dst = 'http://' + context.config.feHttpAddress
         def conn = new URL(dst + "/rest/v1/query_profile").openConnection()

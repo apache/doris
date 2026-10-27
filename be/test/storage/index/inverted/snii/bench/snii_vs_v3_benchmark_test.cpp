@@ -495,7 +495,7 @@ protected:
         config::enable_ordered_data_compaction = false;
         config::total_permits_for_compaction_score = 200000;
         config::inverted_index_ram_dir_enable = true;
-        config::string_type_length_soft_limit_bytes = 10485760;
+        _origin_string_soft_limit = config::string_type_length_soft_limit_bytes;
 
         // The query path goes through InvertedIndexQueryCache::instance() unconditionally, and
         // ExecEnv hands out a null pointer unless something installs one. Own them here and put the
@@ -526,7 +526,7 @@ protected:
         config::enable_segcompaction = true;
         config::enable_ordered_data_compaction = true;
         config::total_permits_for_compaction_score = 1000000;
-        config::string_type_length_soft_limit_bytes = 1048576;
+        config::string_type_length_soft_limit_bytes = _origin_string_soft_limit;
         // do_compaction() raises this; the sibling DISABLED_IndexCompactionPerformanceTest
         // restores it the same way. Leaving it set changes later tests in the same binary.
         config::compaction_batch_size = _origin_compaction_batch_size;
@@ -1178,7 +1178,7 @@ protected:
         }
 
         std::cout << "  rows per segment: " << _rows_per_segment() << std::endl;
-        // --- Phase 1: load + build the index ---
+        // Load data and build the index.
         std::optional<StorageResource> storage_resource;
         if (io_mode == IoMode::kRemoteS3) {
             storage_resource = StorageResource(_remote_fs);
@@ -1204,15 +1204,7 @@ protected:
             }
         }
 
-        // --- Phase 2: index compaction ---
-        // Cloud load leaves the file cache warm for the data it just wrote (write_file_cache above),
-        // so compaction there reads local SSD rather than S3. The S3 upload path fills the cache
-        // asynchronously, so drain it before timing compaction, otherwise the first compaction read
-        // races the upload and still goes to S3.
-        // Reuse skips the load, so there is nothing to populate the cache with -- this checks a
-        // property of an import that did not run. The cold query clears the cache before every
-        // iteration regardless, so its measurement is unaffected (proven: every deterministic
-        // counter is identical between an importing run and a reusing one).
+        // Time index compaction after the asynchronous cache upload finishes. Reused indexes skip cache warmup because they did not run the load step.
         if (write_back && !reused) {
             const int64_t cached = _cache_dir_bytes();
             std::cout << "  load populated file cache with " << cached - cache_bytes_before_load
@@ -1271,7 +1263,7 @@ protected:
             result.index_bytes = -1;
         }
 
-        // --- Phase 3: cold match_phrase_prefix ---
+        // Measure cold match_phrase_prefix queries.
         std::vector<double> cpu_samples;
         std::vector<double> wall_samples;
         result.profile_iterations = query_iterations;
@@ -1358,10 +1350,7 @@ protected:
         result.cold_wall_min = result.cold_wall_samples.front();
         result.cold_wall_max = result.cold_wall_samples.back();
 
-        // --- Phase 3b: hot query ---
-        // The cold pass above ended by pulling everything it touched into the active cache layer.
-        // Repeating the same queries without dropping anything measures the steady state: the
-        // block cache for remote write-back, or the OS page cache for a local run.
+        // Repeat queries against the warm cache to measure steady-state latency.
         if (write_back || local_warm) {
             std::vector<double> hot_cpu;
             std::vector<double> hot_wall;
@@ -1878,6 +1867,7 @@ protected:
     io::FileCacheFactory* _origin_file_cache_factory = nullptr;
     bool _origin_file_cache_factory_saved = false;
     int64_t _origin_compaction_batch_size = config::compaction_batch_size;
+    decltype(config::string_type_length_soft_limit_bytes) _origin_string_soft_limit = 0;
     bool _origin_index_compaction_enable = config::inverted_index_compaction_enable;
     bool _origin_ram_dir_enable = config::inverted_index_ram_dir_enable;
     std::string _file_cache_dir;

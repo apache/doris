@@ -57,7 +57,7 @@ suite("test_cloud_changelog_compaction", "nonConcurrent") {
         // Round 1: Level0 [2-2], [3-3] -> Level1 [2-3].
         trigger_and_wait_compaction("test_cloud_changelog_compaction_dup", "cumulative")
 
-        order_qt_cloud_dup_binlog_compaction """
+        order_qt_cloud_dup_changelog_compaction """
             SELECT __DORIS_CHANGELOG_OP__ AS op,
                    k1,
                    v1,
@@ -131,7 +131,7 @@ suite("test_cloud_changelog_compaction", "nonConcurrent") {
         // Round 6: Level1 [6-7], [8-9] -> Level2 [6-9].
         trigger_and_wait_compaction("test_cloud_changelog_compaction_mow_historical", "cumulative")
 
-        order_qt_cloud_mow_historical_binlog_compaction """
+        order_qt_cloud_mow_historical_changelog_compaction """
             SELECT __DORIS_CHANGELOG_OP__ AS op,
                    k1,
                    v1,
@@ -194,7 +194,7 @@ suite("test_cloud_changelog_compaction", "nonConcurrent") {
                                     "cumulative")
 
         sql "SET skip_delete_bitmap = false"
-        order_qt_cloud_mow_seq_historical_binlog_compaction """
+        order_qt_cloud_mow_seq_historical_changelog_compaction """
             SELECT __DORIS_CHANGELOG_OP__ AS op,
                    k1,
                    v1,
@@ -205,7 +205,7 @@ suite("test_cloud_changelog_compaction", "nonConcurrent") {
         """
 
         sql "SET skip_delete_bitmap = true"
-        order_qt_cloud_mow_seq_historical_binlog_compaction_skip_delete_bitmap """
+        order_qt_cloud_mow_seq_historical_changelog_compaction_skip_delete_bitmap """
             SELECT __DORIS_CHANGELOG_OP__ AS op,
                    k1,
                    v1,
@@ -269,7 +269,7 @@ suite("test_cloud_changelog_compaction", "nonConcurrent") {
         trigger_and_wait_compaction("test_cloud_changelog_compaction_mow_historical_long_chain",
                                     "cumulative")
 
-        order_qt_cloud_mow_historical_long_chain_binlog_compaction """
+        order_qt_cloud_mow_historical_long_chain_changelog_compaction """
             SELECT __DORIS_CHANGELOG_OP__ AS op,
                    k1,
                    v1,

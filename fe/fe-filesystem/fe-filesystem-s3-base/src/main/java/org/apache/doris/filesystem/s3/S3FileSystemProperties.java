@@ -208,6 +208,7 @@ public final class S3FileSystemProperties
 
     @Override
     public void validate() {
+        S3CompatSignals.rejectNativeGcpCredentials(rawProperties);
         new ParamRules()
                 .requireTogether(new String[] {accessKey, secretKey},
                         "s3.access_key and s3.secret_key must be set together")

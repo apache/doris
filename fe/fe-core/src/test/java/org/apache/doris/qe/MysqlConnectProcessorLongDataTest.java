@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.PlaceholderId;
 import org.apache.doris.nereids.trees.plans.PrepareCommandPlanner;
 import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.thrift.TUniqueId;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -312,6 +313,9 @@ public class MysqlConnectProcessorLongDataTest {
                     new OriginStatement("select ?", 0));
             prepared = new PreparedStatementContext(command, context, new StatementContext(), "select ?");
             context.addPreparedStatementContext("7", prepared);
+            // The query id the COM_STMT_PREPARE of the statement left on the connection; the mocked executors
+            // below never execute, so they do not set one.
+            context.setQueryId(new TUniqueId(7L, 7L));
             processor = new MysqlConnectProcessor(context) {
                 @Override
                 protected void resolveWorkloadGroupName() {

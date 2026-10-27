@@ -17,15 +17,22 @@
 
 package org.apache.doris.qe.cache;
 
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.FunctionGenTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.connector.spi.mvcc.ConnectorSqlCacheVersion;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.mvcc.MvccReadSelector;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.PluginDrivenMvccExternalTable;
 import org.apache.doris.datasource.scan.PluginDrivenScanNode;
+import org.apache.doris.nereids.SqlCacheContext;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
@@ -35,6 +42,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.Collections;
+import java.util.Optional;
 
 /**
  * Unit tests for the connector-agnostic scan-node recognition the SQL-result-cache migration added to
@@ -58,6 +66,51 @@ public class PluginTableCacheAnalyzerTest {
         Mockito.when(ctx.getSessionVariable()).thenReturn(new SessionVariable());
         // Unit-test constructor: scanNodes are supplied per-test via Deencapsulation.invoke on the helper.
         analyzer = new CacheAnalyzer(ctx, null, Collections.emptyList());
+    }
+
+    @Test
+    public void nativeCacheRequestUsesCapturedVersionWithoutReprobingLatestOrCountingPartitions() {
+        ConnectContext ctx = Mockito.mock(ConnectContext.class);
+        Mockito.when(ctx.getSessionVariable()).thenReturn(new SessionVariable());
+        StatementContext statement = Mockito.mock(StatementContext.class);
+        SqlCacheContext cacheContext = new SqlCacheContext(UserIdentity.ROOT);
+        Mockito.when(ctx.getStatementContext()).thenReturn(statement);
+        Mockito.when(statement.getSqlCacheContext()).thenReturn(Optional.of(cacheContext));
+        CacheAnalyzer nativeAnalyzer = new CacheAnalyzer(ctx, null, Collections.emptyList());
+        PluginDrivenMvccExternalTable table = Mockito.mock(PluginDrivenMvccExternalTable.class);
+        DatabaseIf db = Mockito.mock(DatabaseIf.class);
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(catalog.isInternalCatalog()).thenReturn(false);
+        Mockito.when(catalog.getProperties()).thenReturn(Collections.emptyMap());
+        Mockito.when(catalog.getName()).thenReturn("ice");
+        Mockito.when(db.getCatalog()).thenReturn(catalog);
+        Mockito.when(db.getFullName()).thenReturn("db");
+        Mockito.when(table.getDatabase()).thenReturn(db);
+        Mockito.when(table.getName()).thenReturn("t");
+        Mockito.when(table.getSqlCacheVersion(Optional.empty()))
+                .thenReturn(Optional.of(new ConnectorSqlCacheVersion("uuid:7:schema1:metadata1", 1000L)));
+        cacheContext.addUsedTable(table);
+        MvccSnapshot branchPin = Mockito.mock(MvccSnapshot.class);
+        Mockito.when(table.getSqlCacheVersion(Optional.of(branchPin)))
+                .thenReturn(Optional.of(new ConnectorSqlCacheVersion("uuid:8:schema1:metadata1", 2000L)));
+        cacheContext.addUsedTable(table, Optional.of(branchPin), MvccReadSelector.of(
+                Optional.of(TableSnapshot.versionOf("dev")), Optional.empty()));
+        Mockito.clearInvocations(table);
+        PluginDrivenScanNode node = mockPluginScanNode(table, -1L);
+        CacheAnalyzer.CacheTable result = Deencapsulation.invoke(nativeAnalyzer, "buildCacheTableForExternalScanNode", node);
+        Assertions.assertEquals(1L, result.partitionNum);
+        Assertions.assertEquals(1000L, result.latestPartitionTime);
+        Assertions.assertEquals(1000L, result.latestPartitionUpdateMillis);
+        PluginDrivenScanNode branchNode = mockPluginScanNode(table, -1L);
+        Mockito.when(branchNode.getQueryTableSnapshot()).thenReturn(TableSnapshot.versionOf("dev"));
+        CacheAnalyzer.CacheTable branchResult =
+                Deencapsulation.invoke(nativeAnalyzer, "buildCacheTableForExternalScanNode", branchNode);
+        Assertions.assertEquals(2000L, branchResult.latestPartitionTime);
+        Assertions.assertEquals(2000L, branchResult.latestPartitionUpdateMillis);
+        Mockito.verify(table, Mockito.never()).getSqlCacheVersion(Mockito.any());
+        Mockito.verify(table, Mockito.never()).getNewestUpdateVersionOrTime();
+        Mockito.verify(table, Mockito.never()).getNewestUpdateTimeMillisForCache();
+        Mockito.verify(node, Mockito.never()).getSelectedPartitionNum();
     }
 
     private PluginDrivenScanNode mockPluginScanNode(TableIf table, long selectedPartitionNum) {
