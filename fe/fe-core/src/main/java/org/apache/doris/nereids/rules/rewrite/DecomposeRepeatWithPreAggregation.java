@@ -35,12 +35,42 @@ import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregatePhase;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AvgWeighted;
+import org.apache.doris.nereids.trees.expressions.functions.agg.BoolAnd;
+import org.apache.doris.nereids.trees.expressions.functions.agg.BoolOr;
+import org.apache.doris.nereids.trees.expressions.functions.agg.BoolXor;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Corr;
+import org.apache.doris.nereids.trees.expressions.functions.agg.CorrWelford;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Covar;
+import org.apache.doris.nereids.trees.expressions.functions.agg.CovarSamp;
+import org.apache.doris.nereids.trees.expressions.functions.agg.ExponentialMovingAverage;
+import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitAnd;
+import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitOr;
+import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitXor;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Kurt;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NotSupportAggState;
+import org.apache.doris.nereids.trees.expressions.functions.agg.RegrAvgx;
+import org.apache.doris.nereids.trees.expressions.functions.agg.RegrAvgy;
+import org.apache.doris.nereids.trees.expressions.functions.agg.RegrCount;
+import org.apache.doris.nereids.trees.expressions.functions.agg.RegrIntercept;
+import org.apache.doris.nereids.trees.expressions.functions.agg.RegrR2;
+import org.apache.doris.nereids.trees.expressions.functions.agg.RegrSlope;
+import org.apache.doris.nereids.trees.expressions.functions.agg.RegrSxx;
+import org.apache.doris.nereids.trees.expressions.functions.agg.RegrSxy;
+import org.apache.doris.nereids.trees.expressions.functions.agg.RegrSyy;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Retention;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sem;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Skew;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Stddev;
+import org.apache.doris.nereids.trees.expressions.functions.agg.StddevSamp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum0;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Variance;
+import org.apache.doris.nereids.trees.expressions.functions.agg.VarianceSamp;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.CombineCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.FinalizeCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeCombinator;
@@ -108,6 +138,12 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
             ImmutableSet.of(Sum.class, Sum0.class, Min.class, Max.class, AnyValue.class, Count.class);
     private static final int DECOMPOSE_REPEAT_THRESHOLD = 3;
     private static final int BALANCE_MULTIPLIER = 128;
+    private static final Set<Class<? extends AggregateFunction>> AGG_STATE_REPEAT_REWRITE_WHITELIST = ImmutableSet.of(
+            Avg.class, Variance.class, Corr.class, CorrWelford.class, Covar.class, CovarSamp.class, AvgWeighted.class,
+            BoolAnd.class, BoolOr.class, BoolXor.class, GroupBitAnd.class, GroupBitOr.class, GroupBitXor.class,
+            RegrAvgx.class, RegrAvgy.class, RegrCount.class, RegrIntercept.class, RegrR2.class, RegrSlope.class,
+            RegrSxx.class, RegrSyy.class, RegrSxy.class, Sem.class, Skew.class, Stddev.class, StddevSamp.class,
+            VarianceSamp.class, Kurt.class, Retention.class, ExponentialMovingAverage.class);
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
@@ -457,11 +493,14 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
         // check agg func
         Set<AggregateFunction> aggFunctions = aggregate.getAggregateFunctions();
         for (AggregateFunction aggFunction : aggFunctions) {
-            if (!RESULT_ROLLUP_FUNCTIONS.contains(aggFunction.getClass())
-                    && !supportsAggState(aggFunction)) {
+            if (aggFunction.isDistinct()) {
                 return -1;
             }
-            if (aggFunction.isDistinct()) {
+            if (!RESULT_ROLLUP_FUNCTIONS.contains(aggFunction.getClass())
+                    && !AGG_STATE_REPEAT_REWRITE_WHITELIST.contains(aggFunction.getClass())) {
+                return -1;
+            }
+            if (!RESULT_ROLLUP_FUNCTIONS.contains(aggFunction.getClass()) && !supportsAggState(aggFunction)) {
                 return -1;
             }
         }
