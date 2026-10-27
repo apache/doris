@@ -394,8 +394,11 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         return Optional.empty();
     }
 
-    /** Only table-level remote reads use this seam; partition misses and arbitrary failures do not repair names. */
-    protected <R> R withMissingTableRepair(Supplier<R> read) {
+    /**
+     * Guard a table-level read with this table's retained lookup identity. Synthetic readers must
+     * invoke this on their source table; partition/selector absence must not retire that source.
+     */
+    public <R> R withMissingTableRepair(Supplier<R> read) {
         // Metadata validators can enter a schema read under this monitor. Repair only after
         // an outer unlocked entry point has unwound it, preserving catalog -> table lock order.
         if (Thread.holdsLock(this)) {
@@ -405,18 +408,24 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         try {
             return read.get();
         } catch (RuntimeException failure) {
-            Throwable cause = failure;
-            while (cause != null) {
-                if (cause instanceof org.apache.hadoop.hive.metastore.api.NoSuchObjectException
-                        || cause instanceof org.apache.iceberg.exceptions.NoSuchTableException
-                        || cause instanceof org.apache.paimon.catalog.Catalog.TableNotExistException) {
-                    observation.ifPresent(Runnable::run);
-                    break;
-                }
-                cause = cause.getCause();
+            if (isMissingTable(failure)) {
+                observation.ifPresent(Runnable::run);
             }
             throw failure;
         }
+    }
+
+    /** Providers with selectors override this to verify the missing object's base identity. */
+    protected boolean isMissingTable(Throwable failure) {
+        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+            if (cause instanceof org.apache.hadoop.hive.metastore.api.NoSuchObjectException
+                    || cause instanceof org.apache.hadoop.hive.metastore.api.UnknownTableException
+                    || cause instanceof org.apache.iceberg.exceptions.NoSuchTableException
+                    || cause instanceof org.apache.iceberg.exceptions.NoSuchViewException) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

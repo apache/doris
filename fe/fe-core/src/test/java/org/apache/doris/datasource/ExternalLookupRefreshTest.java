@@ -160,6 +160,22 @@ class ExternalLookupRefreshTest {
     }
 
     @Test
+    void missingHmsSchemaRepairsLookupWithoutNoSuchObjectCause() {
+        ExternalDatabase<?> database = Mockito.mock(ExternalDatabase.class);
+        AtomicInteger repairs = new AtomicInteger();
+        Mockito.when(database.observeTableLookup(Mockito.any())).thenReturn(Optional.of(repairs::incrementAndGet));
+        ExternalTable table = new ExternalTable();
+        table.setDb(database);
+        RuntimeException missing = new RuntimeException(
+                new org.apache.hadoop.hive.metastore.api.UnknownTableException("missing"));
+        Assertions.assertSame(missing, Assertions.assertThrows(RuntimeException.class,
+                () -> table.withMissingTableRepair(() -> {
+                    throw missing;
+                })));
+        Assertions.assertEquals(1, repairs.get());
+    }
+
+    @Test
     void definiteMissingRepairsButTimeoutDoesNot() {
         ExternalDatabase<?> db = Mockito.mock(ExternalDatabase.class);
         AtomicInteger repairs = new AtomicInteger();

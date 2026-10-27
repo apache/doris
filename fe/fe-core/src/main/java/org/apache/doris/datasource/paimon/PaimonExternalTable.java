@@ -54,6 +54,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.Snapshot;
+import org.apache.paimon.catalog.Catalog;
+import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.partition.Partition;
 import org.apache.paimon.privilege.PrivilegedFileStoreTable;
 import org.apache.paimon.schema.TableSchema;
@@ -106,7 +108,7 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
             return getOrFetchSnapshotCacheValue(snapshot).getSnapshot().getTable();
         } else {
             // Normal query scenario: get directly from table cache
-            return PaimonUtils.getPaimonTable(this);
+            return getBasePaimonTable();
         }
     }
 
@@ -617,7 +619,23 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
         return !getBasePaimonTable().partitionKeys().isEmpty();
     }
 
+    @Override
+    protected boolean isMissingTable(Throwable failure) {
+        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+            if (cause instanceof Catalog.TableNotExistException) {
+                Identifier missing = ((Catalog.TableNotExistException) cause).identifier();
+                // A missing branch/system table does not prove its base table disappeared. Its
+                // nested causes must not authorize the wider database cleanup either.
+                return !missing.isSystemTable()
+                        && Identifier.DEFAULT_MAIN_BRANCH.equals(missing.getBranchNameOrDefault())
+                        && missing.getDatabaseName().equals(getRemoteDbName())
+                        && missing.getTableName().equals(getRemoteName());
+            }
+        }
+        return false;
+    }
+
     Table getBasePaimonTable() {
-        return PaimonUtils.getPaimonTable(this);
+        return withMissingTableRepair(() -> PaimonUtils.getPaimonTable(this));
     }
 }
