@@ -718,11 +718,11 @@ public class PipelineCoordinator {
 
         // Serialize tableSchemas back to FE when:
         // 1. The source schema was updated, including ignored target DDL, OR
-        // 2. It's a binlog split AND FE had no schema (FE tableSchemas was null) — this covers
-        //    incremental-only startup and the first binlog round after snapshot completes.
+        // 2. It's an incremental split AND FE had no schema or was missing a configured table's
+        //    schema. This covers incremental-only startup, the first incremental round after
+        //    snapshot completes, and added tables whose schemas have not been committed to FE.
         String tableSchemas = null;
-        boolean feHadNoSchema = writeRecordRequest.getTableSchemas() == null;
-        if (hasSchemaChanges || (!isSnapshotSplit && feHadNoSchema)) {
+        if (hasSchemaChanges || (!isSnapshotSplit && sourceReader.isSchemaReportRequired())) {
             tableSchemas = sourceReader.serializeTableSchemas();
         }
         // own taskId, never the shared currentTaskId: FE rejects it if another task took over

@@ -21,7 +21,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
-import org.apache.doris.job.cdc.response.FetchTableSplitsResult;
 import org.apache.doris.job.cdc.split.BinlogSplit;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
 import org.apache.doris.job.common.DataSourceType;
@@ -68,7 +67,7 @@ public class JdbcSourceOffsetProviderOffsetTest {
             utilities.when(() -> StreamingJobUtils.restoreSplitsToJob(job.getJobId())).thenReturn(saved);
             JdbcSourceOffsetProvider restored = new JdbcSourceOffsetProvider() {
                 @Override
-                protected FetchTableSplitsResult<SnapshotSplit> rpcFetchSplitsBatch(
+                protected List<SnapshotSplit> rpcFetchSplitsBatch(
                         String table, Object[] start, Integer splitId) {
                     throw new AssertionError("Replay must not fetch splits to recover schemas");
                 }
@@ -82,7 +81,6 @@ public class JdbcSourceOffsetProviderOffsetTest {
             Assertions.assertArrayEquals(new Object[] {10}, restored.cdcSplitProgress.getNextSplitStart());
             Assertions.assertEquals("100", restored.getBinlogOffsetPersist().get("lsn"));
             Assertions.assertFalse(restored.noMoreSplits());
-            Assertions.assertFalse(restored.hasTableSchema("added"));
             Assertions.assertEquals(retainedSchema, restored.getTableSchemas());
             Assertions.assertFalse(restored.isTableSchemasDirty());
             SnapshotSplit committed = new SnapshotSplit("public.added:0", "public.added",
@@ -90,31 +88,6 @@ public class JdbcSourceOffsetProviderOffsetTest {
             restored.updateOffset(new JdbcOffset(Collections.singletonList(committed)));
             Assertions.assertEquals("public.added:0", restored.finishedSplits.get(0).getSplitId());
         }
-    }
-
-    @Test
-    public void testFetchedSchemaPreservesRetainedSchemaAndSurvivesRestore() throws Exception {
-        JdbcSourceOffsetProvider provider = provider(DataSourceType.POSTGRES);
-        provider.updateOffset(new JdbcOffset(Collections.singletonList(new BinlogSplit(Map.of("lsn", "100")))));
-        String retained = "[{\"i\":\"public.retained\",\"c\":{\"version\":1}}]";
-        String added = "[{\"i\":\"public.added\",\"c\":{\"version\":2}}]";
-        provider.setTableSchemas(retained);
-        provider.applyIncludeTablesChange(List.of("retained", "added"), List.of("added"));
-        Assertions.assertFalse(provider.hasTableSchema("added"));
-        provider.addTableSchema("added", added);
-        Assertions.assertTrue(provider.hasTableSchema("added"));
-        Assertions.assertTrue(provider.isTableSchemasDirty());
-        String saved = provider.getPersistInfo();
-        JdbcSourceOffsetProvider restored = GsonUtils.GSON.fromJson(saved, JdbcSourceOffsetProvider.class);
-        Assertions.assertTrue(restored.hasTableSchema("retained"));
-        Assertions.assertTrue(restored.hasTableSchema("added"));
-        Assertions.assertTrue(restored.hasPendingIncludeTablesChange());
-        provider.markTableSchemasPersisted(provider.getTableSchemas());
-        String baseline = provider.getTableSchemas();
-        provider.addTableSchema("added", "[{\"i\":\"public.added\",\"c\":{\"version\":3}}]");
-        Assertions.assertEquals(baseline, provider.getTableSchemas());
-        Assertions.assertFalse(provider.isTableSchemasDirty());
-        Assertions.assertTrue(provider.getTableSchemas().contains("\"version\":1"));
     }
 
     @Test
@@ -294,8 +267,8 @@ public class JdbcSourceOffsetProviderOffsetTest {
         Assertions.assertArrayEquals(new Object[] {20}, provider.cdcSplitProgress.getNextSplitStart());
         Assertions.assertEquals(2, provider.cdcSplitProgress.getNextSplitId());
         Assertions.assertArrayEquals(new Object[] {10}, provider.committedSplitProgress.getNextSplitStart());
-        Assertions.assertFalse(provider.hasTableSchema("retained"));
-        Assertions.assertTrue(provider.hasTableSchema("added"));
+        Assertions.assertFalse(provider.getTableSchemas().contains("public.retained"));
+        Assertions.assertTrue(provider.getTableSchemas().contains("public.added"));
 
         StreamingInsertJob job = mockJobWithPersistInfo(provider.getPersistInfo());
         Deencapsulation.setField(job, "syncTables", List.of("added", "next"));
@@ -324,12 +297,12 @@ public class JdbcSourceOffsetProviderOffsetTest {
                 null, null, null);
         JdbcSourceOffsetProvider provider = new JdbcSourceOffsetProvider() {
             @Override
-            protected FetchTableSplitsResult<SnapshotSplit> rpcFetchSplitsBatch(
+            protected List<SnapshotSplit> rpcFetchSplitsBatch(
                     String table, Object[] start, Integer splitId) {
                 Assertions.assertEquals("next", table);
                 Assertions.assertNull(start);
                 Assertions.assertNull(splitId);
-                return new FetchTableSplitsResult<>(List.of(next), "[{\"i\":\"public.next\",\"c\":{}}]");
+                return List.of(next);
             }
         };
         provider.setSourceType(DataSourceType.POSTGRES);

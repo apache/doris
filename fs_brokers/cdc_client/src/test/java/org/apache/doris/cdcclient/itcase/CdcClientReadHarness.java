@@ -172,7 +172,7 @@ public final class CdcClientReadHarness implements AutoCloseable {
             req.setNextSplitId(nextSplitId);
             req.setBatchSize(SPLIT_BATCH_SIZE);
 
-            List<AbstractSourceSplit> batch = reader.getSourceSplits(req).getSplits();
+            List<AbstractSourceSplit> batch = reader.getSourceSplits(req);
             if (batch == null || batch.isEmpty()) {
                 break;
             }

@@ -23,7 +23,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.request.CommitOffsetRequest;
-import org.apache.doris.job.cdc.response.FetchTableSplitsResult;
 import org.apache.doris.job.cdc.split.BinlogSplit;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
 import org.apache.doris.job.common.DataSourceType;
@@ -47,7 +46,6 @@ import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TxnStateCallbackFactory;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
@@ -62,41 +60,27 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public class StreamingInsertJobOffsetPersistenceTest {
 
     @Test
-    public void testFetchedSchemaIsJournaledOnFirstChunkCommit() throws Exception {
-        String addedSchema = "[{\"i\":\"public.added\",\"c\":{}}]";
-        SchemaFetchProvider provider = new SchemaFetchProvider(addedSchema, List.of(
-                new SnapshotSplit("public.added:0", "public.added", List.of("id"),
-                        null, new Object[] {10}, null),
-                new SnapshotSplit("public.added:1", "public.added", List.of("id"),
-                        new Object[] {10}, null, null)));
+    public void testAddedSchemasAreJournaledOnIncrementalCommit() throws Exception {
+        JdbcSourceOffsetProvider provider = new JdbcSourceOffsetProvider(
+                9001L, DataSourceType.POSTGRES, new HashMap<>());
         provider.updateOffset(new JdbcOffset(List.of(new BinlogSplit(Map.of("lsn", "100")))));
         provider.setTableSchemas("[{\"i\":\"public.retained\",\"c\":{}}]");
         provider.applyIncludeTablesChange(List.of("retained", "added"), List.of("added"));
         TestStreamingInsertJob job = newJob(provider, 1017L);
         job.setOffsetProviderPersist(provider.getPersistInfo());
         provider.markTableSchemasPersisted(provider.getTableSchemas());
-        try (MockedStatic<StreamingJobUtils> utilities = Mockito.mockStatic(StreamingJobUtils.class)) {
-            utilities.when(() -> StreamingJobUtils.upsertChunkList(Mockito.eq(9001L), Mockito.eq("added"),
-                    Mockito.anyList())).thenAnswer(invocation -> {
-                        Assertions.assertEquals(0, job.journalCount);
-                        Assertions.assertEquals(0, provider.pendingSplitCount());
-                        List<SnapshotSplit> chunks = invocation.getArgument(2);
-                        Assertions.assertFalse(new ObjectMapper().writeValueAsString(chunks).contains("tableSchema"));
-                        return null;
-                    });
-            provider.advanceSplits();
-            Assertions.assertEquals(0, job.journalCount);
-            Assertions.assertEquals(2, provider.pendingSplitCount());
-            Assertions.assertTrue(provider.isTableSchemasDirty());
-            Assertions.assertTrue(provider.getTableSchemas().contains("public.added"));
+        String schemas = "[{\"i\":\"public.retained\",\"c\":{}},{\"i\":\"public.added\",\"c\":{}}]";
+        CommitOffsetRequest request = binlogRequest(1017L, "110");
+        request.setTableSchemas(schemas);
+        job.commitOffset(request);
 
-            job.commitOffset(snapshotRequest(1017L, "public.added:0", null));
-            Assertions.assertEquals(1, job.journalCount);
-            Assertions.assertFalse(provider.isTableSchemasDirty());
-            JdbcSourceOffsetProvider persisted = GsonUtils.GSON.fromJson(job.getOffsetProviderPersist(),
-                    JdbcSourceOffsetProvider.class);
-            Assertions.assertEquals(provider.getTableSchemas(), persisted.getTableSchemas());
-        }
+        Assertions.assertEquals(1, job.journalCount);
+        Assertions.assertFalse(provider.isTableSchemasDirty());
+        JdbcSourceOffsetProvider persisted = GsonUtils.GSON.fromJson(job.getOffsetProviderPersist(),
+                JdbcSourceOffsetProvider.class);
+        Assertions.assertEquals(schemas, persisted.getTableSchemas());
+        Assertions.assertEquals("110", persisted.getBinlogOffsetPersist().get("lsn"));
+        Assertions.assertFalse(persisted.hasPendingIncludeTablesChange());
     }
 
     @Test
@@ -686,24 +670,6 @@ public class StreamingInsertJobOffsetPersistenceTest {
         request.setTaskId(taskId);
         request.setOffset("[{\"splitId\":\"binlog-split\",\"lsn\":\"" + lsn + "\"}]");
         return request;
-    }
-
-    private static class SchemaFetchProvider extends JdbcSourceOffsetProvider {
-        private final transient String schema;
-        private final transient List<SnapshotSplit> splits;
-
-        SchemaFetchProvider(String schema, List<SnapshotSplit> splits) {
-            super(9001L, DataSourceType.POSTGRES, new HashMap<>());
-            this.schema = schema;
-            this.splits = splits;
-        }
-
-        @Override
-        protected FetchTableSplitsResult<SnapshotSplit> rpcFetchSplitsBatch(
-                String table, Object[] start, Integer splitId) {
-            Assertions.assertEquals("added", table);
-            return new FetchTableSplitsResult<>(splits, schema);
-        }
     }
 
     private static class TestStreamingInsertJob extends StreamingInsertJob {

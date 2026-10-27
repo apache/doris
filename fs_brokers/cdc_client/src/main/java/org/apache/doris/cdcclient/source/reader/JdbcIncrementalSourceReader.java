@@ -24,7 +24,6 @@ import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.request.FetchTableSplitsRequest;
 import org.apache.doris.job.cdc.request.JobBaseConfig;
 import org.apache.doris.job.cdc.request.JobBaseRecordRequest;
-import org.apache.doris.job.cdc.response.FetchTableSplitsResult;
 import org.apache.doris.job.cdc.split.AbstractSourceSplit;
 import org.apache.doris.job.cdc.split.BinlogSplit;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
@@ -129,8 +128,7 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
      * <p>FE decides when snapshots are needed, including for tables added to an incremental job.
      */
     @Override
-    public FetchTableSplitsResult<AbstractSourceSplit> getSourceSplits(
-            FetchTableSplitsRequest ftsReq) {
+    public List<AbstractSourceSplit> getSourceSplits(FetchTableSplitsRequest ftsReq) {
         LOG.info(
                 "Get table {} splits for job {} (nextSplitId={}, nextSplitStart={})",
                 ftsReq.getSnapshotTable(),
@@ -148,15 +146,11 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
         try {
             splitter.open();
             List<AbstractSourceSplit> result = new ArrayList<>();
-            String tableSchema = null;
             while (result.size() < batchSize) {
                 Collection<org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit>
                         chunks = splitter.generateSplits(tableId);
                 for (org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit chunk :
                         chunks) {
-                    if (ftsReq.isIncludeTableSchema() && tableSchema == null) {
-                        tableSchema = serializeTableSchemas(chunk.getTableSchemas());
-                    }
                     result.add(toDorisSnapshotSplit(chunk));
                 }
                 if (!splitter.hasNextChunk()) {
@@ -169,7 +163,7 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
                     tableId,
                     ftsReq.getNextSplitId(),
                     splitter.hasNextChunk());
-            return new FetchTableSplitsResult<>(result, tableSchema);
+            return result;
         } catch (Exception e) {
             throw new RuntimeException("Failed to generate splits for " + tableId, e);
         } finally {
@@ -749,6 +743,10 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
 
     private Tuple2<SourceSplitBase, Boolean> createStreamSplit(
             Map<String, Object> meta, JobBaseConfig config) {
+        // Added-table snapshots may finish before their schemas have been committed to FE.
+        for (String table : getSourceConfig(config).getTableList()) {
+            getTableSchema(TableId.parse(table, false), config);
+        }
         BinlogSplit streamSplit = objectMapper.convertValue(meta, BinlogSplit.class);
         List<FinishedSnapshotSplitInfo> finishedSnapshotSplitInfos = new ArrayList<>();
         Offset minOffsetFinishSplits = null;
@@ -996,6 +994,7 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
             try (JdbcConnection jdbc = dialect.openJdbcConnection(sourceConfig)) {
                 tableChange = dialect.queryTableSchema(jdbc, tableId);
                 schemas.put(tableId, tableChange);
+                schemaReportRequired = true;
             } catch (Exception e) {
                 throw new RuntimeException("Failed to resolve table schema for " + tableId, e);
             }

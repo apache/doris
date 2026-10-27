@@ -33,9 +33,6 @@ import java.util.Map;
 public class FetchTableSplitsRequest extends JobBaseConfig {
     private String snapshotTable;
 
-    /** Return the source schema once when adding a table to an existing job. */
-    private boolean includeTableSchema;
-
     /**
      * The next split start, null = fresh start (START_BOUND).
      * cdc_client takes to construct ChunkSplitterState.

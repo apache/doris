@@ -33,7 +33,6 @@ import org.apache.doris.job.cdc.request.FetchTableSplitsRequest;
 import org.apache.doris.job.cdc.request.JobBaseConfig;
 import org.apache.doris.job.cdc.request.JobBaseRecordRequest;
 import org.apache.doris.job.cdc.response.FetchEndOffsetResult;
-import org.apache.doris.job.cdc.response.FetchTableSplitsResult;
 import org.apache.doris.job.cdc.split.AbstractSourceSplit;
 import org.apache.doris.job.cdc.split.BinlogSplit;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
@@ -165,8 +164,7 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
      * <p>FE decides when snapshots are needed, including for tables added to an incremental job.
      */
     @Override
-    public FetchTableSplitsResult<AbstractSourceSplit> getSourceSplits(
-            FetchTableSplitsRequest ftsReq) {
+    public List<AbstractSourceSplit> getSourceSplits(FetchTableSplitsRequest ftsReq) {
         LOG.info(
                 "Get table {} splits for job {} (nextSplitId={}, nextSplitStart={})",
                 ftsReq.getSnapshotTable(),
@@ -195,13 +193,9 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
         try {
             splitter.open();
             List<AbstractSourceSplit> result = new ArrayList<>();
-            String tableSchema = null;
             while (result.size() < batchSize) {
                 List<MySqlSnapshotSplit> chunks = splitter.splitChunks(partition, tableId);
                 for (MySqlSnapshotSplit chunk : chunks) {
-                    if (ftsReq.isIncludeTableSchema() && tableSchema == null) {
-                        tableSchema = serializeTableSchemas(chunk.getTableSchemas());
-                    }
                     result.add(toDorisSnapshotSplit(chunk));
                 }
                 if (!splitter.hasNextChunk()) {
@@ -214,7 +208,7 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
                     tableId,
                     ftsReq.getNextSplitId(),
                     splitter.hasNextChunk());
-            return new FetchTableSplitsResult<>(result, tableSchema);
+            return result;
         } catch (Exception e) {
             throw new RuntimeException("Failed to generate splits for " + tableId, e);
         } finally {
@@ -747,6 +741,10 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
     private Tuple2<MySqlSplit, Boolean> createBinlogSplit(
             Map<String, Object> meta, JobBaseConfig config) {
         MySqlSourceConfig sourceConfig = getSourceConfig(config);
+        // Added-table snapshots may finish before their schemas have been committed to FE.
+        for (String table : sourceConfig.getTableList()) {
+            getTableSchema(TableId.parse(table), config);
+        }
         BinlogOffset offsetConfig = null;
         if (sourceConfig.getStartupOptions() != null) {
             offsetConfig = sourceConfig.getStartupOptions().binlogOffset;
@@ -1261,6 +1259,7 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
                         new MySqlPartition(sourceConfig.getMySqlConnectorConfig().getLogicalName());
                 tableChange = schema.getTableSchema(partition, jdbc, tableId);
                 schemas.put(tableId, tableChange);
+                schemaReportRequired = true;
             } catch (Exception e) {
                 throw new RuntimeException("Failed to resolve table schema for " + tableId, e);
             }

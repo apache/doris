@@ -120,7 +120,8 @@ public class MySqlSourceReaderTest {
     void binlogSplitUsesGtidOnlyOffsetWithoutFallingBack() throws Exception {
         String gtid = SERVER_UUID + ":1-3:5-7";
         MySqlSourceReader reader = new MySqlSourceReader();
-        reader.setTableSchemas(new HashMap<>());
+        TableId tableId = TableId.parse("testdb.t_test");
+        reader.setTableSchemas(new HashMap<>(Map.of(tableId, tableChange(tableId, "id"))));
         JobBaseConfig config =
                 new JobBaseConfig(
                         "job-1",

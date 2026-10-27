@@ -28,7 +28,6 @@ import org.apache.doris.job.cdc.request.FetchEndOffsetRequest;
 import org.apache.doris.job.cdc.request.FetchTableSplitsRequest;
 import org.apache.doris.job.cdc.request.JobBaseConfig;
 import org.apache.doris.job.cdc.response.FetchEndOffsetResult;
-import org.apache.doris.job.cdc.response.FetchTableSplitsResult;
 import org.apache.doris.job.cdc.split.AbstractSourceSplit;
 import org.apache.doris.job.cdc.split.BinlogSplit;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
@@ -189,7 +188,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     @Override
     public void applyIncludeTablesChange(List<String> updatedTables, List<String> addedTables) throws JobException {
         synchronized (splitsLock) {
-            // Added-table schemas arrive with fetched splits; keep only retained schemas here.
+            // CDC fills missing schemas before resuming incremental reads; retain existing baselines.
             String retainedSchemas = filterTableSchemas(tableSchemas, updatedTables);
             if (!hasPendingIncludeTablesChange()) {
                 // Reset snapshot progress while preserving the committed incremental offset for resumption.
@@ -849,47 +848,6 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         }
     }
 
-    boolean hasTableSchema(String table) throws JobException {
-        synchronized (splitsLock) {
-            try {
-                if (StringUtils.isBlank(tableSchemas)) {
-                    return false;
-                }
-                for (JsonNode entry : objectMapper.readTree(tableSchemas)) {
-                    if (table.equals(getTableName(entry.path("i").asText().replace("\"", "")))) {
-                        return true;
-                    }
-                }
-                return false;
-            } catch (Exception e) {
-                throw new JobException("Invalid persisted table schema baseline", e);
-            }
-        }
-    }
-
-    public void addTableSchema(String table, String schema) throws JobException {
-        synchronized (splitsLock) {
-            if (hasTableSchema(table)) {
-                return;
-            }
-            try {
-                List<JsonNode> added = objectMapper.readValue(schema, new TypeReference<List<JsonNode>>() {});
-                if (added.size() != 1 || !table.equals(
-                        getTableName(added.get(0).path("i").asText().replace("\"", "")))) {
-                    throw new JobException("Unexpected fetched schema for added table " + table);
-                }
-                List<JsonNode> merged = StringUtils.isBlank(tableSchemas) ? new ArrayList<>()
-                        : objectMapper.readValue(tableSchemas, new TypeReference<List<JsonNode>>() {});
-                merged.addAll(added);
-                setTableSchemas(objectMapper.writeValueAsString(merged));
-            } catch (JobException e) {
-                throw e;
-            } catch (Exception e) {
-                throw new JobException("Failed to merge fetched schema for added table " + table, e);
-            }
-        }
-    }
-
     public void setTableSchemas(String tableSchemas) {
         synchronized (splitsLock) {
             this.tableSchemas = tableSchemas;
@@ -1020,8 +978,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
 
         // Phase 2 (unlocked, slow): RPC. Keeps updateOffset / scheduler tick unblocked
         // so task dispatch can drain remainingSplits while we fetch the next batch.
-        FetchTableSplitsResult<SnapshotSplit> result = rpcFetchSplitsBatch(tbl, startVal, splitId);
-        List<SnapshotSplit> batch = result.getSplits();
+        List<SnapshotSplit> batch = rpcFetchSplitsBatch(tbl, startVal, splitId);
         if (batch == null || batch.isEmpty()) {
             return;
         }
@@ -1088,9 +1045,6 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                         cdcSplitProgress.getNextSplitId());
                 return;
             }
-            if (result.getTableSchema() != null) {
-                addTableSchema(tbl, result.getTableSchema());
-            }
             remainingSplits.addAll(newSplits);
             applySplitToProgress(cdcSplitProgress, batch.get(batch.size() - 1), tbl);
             log.info("advanceSplits jobId={} table={} request(nextStart={}, nextSplitId={}) "
@@ -1144,13 +1098,12 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     }
 
     /** RPC fetchSplits with (table, nextSplitStart, nextSplitId). protected for UT subclass. */
-    protected FetchTableSplitsResult<SnapshotSplit> rpcFetchSplitsBatch(
+    protected List<SnapshotSplit> rpcFetchSplitsBatch(
             String table, Object[] nextSplitStart, Integer nextSplitId)
             throws JobException {
         Backend backend = StreamingJobUtils.selectBackend(cloudCluster);
         FetchTableSplitsRequest requestParams = new FetchTableSplitsRequest(
                 getJobId(), sourceType.name(), sourceProperties, getFrontendAddress(), table);
-        requestParams.setIncludeTableSchema(hasPendingIncludeTablesChange() && !hasTableSchema(table));
         requestParams.setNextSplitStart(nextSplitStart);
         requestParams.setNextSplitId(nextSplitId);
         requestParams.setBatchSize(Config.streaming_cdc_fetch_splits_batch_size);
@@ -1168,12 +1121,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
             if (code != TStatusCode.OK) {
                 throw new JobException("fetchSplits backend error: " + result.getStatus().getErrorMsgs(0));
             }
-            FetchTableSplitsResult<SnapshotSplit> batch = parseCdcResponseData(result.getResponse(),
-                    new TypeReference<FetchTableSplitsResult<SnapshotSplit>>() {});
-            if (requestParams.isIncludeTableSchema() && StringUtils.isBlank(batch.getTableSchema())) {
-                throw new JobException("Missing fetched schema for added table " + table);
-            }
-            return batch;
+            return parseCdcResponseData(result.getResponse(), new TypeReference<List<SnapshotSplit>>() {});
         } catch (TimeoutException te) {
             throw new JobException("fetchSplits RPC timeout: jobId=" + getJobId() + " table=" + table);
         } catch (Exception ex) {
