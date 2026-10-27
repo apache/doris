@@ -75,6 +75,7 @@ public class PaimonExternalTableTest {
         Mockito.when(catalog.getName()).thenReturn("ctl");
         Mockito.when(database.getCatalog()).thenReturn(catalog);
         Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(database.getRemoteName()).thenReturn("db");
         PaimonExternalTable table = Mockito.spy(
                 new PaimonExternalTable(10L, "table", "table", catalog, database));
         AtomicInteger repaired = new AtomicInteger();
@@ -98,12 +99,89 @@ public class PaimonExternalTableTest {
     }
 
     @Test
+    public void testStatusCommentMissingBaseTableRepairsLookup() {
+        PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
+        PaimonExternalDatabase database = Mockito.mock(PaimonExternalDatabase.class);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(database.getRemoteName()).thenReturn("db");
+        PaimonExternalTable table = new PaimonExternalTable(10L, "table", "table", catalog, database);
+        AtomicInteger repairs = new AtomicInteger();
+        Mockito.when(database.observeTableLookup(table)).thenReturn(Optional.of(repairs::incrementAndGet));
+        RuntimeException missing = new RuntimeException(new org.apache.paimon.catalog.Catalog.TableNotExistException(
+                new org.apache.paimon.catalog.Identifier("db", "table")));
+        try (MockedStatic<PaimonUtils> utils = Mockito.mockStatic(PaimonUtils.class)) {
+            utils.when(() -> PaimonUtils.getPaimonTable(table)).thenThrow(missing);
+            Assert.assertSame(missing, Assert.assertThrows(RuntimeException.class, table::getComment));
+            Assert.assertEquals(1, repairs.get());
+            RuntimeException missingMain = new RuntimeException(
+                    new org.apache.paimon.catalog.Catalog.TableNotExistException(
+                            new org.apache.paimon.catalog.Identifier("db", "table", "main")));
+            utils.when(() -> PaimonUtils.getPaimonTable(table)).thenThrow(missingMain);
+            Assert.assertSame(missingMain, Assert.assertThrows(RuntimeException.class, table::getComment));
+            Assert.assertEquals(2, repairs.get());
+        }
+    }
+
+    @Test
+    public void testDroppedBranchDoesNotRetireBaseOrSibling() throws Exception {
+        PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
+        PaimonExternalDatabase database = Mockito.mock(PaimonExternalDatabase.class);
+        Mockito.when(catalog.getId()).thenReturn(1L);
+        Mockito.when(catalog.getName()).thenReturn("ctl");
+        Mockito.when(catalog.getLowerCaseTableNames()).thenReturn(2);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(database.getRemoteName()).thenReturn("db");
+        PaimonExternalTable table = Mockito.spy(
+                new PaimonExternalTable(10L, "table", "table", catalog, database));
+        Mockito.doNothing().when(table).makeSureInitialized();
+        FileStoreTable baseTable = Mockito.mock(FileStoreTable.class, Mockito.RETURNS_DEEP_STUBS);
+        Mockito.when(baseTable.branchManager().branchExists("b")).thenReturn(true);
+        Mockito.doReturn(baseTable).when(table).getBasePaimonTable();
+        java.util.concurrent.ExecutorService executor = java.util.concurrent.Executors.newCachedThreadPool();
+        org.apache.doris.datasource.metacache.MetaCache<org.apache.doris.datasource.ExternalTable> cache =
+                new org.apache.doris.datasource.metacache.MetaCache<>("db", executor,
+                        java.util.OptionalLong.empty(), java.util.OptionalLong.empty(), 10,
+                        ignored -> Arrays.asList(org.apache.doris.common.Pair.of("table", "table"),
+                                org.apache.doris.common.Pair.of("sibling", "sibling")),
+                        ignored -> Optional.empty(), null);
+        AtomicInteger repairs = new AtomicInteger();
+        try {
+            cache.refreshNames();
+            cache.updateCache("table", "table", table, 10L);
+            org.apache.doris.datasource.ExternalTable sibling = Mockito.mock(
+                    org.apache.doris.datasource.ExternalTable.class);
+            cache.updateCache("sibling", "sibling", sibling, 11L);
+            Mockito.when(database.observeTableLookup(table)).thenAnswer(ignored -> cache.observeLookup(
+                    "table", "table", table, true, repairs::incrementAndGet));
+            RuntimeException missingBranch = new RuntimeException(
+                    new org.apache.paimon.catalog.Catalog.TableNotExistException(
+                            new org.apache.paimon.catalog.Identifier("db", "table", "b"),
+                            new org.apache.hadoop.hive.metastore.api.UnknownTableException("branch metadata missing")));
+            Mockito.when(catalog.getPaimonTable(Mockito.any(NameMapping.class), Mockito.eq("b"), Mockito.isNull()))
+                    .thenAnswer(ignored -> {
+                        // Simulate the remote drop after successful branch validation, before the cold branch load.
+                        Mockito.verify(baseTable.branchManager()).branchExists("b");
+                        throw missingBranch;
+                    });
+            TableScanParams branch = new TableScanParams(TableScanParams.BRANCH,
+                    Collections.emptyMap(), Collections.singletonList("b"));
+            Assert.assertThrows(RuntimeException.class, () -> table.loadSnapshot(Optional.empty(), Optional.of(branch)));
+            Assert.assertEquals(0, repairs.get());
+            Assert.assertSame(table, cache.getMetaObjById(10L, false).get());
+            Assert.assertSame(sibling, cache.getMetaObjById(11L, false).get());
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testOptionsFirstMissingFenceRepairsLookup() {
         PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
         PaimonExternalDatabase database = Mockito.mock(PaimonExternalDatabase.class);
         Mockito.when(catalog.getName()).thenReturn("ctl");
         Mockito.when(database.getCatalog()).thenReturn(catalog);
         Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(database.getRemoteName()).thenReturn("db");
         PaimonExternalTable table = new PaimonExternalTable(10L, "table", "table", catalog, database);
         AtomicInteger repaired = new AtomicInteger();
         Mockito.when(database.observeTableLookup(table)).thenReturn(Optional.of(repaired::incrementAndGet));
@@ -145,6 +223,7 @@ public class PaimonExternalTableTest {
         Mockito.when(catalog.getName()).thenReturn("ctl");
         Mockito.when(database.getCatalog()).thenReturn(catalog);
         Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(database.getRemoteName()).thenReturn("db");
         PaimonExternalTable externalTable = Mockito.spy(
                 new PaimonExternalTable(10L, "table", "table", catalog, database));
         Mockito.doNothing().when(externalTable).makeSureInitialized();
