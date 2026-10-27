@@ -1,0 +1,74 @@
+--- a/parallel_hashmap/phmap.h
++++ b/parallel_hashmap/phmap.h
+@@ -466,0 +467,49 @@
++#if PHMAP_HAVE_ARM_NEON && defined(PHMAP_IS_LITTLE_ENDIAN)
++
++struct GroupAArch64Impl {
++    enum { kWidth = 8 };
++
++    explicit GroupAArch64Impl(const ctrl_t* pos) { ctrl = vld1_u8(reinterpret_cast<const uint8_t*>(pos)); }
++
++    BitMask<uint64_t, kWidth, 3> Match(h2_t hash) const {
++        uint8x8_t dup = vdup_n_u8(hash);
++        auto mask = vceq_u8(ctrl, dup);
++        constexpr uint64_t msbs = 0x8080808080808080ULL;
++        return BitMask<uint64_t, kWidth, 3>(vget_lane_u64(vreinterpret_u64_u8(mask), 0) & msbs);
++    }
++
++    BitMask<uint64_t, kWidth, 3> MatchEmpty() const {
++        auto mask = vceq_s8(vdup_n_s8(static_cast<ctrl_t>(kEmpty)), vreinterpret_s8_u8(ctrl));
++        constexpr uint64_t msbs = 0x8080808080808080ULL;
++        return BitMask<uint64_t, kWidth, 3>(vget_lane_u64(vreinterpret_u64_u8(mask), 0) & msbs);
++    }
++
++    BitMask<uint64_t, kWidth, 3> MatchEmptyOrDeleted() const {
++        auto mask = vcgt_s8(vdup_n_s8(static_cast<ctrl_t>(kSentinel)), vreinterpret_s8_u8(ctrl));
++        constexpr uint64_t msbs = 0x8080808080808080ULL;
++        return BitMask<uint64_t, kWidth, 3>(vget_lane_u64(vreinterpret_u64_u8(mask), 0) & msbs);
++    }
++
++    uint32_t CountLeadingEmptyOrDeleted() const {
++        uint64_t mask = vget_lane_u64(vreinterpret_u64_u8(ctrl), 0);
++        // ctrl | ~(ctrl >> 7) has the lowest bit of each byte set to 0 for kEmpty (-128)
++        // and kDeleted (-2), and 1 for kSentinel (-1) and full slots (0..127).
++        constexpr uint64_t bits = 0x0101010101010101ULL;
++        uint64_t x = (mask | ~(mask >> 7)) & bits;
++        return static_cast<uint32_t>((x == 0 ? 64 : TrailingZeros(x)) >> 3);
++    }
++
++    void ConvertSpecialToEmptyAndFullToDeleted(ctrl_t* dst) const {
++        uint64_t mask = vget_lane_u64(vreinterpret_u64_u8(ctrl), 0);
++        constexpr uint64_t msbs = 0x8080808080808080ULL;
++        constexpr uint64_t lsbs = 0x0101010101010101ULL;
++        auto x = mask & msbs;
++        auto res = (~x + (x >> 7)) & ~lsbs;
++        little_endian::Store64(dst, res);
++    }
++
++    uint8x8_t ctrl;
++};
++
++#endif  // PHMAP_HAVE_ARM_NEON && defined(PHMAP_IS_LITTLE_ENDIAN)
++
+@@ -523,0 +573,5 @@
++#elif PHMAP_HAVE_ARM_NEON && defined(PHMAP_IS_LITTLE_ENDIAN)
++    using Group = GroupAArch64Impl;
++    static_assert(static_cast<size_t>(Group::kWidth) ==
++                  static_cast<size_t>(GroupPortableImpl::kWidth),
++                  "ARM NEON must preserve the portable phmap dump/load layout");
+--- a/parallel_hashmap/phmap_config.h
++++ b/parallel_hashmap/phmap_config.h
+@@ -664,0 +665,13 @@
++// ARM NEON comparisons use the same eight control bytes as the portable group.
++#ifndef PHMAP_HAVE_ARM_NEON
++    #if defined(__ARM_NEON) && defined(__aarch64__) && defined(PHMAP_IS_LITTLE_ENDIAN)
++        #define PHMAP_HAVE_ARM_NEON 1
++    #else
++        #define PHMAP_HAVE_ARM_NEON 0
++    #endif
++#endif
++
++#if PHMAP_HAVE_ARM_NEON
++    #include <arm_neon.h>
++#endif
++
