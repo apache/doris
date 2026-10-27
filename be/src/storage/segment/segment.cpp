@@ -61,7 +61,7 @@
 #include "storage/index/primary_key_index.h"
 #include "storage/index/short_key_index.h"
 #include "storage/index/zone_map/zonemap_eval_context.h"
-#include "storage/iterator/vgeneric_iterators.h"
+#include "storage/iterator/statistics_iterator.h"
 #include "storage/iterators.h"
 #include "storage/key_coder.h"
 #include "storage/olap_common.h"

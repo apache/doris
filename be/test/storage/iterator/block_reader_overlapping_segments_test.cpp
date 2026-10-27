@@ -17,7 +17,7 @@
 
 // One load that flushes several memtables writes a rowset whose segments overlap on keys, so the
 // same key can sit in two segments of one rowset. Reading such a rowset takes two merges: the
-// rowset reader merges its segments (VMergeIterator over LazyInitSegmentIterators) and marks
+// rowset reader merges its segments (VHeapMergeIterator over LazyInitSegmentIterators) and marks
 // every row whose key repeats the row before it, then the rowsets are merged and
 // hands every row with its same-key bit to the BlockReader fold. These tests write such rowsets
 // for AGG_KEYS, merge-on-read UNIQUE_KEYS and sequence-map UNIQUE_KEYS tables, read them through

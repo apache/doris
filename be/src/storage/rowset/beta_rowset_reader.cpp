@@ -36,7 +36,8 @@
 #include "runtime/runtime_profile.h"
 #include "storage/changelog.h"
 #include "storage/delete/delete_handler.h"
-#include "storage/iterator/vgeneric_iterators.h"
+#include "storage/iterator/heap_merge_iterator.h"
+#include "storage/iterator/union_iterator.h"
 #include "storage/olap_define.h"
 #include "storage/predicate/block_column_predicate.h"
 #include "storage/predicate/column_predicate.h"
@@ -324,8 +325,8 @@ Status BetaRowsetReader::new_iterator(const RowsetReaderContext* read_context,
 
     SCOPED_RAW_TIMER(&_stats->rowset_reader_init_iterators_timer_ns);
     if (_needs_segment_merge()) {
-        *out_iter = new_merge_iterator(std::move(iterators), _read_context->read_schema,
-                                       _read_context->merge);
+        *out_iter = new_heap_merge_iterator(std::move(iterators), _read_context->read_schema,
+                                            _read_context->merge);
     } else {
         if (_read_context->merge.reverse) {
             // reverse iterators to read backward for ORDER BY key DESC

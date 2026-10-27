@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "storage/iterator/vgeneric_iterators.h"
-
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
@@ -37,6 +35,9 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/runtime_state.h"
+#include "storage/iterator/heap_merge_iterator.h"
+#include "storage/iterator/statistics_iterator.h"
+#include "storage/iterator/union_iterator.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
 #include "storage/olap_tuple.h"
@@ -583,8 +584,8 @@ TEST(VGenericIteratorsTest, MergeAgg) {
     inputs.push_back(new_auto_increment_iterator(schema, 200));
     inputs.push_back(new_auto_increment_iterator(schema, 300));
 
-    auto iter = new_merge_iterator(std::move(inputs), output_schema,
-                                   merge_decision(*output_schema, -1, false, false, false));
+    auto iter = new_heap_merge_iterator(std::move(inputs), output_schema,
+                                        merge_decision(*output_schema, -1, false, false, false));
     OlapReaderStatistics stats;
     StorageReadOptions opts(stats);
     auto st = iter->init(opts);
@@ -633,7 +634,7 @@ TEST(VGenericIteratorsTest, MergeUnique) {
     inputs.push_back(new_auto_increment_iterator(schema, 200));
     inputs.push_back(new_auto_increment_iterator(schema, 300));
 
-    auto iter = new_merge_iterator(
+    auto iter = new_heap_merge_iterator(
             std::move(inputs), output_schema,
             merge_decision(*output_schema, -1, false, false, /*skip_same=*/true));
     OlapReaderStatistics stats;
@@ -762,7 +763,7 @@ TEST(VGenericIteratorsTest, MergeWithSeqColumn) {
                 schema, num_rows, rows_begin, seq_column_id, seq_id_in_every_file));
     }
 
-    auto iter = new_merge_iterator(
+    auto iter = new_heap_merge_iterator(
             std::move(inputs), output_schema,
             merge_decision(*output_schema, seq_column_id, false, false, /*skip_same=*/true));
     OlapReaderStatistics stats;
@@ -812,7 +813,7 @@ TEST(VGenericIteratorsTest, MergeWithSeqColumnSmallSeqFirst) {
     }
 
     // small_seq_first = true => smaller seq value sorts first / wins on tie.
-    auto iter = new_merge_iterator(
+    auto iter = new_heap_merge_iterator(
             std::move(inputs), output_schema,
             merge_decision(*output_schema, seq_column_id, /*small_sequence_first=*/true,
                            /*is_reverse=*/false, /*skip_same=*/true));
@@ -866,7 +867,7 @@ TEST(VGenericIteratorsTest, MergeKeepsAllChangelogEventsOrderedByTso) {
 
     // is_unique=false keeps every same-key event; small_seq_first=true orders by
     // ascending TSO. This mirrors beta_rowset_reader's changelog merge setup.
-    auto iter = new_merge_iterator(
+    auto iter = new_heap_merge_iterator(
             std::move(inputs), output_schema,
             merge_decision(*output_schema, seq_column_id, /*small_sequence_first=*/true,
                            /*is_reverse=*/false, /*skip_same=*/false));
@@ -895,7 +896,7 @@ TEST(VGenericIteratorsTest, MergeKeepsAllChangelogEventsOrderedByTso) {
 
 // Emits num_rows rows for a schema whose projection (col_ids) may be narrower than the
 // full tablet schema. The filled block layout follows the projection, matching how
-// VMergeIteratorContext::block_reset builds its block from the output schema.
+// VHeapMergeIterator creates the Blocks of its children from the read schema.
 class ProjectedColumnsUtIterator : public RowwiseIterator {
 public:
     ProjectedColumnsUtIterator(ReadSchema schema, size_t num_rows)
@@ -964,8 +965,8 @@ TEST(VGenericIteratorsTest, MergeRejectsProjectionMissingKeyPrefix) {
     inputs.push_back(std::make_unique<ProjectedColumnsUtIterator>(projected, 10));
     inputs.push_back(std::make_unique<ProjectedColumnsUtIterator>(projected, 10));
 
-    auto iter = new_merge_iterator(std::move(inputs), output_schema,
-                                   merge_decision(*output_schema, -1, false, false, false));
+    auto iter = new_heap_merge_iterator(std::move(inputs), output_schema,
+                                        merge_decision(*output_schema, -1, false, false, false));
     OlapReaderStatistics stats;
     StorageReadOptions opts(stats);
     auto st = iter->init(opts);
@@ -987,8 +988,8 @@ TEST(VGenericIteratorsTest, MergeRejectsProjectionWithoutLeadingKey) {
     inputs.push_back(std::make_unique<ProjectedColumnsUtIterator>(projected, 10));
     inputs.push_back(std::make_unique<ProjectedColumnsUtIterator>(projected, 10));
 
-    auto iter = new_merge_iterator(std::move(inputs), output_schema,
-                                   merge_decision(*output_schema, -1, false, false, false));
+    auto iter = new_heap_merge_iterator(std::move(inputs), output_schema,
+                                        merge_decision(*output_schema, -1, false, false, false));
     OlapReaderStatistics stats;
     StorageReadOptions opts(stats);
     auto st = iter->init(opts);
@@ -1007,8 +1008,8 @@ TEST(VGenericIteratorsTest, MergeNextRowFlagsRepeatedKeys) {
     inputs.push_back(new_auto_increment_iterator(schema, 100));
     inputs.push_back(new_auto_increment_iterator(schema, 200));
     inputs.push_back(new_auto_increment_iterator(schema, 300));
-    auto iter = new_merge_iterator(std::move(inputs), output_schema,
-                                   merge_decision(*output_schema, -1, false, false, false));
+    auto iter = new_heap_merge_iterator(std::move(inputs), output_schema,
+                                        merge_decision(*output_schema, -1, false, false, false));
     OlapReaderStatistics stats;
     StorageReadOptions opts(stats);
     ASSERT_TRUE(iter->init(opts).ok());
@@ -1041,7 +1042,7 @@ TEST(VGenericIteratorsTest, MergeNextRowSkipSameKeepsOneRowPerKey) {
     inputs.push_back(new_auto_increment_iterator(schema, 100));
     inputs.push_back(new_auto_increment_iterator(schema, 200));
     inputs.push_back(new_auto_increment_iterator(schema, 300));
-    auto iter = new_merge_iterator(
+    auto iter = new_heap_merge_iterator(
             std::move(inputs), output_schema,
             merge_decision(*output_schema, -1, false, false, /*skip_same=*/true));
     OlapReaderStatistics stats;
@@ -1070,8 +1071,8 @@ TEST(VGenericIteratorsTest, MergeNextBatchHonorsTheRowLimit) {
     inputs.push_back(new_auto_increment_iterator(schema, 100));
     inputs.push_back(new_auto_increment_iterator(schema, 200));
     inputs.push_back(new_auto_increment_iterator(schema, 300));
-    auto iter = new_merge_iterator(std::move(inputs), output_schema,
-                                   merge_decision(*output_schema, -1, false, false, false));
+    auto iter = new_heap_merge_iterator(std::move(inputs), output_schema,
+                                        merge_decision(*output_schema, -1, false, false, false));
     OlapReaderStatistics stats;
     StorageReadOptions opts(stats);
     opts.block_row_max = 7;
@@ -1145,8 +1146,8 @@ TEST(VGenericIteratorsTest, MergeNextBatchFlagsRepeatedKeysAcrossBlocks) {
     inputs.push_back(new_auto_increment_iterator(schema, 100));
     inputs.push_back(new_auto_increment_iterator(schema, 200));
     inputs.push_back(new_auto_increment_iterator(schema, 300));
-    auto iter = new_merge_iterator(std::move(inputs), output_schema,
-                                   merge_decision(*output_schema, -1, false, false, false));
+    auto iter = new_heap_merge_iterator(std::move(inputs), output_schema,
+                                        merge_decision(*output_schema, -1, false, false, false));
     OlapReaderStatistics stats;
     StorageReadOptions opts(stats);
     opts.block_row_max = 7;

@@ -17,57 +17,20 @@
 
 #pragma once
 
-#include <gen_cpp/PlanNodes_types.h>
-#include <glog/logging.h>
-#include <stddef.h>
-#include <stdint.h>
-
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <vector>
 
-#include "common/cast_set.h"
-#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "core/block/block.h"
 #include "storage/iterator/output_block_limits.h"
 #include "storage/iterators.h"
 #include "storage/schema.h"
-#include "storage/segment/column_reader.h"
 
 namespace doris {
 class RuntimeProfile;
 class RuntimeState;
-
-namespace segment_v2 {
-class Segment;
-class ColumnIterator;
-} // namespace segment_v2
-
-class VStatisticsIterator : public RowwiseIterator {
-public:
-    // Will generate num_rows rows in total
-    VStatisticsIterator(std::shared_ptr<Segment> segment, const ReadSchema& schema)
-            : _segment(std::move(segment)), _schema(schema) {}
-
-    ~VStatisticsIterator() override = default;
-
-    Status init(const StorageReadOptions& opts) override;
-
-    Status next_batch(Block* block) override;
-
-    const ReadSchema& schema() const override { return _schema; }
-
-private:
-    std::shared_ptr<Segment> _segment;
-    const ReadSchema& _schema;
-    size_t _target_rows = 0;
-    size_t _output_rows = 0;
-    bool _init = false;
-    TPushAggOp::type _push_down_agg_type_opt;
-    std::vector<std::unique_ptr<ColumnIterator>> _column_iterators;
-
-    static constexpr size_t MAX_ROW_SIZE_IN_COUNT = 65535;
-};
 
 // Merges the key-ordered rows of several iterators into one key-ordered stream, the way the
 // read's MergeDecision says.
@@ -103,12 +66,12 @@ private:
 // streams at once when keys interleave row by row, which costs up to twice as much on wide
 // rows. The recorded runs point into the children's Blocks, so they are copied before the top
 // child's Block is refilled, before the byte budget is measured and at the end of the batch.
-class VMergeIterator final : public RowwiseIterator {
+class VHeapMergeIterator final : public RowwiseIterator {
 public:
-    VMergeIterator(std::vector<RowwiseIteratorUPtr> children, ReadSchemaSPtr read_schema,
-                   MergeDecision decision);
+    VHeapMergeIterator(std::vector<RowwiseIteratorUPtr> children, ReadSchemaSPtr read_schema,
+                       MergeDecision decision);
 
-    ~VMergeIterator() override = default;
+    ~VHeapMergeIterator() override = default;
 
     // Reads the first Block of every child. `opts` supplies the output Block limits and the
     // runtime state.
@@ -212,14 +175,8 @@ private:
     uint64_t _merged_rows = 0;
 };
 
-RowwiseIteratorUPtr new_merge_iterator(std::vector<RowwiseIteratorUPtr> children,
-                                       ReadSchemaSPtr read_schema, const MergeDecision& decision);
-
-// The rows of `inputs` one input after another. Every input is initialized when it is reached.
-RowwiseIteratorUPtr new_union_iterator(std::vector<RowwiseIteratorUPtr>&& inputs,
-                                       ReadSchemaSPtr read_schema);
-
-RowwiseIterator* new_vstatistics_iterator(std::shared_ptr<Segment> segment,
-                                          const ReadSchema& schema);
+RowwiseIteratorUPtr new_heap_merge_iterator(std::vector<RowwiseIteratorUPtr> children,
+                                            ReadSchemaSPtr read_schema,
+                                            const MergeDecision& decision);
 
 } // namespace doris

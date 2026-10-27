@@ -36,14 +36,14 @@ class RuntimeProfile;
 // The row-level reader of a tablet.
 //
 // It reads the segments of every rowset of the read through one RowwiseIterator, the rows of
-// the read: a VMergeIterator over all segments when the rowsets overlap on keys and the read
+// the read: a VHeapMergeIterator over all segments when the rowsets overlap on keys and the read
 // needs key order, a VUnionIterator otherwise. One TabletBlockIterator, chosen by table model
 // and read mode, turns those rows into the output Blocks. The reader itself keeps no
 // per-read-mode state.
 //
 //   BlockReader
 //    └ TabletBlockIterator (Direct / UniqueKey / SequenceMap / AggKey / Changelog / TopN)
-//       └ _rows_iter: VMergeIterator or VUnionIterator over
+//       └ _rows_iter: VHeapMergeIterator or VUnionIterator over
 //            every segment of a rowset whose segments overlap on keys, and
 //            a VUnionIterator per rowset whose segments do not,
 //          in (rowset version, segment) order

@@ -35,10 +35,11 @@
 #include "storage/iterator/agg_key_block_iterator.h"
 #include "storage/iterator/changelog_block_iterator.h"
 #include "storage/iterator/direct_block_iterator.h"
+#include "storage/iterator/heap_merge_iterator.h"
 #include "storage/iterator/sequence_map_block_iterator.h"
 #include "storage/iterator/topn_block_iterator.h"
+#include "storage/iterator/union_iterator.h"
 #include "storage/iterator/unique_key_block_iterator.h"
-#include "storage/iterator/vgeneric_iterators.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
 #include "storage/rowset/rowset.h"
@@ -129,7 +130,7 @@ Status BlockReader::_new_rows_iter(std::vector<RowwiseIteratorUPtr> children, bo
     SCOPED_RAW_TIMER(&_stats.block_reader_build_heap_init_timer_ns);
     const MergeDecision& decision = _reader_context.merge;
     if (merge) {
-        _rows_iter = new_merge_iterator(std::move(children), _read_schema, decision);
+        _rows_iter = new_heap_merge_iterator(std::move(children), _read_schema, decision);
     } else {
         if (decision.reverse) {
             std::ranges::reverse(children);
