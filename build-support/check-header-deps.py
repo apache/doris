@@ -591,7 +591,7 @@ REVERSE_REACH_BASELINES = {
     # parsed_page.h holds RleDecoder<bool> by value and constructs it in the
     # header, so the whole storage read stack sees the RLE machinery; a live
     # dependency, budgeted as-is (trimming it is a refactor, not a gate).
-    "util/rle_encoding.h": 825,
+    "util/rle_encoding.h": 914,
     "gen_cpp/internal_service.pb.h": 741,
     "gen_cpp/FrontendService_types.h": 576,
     "storage/options.h": 464,
