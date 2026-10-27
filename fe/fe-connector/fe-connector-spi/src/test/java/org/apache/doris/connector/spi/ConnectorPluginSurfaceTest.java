@@ -91,7 +91,7 @@ public class ConnectorPluginSurfaceTest {
         // Major 20 adds deleteUsingMetadata to the connector write surface; major 21 adds
         // typed filesystem credential descriptions and statement-scoped metadata.
         // Major 22 adds the metadata-only DDL handle path; major 23 adds the opt-in
-        // for nested spatial columns.
+        // for nested spatial columns and the provider's ConnectorSecuritySurface declaration.
         Assertions.assertEquals("23.0", version.getProperty("api.version"));
     }
 
@@ -99,6 +99,7 @@ public class ConnectorPluginSurfaceTest {
     private static final List<Class<?>> FROZEN_TYPES = Arrays.asList(
             DiagnosticException.class,
             ConnectorProvider.class,
+            ConnectorSecuritySurface.class,
             ConnectorContext.class,
             ConnectorSession.class,
             ConnectorStatementScope.class,
