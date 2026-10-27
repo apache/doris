@@ -1,0 +1,80 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+// Exercise the real FE/BE SQL result cache, including a verified cache plan.
+// Internal six-child payload retention is covered separately by QueryCache BE tests.
+suite("test_file_type_sql_cache") {
+    def hasSqlCache = { String statement ->
+        sql("EXPLAIN PHYSICAL PLAN " + statement).collect { it[0].toString() }
+                .join("\n").contains("PhysicalSqlCache")
+    }
+    def primeSqlCache = { String statement ->
+        for (int attempt = 0; attempt < 60; ++attempt) {
+            sql statement
+            if (hasSqlCache(statement)) {
+                return
+            }
+            sleep(1000)
+        }
+        throw new IllegalStateException("FILE query did not populate the SQL result cache: " + statement)
+    }
+
+    withGlobalLock("cache_last_version_interval_second") {
+        def originalInterval = sql("ADMIN SHOW FRONTEND CONFIG LIKE 'cache_last_version_interval_second'")[0][1]
+        try {
+            sql "ADMIN SET ALL FRONTENDS CONFIG ('cache_last_version_interval_second' = '0')"
+            sql "SET enable_sql_cache = true"
+            sql "DROP TABLE IF EXISTS test_file_type_sql_cache_values"
+            sql """
+                CREATE TABLE test_file_type_sql_cache_values (
+                    id INT NOT NULL, uri STRING, file_offset BIGINT, file_size BIGINT,
+                    content_type STRING, checksum STRING)
+                DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
+                PROPERTIES("replication_num"="1")
+            """
+            sql """
+                INSERT INTO test_file_type_sql_cache_values VALUES
+                (1, 'urn:cache:one', 2, 5, 'text/plain', 'CRC32:00000000'),
+                (2, NULL, NULL, NULL, NULL, NULL)
+            """
+            def statement = """
+                SELECT id, f,
+                       ARRAY(f, NULL) AS files,
+                       NAMED_STRUCT('f', f) AS holder,
+                       MAP('source', f) AS lookup
+                FROM (SELECT id, CAST(IF(uri IS NULL, NULL,
+                    NAMED_STRUCT('uri', uri, 'offset', file_offset, 'size', file_size,
+                        'content_type', content_type, 'checksum', checksum, 'inline', NULL)) AS FILE) AS f
+                    FROM test_file_type_sql_cache_values) file_rows ORDER BY id
+            """
+            qt_uncached statement
+            primeSqlCache(statement)
+            qt_cached statement
+
+            sql """
+                INSERT INTO test_file_type_sql_cache_values VALUES
+                (3, 'urn:cache:three', NULL, 0, NULL, NULL)
+            """
+            assertFalse(hasSqlCache(statement), "A new table version must invalidate the cached FILE rows")
+            qt_after_insert statement
+            primeSqlCache(statement)
+            qt_recached statement
+        } finally {
+            sql "ADMIN SET ALL FRONTENDS CONFIG ('cache_last_version_interval_second' = '${originalInterval}')"
+        }
+    }
+}

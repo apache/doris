@@ -83,6 +83,7 @@ import org.apache.doris.proto.Types;
 import org.apache.doris.proto.Types.PUniqueId;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.QueryStatisticsItem.FragmentInstanceInfo;
+import org.apache.doris.qe.runtime.ThriftPlansBuilder;
 import org.apache.doris.resource.BackendSelection;
 import org.apache.doris.resource.BackendSelectionManager;
 import org.apache.doris.resource.workloadgroup.QueryQueue;
@@ -3629,6 +3630,7 @@ public class Coordinator implements CoordInterface {
 
                     // Used for AI Functions
                     params.setAiResources(getNeededAiResources());
+                    params.setS3Resources(ThriftPlansBuilder.collectS3Resources(context));
                     res.put(instanceExecParam.host, params);
                     res.get(instanceExecParam.host).setBucketSeqToInstanceIdx(new HashMap<Integer, Integer>());
                     res.get(instanceExecParam.host).setShuffleIdxToInstanceIdx(new HashMap<Integer, Integer>());

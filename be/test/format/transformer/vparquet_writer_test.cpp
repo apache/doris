@@ -33,13 +33,22 @@
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/data_type_file.h"
+#include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_variant_v2.h"
 #include "exec/sink/writer/vhive_partition_writer.h"
 #include "exprs/function/parse/variant_string_parse.h"
+#include "exprs/vexpr_context.h"
+#include "exprs/vslot_ref.h"
 #include "format/table/iceberg/schema_parser.h"
 #include "format/transformer/viceberg_parquet_writer.h"
+#include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "testutil/mock/mock_slot_ref.h"
 #include "util/timezone_utils.h"
@@ -54,13 +63,104 @@ protected:
     void SetUp() override {
         _file_path = "./vparquet_transformer_" + UniqueId::gen_uid().to_string() + ".parquet";
         _fs = io::global_local_filesystem();
+        _previous_pool = ExecEnv::GetInstance()->_arrow_memory_pool;
+        ExecEnv::GetInstance()->_arrow_memory_pool = arrow::default_memory_pool();
     }
 
-    void TearDown() override { static_cast<void>(_fs->delete_file(_file_path)); }
+    void TearDown() override {
+        ExecEnv::GetInstance()->_arrow_memory_pool = _previous_pool;
+        static_cast<void>(_fs->delete_file(_file_path));
+    }
 
+    arrow::MemoryPool* _previous_pool = nullptr;
     std::string _file_path;
     std::shared_ptr<io::FileSystem> _fs;
 };
+
+TEST_F(VParquetWriterTest, RejectsFileOutputIncludingNestedTypes) {
+    const auto file = std::make_shared<DataTypeFile>();
+    const auto nullable_file = make_nullable(file);
+    const auto string = make_nullable(std::make_shared<DataTypeString>());
+    const auto array = make_nullable(std::make_shared<DataTypeArray>(nullable_file));
+    const auto map = make_nullable(std::make_shared<DataTypeMap>(string, nullable_file));
+    const DataTypes types {
+            file,
+            nullable_file,
+            array,
+            map,
+            make_nullable(std::make_shared<DataTypeStruct>(DataTypes {file}, Strings {"file"})),
+            make_nullable(std::make_shared<DataTypeStruct>(DataTypes {array, map},
+                                                           Strings {"files", "by_name"})),
+            make_nullable(std::make_shared<DataTypeArray>(map))};
+    const std::string iceberg_json =
+            R"({"type":"struct","schema-id":0,"fields":[{"id":1,"name":"f","required":false,"type":"string"}]})";
+    const auto iceberg_schema = iceberg::SchemaParser::from_json(iceberg_json);
+    RuntimeState state;
+    state.set_timezone("UTC");
+    for (const auto& type : types) {
+        SCOPED_TRACE(type->get_name());
+        for (int schema_mode = 0; schema_mode < 3; ++schema_mode) {
+            SCOPED_TRACE(schema_mode);
+            io::FileWriterPtr file_writer;
+            ASSERT_TRUE(_fs->create_file(_file_path, &file_writer).ok());
+            const VExprContextSPtrs contexts {std::make_shared<VExprContext>(
+                    std::make_shared<VSlotRef>(0, 0, -1, type, "f"))};
+            std::unique_ptr<VParquetWriter> transformer;
+            if (schema_mode == 1) {
+                TParquetSchema schema;
+                schema.__set_schema_column_name("f");
+                transformer = std::make_unique<VParquetWriter>(&state, file_writer.get(), contexts,
+                                                               std::vector<TParquetSchema> {schema},
+                                                               false, ParquetFileOptions {});
+            } else if (schema_mode == 2) {
+                transformer = std::make_unique<VIcebergParquetWriter>(
+                        &state, file_writer.get(), contexts, std::vector<std::string> {"f"}, false,
+                        ParquetFileOptions {}, &iceberg_json, *iceberg_schema);
+            } else {
+                transformer = std::make_unique<VParquetWriter>(&state, file_writer.get(), contexts,
+                                                               std::vector<std::string> {"f"},
+                                                               false, ParquetFileOptions {});
+            }
+            const auto status = transformer->open();
+            EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
+            EXPECT_NE(status.to_string().find("Parquet output does not support type"),
+                      std::string::npos);
+            EXPECT_EQ(transformer->written_len(), 0);
+            EXPECT_TRUE(transformer->close().ok());
+        }
+    }
+}
+
+TEST_F(VParquetWriterTest, OrdinaryScalarAndNestedOutputStillWrites) {
+    const auto integer = make_nullable(std::make_shared<DataTypeInt32>());
+    const auto nested = make_nullable(std::make_shared<DataTypeStruct>(
+            DataTypes {make_nullable(std::make_shared<DataTypeArray>(integer)),
+                       make_nullable(std::make_shared<DataTypeMap>(
+                               make_nullable(std::make_shared<DataTypeString>()), integer))},
+            Strings {"items", "by_name"}));
+    const DataTypes types {integer, nested};
+    const VExprContextSPtrs contexts {
+            std::make_shared<VExprContext>(std::make_shared<VSlotRef>(0, 0, -1, integer, "i")),
+            std::make_shared<VExprContext>(std::make_shared<VSlotRef>(1, 1, -1, nested, "s"))};
+    RuntimeState state;
+    state.set_timezone("UTC");
+    io::FileWriterPtr file_writer;
+    ASSERT_TRUE(_fs->create_file(_file_path, &file_writer).ok());
+    VParquetWriter transformer(&state, file_writer.get(), contexts,
+                               std::vector<std::string> {"i", "s"}, false, ParquetFileOptions {});
+    ASSERT_TRUE(transformer.open().ok());
+    Block block;
+    for (size_t i = 0; i < types.size(); ++i) {
+        auto column = types[i]->create_column();
+        column->insert_default();
+        block.insert({std::move(column), types[i], i == 0 ? "i" : "s"});
+    }
+    ASSERT_TRUE(transformer.write(block).ok());
+    ASSERT_TRUE(transformer.close().ok());
+    const auto reader = ::parquet::ParquetFileReader::OpenFile(_file_path);
+    EXPECT_EQ(reader->metadata()->num_rows(), 1);
+    EXPECT_EQ(reader->metadata()->schema()->group_node()->field_count(), 2);
+}
 
 TEST_F(VParquetWriterTest, WritesIcebergVariantAndCollectsLogicalMetrics) {
     auto variant_type = std::make_shared<DataTypeVariantV2>();

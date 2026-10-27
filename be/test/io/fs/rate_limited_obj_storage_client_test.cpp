@@ -78,6 +78,13 @@ public:
         ++calls;
         return ObjectStorageResponse::OK();
     }
+    ObjectStorageListPageResponse list_objects_page(const ObjectStoragePathOptions& opts,
+                                                    std::string_view continuation_token) override {
+        ++calls;
+        return {.resp = ObjectStorageResponse::OK(),
+                .continuation_token = "next",
+                .has_more = true};
+    }
     ObjectStorageResponse delete_objects(const ObjectStoragePathOptions& opts,
                                          std::vector<std::string> objs) override {
         ++calls;
@@ -496,6 +503,24 @@ TEST(RateLimitedObjStorageClientTest, presigned_url_bypasses_rate_limiters) {
 
     EXPECT_EQ("presigned", client.generate_presigned_url(opts, 60, S3ClientConf {}));
     EXPECT_EQ(1, fake->calls);
+}
+
+TEST(RateLimitedObjStorageClientTest, paged_listing_charges_each_provider_request) {
+    RateLimiterConfigGuard guard;
+    config::enable_s3_rate_limiter = true;
+    auto& manager = S3RateLimiterManager::instance();
+    manager.qps_limiter(S3RateLimitType::GET)->reset(0, 0, 1);
+    manager.bytes_limiter(S3RateLimitType::GET)->reset(0, 0, 0);
+    auto fake = std::make_shared<FakeObjStorageClient>();
+    RateLimitedObjStorageClient client(fake);
+    const auto first = client.list_objects_page({.bucket = "b", .prefix = "p"}, "");
+    ASSERT_TRUE(first.resp.ok());
+    EXPECT_TRUE(first.has_more);
+    EXPECT_EQ(first.continuation_token, "next");
+    const auto second = client.list_objects_page({.bucket = "b", .prefix = "p"}, "next");
+    EXPECT_EQ(second.resp.status.code, ErrorCode::EXCEEDED_LIMIT);
+    EXPECT_EQ(second.resp.http_code, 0);
+    EXPECT_EQ(fake->calls, 1);
 }
 
 } // namespace doris::io
