@@ -45,8 +45,11 @@ public final class TxnWriteSchemaSnapshotCodec {
 
     public static TxnWriteSchemaSnapshot fromThrift(TTxnWriteSchemaSnapshot snapshot, long tableId, long baseIndexId) {
         TxnWriteSchemaSnapshot decoded = fromThrift(snapshot);
-        Preconditions.checkArgument(decoded.getTableId() == tableId && decoded.getIndexIds().contains(baseIndexId),
-                "Remote write schema does not include the target table's base index");
+        Preconditions.checkArgument(decoded.getTableId() == tableId,
+                "Remote write schema table ID mismatch: expected %s, actual %s", tableId, decoded.getTableId());
+        Preconditions.checkArgument(decoded.getIndexIds().contains(baseIndexId),
+                "Remote write schema does not include the target table's base index %s; indexes: %s",
+                baseIndexId, decoded.getIndexIds());
         return decoded;
     }
 }
