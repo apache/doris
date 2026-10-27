@@ -115,7 +115,8 @@ TEST(AggDecimalOverflowTest, sum_wraps_when_check_disabled) {
     agg->insert_result_into(place, *result_col);
     ASSERT_EQ(result_col->size(), 1);
     // Check off: allow out-of-precision / wraparound legacy behavior (result != max).
-    EXPECT_NE(result_col->get_element(0), max_v);
+    // Use .value: EXPECT_NE(Decimal, Decimal) does not compile under C++20/gtest.
+    EXPECT_NE(result_col->get_element(0).value, max_v.value);
     agg->destroy(place);
 }
 
