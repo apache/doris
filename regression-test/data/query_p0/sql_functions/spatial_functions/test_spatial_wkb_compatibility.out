@@ -219,3 +219,6 @@ false	false	true	true	true	true	true
 4	true	true
 5	true	true
 
+-- !geography_boundary_interior_controls --
+true	false	true	true	false	false
+

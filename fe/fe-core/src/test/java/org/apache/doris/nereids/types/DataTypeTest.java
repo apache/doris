@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.types;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -32,6 +33,7 @@ import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.nereids.types.coercion.NumericType;
 import org.apache.doris.nereids.types.coercion.ScaleTimeType;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SqlModeHelper;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
@@ -40,6 +42,60 @@ import org.junit.jupiter.api.Test;
 import java.util.Random;
 
 public class DataTypeTest {
+    @Test
+    public void testSpatialSqlModeKeepsOrdinaryVariantRendering() {
+        Type variant = new org.apache.doris.catalog.VariantType();
+        for (Type type : ImmutableList.of(variant,
+                new org.apache.doris.catalog.ArrayType(variant),
+                new org.apache.doris.catalog.MapType(Type.STRING, variant),
+                new org.apache.doris.catalog.StructType(new org.apache.doris.catalog.StructField("v", variant)))) {
+            String expected = type.toSql();
+            Assertions.assertTrue(expected.contains("PROPERTIES"));
+            Assertions.assertEquals(expected, type.toSql(false));
+            Assertions.assertEquals(expected, type.toSql(true));
+            Column column = new Column("v", type);
+            Assertions.assertEquals(column.toSql(), column.toSql(false, false, false, true));
+        }
+    }
+
+    @Test
+    public void testSpatialCrsRoundTripAcrossBackslashModes() {
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            DataType mixed = DataType.fromCatalogType(new org.apache.doris.catalog.StructType(
+                    new org.apache.doris.catalog.StructField("stamp", ScalarType.createDatetimeV2Type(3)),
+                    new org.apache.doris.catalog.StructField("shape",
+                            ScalarType.createGeometryType("projjson:custom\\crs"))));
+            for (long mode : new long[] {0, SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES}) {
+                context.getSessionVariable().setSqlMode(mode);
+                for (DataType type : ImmutableList.of(new GeometryType("projjson:custom\\crs"),
+                        new GeographyType("projjson:custom\\'crs", "spherical"),
+                        ArrayType.of(new GeometryType("projjson:custom\\crs")),
+                        MapType.of(StringType.INSTANCE, new GeographyType("projjson:custom\\crs", "spherical")),
+                        mixed)) {
+                    Assertions.assertEquals(type, DataType.convertFromString(type.toSql()));
+                    Type catalogType = type.toCatalogDataType();
+                    boolean noBackslashEscapes = mode != 0;
+                    String typeSql = catalogType.toSql(noBackslashEscapes);
+                    Assertions.assertEquals(type, DataType.convertFromString(typeSql));
+                    if (!noBackslashEscapes) {
+                        Assertions.assertEquals(catalogType.toSql(), typeSql);
+                    }
+                    Column column = new Column("shape", catalogType);
+                    String ddl = "CREATE TABLE spatial_crs ("
+                            + column.toSql(false, false, false, noBackslashEscapes) + ")";
+                    CreateTableCommand command = (CreateTableCommand) new NereidsParser().parseSingle(ddl);
+                    Assertions.assertEquals(type,
+                            command.getCreateTableInfo().getColumnDefinitions().get(0).getType());
+                }
+                Assertions.assertTrue(mixed.toCatalogDataType().toSql(mode != 0).contains("datetimev2(3)"));
+            }
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
     @Test
     public void testSpatialSqlTypeParsingAndRoundTrip() {
         Assertions.assertEquals(new GeometryType("OGC:CRS84"), DataType.convertFromString("GEOMETRY"));

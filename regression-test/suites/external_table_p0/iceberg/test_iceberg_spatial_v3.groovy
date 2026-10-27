@@ -790,6 +790,33 @@ public class CreateIcebergSpatialV3Table {
             exception "requires GEOGRAPHY(OGC:CRS84, spherical)"
         }
     }
+    String spatialSavedSqlMode = sql("select @@sql_mode")[0][0].toString()
+    try {
+        for (boolean noBackslashEscapes : [false, true]) {
+            sql "set sql_mode = '${noBackslashEscapes ? 'NO_BACKSLASH_ESCAPES' : ''}'"
+            String crsLiteral = noBackslashEscapes ? 'custom\\crs' : 'custom\\\\crs'
+            sql "drop table if exists spatial_crs_mode"
+            sql "drop table if exists spatial_crs_mode_copy"
+            sql """create table spatial_crs_mode (
+                id int, geom geometry('${crsLiteral}'), geog geography('${crsLiteral}', 'spherical'),
+                payload struct<stamp:datetimev2(3), shape:array<geometry('${crsLiteral}')>>)
+                engine=iceberg properties ('format-version'='3')"""
+            String recreate = sql("show create table spatial_crs_mode")[0][1].toString()
+                    .replace('`spatial_crs_mode`', '`spatial_crs_mode_copy`')
+            // Reuse the emitted schema: LOCATION is informational and V3 is stored in Iceberg metadata.
+            recreate = recreate.substring(0, recreate.indexOf("\nLOCATION ")) +
+                    "\nPROPERTIES ('format-version'='3')"
+            sql recreate
+            sql "set sql_mode = ''"
+            if (noBackslashEscapes) {
+                order_qt_spatial_crs_no_backslash "desc spatial_crs_mode_copy"
+            } else {
+                order_qt_spatial_crs_default_mode "desc spatial_crs_mode_copy"
+            }
+        }
+    } finally {
+        sql "set sql_mode = '${spatialSavedSqlMode}'"
+    }
     sql """drop table if exists spatial_ddl_values"""
     sql """create table spatial_ddl_values (id int, geom geometry) engine=iceberg
         properties ('format-version' = '3')"""

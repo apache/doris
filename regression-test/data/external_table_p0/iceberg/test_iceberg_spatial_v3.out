@@ -243,6 +243,18 @@ id	referenced_crs_values	1.0	1.0	0.0
 -- !projected_values --
 1	POINT (1000 2000)	1000	2000	ST_POINT	01010000000000000000408F400000000000409F40	POINT (1 2)
 
+-- !spatial_crs_default_mode --
+geog	GEOGRAPHY('custom\\\\crs', 'spherical')	Yes	true	\N	
+geom	GEOMETRY('custom\\\\crs')	Yes	true	\N	
+id	int	Yes	true	\N	
+payload	struct<stamp:datetime(6),shape:array<GEOMETRY('custom\\\\crs')>>	Yes	true	\N	
+
+-- !spatial_crs_no_backslash --
+geog	GEOGRAPHY('custom\\\\crs', 'spherical')	Yes	true	\N	
+geom	GEOMETRY('custom\\\\crs')	Yes	true	\N	
+id	int	Yes	true	\N	
+payload	struct<stamp:datetime(6),shape:array<GEOMETRY('custom\\\\crs')>>	Yes	true	\N	
+
 -- !spatial_ddl_values --
 1	POINT (1 2)	POINT (1 2)
 11	POINT (1 2)	POINT (1 2)

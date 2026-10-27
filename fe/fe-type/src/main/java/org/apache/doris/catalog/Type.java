@@ -412,6 +412,15 @@ public abstract class Type {
         return toSql(0);
     }
 
+    /** Render for a caller's SQL mode without changing the stable metastore representation. */
+    public final String toSql(boolean noBackslashEscapes) {
+        return toSql(0, noBackslashEscapes);
+    }
+
+    protected String toSql(int depth, boolean noBackslashEscapes) {
+        return toSql(depth);
+    }
+
     /**
      * Recursive helper for toSql() to be implemented by subclasses. Keeps track of the
      * nesting depth and terminates the recursion if MAX_NESTING_DEPTH is reached.
@@ -584,7 +593,7 @@ public abstract class Type {
             }
             return "struct<" + StringUtils.join(fieldDesc, ",") + ">";
         } else if (isToSql) {
-            return this.toSql();
+            return this.toSql(noBackslashEscapes);
         }
         return this.toString();
     }

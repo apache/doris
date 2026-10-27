@@ -1063,8 +1063,63 @@ static S1ChordAngle geography_conversion_error() {
     return S1ChordAngle(S1Angle::Radians(8 * std::numeric_limits<double>::epsilon()));
 }
 
-static bool geography_point_relation(std::string_view name, const GeoShape& lhs,
-                                     const GeoShape& rhs, const GeographyEdgeNodes& nodes) {
+// Compare only nonshared raw edges with the already built rounded polygon boundary.
+// Open segments omit isolated endpoint contacts; call this only after polygon interiors
+// were found disjoint, so a real transverse crossing cannot masquerade as boundary overlap.
+static bool geography_rounded_boundary_contact(const GeographyEdgeNodes::RawEdges& source,
+                                               const GeographyEdgeNodes::RawEdges& polygon,
+                                               const S2ShapeIndex& polygon_index,
+                                               const GeographyEdgeNodes& nodes) {
+    if (polygon.polygon[0].empty() && polygon.polygon[1].empty()) {
+        return false;
+    }
+    MutableS2ShapeIndex boundary;
+    MutableS2ShapeIndex distinct;
+    for (const auto* shape : polygon_index) {
+        for (int i = 0; i < shape->num_edges(); ++i) {
+            const auto edge = shape->edge(i);
+            boundary.Add(std::make_unique<GeographyLineShape>(edge.v0, edge.v1));
+        }
+    }
+    for (const auto* edges : {&source.line, source.polygon.data(), source.polygon.data() + 1}) {
+        for (const auto& edge : *edges) {
+            if (polygon.polygon[0].contains(edge) || polygon.polygon[1].contains(edge)) {
+                continue;
+            }
+            if (const auto midpoint = nodes.arc_midpoint(edge.first, edge.second)) {
+                distinct.Add(std::make_unique<GeographyLineShape>(edge.first.point, *midpoint));
+                distinct.Add(std::make_unique<GeographyLineShape>(*midpoint, edge.second.point));
+            } else {
+                distinct.Add(
+                        std::make_unique<GeographyLineShape>(edge.first.point, edge.second.point));
+            }
+        }
+    }
+    S2BooleanOperation::Options options;
+    options.set_polyline_model(S2BooleanOperation::PolylineModel::OPEN);
+    options.set_polyline_loops_have_boundaries(true);
+    return S2BooleanOperation::Intersects(distinct, boundary, options);
+}
+
+static Status geography_check_polygon_interiors(std::string_view name, const S2ShapeIndex& left,
+                                                const S2ShapeIndex& right,
+                                                const GeographyEdgeNodes& nodes,
+                                                const GeographyEdgeNodes::RawEdges& left_edges,
+                                                const GeographyEdgeNodes::RawEdges& right_edges,
+                                                bool interior) {
+    // Raw longitude 58+ulp can become meridian 58 in S2, losing a line or polygon interior.
+    // Check batched boundary contacts, including partial arcs, instead of guessing the raw region.
+    if (!interior && (geography_rounded_boundary_contact(left_edges, right_edges, right, nodes) ||
+                      geography_rounded_boundary_contact(right_edges, left_edges, left, nodes))) {
+        return Status::NotSupported(
+                "{} does not support ambiguous spherical Polygon boundary interiors", name);
+    }
+    return Status::OK();
+}
+
+static Status geography_point_relation(std::string_view name, const GeoShape& lhs,
+                                       const GeoShape& rhs, const GeographyEdgeNodes& nodes,
+                                       bool* result) {
     const auto& other = lhs.type() == GeoShapeType::GEO_SHAPE_POINT ? rhs : lhs;
     const auto& point_raw = lhs.type() == GeoShapeType::GEO_SHAPE_POINT ? nodes.left : nodes.right;
     const auto& other_raw = lhs.type() == GeoShapeType::GEO_SHAPE_POINT ? nodes.right : nodes.left;
@@ -1087,22 +1142,35 @@ static bool geography_point_relation(std::string_view name, const GeoShape& lhs,
                 boundary = boundary || nodes.contains_point(ring[j], ring[j + 1], point);
             }
         }
-        if (!boundary) {
+        if (!boundary && name != "st_touches") {
             MutableS2ShapeIndex index;
+            MutableS2ShapeIndex point_index;
             geography_shape_index(other, other_raw, nodes, &index);
-            interior = MakeS2ContainsPointQuery(&index).Contains(point.point);
+            geography_shape_index(lhs.type() == GeoShapeType::GEO_SHAPE_POINT ? lhs : rhs,
+                                  point_raw, nodes, &point_index);
+            S2BooleanOperation::Options options;
+            options.set_polygon_model(S2BooleanOperation::PolygonModel::CLOSED);
+            const bool closed = S2BooleanOperation::Contains(index, point_index, options);
+            options.set_polygon_model(S2BooleanOperation::PolygonModel::OPEN);
+            interior = S2BooleanOperation::Contains(index, point_index, options);
+            // Raw POINT(58+ulp 0) is not on the boundary at vertex (58,0). Do not let
+            // SEMI_OPEN vertex ownership turn this rounded boundary coincidence into an interior.
+            if (closed && !interior) {
+                return Status::NotSupported(
+                        "{} does not support ambiguous spherical Polygon boundary ownership", name);
+            }
         }
     }
     if (name == "st_intersects") {
-        return interior || boundary;
+        *result = interior || boundary;
+    } else if (name == "st_disjoint") {
+        *result = !interior && !boundary;
+    } else if (name == "st_touches") {
+        *result = boundary;
+    } else {
+        *result = interior;
     }
-    if (name == "st_disjoint") {
-        return !interior && !boundary;
-    }
-    if (name == "st_touches") {
-        return boundary;
-    }
-    return interior;
+    return Status::OK();
 }
 
 static Status geography_relation(std::string_view name, const GeoShape& lhs, const GeoShape& rhs,
@@ -1129,8 +1197,7 @@ static Status geography_relation(std::string_view name, const GeoShape& lhs, con
         rhs.type() == GeoShapeType::GEO_SHAPE_POINT) {
         // Point equality has the same canonical position test as point containment.
         const GeographyEdgeNodes nodes(left_wkb, right_wkb);
-        *result = geography_point_relation(name, lhs, rhs, nodes);
-        return Status::OK();
+        return geography_point_relation(name, lhs, rhs, nodes, result);
     }
     MutableS2ShapeIndex left;
     MutableS2ShapeIndex right;
@@ -1146,7 +1213,8 @@ static Status geography_relation(std::string_view name, const GeoShape& lhs, con
             container.type() == GeoShapeType::GEO_SHAPE_LINE_STRING &&
             value.type() == GeoShapeType::GEO_SHAPE_LINE_STRING &&
             (containment || name == "st_equals" || name == "st_overlaps" || name == "st_touches");
-    const bool raw_coverage = raw_line_coverage || raw_polygon_coverage || name == "st_touches";
+    const bool raw_coverage = raw_line_coverage || raw_polygon_coverage || containment ||
+                              name == "st_touches" || name == "st_overlaps";
     geography_shape_index(container, name == "st_within" ? nodes.right : nodes.left, nodes, &left,
                           raw_coverage ? &left_edges : nullptr);
     geography_shape_index(value, name == "st_within" ? nodes.left : nodes.right, nodes, &right,
@@ -1197,7 +1265,8 @@ static Status geography_relation(std::string_view name, const GeoShape& lhs, con
     if (containment) {
         // CLOSED Contains is covers: a polygon must not contain a line solely on its boundary.
         *result = S2BooleanOperation::Intersects(left, right, interior_options);
-        return Status::OK();
+        return geography_check_polygon_interiors(name, left, right, nodes, left_edges, right_edges,
+                                                 *result);
     }
     if (name == "st_overlaps") {
         // Neither equality nor containment is a partial overlap.
@@ -1207,7 +1276,8 @@ static Status geography_relation(std::string_view name, const GeoShape& lhs, con
         }
         if (lhs.type() == GeoShapeType::GEO_SHAPE_POLYGON) {
             *result = S2BooleanOperation::Intersects(left, right, interior_options);
-            return Status::OK();
+            return geography_check_polygon_interiors(name, left, right, nodes, left_edges,
+                                                     right_edges, *result);
         }
         // A crossing point has no shared raw edge. Conversely, a positive raw overlap
         // such as (0,58)->(0,58+ulp) must survive even when S2 rounds it to one point.
@@ -1235,6 +1305,12 @@ static Status geography_relation(std::string_view name, const GeoShape& lhs, con
             *result = std::ranges::any_of(left_vertices, [&](const auto& vertex) {
                 return right_vertices.contains(vertex);
             });
+            // No raw boundary contact already proves Touches=false; only confirmed contacts
+            // require the rounded-interior precision check (e.g. an inward 58+ulp line).
+            if (*result) {
+                RETURN_IF_ERROR(geography_check_polygon_interiors(name, left, right, nodes,
+                                                                  left_edges, right_edges, false));
+            }
             const auto& line =
                     lhs.type() == GeoShapeType::GEO_SHAPE_LINE_STRING ? left_edges : right_edges;
             const auto& polygon =

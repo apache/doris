@@ -436,6 +436,41 @@ suite("test_spatial_wkb_compatibility") {
         sql "select ST_Touches(ST_GeogFromWKB('0103000000010000000400000000000000000000000000000000004d40000000000000f03f0000000000804d40000000000000f0bf0000000000804d4000000000000000000000000000004d40'),ST_GeogFromWKB('01020000000200000000000000000000000000000000804c4000000000000000000100000000004d40'))"
         exception "collapsed raw line edges outside the Polygon boundary"
     }
+    // Rounded boundaries cannot establish the original interior relationship.
+    def roundedInteriorPolygon = "ST_GeogFromWKB('010300000001000000040000000000000000004d4000000000000000000000000000804d40000000000000f0bf0000000000004d40000000000000f03f0000000000004d400000000000000000')"
+    def roundedInteriorLine = "ST_GeogFromWKB('0102000000020000000100000000004d4000000000000000000000000000004d40000000000000f03f')"
+    def roundedPartialLine = "ST_GeogFromWKB('0102000000030000000100000000004d40000000000000f0bf0100000000004d4000000000000000400000000000004d40000000000000f03f')"
+    def roundedOtherPolygon = "ST_GeogFromWKB('010300000001000000040000000100000000004d4000000000000000000000000000004d40000000000000f03f0000000000804c4000000000000000000100000000004d400000000000000000')"
+    def roundedPointPolygon = "ST_GeogFromWKB('010300000001000000040000000000000000004d4000000000000000000000000000804c40000000000000f0bf0000000000004d40000000000000f0bf0000000000004d400000000000000000')"
+    def roundedExteriorPoint = "ST_GeogFromWKB('01010000000100000000004d400000000000000000')"
+    [
+        ["ST_Contains", roundedInteriorPolygon, roundedInteriorLine],
+        ["ST_Within", roundedInteriorLine, roundedInteriorPolygon],
+        ["ST_Touches", roundedInteriorLine, roundedInteriorPolygon],
+        ["ST_Touches", roundedInteriorPolygon, roundedInteriorLine],
+        ["ST_Touches", roundedInteriorPolygon, roundedOtherPolygon],
+        ["ST_Touches", roundedOtherPolygon, roundedInteriorPolygon],
+        ["ST_Overlaps", roundedInteriorPolygon, roundedOtherPolygon],
+        ["ST_Overlaps", roundedOtherPolygon, roundedInteriorPolygon],
+        ["ST_Contains", roundedPointPolygon, roundedExteriorPoint],
+        ["ST_Within", roundedExteriorPoint, roundedPointPolygon],
+        ["ST_Intersects", roundedExteriorPoint, roundedPointPolygon],
+        ["ST_Intersects", roundedPointPolygon, roundedExteriorPoint],
+        ["ST_Disjoint", roundedExteriorPoint, roundedPointPolygon],
+        ["ST_Disjoint", roundedPointPolygon, roundedExteriorPoint]
+    ].each { relation ->
+        test {
+            sql "select ${relation[0]}(${relation[1]},${relation[2]})"
+            exception "ambiguous spherical Polygon boundary"
+        }
+    }
+    order_qt_geography_boundary_interior_controls """select
+        ST_Touches(ST_GeogFromWKB('0102000000020000000000000000004d4000000000000000000000000000004d40000000000000f03f'), ${roundedInteriorPolygon}),
+        ST_Contains(${roundedInteriorPolygon}, ST_GeogFromWKB('0102000000020000000000000000004d4000000000000000000000000000004d40000000000000f03f')),
+        ST_Contains(${roundedPointPolygon}, ST_GeogFromWKB('01010000003333333333f34c40000000000000e0bf')),
+        ST_Intersects(${roundedPointPolygon}, ST_GeogFromWKB('01010000000000000000004d400000000000000000')),
+        ST_Touches(${roundedPointPolygon}, ${roundedExteriorPoint}),
+        ST_Touches(${roundedPartialLine}, ${roundedInteriorPolygon})"""
     // Exactly antipodal raw endpoints have no unique spherical edge; storage is still valid.
     test {
         sql "select ST_Length(ST_GeogFromWKB('0102000000020000000000000000000000000000000000000000000000008066400000000000000000'))"

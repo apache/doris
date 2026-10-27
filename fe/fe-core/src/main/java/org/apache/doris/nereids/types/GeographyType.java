@@ -21,6 +21,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
+import org.apache.doris.qe.SqlModeHelper;
 
 import java.util.Objects;
 import java.util.Optional;
@@ -48,7 +49,7 @@ public final class GeographyType extends PrimitiveType {
 
     @Override
     public String toSql() {
-        return toCatalogDataType().toSql();
+        return toCatalogDataType().toSql(SqlModeHelper.hasNoBackSlashEscapes());
     }
 
     @Override

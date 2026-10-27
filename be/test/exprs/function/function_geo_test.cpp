@@ -835,6 +835,63 @@ TEST(VGeoFunctionsTest, GeographyPolygonRawBoundariesRetainEquivalentRegions) {
     }
 }
 
+static void expect_rounded_polygon_interior_error(const std::string& function,
+                                                  const std::string& left,
+                                                  const std::string& right) {
+    SCOPED_TRACE(function + "(" + left + ", " + right + ")");
+    Block block;
+    const auto type = make_nullable(std::make_shared<DataTypeUInt8>());
+    const auto status = execute_geography_test(
+            function, {geography_test_hex(left), geography_test_hex(right)}, type, &block);
+    EXPECT_FALSE(status.ok())
+            << "unexpected boolean "
+            << (status.ok() ? (*block.get_by_position(2).column)[0].get<TYPE_BOOLEAN>() : false);
+    EXPECT_NE(status.to_string().find("ambiguous spherical Polygon boundary"), std::string::npos)
+            << function << ": " << status.to_string();
+}
+
+TEST(VGeoFunctionsTest, GeographyRejectsRoundedLinePolygonInteriors) {
+    const std::string polygon = "POLYGON ((58 0,59 -1,58 1,58 0))";
+    const std::string line = "LINESTRING (58.00000000000001 0,58 1)";
+    expect_rounded_polygon_interior_error("st_contains", polygon, line);
+    expect_rounded_polygon_interior_error("st_within", line, polygon);
+    expect_rounded_polygon_interior_error("st_touches", line, polygon);
+    expect_rounded_polygon_interior_error("st_touches", polygon, line);
+    const std::string partial = "LINESTRING (58.00000000000001 -1,58.00000000000001 2,58 1)";
+    expect_geography_relation("st_touches", partial, polygon, false);
+    expect_geography_relation("st_touches", polygon, partial, false);
+    const std::string other = "POLYGON ((58.00000000000001 0,58 1,57 0,58.00000000000001 0))";
+    for (const auto* name : {"st_touches", "st_overlaps"}) {
+        expect_rounded_polygon_interior_error(name, polygon, other);
+        expect_rounded_polygon_interior_error(name, other, polygon);
+    }
+    const std::string boundary = "LINESTRING (58 0,58 1)";
+    expect_geography_relation("st_touches", boundary, polygon, true);
+    expect_geography_relation("st_touches", polygon, boundary, true);
+    expect_geography_relation("st_contains", polygon, boundary, false);
+    expect_geography_relation("st_within", boundary, polygon, false);
+}
+
+TEST(VGeoFunctionsTest, GeographyRejectsRoundedPointPolygonOwnership) {
+    const std::string polygon = "POLYGON ((58 0,57 -1,58 -1,58 0))";
+    const std::string point = "POINT (58.00000000000001 0)";
+    expect_rounded_polygon_interior_error("st_contains", polygon, point);
+    expect_rounded_polygon_interior_error("st_within", point, polygon);
+    for (const auto* name : {"st_intersects", "st_disjoint"}) {
+        expect_rounded_polygon_interior_error(name, point, polygon);
+        expect_rounded_polygon_interior_error(name, polygon, point);
+    }
+    expect_geography_relation("st_touches", point, polygon, false);
+    expect_geography_relation("st_touches", polygon, point, false);
+    expect_geography_relation("st_contains", polygon, "POINT (57.9 -0.5)", true);
+    expect_geography_relation("st_contains", polygon, "POINT (58.1 0)", false);
+    expect_geography_relation("st_intersects", polygon, "POINT (58 0)", true);
+    expect_geography_relation("st_contains", polygon, "POINT (58 0)", false);
+    const std::string separated = "LINESTRING (58.00000000000001 0,58.00000000000001 -1)";
+    expect_geography_relation("st_touches", polygon, separated, false);
+    expect_geography_relation("st_touches", separated, polygon, false);
+}
+
 TEST(VGeoFunctionsTest, GeographyTouchesRejectsRoundedPolygonContact) {
     const std::string polygon = "POLYGON ((0 58.00000000000001,1 59,-1 59,0 58.00000000000001))";
     const std::string line = "LINESTRING (0 57,0 58)";

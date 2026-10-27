@@ -910,13 +910,18 @@ public class Column implements GsonPostProcessable {
 
     /** Use a placeholder only for internal CREATE TABLE LIKE parsing; restore the expression before analysis. */
     public String toSql(boolean isUniqueTable, boolean isCompatible, boolean useGeneratedColumnPlaceholder) {
+        return toSql(isUniqueTable, isCompatible, useGeneratedColumnPlaceholder, false);
+    }
+
+    public String toSql(boolean isUniqueTable, boolean isCompatible,
+            boolean useGeneratedColumnPlaceholder, boolean noBackslashEscapes) {
         StringBuilder sb = new StringBuilder();
         sb.append("`").append(name).append("` ");
-        String typeStr = type.toSql();
+        String typeStr = type.toSql(noBackslashEscapes);
 
         // show change datetimeV2/dateV2 to datetime/date
         if (isCompatible) {
-            sb.append(type.hideVersionForVersionColumn(true, true));
+            sb.append(type.hideVersionForVersionColumn(true, true, noBackslashEscapes));
         } else {
             sb.append(typeStr);
         }

@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TScalarType;
 import org.apache.doris.thrift.TTypeDesc;
@@ -714,11 +715,22 @@ public class ScalarType extends Type {
     }
 
     @Override
+    public String toSql(int depth, boolean noBackslashEscapes) {
+        // Nonspatial subclasses (notably VariantType) own their SQL representation and properties.
+        if (!isSpatialType()) {
+            return toSql(depth);
+        }
+        // Under NO_BACKSLASH_ESCAPES, doubling a CRS backslash changes its identity on reparse.
+        return type.name() + "(" + SqlUtils.quoteSingleQuotedStringLiteral(spatialCrs, noBackslashEscapes)
+                + (type == PrimitiveType.GEOGRAPHY
+                        ? ", " + SqlUtils.quoteSingleQuotedStringLiteral(spatialAlgorithm, noBackslashEscapes)
+                        : "") + ")";
+    }
+
+    @Override
     public String toSql(int depth) {
         if (isSpatialType()) {
-            return type.name() + "('" + spatialCrs.replace("\\", "\\\\").replace("'", "''") + "'"
-                    + (type == PrimitiveType.GEOGRAPHY
-                            ? ", '" + spatialAlgorithm.replace("'", "''") + "'" : "") + ")";
+            return toSql(depth, false);
         }
         StringBuilder stringBuilder = new StringBuilder();
         switch (type) {
