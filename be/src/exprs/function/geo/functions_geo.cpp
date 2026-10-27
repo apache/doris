@@ -493,6 +493,9 @@ private:
 
 class GeographyEdgeNodes {
 public:
+    using LineEdge = std::pair<GeographyVertex, GeographyVertex>;
+    using LineEdges = std::set<LineEdge, std::less<>, CustomStdAllocator<LineEdge>>;
+
     GeographyCoordinates left;
     GeographyCoordinates right;
 
@@ -634,15 +637,12 @@ public:
         return std::nullopt;
     }
 
-    void add_line(const GeographyCoordinates& shape, MutableS2ShapeIndex* index) const {
-        using Edge = std::pair<GeographyVertex, GeographyVertex>;
-        using EdgeSet = std::set<Edge, std::less<>, CustomStdAllocator<Edge>>;
+    void add_line(const GeographyCoordinates& shape, MutableS2ShapeIndex* index,
+                  LineEdges* raw_line_edges = nullptr) const {
         using Interval = std::pair<double, double>;
         DorisMap<const DorisVector<Vertex>*, DorisVector<Interval>> intervals;
-        EdgeSet raw_edges;
+        LineEdges raw_edges;
         const auto& line = shape.sequences.front();
-        const auto& first = line.front();
-        const auto& last = line.back();
         for (size_t i = 0; i + 1 < line.size(); ++i) {
             const auto& a = line[i];
             const auto& b = line[i + 1];
@@ -655,8 +655,13 @@ public:
                 raw_edges.emplace(std::min(a, b), std::max(a, b));
             }
         }
-        EdgeSet edges;
+        LineEdges edges;
         auto add_edge = [&](const GeographyVertex& a, const GeographyVertex& b) {
+            // Equality must distinguish (0,58)->(0,59) from (0,58+ulp)->(0,59),
+            // even when conversion collapses the raw 58->58+ulp subedge to one S2Point.
+            if (raw_line_edges != nullptr) {
+                raw_line_edges->emplace(std::min(a, b), std::max(a, b));
+            }
             // Rounded adjacent vertices can share one S2Point while remaining distinct raw
             // WKB vertices, for example 58 and 58.00000000000001 degrees. The raw edge is
             // retained for identity, but its zero-length S2 representation must not become
@@ -689,6 +694,14 @@ public:
             emit(from, to);
         }
         add_circle_edges(raw_edges, add_edge);
+        add_line_shapes(line, edges, index);
+    }
+
+private:
+    void add_line_shapes(const DorisVector<GeographyVertex>& line, const LineEdges& edges,
+                         MutableS2ShapeIndex* index) const {
+        const auto& first = line.front();
+        const auto& last = line.back();
         auto add = [&](const S2Point& a, const S2Point& b) {
             index->Add(std::make_unique<GeographyLineShape>(a, b));
         };
@@ -718,7 +731,6 @@ public:
         }
     }
 
-private:
     struct Vertex {
         double latitude;
         GeographyVertex point;
@@ -1076,14 +1088,24 @@ static Status geography_relation(std::string_view name, const GeoShape& lhs, con
     MutableS2ShapeIndex left;
     MutableS2ShapeIndex right;
     const GeographyEdgeNodes nodes(left_wkb, right_wkb);
-    geography_shape_index(container, name == "st_within" ? nodes.right : nodes.left, nodes, &left);
-    geography_shape_index(value, name == "st_within" ? nodes.left : nodes.right, nodes, &right);
+    GeographyEdgeNodes::LineEdges left_edges;
+    GeographyEdgeNodes::LineEdges right_edges;
+    // CLOSED S2 equality alone loses unequal raw extents at colliding endpoints.
+    // Reuse the existing shared noding once per line, preserving its canonical raw edges.
+    if (name == "st_equals" && lhs.type() == GeoShapeType::GEO_SHAPE_LINE_STRING) {
+        nodes.add_line(nodes.left, &left, &left_edges);
+        nodes.add_line(nodes.right, &right, &right_edges);
+    } else {
+        geography_shape_index(container, name == "st_within" ? nodes.right : nodes.left, nodes,
+                              &left);
+        geography_shape_index(value, name == "st_within" ? nodes.left : nodes.right, nodes, &right);
+    }
     S2BooleanOperation::Options options;
     options.set_polygon_model(S2BooleanOperation::PolygonModel::CLOSED);
     options.set_polyline_model(S2BooleanOperation::PolylineModel::CLOSED);
     options.set_polyline_loops_have_boundaries(false);
     if (name == "st_equals") {
-        *result = S2BooleanOperation::Equals(left, right, options);
+        *result = left_edges == right_edges && S2BooleanOperation::Equals(left, right, options);
         return Status::OK();
     }
     if (containment && container.type() == GeoShapeType::GEO_SHAPE_LINE_STRING &&

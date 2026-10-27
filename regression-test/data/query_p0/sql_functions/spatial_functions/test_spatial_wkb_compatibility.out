@@ -190,3 +190,8 @@ false	false	false	false	true	true	true	true	true	true	true	true	true
 -- !geography_stable_line_admission --
 true	true	true	true	true	true	true	true	true	true	false	true	true	true
 
+-- !geography_unequal_rounded_line_extents --
+1	false	false	true	false	true	true
+2	false	false	true	false	true	true
+3	false	false	true	false	true	true
+

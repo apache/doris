@@ -708,6 +708,40 @@ TEST(VGeoFunctionsTest, GeographyTouchesKeepsRoundedZeroLengthEdgesOpen) {
     }
 }
 
+TEST(VGeoFunctionsTest, GeographyEqualsPreservesUnequalRawLineExtents) {
+    // Both first endpoints round to the same S2Point, but only the first line
+    // contains POINT(0 58). Check meridian extents and distinct non-meridian arcs.
+    for (const auto* end : {"0 59", "1 59"}) {
+        const std::string a = std::string("LINESTRING (0 58,") + end + ")";
+        const std::string b = std::string("LINESTRING (0 58.00000000000001,") + end + ")";
+        SCOPED_TRACE(end);
+        expect_geography_relation("st_equals", a, b, false);
+        expect_geography_relation("st_equals", b, a, false);
+        expect_geography_relation("st_intersects", a, "POINT (0 58)", true);
+        expect_geography_relation("st_intersects", b, "POINT (0 58)", false);
+    }
+}
+
+TEST(VGeoFunctionsTest, GeographyEqualsRetainsEquivalentRawLineCoverage) {
+    const std::vector<std::pair<std::string, std::string>> cases {
+            {"LINESTRING (0 58,0 59)", "LINESTRING (0 58,0 58.00000000000001,0 59)"},
+            {"LINESTRING (0 58,0 59)", "LINESTRING (0 59,0 58.00000000000001,0 58)"},
+            {"LINESTRING (0 58,0 59)", "LINESTRING (0 58,0 59,0 58.00000000000001,0 59)"},
+            {"LINESTRING (58 0,59 0)", "LINESTRING (58 0,58.00000000000001 0,59 0)"},
+            {"LINESTRING (180 58,180 59)", "LINESTRING (-180 58,-180 59)"},
+            {"LINESTRING (0 90,0 89)", "LINESTRING (123 90,0 89)"},
+            {"LINESTRING (0 90,90 90)", "LINESTRING (-90 90,180 90)"},
+    };
+    for (const auto& [a, b] : cases) {
+        SCOPED_TRACE(a + " versus " + b);
+        expect_geography_relation("st_equals", a, b, true);
+        expect_geography_relation("st_equals", b, a, true);
+    }
+    // Empty raw edge sets still require canonical S2 position equality.
+    expect_geography_relation("st_equals", "LINESTRING (0 90,90 90)", "LINESTRING (0 -90,90 -90)",
+                              false);
+}
+
 TEST(VGeoFunctionsTest, GeographyEqualsUsesPointSetsAndOverlapsRequiresPositiveDimension) {
     struct Case {
         std::string left;
