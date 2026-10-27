@@ -351,9 +351,14 @@ inline void run_scenario(benchmark::State& state, const Scenario& scenario) {
     double sort_ns = 0;
     double agg_ns = 0;
     double put_ns = 0;
+    double mem_bytes = 0;
     for (auto _ : state) {
         auto memtable = create_memtable(*workload);
         run_batches(*memtable, *workload);
+        // Row tracking is what the compact DUP_KEYS permutation replaces, so record the memtable's
+        // own accounting right after the last insert: it is the tracked size of the input block
+        // plus the row metadata, before to_block() releases the input block.
+        mem_bytes += static_cast<double>(memtable->memory_usage());
         std::unique_ptr<Block> output;
         auto status = memtable->to_block(&output);
         DORIS_CHECK(status.ok());
@@ -373,6 +378,10 @@ inline void run_scenario(benchmark::State& state, const Scenario& scenario) {
     state.counters["sort_ms"] = benchmark::Counter(sort_ns / 1e6 / iterations);
     state.counters["agg_ms"] = benchmark::Counter(agg_ns / 1e6 / iterations);
     state.counters["put_ms"] = benchmark::Counter(put_ns / 1e6 / iterations);
+    // Tracked memtable bytes at the end of the insert phase, and the same normalised per row.
+    state.counters["mem_kb"] = benchmark::Counter(mem_bytes / 1024.0 / iterations);
+    state.counters["mem_b_per_row"] =
+            benchmark::Counter(mem_bytes / iterations / static_cast<double>(total_rows));
 }
 
 // The scenario table. Each entry exists because a memtable change can move that path:
