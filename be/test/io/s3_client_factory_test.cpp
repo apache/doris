@@ -269,44 +269,50 @@ TEST_F(S3ClientFactoryTest, ObjClientHolderResetDistinguishesHashCollisions) {
     EXPECT_EQ(holder.s3_client_conf(), internal_conf);
 }
 
-TEST_F(S3ClientFactoryTest, HolderReleasesOldClientOutsideBothLocks) {
+namespace {
+
+void check_holder_client_release(bool request_holds_client) {
     auto original = make_factory_conf("holder-lifetime.example.com", false);
     original.token = "old";
     auto rotated = original;
     rotated.token = "new";
-    for (bool request_holds_client : {false, true}) {
-        std::unique_ptr<io::ObjClientHolder> holder;
-        int destroyed = 0;
-        S3ClientFactory::instance().set_client_creator_for_test(
-                [&](const S3ClientConf& conf) -> std::shared_ptr<io::ObjStorageClient> {
-                    if (conf.token == "old") {
-                        return std::shared_ptr<io::ObjStorageClient>(
-                                new S3ObjStorageClient(std::shared_ptr<Aws::S3::S3Client> {}),
-                                [&](ObjStorageClient* p) {
-                                    // Re-enter get/reset to verify neither publication nor
-                                    // update serialization locks cover the final release.
-                                    EXPECT_NE(holder->get().get(), p);
-                                    EXPECT_TRUE(holder->reset(rotated).ok());
-                                    ++destroyed;
-                                    delete p;
-                                });
-                    }
-                    return std::make_shared<S3ObjStorageClient>(
-                            std::shared_ptr<Aws::S3::S3Client> {});
-                });
-        holder = std::make_unique<io::ObjClientHolder>(original);
-        ASSERT_TRUE(holder->init().ok());
-        std::shared_ptr<ObjStorageClient> request;
-        if (request_holds_client) {
-            request = holder->get();
-        }
-        ASSERT_TRUE(holder->reset(rotated).ok());
-        EXPECT_EQ(destroyed, request_holds_client ? 0 : 1);
-        EXPECT_EQ(holder->s3_client_conf(), rotated);
-        request.reset();
-        EXPECT_EQ(destroyed, 1);
-        S3ClientFactory::instance().clear_client_creator_for_test();
+    std::unique_ptr<io::ObjClientHolder> holder;
+    int destroyed = 0;
+    auto release_old_client = [&](ObjStorageClient* p) {
+        // Re-enter get/reset to verify neither publication nor
+        // update serialization locks cover the final release.
+        EXPECT_NE(holder->get().get(), p);
+        EXPECT_TRUE(holder->reset(rotated).ok());
+        ++destroyed;
+        delete p;
+    };
+    S3ClientFactory::instance().set_client_creator_for_test(
+            [&](const S3ClientConf& conf) -> std::shared_ptr<io::ObjStorageClient> {
+                if (conf.token == "old") {
+                    return {new S3ObjStorageClient(std::shared_ptr<Aws::S3::S3Client> {}),
+                            release_old_client};
+                }
+                return std::make_shared<S3ObjStorageClient>(std::shared_ptr<Aws::S3::S3Client> {});
+            });
+    holder = std::make_unique<io::ObjClientHolder>(original);
+    ASSERT_TRUE(holder->init().ok());
+    std::shared_ptr<ObjStorageClient> request;
+    if (request_holds_client) {
+        request = holder->get();
     }
+    ASSERT_TRUE(holder->reset(rotated).ok());
+    EXPECT_EQ(destroyed, request_holds_client ? 0 : 1);
+    EXPECT_EQ(holder->s3_client_conf(), rotated);
+    request.reset();
+    EXPECT_EQ(destroyed, 1);
+    S3ClientFactory::instance().clear_client_creator_for_test();
+}
+
+} // namespace
+
+TEST_F(S3ClientFactoryTest, HolderReleasesOldClientOutsideBothLocks) {
+    check_holder_client_release(false);
+    check_holder_client_release(true);
 }
 
 TEST_F(S3ClientFactoryTest, FailedHolderUpdatePreservesClientAndConfiguration) {
