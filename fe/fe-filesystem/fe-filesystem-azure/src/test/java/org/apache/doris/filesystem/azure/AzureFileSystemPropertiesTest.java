@@ -239,7 +239,7 @@ class AzureFileSystemPropertiesTest {
         Assertions.assertEquals("secret", backendMap.get(AzureBackendPropertyKeys.CLIENT_SECRET));
         Assertions.assertEquals("https://login.microsoftonline.com/",
                 backendMap.get(AzureBackendPropertyKeys.AUTHORITY_HOST));
-        Assertions.assertEquals("https://account.dfs.core.windows.net",
+        Assertions.assertEquals("https://account.blob.core.windows.net",
                 backendMap.get(AzureBackendPropertyKeys.ENDPOINT));
         // The OneLake FILE_HDFS path still gets its hadoop OAuth config.
         Assertions.assertEquals("client",
