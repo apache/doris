@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <memory>
 
@@ -40,9 +41,11 @@ public:
               _mtx(std::make_shared<std::shared_mutex>()) {}
     SharedPredicate(const ColumnPredicate& other) = delete;
     SharedPredicate(const SharedPredicate& other, uint32_t column_id)
-            : ColumnPredicate(other, column_id),
-              _mtx(std::make_shared<std::shared_mutex>()),
-              _nested(other._nested ? other._nested->clone(column_id) : nullptr) {}
+            : ColumnPredicate(other, column_id), _mtx(std::make_shared<std::shared_mutex>()) {
+        const auto state = other.snapshot();
+        _nested = state.predicate ? state.predicate->clone(column_id) : nullptr;
+        _version.store(state.version, std::memory_order_relaxed);
+    }
     ~SharedPredicate() override = default;
     std::string debug_string() const override {
         std::shared_lock<std::shared_mutex> lock(*_mtx);
@@ -55,6 +58,8 @@ public:
         // All scanner thread should share the same SharedPredicate object.
         return std::const_pointer_cast<ColumnPredicate>(shared_from_this());
     }
+
+    bool is_runtime_filter() const override { return true; }
 
     PredicateType type() const override {
         std::shared_lock<std::shared_mutex> lock(*_mtx);
@@ -75,6 +80,21 @@ public:
     void set_nested(const std::shared_ptr<ColumnPredicate>& nested) {
         std::unique_lock<std::shared_mutex> lock(*_mtx);
         _nested = nested;
+        _version.fetch_add(1, std::memory_order_release);
+    }
+
+    uint64_t version() const { return _version.load(std::memory_order_acquire); }
+
+    struct Snapshot {
+        uint64_t version;
+        std::shared_ptr<const ColumnPredicate> predicate;
+    };
+
+    // Keep the immutable comparison alive after releasing the lock. A concurrent update must
+    // not pair version 2 with version 1's bound, or hold the producer lock during index I/O.
+    Snapshot snapshot() const {
+        std::shared_lock<std::shared_mutex> lock(*_mtx);
+        return {.version = _version.load(std::memory_order_relaxed), .predicate = _nested};
     }
 
     Status evaluate(const IndexFieldNameAndTypePair& name_with_type, IndexIterator* iterator,
@@ -191,6 +211,7 @@ private:
 
     mutable std::shared_ptr<std::shared_mutex> _mtx;
     std::shared_ptr<ColumnPredicate> _nested;
+    std::atomic<uint64_t> _version {0};
 };
 
 } //namespace doris
