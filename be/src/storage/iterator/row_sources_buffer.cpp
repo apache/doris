@@ -147,7 +147,7 @@ size_t RowSourcesBuffer::continuous_agg_count(uint64_t index) {
 }
 
 size_t RowSourcesBuffer::same_source_count(uint16_t source, size_t limit) {
-    int result = 1;
+    size_t result = 1;
     int64_t start = _buf_idx + 1;
     int64_t end = _buffer.size();
     while (result < limit && start < end) {

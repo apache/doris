@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <list>
+#include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
@@ -35,6 +36,20 @@ namespace {
 
 bvar::Adder<int64_t> g_vertical_compaction_active_segment_contexts(
         "vertical_compaction_active_segment_contexts");
+
+// Append rows [start_row, start_row + count) of `block` to `batches`, to the last batch when they
+// continue it.
+void append_to_batches(std::vector<RowBatch>* batches, std::shared_ptr<Block> block,
+                       uint32_t start_row, uint32_t count) {
+    if (!batches->empty()) {
+        RowBatch& last = batches->back();
+        if (last.block == block && last.start_row + last.count == start_row) {
+            last.count += count;
+            return;
+        }
+    }
+    batches->emplace_back(std::move(block), start_row, count);
+}
 
 } // namespace
 
@@ -248,7 +263,7 @@ Status VerticalMergeIteratorContext::advance_by(size_t n) {
         // _index_in_block points to current row, so remaining = total - current - 1
         int64_t remaining_in_block = static_cast<int64_t>(_block->rows()) - _index_in_block - 1;
 
-        if (static_cast<int64_t>(n) <= remaining_in_block) {
+        if (std::cmp_less_equal(n, remaining_in_block)) {
             // All n rows are within current block
             _index_in_block += n;
             return Status::OK();
@@ -389,10 +404,6 @@ Status VerticalMaskMergeIterator::unique_key_next_batch(std::vector<RowBatch>* b
     batches->clear();
     *actual_rows = 0;
 
-    std::shared_ptr<Block> current_block;
-    uint32_t batch_start = 0;
-    uint32_t batch_count = 0;
-
     while (*actual_rows < max_rows) {
         // Check if RowSourceBuffer has remaining data
         auto st = _row_sources_buf->has_remaining();
@@ -451,28 +462,8 @@ Status VerticalMaskMergeIterator::unique_key_next_batch(std::vector<RowBatch>* b
         }
 
         consume_row_sources(order, run_count);
-
-        // Try to merge into current batch or create new batch
-        if (current_block == block && start_row == batch_start + batch_count) {
-            // Continuous with previous batch, merge
-            batch_count += static_cast<uint32_t>(run_count);
-        } else {
-            // Save previous batch if exists
-            if (current_block != nullptr && batch_count > 0) {
-                batches->emplace_back(current_block, batch_start, batch_count);
-            }
-            // Start new batch
-            current_block = std::move(block);
-            batch_start = start_row;
-            batch_count = static_cast<uint32_t>(run_count);
-        }
-
+        append_to_batches(batches, std::move(block), start_row, static_cast<uint32_t>(run_count));
         *actual_rows += run_count;
-    }
-
-    // Save the last batch
-    if (current_block != nullptr && batch_count > 0) {
-        batches->emplace_back(current_block, batch_start, batch_count);
     }
 
     // Check if we've reached the end
@@ -499,7 +490,7 @@ Status VerticalMaskMergeIterator::_next_batch(Block* block, std::vector<uint8_t>
     DCHECK(_row_sources_buf);
     size_t rows = 0;
     auto st = _row_sources_buf->has_remaining();
-    while (rows < _block_row_max && st.ok()) {
+    while (std::cmp_less(rows, _block_row_max) && st.ok()) {
         uint16_t order = _row_sources_buf->current().get_source_num();
         DCHECK(order < _origin_iter_ctx.size());
         auto& ctx = _origin_iter_ctx[order];
@@ -530,7 +521,9 @@ Status VerticalMaskMergeIterator::_next_batch(Block* block, std::vector<uint8_t>
     }
     if (st.is<END_OF_FILE>()) {
         RETURN_IF_ERROR(check_all_iter_finished());
-        return rows > 0 ? Status::OK() : st;
+        if (rows > 0) {
+            return Status::OK();
+        }
     }
     return st;
 }
