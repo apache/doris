@@ -212,15 +212,38 @@ public:
                                PredicateCollectorPtr search_collector)
             : _rowsets(std::move(rowsets)), _statistics(std::move(search_collector)) {}
 
+    enum class Turn {
+        COLLECTED, // the statistics are ready to copy
+        COLLECT,   // the caller collects them
+        WAIT,      // another scanner collects them; the caller is woken up once they are ready
+    };
+
+    // Called by a scanner of the tablet before it prepares. While another scanner collects the
+    // statistics, `wake_up` is kept and called once they are collected, so the waiting scanner
+    // can give its scanner thread back instead of blocking it.
+    Turn take_turn(std::function<void()> wake_up);
+
     // Collects the statistics on the first call, then copies them into `statistics`.
-    // Later callers wait for the first collection and receive its result or error.
+    // Later callers receive the result or error of that collection. A caller that did not get
+    // COLLECTED or COLLECT from take_turn() may block until the collection finishes.
     Status copy_to(RuntimeState* state, const TabletSchemaSPtr& tablet_schema,
                    const VExprContextSPtrs& common_expr_ctxs_push_down, io::IOContext* io_ctx,
                    const MowHiddenRows* hidden_rows, CollectionStatistics* statistics);
 
+    // Called by the scanner that got COLLECT when it stops before collecting, so a waiting
+    // scanner collects instead.
+    void give_up_turn();
+
 private:
+    enum class State { NOT_STARTED, CLAIMED, COLLECTING, COLLECTED };
+
+    // Takes the wake-up callbacks out under _mutex, so they run after it is released.
+    std::vector<std::function<void()>> _take_waiters();
+
     std::mutex _mutex;
-    bool _collected = false;
+    std::condition_variable _collected_cv;
+    State _state = State::NOT_STARTED;
+    std::vector<std::function<void()>> _waiters;
     Status _status;
     std::vector<RowsetSharedPtr> _rowsets;
     CollectionStatistics _statistics;

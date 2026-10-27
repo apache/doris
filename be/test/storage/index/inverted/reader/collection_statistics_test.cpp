@@ -1702,6 +1702,60 @@ TEST(TabletCollectionStatisticsTest, CollectsOnceAndCopiesToEveryCaller) {
             tablet_statistics.copy_to(nullptr, tablet_schema, {}, nullptr, nullptr, &second).ok());
 }
 
+TEST(TabletCollectionStatisticsTest, OneScannerCollectsAndTheOthersAreWokenUp) {
+    TabletCollectionStatistics tablet_statistics({}, nullptr);
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    int woken = 0;
+    auto wake_up = [&] { ++woken; };
+
+    EXPECT_EQ(tablet_statistics.take_turn(wake_up), TabletCollectionStatistics::Turn::COLLECT);
+    EXPECT_EQ(tablet_statistics.take_turn(wake_up), TabletCollectionStatistics::Turn::WAIT);
+    EXPECT_EQ(tablet_statistics.take_turn(wake_up), TabletCollectionStatistics::Turn::WAIT);
+    EXPECT_EQ(woken, 0);
+
+    CollectionStatistics statistics;
+    EXPECT_TRUE(tablet_statistics.copy_to(nullptr, tablet_schema, {}, nullptr, nullptr, &statistics)
+                        .ok());
+    EXPECT_EQ(woken, 2);
+    EXPECT_EQ(tablet_statistics.take_turn(wake_up), TabletCollectionStatistics::Turn::COLLECTED);
+    // Giving up after the collection changes nothing.
+    tablet_statistics.give_up_turn();
+    EXPECT_EQ(tablet_statistics.take_turn(wake_up), TabletCollectionStatistics::Turn::COLLECTED);
+    EXPECT_EQ(woken, 2);
+}
+
+TEST(TabletCollectionStatisticsTest, GivingUpTheTurnWakesTheWaitersToCollect) {
+    TabletCollectionStatistics tablet_statistics({}, nullptr);
+    int woken = 0;
+    auto wake_up = [&] { ++woken; };
+
+    EXPECT_EQ(tablet_statistics.take_turn(wake_up), TabletCollectionStatistics::Turn::COLLECT);
+    EXPECT_EQ(tablet_statistics.take_turn(wake_up), TabletCollectionStatistics::Turn::WAIT);
+    tablet_statistics.give_up_turn();
+    EXPECT_EQ(woken, 1);
+    // The woken scanner takes the turn again and collects.
+    EXPECT_EQ(tablet_statistics.take_turn(wake_up), TabletCollectionStatistics::Turn::COLLECT);
+}
+
+TEST(TabletCollectionStatisticsTest, CopyWithoutTurnCollectsOnce) {
+    TabletCollectionStatistics tablet_statistics({}, nullptr);
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    bool woken = false;
+
+    EXPECT_EQ(tablet_statistics.take_turn([] {}), TabletCollectionStatistics::Turn::COLLECT);
+    // A caller that skips take_turn() collects itself while the claimed collection has not
+    // started, and the collector then copies its result.
+    CollectionStatistics first;
+    EXPECT_TRUE(
+            tablet_statistics.copy_to(nullptr, tablet_schema, {}, nullptr, nullptr, &first).ok());
+    CollectionStatistics second;
+    EXPECT_TRUE(
+            tablet_statistics.copy_to(nullptr, tablet_schema, {}, nullptr, nullptr, &second).ok());
+    EXPECT_EQ(tablet_statistics.take_turn([&] { woken = true; }),
+              TabletCollectionStatistics::Turn::COLLECTED);
+    EXPECT_FALSE(woken);
+}
+
 // SNII scoring requires only positions and norms; statistics come directly from the stats block.
 TEST(CollectionStatisticsSniiScoringTest, ResolveUsesPhysicalDocAndTokenCounts) {
     auto result = resolve_snii_scoring_segment(3, 7, /*has_positions=*/true, /*has_norms=*/true);

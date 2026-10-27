@@ -68,6 +68,7 @@
 #ifndef NDEBUG
 #include "util/debug_points.h"
 #endif
+#include "util/defer_op.h"
 #include "util/json/path_in_data.h"
 
 namespace doris {
@@ -170,7 +171,35 @@ io::IOContext build_score_runtime_collection_io_context(RuntimeState* state, Rea
     return io_ctx;
 }
 
+bool OlapScanner::ready_to_prepare(std::function<void()> wake_up) {
+    if (_tablet_collection_statistics == nullptr) {
+        return true;
+    }
+    // Another scanner of the tablet collecting the statistics would make prepare() block, so the
+    // scanner waits for them without holding a scanner thread.
+    switch (_tablet_collection_statistics->take_turn(std::move(wake_up))) {
+    case TabletCollectionStatistics::Turn::COLLECTED:
+        return true;
+    case TabletCollectionStatistics::Turn::COLLECT:
+        _collects_tablet_statistics = true;
+        return true;
+    case TabletCollectionStatistics::Turn::WAIT:
+        return false;
+    }
+    __builtin_unreachable();
+}
+
+void OlapScanner::_give_up_statistics_turn() {
+    if (_collects_tablet_statistics) {
+        _collects_tablet_statistics = false;
+        _tablet_collection_statistics->give_up_turn();
+    }
+}
+
 Status OlapScanner::_prepare_impl() {
+    // If this scanner stops before collecting the tablet statistics, a waiting scanner of the
+    // tablet collects them instead.
+    Defer give_up_turn {[&] { _give_up_statistics_turn(); }};
     auto* local_state = static_cast<OlapScanLocalState*>(_local_state);
     auto& tablet = _tablet_reader_params.tablet;
     auto& tablet_schema = _tablet_reader_params.tablet_schema;
@@ -690,6 +719,8 @@ bool OlapScanner::is_pruned_by_runtime_filter() const {
 
 void OlapScanner::release_unopened_resources() {
     DORIS_CHECK(!_is_open);
+    // A runtime filter may prune the scanner after ready_to_prepare() made it the collector.
+    _give_up_statistics_turn();
 
     _tablet_reader.reset();
     _tablet_reader_params = TabletReader::ReaderParams {};
@@ -739,6 +770,8 @@ Status OlapScanner::close(RuntimeState* state) {
     if (!_try_close()) {
         return Status::OK();
     }
+    // A scanner that failed between taking the turn and prepare() wakes the waiting scanners.
+    _give_up_statistics_turn();
     RETURN_IF_ERROR(Scanner::close(state));
     return Status::OK();
 }

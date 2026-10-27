@@ -27,6 +27,7 @@
 #include <mutex>
 #include <stack>
 #include <string>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -115,6 +116,9 @@ public:
     // ScannerContext only needs to observe the lifetime of SplitRunner without owning it.
     // When SplitRunner is destroyed, split_runner.lock() will return nullptr, ensuring safe access.
     std::weak_ptr<SplitRunner> split_runner;
+    // Set when the scanner's wake-up arrives before the task is parked in
+    // ScannerContext::push_waiting_scan_task(). Protected by the context's _transfer_lock.
+    bool wake_up_requested = false;
 
     void set_status(Status _status) {
         if (_status.is<ErrorCode::END_OF_FILE>()) {
@@ -214,6 +218,13 @@ public:
     // Publish a task whose current scan attempt has completed. The operator consumes its cached
     // block and returns a non-EOS task to PENDING for its next scan attempt.
     void push_completed_scan_task(std::shared_ptr<ScanTask> scan_task);
+
+    // Park a task whose scanner cannot prepare yet (Scanner::ready_to_prepare() returned false).
+    // The task gives back its concurrency slot until wake_up_waiting_scan_task() admits it again.
+    void push_waiting_scan_task(std::shared_ptr<ScanTask> scan_task);
+
+    // Called once the scanner of a waiting task can prepare. The task becomes pending again.
+    void wake_up_waiting_scan_task(const std::shared_ptr<ScanTask>& scan_task);
 
     // Return true if this ScannerContext need no more process
     bool done() const { return _is_finished || _should_stop; }
@@ -347,6 +358,10 @@ protected:
     // Protected by _transfer_lock. Populated in the constructor and when an operator returns a
     // non-EOS task; drained by try_get_next_scan_task() or the TaskExecutor scheduler.
     std::stack<std::shared_ptr<ScanTask>> _pending_tasks;
+
+    // Tasks parked by push_waiting_scan_task() until their scanner can prepare. They occupy no
+    // concurrency slot. Protected by _transfer_lock.
+    std::unordered_set<std::shared_ptr<ScanTask>> _waiting_tasks;
 
     // True from the start of one Context submission until its runnable starts. The marker may
     // remain true when no runnable was retained: a failed submission makes the Context terminal,

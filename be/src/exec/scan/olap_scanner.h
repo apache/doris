@@ -92,6 +92,8 @@ public:
 
     OlapScanner(ScanLocalStateBase* parent, Params&& params);
 
+    bool ready_to_prepare(std::function<void()> wake_up) override;
+
     Status _prepare_impl() override;
 
     Status _open_impl(RuntimeState* state) override;
@@ -116,6 +118,9 @@ private:
             const phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>>&
                     predicates);
 
+    // Hands the collection of the tablet statistics back if this scanner took it but stops first.
+    void _give_up_statistics_turn();
+
     [[nodiscard]] Status _init_tso_predicates();
     [[nodiscard]] Status _init_read_schema();
     [[nodiscard]] Status _init_variant_columns();
@@ -132,6 +137,8 @@ private:
     int32_t _bucket_seq;
     int32_t _bucket_num;
     std::shared_ptr<TabletCollectionStatistics> _tablet_collection_statistics;
+    // Set when ready_to_prepare() made this scanner the one that collects the tablet statistics.
+    bool _collects_tablet_statistics = false;
 
 public:
     io::FileCacheStatistics _initial_file_cache_stats;
