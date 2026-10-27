@@ -15,28 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.property.fileformat;
-
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-
-import java.util.HashMap;
-import java.util.Map;
-
-
-public class AvroFileFormatPropertiesTest {
-
-    private AvroFileFormatProperties avroFileFormatProperties;
-
-    @BeforeEach
-    public void setUp() {
-        avroFileFormatProperties = new AvroFileFormatProperties();
-    }
-
-    @Test
-    public void testAnalyzeFileFormatProperties() {
-        Map<String, String> properties = new HashMap<>();
-        // Add properties if needed
-        avroFileFormatProperties.analyzeFileFormatProperties(properties, true);
+suite("test_local_tvf_disabled", "p0") {
+    for (def functionName : ["LOCAL", "FILE"]) {
+        for (def prefix : ["", "EXPLAIN "]) {
+            test {
+                sql """${prefix}SELECT * FROM ${functionName}(
+                    "file_path" = "local_enable_test.csv",
+                    "backend_id" = "-1",
+                    "format" = "csv"
+                )"""
+                exception "LOCAL TVF is disabled"
+            }
+        }
     }
 }

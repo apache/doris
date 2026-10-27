@@ -605,27 +605,6 @@ public class CachingHmsClient implements HmsClient {
     }
 
     @Override
-    public long openTxn(String user) {
-        return delegate.openTxn(user);
-    }
-
-    @Override
-    public void commitTxn(long txnId) {
-        delegate.commitTxn(txnId);
-    }
-
-    @Override
-    public Map<String, String> getValidWriteIds(String fullTableName, long currentTransactionId) {
-        return delegate.getValidWriteIds(fullTableName, currentTransactionId);
-    }
-
-    @Override
-    public void acquireSharedLock(String queryId, long txnId, String user, String dbName,
-            String tableName, List<String> partitionNames, long timeoutMs) {
-        delegate.acquireSharedLock(queryId, txnId, user, dbName, tableName, partitionNames, timeoutMs);
-    }
-
-    @Override
     public long acquireExclusiveTableLock(String queryId, String user, String dbName,
             String tableName, long timeoutMs) {
         return delegate.acquireExclusiveTableLock(queryId, user, dbName, tableName, timeoutMs);

@@ -35,18 +35,14 @@ import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.connector.spi.scan.ConnectorSplitSource;
 import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
-import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.foundation.format.FileCompression;
 import org.apache.doris.thrift.TFileCompressType;
-import org.apache.doris.thrift.TFileScanRangeParams;
-import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.FileNotFoundException;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -61,7 +57,6 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.UnaryOperator;
 
 /**
  * Scan plan provider for Hive tables.
@@ -74,8 +69,7 @@ import java.util.function.UnaryOperator;
  *   <li>Return {@link HiveScanRange} for each file split</li>
  * </ol>
  *
- * <p>Non-transactional tables can stream file splits without materializing a partition's ranges.
- * Transactional tables retain snapshot-aware synchronous planning.</p>
+ * <p>Tables can stream file splits without materializing a partition's ranges.</p>
  */
 
 public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
@@ -90,12 +84,6 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
     private static final int DEFAULT_BATCH_THRESHOLD = 1024;
 
     /**
-     * Connector-internal signal (consumed by {@link #populateScanLevelParams}) marking a full-ACID
-     * (transactional) Hive scan; drives the scan-level {@code table_format_type} stamp. Not a BE-facing key.
-     */
-    public static final String PROP_TRANSACTIONAL_HIVE = "transactional_hive";
-
-    /**
      * Session variable gating the OpenX-JSON "read the whole JSON row into one CSV column" mode (legacy
      * SessionVariable.read_hive_json_in_one_column). Byte-identical to the fe-core session-var name; it is
      * surfaced through ConnectorSession.getSessionProperties() (VariableMgr dumps all visible vars).
@@ -103,29 +91,22 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
     private static final String SESSION_READ_HIVE_JSON_IN_ONE_COLUMN = "read_hive_json_in_one_column";
     static final String SCAN_REUSE_NAMESPACE = "hms.scan-reuse";
 
-    /** Input format of a full-ACID (ORC) transactional Hive table; other formats are rejected. */
-    private static final String ORC_ACID_INPUT_FORMAT = "org.apache.hadoop.hive.ql.io.orc.OrcInputFormat";
-
     private final HmsClient hmsClient;
     private final HiveCatalogProperties catalogProperties;
-    // Engine-owned, per-catalog filesystem accessor. The non-ACID listing path borrows the Doris FileSystem via
+    // Engine-owned, per-catalog filesystem accessor. The listing path borrows the Doris FileSystem via
     // storage().getFileSystem(session) (never closes it — the engine owns its lifecycle) to list partition
     // directories, replacing bare Hadoop FileSystem.get (FIX-HIVEFS: the hive plugin bundles no HDFS impl).
     private final ConnectorContext context;
-    private final HiveReadTransactionManager readTxnManager;
     // Connector-owned directory-listing cache (the SAME instance HiveConnector shares with HiveConnectorMetadata),
-    // so a repeated scan of the same partition directory is served from the cache instead of re-listing. Only the
-    // plain (non-ACID) path uses it; the ACID path lists via HiveAcidUtil and is uncached (legacy parity).
+    // so a repeated scan of the same partition directory is served from the cache instead of re-listing.
     private final HiveFileListingCache fileListingCache;
     private final PartitionBatchProfile partitionBatchProfile = new PartitionBatchProfile();
 
     public HiveScanPlanProvider(HmsClient hmsClient, HiveCatalogProperties catalogProperties,
-            ConnectorContext context, HiveReadTransactionManager readTxnManager,
-            HiveFileListingCache fileListingCache) {
+            ConnectorContext context, HiveFileListingCache fileListingCache) {
         this.hmsClient = hmsClient;
         this.catalogProperties = catalogProperties;
         this.context = context;
-        this.readTxnManager = readTxnManager;
         this.fileListingCache = fileListingCache;
     }
 
@@ -143,12 +124,8 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
     @Override
     public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
         HiveTableHandle hiveHandle = (HiveTableHandle) request.getTableHandle();
+        rejectTransactionalRead(hiveHandle);
         if (session == null || !session.isExternalScanTaskReuseEnabled()) {
-            return doPlanScan(session, request);
-        }
-        if (hiveHandle.isTransactional()) {
-            // ACID / INSERT_ONLY reads open a per-scan read transaction with a write-id snapshot and
-            // a shared metastore lock; reusing the planned ranges would skip that transaction.
             return doPlanScan(session, request);
         }
         // Statement-scoped reuse: within one statement the identical scan (same table, same
@@ -199,27 +176,18 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         boolean isLzo = isLzoInputFormat(hiveHandle.getInputFormat());
         // LZO text is NOT splittable: a .lzo stream cannot be decompressed from an arbitrary byte offset.
         // Legacy HiveUtil.isSplittable returned false for LZO; HiveFileFormat maps LZO text to TEXT (which
-        // reports splittable), so the LZO case must be masked out here. ACID is never LZO, so this leaves the
-        // transactional branch unchanged.
+        // reports splittable), so the LZO case must be masked out here.
         boolean splittable = fileFormat.isSplittable() && !isLzo;
 
         List<ConnectorScanRange> ranges = new ArrayList<>();
 
-        if (hiveHandle.isTransactional()) {
-            // Transactional (ACID) table: descend into base/delta directories under the query's write-id
-            // snapshot and emit ACID-annotated ranges. Borrows the engine's per-catalog Doris FileSystem to
-            // list (same source as the non-ACID branch below; the engine owns its lifecycle — never closed here).
-            planAcidScan(session, hiveHandle, partitions, storage().getFileSystem(session), fileFormat,
-                    splittable, targetSplitSize, ranges);
-        } else {
-            // Borrow the engine's per-catalog Doris FileSystem to list partition directories (see field javadoc).
-            FileSystem fs = storage().getFileSystem(session);
-            for (PartitionScanInfo partition : partitions) {
-                HiveFileFormat partFormat = partition.fileFormat != null
-                        ? partition.fileFormat : fileFormat;
-                listAndSplitFiles(dbName, tableName, partition, partFormat,
-                        splittable, isLzo, targetSplitSize, fs, ranges, completeness);
-            }
+        // Borrow the engine's per-catalog Doris FileSystem to list partition directories (see field javadoc).
+        FileSystem fs = storage().getFileSystem(session);
+        for (PartitionScanInfo partition : partitions) {
+            HiveFileFormat partFormat = partition.fileFormat != null
+                    ? partition.fileFormat : fileFormat;
+            listAndSplitFiles(dbName, tableName, partition, partFormat,
+                    splittable, isLzo, targetSplitSize, fs, ranges, completeness);
         }
 
         LOG.info("Hive scan plan: table={}.{}, partitions={}, splits={}",
@@ -235,25 +203,21 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
      * partition's files synchronously (legacy {@code HiveScanNode} went async at
      * {@code num_partitions_in_batch_mode}).
      *
-     * <p>Transactional/ACID tables are excluded DELIBERATELY: their scan opens one metastore read transaction
-     * (see {@link #planAcidScan}); running the per-batch resolution on background threads would open — and leak
-     * — a read transaction per batch. ACID partitioned tables keep the synchronous {@link #planScan} path
-     * (correct, just not streamed). The transactional test uses the SAME {@code isTransactional()} accessor
-     * {@link #planScan} branches on.</p>
      */
     @Override
     public boolean supportsBatchScan(ConnectorSession session, ConnectorTableHandle handle) {
         HiveTableHandle hiveHandle = (HiveTableHandle) handle;
+        rejectTransactionalRead(hiveHandle);
         List<String> partKeyNames = hiveHandle.getPartitionKeyNames();
-        return partKeyNames != null && !partKeyNames.isEmpty() && !hiveHandle.isTransactional();
+        return partKeyNames != null && !partKeyNames.isEmpty();
     }
 
     @Override
     public long streamingSplitEstimate(ConnectorSession session, ConnectorTableHandle handle,
             Optional<ConnectorExpression> filter, boolean countPushdown) {
         HiveTableHandle hiveHandle = (HiveTableHandle) handle;
-        if (hiveHandle.isTransactional()
-                || Boolean.FALSE.equals(session.getProperty("enable_external_table_batch_mode", Boolean.class))) {
+        rejectTransactionalRead(hiveHandle);
+        if (Boolean.FALSE.equals(session.getProperty("enable_external_table_batch_mode", Boolean.class))) {
             return -1;
         }
         int fileThreshold = sessionInt(session, "num_files_in_batch_mode", DEFAULT_BATCH_THRESHOLD);
@@ -291,10 +255,16 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
     @Override
     public ConnectorSplitSource streamSplits(ConnectorSession session, ConnectorScanRequest request) {
         HiveTableHandle hiveHandle = (HiveTableHandle) request.getTableHandle();
-        if (hiveHandle.isTransactional()) {
-            throw new DorisConnectorException("Transactional Hive scans require snapshot-aware planning");
-        }
+        rejectTransactionalRead(hiveHandle);
         return new HiveSplitSource(session, hiveHandle, request.getRequiredPartitions());
+    }
+
+    private static void rejectTransactionalRead(HiveTableHandle handle) {
+        // Both full ACID and insert-only layouts need write-id visibility; plain file scans
+        // (including metadata-only counts) cannot return a transactionally correct result.
+        if (handle.isTransactional()) {
+            throw new DorisConnectorException("Hive transactional table reads are no longer supported");
+        }
     }
 
     private static int sessionInt(ConnectorSession session, String name, int defaultValue) {
@@ -320,6 +290,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         private volatile boolean closed;
 
         HiveSplitSource(ConnectorSession session, HiveTableHandle handle, List<String> requiredPartitions) {
+            rejectTransactionalRead(handle);
             this.handle = handle;
             this.partitionNames = requiredPartitions.isEmpty() ? null : requiredPartitions;
             this.fs = storage().getFileSystem(session);
@@ -361,7 +332,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             }
             HiveFileFormat format = partition.fileFormat == null ? tableFormat : partition.fileFormat;
             ranges = splitFileRanges(file.getPath(), file.getLength(), file.getModificationTime(),
-                    partition, format, splittable, targetSplitSize, null, null);
+                    partition, format, splittable, targetSplitSize);
         }
 
         private void loadNextPartitionFiles() {
@@ -452,8 +423,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
      * {@link #planScan} per batch) would emit every partition's files once per batch — duplicate rows. The batch
      * strings are the metastore-rendered {@code key=value/...} partition names (the keys of the Nereids
      * selected-partition map), exactly the form {@code hmsClient.getPartitions} accepts, so batch-scoped
-     * resolution is a clean {@code getPartitions(batch)} round-trip. Only the non-ACID path is reachable here
-     * ({@link #supportsBatchScan} excludes transactional tables). Collects the same partition-scoped source
+     * resolution is a clean {@code getPartitions(batch)} round-trip. Collects the same partition-scoped source
      * that {@link #streamSplits} consumes lazily, preserving its file filtering and split boundaries.
      */
     @Override
@@ -478,87 +448,6 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         return ranges;
     }
 
-    /**
-     * Plans a scan of a transactional (ACID) Hive table.
-     *
-     * <p>Opens (or reuses) the query's read transaction — which acquires a shared read lock and pins a
-     * write-id snapshot — then, per partition, runs {@link HiveAcidUtil#getAcidState} to resolve the
-     * surviving base/delta data files and delete-delta directories, and emits one ACID-annotated
-     * {@link HiveScanRange} per data-file split. The BE subtracts the delete deltas on read.</p>
-     *
-     * <p><b>Live path.</b> Post-cutover an {@code hms} catalog is plugin-driven, so an hms-catalog
-     * transactional table is a {@code PluginDrivenExternalTable} routed through {@code PluginDrivenScanNode}
-     * straight into this method on a live query (the only read gate is the full-ACID ORC-format check below).
-     * It opens a real metastore transaction/lock; the matching commit (lock release) is driven by
-     * {@link HiveReadTransactionManager#deregister} at query finish (via {@link #releaseReadTransaction}),
-     * without which the shared read lock would leak for the metastore's lifetime.</p>
-     */
-    private void planAcidScan(ConnectorSession session, HiveTableHandle handle,
-            List<PartitionScanInfo> partitions, FileSystem fs, HiveFileFormat fileFormat,
-            boolean splittable, long targetSplitSize, List<ConnectorScanRange> ranges) {
-        boolean isFullAcid = handle.isFullAcid();
-        if (isFullAcid && !ORC_ACID_INPUT_FORMAT.equals(handle.getInputFormat())) {
-            // Full-ACID data is only stored in the ORC ACID layout; reject other formats loudly
-            // (legacy parity: HMSExternalTable.isFullAcidTable throws "no Orc Format").
-            throw new DorisConnectorException("This table is full Acid Table, but no Orc Format.");
-        }
-
-        // One transaction per transactional-table scan, pinning this table's write-id snapshot (mirrors
-        // fe-core, which opens a HiveTransaction per scan node). The manager holds it for commit at finish.
-        HiveReadTransaction txn = new HiveReadTransaction(session.getQueryId(), session.getUser(),
-                handle.getDbName(), handle.getTableName(), isFullAcid, hmsClient);
-        readTxnManager.register(txn);
-        for (PartitionScanInfo partition : partitions) {
-            if (!partition.partitionValues.isEmpty()) {
-                txn.addPartition(buildPartitionName(partition.partitionValues));
-            }
-        }
-        Map<String, String> txnValidIds = txn.getValidWriteIds();
-
-        for (PartitionScanInfo partition : partitions) {
-            HiveFileFormat partFormat = partition.fileFormat != null
-                    ? partition.fileFormat : fileFormat;
-            try {
-                // Descend the ACID directory tree through the engine-injected Doris FileSystem. The hive plugin
-                // bundles no HDFS impl, so a bare Hadoop FileSystem.get here would throw "No FileSystem for
-                // scheme hdfs" (FIX-HIVEFS); the engine owns this FileSystem's lifecycle — never closed here.
-                HiveAcidUtil.AcidState state = HiveAcidUtil.getAcidState(
-                        fs, partition.location, txnValidIds, isFullAcid);
-                // Only full-ACID reads are marked transactional_hive (delete deltas applied by the BE
-                // merge-on-read reader). Insert-only tables use the write-id snapshot to pick files but
-                // store plain data files, so their splits stay plain hive — matching legacy AcidUtil,
-                // which sets acidInfo only when isFullAcid.
-                // BE-facing ACID paths (delete-delta dir + partition location) also carry the raw HMS scheme; the
-                // BE transactional reader opens them via the same native S3 factory, so normalize s3a://->s3://.
-                String acidLocation = isFullAcid ? normalizeNativeUri(partition.location) : null;
-                List<String> encodedDeltas = isFullAcid
-                        ? encodeDeleteDeltas(state.getDeleteDeltas(), this::normalizeNativeUri) : null;
-                for (FileEntry dataFile : state.getDataFiles()) {
-                    splitFile(dataFile.location().uri(), dataFile.length(),
-                            dataFile.modificationTime(), partition, partFormat, splittable,
-                            targetSplitSize, acidLocation, encodedDeltas, ranges);
-                }
-            } catch (IOException e) {
-                throw new DorisConnectorException(
-                        "Failed to list ACID files for partition: " + partition.location, e);
-            }
-        }
-    }
-
-    /**
-     * Commits and deregisters this query's read transaction (opened by {@link #planAcidScan} via
-     * {@link HiveReadTransactionManager#register}), releasing the metastore shared read lock. Driven by the
-     * generic fe-core query-finish callback at query end; without it a transactional-hive read leaks the shared
-     * read lock for the metastore's lifetime. {@code readTxnManager} is the same per-connector manager that
-     * {@code register} used (both injected by {@code HiveConnector}), so the {@code queryId} keys match.
-     * {@code deregister} is idempotent (a no-op for a query that opened no transaction) and swallows a commit
-     * failure, matching the best-effort SPI contract.
-     */
-    @Override
-    public void releaseReadTransaction(String queryId) {
-        readTxnManager.deregister(queryId);
-    }
-
     @Override
     public List<ConnectorScanProfile> collectScanProfiles(ConnectorSession session) {
         List<ConnectorScanProfile> profiles = new ArrayList<>(partitionBatchProfile.drain());
@@ -579,31 +468,6 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         return session.getStatementScope().computeIfAbsent(key, PartitionBatchProfile::new);
     }
 
-    /** Encodes each delete-delta as {@code "dir|file1,file2"} for {@link HiveScanRange.Builder#acidInfo}. */
-    private static List<String> encodeDeleteDeltas(List<HiveAcidUtil.DeleteDelta> deltas,
-            UnaryOperator<String> nativePathNormalizer) {
-        List<String> encoded = new ArrayList<>(deltas.size());
-        for (HiveAcidUtil.DeleteDelta delta : deltas) {
-            // Normalize the delete-delta directory scheme (s3a://->s3://) for BE's native reader; the file names
-            // are bare names appended after '|'.
-            encoded.add(nativePathNormalizer.apply(delta.getDirectoryLocation()) + "|"
-                    + String.join(",", delta.getFileNames()));
-        }
-        return encoded;
-    }
-
-    /** Builds the Hive partition name {@code k1=v1/k2=v2} used for the shared read lock components. */
-    private static String buildPartitionName(Map<String, String> partitionValues) {
-        StringBuilder sb = new StringBuilder();
-        for (Map.Entry<String, String> entry : partitionValues.entrySet()) {
-            if (sb.length() > 0) {
-                sb.append('/');
-            }
-            sb.append(entry.getKey()).append('=').append(entry.getValue());
-        }
-        return sb.toString();
-    }
-
     @Override
     public Map<String, String> getScanNodeProperties(
             ConnectorSession session,
@@ -611,6 +475,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             List<ConnectorColumnHandle> columns,
             Optional<ConnectorExpression> filter) {
         HiveTableHandle hiveHandle = (HiveTableHandle) handle;
+        rejectTransactionalRead(hiveHandle);
         Map<String, String> props = new HashMap<>();
 
         // File format type
@@ -658,37 +523,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             props.putAll(textProps);
         }
 
-        // #65437: BE selects the file scanner from SCAN-LEVEL params before the per-range splits arrive, and its
-        // FileScannerV2 gate excludes scans whose scan-level table_format_type is "transactional_hive" (V2 does
-        // not apply ACID delete deltas). Signal a full-ACID scan so populateScanLevelParams stamps it at scan
-        // level; gate on isFullAcid() to match the per-range marker (insert-only tables keep the V2 fast path).
-        if (hiveHandle.isFullAcid()) {
-            props.put(PROP_TRANSACTIONAL_HIVE, "true");
-        }
-
         return props;
-    }
-
-    /**
-     * Stamps the SCAN-LEVEL table format for a full-ACID Hive scan (signalled by {@link #PROP_TRANSACTIONAL_HIVE}
-     * from {@link #getScanNodeProperties}). BE's FileScannerV2 selection reads {@code table_format_type} from the
-     * scan-level params (before per-range splits are fetched); without this stamp a transactional Hive read would
-     * wrongly use FileScannerV2, which does not apply ACID delete deltas — deleted rows would reappear. Mirrors the
-     * legacy {@code HiveScanNode.markTransactionalHiveScanParams} (#65437); the generic {@code PluginDrivenScanNode}
-     * invokes this hook after building the scan-level params.
-     */
-    @Override
-    public void populateScanLevelParams(TFileScanRangeParams params, Map<String, String> nodeProperties) {
-        if ("true".equals(nodeProperties.get(PROP_TRANSACTIONAL_HIVE))) {
-            markTransactionalHiveScanParams(params);
-        }
-    }
-
-    static void markTransactionalHiveScanParams(TFileScanRangeParams params) {
-        TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
-        // Same literal the per-range marker uses (HiveScanRange); BE matches table_format_type == "transactional_hive".
-        tableFormatFileDesc.setTableFormatType("transactional_hive");
-        params.setTableFormatParams(tableFormatFileDesc);
     }
 
     /**
@@ -792,7 +627,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
                 continue;
             }
             splitFile(file.getPath(), file.getLength(), file.getModificationTime(),
-                    partition, fileFormat, splittable, targetSplitSize, null, null, ranges);
+                    partition, fileFormat, splittable, targetSplitSize, ranges);
         }
     }
 
@@ -891,21 +726,16 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
 
     /**
      * Splits a file into scan ranges based on target split size.
-     *
-     * <p>When {@code acidPartitionLocation} is non-null the ranges carry ACID delete-delta info
-     * (marking them {@code transactional_hive}); otherwise they are plain Hive ranges.</p>
      */
     private void splitFile(String filePath, long fileSize, long modTime, PartitionScanInfo partition,
             HiveFileFormat fileFormat, boolean splittable, long targetSplitSize,
-            String acidPartitionLocation, List<String> acidDeltas,
             List<ConnectorScanRange> ranges) {
         splitFileRanges(filePath, fileSize, modTime, partition, fileFormat, splittable,
-                targetSplitSize, acidPartitionLocation, acidDeltas).forEachRemaining(ranges::add);
+                targetSplitSize).forEachRemaining(ranges::add);
     }
 
     private Iterator<ConnectorScanRange> splitFileRanges(String filePath, long fileSize, long modTime,
-            PartitionScanInfo partition, HiveFileFormat fileFormat, boolean splittable, long targetSplitSize,
-            String acidPartitionLocation, List<String> acidDeltas) {
+            PartitionScanInfo partition, HiveFileFormat fileFormat, boolean splittable, long targetSplitSize) {
         if (fileSize == 0) {
             return Collections.emptyIterator();
         }
@@ -931,7 +761,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
                 }
                 long length = Math.min(splitSize, fileSize - offset);
                 ConnectorScanRange range = newRangeBuilder(normalizedPath, offset, length, fileSize,
-                        modTime, fileFormat, partition, acidPartitionLocation, acidDeltas).build();
+                        modTime, fileFormat, partition).build();
                 offset += length;
                 return range;
             }
@@ -939,8 +769,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     private static HiveScanRange.Builder newRangeBuilder(String filePath, long start, long length,
-            long fileSize, long modTime, HiveFileFormat fileFormat, PartitionScanInfo partition,
-            String acidPartitionLocation, List<String> acidDeltas) {
+            long fileSize, long modTime, HiveFileFormat fileFormat, PartitionScanInfo partition) {
         HiveScanRange.Builder builder = HiveScanRange.builder()
                 .path(filePath)
                 .start(start)
@@ -950,10 +779,6 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
                 .fileFormat(fileFormat.getFormatName())
                 .tableFormatType("hive")
                 .partitionValues(partition.partitionValues);
-        if (acidPartitionLocation != null) {
-            // Sets tableFormatType="transactional_hive" and attaches the delete-delta descriptors.
-            builder.acidInfo(acidPartitionLocation, acidDeltas);
-        }
         return builder;
     }
 

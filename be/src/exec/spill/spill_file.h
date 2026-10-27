@@ -78,6 +78,7 @@ public:
 
     /// Returns true after the writer has been closed (all data flushed).
     bool ready_for_reading() const { return _ready_for_reading; }
+    bool is_remote() const;
 
     /// Create a SpillFileWriter that automatically manages multi-part rotation.
     /// Only one writer should exist per SpillFile at a time.
