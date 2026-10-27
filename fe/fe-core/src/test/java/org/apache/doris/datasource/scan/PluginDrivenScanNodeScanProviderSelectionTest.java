@@ -40,6 +40,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -61,6 +62,8 @@ public class PluginDrivenScanNodeScanProviderSelectionTest {
     @Test
     public void mixedNativeRangesKeepParquetScannerContract() {
         PluginDrivenScanNode node = Mockito.mock(PluginDrivenScanNode.class, Mockito.CALLS_REAL_METHODS);
+        // CALLS_REAL_METHODS skips PlanNode's field initializer; real scans start with an empty predicate list.
+        Deencapsulation.setField(node, "conjuncts", Collections.emptyList());
         TFileScanRangeParams params = new TFileScanRangeParams();
         Deencapsulation.setField(node, "params", params);
         ConnectorScanRange scanRange = Mockito.mock(ConnectorScanRange.class);
