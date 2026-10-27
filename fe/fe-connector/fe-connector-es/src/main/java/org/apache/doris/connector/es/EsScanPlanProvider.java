@@ -263,7 +263,7 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
         Map<String, String> fieldsContext = Collections.emptyMap();
         List<String> needCompatDateFields = Collections.emptyList();
         Map<String, String> column2typeMap = Collections.emptyMap();
-        Map<String, Integer> keywordIgnoreAboveLimits = Collections.emptyMap();
+        Set<String> unsafeFields = Collections.emptySet();
 
         if (state.getFieldContext() != null) {
             if (props.isKeywordSniff()) {
@@ -271,18 +271,17 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
             }
             needCompatDateFields = state.getFieldContext().getNeedCompatDateFields();
             column2typeMap = state.getFieldContext().getColumn2typeMap();
-            keywordIgnoreAboveLimits = new HashMap<>(state.getFieldContext().getKeywordIgnoreAboveLimits());
+            unsafeFields = new HashSet<>(state.getFieldContext().getSourceValueUnsafeFields());
             if (!props.isKeywordSniff()) {
-                state.getFieldContext().getFetchFieldsContext().keySet().forEach(keywordIgnoreAboveLimits::remove);
+                // Without keyword sniff a term targets analyzed text, even when a safe raw subfield
+                // exists. Do not apply the unused raw path's safety to the actual text query.
+                unsafeFields.addAll(state.getFieldContext().getFetchFieldsContext().keySet());
             }
         }
 
         return EsQueryDslBuilder.buildQueryDslWithResult(
                 filter.get(), fieldsContext, column2typeMap,
-                props.isLikePushDown(), needCompatDateFields,
-                state.getFieldContext() != null
-                        ? state.getFieldContext().getSourceValueUnsafeFields() : Collections.emptySet(),
-                keywordIgnoreAboveLimits);
+                props.isLikePushDown(), needCompatDateFields, unsafeFields);
     }
 
     private EsMetadataState fetchMetadataState(ConnectorSession session, EsTableHandle handle,

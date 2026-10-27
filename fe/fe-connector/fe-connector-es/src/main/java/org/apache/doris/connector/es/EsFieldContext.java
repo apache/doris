@@ -42,7 +42,6 @@ public class EsFieldContext {
     private final Map<String, String> docValueFieldsContext = new HashMap<>();
     private final List<String> needCompatDateFields = new ArrayList<>();
     private final Set<String> sourceValueUnsafeFields = new HashSet<>();
-    private final Map<String, Integer> keywordIgnoreAboveLimits = new HashMap<>();
 
     private final Map<String, String> column2typeMap = new HashMap<>();
 
@@ -68,10 +67,6 @@ public class EsFieldContext {
 
     public Set<String> getSourceValueUnsafeFields() {
         return sourceValueUnsafeFields;
-    }
-
-    public Map<String, Integer> getKeywordIgnoreAboveLimits() {
-        return keywordIgnoreAboveLimits;
     }
 
     @Override

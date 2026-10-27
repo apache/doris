@@ -76,24 +76,109 @@
 3
 4
 
+-- !dv_false_v2_false_parallel_false_selected_values --
+1	cat	cat
+2	dog	dog
+3	Lion	cat
+4	\N	\N
+
 -- !dv_false_v2_false_parallel_false_native_0 --
 1
 2
 3
+4
 
 -- !dv_false_v2_false_parallel_false_native_1 --
 1
-2
 3
 
 -- !dv_false_v2_false_parallel_false_native_2 --
 1
-2
 3
 
 -- !dv_false_v2_false_parallel_false_native_3 --
 
 -- !dv_false_v2_false_parallel_false_native_4 --
+
+-- !dv_false_v2_false_parallel_false_native_5 --
+1
+
+-- !dv_false_v2_false_parallel_false_preserved_source_0 --
+1
+2
+3
+4
+
+-- !dv_false_v2_false_parallel_false_preserved_source_1 --
+1
+2
+3
+4
+
+-- !dv_false_v2_false_parallel_false_arrays --
+1	["cat","elephant"]	["cat","elephant"]
+2	["cat"]	["cat"]
+3	[]	[]
+4	[null]	[null]
+5	cat	cat
+6	elephant	elephant
+
+-- !dv_false_v2_false_parallel_false_array_predicate_0 --
+5
+
+-- !dv_false_v2_false_parallel_false_array_predicate_1 --
+5
+
+-- !dv_false_v2_false_parallel_false_array_predicate_2 --
+1
+2
+3
+4
+6
+
+-- !dv_false_v2_false_parallel_false_array_predicate_3 --
+1
+
+-- !dv_false_v2_false_parallel_false_array_predicate_4 --
+
+-- !dv_false_v2_false_parallel_false_array_predicate_5 --
+1
+2
+3
+4
+5
+6
+
+-- !dv_false_v2_false_parallel_false_array_predicate_6 --
+5
+
+-- !dv_false_v2_false_parallel_false_array_predicate_7 --
+5
+
+-- !dv_false_v2_false_parallel_false_array_predicate_8 --
+1
+2
+3
+4
+6
+
+-- !dv_false_v2_false_parallel_false_array_predicate_9 --
+
+-- !dv_false_v2_false_parallel_false_array_predicate_10 --
+5
+6
+
+-- !dv_false_v2_false_parallel_false_array_predicate_11 --
+1
+2
+3
+4
+6
+
+-- !dv_false_v2_false_parallel_false_native_arrays --
+1
+2
+5
 
 -- !dv_false_v2_false_parallel_false_limit_0 --
 1
@@ -240,24 +325,109 @@
 3
 4
 
+-- !dv_false_v2_false_parallel_true_selected_values --
+1	cat	cat
+2	dog	dog
+3	Lion	cat
+4	\N	\N
+
 -- !dv_false_v2_false_parallel_true_native_0 --
 1
 2
 3
+4
 
 -- !dv_false_v2_false_parallel_true_native_1 --
 1
-2
 3
 
 -- !dv_false_v2_false_parallel_true_native_2 --
 1
-2
 3
 
 -- !dv_false_v2_false_parallel_true_native_3 --
 
 -- !dv_false_v2_false_parallel_true_native_4 --
+
+-- !dv_false_v2_false_parallel_true_native_5 --
+1
+
+-- !dv_false_v2_false_parallel_true_preserved_source_0 --
+1
+2
+3
+4
+
+-- !dv_false_v2_false_parallel_true_preserved_source_1 --
+1
+2
+3
+4
+
+-- !dv_false_v2_false_parallel_true_arrays --
+1	["cat","elephant"]	["cat","elephant"]
+2	["cat"]	["cat"]
+3	[]	[]
+4	[null]	[null]
+5	cat	cat
+6	elephant	elephant
+
+-- !dv_false_v2_false_parallel_true_array_predicate_0 --
+5
+
+-- !dv_false_v2_false_parallel_true_array_predicate_1 --
+5
+
+-- !dv_false_v2_false_parallel_true_array_predicate_2 --
+1
+2
+3
+4
+6
+
+-- !dv_false_v2_false_parallel_true_array_predicate_3 --
+1
+
+-- !dv_false_v2_false_parallel_true_array_predicate_4 --
+
+-- !dv_false_v2_false_parallel_true_array_predicate_5 --
+1
+2
+3
+4
+5
+6
+
+-- !dv_false_v2_false_parallel_true_array_predicate_6 --
+5
+
+-- !dv_false_v2_false_parallel_true_array_predicate_7 --
+5
+
+-- !dv_false_v2_false_parallel_true_array_predicate_8 --
+1
+2
+3
+4
+6
+
+-- !dv_false_v2_false_parallel_true_array_predicate_9 --
+
+-- !dv_false_v2_false_parallel_true_array_predicate_10 --
+5
+6
+
+-- !dv_false_v2_false_parallel_true_array_predicate_11 --
+1
+2
+3
+4
+6
+
+-- !dv_false_v2_false_parallel_true_native_arrays --
+1
+2
+5
 
 -- !dv_false_v2_false_parallel_true_limit_0 --
 1
@@ -404,24 +574,109 @@
 3
 4
 
+-- !dv_false_v2_true_parallel_false_selected_values --
+1	cat	cat
+2	dog	dog
+3	Lion	cat
+4	\N	\N
+
 -- !dv_false_v2_true_parallel_false_native_0 --
 1
 2
 3
+4
 
 -- !dv_false_v2_true_parallel_false_native_1 --
 1
-2
 3
 
 -- !dv_false_v2_true_parallel_false_native_2 --
 1
-2
 3
 
 -- !dv_false_v2_true_parallel_false_native_3 --
 
 -- !dv_false_v2_true_parallel_false_native_4 --
+
+-- !dv_false_v2_true_parallel_false_native_5 --
+1
+
+-- !dv_false_v2_true_parallel_false_preserved_source_0 --
+1
+2
+3
+4
+
+-- !dv_false_v2_true_parallel_false_preserved_source_1 --
+1
+2
+3
+4
+
+-- !dv_false_v2_true_parallel_false_arrays --
+1	["cat","elephant"]	["cat","elephant"]
+2	["cat"]	["cat"]
+3	[]	[]
+4	[null]	[null]
+5	cat	cat
+6	elephant	elephant
+
+-- !dv_false_v2_true_parallel_false_array_predicate_0 --
+5
+
+-- !dv_false_v2_true_parallel_false_array_predicate_1 --
+5
+
+-- !dv_false_v2_true_parallel_false_array_predicate_2 --
+1
+2
+3
+4
+6
+
+-- !dv_false_v2_true_parallel_false_array_predicate_3 --
+1
+
+-- !dv_false_v2_true_parallel_false_array_predicate_4 --
+
+-- !dv_false_v2_true_parallel_false_array_predicate_5 --
+1
+2
+3
+4
+5
+6
+
+-- !dv_false_v2_true_parallel_false_array_predicate_6 --
+5
+
+-- !dv_false_v2_true_parallel_false_array_predicate_7 --
+5
+
+-- !dv_false_v2_true_parallel_false_array_predicate_8 --
+1
+2
+3
+4
+6
+
+-- !dv_false_v2_true_parallel_false_array_predicate_9 --
+
+-- !dv_false_v2_true_parallel_false_array_predicate_10 --
+5
+6
+
+-- !dv_false_v2_true_parallel_false_array_predicate_11 --
+1
+2
+3
+4
+6
+
+-- !dv_false_v2_true_parallel_false_native_arrays --
+1
+2
+5
 
 -- !dv_false_v2_true_parallel_false_limit_0 --
 1
@@ -568,24 +823,109 @@
 3
 4
 
+-- !dv_false_v2_true_parallel_true_selected_values --
+1	cat	cat
+2	dog	dog
+3	Lion	cat
+4	\N	\N
+
 -- !dv_false_v2_true_parallel_true_native_0 --
 1
 2
 3
+4
 
 -- !dv_false_v2_true_parallel_true_native_1 --
 1
-2
 3
 
 -- !dv_false_v2_true_parallel_true_native_2 --
 1
-2
 3
 
 -- !dv_false_v2_true_parallel_true_native_3 --
 
 -- !dv_false_v2_true_parallel_true_native_4 --
+
+-- !dv_false_v2_true_parallel_true_native_5 --
+1
+
+-- !dv_false_v2_true_parallel_true_preserved_source_0 --
+1
+2
+3
+4
+
+-- !dv_false_v2_true_parallel_true_preserved_source_1 --
+1
+2
+3
+4
+
+-- !dv_false_v2_true_parallel_true_arrays --
+1	["cat","elephant"]	["cat","elephant"]
+2	["cat"]	["cat"]
+3	[]	[]
+4	[null]	[null]
+5	cat	cat
+6	elephant	elephant
+
+-- !dv_false_v2_true_parallel_true_array_predicate_0 --
+5
+
+-- !dv_false_v2_true_parallel_true_array_predicate_1 --
+5
+
+-- !dv_false_v2_true_parallel_true_array_predicate_2 --
+1
+2
+3
+4
+6
+
+-- !dv_false_v2_true_parallel_true_array_predicate_3 --
+1
+
+-- !dv_false_v2_true_parallel_true_array_predicate_4 --
+
+-- !dv_false_v2_true_parallel_true_array_predicate_5 --
+1
+2
+3
+4
+5
+6
+
+-- !dv_false_v2_true_parallel_true_array_predicate_6 --
+5
+
+-- !dv_false_v2_true_parallel_true_array_predicate_7 --
+5
+
+-- !dv_false_v2_true_parallel_true_array_predicate_8 --
+1
+2
+3
+4
+6
+
+-- !dv_false_v2_true_parallel_true_array_predicate_9 --
+
+-- !dv_false_v2_true_parallel_true_array_predicate_10 --
+5
+6
+
+-- !dv_false_v2_true_parallel_true_array_predicate_11 --
+1
+2
+3
+4
+6
+
+-- !dv_false_v2_true_parallel_true_native_arrays --
+1
+2
+5
 
 -- !dv_false_v2_true_parallel_true_limit_0 --
 1
@@ -732,24 +1072,109 @@
 3
 4
 
+-- !dv_true_v2_false_parallel_false_selected_values --
+1	cat	cat
+2	dog	dog
+3	Lion	cat
+4	\N	\N
+
 -- !dv_true_v2_false_parallel_false_native_0 --
 1
 2
 3
+4
 
 -- !dv_true_v2_false_parallel_false_native_1 --
 1
-2
 3
 
 -- !dv_true_v2_false_parallel_false_native_2 --
 1
-2
 3
 
 -- !dv_true_v2_false_parallel_false_native_3 --
 
 -- !dv_true_v2_false_parallel_false_native_4 --
+
+-- !dv_true_v2_false_parallel_false_native_5 --
+1
+
+-- !dv_true_v2_false_parallel_false_preserved_source_0 --
+1
+2
+3
+4
+
+-- !dv_true_v2_false_parallel_false_preserved_source_1 --
+1
+2
+3
+4
+
+-- !dv_true_v2_false_parallel_false_arrays --
+1	["cat","elephant"]	["cat","elephant"]
+2	["cat"]	["cat"]
+3	[]	[]
+4	[null]	[null]
+5	cat	cat
+6	elephant	elephant
+
+-- !dv_true_v2_false_parallel_false_array_predicate_0 --
+5
+
+-- !dv_true_v2_false_parallel_false_array_predicate_1 --
+5
+
+-- !dv_true_v2_false_parallel_false_array_predicate_2 --
+1
+2
+3
+4
+6
+
+-- !dv_true_v2_false_parallel_false_array_predicate_3 --
+1
+
+-- !dv_true_v2_false_parallel_false_array_predicate_4 --
+
+-- !dv_true_v2_false_parallel_false_array_predicate_5 --
+1
+2
+3
+4
+5
+6
+
+-- !dv_true_v2_false_parallel_false_array_predicate_6 --
+5
+
+-- !dv_true_v2_false_parallel_false_array_predicate_7 --
+5
+
+-- !dv_true_v2_false_parallel_false_array_predicate_8 --
+1
+2
+3
+4
+6
+
+-- !dv_true_v2_false_parallel_false_array_predicate_9 --
+
+-- !dv_true_v2_false_parallel_false_array_predicate_10 --
+5
+6
+
+-- !dv_true_v2_false_parallel_false_array_predicate_11 --
+1
+2
+3
+4
+6
+
+-- !dv_true_v2_false_parallel_false_native_arrays --
+1
+2
+5
 
 -- !dv_true_v2_false_parallel_false_limit_0 --
 1
@@ -896,24 +1321,109 @@
 3
 4
 
+-- !dv_true_v2_false_parallel_true_selected_values --
+1	cat	cat
+2	dog	dog
+3	Lion	cat
+4	\N	\N
+
 -- !dv_true_v2_false_parallel_true_native_0 --
 1
 2
 3
+4
 
 -- !dv_true_v2_false_parallel_true_native_1 --
 1
-2
 3
 
 -- !dv_true_v2_false_parallel_true_native_2 --
 1
-2
 3
 
 -- !dv_true_v2_false_parallel_true_native_3 --
 
 -- !dv_true_v2_false_parallel_true_native_4 --
+
+-- !dv_true_v2_false_parallel_true_native_5 --
+1
+
+-- !dv_true_v2_false_parallel_true_preserved_source_0 --
+1
+2
+3
+4
+
+-- !dv_true_v2_false_parallel_true_preserved_source_1 --
+1
+2
+3
+4
+
+-- !dv_true_v2_false_parallel_true_arrays --
+1	["cat","elephant"]	["cat","elephant"]
+2	["cat"]	["cat"]
+3	[]	[]
+4	[null]	[null]
+5	cat	cat
+6	elephant	elephant
+
+-- !dv_true_v2_false_parallel_true_array_predicate_0 --
+5
+
+-- !dv_true_v2_false_parallel_true_array_predicate_1 --
+5
+
+-- !dv_true_v2_false_parallel_true_array_predicate_2 --
+1
+2
+3
+4
+6
+
+-- !dv_true_v2_false_parallel_true_array_predicate_3 --
+1
+
+-- !dv_true_v2_false_parallel_true_array_predicate_4 --
+
+-- !dv_true_v2_false_parallel_true_array_predicate_5 --
+1
+2
+3
+4
+5
+6
+
+-- !dv_true_v2_false_parallel_true_array_predicate_6 --
+5
+
+-- !dv_true_v2_false_parallel_true_array_predicate_7 --
+5
+
+-- !dv_true_v2_false_parallel_true_array_predicate_8 --
+1
+2
+3
+4
+6
+
+-- !dv_true_v2_false_parallel_true_array_predicate_9 --
+
+-- !dv_true_v2_false_parallel_true_array_predicate_10 --
+5
+6
+
+-- !dv_true_v2_false_parallel_true_array_predicate_11 --
+1
+2
+3
+4
+6
+
+-- !dv_true_v2_false_parallel_true_native_arrays --
+1
+2
+5
 
 -- !dv_true_v2_false_parallel_true_limit_0 --
 1
@@ -1060,24 +1570,109 @@
 3
 4
 
+-- !dv_true_v2_true_parallel_false_selected_values --
+1	cat	cat
+2	dog	dog
+3	Lion	cat
+4	\N	\N
+
 -- !dv_true_v2_true_parallel_false_native_0 --
 1
 2
 3
+4
 
 -- !dv_true_v2_true_parallel_false_native_1 --
 1
-2
 3
 
 -- !dv_true_v2_true_parallel_false_native_2 --
 1
-2
 3
 
 -- !dv_true_v2_true_parallel_false_native_3 --
 
 -- !dv_true_v2_true_parallel_false_native_4 --
+
+-- !dv_true_v2_true_parallel_false_native_5 --
+1
+
+-- !dv_true_v2_true_parallel_false_preserved_source_0 --
+1
+2
+3
+4
+
+-- !dv_true_v2_true_parallel_false_preserved_source_1 --
+1
+2
+3
+4
+
+-- !dv_true_v2_true_parallel_false_arrays --
+1	["cat","elephant"]	["cat","elephant"]
+2	["cat"]	["cat"]
+3	[]	[]
+4	[null]	[null]
+5	cat	cat
+6	elephant	elephant
+
+-- !dv_true_v2_true_parallel_false_array_predicate_0 --
+5
+
+-- !dv_true_v2_true_parallel_false_array_predicate_1 --
+5
+
+-- !dv_true_v2_true_parallel_false_array_predicate_2 --
+1
+2
+3
+4
+6
+
+-- !dv_true_v2_true_parallel_false_array_predicate_3 --
+1
+
+-- !dv_true_v2_true_parallel_false_array_predicate_4 --
+
+-- !dv_true_v2_true_parallel_false_array_predicate_5 --
+1
+2
+3
+4
+5
+6
+
+-- !dv_true_v2_true_parallel_false_array_predicate_6 --
+5
+
+-- !dv_true_v2_true_parallel_false_array_predicate_7 --
+5
+
+-- !dv_true_v2_true_parallel_false_array_predicate_8 --
+1
+2
+3
+4
+6
+
+-- !dv_true_v2_true_parallel_false_array_predicate_9 --
+
+-- !dv_true_v2_true_parallel_false_array_predicate_10 --
+5
+6
+
+-- !dv_true_v2_true_parallel_false_array_predicate_11 --
+1
+2
+3
+4
+6
+
+-- !dv_true_v2_true_parallel_false_native_arrays --
+1
+2
+5
 
 -- !dv_true_v2_true_parallel_false_limit_0 --
 1
@@ -1224,24 +1819,109 @@
 3
 4
 
+-- !dv_true_v2_true_parallel_true_selected_values --
+1	cat	cat
+2	dog	dog
+3	Lion	cat
+4	\N	\N
+
 -- !dv_true_v2_true_parallel_true_native_0 --
 1
 2
 3
+4
 
 -- !dv_true_v2_true_parallel_true_native_1 --
 1
-2
 3
 
 -- !dv_true_v2_true_parallel_true_native_2 --
 1
-2
 3
 
 -- !dv_true_v2_true_parallel_true_native_3 --
 
 -- !dv_true_v2_true_parallel_true_native_4 --
+
+-- !dv_true_v2_true_parallel_true_native_5 --
+1
+
+-- !dv_true_v2_true_parallel_true_preserved_source_0 --
+1
+2
+3
+4
+
+-- !dv_true_v2_true_parallel_true_preserved_source_1 --
+1
+2
+3
+4
+
+-- !dv_true_v2_true_parallel_true_arrays --
+1	["cat","elephant"]	["cat","elephant"]
+2	["cat"]	["cat"]
+3	[]	[]
+4	[null]	[null]
+5	cat	cat
+6	elephant	elephant
+
+-- !dv_true_v2_true_parallel_true_array_predicate_0 --
+5
+
+-- !dv_true_v2_true_parallel_true_array_predicate_1 --
+5
+
+-- !dv_true_v2_true_parallel_true_array_predicate_2 --
+1
+2
+3
+4
+6
+
+-- !dv_true_v2_true_parallel_true_array_predicate_3 --
+1
+
+-- !dv_true_v2_true_parallel_true_array_predicate_4 --
+
+-- !dv_true_v2_true_parallel_true_array_predicate_5 --
+1
+2
+3
+4
+5
+6
+
+-- !dv_true_v2_true_parallel_true_array_predicate_6 --
+5
+
+-- !dv_true_v2_true_parallel_true_array_predicate_7 --
+5
+
+-- !dv_true_v2_true_parallel_true_array_predicate_8 --
+1
+2
+3
+4
+6
+
+-- !dv_true_v2_true_parallel_true_array_predicate_9 --
+
+-- !dv_true_v2_true_parallel_true_array_predicate_10 --
+5
+6
+
+-- !dv_true_v2_true_parallel_true_array_predicate_11 --
+1
+2
+3
+4
+6
+
+-- !dv_true_v2_true_parallel_true_native_arrays --
+1
+2
+5
 
 -- !dv_true_v2_true_parallel_true_limit_0 --
 1

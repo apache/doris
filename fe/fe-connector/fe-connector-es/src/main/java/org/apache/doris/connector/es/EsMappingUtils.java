@@ -55,6 +55,16 @@ public final class EsMappingUtils {
     public static ObjectNode getMapping(String indexMapping) {
         try {
             ObjectNode jsonNodes = (ObjectNode) MAPPER.readTree(indexMapping);
+            // Alias mapping response order is unspecified. A bare/typed empty backing can appear
+            // first; select a populated schema without discarding its _meta array annotations.
+            for (JsonNode index : jsonNodes) {
+                ObjectNode mapping = (ObjectNode) index.get("mappings");
+                ObjectNode root = getRootSchema(mapping.deepCopy(), null, new ArrayList<>(), true);
+                if (root.path("properties").size() > 0) {
+                    return mapping;
+                }
+            }
+            // Preserve the existing diagnostic when no backing index provides a usable schema.
             return (ObjectNode) jsonNodes.iterator().next().get("mappings");
         } catch (IOException e) {
             throw new DorisConnectorException("Failed to parse ES mapping: " + e.getMessage());
@@ -159,17 +169,17 @@ public final class EsMappingUtils {
             String fieldType = fieldObject.get("type").asText();
             fieldContext.getColumn2typeMap().put(colName, fieldType);
             resolveDateFields(fieldContext, fieldObject, colName, fieldType);
-            resolveKeywordFields(fieldContext, fieldObject, colName, fieldType);
             resolveDocValuesFields(fieldContext, fieldObject, colName, fieldType);
         }
-        resolveSourceValueSafety(fieldContext, indexMapping, mappingType);
+        resolveSourceValueSafety(fieldContext, indexMapping, mappingType, properties);
         return fieldContext;
     }
 
-    private static void resolveSourceValueSafety(EsFieldContext context, String indexMapping, String mappingType) {
+    private static void resolveSourceValueSafety(EsFieldContext context, String indexMapping, String mappingType,
+            ObjectNode schemaProperties) {
         try {
-            // An alias can span mappings. Every backing index must preserve source semantics before
-            // a predicate may remove rows or doc_values may replace the value returned to Doris.
+            // Mapping-induced source/index differences on any alias backing index must prevent
+            // filtering or replacing source values through that path.
             List<ObjectNode> roots = new ArrayList<>();
             Set<String> columns = new HashSet<>(context.getColumn2typeMap().keySet());
             for (JsonNode index : MAPPER.readTree(indexMapping)) {
@@ -177,71 +187,96 @@ public final class EsMappingUtils {
                         new ArrayList<>(), true);
                 roots.add(root);
             }
-            // Only the first mapping's schema is exposed by Doris, including unprojected filter columns.
-            roots.get(0).path("properties").fieldNames().forEachRemaining(columns::add);
-            Set<String> inexactKeywords = new HashSet<>();
+            // Use the same populated schema as inference, including unprojected filter columns.
+            schemaProperties.fieldNames().forEachRemaining(columns::add);
+            // Filters can reference columns absent from the projection. Resolve their query paths
+            // from the exposed schema too; the projection still controls docvalue read eligibility.
+            for (String column : columns) {
+                ObjectNode field = (ObjectNode) schemaProperties.get(column);
+                resolveKeywordFields(context, field, column, field.path("type").asText());
+            }
+            Set<String> unsafeDocValues = new HashSet<>();
             for (ObjectNode root : roots) {
                 JsonNode properties = root.path("properties");
-                JsonNode source = root.path("_source");
-                boolean filteredSource = !source.path("enabled").asBoolean(true)
-                        || source.has("includes") || source.has("excludes");
                 Set<String> copyTargets = new HashSet<>();
                 collectCopyTargets(properties, copyTargets);
                 for (String column : columns) {
                     JsonNode field = properties.path(column);
-                    String indexedPath = context.getFetchFieldsContext().get(column);
-                    JsonNode indexedField = field;
-                    if (indexedPath != null) {
-                        indexedField = field.path("fields").path(indexedPath.substring(column.length() + 1));
-                    }
-                    boolean inexact = filteredSource || root.path("runtime").has(column)
-                            || copyTargets.contains(column) || changesSourceValueExceptLength(field)
-                            || changesSourceValueExceptLength(indexedField);
-                    for (JsonNode subfield : field.path("fields")) {
-                        if ("keyword".equals(subfield.path("type").asText())
-                                && changesSourceValueExceptLength(subfield)) {
-                            inexact = true;
-                        }
-                    }
-                    if (inexact || field.has("ignore_above") || indexedField.has("ignore_above")
-                            || hasUnsafeKeywordSubfield(field)) {
+                    JsonNode queryField = fieldAtPath(field, column, context.getFetchFieldsContext().get(column));
+                    JsonNode readField = fieldAtPath(field, column, context.getDocValueFieldsContext().get(column));
+                    boolean sourceChanged = filtersSourceColumn(root.path("_source"), column)
+                            || root.path("runtime").has(column) || copyTargets.contains(column);
+                    // ES mappings do not distinguish arrays from scalars. Even a short equality can
+                    // match one indexed array element while Doris reads the entire source JSON string.
+                    if (sourceChanged || changesSourceValue(field) || changesSourceValue(queryField)
+                            || "text".equals(queryField.path("type").asText()) || !isSearchable(queryField)) {
                         context.getSourceValueUnsafeFields().add(column);
                     }
-                    if (!inexact && "keyword".equals(indexedField.path("type").asText())) {
-                        // Equality/IN with bounded literals stay exact: ignored longer values cannot
-                        // equal those literals. Intersect the bound over every backing index.
-                        context.getKeywordIgnoreAboveLimits().merge(column,
-                                indexedField.path("ignore_above").asInt(Integer.MAX_VALUE), Math::min);
-                    } else {
-                        inexactKeywords.add(column);
+                    // Query and docvalue paths may select different multi-fields. An unused sibling's
+                    // normalizer must not invalidate either path; only the chosen read value matters.
+                    if (sourceChanged || changesSourceValue(field) || changesSourceValue(readField)
+                            || !readField.path("doc_values").asBoolean(true)
+                            || DEFAULT_DOCVALUE_DISABLED_FIELDS.contains(readField.path("type").asText())) {
+                        // One backing without this docvalue path would return missing values for its hits.
+                        unsafeDocValues.add(column);
                     }
                 }
             }
-            inexactKeywords.forEach(context.getKeywordIgnoreAboveLimits()::remove);
+            unsafeDocValues.forEach(context.getDocValueFieldsContext()::remove);
         } catch (IOException e) {
             throw new DorisConnectorException("Failed to parse ES mapping: " + e.getMessage());
         }
-        // Local residuals must read the original value, including with explicit doc_values=true.
-        context.getSourceValueUnsafeFields().forEach(context.getDocValueFieldsContext()::remove);
     }
 
-    private static boolean hasUnsafeKeywordSubfield(JsonNode field) {
-        for (JsonNode subfield : field.path("fields")) {
-            if ("keyword".equals(subfield.path("type").asText()) && changesSourceValue(subfield)) {
+    private static JsonNode fieldAtPath(JsonNode field, String column, String path) {
+        return path == null || column.equals(path) ? field
+                : field.path("fields").path(path.substring(column.length() + 1));
+    }
+
+    private static boolean changesSourceValue(JsonNode field) {
+        return field.isMissingNode() || field.has("ignore_above") || field.hasNonNull("normalizer")
+                || field.hasNonNull("null_value") || field.path("ignore_malformed").asBoolean(false);
+    }
+
+    private static boolean isSearchable(JsonNode field) {
+        // Disabling the inverted index does not change the value. ES can still search keyword
+        // docvalues; only a field with neither representation needs a local predicate.
+        return field.path("index").asBoolean(true)
+                || ("keyword".equals(field.path("type").asText()) && field.path("doc_values").asBoolean(true));
+    }
+
+    private static boolean filtersSourceColumn(JsonNode source, String column) {
+        JsonNode includes = source.path("includes");
+        return !source.path("enabled").asBoolean(true)
+                || (includes.size() > 0 && !matchesSourcePattern(includes, column))
+                || matchesSourcePattern(source.path("excludes"), column);
+    }
+
+    private static boolean matchesSourcePattern(JsonNode patterns, String column) {
+        for (JsonNode pattern : patterns) {
+            // Source filters use '*' globs, not SQL LIKE or regular expressions. Treat every
+            // other character literally and avoid regex backtracking on mapping-supplied patterns.
+            String[] parts = pattern.asText().split("\\*", -1);
+            if (parts.length == 1) {
+                if (column.equals(parts[0])) {
+                    return true;
+                }
+                continue;
+            }
+            if (!column.startsWith(parts[0])) {
+                continue;
+            }
+            int offset = parts[0].length();
+            for (int i = 1; i < parts.length - 1 && offset >= 0; i++) {
+                int found = column.indexOf(parts[i], offset);
+                offset = found < 0 ? -1 : found + parts[i].length();
+            }
+            String suffix = parts[parts.length - 1];
+            if (offset >= 0 && offset + suffix.length() <= column.length() && column.endsWith(suffix)) {
                 return true;
             }
         }
         return false;
-    }
-
-    private static boolean changesSourceValue(JsonNode field) {
-        return field.has("ignore_above") || changesSourceValueExceptLength(field);
-    }
-
-    private static boolean changesSourceValueExceptLength(JsonNode field) {
-        return field.isMissingNode() || field.has("normalizer")
-                || field.has("null_value") || field.path("ignore_malformed").asBoolean(false)
-                || !field.path("index").asBoolean(true);
     }
 
     private static void collectCopyTargets(JsonNode properties, Set<String> targets) {
@@ -302,7 +337,8 @@ public final class EsMappingUtils {
                     if (innerTypeObject.has("doc_values")) {
                         boolean docValue = innerTypeObject.get("doc_values").asBoolean();
                         if (docValue) {
-                            docValueField = colName;
+                            // A multi-field has its own path; the parent text has no docvalues.
+                            docValueField = colName + "." + fieldName;
                         }
                     } else if (innerTypeObject.has("ignore_above")) {
                         // keyword with ignore_above — cannot rely on doc_values

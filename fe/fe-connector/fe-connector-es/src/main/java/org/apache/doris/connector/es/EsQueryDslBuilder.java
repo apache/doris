@@ -116,17 +116,6 @@ public final class EsQueryDslBuilder {
             boolean likePushDown,
             List<String> needCompatDateFields,
             Set<String> sourceValueUnsafeFields) {
-        return buildQueryDslWithResult(filter, fieldsContext, column2typeMap, likePushDown,
-                needCompatDateFields, sourceValueUnsafeFields, Collections.emptyMap());
-    }
-
-    public static EsQueryDslResult buildQueryDslWithResult(ConnectorExpression filter,
-            Map<String, String> fieldsContext,
-            Map<String, String> column2typeMap,
-            boolean likePushDown,
-            List<String> needCompatDateFields,
-            Set<String> sourceValueUnsafeFields,
-            Map<String, Integer> keywordIgnoreAboveLimits) {
         if (filter == null) {
             return new EsQueryDslResult(matchAllQuery(), Collections.emptyList());
         }
@@ -140,8 +129,8 @@ public final class EsQueryDslBuilder {
 
             for (int i = 0; i < conjuncts.size(); i++) {
                 List<ConnectorExpression> tempNotPushed = new ArrayList<>();
-                String dsl = referencesUnsafeSourceField(conjuncts.get(i), sourceValueUnsafeFields,
-                        keywordIgnoreAboveLimits) ? null : toEsDsl(conjuncts.get(i), tempNotPushed, fieldsContext,
+                String dsl = referencesUnsafeSourceField(conjuncts.get(i), sourceValueUnsafeFields) ? null
+                        : toEsDsl(conjuncts.get(i), tempNotPushed, fieldsContext,
                                 likePushDown, needCompatDateFields, column2typeMap);
                 if (dsl != null && tempNotPushed.isEmpty()) {
                     parts.add(dsl);
@@ -170,7 +159,7 @@ public final class EsQueryDslBuilder {
 
         // Dropping a source-value predicate after translating a transformed/missing index value
         // cannot be repaired by a residual: matching source documents may already be absent.
-        if (referencesUnsafeSourceField(filter, sourceValueUnsafeFields, keywordIgnoreAboveLimits)) {
+        if (referencesUnsafeSourceField(filter, sourceValueUnsafeFields)) {
             requireLocalEvaluation(filter);
             return new EsQueryDslResult(matchAllQuery(), Collections.singletonList(0));
         }
@@ -187,11 +176,7 @@ public final class EsQueryDslBuilder {
         return new EsQueryDslResult(dsl, Collections.emptyList());
     }
 
-    private static boolean referencesUnsafeSourceField(ConnectorExpression expression, Set<String> unsafeFields,
-            Map<String, Integer> keywordIgnoreAboveLimits) {
-        if (isExactKeywordPredicate(expression, keywordIgnoreAboveLimits)) {
-            return false;
-        }
+    private static boolean referencesUnsafeSourceField(ConnectorExpression expression, Set<String> unsafeFields) {
         if (expression instanceof ConnectorFunctionCall
                 && "esquery".equals(((ConnectorFunctionCall) expression).getFunctionName())) {
             // esquery explicitly requests ES index semantics rather than SQL source-value semantics.
@@ -201,39 +186,11 @@ public final class EsQueryDslBuilder {
             return unsafeFields.contains(((ConnectorColumnRef) expression).getColumnName());
         }
         for (ConnectorExpression child : expression.getChildren()) {
-            if (referencesUnsafeSourceField(child, unsafeFields, keywordIgnoreAboveLimits)) {
+            if (referencesUnsafeSourceField(child, unsafeFields)) {
                 return true;
             }
         }
         return false;
-    }
-
-    private static boolean isExactKeywordPredicate(ConnectorExpression expression, Map<String, Integer> limits) {
-        if (expression instanceof ConnectorComparison) {
-            ConnectorComparison comparison = (ConnectorComparison) expression;
-            if (comparison.getOperator() != ConnectorComparison.Operator.EQ
-                    && comparison.getOperator() != ConnectorComparison.Operator.EQ_FOR_NULL) {
-                return false;
-            }
-            return isBoundedKeywordLiteral(comparison.getLeft(), comparison.getRight(), limits)
-                    || isBoundedKeywordLiteral(comparison.getRight(), comparison.getLeft(), limits);
-        }
-        if (expression instanceof ConnectorIn) {
-            ConnectorIn in = (ConnectorIn) expression;
-            return !in.isNegated() && in.getInList().stream()
-                    .allMatch(value -> isBoundedKeywordLiteral(in.getValue(), value, limits));
-        }
-        return false;
-    }
-
-    private static boolean isBoundedKeywordLiteral(ConnectorExpression column, ConnectorExpression value,
-            Map<String, Integer> limits) {
-        if (!(column instanceof ConnectorColumnRef) || !(value instanceof ConnectorLiteral)) {
-            return false;
-        }
-        Integer limit = limits.get(((ConnectorColumnRef) column).getColumnName());
-        Object literal = ((ConnectorLiteral) value).getValue();
-        return limit != null && literal instanceof String && ((String) literal).length() <= limit;
     }
 
     private static void requireLocalEvaluation(ConnectorExpression expression) {

@@ -55,15 +55,22 @@ suite("test_es_source_semantics", "p2,external") {
         normalized: [type: "keyword", normalizer: "lowercase_value"],
         nullable_value: [type: "keyword", null_value: "sentinel"],
         body: [type: "text", fields: [raw: [type: "keyword", ignore_above: 4]]],
-        copy_input: [type: "keyword", copy_to: "copied"], copied: [type: "keyword"]
+        copy_input: [type: "keyword", copy_to: "copied"], copied: [type: "keyword"],
+        multi_body: [type: "text", fields: [
+            aa_folded: [type: "keyword", normalizer: "lowercase_value"],
+            zz_raw: [type: "keyword", doc_values: true]]],
+        doconly: [type: "keyword", index: false, doc_values: true]
     ]
     def settings = [number_of_shards: 2, number_of_replicas: 0,
         analysis: [normalizer: [lowercase_value: [type: "custom", filter: ["lowercase"]]]]]
-    ["doris_source_safety_a", "doris_source_safety_b", "doris_source_safety_hidden"].each { index ->
+    ["doris_source_safety_a", "doris_source_safety_b", "doris_source_safety_hidden",
+     "doris_source_safety_included"].each { index ->
         request("DELETE", index)
         def mappings = [properties: properties]
         if (index.endsWith("hidden")) {
-            mappings._source = [excludes: ["limited"]]
+            mappings._source = [excludes: ["limit*"]]
+        } else if (index.endsWith("included")) {
+            mappings._source = [includes: ["row_*", "tenant", "multi_*", "doconly"]]
         }
         request("PUT", index, [settings: settings, mappings: mappings])
     }
@@ -82,13 +89,14 @@ suite("test_es_source_semantics", "p2,external") {
 
     def sourceRows = [
         [row_id: 1, tenant: "A", limited: "elephant", normalized: "MiXeD", nullable_value: null,
-            body: "elephant", copy_input: "copy-one", copied: null],
-        [row_id: 2, tenant: "B", limited: "cat", normalized: "plain", body: "cat"],
+            body: "elephant", copy_input: "copy-one", copied: null, multi_body: "cat", doconly: "cat"],
+        [row_id: 2, tenant: "B", limited: "cat", normalized: "plain", body: "cat", multi_body: "dog", doconly: "dog"],
         [row_id: 3, tenant: "A", limited: "rhino", normalized: "UPPER", nullable_value: "sentinel",
-            body: "rhino", copied: "original"],
+            body: "rhino", copied: "original", multi_body: "Lion", doconly: "cat"],
         [row_id: 4, tenant: "B", limited: null, normalized: null, nullable_value: "other"]
     ]
-    ["doris_source_safety_a", "doris_source_safety_b", "doris_source_safety_hidden"].each { index ->
+    ["doris_source_safety_a", "doris_source_safety_b", "doris_source_safety_hidden",
+     "doris_source_safety_included"].each { index ->
         sourceRows.eachWithIndex { row, offset ->
             def document = new LinkedHashMap(row)
             if (index.endsWith("_b")) {
@@ -116,13 +124,13 @@ suite("test_es_source_semantics", "p2,external") {
     sql "drop table if exists es_source_safety_expected"
     sql """create table es_source_safety_expected (
         row_id bigint, tenant string, limited string, normalized string, nullable_value string,
-        body string, copy_input string, copied string
+        body string, copy_input string, copied string, multi_body string, doconly string
     ) distributed by hash(row_id) buckets 1 properties("replication_num"="1")"""
     sql """insert into es_source_safety_expected values
-        (1,'A','elephant','MiXeD',NULL,'elephant','copy-one',NULL),
-        (2,'B','cat','plain',NULL,'cat',NULL,NULL),
-        (3,'A','rhino','UPPER','sentinel','rhino',NULL,'original'),
-        (4,'B',NULL,NULL,'other',NULL,NULL,NULL)"""
+        (1,'A','elephant','MiXeD',NULL,'elephant','copy-one',NULL,'cat','cat'),
+        (2,'B','cat','plain',NULL,'cat',NULL,NULL,'dog','dog'),
+        (3,'A','rhino','UPPER','sentinel','rhino',NULL,'original','Lion','cat'),
+        (4,'B',NULL,NULL,'other',NULL,NULL,NULL,NULL,NULL)"""
     def expectedTable = "internal.${context.dbName}.es_source_safety_expected"
     def predicates = [
         "limited = 'elephant'", "limited in ('elephant', 'cat')", "limited != 'cat'",
@@ -137,12 +145,34 @@ suite("test_es_source_semantics", "p2,external") {
     ]
     def nativeTerm = """esquery(tenant, '{"term":{"tenant":"A"}}')"""
     def mixedNativePredicates = [
-        ["limited = 'cat' or ${nativeTerm}", "limited = 'cat' or tenant = 'A'"],
-        ["limited in ('cat', 'four') or ${nativeTerm}", "limited in ('cat', 'four') or tenant = 'A'"],
-        ["body = 'cat' or ${nativeTerm}", "body = 'cat' or tenant = 'A'"],
-        ["not (limited = 'cat' or ${nativeTerm})", "not (limited = 'cat' or tenant = 'A')"],
-        ["limited = 'elephant' and not (${nativeTerm})", "limited = 'elephant' and not (tenant = 'A')"]
+        ["tenant = 'B' or ${nativeTerm}", "tenant = 'B' or tenant = 'A'"],
+        ["multi_body = 'cat' or ${nativeTerm}", "multi_body = 'cat' or tenant = 'A'"],
+        ["doconly = 'cat' or ${nativeTerm}", "doconly = 'cat' or tenant = 'A'"],
+        ["not (tenant = 'B' or ${nativeTerm})", "not (tenant = 'B' or tenant = 'A')"],
+        ["limited = 'elephant' and not (${nativeTerm})", "limited = 'elephant' and not (tenant = 'A')"],
+        ["limited = 'elephant' and ${nativeTerm}", "limited = 'elephant' and tenant = 'A'"]
     ]
+    request("DELETE", "doris_source_safety_arrays")
+    request("PUT", "doris_source_safety_arrays", [settings: [number_of_shards: 2, number_of_replicas: 0],
+        mappings: [properties: [row_id: properties.row_id, limited: properties.limited, body: properties.body]]])
+    def arrayValues = [["cat", "elephant"], ["cat"], [], [null], "cat", "elephant"]
+    arrayValues.eachWithIndex { value, i ->
+        request("PUT", "doris_source_safety_arrays/_doc/${i + 1}", [row_id: i + 1, limited: value, body: value])
+    }
+    request("POST", "doris_source_safety_arrays/_refresh")
+    sql "drop table if exists es_source_array_expected"
+    sql """create table es_source_array_expected (row_id bigint, limited string, body string)
+        distributed by hash(row_id) buckets 1 properties("replication_num"="1")"""
+    def arrayRows = arrayValues.withIndex().collect { value, i ->
+        String text = value instanceof List ? JsonOutput.toJson(value) : value
+        "(${i + 1},'${text}','${text}')"
+    }.join(",")
+    sql "insert into es_source_array_expected values ${arrayRows}"
+    def arrayExpectedTable = "internal.${context.dbName}.es_source_array_expected"
+    def arrayPredicates = ["limited = 'cat'", "limited in ('cat', 'four')", "limited != 'cat'",
+        "limited = '[\"cat\",\"elephant\"]'", "limited is null", "limited is not null",
+        "body = 'cat'", "body in ('cat', 'four')", "body != 'cat'", "body is null",
+        "limited = 'cat' or body = 'elephant'", "not (limited = 'cat' and body = 'cat')"]
     def originalV2 = sql("show variables like 'enable_file_scanner_v2'")[0][1]
     def originalParallel = sql("show variables like 'enable_es_parallel_scroll'")[0][1]
     def originalBatch = sql("show variables like 'batch_size'")[0][1]
@@ -170,16 +200,48 @@ suite("test_es_source_semantics", "p2,external") {
                                 "select row_id from ${expectedTable} where ${predicate} order by row_id")
                         quickTest("${tag}_predicate_${i}", query)
                     }
+                    def selectedValueQuery = "select row_id, multi_body, doconly from doris_source_safety_a order by row_id"
+                    quickTest("${tag}_selected_values", selectedValueQuery,
+                            "select row_id, multi_body, doconly from ${expectedTable} order by row_id")
+                    quickTest("${tag}_selected_values", selectedValueQuery)
                     mixedNativePredicates.eachWithIndex { pair, i ->
                         def query = "select row_id from doris_source_safety_a where ${pair[0]} order by row_id"
                         quickTest("${tag}_native_${i}", query,
                                 "select row_id from ${expectedTable} where ${pair[1]} order by row_id")
                         quickTest("${tag}_native_${i}", query)
                     }
+                    ["doris_source_safety_hidden", "doris_source_safety_included"].eachWithIndex { index, i ->
+                        def query = "select row_id from ${index} where tenant = 'B' or ${nativeTerm} order by row_id"
+                        quickTest("${tag}_preserved_source_${i}", query,
+                                "select row_id from ${expectedTable} where tenant = 'B' or tenant = 'A' order by row_id")
+                        quickTest("${tag}_preserved_source_${i}", query)
+                    }
+                    quickTest("${tag}_arrays", "select row_id, limited, body from doris_source_safety_arrays order by row_id",
+                            "select row_id, limited, body from ${arrayExpectedTable} order by row_id")
+                    quickTest("${tag}_arrays", "select row_id, limited, body from doris_source_safety_arrays order by row_id")
+                    arrayPredicates.eachWithIndex { predicate, i ->
+                        def query = "select row_id from doris_source_safety_arrays where ${predicate} order by row_id"
+                        quickTest("${tag}_array_predicate_${i}", query,
+                                "select row_id from ${arrayExpectedTable} where ${predicate} order by row_id")
+                        quickTest("${tag}_array_predicate_${i}", query)
+                    }
+                    // Native esquery intentionally matches array elements; ordinary SQL above compares
+                    // the STRING Doris reads. Keep both contracts explicit instead of guessing scalar shape.
+                    def nativeArrayQuery = "select row_id from doris_source_safety_arrays " +
+                            "where esquery(limited, '{\"term\":{\"limited\":\"cat\"}}') order by row_id"
+                    def nativeArrayIds = request("POST", "doris_source_safety_arrays/_search",
+                            [size: 100, query: [term: [limited: "cat"]]]).hits.hits.collect { it._source.row_id }.sort()
+                    def nativeArrayOracle = nativeArrayIds.collect {
+                        "select cast(${it} as bigint) as row_id"
+                    }.join(" union all ")
+                    quickTest("${tag}_native_arrays", nativeArrayQuery,
+                            "select * from (${nativeArrayOracle}) t order by row_id")
+                    quickTest("${tag}_native_arrays", nativeArrayQuery)
                     // These combinations need both source evaluation and remote-only ES semantics.
                     // Reject them while planning rather than dispatching the fake esquery BE function.
-                    ["limited = 'elephant' or ${nativeTerm}",
-                     "not (limited = 'elephant' and ${nativeTerm})"].each { predicate ->
+                    ["limited = 'elephant' or ${nativeTerm}", "limited = 'cat' or ${nativeTerm}",
+                     "limited in ('cat', 'four') or ${nativeTerm}", "body = 'cat' or ${nativeTerm}",
+                     "not (limited = 'cat' and ${nativeTerm})", "not (limited = 'elephant' and ${nativeTerm})"].each { predicate ->
                         test {
                             sql "select row_id from doris_source_safety_a where ${predicate}"
                             exception "Cannot evaluate esquery locally"

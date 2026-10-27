@@ -617,7 +617,7 @@ class EsScanPlanProviderTest {
                 "{\"type\":\"keyword\",\"ignore_above\":4,\"doc_values\":true}",
                 "{\"type\":\"keyword\",\"normalizer\":\"lowercase\"}",
                 "{\"type\":\"keyword\",\"null_value\":\"missing\"}",
-                "{\"type\":\"keyword\",\"index\":false}",
+                "{\"type\":\"keyword\",\"index\":false,\"doc_values\":false}",
                 "{\"type\":\"long\",\"ignore_malformed\":true}",
                 "{\"type\":\"text\",\"fields\":{\"raw\":{\"type\":\"keyword\",\"ignore_above\":4}}}",
                 "{\"type\":\"text\",\"fields\":{\"raw\":{\"type\":\"keyword\",\"normalizer\":\"lowercase\"}}}",
@@ -757,26 +757,117 @@ class EsScanPlanProviderTest {
     }
 
     @Test
-    void nativeBooleanQueriesWithShortKeywordEqualityAndInRemainRemote() {
+    void aliasSchemaAndScanDoNotDependOnAnEmptyBackingIndexOrder() {
+        String populated = "\"populated\":{\"mappings\":{\"_meta\":{\"doris\":{\"array_fields\":[\"a\"]}},"
+                + "\"properties\":{\"a\":{\"type\":\"keyword\"},\"b\":{\"type\":\"keyword\"}}}}";
+        for (String empty : Arrays.asList("{}", "{\"doc\":{}}", "{\"_meta\":{\"description\":\"empty\"}}")) {
+            String emptyIndex = "\"empty\":{\"mappings\":" + empty + "}";
+            for (String mapping : Arrays.asList("{" + emptyIndex + "," + populated + "}",
+                    "{" + populated + "," + emptyIndex + "}")) {
+                Assertions.assertEquals("ARRAY", EsTypeMapping.parseMapping("test", mapping, false)
+                        .get(0).getType().getTypeName());
+                ScanNodePropertiesResult result = propertiesForMapping(mapping, sourceEquals("a", "cat"));
+                Assertions.assertEquals(Collections.singleton(0), result.getNotPushedConjunctIndices());
+                Assertions.assertEquals("0", result.getProperties().get("doc_values_mode"));
+            }
+        }
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> EsTypeMapping.parseMapping("empty", "{\"empty\":{\"mappings\":{}}}", false));
+    }
+
+    @Test
+    void boundedKeywordLiteralsCannotProveScalarSourceEquality() {
         for (String field : Arrays.asList(
-                "{\"type\":\"keyword\",\"ignore_above\":4}",
+                "{\"type\":\"keyword\",\"ignore_above\":4,\"doc_values\":true}",
                 "{\"type\":\"text\",\"fields\":{\"raw\":{\"type\":\"keyword\",\"ignore_above\":4}}}")) {
             ConnectorExpression equal = sourceEquals("a", "cat");
             ConnectorExpression in = new ConnectorIn(sourceColumn("a"), Arrays.asList(
                     ConnectorLiteral.ofString("cat"), ConnectorLiteral.ofString("four")), false);
-            for (ConnectorExpression exact : Arrays.asList(equal, in)) {
-                for (ConnectorExpression expression : Arrays.asList(
-                        new ConnectorOr(Arrays.asList(exact, nativeSourceQuery())),
-                        new ConnectorNot(new ConnectorOr(Arrays.asList(exact, nativeSourceQuery()))),
-                        new ConnectorNot(new ConnectorAnd(Arrays.asList(exact, nativeSourceQuery()))))) {
-                    ScanNodePropertiesResult result = propertiesForMapping(mappingWithField(field), expression);
-                    Assertions.assertTrue(result.getNotPushedConjunctIndices().isEmpty(), expression.toString());
-                    Assertions.assertNotEquals(EsQueryDslBuilder.matchAllQuery(),
-                            result.getProperties().get("query_dsl"));
-                    Assertions.assertEquals("0", result.getProperties().get("doc_values_mode"));
-                }
+            for (ConnectorExpression predicate : Arrays.asList(equal, in)) {
+                // Mapping has no scalar/array distinction: a source array may contain the short literal.
+                ScanNodePropertiesResult result = propertiesForMapping(mappingWithField(field), predicate);
+                Assertions.assertEquals(Collections.singleton(0), result.getNotPushedConjunctIndices());
+                Assertions.assertEquals(EsQueryDslBuilder.matchAllQuery(), result.getProperties().get("query_dsl"));
+                Assertions.assertEquals("0", result.getProperties().get("doc_values_mode"));
+                Assertions.assertThrows(DorisConnectorException.class, () -> propertiesForMapping(mappingWithField(field),
+                        new ConnectorOr(Arrays.asList(predicate, nativeSourceQuery()))));
             }
         }
+    }
+
+    @Test
+    void sourceFiltersOnlyAffectMatchingColumns() {
+        String mapping = mappingWithField("{\"type\":\"keyword\"}");
+        for (String source : Arrays.asList(
+                "{\"excludes\":[\"a\"]}", "{\"excludes\":[\"a*\"]}",
+                "{\"includes\":[\"b\"]}", "{\"includes\":[\"*b*\"]}",
+                "{\"includes\":[\"*\"],\"excludes\":[\"a*\"]}",
+                "{\"includes\":[],\"excludes\":[]}")) {
+            String filtered = mapping.replace("\"properties\":", "\"_source\":" + source + ",\"properties\":");
+            ScanNodePropertiesResult result = propertiesForMapping(filtered,
+                    new ConnectorOr(Arrays.asList(sourceEquals("b", "cat"), nativeSourceQuery())));
+            Assertions.assertTrue(result.getNotPushedConjunctIndices().isEmpty(), source);
+            EsFieldContext context = EsMappingUtils.resolveFieldContext(
+                    Arrays.asList("a", "b"), "test", filtered, null);
+            Assertions.assertEquals("b", context.getDocValueFieldsContext().get("b"), source);
+            if (!source.contains("[]")) {
+                Assertions.assertTrue(context.getSourceValueUnsafeFields().contains("a"), source);
+                Assertions.assertFalse(context.getDocValueFieldsContext().containsKey("a"), source);
+            } else {
+                Assertions.assertFalse(context.getSourceValueUnsafeFields().contains("a"), source);
+                Assertions.assertEquals("a", context.getDocValueFieldsContext().get("a"), source);
+            }
+        }
+        for (String source : Arrays.asList("{\"enabled\":false}", "{\"excludes\":[\"*\"]}",
+                "{\"includes\":[\"a*\"]}", "{\"excludes\":[\"*b*\"]}")) {
+            String filtered = mapping.replace("\"properties\":", "\"_source\":" + source + ",\"properties\":");
+            Assertions.assertThrows(DorisConnectorException.class, () -> propertiesForMapping(filtered,
+                    new ConnectorOr(Arrays.asList(sourceEquals("b", "cat"), nativeSourceQuery()))));
+        }
+    }
+
+    @Test
+    void selectedQueryAndDocvaluePathsAreAnalyzedIndependently() {
+        String safeSibling = "{\"type\":\"text\",\"fields\":{"
+                + "\"aa_folded\":{\"type\":\"keyword\",\"normalizer\":\"lowercase\"},"
+                + "\"zz_raw\":{\"type\":\"keyword\",\"doc_values\":true}}}";
+        ScanNodePropertiesResult result = propertiesForMapping(mappingWithField(safeSibling),
+                new ConnectorOr(Arrays.asList(sourceEquals("a", "cat"), nativeSourceQuery())));
+        Assertions.assertTrue(result.getNotPushedConjunctIndices().isEmpty());
+        Assertions.assertTrue(result.getProperties().get("query_dsl").contains("a.zz_raw"));
+        Assertions.assertEquals("1", result.getProperties().get("doc_values_mode"));
+        EsFieldContext safeContext = EsMappingUtils.resolveFieldContext(
+                Arrays.asList("a", "b"), "test", mappingWithField(safeSibling), null);
+        Assertions.assertEquals("a.zz_raw", safeContext.getDocValueFieldsContext().get("a"));
+
+        String unsafeRead = safeSibling.replace("\"doc_values\":true", "\"doc_values\":false");
+        ScanNodePropertiesResult localRead = propertiesForMapping(mappingWithField(unsafeRead),
+                new ConnectorOr(Arrays.asList(sourceEquals("a", "cat"), nativeSourceQuery())));
+        Assertions.assertTrue(localRead.getNotPushedConjunctIndices().isEmpty());
+        Assertions.assertEquals("0", localRead.getProperties().get("doc_values_mode"));
+
+        String unsafeQuery = "{\"type\":\"text\",\"fields\":{"
+                + "\"aa_raw\":{\"type\":\"keyword\"},"
+                + "\"zz_folded\":{\"type\":\"keyword\",\"normalizer\":\"lowercase\",\"doc_values\":false}}}";
+        ScanNodePropertiesResult localFilter = propertiesForMapping(mappingWithField(unsafeQuery), sourceEquals("a", "cat"));
+        Assertions.assertEquals(Collections.singleton(0), localFilter.getNotPushedConjunctIndices());
+        Assertions.assertEquals("1", localFilter.getProperties().get("doc_values_mode"));
+        Assertions.assertThrows(DorisConnectorException.class, () -> propertiesForMapping(mappingWithField(unsafeQuery),
+                new ConnectorOr(Arrays.asList(sourceEquals("a", "cat"), nativeSourceQuery()))));
+    }
+
+    @Test
+    void docvalueOnlyKeywordRemainsSearchableWithoutChangingItsReadValue() {
+        for (String field : Arrays.asList("{\"type\":\"keyword\",\"index\":false,\"doc_values\":true}",
+                "{\"type\":\"keyword\",\"index\":false}")) {
+            ScanNodePropertiesResult result = propertiesForMapping(mappingWithField(field),
+                    new ConnectorOr(Arrays.asList(sourceEquals("a", "cat"), nativeSourceQuery())));
+            Assertions.assertTrue(result.getNotPushedConjunctIndices().isEmpty());
+            Assertions.assertEquals("1", result.getProperties().get("doc_values_mode"));
+        }
+        String unsearchable = mappingWithField("{\"type\":\"keyword\",\"index\":false,\"doc_values\":false}");
+        Assertions.assertEquals(Collections.singleton(0), propertiesForMapping(unsearchable,
+                sourceEquals("a", "cat")).getNotPushedConjunctIndices());
     }
 
     @Test
@@ -816,12 +907,26 @@ class EsScanPlanProviderTest {
     }
 
     @Test
-    void exactTextKeywordPredicatesRequireKeywordSniff() {
+    void everyBackingIndexMustProvideTheSelectedDocvaluePath() {
+        for (String second : Arrays.asList("{\"type\":\"keyword\",\"doc_values\":false}",
+                "{\"type\":\"text\"}")) {
+            String populated = mappingWithField("{\"type\":\"keyword\"}");
+            String mapping = populated.substring(0, populated.length() - 1)
+                    + ",\"second\":{\"mappings\":{\"properties\":{\"a\":" + second
+                    + ",\"b\":{\"type\":\"keyword\"}}}}}";
+            ScanNodePropertiesResult result = propertiesForMapping(mapping, sourceEquals("b", "cat"));
+            Assertions.assertTrue(result.getNotPushedConjunctIndices().isEmpty());
+            Assertions.assertEquals("0", result.getProperties().get("doc_values_mode"), second);
+        }
+    }
+
+    @Test
+    void unusedSafeKeywordPathCannotJustifyPushdownWithoutKeywordSniff() {
         CountingRestClient client = new CountingRestClient() {
             @Override
             public String getMapping(String indexName) {
                 return mappingWithField("{\"type\":\"text\",\"fields\":{\"raw\":"
-                        + "{\"type\":\"keyword\",\"ignore_above\":4}}}");
+                        + "{\"type\":\"keyword\"}}}");
             }
         };
         Map<String, String> properties = minimalPropertyMap();

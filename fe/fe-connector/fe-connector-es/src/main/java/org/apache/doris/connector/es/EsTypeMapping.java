@@ -21,11 +21,8 @@ import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.DorisConnectorException;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -39,8 +36,6 @@ import java.util.Set;
  * Adapted from fe-core's EsUtil — uses ConnectorColumn/ConnectorType instead of Column/Type.
  */
 public final class EsTypeMapping {
-
-    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private static final Set<String> DOCVALUE_DISABLED_FIELDS =
             new HashSet<>(Arrays.asList("text", "annotated_text", "match_only_text"));
@@ -56,72 +51,10 @@ public final class EsTypeMapping {
      */
     public static List<ConnectorColumn> parseMapping(String indexName, String mappingJson,
             boolean mappingEsId) {
-        ObjectNode mappings = getMapping(mappingJson);
+        ObjectNode mappings = EsMappingUtils.getMapping(mappingJson);
         List<String> arrayFields = new ArrayList<>();
-        ObjectNode rootSchema = getRootSchema(mappings, null, arrayFields);
+        ObjectNode rootSchema = EsMappingUtils.getRootSchema(mappings, null, arrayFields);
         return buildColumns(indexName, rootSchema, mappingEsId, arrayFields);
-    }
-
-    private static ObjectNode getMapping(String indexMapping) {
-        try {
-            ObjectNode jsonNodes = (ObjectNode) MAPPER.readTree(indexMapping);
-            return (ObjectNode) jsonNodes.iterator().next().get("mappings");
-        } catch (IOException e) {
-            throw new DorisConnectorException("Failed to parse ES mapping: " + e.getMessage());
-        }
-    }
-
-    private static ObjectNode getRootSchema(ObjectNode mappings, String mappingType,
-            List<String> arrayFields) {
-        if (mappingType == null) {
-            checkNonPropertiesFields(mappings, arrayFields);
-            String firstType = mappings.fieldNames().next();
-            boolean hasProperties = false;
-            Iterator<String> fieldNames = mappings.fieldNames();
-            while (fieldNames.hasNext()) {
-                if (fieldNames.next().contains("properties")) {
-                    hasProperties = true;
-                    break;
-                }
-            }
-            if (hasProperties) {
-                return mappings;
-            } else {
-                ObjectNode firstData = (ObjectNode) mappings.get(firstType);
-                checkNonPropertiesFields(firstData, arrayFields);
-                return firstData;
-            }
-        } else {
-            if (mappings.has(mappingType)) {
-                ObjectNode jsonData = (ObjectNode) mappings.get(mappingType);
-                checkNonPropertiesFields(jsonData, arrayFields);
-                return jsonData;
-            }
-            return getRootSchema(mappings, null, arrayFields);
-        }
-    }
-
-    private static void checkNonPropertiesFields(ObjectNode mappings,
-            List<String> arrayFields) {
-        JsonNode metaNode = mappings.remove("_meta");
-        if (metaNode != null) {
-            JsonNode dorisMeta = metaNode.get("doris");
-            if (dorisMeta != null) {
-                JsonNode arrayNode = dorisMeta.get("array_fields");
-                if (arrayNode != null) {
-                    for (JsonNode jsonNode : arrayNode) {
-                        arrayFields.add(jsonNode.asText());
-                    }
-                }
-            }
-        }
-        mappings.remove("dynamic_templates");
-        mappings.remove("dynamic");
-        mappings.remove("_default_");
-        if (mappings.isEmpty()) {
-            throw new DorisConnectorException(
-                    "Do not support index without explicit mapping.");
-        }
     }
 
     private static List<ConnectorColumn> buildColumns(String indexName,
