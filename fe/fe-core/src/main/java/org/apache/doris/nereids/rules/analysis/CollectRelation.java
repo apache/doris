@@ -398,7 +398,7 @@ public class CollectRelation implements AnalysisRuleFactory {
             List<Expression> predicates) {
         if (plan instanceof LogicalFilter && isTransparentFilterChild(context, plan.child(0), relation)) {
             ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(plan, context);
-            for (Expression conjunct : ((LogicalFilter<?>) plan).getConjuncts()) {
+            for (Expression conjunct : ExpressionUtils.extractConjunction(((LogicalFilter<?>) plan).getPredicate())) {
                 Expression folded = FoldConstantRule.evaluate(conjunct, rewriteContext);
                 if (!BooleanLiteral.TRUE.equals(folded) && !conjunct.getInputSlots().isEmpty()
                         && conjunct.getInputSlots().stream().allMatch(slot -> slot instanceof UnboundSlot
@@ -418,8 +418,15 @@ public class CollectRelation implements AnalysisRuleFactory {
             return true;
         }
         if (plan instanceof LogicalCheckPolicy) {
-            return context.getConnectContext().getCurrentUserIdentity().isSystemUser()
-                    && isTransparentFilterChild(context, plan.child(0), relation);
+            if (!isTransparentFilterChild(context, plan.child(0), relation)) {
+                return false;
+            }
+            if (context.getConnectContext().getCurrentUserIdentity().isSystemUser()) {
+                return true;
+            }
+            TableIf table = context.getStatementContext().getTables().get(
+                    RelationUtil.getQualifierName(context.getConnectContext(), relation.getNameParts()));
+            return table != null && context.getStatementContext().proveInitialPartitionValues(relation, table);
         }
         if (plan instanceof LogicalSubQueryAlias || plan instanceof LogicalFilter) {
             return isTransparentFilterChild(context, plan.child(0), relation);

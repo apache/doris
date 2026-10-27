@@ -20,6 +20,8 @@ package org.apache.doris.nereids;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
+import org.apache.doris.authorization.DataMaskSpec;
+import org.apache.doris.authorization.RowFilterSpec;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
@@ -37,16 +39,21 @@ import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.handle.ConnectorTransaction;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.connector.converter.NereidsToConnectorExpressionConverter;
 import org.apache.doris.datasource.mvcc.MvccReadSelector;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenSchemaCacheValue;
 import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.ivm.IvmRewriteContext;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.AccessControllerManager.DataPolicyContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.cost.CostWeight;
@@ -77,6 +84,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.RelationUtil;
+import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
@@ -115,6 +123,7 @@ import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -162,6 +171,17 @@ public class StatementContext implements Closeable {
     private boolean changelogReferenceTsoRequired;
     private Long changelogReferenceTso;
     private boolean skipUnpreloadedScanPartitionPruning;
+    private final Map<DataPolicyContext, Map<String, DataMaskSpec>> dataMaskEvaluations = new HashMap<>();
+    private final Set<Long> partitionPolicyObservedTables = new HashSet<>();
+    private final Map<RelationId, PartitionPolicyProof> partitionPolicyProofs = new LinkedHashMap<>();
+    private final Set<PartitionPolicyProof> usedPartitionPolicyProofs = new HashSet<>();
+    private final Map<PartitionPolicyProof, List<RowFilterSpec>> partitionProofRowPolicies = new HashMap<>();
+    private final Map<PartitionPolicyProof, DataPolicyContext> executionPolicyContexts = new HashMap<>();
+    private boolean partitionPolicyPlanningInvalidated;
+    private boolean partitionPolicyExecutionInvalidated;
+    private boolean partitionPolicyRetryPending;
+    private Planner partitionPolicyPlanner;
+    private long partitionPolicyEpoch;
 
     private OriginStatement originStatement;
     // NOTICE: we set the plan parsed by DorisParser to parsedStatement and if the
@@ -499,6 +519,241 @@ public class StatementContext implements Closeable {
         next.isShortCircuitQuery = isShortCircuitQuery;
         next.hasNondeterministic = hasNondeterministic;
         return next;
+    }
+
+    public Map<String, DataMaskSpec> getOrEvaluateDataMasks(DataPolicyContext policy,
+            java.util.function.Supplier<Map<String, DataMaskSpec>> evaluation) {
+        return dataMaskEvaluations.computeIfAbsent(policy, key -> Map.copyOf(evaluation.get()));
+    }
+
+    private static List<String> policySchemaFingerprint(List<Column> schema) {
+        return schema.stream().map(column -> column.getName().toLowerCase(Locale.ROOT) + ":"
+                + DataType.fromCatalogType(column.getType()).toSql() + ":" + column.isAllowNull())
+                .collect(Collectors.toList());
+    }
+
+    /** Establishes raw-value preservation from a complete, successful mask evaluation before locks. */
+    public boolean proveInitialPartitionValues(UnboundRelation relation, TableIf table) {
+        if (relation.getTableSnapshot().isPresent() || relation.getScanParams() != null
+                || !(table instanceof PluginDrivenExternalTable)
+                || !table.supportsExternalMetadataPreload()
+                || !((PluginDrivenExternalTable) table).supportsConnectorPartitionPruning()
+                || ((PluginDrivenExternalTable) table).isView()
+                || table.getDatabase() == null || table.getDatabase().getCatalog() == null
+                || !(((PluginDrivenExternalTable) table).getCatalog() instanceof PluginDrivenExternalCatalog)
+                || mvRefreshPredicates.isPresent()) {
+            return false;
+        }
+        requirePartitionPolicyPlanning();
+        PluginDrivenExternalTable external = (PluginDrivenExternalTable) table;
+        loadSnapshots(table, Optional.empty(), Optional.empty());
+        Optional<MvccSnapshot> pin = getSnapshot(table, Optional.empty(), Optional.empty());
+        List<Column> schema = external.getFullSchema(pin);
+        if (schema == null || schema.isEmpty()) {
+            return false;
+        }
+        Optional<SchemaCacheValue> schemaValue = external.getSchemaCacheValue(pin);
+        if (schemaValue.isEmpty() || !(schemaValue.get() instanceof PluginDrivenSchemaCacheValue)) {
+            return false;
+        }
+        DataPolicyContext policy = capturePartitionPolicy(external, schema);
+        Map<String, DataMaskSpec> masks = connectContext.getEnv().getAccessManager()
+                .evalDataMaskPolicies(policy, this);
+        partitionPolicyObservedTables.add(table.getId());
+        if (!masks.isEmpty()) {
+            return false;
+        }
+        partitionPolicyProofs.putIfAbsent(relation.getRelationId(),
+                new PartitionPolicyProof(external, policy, pin, policySchemaFingerprint(schema),
+                        policySchemaFingerprint(external.getPartitionColumns(pin)),
+                        ((PluginDrivenSchemaCacheValue) schemaValue.get()).getPartitionColumnRemoteNames()));
+        return true;
+    }
+
+    private DataPolicyContext capturePartitionPolicy(PluginDrivenExternalTable table, List<Column> schema) {
+        Set<String> columns = schema.stream().map(Column::getName).collect(Collectors.toCollection(LinkedHashSet::new));
+        return capturePartitionPolicyColumns(table, columns);
+    }
+
+    private DataPolicyContext capturePartitionPolicyColumns(PluginDrivenExternalTable table, Set<String> columns) {
+        return connectContext.getEnv().getAccessManager().captureDataPolicyContext(
+                connectContext.getCurrentUserIdentity(), table.getDatabase().getCatalog().getName(),
+                table.getDatabase().getFullName(), table.getName(), columns, this);
+    }
+
+    public boolean hasPartitionPolicyObservation(TableIf table) {
+        return partitionPolicyObservedTables.contains(table.getId());
+    }
+
+    /** Refuses a bound relation whose actual policy scope or typed output no longer justifies its subset. */
+    public DataPolicyContext validatePartitionPolicy(LogicalPlan relation) {
+        requirePartitionPolicyPlanning();
+        if (!(relation instanceof org.apache.doris.nereids.trees.plans.logical.LogicalFileScan)) {
+            return null;
+        }
+        org.apache.doris.nereids.trees.plans.logical.LogicalFileScan scan =
+                (org.apache.doris.nereids.trees.plans.logical.LogicalFileScan) relation;
+        PartitionPolicyProof proof = partitionPolicyProofs.get(scan.getPreloadRelationId());
+        if (proof == null || !usedPartitionPolicyProofs.contains(proof)) {
+            return null;
+        }
+        Set<String> columns = scan.getOutput().stream().map(Slot::getName).collect(Collectors.toSet());
+        List<String> output = scan.getOutput().stream().map(slot -> slot.getName().toLowerCase(Locale.ROOT)
+                + ":" + slot.getDataType().toSql() + ":" + slot.nullable()).collect(Collectors.toList());
+        try {
+            DataPolicyContext actual = capturePartitionPolicyColumns(proof.table, columns);
+            if (proof.table != scan.getTable() || !proofMatches(proof, actual, false) || !proof.schema.equals(output)) {
+                throw new AnalysisException("Partition policy proof changed before binding " + proof.table.getName());
+            }
+            return actual;
+        } catch (RuntimeException failure) {
+            invalidatePartitionPolicy(false);
+            throw failure;
+        }
+    }
+
+    /** Records the raw row-policy observation actually expanded into this relation's plan. */
+    public void recordPartitionRowPolicies(LogicalPlan relation, List<RowFilterSpec> policies) {
+        if (relation instanceof org.apache.doris.nereids.trees.plans.logical.LogicalFileScan) {
+            PartitionPolicyProof proof = partitionPolicyProofs.get(
+                    ((org.apache.doris.nereids.trees.plans.logical.LogicalFileScan) relation).getPreloadRelationId());
+            if (proof != null) {
+                List<RowFilterSpec> previous = partitionProofRowPolicies.putIfAbsent(proof, List.copyOf(policies));
+                if (previous != null && !previous.equals(policies)) {
+                    invalidatePartitionPolicy(false);
+                    throw new AnalysisException("Row policy changed between aliases of " + proof.table.getName());
+                }
+            }
+        }
+    }
+
+    private boolean proofMatches(PartitionPolicyProof proof, DataPolicyContext actual, boolean retry) {
+        DataPolicyContext expected = executionPolicyContexts.getOrDefault(proof, proof.policy);
+        return proof.table.getDatabase() != null && proof.table.getDatabase().getCatalog() != null
+                && ((PluginDrivenExternalCatalog) proof.table.getCatalog()).getConnector() == proof.connector
+                && proof.pin.orElse(null) == getSnapshot(proof.table, Optional.empty(), Optional.empty()).orElse(null)
+                && proofSchemaMatches(proof)
+                && (retry ? expected.samePolicyScope(actual) : expected.equals(actual));
+    }
+
+    private boolean proofSchemaMatches(PartitionPolicyProof proof) {
+        Optional<SchemaCacheValue> schema = proof.table.getSchemaCacheValue(proof.pin);
+        if (schema.isEmpty() || !(schema.get() instanceof PluginDrivenSchemaCacheValue)) {
+            return false;
+        }
+        PluginDrivenSchemaCacheValue actual = (PluginDrivenSchemaCacheValue) schema.get();
+        return proof.schema.equals(policySchemaFingerprint(actual.getSchema()))
+                && proof.partitions.equals(policySchemaFingerprint(actual.getPartitionColumns()))
+                && proof.remotePartitions.equals(actual.getPartitionColumnRemoteNames());
+    }
+
+    private void requirePartitionPolicyPlanning() {
+        if (partitionPolicyPlanningInvalidated) {
+            throw new AnalysisException("Partition policy planning state was invalidated; replan in a fresh statement");
+        }
+    }
+
+    private void invalidatePartitionPolicy(boolean retry) {
+        partitionPolicyEpoch++;
+        dataMaskEvaluations.clear();
+        partitionPolicyObservedTables.clear();
+        boolean used = !usedPartitionPolicyProofs.isEmpty();
+        for (Map.Entry<RelationId, PartitionPolicyProof> entry : partitionPolicyProofs.entrySet()) {
+            ExternalTablePreloadInfo info = externalTablePreloadInfos.get(entry.getValue().table.getId());
+            if (info != null) {
+                info.getInitialScanPredicates().remove(entry.getKey());
+                info.markUnfilteredLatestRelation();
+                info.clearPartitionViews();
+            }
+        }
+        partitionPolicyPlanningInvalidated |= used;
+        partitionPolicyExecutionInvalidated |= used && !retry;
+        partitionPolicyRetryPending |= used && retry;
+        partitionPolicyProofs.values().removeIf(proof -> !usedPartitionPolicyProofs.contains(proof));
+    }
+
+    /** Revalidates retained execution evidence after scope reset without reviving planning candidates. */
+    public void validateOrRevalidatePartitionPoliciesForExecution(Planner planner) {
+        List<PartitionPolicyProof> used = partitionPolicyProofs.values().stream()
+                .filter(usedPartitionPolicyProofs::contains).collect(Collectors.toList());
+        if (used.isEmpty()) {
+            return;
+        }
+        if (partitionPolicyExecutionInvalidated
+                || partitionPolicyPlanner != null && partitionPolicyPlanner != planner) {
+            throw new AnalysisException("Partition policy execution proof was invalidated");
+        }
+        Preconditions.checkState(plannerResources.isEmpty(), "Policy revalidation requires released planner locks");
+        long epoch = partitionPolicyEpoch;
+        AccessControllerManager manager = connectContext.getEnv().getAccessManager();
+        Map<DataPolicyContext, List<RowFilterSpec>> evaluated = new HashMap<>();
+        Map<PartitionPolicyProof, DataPolicyContext> renewed = new LinkedHashMap<>();
+        try {
+            for (PartitionPolicyProof proof : used) {
+                List<Column> schema = proof.table.getFullSchema(proof.pin);
+                DataPolicyContext actual = capturePartitionPolicy(proof.table, schema);
+                List<RowFilterSpec> baselineRows = partitionProofRowPolicies.get(proof);
+                if (baselineRows == null || !proof.schema.equals(policySchemaFingerprint(schema))
+                        || !proofMatches(proof, actual, partitionPolicyRetryPending)) {
+                    throw new AnalysisException("Partition policy scope changed for " + proof.table.getName());
+                }
+                if (partitionPolicyRetryPending) {
+                    PluginDrivenSchemaCacheValue fresh = (PluginDrivenSchemaCacheValue) proof.table.initSchema()
+                            .orElseThrow(() -> new AnalysisException("Schema unavailable for policy revalidation"));
+                    if (!proof.schema.equals(policySchemaFingerprint(fresh.getSchema()))
+                            || !proof.partitions.equals(policySchemaFingerprint(fresh.getPartitionColumns()))
+                            || !proof.remotePartitions.equals(fresh.getPartitionColumnRemoteNames())) {
+                        throw new AnalysisException("Partition policy schema changed for " + proof.table.getName());
+                    }
+                    List<RowFilterSpec> rows = evaluated.get(actual);
+                    if (rows == null) {
+                        if (!manager.evalDataMaskPolicies(actual).isEmpty()) {
+                            throw new AnalysisException("Column masks changed for " + proof.table.getName());
+                        }
+                        rows = manager.evalRowFilterPolicies(actual);
+                        evaluated.put(actual, rows);
+                    }
+                    if (!baselineRows.equals(rows)) {
+                        throw new AnalysisException("Row policies changed for " + proof.table.getName());
+                    }
+                }
+                if (!actual.equals(capturePartitionPolicy(proof.table, schema))) {
+                    throw new AnalysisException("Partition policy context changed during revalidation");
+                }
+                renewed.put(proof, actual);
+            }
+            if (epoch != partitionPolicyEpoch) {
+                throw new AnalysisException("Partition policy epoch changed during revalidation");
+            }
+        } catch (RuntimeException failure) {
+            invalidatePartitionPolicy(false);
+            throw failure;
+        }
+        executionPolicyContexts.putAll(renewed);
+        partitionPolicyRetryPending = false;
+        partitionPolicyPlanner = planner;
+    }
+
+    private static final class PartitionPolicyProof {
+        private final PluginDrivenExternalTable table;
+        private final DataPolicyContext policy;
+        private final Optional<MvccSnapshot> pin;
+        private final List<String> schema;
+        private final List<String> partitions;
+        private final List<String> remotePartitions;
+        private final Object connector;
+
+        private PartitionPolicyProof(PluginDrivenExternalTable table, DataPolicyContext policy,
+                Optional<MvccSnapshot> pin, List<String> schema, List<String> partitions,
+                List<String> remotePartitions) {
+            this.table = table;
+            this.policy = policy;
+            this.pin = pin;
+            this.schema = List.copyOf(schema);
+            this.partitions = List.copyOf(partitions);
+            this.remotePartitions = List.copyOf(remotePartitions);
+            this.connector = ((PluginDrivenExternalCatalog) table.getCatalog()).getConnector();
+        }
     }
 
     /** Pins the backend execution version selected for this statement execution. */
@@ -923,6 +1178,7 @@ public class StatementContext implements Closeable {
      * execution/attempt has finished (no off-thread pump still running), so close-before-drop is safe.
      */
     public synchronized void resetConnectorStatementScope() {
+        invalidatePartitionPolicy(true);
         closeConnectorStatementScope();
         this.connectorStatementScope = null;
         this.connectorWriteSchemas.clear();
@@ -1208,6 +1464,7 @@ public class StatementContext implements Closeable {
      * lock all table collect by TableCollector
      */
     public synchronized void lock() {
+        requirePartitionPolicyPlanning();
         if (!needLockTables
                 || (tables.isEmpty() && mtmvRelatedTables.isEmpty() && insertTargetTables.isEmpty())
                 || !plannerResources.isEmpty()) {
@@ -1412,6 +1669,7 @@ public class StatementContext implements Closeable {
      * to one EXECUTE only; carrying it forward would make a later commit permanently invisible.
      */
     public void resetMvccSnapshots() {
+        invalidatePartitionPolicy(false);
         snapshots.clear();
         latestSnapshots.clear();
         latestSnapshotFences.clear();
@@ -1580,6 +1838,7 @@ public class StatementContext implements Closeable {
      * either hook can consume a deferred view.</p>
      */
     public void preloadDeferredScanPartitionViewsBeforeLock(boolean willFinalizePhysicalPlan) {
+        requirePartitionPolicyPlanning();
         ConnectContext connectContext = getConnectContext();
         if (connectContext == null || connectContext.getSessionVariable() == null) {
             return;
@@ -1616,6 +1875,12 @@ public class StatementContext implements Closeable {
             if (info.hasFilteredScanView(entry.getKey())) {
                 continue;
             }
+            PartitionPolicyProof proof = partitionPolicyProofs.get(entry.getKey());
+            if (proof != null && !proofMatches(proof,
+                    capturePartitionPolicy(proof.table, proof.table.getFullSchema(snapshot)), false)) {
+                invalidatePartitionPolicy(false);
+                throw new AnalysisException("Partition policy changed before selective preload");
+            }
             // Only bind declared partition columns here. Full analysis, coercion, privileges and residual
             // evaluation remain in their normal stages; unsupported forms use the preloaded full view.
             Expression bound = entry.getValue().rewriteUp(expression -> {
@@ -1637,6 +1902,9 @@ public class StatementContext implements Closeable {
                     ? Optional.empty()
                     : ((PluginDrivenExternalTable) table).applyPartitionFilterForScan(snapshot, predicate);
             info.setFilteredScanView(entry.getKey(), view, predicate);
+            if (proof != null && view.isPresent()) {
+                usedPartitionPolicyProofs.add(proof);
+            }
             if (!view.isPresent() && !info.hasScanPartitionView()) {
                 info.setScanPartitionView(((PluginDrivenExternalTable) table).getNameToPartitionItemsForScan(snapshot));
             }
