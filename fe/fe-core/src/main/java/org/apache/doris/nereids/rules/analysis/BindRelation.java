@@ -48,6 +48,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.ExternalView;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
+import org.apache.doris.datasource.mvcc.MvccReadSelector;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenSysExternalTable;
 import org.apache.doris.datasource.systable.SysTableResolver;
@@ -938,11 +939,20 @@ public class BindRelation extends OneAnalysisRuleFactory {
                             sqlCacheContext.addUsedTable(table);
                         } else if (table instanceof ExternalTable && table instanceof MTMVRelatedTableIf
                                 && cascadesContext.getConnectContext().getSessionVariable().enableHiveSqlCache) {
-                            // Any external lakehouse plugin table that exposes a stable data-version token
-                            // (MTMVRelatedTableIf#getNewestUpdateVersionOrTime) is cacheable; addUsedTable
-                            // records the token and fails safe if it is unavailable. Gated by the (default
-                            // false) enable_hive_sql_cache switch so behavior is unchanged unless opted in.
-                            sqlCacheContext.addUsedTable(table);
+                            // Record a connector's lightweight SQL-cache version when available, otherwise
+                            // retain the legacy freshness path. The external cache opt-in applies to both.
+                            // Incremental/options scans need their own cache identity contract; point-in-time
+                            // references use the same selector and snapshot as ordinary analysis and scanning.
+                            TableScanParams params = unboundRelation.getScanParams();
+                            if (params != null && !params.isBranch() && !params.isTag()) {
+                                sqlCacheContext.setHasUnsupportedTables(true);
+                            } else {
+                                MvccReadSelector selector = MvccReadSelector.of(unboundRelation.getTableSnapshot(),
+                                        Optional.ofNullable(params));
+                                sqlCacheContext.addUsedTable(table, cascadesContext.getStatementContext()
+                                        .getSnapshot(table, selector.getTableSnapshot(), selector.getScanParams()),
+                                        selector);
+                            }
                         } else {
                             sqlCacheContext.setHasUnsupportedTables(true);
                         }

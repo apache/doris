@@ -60,6 +60,7 @@
 #include "format_v2/jni/max_compute_jni_reader.h"
 #include "format_v2/jni/trino_connector_jni_reader.h"
 #include "format_v2/table/adbc_reader.h"
+#include "format_v2/table/es_reader.h"
 #include "format_v2/table/fluss_hybrid_reader.h"
 #include "format_v2/table/hive_reader.h"
 #include "format_v2/table/hudi_reader.h"
@@ -356,6 +357,8 @@ bool FileScannerV2::is_supported(const TFileScanRangeParams& params, const TFile
     if (format_type == TFileFormatType::FORMAT_PARQUET ||
         format_type == TFileFormatType::FORMAT_ORC) {
         return is_supported_table_format(range);
+    } else if (format_type == TFileFormatType::FORMAT_ES_HTTP) {
+        return table_format_name(range) == "es";
     } else if (format_type == TFileFormatType::FORMAT_ARROW) {
         return is_supported_arrow_table_format(range);
     } else if (format_type == TFileFormatType::FORMAT_JNI) {
@@ -373,6 +376,7 @@ bool FileScannerV2::is_supported(const TFileScanRangeParams& params, const TFile
 
 Status FileScannerV2::_validate_scan_range(const TFileScanRangeParams& params,
                                            const TFileRangeDesc& range) {
+    RETURN_IF_ERROR(validate_file_scan_support(params, &range));
     if (!is_supported(params, range)) {
         return Status::NotSupported(
                 "FileScannerV2 does not support table format {} with file format {}",
@@ -801,6 +805,8 @@ Status FileScannerV2::_create_table_reader_for_format(
         *reader = std::make_unique<format::max_compute::MaxComputeJniReader>(mc_desc);
     } else if (table_format == "trino_connector") {
         *reader = std::make_unique<format::trino_connector::TrinoConnectorJniReader>();
+    } else if (table_format == "es") {
+        *reader = std::make_unique<format::es::EsReader>();
     } else if (table_format == "remote_doris") {
         *reader = std::make_unique<format::remote_doris::RemoteDorisReader>();
     } else if (table_format == "adbc") {
@@ -1091,6 +1097,9 @@ Status FileScannerV2::_to_file_format(TFileFormatType::type format_type,
         return Status::OK();
     case TFileFormatType::FORMAT_ARROW:
         *file_format = format::FileFormat::ARROW;
+        return Status::OK();
+    case TFileFormatType::FORMAT_ES_HTTP:
+        *file_format = format::FileFormat::ES_HTTP;
         return Status::OK();
     case TFileFormatType::FORMAT_WAL:
         *file_format = format::FileFormat::WAL;

@@ -101,6 +101,16 @@ public class PluginDrivenExternalTableTest {
         return s;
     }
 
+    private static PluginDrivenExternalTable tableWithCachelessDatabase() {
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        ExternalDatabase<?> database = Mockito.mock(ExternalDatabase.class);
+        Mockito.when(database.getRemoteName()).thenReturn("");
+        Mockito.when(database.observeTableLookup(Mockito.eq(table), Mockito.any()))
+                .thenReturn(Optional.empty());
+        Deencapsulation.setField(table, "db", database);
+        return table;
+    }
+
     // ==================== §4.4 W3: per-handle write-admission capability probes ====================
 
     /**
@@ -134,7 +144,7 @@ public class PluginDrivenExternalTableTest {
         ConnectorSession session = noneScopedSession();
         Mockito.when(catalog.buildConnectorSession()).thenReturn(session);
         Mockito.when(catalog.buildCrossStatementSession()).thenReturn(session);
-        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        PluginDrivenExternalTable table = tableWithCachelessDatabase();
         Deencapsulation.setField(table, "catalog", catalog);
         return table;
     }
@@ -207,7 +217,7 @@ public class PluginDrivenExternalTableTest {
         ConnectorSession session = noneScopedSession();
         Mockito.when(catalog.buildConnectorSession()).thenReturn(session);
         Mockito.when(catalog.buildCrossStatementSession()).thenReturn(session);
-        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        PluginDrivenExternalTable table = tableWithCachelessDatabase();
         Deencapsulation.setField(table, "catalog", catalog);
         return table;
     }
@@ -249,7 +259,7 @@ public class PluginDrivenExternalTableTest {
         ConnectorSession session = noneScopedSession();
         Mockito.when(catalog.buildConnectorSession()).thenReturn(session);
         Mockito.when(catalog.buildCrossStatementSession()).thenReturn(session);
-        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        PluginDrivenExternalTable table = tableWithCachelessDatabase();
         Deencapsulation.setField(table, "catalog", catalog);
         return table;
     }
@@ -317,8 +327,7 @@ public class PluginDrivenExternalTableTest {
         Mockito.when(catalog.buildConnectorSession()).thenReturn(session);
         Mockito.when(catalog.buildCrossStatementSession()).thenReturn(session);
 
-        PluginDrivenExternalTable table =
-                Mockito.mock(PluginDrivenExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        PluginDrivenExternalTable table = tableWithCachelessDatabase();
         Deencapsulation.setField(table, "catalog", catalog);
         SchemaCacheValue scv = Mockito.mock(SchemaCacheValue.class);
         Mockito.when(scv.getSchema()).thenReturn(BASE_SCHEMA);
@@ -450,8 +459,7 @@ public class PluginDrivenExternalTableTest {
         PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
         Mockito.when(catalog.getConnector()).thenReturn(connector);
         Mockito.when(catalog.buildConnectorSession()).thenReturn(session);
-        PluginDrivenExternalTable table = Mockito.mock(
-                PluginDrivenExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        PluginDrivenExternalTable table = tableWithCachelessDatabase();
         Deencapsulation.setField(table, "catalog", catalog);
         Mockito.doReturn(99L).when(table).getId();
         ConnectContext ctx = new ConnectContext();

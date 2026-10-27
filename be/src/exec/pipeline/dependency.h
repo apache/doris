@@ -416,9 +416,8 @@ static constexpr int BUCKETED_AGG_NUM_BUCKETS = 256;
 
 /// Shared state for BucketedAggSinkOperatorX / BucketedAggSourceOperatorX.
 ///
-/// Each sink pipeline instance owns 256 per-bucket hash tables (two-level hash table
-/// approach, inspired by ClickHouse). During sink, each row is routed to bucket
-/// (hash >> 24) & 0xFF.
+/// Each sink pipeline instance owns num_buckets hash tables. Bucket selection uses
+/// the high bits of the mixed hash, independently of the low bits used by phmap.
 ///
 /// Source-side merge is pipelined with sink completion: as each sink instance finishes,
 /// it unblocks all source dependencies. Source instances scan buckets and merge data
@@ -440,14 +439,14 @@ public:
     ~BucketedAggSharedState() override; // defined in dependency.cpp (variant machinery)
 
     /// Per-instance data. One per sink pipeline instance.
-    /// Each instance has 256 bucket hash tables + 1 shared arena.
+    /// Each instance has num_buckets hash tables + 1 shared arena.
     struct PerInstanceData {
-        /// 256 per-bucket hash tables. Each bucket has its own BucketedAggDataVariants.
+        /// Each bucket has its own BucketedAggDataVariants.
         /// Uses PHHashMap<StringRef> for string keys instead of StringHashMap.
         std::vector<std::unique_ptr<BucketedAggDataVariants>> bucket_agg_data;
         std::unique_ptr<Arena> arena;
 
-        PerInstanceData(); // defined in dependency.cpp (variant machinery)
+        explicit PerInstanceData(int num_buckets); // defined in dependency.cpp
     };
 
     /// Per-bucket merge state for pipelined source-side processing.
@@ -465,6 +464,15 @@ public:
 
     std::vector<PerInstanceData> per_instance_data;
     int num_sink_instances = 0;
+    int num_buckets = BUCKETED_AGG_NUM_BUCKETS;
+
+    /// phmap uses hash bits [7, ...] for the initial probe and [0, 6] for its
+    /// fingerprint. Using bits [24, 31] for routing fixes an index bit once a
+    /// bucket reaches capacity 2^18, clustering probes in half the table.
+    /// The hash has already been mixed by phmap, including for CRC32 hashers.
+    static size_t bucket_index(size_t hash, int num_buckets) {
+        return (hash >> (sizeof(size_t) * 8 - 8)) & (num_buckets - 1);
+    }
 
     /// Tracks how many sinks have finished. Incremented by each sink on EOS.
     std::atomic<int> num_sinks_finished = 0;
@@ -526,7 +534,8 @@ public:
     /// Once-per-query cold path; defined in dependency.cpp so the body (which
     /// materializes the per-bucket BucketedAggDataVariants storage) stays out
     /// of every includer's parse.
-    Status init_instances(int num_instances, const std::function<Status()>& metadata_init);
+    Status init_instances(int num_instances, const std::function<Status()>& metadata_init,
+                          int requested_num_buckets = BUCKETED_AGG_NUM_BUCKETS);
 
 private:
     std::once_flag _init_once;

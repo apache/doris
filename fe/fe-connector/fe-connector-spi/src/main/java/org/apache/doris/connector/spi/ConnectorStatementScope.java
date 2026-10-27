@@ -44,6 +44,11 @@ public interface ConnectorStatementScope {
      */
     <T> T computeIfAbsent(String key, Supplier<T> loader);
 
+    /** Returns an already loaded statement value without loading or retaining anything on a miss. */
+    default <T> T getIfPresent(String key) {
+        return null;
+    }
+
     /**
      * {@link #computeIfAbsent} for a value only planning reads, such as a memo that lets the identical scans of
      * one plan share their planned ranges. The engine drops such values once planning ends ({@link #endPlanning}),

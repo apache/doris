@@ -59,6 +59,7 @@ import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.fs.FileIO;
+import org.apache.paimon.fs.Path;
 import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.io.DataOutputViewStreamWrapper;
 import org.apache.paimon.options.Options;
@@ -86,6 +87,7 @@ import org.apache.paimon.table.system.SystemTableLoader;
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataType;
+import org.apache.paimon.types.DataTypeRoot;
 import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.utils.InstantiationUtil;
@@ -989,6 +991,15 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         // $ro wraps the pinned file-store table; resolve its schema dictionary once, only if native is considered.
         java.util.function.Supplier<Table> legacyOrcSchemaTable = com.google.common.base.Suppliers.memoize(
                 () -> resolveSchemaDictTable(table, paimonHandle));
+        // The wrappers read through JNI report the options of the main branch, but their splits come from a branch
+        // of the pinned source, which the timestamp-history checks resolve the same way.
+        java.util.function.Supplier<Table> binaryPartitionSourceTable = paimonHandle.isForceJni()
+                ? com.google.common.base.Suppliers.memoize(() -> withSchemaHistoryAuthentication(
+                        () -> resolveTimestampHistoryTable(table, paimonHandle)))
+                : legacyOrcSchemaTable;
+        int[] binaryPartitionFields = binaryPartitionFields(table);
+        Map<FileStoreTable, Map<Long, Boolean>> legacyPartitionNameSchemas = new java.util.IdentityHashMap<>();
+        Map<String, Boolean> fileExistence = new HashMap<>();
         // Process DataSplits
         for (DataSplit dataSplit : dataSplits) {
             if (isCountPushdownSplit(countPushdown, dataSplit)) {
@@ -997,6 +1008,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                     countRepresentative = dataSplit;
                 }
                 continue;
+            }
+            if (binaryPartitionFields.length > 0) {
+                checkBinaryPartitionFiles(paimonHandle, table, dataSplit, binaryPartitionFields,
+                        binaryPartitionSourceTable, legacyPartitionNameSchemas, fileExistence);
             }
 
             Map<String, String> partitionValues = getPartitionInfoMap(
@@ -1428,7 +1443,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         } catch (RuntimeException e) {
             throw e;
         } catch (Exception e) {
-            throw new RuntimeException("Failed to read Paimon timestamp schema history", e);
+            throw new RuntimeException("Failed to access Paimon table files", e);
         }
     }
 
@@ -2286,11 +2301,119 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         FileStoreTable base = PaimonTableDecorators.unwrapToFallbackOrBase(table);
         if (base instanceof FallbackReadFileStoreTable) {
             FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) base;
+            if (!(split instanceof FallbackReadFileStoreTable.FallbackSplit)) {
+                // A split planned through the pair's SnapshotReader (a file-creation-time read) comes from its
+                // wrapped branch.
+                return pair.wrapped();
+            }
             boolean fallback = ((FallbackReadFileStoreTable.FallbackSplit) split).isFallback();
             // Match the SDK reader's branch selection before reading either options or historical schemas.
             return PaimonReaderOptions.isWrappedFirst(pair) != fallback ? pair.wrapped() : pair.other();
         }
         return base;
+    }
+
+    /** Positions in the partition row of the partition columns that hold binary values. */
+    private static int[] binaryPartitionFields(Table table) {
+        RowType partitionType = table.rowType().project(table.partitionKeys());
+        return java.util.stream.IntStream.range(0, partitionType.getFieldCount()).filter(field -> {
+            DataTypeRoot typeRoot = partitionType.getTypeAt(field).getTypeRoot();
+            return typeRoot == DataTypeRoot.BINARY || typeRoot == DataTypeRoot.VARBINARY;
+        }).toArray();
+    }
+
+    /**
+     * Paimon finds the files of a partition under the directory its values name. With {@code partition.legacy-name}
+     * = true, the default, it names a partition after the string of each value, which for a non-NULL binary value
+     * is the Java array object ({@code [B@1b6d3586}) rather than its bytes, and every resolution of the name
+     * differs. A file written under such a name, or looked up under one, is never found: Paimon's own read fails,
+     * while the BE skips a missing file of an external table and would silently drop the partition's rows. A file
+     * with an external path is found by the path its metadata records. A system wrapper reports the options of the
+     * main branch while a fallback split is planned and read under its own branch, so the options and schemas come
+     * from the branch that produced the split; for the wrappers read through JNI that branch is resolved from the
+     * pinned source of the wrapper.
+     *
+     * <p>The schema a file refers to does not prove how the file was named, because dynamic options
+     * ({@code spark.paimon.*}, Flink hints, {@code Table.copy}) keep the schema ID: a file whose schema uses legacy
+     * names fails only if it is also missing at its planned path. With {@code index-file-in-data-file-dir} = true, a
+     * deletion vector written without an external data path is looked up under the directory of its partition too,
+     * whatever the path of its data file, and the BE skips the whole data file when it cannot open the deletion
+     * vector, so every deletion vector must exist. Each path is checked once per scan.
+     */
+    private void checkBinaryPartitionFiles(PaimonTableHandle handle, Table table, DataSplit split,
+            int[] binaryPartitionFields, Supplier<Table> schemaTable,
+            Map<FileStoreTable, Map<Long, Boolean>> legacyPartitionNameSchemas, Map<String, Boolean> fileExistence) {
+        BinaryRow partition = split.partition();
+        OptionalInt nonNullField = Arrays.stream(binaryPartitionFields)
+                .filter(field -> !partition.isNullAt(field)).findFirst();
+        if (!nonNullField.isPresent()) {
+            return;
+        }
+        int binaryField = nonNullField.getAsInt();
+        FileStoreTable splitTable = schemaTable.get() == null
+                ? null : legacyOrcSplitTable((FileStoreTable) schemaTable.get(), split);
+        Table optionsTable = splitTable == null ? table : splitTable;
+        CoreOptions options = CoreOptions.fromMap(optionsTable.options());
+        boolean legacyLookup = options.legacyPartitionName();
+        // Deletion vectors under the table's index directory do not depend on partition names. The option is
+        // immutable, so every writer of the table used this value.
+        List<DeletionFile> deletionFiles = options.indexFileInDataFileDir() ? split.deletionFiles().orElse(null) : null;
+        List<DataFileMeta> files = split.dataFiles();
+        for (int i = 0; i < files.size(); i++) {
+            DataFileMeta file = files.get(i);
+            if (!file.externalPath().isPresent()) {
+                if (legacyLookup) {
+                    throw binaryPartitionReadError(handle, "the table uses legacy partition names"
+                            + " ('partition.legacy-name' = 'true'), under which Paimon names partition "
+                            + binaryPartitionName(table, partition, binaryField) + " after a Java array object"
+                            + " rather than its bytes, so the files of the partition are never found");
+                }
+                if (splitTable != null && legacyPartitionNameSchemas
+                        .computeIfAbsent(splitTable, ignored -> new HashMap<>())
+                        .computeIfAbsent(file.schemaId(), id -> withSchemaHistoryAuthentication(() -> CoreOptions
+                                .fromMap(splitTable.schemaManager().schema(id).options()).legacyPartitionName()))
+                        && !fileExists(optionsTable.fileIO(), split.bucketPath() + "/" + file.fileName(),
+                                fileExistence)) {
+                    throw binaryPartitionReadError(handle, "data file " + file.fileName() + " of partition "
+                            + binaryPartitionName(table, partition, binaryField) + " was written while the table"
+                            + " used legacy partition names ('partition.legacy-name' = 'true'), under which Paimon"
+                            + " names the partition after a Java array object rather than its bytes, so the file is"
+                            + " not under the directory of the partition");
+                }
+            }
+            DeletionFile deletionFile = deletionFiles == null ? null : deletionFiles.get(i);
+            if (deletionFile != null && !fileExists(optionsTable.fileIO(), deletionFile.path(), fileExistence)) {
+                throw binaryPartitionReadError(handle, "deletion vector file "
+                        + new Path(deletionFile.path()).getName() + " of data file " + file.fileName()
+                        + " of partition " + binaryPartitionName(table, partition, binaryField)
+                        + " does not exist: the table keeps index files with its data files"
+                        + " ('index-file-in-data-file-dir' = 'true'), so a deletion vector written without an external"
+                        + " path is looked up under the directory of its partition, and legacy partition names"
+                        + " ('partition.legacy-name' = 'true') name the partition after a Java array object rather"
+                        + " than its bytes");
+            }
+        }
+    }
+
+    private static String binaryPartitionName(Table table, BinaryRow partition, int binaryField) {
+        return table.partitionKeys().get(binaryField) + " = 0x"
+                + java.util.HexFormat.of().withUpperCase().formatHex(partition.getBinary(binaryField));
+    }
+
+    private static DorisConnectorException binaryPartitionReadError(PaimonTableHandle handle, String reason) {
+        return new DorisConnectorException("Cannot read Paimon table " + handle.getDatabaseName() + "."
+                + handle.getTableName() + ": " + reason + ". Paimon cannot read the partition either; a table with a"
+                + " binary partition column needs 'partition.legacy-name' = 'false' before its data is written");
+    }
+
+    private boolean fileExists(FileIO fileIO, String path, Map<String, Boolean> fileExistence) {
+        return fileExistence.computeIfAbsent(path, ignored -> withSchemaHistoryAuthentication(() -> {
+            try {
+                return fileIO.exists(new Path(path));
+            } catch (IOException e) {
+                throw new DorisConnectorException("Failed to check whether Paimon file " + path + " exists", e);
+            }
+        }));
     }
 
     private static boolean requiresCrossFamilyTimestampReader(FileStoreTable table, Optional<List<RawFile>> rawFiles,

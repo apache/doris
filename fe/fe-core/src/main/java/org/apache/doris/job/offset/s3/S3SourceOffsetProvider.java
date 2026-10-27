@@ -19,10 +19,12 @@ package org.apache.doris.job.offset.s3;
 
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.GlobListing;
 import org.apache.doris.filesystem.Location;
+import org.apache.doris.filesystem.spi.ObjectStorageGlob;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.job.extensions.insert.streaming.StreamingJobProperties;
@@ -45,6 +47,7 @@ import lombok.extern.log4j.Log4j2;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -54,6 +57,7 @@ import java.util.stream.Collectors;
 public class S3SourceOffsetProvider implements SourceOffsetProvider {
     private final boolean oneTimeMode;
     private volatile S3Offset noMoreFilesAfterOffset;
+    private volatile Comparator<String> fileKeyOrder = ObjectStorageGlob::compareUtf8Binary;
     volatile S3Offset currentOffset;
     volatile String maxEndFile;
 
@@ -78,6 +82,7 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
         String startFile = currentOffset == null ? null : currentOffset.endFile;
         String filePath = null;
         StorageAdapter storageAdapter = StorageAdapter.of(copiedProps);
+        updateFileKeyOrder(storageAdapter);
         try (FileSystem fileSystem = FileSystemFactory.getFileSystem(storageAdapter)) {
             String uri = storageAdapter.validateAndGetUri(copiedProps);
             filePath = storageAdapter.validateAndNormalizeUri(uri);
@@ -188,6 +193,7 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
         Map<String, String> copiedProps = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         copiedProps.putAll(properties);
         StorageAdapter storageAdapter = StorageAdapter.of(copiedProps);
+        updateFileKeyOrder(storageAdapter);
         S3Offset offsetAtScan = currentOffset;
         String startFile = offsetAtScan == null ? null : offsetAtScan.endFile;
         try (FileSystem fileSystem = FileSystemFactory.getFileSystem(storageAdapter)) {
@@ -216,10 +222,16 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
             return true;
         }
 
-        if (maxEndFile != null && currentOffset.endFile.compareTo(maxEndFile) < 0) {
+        if (maxEndFile != null
+                && fileKeyOrder.compare(currentOffset.endFile, maxEndFile) < 0) {
             return true;
         }
         return false;
+    }
+
+    private void updateFileKeyOrder(StorageAdapter storageAdapter) {
+        fileKeyOrder = storageAdapter.getType() == StorageTypeId.AZURE
+                ? Comparator.naturalOrder() : ObjectStorageGlob::compareUtf8Binary;
     }
 
     @Override

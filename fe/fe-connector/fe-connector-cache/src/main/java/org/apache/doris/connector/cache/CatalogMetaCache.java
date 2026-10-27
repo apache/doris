@@ -151,6 +151,11 @@ public final class CatalogMetaCache implements AutoCloseable {
         registry.invalidate(ScopePath.catalog());
     }
 
+    /** Runs a short auxiliary-index update at the same publication boundary as catalog invalidation. */
+    public void invalidateCatalogAndRun(Runnable commitAction) {
+        registry.invalidateAndRunUnderPublicationGate(ScopePath.catalog(), commitAction);
+    }
+
     public void invalidateDatabase(String database) {
         registry.invalidate(ScopePath.database(database));
     }

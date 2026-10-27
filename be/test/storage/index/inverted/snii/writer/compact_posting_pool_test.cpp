@@ -352,20 +352,9 @@ TEST(SniiCompactPostingPool, ResetClears) {
     EXPECT_EQ(ReadChain(pool, ch2.head, data.size()), data);
 }
 
-// ======================================================================================
-// T13: regression net for the append_byte / Cursor::has_next / Cursor::next INLINE move.
-//
-// The move is a pure code relocation (.cpp out-of-line bodies -> .h inline), so every
-// assertion below must hold byte-for-byte BOTH before and after the change: the golden
-// values are the contract. F1-F8 drive the arena encode (append_byte) and decode
-// (Cursor) micro-loops directly; F9 covers the full SpimiTermBuffer encode+decode path
-// (put_byte->append_byte ... decode_chain_varint->Cursor::next) end to end; F10 pins the
-// out-of-vocab error path. F4/F5/F9/F10 add coverage the pre-existing suite lacked
-// (tail no-phantom via an over-large budget, budget truncation, end-to-end postings,
-// latched InvalidArgument).
-// ======================================================================================
+// Checks arena append and cursor behavior, plus full posting round trips through SpimiTermBuffer.
 
-// T13-F1: a chain that fits in one level-0 slice round-trips and never overflows.
+// A chain that fits in one level-0 slice round-trips and never overflows.
 TEST(SniiCompactPostingPoolTest, RoundTripsSingleSlice) {
     CompactPostingPool pool;
     Chain ch;
@@ -382,7 +371,7 @@ TEST(SniiCompactPostingPoolTest, RoundTripsSingleSlice) {
     EXPECT_EQ(ch.level, uint8_t {0}) << "a single-slice fill must stay at level 0";
 }
 
-// T13-F2: 5000 pseudo-random bytes (fixed seed) cross many slice levels and round-trip
+// 5000 pseudo-random bytes (fixed seed) cross many slice levels and round-trip
 // byte-identically -- the encode/decode forward-pointer chain golden.
 TEST(SniiCompactPostingPoolTest, RoundTripsAcrossSliceLevels) {
     CompactPostingPool pool;
@@ -401,7 +390,7 @@ TEST(SniiCompactPostingPoolTest, RoundTripsAcrossSliceLevels) {
     EXPECT_GT(ch.level, uint8_t {0}) << "5000 bytes must advance past level 0";
 }
 
-// T13-F3: a single chain longer than one 32 KiB block spans >= 2 blocks and round-trips
+// A single chain longer than one 32 KiB block spans >= 2 blocks and round-trips
 // byte-identically (exercises at()'s two-level block index across alloc_run new blocks).
 TEST(SniiCompactPostingPoolTest, RoundTripsAcrossBlockBoundary) {
     CompactPostingPool pool;
@@ -422,7 +411,7 @@ TEST(SniiCompactPostingPoolTest, RoundTripsAcrossBlockBoundary) {
     EXPECT_EQ(pool.payload_bytes(), data.size());
 }
 
-// T13-F4: with a budget LARGER than the payload, has_next() must stop at the tail slice's
+// With a budget LARGER than the payload, has_next() must stop at the tail slice's
 // zero forward pointer and report no phantom trailing byte (the stop is the tail, not the
 // budget). next() at the tail yields 0.
 TEST(SniiCompactPostingPoolTest, HasNextStopsAtTailNoPhantom) {
@@ -449,7 +438,7 @@ TEST(SniiCompactPostingPoolTest, HasNextStopsAtTailNoPhantom) {
     EXPECT_EQ(c.next(), 0U) << "next() past the tail yields 0";
 }
 
-// T13-F5: a budget SMALLER than the payload truncates the cursor to exactly `budget`
+// A budget SMALLER than the payload truncates the cursor to exactly `budget`
 // bytes (the first ones, in write order), then has_next() goes false.
 TEST(SniiCompactPostingPoolTest, BudgetCapsYieldedBytes) {
     CompactPostingPool pool;
@@ -473,7 +462,7 @@ TEST(SniiCompactPostingPoolTest, BudgetCapsYieldedBytes) {
     EXPECT_EQ(c.next(), 0U);
 }
 
-// T13-F6: an absurd budget over a short multi-slice chain self-terminates at the tail
+// An absurd budget over a short multi-slice chain self-terminates at the tail
 // slice's payload end -- yielding the written bytes plus the slice's zero-initialized
 // unwritten tail, and NEVER aliasing block 0 (offset 0 is owned by a decoy chain).
 TEST(SniiCompactPostingPoolTest, OverLargeBudgetSelfTerminates) {
@@ -519,7 +508,7 @@ TEST(SniiCompactPostingPoolTest, OverLargeBudgetSelfTerminates) {
     }
 }
 
-// T13-F7: a started-but-never-written chain with a zero budget yields nothing.
+// A started-but-never-written chain with a zero budget yields nothing.
 TEST(SniiCompactPostingPoolTest, EmptyChainYieldsNothing) {
     CompactPostingPool pool;
     Chain ch;
@@ -529,7 +518,7 @@ TEST(SniiCompactPostingPoolTest, EmptyChainYieldsNothing) {
     EXPECT_EQ(c.next(), 0U);
 }
 
-// T13-F8: exactly filling a level-0 slice then writing ONE more byte advances the chain
+// Exactly filling a level-0 slice then writing ONE more byte advances the chain
 // to the scheduled next level and links the slices; the whole chain round-trips.
 TEST(SniiCompactPostingPoolTest, SliceOverflowLinksCorrectly) {
     CompactPostingPool pool;
@@ -551,12 +540,8 @@ TEST(SniiCompactPostingPoolTest, SliceOverflowLinksCorrectly) {
     EXPECT_EQ(ReadChain(pool, ch.head, data.size()), data);
 }
 
-// T13-F9 (equivalence/golden): the full SpimiTermBuffer encode+decode path. The token
-// feed exercises lexicographic term ordering (NOT first-seen), a multi-doc term, a freq>1
-// doc (banana@10 twice), and an out-of-order docid (cherry 100 then 50) that drives the
-// finalize sort_by_docid + position reorder. The golden TermPostings were derived by hand
-// from the documented tagged-varint contract and MUST stay identical across the inline
-// move -- this is the core "new path == old path" check for T13.
+// Check the full encode and decode path with repeated terms and out-of-order docids.
+// Expected postings follow the tagged-varint contract.
 TEST(SniiCompactPostingPoolTest, EndToEndPostingsEquivalence) {
     SpimiTermBuffer buf(/*has_positions=*/true); // owned-vocab (string-keyed add_token)
     buf.add_token("banana", 10, 0);
@@ -587,9 +572,7 @@ TEST(SniiCompactPostingPoolTest, EndToEndPostingsEquivalence) {
     EXPECT_EQ(got[2].positions_flat, (std::vector<uint32_t> {9, 0}));
 }
 
-// T13-F10 (error path): a borrowed-vocab buffer fed an out-of-range term-id latches an
-// InvalidArgument into status(), ignores the token, and finalize_sorted() yields nothing
-// (no spill, no crash).
+// An out-of-range term ID latches an error and emits no postings.
 TEST(SniiCompactPostingPoolTest, OutOfVocabTokenLatchesError) {
     const std::vector<std::string> vocab = {"alpha", "beta"};
     SpimiTermBuffer buf(&vocab, /*has_positions=*/true);
