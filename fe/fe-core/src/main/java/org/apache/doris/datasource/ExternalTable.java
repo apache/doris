@@ -63,6 +63,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -391,6 +392,40 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     @Override
     public Optional<ColumnStatistic> getColumnStatistic(String colName) {
         return Optional.empty();
+    }
+
+    /**
+     * Guard a table-level read with this table's retained lookup identity. Synthetic readers must
+     * invoke this on their source table; partition/selector absence must not retire that source.
+     */
+    public <R> R withMissingTableRepair(Supplier<R> read) {
+        // Metadata validators can enter a schema read under this monitor. Repair only after
+        // an outer unlocked entry point has unwound it, preserving catalog -> table lock order.
+        if (Thread.holdsLock(this)) {
+            return read.get();
+        }
+        Optional<Runnable> observation = db.observeTableLookup(this);
+        try {
+            return read.get();
+        } catch (RuntimeException failure) {
+            if (isMissingTable(failure)) {
+                observation.ifPresent(Runnable::run);
+            }
+            throw failure;
+        }
+    }
+
+    /** Providers with selectors override this to verify the missing object's base identity. */
+    protected boolean isMissingTable(Throwable failure) {
+        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+            if (cause instanceof org.apache.hadoop.hive.metastore.api.NoSuchObjectException
+                    || cause instanceof org.apache.hadoop.hive.metastore.api.UnknownTableException
+                    || cause instanceof org.apache.iceberg.exceptions.NoSuchTableException
+                    || cause instanceof org.apache.iceberg.exceptions.NoSuchViewException) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

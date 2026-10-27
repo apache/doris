@@ -489,13 +489,15 @@ public abstract class AbstractExternalMetaCache implements ExternalMetaCache {
             cacheSpec = cacheSpec.withMaxWeight(entryBudget.getEffectiveMaxWeight());
         }
         try {
+            // Engine loaders can reenter the catalog monitor. Always load outside Caffeine's map
+            // locks so catalog-guarded invalidation cannot wait on a loader that waits for the catalog.
             return new MetaCacheEntry<>(entryDef.getName(),
                     wrapSchemaValidator(entryDef.getLoader(), entryDef.getValueType()),
                     cacheSpec,
                     refreshExecutor, entryDef.isAutoRefresh(), entryDef.isContextualOnly(),
                     entryDef.getSizeEstimator(), entryBudget, entryDef.getReplacementListener(),
                     entryDef.getRemovalTokenExtractor(), entryDef.getRemovalListener(),
-                    entryDef.getUnpublishedValueRetirer(), entryDef.usesSoftValues());
+                    entryDef.getUnpublishedValueRetirer(), entryDef.usesSoftValues(), true);
         } catch (RuntimeException | Error e) {
             if (entryBudget != null) {
                 entryBudget.close();

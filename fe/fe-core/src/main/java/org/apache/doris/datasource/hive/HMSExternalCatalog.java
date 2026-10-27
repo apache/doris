@@ -408,12 +408,21 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     /** Resolves a database only while the expected HMS Iceberg runtime is still current. */
-    public synchronized ExternalDatabase<? extends ExternalTable> getDbForIcebergCatalogOperation(
+    public ExternalDatabase<? extends ExternalTable> getDbForIcebergCatalogOperation(
             IcebergMetadataOps expectedOps, String dbName) {
-        if (icebergMetadataOps != expectedOps) {
-            throw new IllegalStateException("Iceberg catalog runtime changed before database resolution");
+        synchronized (this) {
+            if (icebergMetadataOps != expectedOps) {
+                throw new IllegalStateException("Iceberg catalog runtime changed before database resolution");
+            }
         }
-        return getDbNullable(dbName);
+        // Match the parent-key -> catalog order used by loading and retained lookup repair.
+        ExternalDatabase<? extends ExternalTable> database = getDbNullable(dbName);
+        synchronized (this) {
+            if (icebergMetadataOps != expectedOps) {
+                throw new IllegalStateException("Iceberg catalog runtime changed during database resolution");
+            }
+        }
+        return database;
     }
 
     /** Retains the exact HMS Iceberg runtime while a table cache generation is being loaded or borrowed. */

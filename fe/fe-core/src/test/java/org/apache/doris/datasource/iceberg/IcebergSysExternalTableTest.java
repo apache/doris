@@ -36,9 +36,38 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 
 public class IcebergSysExternalTableTest {
+    private IcebergExternalTable sourceTableForSchemaTest() {
+        IcebergExternalCatalog catalog = Mockito.mock(IcebergExternalCatalog.class);
+        IcebergExternalDatabase database = Mockito.mock(IcebergExternalDatabase.class);
+        return Mockito.spy(new IcebergExternalTable(1L, "table", "table", catalog, database));
+    }
+
+    @Test
+    public void testSystemSchemaMissingSourceRepairsSourceLookup() {
+        IcebergExternalCatalog catalog = Mockito.mock(IcebergExternalCatalog.class);
+        IcebergExternalDatabase database = Mockito.mock(IcebergExternalDatabase.class);
+        IcebergExternalTable source = new IcebergExternalTable(1L, "table", "table", catalog, database);
+        java.util.concurrent.atomic.AtomicInteger repairs = new java.util.concurrent.atomic.AtomicInteger();
+        Mockito.when(database.observeTableLookup(source)).thenReturn(Optional.of(repairs::incrementAndGet));
+        IcebergSysExternalTable system = new IcebergSysExternalTable(source, MetadataTableType.SNAPSHOTS.name());
+        RuntimeException missing = new org.apache.iceberg.exceptions.NoSuchTableException("missing source");
+        try (MockedStatic<IcebergUtils> utils = Mockito.mockStatic(IcebergUtils.class)) {
+            utils.when(() -> IcebergUtils.withSnapshotCacheValue(
+                    Mockito.eq(Optional.empty()), Mockito.same(source), Mockito.any()))
+                    .thenAnswer(ignored -> {
+                        Assertions.assertEquals(0, repairs.get());
+                        throw missing;
+                    });
+            Assertions.assertSame(missing, Assertions.assertThrows(RuntimeException.class, system::getFullSchema));
+            Assertions.assertEquals(1, repairs.get());
+            Mockito.verify(database).observeTableLookup(source);
+            Mockito.verify(database, Mockito.never()).observeTableLookup(system);
+        }
+    }
+
     @Test
     public void testStaticMetadataTablesDoNotSupportSnapshotSelection() {
-        IcebergExternalTable sourceTable = Mockito.mock(IcebergExternalTable.class);
+        IcebergExternalTable sourceTable = sourceTableForSchemaTest();
         Mockito.when(sourceTable.getId()).thenReturn(1L);
         Mockito.when(sourceTable.getName()).thenReturn("table");
         Mockito.when(sourceTable.getRemoteName()).thenReturn("table");
@@ -61,7 +90,7 @@ public class IcebergSysExternalTableTest {
 
     @Test
     public void testMetadataSchemaReloadsAfterSourceEvolution() {
-        IcebergExternalTable sourceTable = Mockito.mock(IcebergExternalTable.class);
+        IcebergExternalTable sourceTable = sourceTableForSchemaTest();
         IcebergExternalCatalog catalog = Mockito.mock(IcebergExternalCatalog.class);
         Mockito.when(sourceTable.getId()).thenReturn(1L);
         Mockito.when(sourceTable.getName()).thenReturn("table");
@@ -108,7 +137,7 @@ public class IcebergSysExternalTableTest {
 
     @Test
     public void testMetadataSchemaUsesLogicalTypesWithLegacyGenerationFlags() {
-        IcebergExternalTable sourceTable = Mockito.mock(IcebergExternalTable.class);
+        IcebergExternalTable sourceTable = sourceTableForSchemaTest();
         IcebergExternalCatalog catalog = Mockito.mock(IcebergExternalCatalog.class);
         Mockito.when(sourceTable.getId()).thenReturn(1L);
         Mockito.when(sourceTable.getName()).thenReturn("table");
@@ -158,7 +187,7 @@ public class IcebergSysExternalTableTest {
 
     @Test
     public void testSnapshotSelectableSchemaFollowsRelationSnapshot() {
-        IcebergExternalTable sourceTable = Mockito.mock(IcebergExternalTable.class);
+        IcebergExternalTable sourceTable = sourceTableForSchemaTest();
         IcebergExternalCatalog catalog = Mockito.mock(IcebergExternalCatalog.class);
         Mockito.when(sourceTable.getId()).thenReturn(1L);
         Mockito.when(sourceTable.getName()).thenReturn("table");
