@@ -728,8 +728,10 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
         RETURN_IF_ERROR(find_projected_equality_key_path(*root_path.front(), key_path,
                                                          slot->second->type(), child_indexes,
                                                          &leaf_type, &found));
-        // The projected leaf has the table's current type. A key written before a type promotion
-        // (INT promoted to BIGINT) keeps its own type, so it still reads the physical root.
+        // The projected leaf has the table's current type, which is the type a key is compared in
+        // (equality_delete_key_type) even when the key was written before a type promotion. Only a
+        // STRING / VARBINARY key keeps its delete file's type: a STRING key under a VARBINARY
+        // projected leaf still reads the physical root, where the leaf is read as STRING too.
         if (found && remove_nullable(leaf_type)->equals(*remove_nullable(key_type)) &&
             projected_root_reads_physical_path(*ctx->table_info_node, slot->second->col_name(),
                                                slot->second->type(), *child_indexes, file_path)) {
@@ -834,6 +836,7 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
                         .field_id = field_id,
                         .block_name = table_col_name,
                         .leaf_type = _expand_columns[i].type,
+                        .source_leaf_type = _expand_columns[i].type,
                         .child_indexes = std::move(projected_child_indexes),
                         .missing_value = nullptr,
                         .source_block_name = std::move(projected_root_name),
@@ -846,6 +849,14 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
                         field_id, _expand_columns[i].type, file_path.fields.size(),
                         &missing_value));
             }
+            // The physical root holds the leaf in the data file's own type, which is narrower than
+            // the compared type when the file was written before a type promotion: payload.existing
+            // promoted from INT to BIGINT is INT in older files, and copying those INT values into a
+            // BIGINT column read the wrong bytes. A leaf the file lacks is the missing default,
+            // which is built in the compared type.
+            const DataTypePtr source_leaf_type =
+                    complete_file_path ? make_nullable(file_path.fields.back()->data_type)
+                                       : _expand_columns[i].type;
             const auto root_carrier = physical_root_carriers.find(file_column->name);
             if (root_carrier != physical_root_carriers.end()) {
                 // Keys payload.a and payload.b: the carrier of payload.a reads payload, and
@@ -854,6 +865,7 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
                         .field_id = field_id,
                         .block_name = table_col_name,
                         .leaf_type = _expand_columns[i].type,
+                        .source_leaf_type = source_leaf_type,
                         .child_indexes = file_path.child_indexes,
                         .missing_value = std::move(missing_value),
                         .source_block_name = root_carrier->second,
@@ -865,6 +877,7 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
                     .field_id = field_id,
                     .block_name = table_col_name,
                     .leaf_type = _expand_columns[i].type,
+                    .source_leaf_type = source_leaf_type,
                     .child_indexes = file_path.child_indexes,
                     .missing_value = std::move(missing_value),
             });
@@ -1234,16 +1247,21 @@ Status IcebergOrcReader::on_before_init_reader(ReaderInitContext* ctx) {
                     .field_id = field_id,
                     .block_name = table_col_name,
                     .leaf_type = _expand_columns[i].type,
+                    .source_leaf_type = _expand_columns[i].type,
                     .child_indexes = file_path.child_indexes,
                     .missing_value = std::move(missing_value),
             });
             _expand_columns[i].type = make_nullable(convert_to_doris_type(file_column));
             _expand_columns[i].column = _expand_columns[i].type->create_column();
         } else if (!file_path.child_indexes.empty()) {
+            // The root is read in the data file's own types; a leaf written before a type
+            // promotion (INT payload.existing of a column now BIGINT) is widened after extraction.
             _nested_equality_delete_columns.push_back({
                     .field_id = field_id,
                     .block_name = table_col_name,
                     .leaf_type = _expand_columns[i].type,
+                    .source_leaf_type =
+                            make_nullable(convert_to_doris_type(file_path.fields.back())),
                     .child_indexes = file_path.child_indexes,
                     .missing_value = nullptr,
             });
