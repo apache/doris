@@ -188,11 +188,15 @@ public class DecomposeRepeatWithPreAggregationTest extends TestWithFeService imp
     }
 
     @Test
-    void aggStateSupportsOtherMergeableBuiltins() {
+    void aggStateSupportsWhitelistedBuiltins() {
         for (String expression : ImmutableList.of("stddev_samp(d)", "stddev_pop(d)",
-                "var_samp(d)", "var_pop(d)", "covar_samp(d,a)", "ndv(d)",
-                "covar_pop(d,a)", "bitmap_union_count(to_bitmap(d))", "group_concat(cast(d as string))",
-                "percentile(d,0.5)", "avg_weighted(d,a)")) {
+                "var_samp(d)", "var_pop(d)", "covar_samp(d,a)", "covar_pop(d,a)",
+                "avg_weighted(d,a)", "corr(d,a)", "corr_welford(d,a)", "sem(d)", "skew(d)", "kurt(d)",
+                "regr_avgx(d,a)", "regr_avgy(d,a)", "regr_count(d,a)", "regr_intercept(d,a)",
+                "regr_r2(d,a)", "regr_slope(d,a)", "regr_sxx(d,a)", "regr_syy(d,a)", "regr_sxy(d,a)",
+                "bool_and(d>0)", "bool_or(d>0)", "bool_xor(d>0)",
+                "group_bit_and(a)", "group_bit_or(a)", "group_bit_xor(a)",
+                "retention(d>0,a>0)", "exponential_moving_average(5,d,a)")) {
             String sql = "select a,b,c,sum(d),count(*)," + expression + " from t1 group by rollup(a,b,c)";
             PlanChecker.from(connectContext).checkExplain(sql, planner -> {
                 String shape = planner.getOptimizedPlan().treeString();
@@ -202,6 +206,21 @@ public class DecomposeRepeatWithPreAggregationTest extends TestWithFeService imp
                 Assertions.assertFalse(shape.contains("sum_combine"), shape);
                 Assertions.assertFalse(shape.matches("(?s).*\\bcount_combine\\(.*"), shape);
             });
+        }
+    }
+
+    @Test
+    void aggStateRejectsBuiltinsOutsideWhitelist() {
+        for (String expression : ImmutableList.of("ndv(d)", "bitmap_union_count(to_bitmap(d))",
+                "group_concat(cast(d as string))", "percentile(d,0.5)", "topn(d,3)",
+                "min_by(d,a)", "max_by(d,a)")) {
+            String sql = "select avg(d)," + expression + " from t1 group by rollup(a,b,c)";
+            Plan plan = PlanChecker.from(connectContext).analyze(sql).rewrite().getPlan();
+            String shape = plan.treeString();
+            Assertions.assertFalse(plan.anyMatch(node -> node instanceof LogicalCTEAnchor), shape);
+            Assertions.assertFalse(shape.contains("_combine"), shape);
+            Assertions.assertFalse(shape.contains("_merge"), shape);
+            Assertions.assertFalse(shape.contains("_finalize"), shape);
         }
     }
 

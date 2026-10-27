@@ -55,7 +55,8 @@ suite("decompose_repeat_agg_state") {
         """select a,b,c,sum(v),count(*),count(v),min(v),max(v),grouping_id(a,b,c)
            from decompose_repeat_agg_state group by rollup(a,b,c)"""
     ]
-    // Exercise state rollup beyond AVG, including multi-argument functions and complex inputs.
+    // Keep every function in this positive case eligible for the rewrite. One unsupported
+    // function would disable the entire rewrite and silently turn this into a baseline-only test.
     // Round statistical results because regrouping changes floating-point addition order.
     for (grouping in ["rollup(a,b,c)", "cube(a,b,c)",
                       "grouping sets ((a),(a,b,c),(a,b),(),())",
@@ -66,8 +67,6 @@ suite("decompose_repeat_agg_state") {
                           round(var_samp(v),6),round(var_pop(v),6),
                           round(covar_pop(v,n),6),round(covar_samp(v,n),6),
                           round(avg_weighted(v,n),6),
-                          round(percentile(cast(v as double),0.5),6),
-                          ndv(v),bitmap_union_count(to_bitmap(n)),
                           grouping_id(a,b,c)
                    from decompose_repeat_agg_state where ${predicate} group by ${grouping}""")
         }
@@ -86,13 +85,30 @@ suite("decompose_repeat_agg_state") {
         contains "avg_finalize"
     }
     explain {
-        sql """select a,b,c,sum(v),count(*),avg(v),stddev_samp(v),ndv(v)
+        sql """select a,b,c,sum(v),count(*),avg(v),stddev_samp(v),covar_pop(v,n)
                from decompose_repeat_agg_state group by rollup(a,b,c)"""
         contains "stddev_samp_combine"
-        contains "ndv_combine"
+        contains "stddev_samp_merge"
+        contains "stddev_samp_finalize"
+        contains "covar_pop_combine"
+        contains "avg_combine"
         notContains "sum_combine"
         notContains "sum_finalize"
         notContains "count_combine"
         notContains "count_finalize"
     }
+    // An unsupported aggregate must prevent rewriting the whole query, including AVG.
+    for (expression in ["ndv(v)", "percentile(cast(v as double),0.5)",
+                        "bitmap_union_count(to_bitmap(n))", "group_concat(label)",
+                        "topn(n,3)", "min_by(v,n)", "max_by(v,n)"]) {
+        explain {
+            sql """select a,b,c,avg(v),${expression}
+                   from decompose_repeat_agg_state group by rollup(a,b,c)"""
+            notContains "avg_combine"
+            notContains "avg_merge"
+            notContains "avg_finalize"
+            notContains "UNION"
+        }
+    }
+
 }
