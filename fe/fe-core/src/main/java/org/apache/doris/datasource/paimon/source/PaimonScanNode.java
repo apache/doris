@@ -1033,7 +1033,7 @@ public class PaimonScanNode extends FileQueryScanNode {
                     && nativeSplit && !fallbackRead
                     && !isFullyMaterializedPkDvSplit((DataSplit) split);
             boolean canUseRust = sessionVariable.isEnablePaimonRustReader()
-                    && !sessionVariable.isForceJniScanner() && !hasProjectedFileColumn()
+                    && !hasProjectedFileColumn()
                     && sessionVariable.enableFileScannerV2 && nativeSplit && !fallbackRead
                     && !isIncremental && providerModeTranslatable && !queryAuthTable
                     && !restTokenTable
