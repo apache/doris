@@ -23,6 +23,7 @@
 #include <gen_cpp/Exprs_types.h>
 #include <glog/logging.h>
 
+#include <algorithm>
 #include <limits>
 #include <memory>
 #include <roaring/roaring.hh>
@@ -57,6 +58,7 @@
 #include "storage/index/inverted/query_v2/boolean_query/operator.h"
 #include "storage/index/inverted/query_v2/collect/doc_set_collector.h"
 #include "storage/index/inverted/query_v2/collect/top_k_collector.h"
+#include "storage/index/inverted/query_v2/null_masked_query.h"
 #include "storage/index/inverted/query_v2/phrase_query/multi_phrase_query.h"
 #include "storage/index/inverted/query_v2/phrase_query/phrase_query.h"
 #include "storage/index/inverted/query_v2/regexp_query/regexp_query.h"
@@ -122,13 +124,8 @@ bool is_nested_group_search_supported() {
     return provider != nullptr && provider->should_enable_nested_group_read_path();
 }
 
-query_v2::QueryPtr make_unknown_query(uint32_t num_rows) {
-    auto null_bitmap = std::make_shared<roaring::Roaring>();
-    if (num_rows > 0) {
-        null_bitmap->addRange(0, num_rows);
-    }
-    return std::make_shared<query_v2::BitSetQuery>(std::make_shared<roaring::Roaring>(),
-                                                   std::move(null_bitmap));
+query_v2::QueryPtr make_empty_search_query() {
+    return std::make_shared<query_v2::BitSetQuery>(std::make_shared<roaring::Roaring>());
 }
 
 DataTypePtr unwrap_direct_index_value_type(DataTypePtr column_type) {
@@ -284,14 +281,6 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param_unguarded(
                 "NESTED query requires NestedGroup support, which is unavailable in this build");
     }
 
-    if (!is_nested_query && (iterators.empty() || data_type_with_names.empty())) {
-        LOG(INFO) << "No indexed columns or iterators available, returning empty result, dsl:"
-                  << search_param.original_dsl;
-        bitmap_result = InvertedIndexResultBitmap(std::make_shared<roaring::Roaring>(),
-                                                  std::make_shared<roaring::Roaring>());
-        return Status::OK();
-    }
-
     // Track overall query time (equivalent to inverted_index_query_timer in MATCH path).
     // Must be declared before the DSL cache lookup so that cache-hit fast paths are
     // also covered by the timer.
@@ -315,7 +304,7 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param_unguarded(
         dsl_sig = build_dsl_signature(search_param);
         if (!seg_prefix.empty() && !dsl_sig.empty()) {
             dsl_cache_key = InvertedIndexQueryCache::CacheKey {
-                    seg_prefix, "__search_dsl__", InvertedIndexQueryType::SEARCH_DSL_QUERY,
+                    seg_prefix, "__search_dsl_2vl__", InvertedIndexQueryType::SEARCH_DSL_QUERY,
                     dsl_sig};
             cache_usable = true;
             InvertedIndexQueryCacheHandle dsl_cache_handle;
@@ -332,21 +321,9 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param_unguarded(
                     if (outer_stats) {
                         outer_stats->inverted_index_query_cache_hit++;
                     }
-                    // Also retrieve cached null bitmap for three-valued SQL logic
-                    // (needed by compound operators NOT, OR, AND in VCompoundPred)
-                    auto null_cache_key = InvertedIndexQueryCache::CacheKey {
-                            seg_prefix, "__search_dsl__", InvertedIndexQueryType::SEARCH_DSL_QUERY,
-                            dsl_sig + "__null"};
-                    InvertedIndexQueryCacheHandle null_cache_handle;
-                    std::shared_ptr<roaring::Roaring> null_bitmap;
-                    if (dsl_cache->lookup(null_cache_key, &null_cache_handle)) {
-                        null_bitmap = null_cache_handle.get_bitmap();
-                    }
-                    if (!null_bitmap) {
-                        null_bitmap = std::make_shared<roaring::Roaring>();
-                    }
-                    bitmap_result =
-                            InvertedIndexResultBitmap(cached_bitmap, std::move(null_bitmap));
+                    bitmap_result = InvertedIndexResultBitmap(
+                            std::make_shared<roaring::Roaring>(*cached_bitmap),
+                            std::make_shared<roaring::Roaring>());
                     return Status::OK();
                 }
             }
@@ -415,7 +392,7 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param_unguarded(
         return Status::OK();
     }
 
-    VariantSearchNullBitmapAdapter null_resolver(resolver);
+    SearchNullBitmapResolver null_resolver;
     query_v2::QueryExecutionContext exec_ctx =
             build_variant_search_query_execution_context(num_rows, resolver, &null_resolver);
 
@@ -440,7 +417,14 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param_unguarded(
     {
         int64_t exec_dummy = 0;
         SCOPED_RAW_TIMER(stats ? &stats->inverted_index_searcher_search_exec_timer : &exec_dummy);
-        if (enable_scoring && !is_asc && top_k > 0) {
+        const bool can_prune_scores =
+                std::none_of(resolver.binding_cache().begin(), resolver.binding_cache().end(),
+                             [](const auto& entry) {
+                                 return entry.second.inverted_reader->type() ==
+                                        InvertedIndexReaderType::STRING_TYPE;
+                             });
+        if (enable_scoring && !is_asc && top_k > 0 && top_k < num_rows &&
+            top_k <= query_v2::TopKCollector::kMaxK && can_prune_scores) {
             bool use_wand = index_query_context->runtime_state != nullptr &&
                             index_query_context->runtime_state->query_options()
                                     .enable_inverted_index_wand_query;
@@ -457,45 +441,13 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param_unguarded(
 
     VLOG_DEBUG << "search: Query completed, matched " << roaring->cardinality() << " documents";
 
-    // Extract NULL bitmap from three-valued logic scorer
-    // The scorer correctly computes which documents evaluate to NULL based on query logic
-    // For example: TRUE OR NULL = TRUE (not NULL), FALSE OR NULL = NULL
-    std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
-    if (exec_ctx.null_resolver) {
-        auto scorer = weight->scorer(exec_ctx, root_binding_key);
-        if (scorer && scorer->has_null_bitmap(exec_ctx.null_resolver)) {
-            const auto* bitmap = scorer->get_null_bitmap(exec_ctx.null_resolver);
-            if (bitmap != nullptr) {
-                *null_bitmap = *bitmap;
-                VLOG_TRACE << "search: Extracted NULL bitmap with " << null_bitmap->cardinality()
-                           << " NULL documents";
-            }
-        }
-    }
-
-    VLOG_TRACE << "search: Before mask - true_bitmap=" << roaring->cardinality()
-               << ", null_bitmap=" << null_bitmap->cardinality();
-
-    // Create result and mask out NULLs (SQL WHERE clause semantics: only TRUE rows)
-    bitmap_result = InvertedIndexResultBitmap(std::move(roaring), std::move(null_bitmap));
-    bitmap_result.mask_out_null();
-
-    VLOG_TRACE << "search: After mask - result_bitmap="
-               << bitmap_result.get_data_bitmap()->cardinality();
-
-    // Insert post-mask_out_null result into DSL cache for future reuse
-    // Cache both data bitmap and null bitmap so compound operators (NOT, OR, AND)
-    // can apply correct three-valued SQL logic on cache hit
+    bitmap_result =
+            InvertedIndexResultBitmap(std::move(roaring), std::make_shared<roaring::Roaring>());
     if (dsl_cache && cache_usable) {
         InvertedIndexQueryCacheHandle insert_handle;
-        dsl_cache->insert(dsl_cache_key, bitmap_result.get_data_bitmap(), &insert_handle);
-        if (bitmap_result.get_null_bitmap()) {
-            auto null_cache_key = InvertedIndexQueryCache::CacheKey {
-                    seg_prefix, "__search_dsl__", InvertedIndexQueryType::SEARCH_DSL_QUERY,
-                    dsl_sig + "__null"};
-            InvertedIndexQueryCacheHandle null_insert_handle;
-            dsl_cache->insert(null_cache_key, bitmap_result.get_null_bitmap(), &null_insert_handle);
-        }
+        dsl_cache->insert(dsl_cache_key,
+                          std::make_shared<roaring::Roaring>(*bitmap_result.get_data_bitmap()),
+                          &insert_handle);
     }
 
     return Status::OK();
@@ -737,6 +689,20 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
     }
 
     auto finish_leaf_query = [&](query_v2::QueryPtr query) -> Status {
+        auto* iterator = resolver.get_iterator(field_name);
+        if (iterator != nullptr) {
+            const bool has_null = DORIS_TRY(iterator->has_null());
+            if (has_null) {
+                InvertedIndexQueryCacheHandle handle;
+                RETURN_IF_ERROR(iterator->read_null_bitmap(&handle));
+                auto nulls = handle.get_bitmap();
+                DORIS_CHECK(nulls != nullptr);
+                if (!nulls->isEmpty()) {
+                    query = std::make_shared<query_v2::NullMaskedQuery>(std::move(query),
+                                                                        std::move(nulls));
+                }
+            }
+        }
         *out = std::move(query);
         return resolver.map_leaf_query(field_name, out);
     };
@@ -747,22 +713,30 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
     if (!binding.is_bound()) {
         LOG(INFO) << "search: No inverted index for field '" << field_name
                   << "' in this segment, clause_type='" << clause_type
-                  << "', query_type=" << static_cast<int>(query_type)
-                  << ", returning UNKNOWN bitmap";
+                  << "', query_type=" << static_cast<int>(query_type) << ", returning empty bitmap";
         if (binding_key) {
             binding_key->clear();
         }
-        return finish_leaf_query(make_unknown_query(num_rows));
+        return finish_leaf_query(make_empty_search_query());
     }
 
     if (binding_key) {
         *binding_key = binding.binding_key;
     }
 
+    if (clause_type == "WILDCARD" && value == "*") {
+        uint32_t leaf_rows = num_rows;
+        RETURN_IF_ERROR(resolver.leaf_num_rows(field_name, &leaf_rows));
+        auto matches = std::make_shared<roaring::Roaring>();
+        matches->addRange(0, leaf_rows);
+        return finish_leaf_query(std::make_shared<query_v2::BitSetQuery>(std::move(matches)));
+    }
+
     if (binding.use_direct_index_reader()) {
         auto direct_query_type = direct_index_query_type_for_clause(clause_type);
         if (direct_query_type == InvertedIndexQueryType::UNKNOWN_QUERY) {
-            return finish_leaf_query(make_unknown_query(num_rows));
+            return Status::NotSupported("SEARCH clause {} is unsupported for field {}", clause_type,
+                                        field_name);
         }
 
         auto value_type = unwrap_direct_index_value_type(binding.column_type);
@@ -771,12 +745,12 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
         if (!parse_status.ok()) {
             LOG(INFO) << "search: scalar leaf value is unsupported, field=" << field_name
                       << ", value='" << value << "', reason=" << parse_status.to_string();
-            return finish_leaf_query(make_unknown_query(num_rows));
+            return parse_status;
         }
 
         auto* iterator = resolver.get_iterator(field_name);
         if (iterator == nullptr) {
-            return finish_leaf_query(make_unknown_query(num_rows));
+            return finish_leaf_query(make_empty_search_query());
         }
 
         segment_v2::InvertedIndexParam param;
@@ -788,21 +762,11 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
         param.roaring = std::make_shared<roaring::Roaring>();
         RETURN_IF_ERROR(iterator->read_from_index(segment_v2::IndexParam {&param}));
 
-        std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
-        auto has_null = iterator->has_null();
-        if (has_null.has_value() && has_null.value()) {
-            segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
-            RETURN_IF_ERROR(iterator->read_null_bitmap(&null_bitmap_cache_handle));
-            if (auto bitmap = null_bitmap_cache_handle.get_bitmap(); bitmap != nullptr) {
-                null_bitmap = bitmap;
-            }
-        }
-        return finish_leaf_query(std::make_shared<query_v2::BitSetQuery>(std::move(param.roaring),
-                                                                         std::move(null_bitmap)));
+        return finish_leaf_query(std::make_shared<query_v2::BitSetQuery>(std::move(param.roaring)));
     }
 
     if (binding.lucene_reader == nullptr) {
-        return finish_leaf_query(make_unknown_query(num_rows));
+        return finish_leaf_query(make_empty_search_query());
     }
 
     FunctionSearch::ClauseTypeCategory category = get_clause_type_category(clause_type);

@@ -44,6 +44,7 @@
 #include "storage/segment/column_reader.h"
 
 namespace doris {
+class Schema;
 class RowDescriptor;
 class RuntimeState;
 class ZoneMapEvalContext;
@@ -69,14 +70,18 @@ public:
                      std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>>&
                              common_expr_index_status,
                      ScoreRuntimeSPtr score_runtime, segment_v2::Segment* segment = nullptr,
-                     const segment_v2::ColumnIteratorOptions& column_iter_opts = {})
+                     const segment_v2::ColumnIteratorOptions& column_iter_opts = {},
+                     std::shared_ptr<const Schema> read_schema = nullptr)
             : _col_ids(col_ids),
               _index_iterators(index_iterators),
               _storage_name_and_type(storage_name_and_type_vec),
               _expr_index_status(common_expr_index_status),
               _score_runtime(std::move(score_runtime)),
               _segment(segment),
-              _column_iter_opts(column_iter_opts) {}
+              _column_iter_opts(column_iter_opts),
+              _read_schema(std::move(read_schema)) {}
+
+    const std::shared_ptr<const Schema>& read_schema() const { return _read_schema; }
 
     segment_v2::IndexIterator* get_inverted_index_iterator_by_column_id(int column_index) const {
         if (column_index < 0 || column_index >= _col_ids.size()) {
@@ -219,6 +224,7 @@ private:
     segment_v2::Segment* _segment = nullptr; // Ref
     segment_v2::ColumnIteratorOptions _column_iter_opts;
     segment_v2::IndexQueryContextPtr _index_query_context;
+    std::shared_ptr<const Schema> _read_schema;
 };
 
 class VExprContext {

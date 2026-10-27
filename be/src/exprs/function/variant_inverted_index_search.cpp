@@ -153,16 +153,6 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
 
     auto iterator_it = _iterators.find(field_name);
     if (iterator_it == _iterators.end() || iterator_it->second == nullptr) {
-        if (is_variant_sub) {
-            add_search_binding_diagnostic(
-                    _context,
-                    fmt::format("[VariantSearchBinding] phase=field_resolve result=no_iterator "
-                                "logical_field={} stored_field={} query_type={} "
-                                "reason=iterator_not_found",
-                                field_name, stored_field_name, query_type_to_string(query_type)));
-            *binding = FieldReaderBinding();
-            return Status::OK();
-        }
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
                 "iterator not found for field '{}'", field_name);
     }
@@ -401,14 +391,6 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
     return Status::OK();
 }
 
-segment_v2::IndexIterator* VariantSearchNullBitmapAdapter::iterator_for(
-        const query_v2::Scorer& /*scorer*/, const std::string& logical_field) const {
-    if (logical_field.empty()) {
-        return nullptr;
-    }
-    return _resolver.get_iterator(logical_field);
-}
-
 void populate_variant_search_binding_context(const FieldReaderResolver& resolver,
                                              query_v2::QueryExecutionContext* exec_ctx) {
     DCHECK(exec_ctx != nullptr);
@@ -432,6 +414,7 @@ query_v2::QueryExecutionContext build_variant_search_query_execution_context(
         query_v2::NullBitmapResolver* null_resolver) {
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = segment_num_rows;
+    exec_ctx.preserve_doc_ids = true;
     populate_variant_search_binding_context(resolver, &exec_ctx);
     exec_ctx.null_resolver = null_resolver;
     return exec_ctx;
@@ -709,9 +692,34 @@ Status VariantNestedSearchEvaluator::evaluate(
                 return map_variant_nested_leaf_query_to_active_group(mapper_context,
                                                                      logical_field_name, query);
             });
+    resolver.set_leaf_num_rows_resolver([mapper_context](const std::string& logical_field_name,
+                                                         uint32_t* num_rows) {
+        if (!starts_with_root_field(logical_field_name, mapper_context.root_field) ||
+            logical_field_name.size() <= mapper_context.root_field.size()) {
+            return Status::OK();
+        }
+        const auto relative_path = logical_field_name.substr(mapper_context.root_field.size() + 1);
+        auto [leaf_found, leaf_chain, leaf_path] =
+                mapper_context.variant_reader->collect_nested_group_chain(relative_path);
+        if (!leaf_found) {
+            return Status::OK();
+        }
+        DORIS_CHECK(!leaf_chain.empty());
+        uint64_t count = 0;
+        RETURN_IF_ERROR(mapper_context.read_provider->get_total_elements(
+                mapper_context.column_iter_opts, leaf_chain.back(), &count));
+        if (count > std::numeric_limits<uint32_t>::max()) {
+            return Status::InvalidArgument("nested leaf element_count exceeds uint32_t max");
+        }
+        *num_rows = static_cast<uint32_t>(count);
+        return Status::OK();
+    });
     struct ScopedLeafMapperReset {
         FieldReaderResolver& resolver;
-        ~ScopedLeafMapperReset() { resolver.set_leaf_query_mapper(nullptr); }
+        ~ScopedLeafMapperReset() {
+            resolver.set_leaf_query_mapper(nullptr);
+            resolver.set_leaf_num_rows_resolver(nullptr);
+        }
     } mapper_reset {resolver};
     RETURN_IF_ERROR(_function_search.build_query_recursive(
             nested_clause.children[0], context, resolver, &inner_query, &inner_binding_key,
@@ -720,7 +728,7 @@ Status VariantNestedSearchEvaluator::evaluate(
         return Status::OK();
     }
 
-    VariantSearchNullBitmapAdapter null_resolver(resolver);
+    SearchNullBitmapResolver null_resolver;
     query_v2::QueryExecutionContext exec_ctx = build_variant_search_query_execution_context(
             static_cast<uint32_t>(total_elements), resolver, &null_resolver);
 

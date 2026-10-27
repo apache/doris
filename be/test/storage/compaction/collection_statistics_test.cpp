@@ -442,6 +442,100 @@ TEST_F(CollectionStatisticsTest, DocsOnlyNormalizerCollectsScoringStatistics) {
     EXPECT_EQ((*range.norm_many)[0], 1U);
 }
 
+TEST_F(CollectionStatisticsTest, MissingFieldIndexPreservesOtherFieldStatistics) {
+    IndexPolicyMgr policy_mgr;
+    auto* exec_env = ExecEnv::GetInstance();
+    auto* original_policy_mgr = exec_env->index_policy_mgr();
+    exec_env->_index_policy_mgr = &policy_mgr;
+    Defer restore_policy_mgr([&] { exec_env->_index_policy_mgr = original_policy_mgr; });
+
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(DUP_KEYS);
+    schema_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V3);
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    tablet_schema->init_from_pb(schema_pb);
+
+    TabletColumn column;
+    column.set_unique_id(1);
+    column.set_name("content");
+    column.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    tablet_schema->append_column(column);
+
+    TabletIndex index;
+    index._index_id = 1;
+    index._index_type = IndexType::INVERTED;
+    index._col_unique_ids.push_back(1);
+    index._properties["normalizer"] = "lowercase";
+    tablet_schema->append_index(std::move(index));
+
+    std::vector<StorePath> paths;
+    paths.emplace_back(test_dir_, 1024);
+    auto tmp_file_dirs = std::make_unique<segment_v2::TmpFileDirs>(paths);
+    ASSERT_TRUE(tmp_file_dirs->init().ok());
+    ExecEnv::GetInstance()->set_tmp_file_dir(std::move(tmp_file_dirs));
+
+    TabletColumn other = tablet_schema->column(0);
+    other.set_unique_id(2);
+    other.set_name("other");
+    tablet_schema->append_column(other);
+    TabletIndex other_index = *tablet_schema->inverted_indexs(1).front();
+    other_index._index_id = 2;
+    other_index._col_unique_ids = {2};
+    tablet_schema->append_index(std::move(other_index));
+    const std::vector<std::string> segment_paths {test_dir_ + "/only_content.dat",
+                                                  test_dir_ + "/only_other.dat"};
+    auto fs = io::global_local_filesystem();
+    for (size_t ordinal = 0; ordinal < segment_paths.size(); ++ordinal) {
+        const std::string prefix {segment_v2::InvertedIndexDescriptor::get_index_file_path_prefix(
+                segment_paths[ordinal])};
+        io::FileWriterPtr compound_file;
+        io::FileWriterOptions options;
+        ASSERT_TRUE(
+                fs->create_file(segment_v2::InvertedIndexDescriptor::get_index_file_path_v2(prefix),
+                                &compound_file, &options)
+                        .ok());
+        segment_v2::IndexFileWriter file_writer(fs, prefix, "missing_field", ordinal,
+                                                InvertedIndexStorageFormatPB::V3,
+                                                std::move(compound_file));
+        const auto& column = tablet_schema->column(ordinal);
+        const auto indexes = tablet_schema->inverted_indexs(column.unique_id());
+        ASSERT_EQ(1u, indexes.size());
+        std::unique_ptr<segment_v2::IndexColumnWriter> writer;
+        ASSERT_TRUE(
+                segment_v2::IndexColumnWriter::create(&column, &writer, &file_writer, indexes[0])
+                        .ok());
+        std::vector<Slice> values {Slice("ALPHA")};
+        ASSERT_TRUE(writer->add_values(column.name(), values.data(), values.size()).ok());
+        ASSERT_TRUE(writer->finish().ok());
+        ASSERT_TRUE(file_writer.begin_close().ok());
+        ASSERT_TRUE(file_writer.finish_close().ok());
+    }
+    auto meta = std::make_shared<collection_statistics::MockRowsetMeta>();
+    auto rowset = std::make_shared<collection_statistics::MockRowset>(tablet_schema, meta);
+    rowset->set_num_segments(2);
+    for (int i = 0; i < 2; ++i) {
+        rowset->set_segment_path(i, segment_paths[i]);
+    }
+    CollectInfoMap infos;
+    ASSERT_TRUE(stats_->extract_collect_info(runtime_state_.get(),
+                                             create_match_expr_contexts("alpha"), tablet_schema,
+                                             &infos)
+                        .ok());
+    ASSERT_EQ(1u, infos.size());
+    CollectInfo other_info = infos.begin()->second;
+    other_info.index_meta = tablet_schema->inverted_indexs(2).front();
+    infos.emplace(L"2", std::move(other_info));
+    for (int i = 0; i < 2; ++i) {
+        auto status = stats_->process_segment(rowset, i, tablet_schema.get(), infos, nullptr);
+        ASSERT_TRUE(status.ok()) << status;
+    }
+    EXPECT_EQ(2u, stats_->get_doc_num());
+    EXPECT_EQ(1u, stats_->get_total_term_cnt_by_col(L"1"));
+    EXPECT_EQ(1u, stats_->get_total_term_cnt_by_col(L"2"));
+    EXPECT_EQ(1u, stats_->get_term_doc_freq_by_col(L"1", L"alpha"));
+    EXPECT_EQ(1u, stats_->get_term_doc_freq_by_col(L"2", L"alpha"));
+}
+
 TEST_F(CollectionStatisticsTest, CollectWithEmptyExpressions) {
     auto tablet_schema = create_tablet_schema_with_inverted_index();
     VExprContextSPtrs empty_contexts;
@@ -1650,6 +1744,161 @@ TEST_F(CollectionStatisticsTest, SearchRejectsNumericBkdScoring) {
     const auto status = collector.collect(runtime_state_.get(), schema, expr, &infos);
     EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED);
     EXPECT_TRUE(infos.empty());
+}
+
+TEST(SearchPredicateCollectorTest, MatchAllDoesNotRequireFieldStatistics) {
+    TSearchClause clause;
+    clause.clause_type = "MATCH_ALL_DOCS";
+    SearchPredicateCollector collector;
+    CollectInfoMap infos;
+    auto status = collector.collect_from_clause(clause, nullptr, nullptr, &infos);
+    EXPECT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(infos.empty());
+}
+
+TEST(SearchPredicateCollectorTest, LucenePureExclusionAllowsFieldlessMatchAll) {
+    TSearchClause all;
+    all.clause_type = "MATCH_ALL_DOCS";
+    all.__set_occur(TSearchOccur::SHOULD);
+    TSearchClause excluded;
+    excluded.clause_type = "WILDCARD";
+    excluded.__set_field_name("body");
+    excluded.__set_value("hit*");
+    excluded.__set_occur(TSearchOccur::MUST_NOT);
+    TSearchClause root;
+    root.clause_type = "OCCUR_BOOLEAN";
+    root.__set_children({all, excluded});
+    SearchPredicateCollector collector;
+    CollectInfoMap infos;
+    auto status = collector.collect_from_clause(root, nullptr, nullptr, &infos);
+    EXPECT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(infos.empty());
+}
+
+TEST_F(CollectionStatisticsTest, ExtractCollectInfoForVariantSubcolumnIndexForSearch) {
+    auto tablet_schema = std::make_shared<TabletSchema>();
+
+    constexpr int32_t kVariantUid = 9001;
+
+    TabletColumn variant_col;
+    variant_col.set_unique_id(kVariantUid);
+    variant_col.set_name("v");
+    variant_col.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    tablet_schema->append_column(variant_col);
+
+    TabletColumn sub_col;
+    sub_col.set_unique_id(-1);
+    sub_col.set_name("v.host");
+    sub_col.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    sub_col.set_parent_unique_id(kVariantUid);
+    PathInData path("v.host");
+    sub_col.set_path_info(path);
+    tablet_schema->append_column(sub_col);
+
+    auto sub_index = std::make_shared<TabletIndex>();
+    TabletIndexPB index_pb;
+    index_pb.set_index_id(2001);
+    index_pb.set_index_name("variant_subcolumn_idx");
+    index_pb.set_index_type(IndexType::INVERTED);
+    index_pb.add_col_unique_id(kVariantUid);
+    auto* props = index_pb.mutable_properties();
+    (*props)["parser"] = "standard";
+    (*props)["support_phrase"] = "true";
+    sub_index->init_from_pb(index_pb);
+
+    TabletSchema::PathsSetInfo path_set_info;
+    TabletIndexes sub_indexes = {sub_index};
+    path_set_info.subcolumn_indexes["host"] = sub_indexes;
+    std::unordered_map<int32_t, TabletSchema::PathsSetInfo> path_set_info_map;
+    path_set_info_map[kVariantUid] = std::move(path_set_info);
+    tablet_schema->set_path_set_info(std::move(path_set_info_map));
+
+    EXPECT_TRUE(tablet_schema->inverted_indexs(kVariantUid, "host").empty());
+
+    auto found = tablet_schema->inverted_indexs(tablet_schema->column(/*ordinal=*/1));
+    ASSERT_EQ(found.size(), 1u);
+    EXPECT_EQ(found[0]->index_name(), "variant_subcolumn_idx");
+
+    constexpr int kSlotId = 42;
+    runtime_state_->_mock_desc_tbl->add_slot_descriptor(SlotId(kSlotId), kVariantUid);
+
+    TSearchClause clause;
+    clause.__set_clause_type("TERM");
+    clause.__set_field_name("v.host");
+    clause.__set_value("foo");
+    SearchPredicateCollector collector;
+    CollectInfoMap collect_infos;
+    auto status = collector.collect_from_leaf(clause, runtime_state_.get(), tablet_schema,
+                                              &collect_infos);
+    ASSERT_TRUE(status.ok()) << status.msg();
+    ASSERT_EQ(collect_infos.size(), 1u);
+    auto it = collect_infos.find(StringHelper::to_wstring(std::to_string(kVariantUid) + ".v.host"));
+    ASSERT_NE(it, collect_infos.end());
+    ASSERT_NE(it->second.index_meta, nullptr);
+    EXPECT_EQ(it->second.index_meta->index_name(), "variant_subcolumn_idx");
+}
+
+TEST_F(CollectionStatisticsTest, ExtractCollectInfoForVariantParentIndexWithoutTemplateForSearch) {
+    auto tablet_schema = std::make_shared<TabletSchema>();
+
+    constexpr int32_t kVariantUid = 9004;
+
+    TabletColumn variant_col;
+    variant_col.set_unique_id(kVariantUid);
+    variant_col.set_name("v");
+    variant_col.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    tablet_schema->append_column(variant_col);
+
+    TabletColumn sub_col;
+    sub_col.set_unique_id(-1);
+    sub_col.set_name("v.key");
+    sub_col.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    sub_col.set_parent_unique_id(kVariantUid);
+    PathInData path("v.key");
+    sub_col.set_path_info(path);
+    tablet_schema->append_column(sub_col);
+
+    TabletIndexPB index_pb;
+    index_pb.set_index_id(2004);
+    index_pb.set_index_name("variant_parent_idx");
+    index_pb.set_index_type(IndexType::INVERTED);
+    index_pb.add_col_unique_id(kVariantUid);
+    auto* props = index_pb.mutable_properties();
+    (*props)["parser"] = "english";
+    (*props)["support_phrase"] = "true";
+
+    TabletIndex index;
+    index.init_from_pb(index_pb);
+    tablet_schema->append_index(std::move(index));
+
+    // Pre-conditions: column-aware lookup is empty (no inheritance pre-populated)
+    // and generate_sub_column_info returns false (no field_pattern template).
+    // The collector must still resolve through the VARIANT-placeholder branch.
+    ASSERT_TRUE(tablet_schema->inverted_indexs(tablet_schema->column(/*ordinal=*/1)).empty());
+    ASSERT_EQ(tablet_schema->inverted_indexs(kVariantUid).size(), 1u);
+    TabletSchema::SubColumnInfo sub_column_info;
+    ASSERT_FALSE(variant_util::generate_sub_column_info(*tablet_schema, kVariantUid, "key",
+                                                        &sub_column_info));
+
+    constexpr int kSlotId = 45;
+    runtime_state_->_mock_desc_tbl->add_slot_descriptor(SlotId(kSlotId), kVariantUid, "v.key",
+                                                        {"key"});
+
+    TSearchClause clause;
+    clause.__set_clause_type("TERM");
+    clause.__set_field_name("v.key");
+    clause.__set_value("foo");
+    SearchPredicateCollector collector;
+    CollectInfoMap collect_infos;
+    auto status = collector.collect_from_leaf(clause, runtime_state_.get(), tablet_schema,
+                                              &collect_infos);
+    ASSERT_TRUE(status.ok()) << status.msg();
+    ASSERT_EQ(collect_infos.size(), 1u);
+    auto it = collect_infos.find(StringHelper::to_wstring(std::to_string(kVariantUid) + ".v.key"));
+    ASSERT_NE(it, collect_infos.end());
+    ASSERT_NE(it->second.index_meta, nullptr);
+    ASSERT_NE(it->second.owned_index_meta, nullptr);
+    EXPECT_EQ(it->second.index_meta->index_name(), "variant_parent_idx");
 }
 
 } // namespace doris
