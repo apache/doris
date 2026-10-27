@@ -19,6 +19,7 @@ package org.apache.doris.connector.cache;
 
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.CompletionStage;
 import java.util.function.BiConsumer;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
@@ -49,6 +50,16 @@ public final class MetaCache<K, V> {
     public V get(K key, Function<K, V> loader) {
         K nonNullKey = Objects.requireNonNull(key, "key can not be null");
         return delegate.get(nonNullKey, definition.scope(nonNullKey), loader);
+    }
+
+    /**
+     * Loads on the caller when elected, or observes an existing load without blocking this caller.
+     * Cancelling or completing a future obtained from the stage does not affect the shared load.
+     * Callbacks run on the completing thread and must not perform blocking work.
+     */
+    public CompletionStage<V> getOrLoadFuture(K key, Function<K, V> loader) {
+        K nonNullKey = Objects.requireNonNull(key, "key can not be null");
+        return delegate.getOrLoadFuture(nonNullKey, definition.scope(nonNullKey), loader);
     }
 
     /**

@@ -166,6 +166,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -247,6 +248,7 @@ public class StmtExecutor {
     // queries) register it here so Ctrl+C / KILL QUERY / statement timeout on the outer
     // statement also cancel the inner work, which those paths cannot address directly.
     private volatile Consumer<Status> cancelDelegate = null;
+    private final List<Runnable> queryCancelCallbacks = new CopyOnWriteArrayList<>();
     private RedirectStatus redirectStatus = null;
     private Planner planner;
     private boolean isProxy;
@@ -769,6 +771,11 @@ public class StmtExecutor {
                 if (finishProfileInQueryRetry) {
                     profile.clearExecutionProfiles();
                 }
+                // QueryFinishCleanup closed the failed attempt's scope. Replanning must not register
+                // fresh task groups in that closed scope, whose closeAll() is already complete.
+                if (context.getStatementContext() != null) {
+                    context.getStatementContext().resetConnectorStatementScope();
+                }
                 // Drop the old execution state before replanning.
                 planner = null;
                 setCoord(null);
@@ -887,6 +894,22 @@ public class StmtExecutor {
             } finally {
                 sessionVariable.setIsSingleSetVar(false);
                 sessionVariable.clearSessionOriginValue();
+                // Planning can register scan cleanup before a coordinator exists. EXPLAIN and
+                // planning errors never reach unregisterQuery(), but still finish this attempt.
+                // A deferred Flight query owns its resources until its later finalization.
+                if (!deferredForArrowFlight) {
+                    try {
+                        QeProcessorImpl.INSTANCE.finishQueryCallbacks(queryId);
+                    } finally {
+                        try {
+                            if (context.getStatementContext() != null) {
+                                context.getStatementContext().closeConnectorStatementScope();
+                            }
+                        } finally {
+                            queryCancelCallbacks.clear();
+                        }
+                    }
+                }
             }
         }
     }
@@ -1244,6 +1267,7 @@ public class StmtExecutor {
             updateProfile(true);
         }
         QeProcessorImpl.INSTANCE.unregisterQuery(queryId());
+        queryCancelCallbacks.clear();
     }
 
     // The id this query runs under: the context's, until the query is deferred for Arrow Flight and
@@ -1589,8 +1613,31 @@ public class StmtExecutor {
         this.cancelDelegate = null;
     }
 
+    /** Register before starting asynchronous query work. A concurrent or earlier cancellation runs it once. */
+    public void registerQueryCancellationCallback(Runnable callback) {
+        queryCancelCallbacks.add(callback);
+        if (pendingCoordinatorCancelReason.get() != null && queryCancelCallbacks.remove(callback)) {
+            runQueryCancellationCallback(callback);
+        }
+    }
+
+    private void runQueryCancellationCallback(Runnable callback) {
+        try {
+            callback.run();
+        } catch (Exception e) {
+            LOG.warn("Query cancellation callback failed", e);
+        }
+    }
+
     public void cancel(Status cancelReason, boolean needWaitCancelComplete) {
         pendingCoordinatorCancelReason.compareAndSet(null, cancelReason);
+        // Query-owned work may already exist during planning, before there is a coordinator to cancel.
+        // Remove before invoking: registration and repeated cancellation must not run it twice.
+        for (Runnable callback : queryCancelCallbacks) {
+            if (queryCancelCallbacks.remove(callback)) {
+                runQueryCancellationCallback(callback);
+            }
+        }
         Status coordinatorCancelReason = pendingCoordinatorCancelReason.get();
         Consumer<Status> delegate = cancelDelegate;
         if (delegate != null) {

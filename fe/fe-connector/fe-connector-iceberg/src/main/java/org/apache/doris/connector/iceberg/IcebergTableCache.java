@@ -249,6 +249,14 @@ final class IcebergTableCache {
             return owner.snapshotReadTable();
         }
 
+        TableLease retainLease() {
+            TableLease retained = owner.tryBorrow();
+            if (retained == null) {
+                throw new IllegalStateException("Iceberg table owner is already closed");
+            }
+            return retained;
+        }
+
         @Override
         public void close() {
             if (closed.compareAndSet(false, true)) {

@@ -1560,7 +1560,7 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
-    public void getScanNodePropertiesEmitsPathPartitionKeysAndRealDataFormat() {
+    public void getScanNodePropertiesEmitsPathPartitionKeysAndNativeDefault() {
         Schema schema = new Schema(
                 Types.NestedField.required(1, "id", Types.IntegerType.get()),
                 Types.NestedField.required(2, "P", Types.IntegerType.get()),
@@ -1576,17 +1576,12 @@ public class IcebergScanPlanProviderTest {
         // MUTATION: omitting path_partition_keys -> BE double-fills partition columns -> DCHECK -> this red.
         // MUTATION: re-lowercasing "P" -> "p,region" != "P,region" -> red.
         Assertions.assertEquals("P,region", props.get("path_partition_keys"));
-        // A base table MUST NOT report jni here: BE reads the scan-level format to pick FileScannerV2 vs V1
-        // (_should_use_file_scanner_v2) before it can see any split, so "jni" would pin every iceberg scan to
-        // the V1 tree -- the only one carrying TableSchemaChangeHelper, whose StructNode DCHECK then SIGABRTs
-        // the BE on a Top-N lazy-materialization rowid slot (TeamCity 995122). No write.format.default and no
-        // snapshot on this fixture -> IcebergUtils.getFileFormat parity default = parquet.
-        // MUTATION: reverting to a hardcoded "jni" -> red here, and V2 is silently lost in production.
+        // A native default avoids a format-discovery scan. The physical format belongs to each range.
         Assertions.assertEquals("parquet", props.get("file_format_type"));
     }
 
     @Test
-    public void getScanNodePropertiesResolvesOrcTableFormat() {
+    public void getScanNodePropertiesDoesNotUseWriteFormatForRead() {
         Schema schema = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()));
         Table table = createTable("orct", schema, PartitionSpec.unpartitioned(),
                 Collections.singletonMap(TableProperties.DEFAULT_FILE_FORMAT, "orc"));
@@ -1595,10 +1590,10 @@ public class IcebergScanPlanProviderTest {
         Map<String, String> props = provider.getScanNodeProperties(
                 null, new IcebergTableHandle("db1", "orct"), Collections.emptyList(), Optional.empty());
 
-        // Pins that the scan-level format is RESOLVED from the table, not a constant: an orc table must say orc
-        // so BE's genSlotToSchemaIdMapForOrc / V2 selection see the truth (legacy getFileFormatType parity).
-        // MUTATION: hardcoding "parquet" instead of IcebergWriterHelper.getFileFormat(table) -> red.
-        Assertions.assertEquals("orc", props.get("file_format_type"));
+        Assertions.assertEquals("parquet", props.get("file_format_type"));
+        // An ORC write default does not describe old retained files; no data file is needed here.
+        Assertions.assertTrue(provider.planScan(null, ConnectorScanRequest.builder(
+                new IcebergTableHandle("db1", "orct"), Collections.emptyList()).build()).isEmpty());
     }
 
     @Test
@@ -4983,6 +4978,149 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
+    public void scanPropertiesDoNotReadManifestsAndSplitsRetainOrc() throws IOException {
+        Table table = createTable("format_cache", SCHEMA, PartitionSpec.unpartitioned());
+        for (int i = 0; i < 8; i++) {
+            table.newFastAppend().appendFile(dataFile(table.spec(),
+                    "s3://b/db/format_cache/" + i + ".orc", 1024, null, null, FileFormat.ORC)).commit();
+        }
+        RecordingConnectorContext context = new RecordingConnectorContext();
+        IcebergManifestCache cache = new IcebergManifestCache();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(manifestCacheProps()), opsReturning(table), context, cache);
+        Map<String, String> props = provider.getScanNodeProperties(emptySession(),
+                new IcebergTableHandle("db1", "format_cache"), Collections.emptyList(), Optional.empty());
+        Assertions.assertEquals("parquet", props.get("file_format_type"));
+        Assertions.assertEquals(0, cache.size(), "scan properties must not load data manifests");
+        Assertions.assertEquals(0, context.metadataSubmissions.get(), "scan properties must not prefetch");
+        try (ConnectorSplitSource source = provider.streamSplits(emptySession(),
+                scanOf(new IcebergTableHandle("db1", "format_cache")).build())) {
+            Assertions.assertTrue(source.hasNext());
+            Assertions.assertEquals(TFileFormatType.FORMAT_ORC, populate(source.next()).getFormatType());
+            Assertions.assertEquals(1, cache.size());
+            source.onMoreSplitsRequested();
+            Assertions.assertEquals(7, drain(source).size());
+        }
+        Assertions.assertTrue(context.metadataSubmissions.get() > 0,
+                "full scans must retain bounded manifest prefetch after backend demand");
+        Assertions.assertEquals(8, cache.size());
+    }
+
+    @Test
+    public void scanPropertiesLeaveManifestReadErrorsForSplitGeneration() {
+        Table table = createTable("format_failure", SCHEMA, PartitionSpec.unpartitioned());
+        table.newFastAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/format_failure/one.orc", 1024, null, null, FileFormat.ORC)).commit();
+        ManifestFile first = table.currentSnapshot().dataManifests(table.io()).get(0);
+        FailOnceFileIO io = new FailOnceFileIO(table.io(), first.path());
+        Table wrapped = tableWithIo(table, io);
+        IcebergScanPlanProvider provider = manifestProvider(manifestCacheProps(), wrapped,
+                new IcebergManifestCache());
+        Map<String, String> props = provider.getScanNodeProperties(emptySession(),
+                new IcebergTableHandle("db1", "format_failure"), Collections.emptyList(), Optional.empty());
+        Assertions.assertEquals("parquet", props.get("file_format_type"));
+        Assertions.assertFalse(io.failed.get(), "format initialization must not open the data manifest");
+        Assertions.assertThrows(RuntimeException.class, () -> {
+            try (ConnectorSplitSource source = provider.streamSplits(emptySession(),
+                    scanOf(new IcebergTableHandle("db1", "format_failure")).build())) {
+                source.hasNext();
+            }
+        });
+        Assertions.assertTrue(io.failed.get(), "the actual split scan must surface the manifest failure");
+    }
+
+    @Test
+    public void nativeDefaultDoesNotOverrideMixedFileFormats() {
+        Table table = createTable("mixed_formats", SCHEMA, PartitionSpec.unpartitioned(),
+                Collections.singletonMap(TableProperties.DEFAULT_FILE_FORMAT, "orc"));
+        table.newFastAppend()
+                .appendFile(dataFile(table.spec(), "s3://b/db/mixed/a.parquet", 1024, null, null))
+                .appendFile(dataFile(table.spec(), "s3://b/db/mixed/b.orc", 1024, null, null, FileFormat.ORC))
+                .commit();
+        for (Map<String, String> properties : Arrays.asList(manifestCacheProps(), Collections.<String, String>emptyMap())) {
+            IcebergScanPlanProvider provider = manifestProvider(properties, table, new IcebergManifestCache());
+            Map<String, String> props = provider.getScanNodeProperties(emptySession(),
+                    new IcebergTableHandle("db1", "mixed_formats"), Collections.emptyList(), Optional.empty());
+            Assertions.assertEquals("parquet", props.get("file_format_type"));
+            List<ConnectorScanRange> ranges = provider.planScan(emptySession(), ConnectorScanRequest.builder(
+                    new IcebergTableHandle("db1", "mixed_formats"), Collections.emptyList()).build());
+            Assertions.assertEquals(TFileFormatType.FORMAT_PARQUET,
+                    populate(byPath(ranges, "a.parquet")).getFormatType());
+            Assertions.assertEquals(TFileFormatType.FORMAT_ORC,
+                    populate(byPath(ranges, "b.orc")).getFormatType());
+        }
+    }
+
+    @Test
+    public void streamingManifestPrefetchWaitsForFurtherBackendDemand() throws IOException {
+        Table table = createTable("demand", SCHEMA, PartitionSpec.unpartitioned());
+        for (int i = 0; i < 8; i++) {
+            table.newFastAppend().appendFile(dataFile(table.spec(),
+                    "s3://b/db/demand/" + i + ".parquet", 1024, null, null)).commit();
+        }
+        Assertions.assertEquals(8, table.currentSnapshot().dataManifests(table.io()).size());
+        RecordingConnectorContext context = new RecordingConnectorContext();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(manifestCacheProps()), opsReturning(table), context,
+                new IcebergManifestCache());
+        try (ConnectorSplitSource source = provider.streamSplits(emptySession(),
+                scanOf(new IcebergTableHandle("db1", "demand")).build())) {
+            List<String> paths = new ArrayList<>();
+            paths.add(source.next().getPath().get());
+            paths.add(source.next().getPath().get());
+            Assertions.assertEquals(0, context.metadataSubmissions.get());
+            source.onMoreSplitsRequested();
+            while (source.hasNext()) {
+                paths.add(source.next().getPath().get());
+            }
+            Assertions.assertEquals(8, new java.util.HashSet<>(paths).size());
+            Assertions.assertTrue(context.metadataSubmissions.get() > 0);
+        }
+    }
+
+    @Test
+    public void rewriteScopeFilteringKeepsPrefetchUntilAnOutputSplitExists() throws IOException {
+        Table table = createTable("rewrite_demand", SCHEMA, PartitionSpec.unpartitioned());
+        for (int i = 0; i < 8; i++) {
+            table.newFastAppend().appendFile(dataFile(table.spec(),
+                    "s3://b/db/rewrite/" + i + ".parquet", 1024, null, null)).commit();
+        }
+        RecordingConnectorContext context = new RecordingConnectorContext();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(manifestCacheProps()), opsReturning(table), context,
+                new IcebergManifestCache());
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "rewrite_demand")
+                .withRewriteFileScope(Collections.singleton("s3://b/db/rewrite/not-present.parquet"));
+        try (ConnectorSplitSource source = provider.streamSplits(emptySession(), scanOf(handle).build())) {
+            Assertions.assertFalse(source.hasNext());
+            Assertions.assertTrue(context.metadataSubmissions.get() > 0);
+        }
+    }
+
+    @Test
+    public void fullyFilteredStreamingScanPrefetchesWithoutBackendDemand() throws IOException {
+        Table table = createTable("filtered_demand", SCHEMA, PartitionSpec.unpartitioned());
+        Map<Integer, ByteBuffer> bounds = Collections.singletonMap(1,
+                Conversions.toByteBuffer(Types.IntegerType.get(), 10));
+        for (int i = 0; i < 8; i++) {
+            DataFile file = DataFiles.builder(table.spec()).withPath("s3://b/db/filtered/" + i + ".parquet")
+                    .withFormat(FileFormat.PARQUET).withFileSizeInBytes(1024)
+                    .withMetrics(new Metrics(1L, null, null, null, null, bounds, bounds)).build();
+            table.newFastAppend().appendFile(file).commit();
+        }
+        RecordingConnectorContext context = new RecordingConnectorContext();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(manifestCacheProps()), opsReturning(table), context,
+                new IcebergManifestCache());
+        try (ConnectorSplitSource source = provider.streamSplits(emptySession(),
+                scanOf(new IcebergTableHandle("db1", "filtered_demand"))
+                        .filter(Optional.of(eqInt("id", -1))).build())) {
+            Assertions.assertFalse(source.hasNext());
+            Assertions.assertTrue(context.metadataSubmissions.get() > 0);
+        }
+    }
+
+    @Test
     public void planScanManifestCacheEnabledMatchesSdkPathAndConsumesCache() {
         Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
         table.newAppend()
@@ -5883,10 +6021,8 @@ public class IcebergScanPlanProviderTest {
     // --- T09 helpers ---
 
     private static FakeIcebergTable fakeTable(String name) {
-        // write.format.default: getScanNodeProperties now resolves the scan-level format off the table (it
-        // drives BE's FileScannerV2-vs-V1 pick -- see getScanNodePropertiesEmitsPathPartitionKeysAndRealDataFormat).
-        // A declared format keeps these credential tests off IcebergUtils' last-resort planFiles() inference,
-        // which FakeIcebergTable deliberately refuses; a real table normally declares it too.
+        // Keep a normal write default on this credential fixture. Read-side scan properties use a native
+        // default and must not call FakeIcebergTable.newScan() to infer the physical file format.
         Map<String, String> properties =
                 Collections.singletonMap(TableProperties.DEFAULT_FILE_FORMAT, "parquet");
         FakeIcebergTable table = new FakeIcebergTable(
