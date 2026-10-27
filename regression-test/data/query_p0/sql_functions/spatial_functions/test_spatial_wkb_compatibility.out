@@ -195,3 +195,9 @@ true	true	true	true	true	true	true	true	true	true	false	true	true	true
 2	false	false	true	false	true	true
 3	false	false	true	false	true	true
 
+-- !geography_raw_line_coverage --
+1	true	false	false	true	false	false
+2	false	false	false	false	true	true
+3	false	false	false	false	true	true
+4	true	true	true	true	false	false
+

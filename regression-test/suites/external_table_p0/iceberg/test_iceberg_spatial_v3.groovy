@@ -839,15 +839,15 @@ public class CreateIcebergSpatialV3Table {
         engine=iceberg properties ('format-version' = '3',
             'write.update.mode' = 'merge-on-read', 'write.merge.mode' = 'merge-on-read')"""
     sql """insert into spatial_dml_values select id, geom, geog from geometry_values"""
-    // UPDATE coercion rejects incompatible carriers before the spatial identity checks.
+    // UPDATE validates spatial identity before coercion, while proven NULLs can be retagged.
     test {
         sql """explain update spatial_dml_values set geog =
             ST_GeometryFromWKBTyped('0101000000000000000000F03F0000000000000040') where id = 1"""
-        exception "can not cast from origin type GEOMETRY('OGC:CRS84') to target type=GEOGRAPHY"
+        exception "Spatial connector write type mismatch"
     }
     test {
         sql """explain update spatial_dml_values set geom = 'not WKB' where id = 1"""
-        exception "can not cast from origin type VARCHAR(7) to target type=GEOMETRY"
+        exception "Spatial connector write cannot convert input column"
     }
     test {
         sql """explain merge into spatial_dml_values t using projected_values s on t.id = s.id
@@ -1425,4 +1425,16 @@ public class CreateIcebergSpatialV3Table {
             (select id, cast(geog as geometry) g from geometry_values where id = 101) source"""
         exception "type mismatch"
     }
+    // UPDATE uses the row-level merge sink before constant folding, independently of INSERT SELECT.
+    sql """insert into spatial_dml_values select number + 401,
+        ST_GeometryFromWKBTyped('0101000000000000000000F03F0000000000000040'),
+        ST_GeogFromWKB('0101000000000000000000F03F0000000000000040')
+        from numbers('number' = '3')"""
+    sql """update spatial_dml_values set geom = cast(null as int), geog = cast(null as int)
+        where id = 401"""
+    sql """update spatial_dml_values set geom = cast(null as geography('OGC:CRS84', 'vincenty')),
+        geog = cast(null as geometry('EPSG:3857')) where id = 402"""
+    sql """refresh table spatial_dml_values"""
+    order_qt_spatial_update_typed_nulls """select id, geom is null, geog is null,
+        ST_AsText(geom), ST_AsText(geog) from spatial_dml_values where id in (401,402,403)"""
 }

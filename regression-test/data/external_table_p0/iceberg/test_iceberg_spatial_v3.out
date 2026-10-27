@@ -507,3 +507,8 @@ POINT (1 2)	0101000000000000000000F03F0000000000000040
 -- !spatial_select_nested_nulls --
 201	false	1	true	false	1	true	true	retained
 
+-- !spatial_update_typed_nulls --
+401	true	true	\N	\N
+402	true	true	\N	\N
+403	false	false	POINT (1 2)	POINT (1 2)
+

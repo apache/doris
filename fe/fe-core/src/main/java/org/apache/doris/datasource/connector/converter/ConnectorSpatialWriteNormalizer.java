@@ -69,6 +69,13 @@ public final class ConnectorSpatialWriteNormalizer {
     }
 
     public static LogicalPlan normalize(List<Column> targets, LogicalPlan source, CTEContext cteContext) {
+        return normalize(targets, source, IntStream.range(0, targets.size()).boxed()
+                .collect(ImmutableList.toImmutableList()), cteContext);
+    }
+
+    /** Aligns data targets with source positions when a row-level sink also carries routing columns. */
+    public static LogicalPlan normalize(List<Column> targets, LogicalPlan source,
+            List<Integer> sourceOrdinals, CTEContext cteContext) {
         if (targets.stream().noneMatch(column -> column.getType().typeContainsSpatialType())) {
             return source;
         }
@@ -80,7 +87,8 @@ public final class ConnectorSpatialWriteNormalizer {
             if (!target.getType().typeContainsSpatialType()) {
                 continue;
             }
-            Slot slot = source.getOutput().get(i);
+            int sourceOrdinal = sourceOrdinals.get(i);
+            Slot slot = source.getOutput().get(sourceOrdinal);
             Expression value = resolver.resolve(slot, source);
             ConnectorSpatialWriteValidator.validate(target, value);
             // Never lift arbitrary producer expressions above their input scope, or
@@ -90,7 +98,7 @@ public final class ConnectorSpatialWriteNormalizer {
                 if (!normalized.getDataType().equals(slot.getDataType())) {
                     // SELECT v,v can feed an ordinary BIGINT and a spatial NULL. Sharing
                     // v's ExprId would let project merging replace the ordinary cast's input.
-                    outputs.set(i, new Alias(normalized, slot.getName()));
+                    outputs.set(sourceOrdinal, new Alias(normalized, slot.getName()));
                     changed = true;
                 }
             }

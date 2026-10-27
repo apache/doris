@@ -380,6 +380,17 @@ suite("test_spatial_wkb_compatibility") {
                 ST_GeogFromWKB('0102000000030000000000000000004d4000000000000000000100000000004d4000000000000000000000000000804d400000000000000000'),
                 ST_GeogFromWKB('01010000000000000000004d400000000000000000')
         ) shapes order by id"""
+    // Directional coverage and positive overlap must retain raw edges that round to one S2 point.
+    order_qt_geography_raw_line_coverage """select id,
+        ST_Contains(a, b), ST_Contains(b, a), ST_Within(a, b), ST_Within(b, a),
+        ST_Overlaps(a, b), ST_Overlaps(b, a)
+        from (select ST_GeogFromWKB('01020000000200000000000000000000000000000000004d4000000000000000000000000000804d40') a) left_shape
+        cross join (
+            select 1 id, ST_GeogFromWKB('01020000000200000000000000000000000100000000004d4000000000000000000000000000804d40') b
+            union all select 2, ST_GeogFromWKB('01020000000200000000000000000000000100000000004d4000000000000000000000000000004e40')
+            union all select 3, ST_GeogFromWKB('01020000000200000000000000000000000000000000804c4000000000000000000100000000004d40')
+            union all select 4, ST_GeogFromWKB('01020000000300000000000000000000000000000000804d4000000000000000000100000000004d4000000000000000000000000000004d40')
+        ) right_shape order by id"""
     // Exactly antipodal raw endpoints have no unique spherical edge; storage is still valid.
     test {
         sql "select ST_Length(ST_GeogFromWKB('0102000000020000000000000000000000000000000000000000000000008066400000000000000000'))"

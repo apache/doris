@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.VariantWritePlanValidator;
+import org.apache.doris.datasource.connector.converter.ConnectorSpatialWriteNormalizer;
 import org.apache.doris.datasource.connector.converter.ConnectorSpatialWriteValidator;
 import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
@@ -299,12 +300,18 @@ public class BindExpression implements AnalysisRuleFactory {
         if (hasUnboundPlan(sink.child())) {
             return sink;
         }
+        if (sink.isWritesDataFiles()) {
+            // UPDATE projects CAST(NULL AS INT) before folding; restore a target-typed
+            // NULL before coercing the output slot, without retagging routing columns.
+            LogicalPlan source = validateAndNormalizeMergeOutput(sink.getCols(), (LogicalPlan) sink.child(),
+                    ctx.cascadesContext.getCteContext());
+            if (source != sink.child()) {
+                sink = (LogicalExternalRowLevelMergeSink<Plan>) sink.withChildAndUpdateOutput(source);
+            }
+        }
         List<NamedExpression> outputExprs = sink.child().getOutput().stream()
                 .map(NamedExpression.class::cast)
                 .collect(ImmutableList.toImmutableList());
-        if (sink.isWritesDataFiles()) {
-            validateMergeNoLossyCoercion(sink.getCols(), sink.child(), ctx.cascadesContext.getCteContext());
-        }
         List<NamedExpression> castExprs = coerceMergeOutput(sink.getCols(), outputExprs);
         if (sink.isWritesDataFiles()) {
             // Delete-only MERGE forwards target values but writes only position-delete row ids.
@@ -342,11 +349,11 @@ public class BindExpression implements AnalysisRuleFactory {
     }
 
     /**
-     * Rejects a lossy implicit cast in the lineage of a Variant target column of a merge sink that
-     * writes data files. See {@link #coerceMergeOutput} for the layout of the sink output.
+     * Validates Variant write lineage and restores proven spatial NULLs before merge sink coercion.
+     * See {@link #coerceMergeOutput} for the layout of the sink output.
      */
-    static void validateMergeNoLossyCoercion(
-            List<Column> sinkColumns, Plan sourcePlan, CTEContext cteContext) {
+    static LogicalPlan validateAndNormalizeMergeOutput(
+            List<Column> sinkColumns, LogicalPlan sourcePlan, CTEContext cteContext) {
         List<Column> targetColumns = Lists.newArrayList();
         List<Integer> sourceOrdinals = Lists.newArrayList();
         int sourceOrdinal = 2;
@@ -361,6 +368,7 @@ public class BindExpression implements AnalysisRuleFactory {
             sourceOrdinal++;
         }
         VariantWritePlanValidator.validateNoLossyCoercion(targetColumns, sourcePlan, sourceOrdinals, cteContext);
+        return ConnectorSpatialWriteNormalizer.normalize(targetColumns, sourcePlan, sourceOrdinals, cteContext);
     }
 
     /**

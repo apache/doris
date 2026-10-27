@@ -20,7 +20,6 @@
 #include <glog/logging.h>
 #include <s2/mutable_s2shape_index.h>
 #include <s2/s2boolean_operation.h>
-#include <s2/s2builderutil_s2polyline_vector_layer.h>
 #include <s2/s2closest_edge_query.h>
 #include <s2/s2closest_point_query.h>
 #include <s2/s2contains_point_query.h>
@@ -1090,11 +1089,14 @@ static Status geography_relation(std::string_view name, const GeoShape& lhs, con
     const GeographyEdgeNodes nodes(left_wkb, right_wkb);
     GeographyEdgeNodes::LineEdges left_edges;
     GeographyEdgeNodes::LineEdges right_edges;
-    // CLOSED S2 equality alone loses unequal raw extents at colliding endpoints.
-    // Reuse the existing shared noding once per line, preserving its canonical raw edges.
-    if (name == "st_equals" && lhs.type() == GeoShapeType::GEO_SHAPE_LINE_STRING) {
-        nodes.add_line(nodes.left, &left, &left_edges);
-        nodes.add_line(nodes.right, &right, &right_edges);
+    // (0,58)->(0,59) covers a longer raw interval than (0,58+ulp)->(0,59),
+    // even when their S2 endpoints collide. Reuse the shared noding for these relations.
+    const bool raw_line_coverage = container.type() == GeoShapeType::GEO_SHAPE_LINE_STRING &&
+                                   value.type() == GeoShapeType::GEO_SHAPE_LINE_STRING &&
+                                   (containment || name == "st_equals" || name == "st_overlaps");
+    if (raw_line_coverage) {
+        nodes.add_line(name == "st_within" ? nodes.right : nodes.left, &left, &left_edges);
+        nodes.add_line(name == "st_within" ? nodes.left : nodes.right, &right, &right_edges);
     } else {
         geography_shape_index(container, name == "st_within" ? nodes.right : nodes.left, nodes,
                               &left);
@@ -1113,7 +1115,15 @@ static Status geography_relation(std::string_view name, const GeoShape& lhs, con
         *result = false;
         return Status::OK();
     }
-    if (containment && !S2BooleanOperation::Contains(left, right, options)) {
+    const auto covers = [&](bool reverse) {
+        const auto& a = reverse ? right_edges : left_edges;
+        const auto& b = reverse ? left_edges : right_edges;
+        return (!raw_line_coverage || std::ranges::includes(a, b)) &&
+               S2BooleanOperation::Contains(reverse ? right : left, reverse ? left : right,
+                                            options);
+    };
+    // Rounded indexes alone would let the shorter raw line contain the longer one.
+    if (containment && !covers(false)) {
         *result = false;
         return Status::OK();
     }
@@ -1127,8 +1137,7 @@ static Status geography_relation(std::string_view name, const GeoShape& lhs, con
     }
     if (name == "st_overlaps") {
         // Neither equality nor containment is a partial overlap.
-        if (S2BooleanOperation::Contains(left, right, options) ||
-            S2BooleanOperation::Contains(right, left, options)) {
+        if (covers(false) || covers(true)) {
             *result = false;
             return Status::OK();
         }
@@ -1136,24 +1145,10 @@ static Status geography_relation(std::string_view name, const GeoShape& lhs, con
             *result = S2BooleanOperation::Intersects(left, right, interior_options);
             return Status::OK();
         }
-        // S2 emits a crossing point as a degenerate polyline: only a real shared edge overlaps.
-        std::vector<std::unique_ptr<S2Polyline>> intersection;
-        S2BooleanOperation operation(
-                S2BooleanOperation::OpType::INTERSECTION,
-                std::make_unique<s2builderutil::S2PolylineVectorLayer>(&intersection),
-                interior_options);
-        S2Error error;
-        if (!operation.Build(left, right, &error)) {
-            return Status::InternalError("Geography intersection failed: {}", error.text());
-        }
-        *result = std::ranges::any_of(intersection, [](const auto& line) {
-            for (int i = 1; i < line->num_vertices(); ++i) {
-                if (line->vertex(i - 1) != line->vertex(i)) {
-                    return true;
-                }
-            }
-            return false;
-        });
+        // A crossing point has no shared raw edge. Conversely, a positive raw overlap
+        // such as (0,58)->(0,58+ulp) must survive even when S2 rounds it to one point.
+        *result = std::ranges::any_of(left_edges,
+                                      [&](const auto& edge) { return right_edges.contains(edge); });
         return Status::OK();
     }
     bool intersects = S2BooleanOperation::Intersects(left, right, options);

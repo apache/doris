@@ -742,6 +742,37 @@ TEST(VGeoFunctionsTest, GeographyEqualsRetainsEquivalentRawLineCoverage) {
                               false);
 }
 
+TEST(VGeoFunctionsTest, GeographyContainmentPreservesRawLineCoverage) {
+    const std::string outer = "LINESTRING (0 58,0 59)";
+    const std::string inner = "LINESTRING (0 58.00000000000001,0 59)";
+    expect_geography_relation("st_contains", outer, inner, true);
+    expect_geography_relation("st_contains", inner, outer, false);
+    expect_geography_relation("st_within", inner, outer, true);
+    expect_geography_relation("st_within", outer, inner, false);
+    for (const auto* equivalent : {"LINESTRING (0 58,0 58.00000000000001,0 59)",
+                                   "LINESTRING (0 59,0 58.00000000000001,0 58)",
+                                   "LINESTRING (0 58,0 59,0 58.00000000000001,0 59)"}) {
+        expect_geography_relation("st_contains", equivalent, outer, true);
+        expect_geography_relation("st_contains", outer, equivalent, true);
+        expect_geography_relation("st_within", equivalent, outer, true);
+    }
+}
+
+TEST(VGeoFunctionsTest, GeographyOverlapsPreservesRawLineCoverage) {
+    const std::string line = "LINESTRING (0 58,0 59)";
+    for (const auto* overlap :
+         {"LINESTRING (0 58.00000000000001,0 60)", "LINESTRING (0 60,0 59,0 58.00000000000001)",
+          "LINESTRING (0 57,0 58.00000000000001)"}) {
+        expect_geography_relation("st_overlaps", line, overlap, true);
+        expect_geography_relation("st_overlaps", overlap, line, true);
+    }
+    for (const auto* contained :
+         {"LINESTRING (0 58.00000000000001,0 59)", "LINESTRING (0 59,0 58.00000000000001,0 58)"}) {
+        expect_geography_relation("st_overlaps", line, contained, false);
+        expect_geography_relation("st_overlaps", contained, line, false);
+    }
+}
+
 TEST(VGeoFunctionsTest, GeographyEqualsUsesPointSetsAndOverlapsRequiresPositiveDimension) {
     struct Case {
         std::string left;
