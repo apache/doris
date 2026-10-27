@@ -54,11 +54,22 @@ TEST(ParquetMetadataMemoryTest, ReservedVectorsStringsAndStatistics) {
     column.meta_data.size_statistics.definition_level_histogram.reserve(100);
     EXPECT_GE(parquet_metadata_dynamic_size(metadata) - before,
               4096 + sizeof(tparquet::KeyValue) + 100 * sizeof(int64_t));
+    const auto encryption_capacity_before =
+            column.crypto_metadata.ENCRYPTION_WITH_COLUMN_KEY.key_metadata.capacity() +
+            column.encrypted_column_metadata.capacity() +
+            metadata.footer_signing_key_metadata.capacity();
     before = parquet_metadata_dynamic_size(metadata);
     column.crypto_metadata.ENCRYPTION_WITH_COLUMN_KEY.key_metadata.assign(4096, 'k');
     column.encrypted_column_metadata.assign(4096, 'e');
     metadata.footer_signing_key_metadata.assign(4096, 's');
-    EXPECT_GE(parquet_metadata_dynamic_size(metadata) - before, 3 * 4096);
+    const auto encryption_capacity_after =
+            column.crypto_metadata.ENCRYPTION_WITH_COLUMN_KEY.key_metadata.capacity() +
+            column.encrypted_column_metadata.capacity() +
+            metadata.footer_signing_key_metadata.capacity();
+    // The baseline already includes the empty strings' inline capacities. Use
+    // actual growth so the assertion is independent of the string implementation.
+    EXPECT_EQ(parquet_metadata_dynamic_size(metadata) - before,
+              encryption_capacity_after - encryption_capacity_before);
 }
 
 TEST(ParquetMetadataMemoryTest, SharedNestedDataTypesCountOnce) {
