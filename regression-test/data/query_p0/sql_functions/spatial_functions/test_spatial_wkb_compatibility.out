@@ -201,3 +201,13 @@ true	true	true	true	true	true	true	true	true	true	false	true	true	true
 3	false	false	false	false	true	true
 4	true	true	true	true	false	false
 
+-- !geography_polygon_raw_identity --
+false	false	true	true	true	true	true
+
+-- !geography_raw_line_contacts --
+1	false	false
+2	true	true
+3	true	true
+4	true	true
+5	true	true
+

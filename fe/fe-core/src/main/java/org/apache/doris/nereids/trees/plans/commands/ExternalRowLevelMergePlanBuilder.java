@@ -30,6 +30,7 @@ import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.LogicalPlanBuilderAssistant;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
@@ -306,10 +307,23 @@ public class ExternalRowLevelMergePlanBuilder {
         List<NamedExpression> output = new ArrayList<>();
         for (int i = 0; i < finalProjections.get(0).size(); i++) {
             DataType outputType = outputTypes.get(i);
+            boolean spatialTarget = outputType.toCatalogDataType().typeContainsSpatialType();
             Expression project = new NullLiteral(outputType);
             for (int j = 0; j < finalProjections.size(); j++) {
-                Expression branch = TypeCoercionUtils.castUnbound(
-                        finalProjections.get(j).get(i), outputType);
+                Expression value = finalProjections.get(j).get(i);
+                // MERGE is synthesized before folding: CAST(NULL AS INT) already reports INT
+                // and would fail its eager spatial cast. Only retag cast chains rooted at NULL;
+                // actual values retain their original identity for normal write validation.
+                if (spatialTarget) {
+                    Expression origin = value;
+                    while (origin instanceof Cast) {
+                        origin = origin.child(0);
+                    }
+                    if (origin.isNullLiteral()) {
+                        value = new NullLiteral(outputType);
+                    }
+                }
+                Expression branch = TypeCoercionUtils.castUnbound(value, outputType);
                 project = MergeUtils.selectBranch(
                         new EqualTo(new UnboundSlot(BRANCH_LABEL), new IntegerLiteral(j)),
                         branch, project);

@@ -773,6 +773,83 @@ TEST(VGeoFunctionsTest, GeographyOverlapsPreservesRawLineCoverage) {
     }
 }
 
+static void expect_ambiguous_polygon_relations(const std::string& a, const std::string& b) {
+    for (const bool reverse : {false, true}) {
+        const auto& left = reverse ? b : a;
+        const auto& right = reverse ? a : b;
+        expect_geography_relation("st_equals", left, right, false);
+        for (const auto* function : {"st_contains", "st_within", "st_overlaps"}) {
+            SCOPED_TRACE(std::string(function) + " " + left + " versus " + right);
+            Block block;
+            const auto type = make_nullable(std::make_shared<DataTypeUInt8>());
+            const auto status = execute_geography_test(
+                    function, {geography_test_hex(left), geography_test_hex(right)}, type, &block);
+            EXPECT_FALSE(status.ok());
+            EXPECT_NE(status.to_string().find("distinct raw Polygon boundaries"), std::string::npos)
+                    << status.to_string();
+        }
+    }
+}
+
+TEST(VGeoFunctionsTest, GeographyPolygonRelationsPreserveRawCollidingApex) {
+    const std::string outer = "POLYGON ((0 58,1 59,-1 59,0 58))";
+    expect_ambiguous_polygon_relations(
+            outer, "POLYGON ((0 58.00000000000001,1 59,-1 59,0 58.00000000000001))");
+    const std::string inner = "POLYGON ((0 58.5,0.25 58.8,-0.25 58.8,0 58.5))";
+    expect_geography_relation("st_contains", outer, inner, true);
+    expect_geography_relation("st_contains", inner, outer, false);
+    expect_geography_relation("st_within", inner, outer, true);
+    expect_geography_relation("st_within", outer, inner, false);
+}
+
+TEST(VGeoFunctionsTest, GeographyPolygonRelationsPreserveRawCollidingHole) {
+    expect_ambiguous_polygon_relations(
+            "POLYGON ((-2 57,2 57,2 60,-2 60,-2 57),(0 58,0.5 59,-0.5 59,0 58))",
+            "POLYGON ((-2 57,2 57,2 60,-2 60,-2 57),"
+            "(0 58.00000000000001,0.5 59,-0.5 59,0 58.00000000000001))");
+}
+
+TEST(VGeoFunctionsTest, GeographyPolygonRawBoundariesRetainEquivalentRegions) {
+    const std::vector<std::pair<std::string, std::string>> cases {
+            {"POLYGON ((0 58,0 59,1 59,0 58))",
+             "POLYGON ((0 58,0 58.00000000000001,0 59,1 59,0 58))"},
+            {"POLYGON ((0 58,1 59,-1 59,0 58))", "POLYGON ((1 59,0 58,-1 59,1 59))"},
+            {"POLYGON ((0 0,10 0,10 10,0 10,0 0),"
+             "(1 1,2 1,2 2,1 2,1 1),(6 6,7 6,7 7,6 7,6 6))",
+             "POLYGON ((10 10,10 0,0 0,0 10,10 10),"
+             "(6 6,7 6,7 7,6 7,6 6),(1 1,2 1,2 2,1 2,1 1))"},
+            {"POLYGON ((180 0,179 0,179 1,180 1,180 0))",
+             "POLYGON ((-180 0,179 0,179 1,-180 1,-180 0))"},
+            {"POLYGON ((0 90,0 80,90 80,0 90))", "POLYGON ((123 90,0 80,90 80,123 90))"},
+    };
+    for (const auto& [a, b] : cases) {
+        SCOPED_TRACE(a + " versus " + b);
+        for (const bool reverse : {false, true}) {
+            const auto& left = reverse ? b : a;
+            const auto& right = reverse ? a : b;
+            expect_geography_relation("st_equals", left, right, true);
+            expect_geography_relation("st_contains", left, right, true);
+            expect_geography_relation("st_within", left, right, true);
+            expect_geography_relation("st_overlaps", left, right, false);
+        }
+    }
+}
+
+TEST(VGeoFunctionsTest, GeographyTouchesRejectsRoundedLineEndpointGap) {
+    const std::string line = "LINESTRING (0 57,0 58)";
+    const std::string gap = "LINESTRING (0 58.00000000000001,0 59)";
+    expect_geography_relation("st_touches", line, gap, false);
+    expect_geography_relation("st_touches", gap, line, false);
+    for (const auto* touching : {"LINESTRING (0 58,0 59)", "LINESTRING (-1 58,0 58,1 58)"}) {
+        expect_geography_relation("st_touches", line, touching, true);
+        expect_geography_relation("st_touches", touching, line, true);
+    }
+    expect_geography_relation("st_touches", "LINESTRING (180 57,180 58)",
+                              "LINESTRING (-180 58,-180 59)", true);
+    expect_geography_relation("st_touches", "LINESTRING (0 89,0 90)", "LINESTRING (90 90,90 89)",
+                              true);
+}
+
 TEST(VGeoFunctionsTest, GeographyEqualsUsesPointSetsAndOverlapsRequiresPositiveDimension) {
     struct Case {
         std::string left;

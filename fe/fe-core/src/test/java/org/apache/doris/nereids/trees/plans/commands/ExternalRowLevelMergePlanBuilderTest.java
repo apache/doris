@@ -26,6 +26,7 @@ import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -35,6 +36,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ShortCircuitI
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeMatchedClause;
@@ -44,6 +46,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.ConnectorComputeVariantType;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.GeographyType;
+import org.apache.doris.nereids.types.GeometryType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.qe.ConnectContext;
@@ -198,6 +203,38 @@ public class ExternalRowLevelMergePlanBuilderTest {
                 "MERGE branch selection must be analyzable even when an expression starts with a wider type");
         Assertions.assertInstanceOf(ShortCircuitIf.class, projections.get(0).child(0),
                 "Iceberg MERGE must evaluate only the selected branch regardless of the session setting");
+    }
+
+    @Test
+    public void mergeBranchesNormalizeSpatialTypedNullsBeforeTargetCasts() {
+        for (DataType target : ImmutableList.of(new GeometryType("OGC:CRS84"),
+                new GeographyType("OGC:CRS84", "spherical"))) {
+            for (DataType nullType : ImmutableList.of(IntegerType.INSTANCE, new GeometryType("EPSG:3857"),
+                    new GeographyType("OGC:CRS84", "vincenty"))) {
+                Expression value = new Cast(NullLiteral.INSTANCE, nullType);
+                List<NamedExpression> projections = ExternalRowLevelMergePlanBuilder.generateFinalProjections(
+                        ImmutableList.of("shape"), ImmutableList.of(target),
+                        ImmutableList.of(ImmutableList.of(value),
+                                ImmutableList.of(new Cast(value, nullType))));
+                Expression selection = projections.get(0).child(0);
+                Assertions.assertTrue(selection.child(1).isNullLiteral());
+                Assertions.assertEquals(target, selection.child(1).getDataType());
+                Assertions.assertTrue(selection.child(2).child(1).isNullLiteral());
+                Assertions.assertEquals(target, selection.child(2).child(1).getDataType());
+            }
+        }
+    }
+
+    @Test
+    public void mergeBranchesKeepNonNullSpatialCastRejections() {
+        for (DataType target : ImmutableList.of(new GeometryType("OGC:CRS84"),
+                new GeographyType("OGC:CRS84", "spherical"))) {
+            Assertions.assertThrows(AnalysisException.class,
+                    () -> ExternalRowLevelMergePlanBuilder.generateFinalProjections(
+                            ImmutableList.of("shape"), ImmutableList.of(target),
+                            ImmutableList.of(ImmutableList.of(new Cast(new IntegerLiteral(1),
+                                    IntegerType.INSTANCE)))));
+        }
     }
 
     @Test

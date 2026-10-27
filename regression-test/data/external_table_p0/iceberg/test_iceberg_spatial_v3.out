@@ -512,3 +512,8 @@ POINT (1 2)	0101000000000000000000F03F0000000000000040
 402	true	true	\N	\N
 403	false	false	POINT (1 2)	POINT (1 2)
 
+-- !spatial_merge_typed_nulls --
+501	true	true	\N	\N
+502	true	true	\N	\N
+503	false	false	POINT (1 2)	POINT (1 2)
+

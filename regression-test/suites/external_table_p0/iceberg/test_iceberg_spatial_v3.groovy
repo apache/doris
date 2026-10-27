@@ -1437,4 +1437,18 @@ public class CreateIcebergSpatialV3Table {
     sql """refresh table spatial_dml_values"""
     order_qt_spatial_update_typed_nulls """select id, geom is null, geog is null,
         ST_AsText(geom), ST_AsText(geog) from spatial_dml_values where id in (401,402,403)"""
+    // MERGE synthesizes target casts before binding, for both matched and not-matched branches.
+    sql """insert into spatial_dml_values select number + 501,
+        ST_GeometryFromWKBTyped('0101000000000000000000F03F0000000000000040'),
+        ST_GeogFromWKB('0101000000000000000000F03F0000000000000040')
+        from numbers('number' = '3') where number != 1"""
+    sql """merge into spatial_dml_values t using
+        (select 501 id union all select 502 id) s on t.id = s.id
+        when matched then update set geom = cast(null as int),
+            geog = cast(null as geometry('EPSG:3857'))
+        when not matched then insert (id, geom, geog)
+            values (s.id, cast(null as geography('OGC:CRS84', 'vincenty')), cast(null as int))"""
+    sql """refresh table spatial_dml_values"""
+    order_qt_spatial_merge_typed_nulls """select id, geom is null, geog is null,
+        ST_AsText(geom), ST_AsText(geog) from spatial_dml_values where id in (501,502,503)"""
 }
