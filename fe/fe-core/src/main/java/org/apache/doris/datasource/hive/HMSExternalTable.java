@@ -733,12 +733,20 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         return client.getPartition(getRemoteDbName(), remoteName, partitionValues);
     }
 
+    public List<String> listPartitionNames() {
+        return withMissingTableRepair(() -> ((HMSExternalCatalog) catalog).getClient()
+                .listPartitionNames(getRemoteDbName(), getRemoteName()));
+    }
+
+    public List<String> listPartitionNames(long maxListPartitionNum) {
+        return withMissingTableRepair(() -> ((HMSExternalCatalog) catalog).getClient()
+                .listPartitionNames(getRemoteDbName(), getRemoteName(), maxListPartitionNum));
+    }
+
     @Override
     public Set<String> getPartitionNames() {
         makeSureInitialized();
-        HMSCachedClient client = ((HMSExternalCatalog) catalog).getClient();
-        List<String> names = client.listPartitionNames(getRemoteDbName(), getRemoteName());
-        return new HashSet<>(names);
+        return new HashSet<>(listPartitionNames());
     }
 
     @Override
