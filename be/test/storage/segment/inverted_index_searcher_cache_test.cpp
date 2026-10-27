@@ -24,6 +24,7 @@
 #include <memory>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "common/status.h"
 #include "gtest/gtest_pred_impl.h"
@@ -328,6 +329,79 @@ TEST_F(InvertedIndexSearcherCacheTest, remove_element_only_in_table) {
     }
 
     delete index_searcher_cache;
+}
+
+// The non-NULL norm length sum of a field is computed once per cached searcher, kept apart from
+// the other fields' sums, and not kept when computing it fails.
+TEST(InvertedIndexSearcherCacheValueTest, NonNullNormLengthSumIsComputedOncePerField) {
+    InvertedIndexSearcherCache::CacheValue value(FulltextIndexSearcherPtr(nullptr), 0, 0);
+    int computed = 0;
+    auto compute = [&computed](uint64_t sum) {
+        return [&computed, sum](uint64_t* out) {
+            ++computed;
+            *out = sum;
+            return Status::OK();
+        };
+    };
+    uint64_t sum = 0;
+    ASSERT_TRUE(value.non_null_norm_length_sum(L"a", compute(7), &sum).ok());
+    EXPECT_EQ(sum, 7);
+    ASSERT_TRUE(value.non_null_norm_length_sum(L"a", compute(9), &sum).ok());
+    EXPECT_EQ(sum, 7);
+    ASSERT_TRUE(value.non_null_norm_length_sum(L"b", compute(9), &sum).ok());
+    EXPECT_EQ(sum, 9);
+    EXPECT_EQ(computed, 2);
+
+    auto fail = [&computed](uint64_t*) {
+        ++computed;
+        return Status::Corruption("bad norms");
+    };
+    EXPECT_FALSE(value.non_null_norm_length_sum(L"c", fail, &sum).ok());
+    ASSERT_TRUE(value.non_null_norm_length_sum(L"c", compute(3), &sum).ok());
+    EXPECT_EQ(sum, 3);
+    EXPECT_EQ(computed, 4);
+}
+
+// The norm length sum of a set of hidden rows is computed once per field and set, and a few sets
+// per field are kept, the oldest given up first.
+TEST(InvertedIndexSearcherCacheValueTest, HiddenNormLengthSumIsComputedOncePerRowSet) {
+    InvertedIndexSearcherCache::CacheValue value(FulltextIndexSearcherPtr(nullptr), 0, 0);
+    int computed = 0;
+    auto compute = [&computed](uint64_t sum) {
+        return [&computed, sum](uint64_t* out) {
+            ++computed;
+            *out = sum;
+            return Status::OK();
+        };
+    };
+    const std::vector<uint32_t> rows {1, 5, 9};
+    const std::vector<uint32_t> other_rows {1, 5, 10};
+    uint64_t sum = 0;
+    ASSERT_TRUE(value.hidden_norm_length_sum(L"a", rows, compute(7), &sum).ok());
+    EXPECT_EQ(sum, 7);
+    ASSERT_TRUE(value.hidden_norm_length_sum(L"a", rows, compute(8), &sum).ok());
+    EXPECT_EQ(sum, 7);
+    ASSERT_TRUE(value.hidden_norm_length_sum(L"a", other_rows, compute(8), &sum).ok());
+    EXPECT_EQ(sum, 8);
+    ASSERT_TRUE(value.hidden_norm_length_sum(L"b", rows, compute(9), &sum).ok());
+    EXPECT_EQ(sum, 9);
+    EXPECT_EQ(computed, 3);
+
+    auto fail = [](uint64_t*) { return Status::Corruption("bad norms"); };
+    const std::vector<uint32_t> failing_rows {2};
+    EXPECT_FALSE(value.hidden_norm_length_sum(L"a", failing_rows, fail, &sum).ok());
+    ASSERT_TRUE(value.hidden_norm_length_sum(L"a", failing_rows, compute(4), &sum).ok());
+    EXPECT_EQ(sum, 4);
+    EXPECT_EQ(computed, 4);
+
+    // Field "a" holds {1,5,9}, {1,5,10} and {2}; two more sets give up {1,5,9}.
+    const std::vector<uint32_t> fourth {3};
+    const std::vector<uint32_t> fifth {4};
+    ASSERT_TRUE(value.hidden_norm_length_sum(L"a", fourth, compute(1), &sum).ok());
+    ASSERT_TRUE(value.hidden_norm_length_sum(L"a", fifth, compute(1), &sum).ok());
+    ASSERT_TRUE(value.hidden_norm_length_sum(L"a", rows, compute(6), &sum).ok());
+    EXPECT_EQ(sum, 6);
+    EXPECT_EQ(computed, 7);
 }
 
 } // namespace segment_v2

@@ -155,15 +155,15 @@ std::string InvertedIndexReader::get_index_file_path() {
     return _index_file_reader->get_index_file_path(&_index_meta);
 }
 
-Status InvertedIndexReader::read_null_bitmap(const IndexQueryContextPtr& context,
-                                             InvertedIndexQueryCacheHandle* cache_handle,
-                                             lucene::store::Directory* dir) {
-    SCOPED_RAW_TIMER(&context->stats->inverted_index_query_null_bitmap_timer);
+Status read_inverted_index_null_bitmap(IndexFileReader& file_reader, const TabletIndex& index_meta,
+                                       const io::IOContext* io_ctx,
+                                       InvertedIndexQueryCacheHandle* cache_handle,
+                                       lucene::store::Directory* dir) {
     lucene::store::IndexInput* null_bitmap_in = nullptr;
     bool owned_dir = false;
     try {
         // try to get query bitmap result from cache and return immediately on cache hit
-        auto index_file_key = _index_file_reader->get_index_file_cache_key(&_index_meta);
+        auto index_file_key = file_reader.get_index_file_cache_key(&index_meta);
         InvertedIndexQueryCache::CacheKey cache_key {
                 index_file_key, "", InvertedIndexQueryType::UNKNOWN_QUERY, "null_bitmap"};
         auto* cache = InvertedIndexQueryCache::instance();
@@ -173,13 +173,12 @@ Status InvertedIndexReader::read_null_bitmap(const IndexQueryContextPtr& context
 
         if (!dir) {
             // TODO: ugly code here, try to refact.
-            auto st = _index_file_reader->init(config::inverted_index_read_buffer_size,
-                                               context->io_ctx);
+            auto st = file_reader.init(config::inverted_index_read_buffer_size, io_ctx);
             if (!st.ok()) {
                 LOG(WARNING) << st;
                 return st;
             }
-            auto directory = DORIS_TRY(_index_file_reader->open(&_index_meta, context->io_ctx));
+            auto directory = DORIS_TRY(file_reader.open(&index_meta, io_ctx));
             dir = directory.release();
             owned_dir = true;
         }
@@ -214,6 +213,14 @@ Status InvertedIndexReader::read_null_bitmap(const IndexQueryContextPtr& context
     }
 
     return Status::OK();
+}
+
+Status InvertedIndexReader::read_null_bitmap(const IndexQueryContextPtr& context,
+                                             InvertedIndexQueryCacheHandle* cache_handle,
+                                             lucene::store::Directory* dir) {
+    SCOPED_RAW_TIMER(&context->stats->inverted_index_query_null_bitmap_timer);
+    return read_inverted_index_null_bitmap(*_index_file_reader, _index_meta, context->io_ctx,
+                                           cache_handle, dir);
 }
 
 bool InvertedIndexReader::handle_query_cache(const IndexQueryContextPtr& context,
