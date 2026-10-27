@@ -34,6 +34,31 @@ namespace doris {
 
 class RuntimeProfileTest : public testing::Test {};
 
+TEST(RuntimeProfileTest, SnapshotCallbacksRunBeforeSerializationWithoutProfileLocks) {
+    RuntimeProfile profile("snapshot");
+    auto* counter = profile.add_counter("observed", TUnit::UNIT);
+    auto callback = profile.add_snapshot_callback([&] {
+        EXPECT_EQ(counter, profile.get_counter("observed"));
+        counter->update(1);
+        profile.add_info_string("available", "true");
+    });
+    TRuntimeProfileTree thrift;
+    profile.to_thrift(&thrift);
+    ASSERT_EQ(1, thrift.nodes.size());
+    EXPECT_EQ("true", thrift.nodes[0].info_strings.at("available"));
+    auto restored = RuntimeProfile::from_thrift(thrift);
+    EXPECT_EQ(1, restored->get_counter("observed")->value());
+
+    PRuntimeProfileTree proto;
+    profile.to_proto(&proto);
+    auto proto_restored = RuntimeProfile::from_proto(proto);
+    EXPECT_EQ(2, proto_restored->get_counter("observed")->value());
+
+    callback.reset();
+    profile.to_thrift(&thrift);
+    EXPECT_EQ(2, counter->value());
+}
+
 TEST(RuntimeProfileTest, Basic) {
     RuntimeProfile profile_a("ProfileA");
     RuntimeProfile profile_a1("ProfileA1");

@@ -580,11 +580,11 @@ PUGIXML_SOURCE=pugixml-1.15
 PUGIXML_MD5SUM="3b894c29455eb33a40b165c6e2de5895"
 
 # lance-c
-# Includes lance-c #97: resolve index/column name collisions without serializing prewarm.
-LANCE_C_DOWNLOAD="https://codeload.github.com/lance-format/lance-c/tar.gz/4fafcd64525b274b113208390bbcca86bbbc093b"
-LANCE_C_NAME="lance-c-4fafcd64525b274b113208390bbcca86bbbc093b.tar.gz"
-LANCE_C_SOURCE="lance-c-4fafcd64525b274b113208390bbcca86bbbc093b"
-LANCE_C_MD5SUM="65e924fb62137c5dd4d58af3fb33923a"
+# Includes lance-c #98: bounded runtime BTree segment selection with decoded-memory guards.
+LANCE_C_DOWNLOAD="https://codeload.github.com/lance-format/lance-c/tar.gz/a51ab47a9c814a746cb1714c99fad93dd3a188b8"
+LANCE_C_NAME="lance-c-a51ab47a9c814a746cb1714c99fad93dd3a188b8.tar.gz"
+LANCE_C_SOURCE="lance-c-a51ab47a9c814a746cb1714c99fad93dd3a188b8"
+LANCE_C_MD5SUM="d1282cff3d63acfc0450db1f00d6ab6f"
 
 # paimon-rust
 PAIMON_RUST_DOWNLOAD="https://github.com/apache/paimon-rust/archive/refs/tags/v0.4.0-rc1.tar.gz"

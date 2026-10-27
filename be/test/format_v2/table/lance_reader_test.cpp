@@ -29,6 +29,7 @@
 #include <arrow/type.h>
 #include <arrow/util/decimal.h>
 #include <arrow/util/key_value_metadata.h>
+#include <gtest/gtest.h>
 #include <lance/lance.h>
 
 #include <algorithm>
@@ -1349,6 +1350,45 @@ TEST(LanceTableReaderSnapshotTest, ProfileShowsTheSnapshotRead) {
     EXPECT_TRUE(latest_reader.close().ok());
 }
 
+TEST(LanceTableReaderSnapshotTest, ProfileReportsObservedSessionCacheMisses) {
+    LanceSessionManager::CacheStatistics before;
+    ASSERT_TRUE(LanceSessionManager::instance().get_cache_statistics(&before).ok());
+    const std::filesystem::path dataset_uri =
+            "./be/test/format_v2/table/lance/data/all_types.lance";
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+    RuntimeProfile profile("lance_session_cache_profile");
+    TFileScanRangeParams scan_params;
+    const Columns columns {projected_column("row_id", TYPE_BIGINT, false)};
+    LanceTableReader reader;
+    ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
+    ASSERT_TRUE(prepare_range(&reader, make_latest_lance_range(dataset_uri)).ok());
+    TRuntimeProfileTree saved;
+    profile.to_thrift(&saved);
+    ASSERT_EQ("true", saved.nodes[0].info_strings.at("LanceSessionCacheStatsAvailable"));
+    LanceSessionManager::CacheStatistics after;
+    ASSERT_TRUE(LanceSessionManager::instance().get_cache_statistics(&after).ok());
+    for (const char* name : {"LanceSessionIndexCacheMisses", "LanceSessionMetadataCacheMisses"}) {
+        auto* counter = profile.get_counter(name);
+        ASSERT_NE(counter, nullptr) << name;
+        EXPECT_GE(counter->value(), 0) << name;
+    }
+    EXPECT_EQ(profile.get_counter("LanceSessionIndexCacheMisses")->value(),
+              after.index_cache_misses - before.index_cache_misses);
+    EXPECT_EQ(profile.get_counter("LanceSessionMetadataCacheMisses")->value(),
+              after.metadata_cache_misses - before.metadata_cache_misses);
+    const auto* scope = profile.get_info_string("LanceSessionCacheStatsScope");
+    ASSERT_NE(scope, nullptr);
+    EXPECT_NE(scope->find("concurrent"), std::string::npos);
+    const auto* available = profile.get_info_string("LanceSessionCacheStatsAvailable");
+    ASSERT_NE(available, nullptr);
+    EXPECT_EQ(*available, "true");
+    auto* misses = profile.get_counter("LanceSessionMetadataCacheMisses");
+    const auto before_close = misses->value();
+    ASSERT_TRUE(reader.close().ok());
+    EXPECT_EQ(misses->value(), before_close);
+}
+
 TEST(LanceTableReaderSnapshotTest, OpenErrorsNameTheVersionWithoutTheQueryString) {
     const std::filesystem::path dataset_uri =
             "./be/test/format_v2/table/lance/data/all_types.lance";
@@ -2235,87 +2275,100 @@ TEST(LanceTableReaderFilterTest, CombinesStaticSubstraitFilterWithRuntimeFilter)
 }
 
 TEST(LanceTableReaderScalarSegmentTest, FiltersIndexedAndUncoveredDomainsWithoutLosingRows) {
-    const auto unique_suffix = std::chrono::steady_clock::now().time_since_epoch().count();
-    for (const auto index_type : {LANCE_SCALAR_BTREE, LANCE_SCALAR_BITMAP}) {
-        SCOPED_TRACE(index_type == LANCE_SCALAR_BTREE ? "BTREE" : "BITMAP");
-        const auto dataset_uri = std::filesystem::temp_directory_path() /
-                                 ("doris_lance_scalar_segment_" + std::to_string(unique_suffix) +
-                                  "_" + std::to_string(index_type) + ".lance");
-        Defer cleanup {[&] {
-            std::error_code error;
-            std::filesystem::remove_all(dataset_uri, error);
-        }};
-        const auto schema = arrow::schema({arrow::field("row_id", arrow::int64(), false)});
-        for (int64_t first_id : {1, 3}) {
-            arrow::Int64Builder values;
-            ASSERT_TRUE(values.AppendValues({first_id, first_id + 1}).ok());
-            auto array = values.Finish();
-            ASSERT_TRUE(array.ok());
-            auto batch = arrow::RecordBatch::Make(schema, 2, {std::move(array).ValueUnsafe()});
-            auto batches = arrow::RecordBatchReader::Make({batch}, schema);
-            ASSERT_TRUE(batches.ok());
-            ArrowArrayStream stream {};
-            ASSERT_TRUE(
-                    arrow::ExportRecordBatchReader(std::move(batches).ValueUnsafe(), &stream).ok());
-            auto dataset = ::lance::Dataset::write(
-                    dataset_uri.string(), &stream,
-                    first_id == 1 ? ::lance::WriteMode::Create : ::lance::WriteMode::Append);
-            if (first_id == 1) {
-                // The second append remains uncovered by this index segment.
-                dataset.create_scalar_index("row_id", index_type, "row_id_idx");
-            }
-        }
-        LanceFixtureInfo fixture;
-        ASSERT_TRUE(get_fixture_info(dataset_uri, &fixture).ok());
-        ASSERT_EQ(2, fixture.fragment_ids.size());
-        std::vector<std::string> segments;
-        ASSERT_TRUE(get_index_segment_uuids(dataset_uri, "row_id_idx", &segments).ok());
-        ASSERT_EQ(1, segments.size());
-
-        const auto read_domain = [&](const std::vector<int64_t>& fragments, bool use_segment,
-                                     const std::vector<int64_t>& expected) {
-            SCOPED_TRACE(::testing::PrintToString(fragments));
-            SCOPED_TRACE(use_segment ? "selected segment" : "scalar index disabled");
-            TQueryGlobals globals;
-            RuntimeState state(globals);
-            RuntimeProfile profile("lance_scalar_segment");
-            TFileScanRangeParams scan_params;
-            const Columns columns {projected_column("row_id", TYPE_BIGINT, false)};
-            LanceTableReader reader;
-            auto filter = create_int64_runtime_in_conjunct("row_id", {2, 4}, 41);
-            ASSERT_TRUE(
-                    init_reader(&reader, columns, &state, &profile, &scan_params, {filter}).ok());
-            auto range = make_lance_range(dataset_uri, fixture.version, fragments);
-            if (use_segment) {
-                range.table_format_params.lance_params.__set_index_segment_uuids(segments);
-            } else {
-                range.table_format_params.lance_params.__set_use_scalar_index(false);
-            }
-            ASSERT_TRUE(prepare_range(&reader, std::move(range)).ok());
-            Block block;
-            add_output_columns(&block, columns);
-            std::vector<int64_t> actual;
-            bool eos = false;
-            while (!eos) {
-                auto status = reader.get_block(&block, &eos);
-                ASSERT_TRUE(status.ok()) << status.to_string();
-                if (!eos) {
-                    const auto& ids =
-                            assert_cast<const ColumnInt64&>(*block.get_by_position(0).column);
-                    actual.insert(actual.end(), ids.get_data().begin(), ids.get_data().end());
+    const auto previous_auto_selection = config::enable_lance_scalar_index_auto_selection;
+    Defer restore_config {
+            [&] { config::enable_lance_scalar_index_auto_selection = previous_auto_selection; }};
+    for (const bool auto_selection : {false, true}) {
+        config::enable_lance_scalar_index_auto_selection = auto_selection;
+        const auto unique_suffix = std::chrono::steady_clock::now().time_since_epoch().count();
+        for (const auto index_type : {LANCE_SCALAR_BTREE, LANCE_SCALAR_BITMAP}) {
+            SCOPED_TRACE(index_type == LANCE_SCALAR_BTREE ? "BTREE" : "BITMAP");
+            const auto dataset_uri =
+                    std::filesystem::temp_directory_path() /
+                    ("doris_lance_scalar_segment_" + std::to_string(unique_suffix) + "_" +
+                     std::to_string(index_type) + ".lance");
+            Defer cleanup {[&] {
+                std::error_code error;
+                std::filesystem::remove_all(dataset_uri, error);
+            }};
+            const auto schema = arrow::schema({arrow::field("row_id", arrow::int64(), false)});
+            for (int64_t first_id : {1, 3}) {
+                arrow::Int64Builder values;
+                ASSERT_TRUE(values.AppendValues({first_id, first_id + 1}).ok());
+                auto array = values.Finish();
+                ASSERT_TRUE(array.ok());
+                auto batch = arrow::RecordBatch::Make(schema, 2, {std::move(array).ValueUnsafe()});
+                auto batches = arrow::RecordBatchReader::Make({batch}, schema);
+                ASSERT_TRUE(batches.ok());
+                ArrowArrayStream stream {};
+                ASSERT_TRUE(
+                        arrow::ExportRecordBatchReader(std::move(batches).ValueUnsafe(), &stream)
+                                .ok());
+                auto dataset = ::lance::Dataset::write(
+                        dataset_uri.string(), &stream,
+                        first_id == 1 ? ::lance::WriteMode::Create : ::lance::WriteMode::Append);
+                if (first_id == 1) {
+                    // The second append remains uncovered by this index segment.
+                    dataset.create_scalar_index("row_id", index_type, "row_id_idx");
                 }
             }
-            std::ranges::sort(actual);
-            EXPECT_EQ(expected, actual);
-            EXPECT_TRUE(reader.close().ok());
-        };
-        read_domain({fixture.fragment_ids[0]}, true, {2});
-        read_domain({fixture.fragment_ids[1]}, false, {4});
-        // A segment which cannot cover the whole task must filter the entire explicit domain.
-        read_domain(fixture.fragment_ids, true, {2, 4});
-        // Disabling the index must produce the same rows in each read domain.
-        read_domain({fixture.fragment_ids[0]}, false, {2});
-        read_domain(fixture.fragment_ids, false, {2, 4});
+            LanceFixtureInfo fixture;
+            ASSERT_TRUE(get_fixture_info(dataset_uri, &fixture).ok());
+            ASSERT_EQ(2, fixture.fragment_ids.size());
+            std::vector<std::string> segments;
+            ASSERT_TRUE(get_index_segment_uuids(dataset_uri, "row_id_idx", &segments).ok());
+            ASSERT_EQ(1, segments.size());
+
+            const auto read_domain = [&](const std::vector<int64_t>& fragments, bool use_segment,
+                                         const std::vector<int64_t>& expected) {
+                SCOPED_TRACE(::testing::PrintToString(fragments));
+                SCOPED_TRACE(use_segment ? "selected segment" : "scalar index disabled");
+                TQueryGlobals globals;
+                RuntimeState state(globals);
+                RuntimeProfile profile("lance_scalar_segment");
+                TFileScanRangeParams scan_params;
+                const Columns columns {projected_column("row_id", TYPE_BIGINT, false)};
+                LanceTableReader reader;
+                auto filter = create_int64_runtime_in_conjunct("row_id", {2, 4}, 41);
+                ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params, {filter})
+                                    .ok());
+                auto range = make_lance_range(dataset_uri, fixture.version, fragments);
+                if (use_segment) {
+                    range.table_format_params.lance_params.__set_index_segment_uuids(segments);
+                } else {
+                    range.table_format_params.lance_params.__set_use_scalar_index(false);
+                }
+                ASSERT_TRUE(prepare_range(&reader, std::move(range)).ok());
+                Block block;
+                add_output_columns(&block, columns);
+                std::vector<int64_t> actual;
+                bool eos = false;
+                while (!eos) {
+                    auto status = reader.get_block(&block, &eos);
+                    ASSERT_TRUE(status.ok()) << status.to_string();
+                    if (!eos) {
+                        const auto& ids =
+                                assert_cast<const ColumnInt64&>(*block.get_by_position(0).column);
+                        actual.insert(actual.end(), ids.get_data().begin(), ids.get_data().end());
+                    }
+                }
+                std::ranges::sort(actual);
+                EXPECT_EQ(expected, actual);
+                EXPECT_TRUE(reader.close().ok());
+                auto* candidates = profile.get_counter("LanceScalarIndexAutoCandidates");
+                ASSERT_NE(nullptr, candidates);
+                const bool estimable = auto_selection && use_segment &&
+                                       index_type == LANCE_SCALAR_BTREE && fragments.size() == 1;
+                EXPECT_EQ(estimable ? 1 : 0, candidates->value());
+            };
+            read_domain({fixture.fragment_ids[0]}, true, {2});
+            read_domain({fixture.fragment_ids[1]}, false, {4});
+            // A segment which cannot cover the whole task must filter the entire explicit domain.
+            read_domain(fixture.fragment_ids, true, {2, 4});
+            // Disabling the index must produce the same rows in each read domain.
+            read_domain({fixture.fragment_ids[0]}, false, {2});
+            read_domain(fixture.fragment_ids, false, {2, 4});
+        }
     }
 }
 

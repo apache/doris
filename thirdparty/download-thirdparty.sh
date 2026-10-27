@@ -719,7 +719,7 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " AZURE " ]]; then
 fi
 
 # Foyer remains a local patch until its cache interface is accepted upstream.
-# All search fixes are supplied by the immutable lance-c dependency revision.
+# Runtime selection and its memory guards come from the pinned upstream revision.
 if [[ " ${TP_ARCHIVES[*]} " =~ " LANCE_C " ]]; then
     foyer_patch_checksum="$(cksum < "${TP_PATCH_DIR}/lance-c-foyer.patch")"
     foyer_patch_marker="${TP_SOURCE_DIR}/${LANCE_C_SOURCE}/${PATCHED_MARK}_foyer"

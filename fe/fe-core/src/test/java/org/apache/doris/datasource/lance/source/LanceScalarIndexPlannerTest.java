@@ -54,6 +54,18 @@ import java.util.UUID;
 
 public class LanceScalarIndexPlannerTest {
     @Test
+    public void testGroupingDoesNotDependOnPredicateSelectivity() {
+        Expr predicate = new BinaryPredicate(BinaryPredicate.Operator.EQ,
+                new SlotRef(null, "key"), new IntLiteral(1)) {
+            @Override
+            public double getSelectivity() {
+                throw new AssertionError("FE grouping must not estimate runtime index costs");
+            }
+        };
+        Assertions.assertEquals("key_idx", plan(predicate).indexName);
+    }
+
+    @Test
     public void testBooleanDriverSelectionPreservesAllBranches() {
         Expr key = equal("key", 1);
         Expr otherKey = equal("key", 2);

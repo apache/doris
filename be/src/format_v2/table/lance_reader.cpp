@@ -34,6 +34,7 @@
 #include "exec/common/endian.h"
 #include "format_v2/lance/lance_reader_helper.h"
 #include "format_v2/lance/lance_runtime_filter_helper.h"
+#include "format_v2/lance/lance_session_cache_profile.h"
 #include "format_v2/lance/lance_session_manager.h"
 #include "runtime/file_scan_profile.h"
 #include "runtime/runtime_state.h"
@@ -111,12 +112,28 @@ Status LanceTableReader::init(TableReadOptions&& options) {
     DORIS_CHECK(_scanner_profile != nullptr);
     DORIS_CHECK(_scan_params != nullptr);
     RETURN_IF_ERROR(_resolve_search_kind());
+    if (_search_kind == SearchKind::NORMAL) {
+        _scanner_profile->add_info_string(
+                "LanceScalarIndexAutoSelection",
+                config::enable_lance_scalar_index_auto_selection ? "true" : "false");
+    }
 
     const auto& lance_scan_params = _scan_params->lance_scan_params;
     ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, LANCE_READER_PROFILE, TUnit::NONE,
                                  file_scan_profile::TABLE_READER, 1);
     _dataset_open_time = add_lance_counter(_scanner_profile, "LanceDatasetOpenTime", TUnit::TIME_NS,
                                            LANCE_TIMING_PROFILE);
+    auto* session_index_cache_misses = add_lance_counter(
+            _scanner_profile, "LanceSessionIndexCacheMisses", TUnit::UNIT, "LanceSessionCache");
+    auto* session_metadata_cache_misses = add_lance_counter(
+            _scanner_profile, "LanceSessionMetadataCacheMisses", TUnit::UNIT, "LanceSessionCache");
+    _scanner_profile->add_info_string(
+            "LanceSessionCacheStatsScope",
+            "BE-wide changes during dataset-open windows; includes concurrent readers; "
+            "overlapping windows must not be summed as query-exclusive misses");
+    _scanner_profile->add_info_string("LanceSessionCacheStatsAvailable", "false");
+    _session_cache_profile = std::make_unique<LanceSessionCacheProfile>(
+            _scanner_profile, session_index_cache_misses, session_metadata_cache_misses);
     _arrow_to_doris_block_time = add_lance_counter(_scanner_profile, "LanceArrowToDorisBlockTime",
                                                    TUnit::TIME_NS, LANCE_TIMING_PROFILE);
     _data_cache_bytes_read_from_cache =
@@ -647,11 +664,14 @@ Status LanceTableReader::_open_dataset(const DatasetKey& key) {
     std::unique_ptr<LanceDataset, LanceDatasetDeleter> dataset;
     {
         SCOPED_TIMER(_dataset_open_time);
+        auto& session = LanceSessionManager::instance();
+        _session_cache_profile->start();
         LanceDataset* raw_dataset = nullptr;
-        Status status = LanceSessionManager::instance().open_dataset(
+        Status status = session.open_dataset(
                 key.uri.c_str(), key.storage_options.empty() ? nullptr : storage_option_ptrs.data(),
                 static_cast<uint64_t>(key.version), &raw_dataset);
         if (!status.ok()) {
+            _session_cache_profile->stop();
             return status.prepend(fmt::format("Lance dataset version {} at {}: ", key.version,
                                               display_uri(key.uri)));
         }
@@ -942,6 +962,10 @@ Status LanceTableReader::_configure_normal_scan(LanceScanner* scanner,
         if (lance_params.__isset.use_scalar_index && !lance_params.use_scalar_index) {
             return Status::InvalidArgument(
                     "Lance scalar index segment cannot be combined with use_scalar_index=false");
+        }
+        if (lance_scanner_set_scalar_index_auto_selection(
+                    scanner, config::enable_lance_scalar_index_auto_selection) != 0) {
+            return lance_error("set Lance runtime scalar index selection");
         }
         if (lance_scanner_set_scalar_index_segment(scanner, segment_uuids.data()) != 0) {
             return lance_error("set Lance scanner scalar index segment");
@@ -1259,6 +1283,9 @@ void LanceTableReader::_close_dataset() {
     if (_fts_query_context != nullptr) {
         lance_fts_query_context_close(_fts_query_context);
         _fts_query_context = nullptr;
+    }
+    if (_session_cache_profile != nullptr) {
+        _session_cache_profile->stop();
     }
     if (_dataset != nullptr) {
         _collect_data_cache_statistics();
