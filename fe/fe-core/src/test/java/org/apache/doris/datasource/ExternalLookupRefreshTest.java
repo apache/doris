@@ -85,7 +85,8 @@ class ExternalLookupRefreshTest {
     @SuppressWarnings("unchecked")
     void parentObjectGuardIsAcquiredBeforeCatalogMonitor() {
         ExternalCatalog catalog = Mockito.mock(ExternalCatalog.class);
-        ExternalDatabase<?> database = Mockito.mock(ExternalDatabase.class, Mockito.CALLS_REAL_METHODS);
+        ExternalDatabase<?> database = Mockito.spy(new org.apache.doris.datasource.test.TestExternalDatabase(
+                catalog, 1L, "db", "db"));
         MetaCache<ExternalTable> cache = Mockito.mock(MetaCache.class);
         ExternalTable table = Mockito.mock(ExternalTable.class);
         Mockito.when(table.getName()).thenReturn("t");
@@ -93,7 +94,7 @@ class ExternalLookupRefreshTest {
         Deencapsulation.setField(database, "extCatalog", catalog);
         Deencapsulation.setField(database, "metaCache", cache);
         Deencapsulation.setField(database, "initialized", true);
-        Mockito.doReturn(0L).when(database).acquireTableMetadataLoadEpoch();
+        Mockito.when(catalog.isMetadataLoadEpochCurrent(Mockito.anyLong())).thenReturn(true);
         Mockito.doReturn(Optional.of((Runnable) () -> { })).when(cache).observeLookup(
                 Mockito.eq("t"), Mockito.eq("t"), Mockito.same(table), Mockito.eq(false), Mockito.any());
         Mockito.doAnswer(call -> {
@@ -103,6 +104,59 @@ class ExternalLookupRefreshTest {
         }).when(catalog).executeIfDatabaseCurrent(Mockito.same(database), Mockito.any());
         database.observeTableLookup(table).get().run();
         Mockito.verify(catalog).executeIfDatabaseCurrent(Mockito.same(database), Mockito.any());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void retiredParentObservationDoesNotInitializeBeforePinnedRead() {
+        ExternalCatalog catalog = Mockito.mock(ExternalCatalog.class);
+        ExternalDatabase<?> database = new org.apache.doris.datasource.test.TestExternalDatabase(
+                catalog, 1L, "db", "db");
+        Deencapsulation.setField(database, "initialized", true);
+        Deencapsulation.setField(database, "metaCache", Mockito.mock(MetaCache.class));
+        // A parent reset advances its epoch while this old DB still retains its local table/schema.
+        Mockito.when(catalog.isMetadataLoadEpochCurrent(Mockito.anyLong())).thenReturn(false);
+        Mockito.doThrow(new IllegalStateException("remote catalog is unavailable"))
+                .when(catalog).acquireMetadataLoadEpoch();
+        ExternalTable table = new ExternalTable();
+        table.setDb(database);
+        Assertions.assertEquals("pinned schema", table.withMissingTableRepair(() -> "pinned schema"));
+        Mockito.verify(catalog, Mockito.never()).acquireMetadataLoadEpoch();
+    }
+
+    @Test
+    void transientEnumerationFailurePreservesNumericIdentityForRecovery() {
+        org.apache.doris.datasource.test.TestExternalCatalog catalog =
+                Mockito.mock(org.apache.doris.datasource.test.TestExternalCatalog.class);
+        org.apache.doris.datasource.test.TestExternalDatabase database = Mockito.spy(
+                new org.apache.doris.datasource.test.TestExternalDatabase(catalog, 1L, "db", "db"));
+        AtomicBoolean unavailable = new AtomicBoolean(true);
+        Mockito.doAnswer(ignored -> {
+            if (unavailable.get()) {
+                throw new IllegalStateException("metastore timeout");
+            }
+            return java.util.Collections.singleton("a");
+        }).when(database).getTableNamesWithLock();
+        ExecutorService executor = Executors.newCachedThreadPool();
+        MetaCache<org.apache.doris.datasource.test.TestExternalTable> cache = new MetaCache<>("db", executor,
+                java.util.OptionalLong.empty(), java.util.OptionalLong.empty(), 10,
+                ignored -> java.util.Collections.singletonList(org.apache.doris.common.Pair.of("a", "a")),
+                name -> Optional.ofNullable(database.buildTableForInit(name, name, 7L, catalog, database, true)),
+                null);
+        try {
+            cache.updateCache("a", "a", Mockito.mock(
+                    org.apache.doris.datasource.test.TestExternalTable.class), 7L);
+            com.github.benmanes.caffeine.cache.Cache<?, ?> values =
+                    Deencapsulation.getField(cache, "metaObjCache");
+            values.invalidateAll();
+            Assertions.assertThrows(IllegalStateException.class, () -> cache.getMetaObjById(7L, false));
+            Assertions.assertEquals("a", cache.getNameByIdIfPresent(7L).get());
+            unavailable.set(false);
+            cache.refreshNames();
+            Assertions.assertTrue(cache.getMetaObjById(7L, false).isPresent());
+        } finally {
+            executor.shutdownNow();
+        }
     }
 
     @Test

@@ -238,7 +238,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
             HMSExternalTable getTableNullable(String tableName) {
                 for (Table table : createdTables) {
                     if (table.getTableName().equals(tableName)) {
-                        return new HMSExternalTable(0, tableName, tableName, hmsExternalCatalog, (HMSExternalDatabase) hmsExternalCatalog.getDbNullable(mockedDbName));
+                        return new HMSExternalTable(0, tableName, tableName, hmsExternalCatalog, (HMSExternalDatabase) hmsExternalCatalog.getDbNullable(table.getDbName()));
                     }
                 }
                 return null;

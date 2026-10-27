@@ -235,7 +235,14 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         return true;
     }
 
-    protected synchronized void makeSureInitialized() {
+    protected void makeSureInitialized() {
+        withMissingTableRepair(() -> {
+            initializeHmsTable();
+            return null;
+        });
+    }
+
+    private synchronized void initializeHmsTable() {
         super.makeSureInitialized();
         if (!objectCreated) {
             long startTime = System.currentTimeMillis();
@@ -602,6 +609,10 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     public long getLastCheckTime() {
         return 0;
+    }
+
+    public String getCreateTableSql() {
+        return withMissingTableRepair(() -> HiveMetaStoreClientHelper.showCreateTable(this));
     }
 
     /**

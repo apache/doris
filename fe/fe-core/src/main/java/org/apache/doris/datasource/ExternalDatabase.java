@@ -329,21 +329,9 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                     }
                 }
             } catch (RuntimeException e) {
-                // Handle "Found conflicting" exception explicitly
-                if (e.getMessage().contains(ExternalCatalog.FOUND_CONFLICTING)) {
-                    LOG.error(e.getMessage());
-                    throw e; // Rethrow to let the caller handle this critical issue
-                } else {
-                    // Any errors other than name conflicts, we default to not finding the table
-                    LOG.warn("Failed to check existence of table {} in the remote system. Ignoring this table.",
-                            localTableName, e);
-                    return null;
-                }
-            } catch (Exception e) {
-                // If connection fails, treat the table as non-existent
-                LOG.warn("Failed to check existence of table {} in the remote system. Ignoring this table.",
-                        localTableName, e);
-                return null;
+                // A failed enumeration is not proof of absence. Preserve the recoverable ID route.
+                LOG.warn("Failed to check existence of table {} in the remote system.", localTableName, e);
+                throw e;
             }
         }
 
@@ -713,7 +701,12 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         if (!initialized || cache == null) {
             return Optional.empty();
         }
-        long epoch = acquireTableMetadataLoadEpoch();
+        // Observation must not initialize a retired catalog before a pinned local schema read.
+        TableMetadataLoadEpoch retainedEpoch = metadataLoadEpoch.get();
+        if (!extCatalog.isMetadataLoadEpochCurrent(retainedEpoch.catalogEpoch)) {
+            return Optional.empty();
+        }
+        long epoch = retainedEpoch.value;
         boolean allObjects = extCatalog.getLowerCaseTableNames() != 0;
         Optional<Runnable> observed = cache.observeLookup(table.getName(), table.getRemoteName(), (T) table,
                 allObjects, () -> {

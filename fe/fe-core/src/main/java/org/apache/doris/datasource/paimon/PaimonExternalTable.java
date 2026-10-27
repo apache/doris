@@ -132,10 +132,12 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     }
 
     public List<Column> getFullSchema(TableScanParams scanParams) {
-        Table table = getPaimonTable(scanParams);
-        return PaimonUtil.parseSchema(table,
-                getCatalog().getEnableMappingVarbinary(),
-                getCatalog().getEnableMappingTimestampTz());
+        return withMissingTableRepair(() -> {
+            Table table = getPaimonTable(scanParams);
+            return PaimonUtil.parseSchema(table,
+                    getCatalog().getEnableMappingVarbinary(),
+                    getCatalog().getEnableMappingTimestampTz());
+        });
     }
 
     /**

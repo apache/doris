@@ -65,6 +65,22 @@ public class IcebergExternalTableTest {
     }
 
     @Test
+    public void testStatusCommentMissingTableRepairsLookup() {
+        IcebergExternalDatabase database = Mockito.mock(IcebergExternalDatabase.class);
+        IcebergExternalTable table = Mockito.spy(
+                new IcebergExternalTable(10L, "table", "table", mockCatalog, database));
+        Mockito.doReturn(false).when(table).isView();
+        java.util.concurrent.atomic.AtomicInteger repaired = new java.util.concurrent.atomic.AtomicInteger();
+        Mockito.when(database.observeTableLookup(table)).thenReturn(java.util.Optional.of(repaired::incrementAndGet));
+        RuntimeException missing = new org.apache.iceberg.exceptions.NoSuchTableException("missing");
+        try (MockedStatic<IcebergUtils> utils = Mockito.mockStatic(IcebergUtils.class)) {
+            utils.when(() -> IcebergUtils.withIcebergTable(Mockito.same(table), Mockito.any())).thenThrow(missing);
+            Assertions.assertSame(missing, Assertions.assertThrows(RuntimeException.class, table::getComment));
+            Assertions.assertEquals(1, repaired.get());
+        }
+    }
+
+    @Test
     public void testSchemaDisplayMissingTableRepairsLookup() {
         IcebergExternalDatabase database = Mockito.mock(IcebergExternalDatabase.class);
         IcebergExternalTable table = Mockito.spy(

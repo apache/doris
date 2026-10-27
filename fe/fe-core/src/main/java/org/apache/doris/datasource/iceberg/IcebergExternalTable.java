@@ -457,12 +457,14 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
      * @return
      */
     public Map<String, String> properties() {
-        if (isView()) {
-            View icebergView = getIcebergView();
-            return icebergView.properties();
-        } else {
-            return IcebergUtils.withIcebergTable(this, table -> new HashMap<>(table.properties()));
-        }
+        return withMissingTableRepair(() -> {
+            if (isView()) {
+                View icebergView = getIcebergView();
+                return icebergView.properties();
+            } else {
+                return IcebergUtils.withIcebergTable(this, table -> new HashMap<>(table.properties()));
+            }
+        });
     }
 
     @Override
