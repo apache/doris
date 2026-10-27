@@ -53,6 +53,7 @@ public class LogicalCTEConsumer extends LogicalRelation implements BlockFuncDeps
 
     private final String name;
     private final CTEId cteId;
+    // Insertion order is the consumer column order, including repeated producer slots.
     private final Map<Slot, Slot> consumerToProducerOutputMap;
     private final Multimap<Slot, Slot> producerToConsumerOutputMap;
 
@@ -155,7 +156,7 @@ public class LogicalCTEConsumer extends LogicalRelation implements BlockFuncDeps
 
     @Override
     public List<Slot> computeOutput() {
-        return ImmutableList.copyOf(producerToConsumerOutputMap.values());
+        return ImmutableList.copyOf(consumerToProducerOutputMap.keySet());
     }
 
     @Override
