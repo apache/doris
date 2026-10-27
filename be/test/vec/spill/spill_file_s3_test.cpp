@@ -48,6 +48,7 @@
 #include "exec/operator/spill_counters.h"
 #include "exec/spill/remote_spill_data_dir.h"
 #include "exec/spill/spill_file.h"
+#include "exec/spill/spill_file_format.h"
 #include "exec/spill/spill_file_manager.h"
 #include "exec/spill/spill_file_reader.h"
 #include "exec/spill/spill_file_writer.h"
@@ -732,8 +733,10 @@ protected:
     // Block start offsets of a part object, followed by the offset where its footer starts.
     static std::vector<size_t> _block_offsets(const std::string& object) {
         size_t block_count = 0;
-        memcpy(&block_count, object.data() + object.size() - sizeof(size_t), sizeof(size_t));
-        size_t footer_start = object.size() - (block_count + 2) * sizeof(size_t);
+        memcpy(&block_count, object.data() + object.size() - kSpillPartFormatBytes - sizeof(size_t),
+               sizeof(size_t));
+        size_t footer_start =
+                object.size() - kSpillPartFormatBytes - (block_count + 2) * sizeof(size_t);
         std::vector<size_t> offsets(block_count + 1);
         for (size_t i = 0; i < block_count; ++i) {
             memcpy(&offsets[i], object.data() + footer_start + i * sizeof(size_t), sizeof(size_t));
@@ -1223,7 +1226,13 @@ TEST_F(SpillFileS3Test, RoundtripAcrossParts) {
     {
         std::lock_guard lock(mock_store().mutex);
         for (const auto& key : keys) {
-            object_bytes += mock_store().objects.at(mock_store().make_key(kBucket, key)).size();
+            const auto& object = mock_store().objects.at(mock_store().make_key(kBucket, key));
+            ASSERT_GE(object.size(), kSpillPartFormatBytes);
+            EXPECT_EQ(object.substr(object.size() - kSpillPartFormatBytes),
+                      std::string("\x01\x00\x00\x00"
+                                  "DSPL",
+                                  8));
+            object_bytes += object.size();
         }
     }
     ASSERT_EQ(object_bytes, _counter(profile::SPILL_WRITE_FILE_BYTES));
@@ -1455,7 +1464,7 @@ TEST_F(SpillFileS3Test, FooterLargerThanProbe) {
 }
 
 // spill_s3_read_coalesce_bytes = 0 falls back to exact reads: the footer of every part (block
-// count and max sub block size, then the offsets) and one GET per block.
+// format marker, count and max sub block size, then the offsets) and one GET per block.
 TEST_F(SpillFileS3Test, ReadCoalesceDisabled) {
     config::spill_s3_read_coalesce_bytes = 0;
     _create_manager();
@@ -1482,7 +1491,7 @@ TEST_F(SpillFileS3Test, ReadCoalesceDisabled) {
         const std::string object = _object(key);
         object_bytes += object.size();
         const auto offsets = _block_offsets(object);
-        expected_gets.push_back(2 * sizeof(size_t));
+        expected_gets.push_back(2 * sizeof(size_t) + kSpillPartFormatBytes);
         expected_gets.push_back((offsets.size() - 1) * sizeof(size_t));
         for (size_t i = 0; i + 1 < offsets.size(); ++i) {
             expected_gets.push_back(offsets[i + 1] - offsets[i]);

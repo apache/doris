@@ -25,6 +25,7 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "exec/spill/spill_file.h"
+#include "exec/spill/spill_file_format.h"
 #include "exec/spill/spill_file_manager.h"
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
@@ -34,6 +35,7 @@
 #include "runtime/runtime_profile_counter_names.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
+#include "util/coding.h"
 #include "util/defer_op.h"
 #include "util/stopwatch.hpp"
 #include "util/threadpool.h"
@@ -137,9 +139,11 @@ Status SpillFileWriter::_close_current_part(const std::shared_ptr<SpillFile>& sp
         return Status::OK();
     }
 
-    // Write footer: block offsets + max_sub_block_size + block_count
+    // Write the footer and its format marker through the same accounted append path.
     _part_meta.append((const char*)&_part_max_sub_block_size, sizeof(_part_max_sub_block_size));
     _part_meta.append((const char*)&_part_written_blocks, sizeof(_part_written_blocks));
+    put_fixed32_le(&_part_meta, kSpillPartFormatVersion);
+    _part_meta.append(kSpillPartMagic, sizeof(kSpillPartMagic));
 
     int64_t meta_size = _part_meta.size();
     // The footer must always be written so that the part can be closed; account it
