@@ -391,6 +391,7 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
         return partitionIds.build();
     }
 
+    // Offset and TTL cases share the statement reference used by the stream normalizer.
     private Plan normalizeStreamRead(String sql, long referenceTso, Optional<IvmRewriteContext> ivmRewriteContext) {
         PlanChecker checker = PlanChecker.from(connectContext).parse(sql);
         StatementContext statementContext = checker.getCascadesContext().getStatementContext();
