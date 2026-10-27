@@ -39,6 +39,7 @@
 #include <string_view>
 #include <thread>
 
+#include "common/adaptive_thread_pool.h"
 #include "common/bvars.h"
 #include "common/config.h"
 #include "common/defer.h"
@@ -11688,6 +11689,296 @@ TEST(RecyclerTest, delete_versioned_delete_bitmap_by_rowset) {
                 EXPECT_EQ(txn->get(key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
             }
         }
+    }
+}
+
+namespace {
+
+// Saves the AdaptiveThreadPool configs and restores them when it goes out of scope.
+struct AdaptiveThreadPoolConfigGuard {
+    int32_t min_size = config::adaptive_thread_pool_min_size;
+    int64_t shrink_interval_ms = config::adaptive_thread_pool_shrink_interval_ms;
+    int64_t expand_interval_ms = config::adaptive_thread_pool_expand_interval_ms;
+    int32_t expand_step = config::adaptive_thread_pool_expand_step;
+    bool enable_adaptive = config::enable_recycler_adaptive_thread_pool;
+
+    ~AdaptiveThreadPoolConfigGuard() {
+        config::adaptive_thread_pool_min_size = min_size;
+        config::adaptive_thread_pool_shrink_interval_ms = shrink_interval_ms;
+        config::adaptive_thread_pool_expand_interval_ms = expand_interval_ms;
+        config::adaptive_thread_pool_expand_step = expand_step;
+        config::enable_recycler_adaptive_thread_pool = enable_adaptive;
+    }
+};
+
+// Runs an AdaptiveThreadPool with short jobs and answers its shrink policy calls with `pressures`
+// in order. Returns the concurrency before the first call and after each call, so the result
+// has `pressures.size() + 1` elements.
+// The first check is done right after start(), the next ones once per second, so it takes about
+// `pressures.size() - 1` seconds.
+std::vector<size_t> run_adaptive_thread_pool(size_t max_size, const std::string& name,
+                                             const std::vector<bool>& pressures) {
+    std::mutex mtx;
+    std::vector<size_t> concurrencies;
+    AdaptiveThreadPool* pool_ptr = nullptr;
+    AdaptiveThreadPool pool(max_size, name, [&] {
+        std::lock_guard lock(mtx);
+        concurrencies.push_back(pool_ptr->concurrency());
+        size_t idx = std::min(concurrencies.size() - 1, pressures.size() - 1);
+        return static_cast<bool>(pressures[idx]);
+    });
+    pool_ptr = &pool;
+    EXPECT_EQ(pool.start(), 0);
+    auto done = [&] {
+        std::lock_guard lock(mtx);
+        return concurrencies.size() >= pressures.size();
+    };
+    while (!done()) {
+        EXPECT_EQ(pool.submit([] { std::this_thread::sleep_for(std::chrono::milliseconds(1)); }),
+                  0);
+    }
+    // The worker doing the last check has applied the adjustment once stop() joins it
+    EXPECT_EQ(pool.stop(), 0);
+    concurrencies.push_back(pool.concurrency());
+    return concurrencies;
+}
+
+} // namespace
+
+TEST(AdaptiveThreadPoolTest, start_submit_stop) {
+    AdaptiveThreadPoolConfigGuard guard;
+    config::adaptive_thread_pool_shrink_interval_ms = 1000;
+    config::adaptive_thread_pool_expand_interval_ms = 1000;
+
+    AdaptiveThreadPool pool(8, "adaptive_pool_basic", [] { return false; });
+    EXPECT_EQ(pool.size(), 8);
+    EXPECT_EQ(pool.concurrency(), 8);
+
+    // Not started yet
+    EXPECT_EQ(pool.submit([] {}), -1);
+    EXPECT_EQ(pool.submit_with_timeout([] {}, 10), -1);
+    EXPECT_EQ(pool.stop(), -1);
+
+    ASSERT_EQ(pool.start(), 0);
+    EXPECT_EQ(g_bvar_adaptive_thread_pool_concurrency.get({"adaptive_pool_basic"}), 8);
+    std::atomic<int> num_done {0};
+    for (int i = 0; i < 100; ++i) {
+        EXPECT_EQ(pool.submit([&num_done] { ++num_done; }), 0);
+    }
+    for (int i = 0; i < 100; ++i) {
+        EXPECT_EQ(pool.submit_with_timeout([&num_done] { ++num_done; }, 1000), 0);
+    }
+    // stop() waits until all queued jobs are done
+    EXPECT_EQ(pool.stop(), 0);
+    EXPECT_EQ(num_done, 200);
+    EXPECT_EQ(pool.concurrency(), 8);
+
+    // Stopped
+    EXPECT_EQ(pool.submit([] {}), -1);
+    EXPECT_EQ(pool.submit_with_timeout([] {}, 10), -1);
+    EXPECT_EQ(pool.stop(), -1);
+}
+
+TEST(AdaptiveThreadPoolTest, submit_with_timeout_when_queue_full) {
+    AdaptiveThreadPoolConfigGuard guard;
+    config::adaptive_thread_pool_shrink_interval_ms = 1000;
+    config::adaptive_thread_pool_expand_interval_ms = 1000;
+
+    AdaptiveThreadPool pool(1, "adaptive_pool_queue_full", [] { return false; });
+    ASSERT_EQ(pool.start(), 0);
+
+    std::promise<void> started;
+    std::promise<void> release;
+    std::shared_future<void> release_future = release.get_future().share();
+    std::atomic<int> num_done {0};
+    ASSERT_EQ(pool.submit([&] {
+        started.set_value();
+        release_future.wait();
+        ++num_done;
+    }),
+              0);
+    started.get_future().wait();
+
+    // The only worker is busy, the queue capacity is 2 * concurrency = 2
+    EXPECT_EQ(pool.submit_with_timeout([&num_done] { ++num_done; }, 0), 0);
+    EXPECT_EQ(pool.submit_with_timeout([&num_done] { ++num_done; }, 0), 0);
+    EXPECT_EQ(pool.submit_with_timeout([&num_done] { ++num_done; }, 0), -2);
+    EXPECT_EQ(pool.submit_with_timeout([&num_done] { ++num_done; }, 50), -2);
+
+    // A blocked submit() proceeds once the worker takes a job from the queue
+    auto blocked_submit = std::async(std::launch::async,
+                                     [&] { return pool.submit([&num_done] { ++num_done; }); });
+    EXPECT_EQ(blocked_submit.wait_for(std::chrono::milliseconds(50)), std::future_status::timeout);
+    release.set_value();
+    EXPECT_EQ(blocked_submit.get(), 0);
+
+    EXPECT_EQ(pool.stop(), 0);
+    EXPECT_EQ(num_done, 4);
+}
+
+TEST(AdaptiveThreadPoolTest, job_exception) {
+    AdaptiveThreadPoolConfigGuard guard;
+    config::adaptive_thread_pool_shrink_interval_ms = 1000;
+    config::adaptive_thread_pool_expand_interval_ms = 1000;
+
+    AdaptiveThreadPool pool(2, "adaptive_pool_exception", [] { return false; });
+    ASSERT_EQ(pool.start(), 0);
+    std::atomic<int> num_done {0};
+    for (int i = 0; i < 10; ++i) {
+        EXPECT_EQ(pool.submit([] { throw std::runtime_error("injected error"); }), 0);
+        EXPECT_EQ(pool.submit([] { throw 1; }), 0);
+        EXPECT_EQ(pool.submit([&num_done] { ++num_done; }), 0);
+    }
+    // The workers survive the exceptions and run the remaining jobs
+    EXPECT_EQ(pool.stop(), 0);
+    EXPECT_EQ(num_done, 10);
+}
+
+TEST(AdaptiveThreadPoolTest, shrink_under_pressure) {
+    AdaptiveThreadPoolConfigGuard guard;
+    config::adaptive_thread_pool_min_size = 3;
+    config::adaptive_thread_pool_shrink_interval_ms = 0;
+    config::adaptive_thread_pool_expand_interval_ms = 1000;
+
+    // Halved on each check, but not below the min size
+    auto concurrencies = run_adaptive_thread_pool(8, "adaptive_pool_shrink", {true, true});
+    EXPECT_EQ(concurrencies, (std::vector<size_t> {8, 4, 3}));
+    EXPECT_EQ(g_bvar_adaptive_thread_pool_concurrency.get({"adaptive_pool_shrink"}), 3);
+}
+
+TEST(AdaptiveThreadPoolTest, shrink_interval) {
+    AdaptiveThreadPoolConfigGuard guard;
+    config::adaptive_thread_pool_min_size = 1;
+    // Longer than the pressure check interval (1s)
+    config::adaptive_thread_pool_shrink_interval_ms = 1500;
+    config::adaptive_thread_pool_expand_interval_ms = 1000;
+
+    // The first pressure shrinks immediately, the next one has to wait a shrink interval
+    auto concurrencies =
+            run_adaptive_thread_pool(16, "adaptive_pool_shrink_interval", {true, true});
+    EXPECT_EQ(concurrencies, (std::vector<size_t> {16, 8, 8}));
+}
+
+TEST(AdaptiveThreadPoolTest, min_size_clamp) {
+    AdaptiveThreadPoolConfigGuard guard;
+    config::adaptive_thread_pool_shrink_interval_ms = 0;
+    config::adaptive_thread_pool_expand_interval_ms = 1000;
+
+    // A min size above the max size is treated as the max size, so the pool never shrinks
+    config::adaptive_thread_pool_min_size = 100;
+    auto concurrencies = run_adaptive_thread_pool(8, "adaptive_pool_min_size", {true});
+    EXPECT_EQ(concurrencies, (std::vector<size_t> {8, 8}));
+
+    // A min size below 1 is treated as 1
+    config::adaptive_thread_pool_min_size = 0;
+    concurrencies = run_adaptive_thread_pool(2, "adaptive_pool_min_size", {true, true});
+    EXPECT_EQ(concurrencies, (std::vector<size_t> {2, 1, 1}));
+}
+
+TEST(AdaptiveThreadPoolTest, expand_without_pressure) {
+    AdaptiveThreadPoolConfigGuard guard;
+    config::adaptive_thread_pool_min_size = 1;
+    config::adaptive_thread_pool_shrink_interval_ms = 1000;
+    config::adaptive_thread_pool_expand_interval_ms = 0;
+    config::adaptive_thread_pool_expand_step = 3;
+
+    // Add 3 workers on each pressure-free check, but not above the max size
+    auto concurrencies = run_adaptive_thread_pool(8, "adaptive_pool_expand", {true, false, false});
+    EXPECT_EQ(concurrencies, (std::vector<size_t> {8, 4, 7, 8}));
+    EXPECT_EQ(g_bvar_adaptive_thread_pool_concurrency.get({"adaptive_pool_expand"}), 8);
+}
+
+TEST(AdaptiveThreadPoolTest, expand_step) {
+    AdaptiveThreadPoolConfigGuard guard;
+    config::adaptive_thread_pool_min_size = 1;
+    config::adaptive_thread_pool_shrink_interval_ms = 1000;
+    config::adaptive_thread_pool_expand_interval_ms = 0;
+
+    config::adaptive_thread_pool_expand_step = 2;
+    auto concurrencies = run_adaptive_thread_pool(16, "adaptive_pool_expand_step", {true, false});
+    EXPECT_EQ(concurrencies, (std::vector<size_t> {16, 8, 10}));
+
+    // A step below 1 is treated as 1
+    config::adaptive_thread_pool_expand_step = 0;
+    concurrencies = run_adaptive_thread_pool(16, "adaptive_pool_expand_step", {true, false});
+    EXPECT_EQ(concurrencies, (std::vector<size_t> {16, 8, 9}));
+}
+
+TEST(AdaptiveThreadPoolTest, pressure_postpones_expand) {
+    AdaptiveThreadPoolConfigGuard guard;
+    config::adaptive_thread_pool_min_size = 1;
+    config::adaptive_thread_pool_shrink_interval_ms = 1000;
+    // The checks are done at about 0s, 1s and 2s. The 3rd check would expand if the pressure seen
+    // by the 2nd check did not restart the pressure-free period.
+    config::adaptive_thread_pool_expand_interval_ms = 1500;
+    config::adaptive_thread_pool_expand_step = 4;
+
+    auto concurrencies =
+            run_adaptive_thread_pool(16, "adaptive_pool_postpone", {true, true, false});
+    EXPECT_EQ(concurrencies, (std::vector<size_t> {16, 8, 4, 4}));
+}
+
+TEST(AdaptiveThreadPoolTest, concurrency_limit) {
+    AdaptiveThreadPoolConfigGuard guard;
+    config::adaptive_thread_pool_min_size = 1;
+    config::adaptive_thread_pool_shrink_interval_ms = 1000;
+    config::adaptive_thread_pool_expand_interval_ms = 1000;
+
+    AdaptiveThreadPool pool(8, "adaptive_pool_limit", [] { return true; });
+    ASSERT_EQ(pool.start(), 0);
+    // The first finished job checks the pressure and halves the concurrency
+    ASSERT_EQ(pool.submit([] {}), 0);
+    for (int i = 0; i < 1000 && pool.concurrency() != 4; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_EQ(pool.concurrency(), 4);
+    EXPECT_EQ(pool.size(), 8);
+
+    // Only 4 of the 8 workers run jobs at the same time
+    std::atomic<int> num_active {0};
+    std::atomic<int> max_active {0};
+    std::atomic<int> num_done {0};
+    for (int i = 0; i < 40; ++i) {
+        EXPECT_EQ(pool.submit([&] {
+            int active = ++num_active;
+            int prev = max_active.load();
+            while (prev < active && !max_active.compare_exchange_weak(prev, active)) {
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            --num_active;
+            ++num_done;
+        }),
+                  0);
+    }
+    EXPECT_EQ(pool.stop(), 0);
+    EXPECT_EQ(num_done, 40);
+    EXPECT_LE(max_active, 4);
+    EXPECT_GE(max_active, 1);
+}
+
+TEST(AdaptiveThreadPoolTest, recycle_worker_pool) {
+    AdaptiveThreadPoolConfigGuard guard;
+    auto old_pool_size = config::instance_recycler_worker_pool_size;
+    DORIS_CLOUD_DEFER {
+        config::instance_recycler_worker_pool_size = old_pool_size;
+    };
+    config::instance_recycler_worker_pool_size = 4;
+
+    for (bool enable_adaptive : {true, false}) {
+        config::enable_recycler_adaptive_thread_pool = enable_adaptive;
+        RecycleWorkerPool pool("recycle_worker_pool_test");
+        EXPECT_EQ(pool.submit([] {}), -1) << enable_adaptive;
+        ASSERT_EQ(pool.start(), 0) << enable_adaptive;
+        std::atomic<int> num_done {0};
+        for (int i = 0; i < 50; ++i) {
+            EXPECT_EQ(pool.submit([&num_done] { ++num_done; }), 0) << enable_adaptive;
+            EXPECT_EQ(pool.submit_with_timeout([&num_done] { ++num_done; }, 1000), 0)
+                    << enable_adaptive;
+        }
+        EXPECT_EQ(pool.stop(), 0) << enable_adaptive;
+        EXPECT_EQ(num_done, 100) << enable_adaptive;
+        EXPECT_EQ(pool.stop(), -1) << enable_adaptive;
+        EXPECT_EQ(pool.submit([] {}), -1) << enable_adaptive;
     }
 }
 

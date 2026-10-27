@@ -160,6 +160,7 @@ mBvarStatus<int64_t> g_bvar_recycler_instance_next_ts("recycler_instance_next_ts
 mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_start_ts("recycler_instance_recycle_start_ts",{"instance_id"});
 mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_end_ts("recycler_instance_recycle_end_ts",{"instance_id"});
 mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_last_success_ts("recycler_instance_recycle_last_success_ts",{"instance_id"});
+mBvarStatus<int64_t> g_bvar_adaptive_thread_pool_concurrency("adaptive_thread_pool_concurrency",{"pool_name"});
 
 // recycler's mbvars
 // instance_id: unique identifier for the instance
