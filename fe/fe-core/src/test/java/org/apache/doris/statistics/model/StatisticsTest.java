@@ -27,6 +27,41 @@ import org.junit.jupiter.api.Test;
 
 public class StatisticsTest {
     @Test
+    public void testStatisticsUpdatesPreserveSelectedPartitionRowCount() {
+        SlotReference slot = SlotReference.of("partition_key", IntegerType.INSTANCE);
+        Statistics stats = new StatisticsBuilder()
+                .setRowCount(100)
+                .putColumnStatistics(slot, new ColumnStatisticBuilder(100).setNdv(10).build())
+                .setHasSelectedPartitionRowCount(true)
+                .build();
+
+        Assertions.assertTrue(new Statistics(stats).hasSelectedPartitionRowCount());
+        Assertions.assertTrue(stats.withRowCount(50).hasSelectedPartitionRowCount());
+        Assertions.assertTrue(stats.withRowCountAndEnforceValid(50).hasSelectedPartitionRowCount());
+        Assertions.assertTrue(stats.withSel(0.5).hasSelectedPartitionRowCount());
+    }
+
+    @Test
+    public void testReplacingColumnExpressionsClearsSelectedPartitionRowCount() {
+        SlotReference sourceSlot = SlotReference.of("partition_key", IntegerType.INSTANCE);
+        SlotReference mvSlot = SlotReference.of("mv_partition_key", IntegerType.INSTANCE);
+        ColumnStatistic columnStats = new ColumnStatisticBuilder(100).setNdv(10).build();
+        Statistics source = new StatisticsBuilder()
+                .setRowCount(100)
+                .putColumnStatistics(sourceSlot, columnStats)
+                .setHasSelectedPartitionRowCount(true)
+                .build();
+
+        // MV statistics belong to the target scan and must establish their own row-count scope.
+        Statistics normalized = source.withExpressionToColumnStats(ImmutableMap.of(mvSlot, columnStats));
+
+        Assertions.assertFalse(normalized.hasSelectedPartitionRowCount());
+        Assertions.assertTrue(source.hasSelectedPartitionRowCount());
+        Assertions.assertEquals(100, normalized.getRowCount());
+        Assertions.assertEquals(ImmutableMap.of(mvSlot, columnStats), normalized.columnStatistics());
+    }
+
+    @Test
     public void testAvgSizeAbnormal() {
         SlotReference slot = SlotReference.of("a", IntegerType.INSTANCE);
         ColumnStatisticBuilder colBuilder = new ColumnStatisticBuilder();

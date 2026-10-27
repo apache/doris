@@ -49,6 +49,9 @@ public class Statistics {
 
     private long actualRowCount = -1L;
     private boolean isFromHbo = false;
+    // Whether the scan row count accounts for its selected partitions. Partition-prunable predicates
+    // can then constrain columns without reducing the row count again.
+    private final boolean hasSelectedPartitionRowCount;
 
     public Statistics(Statistics another) {
         this.rowCount = another.rowCount;
@@ -57,15 +60,23 @@ public class Statistics {
         this.tupleSize = another.tupleSize;
         this.deltaRowCount = another.getDeltaRowCount();
         this.isFromHbo = another.isFromHbo;
+        this.hasSelectedPartitionRowCount = another.hasSelectedPartitionRowCount;
     }
 
     public Statistics(double rowCount, int widthInJoinCluster,
             Map<Expression, ColumnStatistic> expressionToColumnStats, double deltaRowCount, boolean isFromHbo) {
+        this(rowCount, widthInJoinCluster, expressionToColumnStats, deltaRowCount, isFromHbo, false);
+    }
+
+    public Statistics(double rowCount, int widthInJoinCluster,
+            Map<Expression, ColumnStatistic> expressionToColumnStats, double deltaRowCount, boolean isFromHbo,
+            boolean hasSelectedPartitionRowCount) {
         this.rowCount = rowCount;
         this.widthInJoinCluster = widthInJoinCluster;
         this.expressionToColumnStats = expressionToColumnStats;
         this.deltaRowCount = deltaRowCount;
         this.isFromHbo = isFromHbo;
+        this.hasSelectedPartitionRowCount = hasSelectedPartitionRowCount;
     }
 
     public Statistics(double rowCount, Map<Expression, ColumnStatistic> expressionToColumnStats) {
@@ -91,10 +102,12 @@ public class Statistics {
 
     public Statistics withRowCount(double rowCount) {
         return new Statistics(rowCount, widthInJoinCluster, new HashMap<>(expressionToColumnStats),
-                0, isFromHbo);
+                0, isFromHbo, hasSelectedPartitionRowCount);
     }
 
     public Statistics withExpressionToColumnStats(Map<Expression, ColumnStatistic> expressionToColumnStats) {
+        // The replacement map may describe another relation (for example MV statistics normalization),
+        // so it does not retain the scan-specific row-count provenance.
         return new Statistics(rowCount, widthInJoinCluster, expressionToColumnStats, 0, isFromHbo);
     }
 
@@ -103,7 +116,7 @@ public class Statistics {
      */
     public Statistics withRowCountAndEnforceValid(double rowCount) {
         Statistics statistics = new Statistics(rowCount, widthInJoinCluster,
-                expressionToColumnStats, 0, isFromHbo);
+                expressionToColumnStats, 0, isFromHbo, hasSelectedPartitionRowCount);
         statistics.normalizeColumnStatistics(this.rowCount, false);
         return statistics;
     }
@@ -162,7 +175,7 @@ public class Statistics {
         }
         double newCount = rowCount * notNullSel + numNull;
         return new Statistics(newCount, widthInJoinCluster, new HashMap<>(expressionToColumnStats),
-                0, isFromHbo);
+                0, isFromHbo, hasSelectedPartitionRowCount);
     }
 
     public Statistics addColumnStats(Expression expression, ColumnStatistic columnStatistic) {
@@ -333,6 +346,10 @@ public class Statistics {
 
     public boolean isFromHbo() {
         return this.isFromHbo;
+    }
+
+    public boolean hasSelectedPartitionRowCount() {
+        return hasSelectedPartitionRowCount;
     }
 
     public StatisticsBuilder cleanHotValues() {

@@ -32,6 +32,7 @@ public class StatisticsBuilder {
     private double deltaRowCount = 0.0;
 
     private boolean isFromHbo = false;
+    private boolean hasSelectedPartitionRowCount;
 
     public StatisticsBuilder() {
         this.expressionToColumnStats = new HashMap<>();
@@ -44,6 +45,7 @@ public class StatisticsBuilder {
         this.expressionToColumnStats = new HashMap<>();
         this.expressionToColumnStats.putAll(statistics.columnStatistics());
         this.isFromHbo = statistics.isFromHbo();
+        this.hasSelectedPartitionRowCount = statistics.hasSelectedPartitionRowCount();
     }
 
     public StatisticsBuilder setRowCount(double rowCount) {
@@ -58,6 +60,11 @@ public class StatisticsBuilder {
 
     public StatisticsBuilder setDeltaRowCount(double deltaRowCount) {
         this.deltaRowCount = deltaRowCount;
+        return this;
+    }
+
+    public StatisticsBuilder setHasSelectedPartitionRowCount(boolean hasSelectedPartitionRowCount) {
+        this.hasSelectedPartitionRowCount = hasSelectedPartitionRowCount;
         return this;
     }
 
@@ -77,6 +84,7 @@ public class StatisticsBuilder {
     }
 
     public Statistics build() {
-        return new Statistics(rowCount, widthInJoinCluster, expressionToColumnStats, deltaRowCount, isFromHbo);
+        return new Statistics(rowCount, widthInJoinCluster, expressionToColumnStats, deltaRowCount, isFromHbo,
+                hasSelectedPartitionRowCount);
     }
 }

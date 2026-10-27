@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -64,6 +65,7 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -121,9 +123,104 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         return outputStats;
     }
 
+    /**
+     * Applies predicates already accounted for by the scan row count to column statistics only. The returned
+     * statistics preserve the input row count and its provenance. Single-column constraints share one
+     * estimation basis per slot; relationships between columns do not independently bound either column.
+     */
+    public Statistics applyColumnConstraints(Set<Expression> conjuncts, Statistics inputStats) {
+        Map<Slot, List<Expression>> conjunctsBySlot = new LinkedHashMap<>();
+        for (Expression conjunct : conjuncts) {
+            Set<Slot> inputSlots = conjunct.getInputSlots();
+            if (inputSlots.size() != 1) {
+                // A multi-column relationship does not independently bound either column's NDV.
+                continue;
+            }
+            Slot slot = inputSlots.iterator().next();
+            conjunctsBySlot.computeIfAbsent(slot, ignored -> new ArrayList<>()).add(conjunct);
+        }
+
+        StatisticsBuilder constrainedBuilder = new StatisticsBuilder(inputStats);
+        for (Map.Entry<Slot, List<Expression>> entry : conjunctsBySlot.entrySet()) {
+            Slot slot = entry.getKey();
+            constrainedBuilder.putColumnStatistics(slot,
+                    estimateConstrainedColumn(slot, ExpressionUtils.and(entry.getValue()), inputStats));
+        }
+        return constrainedBuilder.build();
+    }
+
+    private ColumnStatistic estimateConstrainedColumn(Slot slot, Expression predicate, Statistics scanStats) {
+        ColumnStatistic currentColumnStats = scanStats.findColumnStatistics(slot);
+        Preconditions.checkState(currentColumnStats != null,
+                "an applied scan predicate must have statistics for slot: %s", slot);
+        double scanRowCount = scanStats.getRowCount();
+
+        // Estimate against the original count and uncapped NDV: the selected row count may be much smaller
+        // than the table-level NDV. Retain any finite bounds already established by partition metadata.
+        ColumnStatistic estimationColumnStats = currentColumnStats;
+        double estimationRowCount = scanRowCount;
+        if (currentColumnStats.getOriginal() != null) {
+            ColumnStatisticBuilder estimationColumnBuilder =
+                    new ColumnStatisticBuilder(currentColumnStats.getOriginal());
+            if (Double.isFinite(currentColumnStats.minValue)) {
+                estimationColumnBuilder.setMinValue(currentColumnStats.minValue)
+                        .setMinExpr(currentColumnStats.minExpr);
+            }
+            if (Double.isFinite(currentColumnStats.maxValue)) {
+                estimationColumnBuilder.setMaxValue(currentColumnStats.maxValue)
+                        .setMaxExpr(currentColumnStats.maxExpr);
+            }
+            estimationColumnStats = estimationColumnBuilder.build();
+            estimationRowCount = Math.max(estimationRowCount, estimationColumnStats.count);
+        }
+        Statistics estimationBasis = new StatisticsBuilder()
+                .setRowCount(estimationRowCount)
+                .putColumnStatistics(slot, estimationColumnStats)
+                .build();
+        // estimate couples the row count and column domain in one pass, but this path needs only
+        // the domain: the scan row count is already fixed by partition pruning. Run the shared
+        // per-predicate logic on the synthetic basis, then keep the constrained domain and
+        // discard the row count below. This reuses every predicate type's domain computation
+        // instead of duplicating a domain-only variant of the visitor.
+        Statistics estimated = estimate(predicate, estimationBasis);
+        double estimatedRowCount = estimated.getRowCount();
+        if (estimatedRowCount <= 0) {
+            // Stale column statistics may contradict the partition proof. They cannot invalidate the
+            // selected scan row count, so retain this column's existing statistics.
+            return currentColumnStats;
+        }
+        ColumnStatistic constrainedColumn = estimated.findColumnStatistics(slot);
+        Preconditions.checkState(constrainedColumn != null,
+                "column constraints must preserve statistics for slot: %s", slot);
+
+        ColumnStatisticBuilder columnBuilder = new ColumnStatisticBuilder(constrainedColumn, scanRowCount);
+        if (constrainedColumn.isUnKnown) {
+            return columnBuilder.build();
+        }
+
+        // Keep the constrained domain, but express the NULL fraction against the selected scan rows.
+        double constrainedNdv = Math.min(constrainedColumn.ndv, scanRowCount);
+        columnBuilder.setNdv(constrainedNdv);
+        if (constrainedColumn.numNulls >= 0) {
+            double scanNullCount = constrainedColumn.numNulls;
+            if (estimatedRowCount > 0) {
+                scanNullCount *= scanRowCount / estimatedRowCount;
+            }
+            columnBuilder.setNumNulls(Math.max(0, Math.min(scanNullCount, scanRowCount - constrainedNdv)));
+        }
+        return columnBuilder.build();
+    }
+
     @Override
     public Statistics visit(Expression expr, EstimationContext context) {
         return context.statistics.withSel(DEFAULT_INEQUALITY_COEFFICIENT);
+    }
+
+    @Override
+    public Statistics visitBooleanLiteral(BooleanLiteral booleanLiteral, EstimationContext context) {
+        return new StatisticsBuilder(context.statistics)
+                .setRowCount(booleanLiteral.getValue() ? context.statistics.getRowCount() : 0)
+                .build();
     }
 
     @Override
