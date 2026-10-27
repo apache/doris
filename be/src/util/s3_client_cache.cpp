@@ -255,7 +255,11 @@ struct S3ClientCache::Impl {
         if (!leader) {
             return task->future.get(); // No cache/holder/manager lock is held while waiting.
         }
+        return create_and_publish(conf, creator, task, release);
+    }
 
+    Result<Client> create_and_publish(const S3ClientConf& conf, const Creator& creator,
+                                      const std::shared_ptr<Pending>& task, ReleaseBatch& release) {
         try {
             auto result = creator(conf);
             if (result.has_value()) {
@@ -408,7 +412,7 @@ private:
     }
     void update_profile(size_t before) {
         auto after = _cache.stats().entries;
-        _freed_memory_counter->set(0);
+        _freed_memory_counter->set(int64_t {0});
         _freed_entrys_counter->set(static_cast<int64_t>(before - std::min(before, after)));
     }
 

@@ -157,6 +157,37 @@ TEST(S3ClientCacheTest, LazyIteratorCanOutliveCache) {
     EXPECT_TRUE(weak.expired());
 }
 
+TEST(S3ClientCacheTest, LifetimeGuardOutlivesSdkMembers) {
+    for (bool decorated : {false, true}) {
+        S3ClientCache cache(1, 10);
+        int sdk_releases = 0;
+        S3ClientCache::Creator creator = [&](const S3ClientConf&) -> Result<S3ClientCache::Client> {
+            // The null SDK pointer has an owning control block so its deleter
+            // observes the real member teardown without constructing an SDK client.
+            auto sdk = std::shared_ptr<Aws::S3::S3Client>(nullptr, [&](Aws::S3::S3Client*) {
+                EXPECT_EQ(cache.stats().live, 1);
+                EXPECT_EQ(cache.stats().destroyed, 0);
+                ++sdk_releases;
+            });
+            S3ClientCache::Client client = std::make_shared<S3ObjStorageClient>(std::move(sdk));
+            if (decorated) {
+                client = std::make_shared<RateLimitedObjStorageClient>(
+                        std::move(client), std::make_shared<AllowAllPolicy>());
+            }
+            return client;
+        };
+        auto client = cache.get_or_create(cache_conf(), creator).value();
+        auto iterator = client->list_objects({.bucket = "bucket"});
+        cache.close();
+        client.reset();
+        EXPECT_EQ(sdk_releases, 0);
+        iterator.reset();
+        EXPECT_EQ(sdk_releases, 1);
+        EXPECT_EQ(cache.stats().live, 0);
+        EXPECT_EQ(cache.stats().destroyed, 1);
+    }
+}
+
 TEST(S3ClientCacheTest, LruAndHitRefreshIdleTime) {
     int64_t now = 0;
     S3ClientCache cache(2, 10, [&] { return now; });
