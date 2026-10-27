@@ -1432,6 +1432,21 @@ public class IcebergTransactionTest {
     }
 
     @Test
+    public void testStaticPartitionFilterResolvesRenamedIdentityFieldBySourceColumn() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "value", Types.StringType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("id", "id_identity").build();
+
+        Expression filter = getTxn().buildPartitionFilter(
+                Collections.singletonMap("id_identity", "7"), spec, schema);
+
+        Assert.assertEquals(Expression.Operation.EQ, filter.op());
+        Assert.assertEquals("id", ((UnboundPredicate<?>) filter).ref().name());
+        Assert.assertNotNull(Binder.bind(schema.asStruct(), filter, true));
+    }
+
+    @Test
     public void testStaticPartitionFilterBindsNestedIdentitySourceByFullPath() {
         Schema schema = new Schema(Types.NestedField.required(
                 1, "payload", Types.StructType.of(

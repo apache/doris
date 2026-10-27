@@ -129,6 +129,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -886,14 +887,12 @@ public class BindSink implements AnalysisRuleFactory {
         IcebergUtils.validateWriteSchema(targetIcebergTable, pinnedColumns);
 
         // Get static partition columns if present
-        Map<String, Expression> staticPartitions = Optional.ofNullable(
+        Map<String, Expression> parsedStaticPartitions = Optional.ofNullable(
                 sink.getStaticPartitionKeyValues()).orElseGet(ImmutableMap::of);
+        Map<String, Expression> staticPartitions = sink.hasStaticPartition()
+                ? validateAndNormalizeStaticPartition(sink, table, targetIcebergTable)
+                : parsedStaticPartitions;
         Set<String> staticPartitionColNames = staticPartitions.keySet();
-
-        // Validate static partition if present
-        if (sink.hasStaticPartition()) {
-            validateStaticPartition(sink, table, targetIcebergTable);
-        }
 
         // Build bindColumns: exclude static partition columns from the columns that
         // need to come from SELECT
@@ -988,14 +987,20 @@ public class BindSink implements AnalysisRuleFactory {
     /**
      * Validate static partition specification for Iceberg table
      */
-    private void validateStaticPartition(UnboundIcebergTableSink<?> sink, IcebergExternalTable table,
-            Table icebergTable) {
+    private Map<String, Expression> validateAndNormalizeStaticPartition(
+            UnboundIcebergTableSink<?> sink, IcebergExternalTable table, Table icebergTable) {
         Map<String, Expression> staticPartitions = sink.getStaticPartitionKeyValues();
         if (staticPartitions == null || staticPartitions.isEmpty()) {
-            return;
+            return ImmutableMap.of();
         }
 
-        PartitionSpec partitionSpec = icebergTable.spec();
+        Optional<IcebergWriteSchemaContext> writeSchemaContext = sink.getWriteSchemaContext();
+        Schema schema = writeSchemaContext
+                .map(IcebergWriteSchemaContext::getSchema)
+                .orElseGet(icebergTable::schema);
+        PartitionSpec partitionSpec = writeSchemaContext
+                .map(IcebergWriteSchemaContext::getPartitionSpec)
+                .orElseGet(icebergTable::spec);
 
         // Check if table is partitioned
         if (!partitionSpec.isPartitioned()) {
@@ -1003,41 +1008,71 @@ public class BindSink implements AnalysisRuleFactory {
                     String.format("Table %s is not partitioned, cannot use static partition syntax", table.getName()));
         }
 
-        // Get partition field names
-        Map<String, PartitionField> partitionFieldMap = Maps.newHashMap();
-        for (PartitionField field : partitionSpec.fields()) {
-            String fieldName = field.name();
-            partitionFieldMap.put(fieldName, field);
-        }
-
-        // Validate each static partition column
+        // A static column is the top-level SOURCE column of an identity partition, matching Spark's
+        // Analyzer.partitionColumnNames and the column the binder materializes. Normalize the spelling here so the
+        // downstream binder, BE sink and pinned-spec validation all use the exact schema name.
+        Map<String, Expression> normalized = Maps.newHashMap();
         for (Map.Entry<String, Expression> entry : staticPartitions.entrySet()) {
             String partitionColName = entry.getKey();
             Expression partitionValue = entry.getValue();
 
-            // 1. Check if partition column exists
-            if (!partitionFieldMap.containsKey(partitionColName)) {
+            PartitionField identity = IcebergUtils.identityPartitionBySourceColumn(
+                    schema, partitionSpec, partitionColName);
+            if (identity == null) {
+                PartitionField bySource = IcebergUtils.partitionFieldBySourceColumn(
+                        schema, partitionSpec, partitionColName);
+                if (bySource != null) {
+                    throw nonIdentityStaticPartition(partitionColName, bySource);
+                }
+                PartitionField byName = findPartitionFieldByName(partitionSpec, partitionColName);
+                if (byName != null) {
+                    if (byName.transform().isIdentity()) {
+                        String source = IcebergUtils.topLevelSourceColumnName(schema, byName.sourceId());
+                        if (source == null) {
+                            throw new AnalysisException(String.format(
+                                    "Static partition column '%s' in table '%s' cannot be written by value: its"
+                                            + " source is a nested field, and the engine can only materialize the"
+                                            + " literal into a top-level column.",
+                                    byName.name(), table.getName()));
+                        }
+                        throw new AnalysisException(String.format(
+                                "Static partition column '%s' in table '%s' is a partition field name, not a"
+                                        + " table column; write the identity partition by its source column '%s'"
+                                        + " instead.",
+                                byName.name(), table.getName(), source));
+                    }
+                    throw nonIdentityStaticPartition(partitionColName, byName);
+                }
                 throw new AnalysisException(
                         String.format("Unknown partition column '%s' in table '%s'. Available partition columns: %s",
-                                partitionColName, table.getName(), partitionFieldMap.keySet()));
+                                partitionColName, table.getName(),
+                                IcebergUtils.identityPartitionSourceColumns(schema, partitionSpec)));
             }
 
-            // 2. Check if it's an identity partition.
-            // Static partition overwrite is only supported for identity partitions.
-            PartitionField field = partitionFieldMap.get(partitionColName);
-            if (!field.transform().isIdentity()) {
-                throw new AnalysisException(
-                        String.format("Cannot use static partition syntax for non-identity partition field '%s'"
-                                + " (transform: %s).", partitionColName, field.transform().toString()));
-            }
-
-            // 3. Validate partition value type must be a literal
+            // Validate partition value type must be a literal.
             if (!(partitionValue instanceof Literal)) {
                 throw new AnalysisException(
                         String.format("Partition value for column '%s' must be a literal, but got: %s",
                                 partitionColName, partitionValue));
             }
+            normalized.put(IcebergUtils.topLevelSourceColumnName(schema, identity.sourceId()), partitionValue);
         }
+        return normalized;
+    }
+
+    private static AnalysisException nonIdentityStaticPartition(String columnName, PartitionField field) {
+        return new AnalysisException(String.format(
+                "Cannot use static partition syntax for non-identity partition field '%s' (transform: %s).",
+                columnName, field.transform().toString()));
+    }
+
+    private static PartitionField findPartitionFieldByName(PartitionSpec spec, String columnName) {
+        for (PartitionField field : spec.fields()) {
+            if (field.name().equalsIgnoreCase(columnName)) {
+                return field;
+            }
+        }
+        return null;
     }
 
     private Plan bindPaimonTableSink(MatchingContext<UnboundPaimonTableSink<Plan>> ctx) {

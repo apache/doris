@@ -1071,6 +1071,96 @@ public class IcebergUtils {
     }
 
     /**
+     * Rewrites a static-partition spec keyed by identity source columns to partition field names.
+     *
+     * <p>The FE binder materializes a static literal through the identity partition's source column, while both
+     * the BE sink and the overwrite row filter address the partition field. A renamed identity field makes those
+     * names different, so the conversion must happen before either consumer sees the spec.</p>
+     */
+    public static Map<String, String> toPartitionFieldKeys(Map<String, String> staticPartitions,
+            Schema schema, PartitionSpec spec) {
+        if (staticPartitions == null || staticPartitions.isEmpty() || schema == null || spec == null) {
+            return staticPartitions;
+        }
+        Map<String, String> fieldKeyed = new HashMap<>(staticPartitions.size());
+        for (Map.Entry<String, String> entry : staticPartitions.entrySet()) {
+            PartitionField identity = identityPartitionBySourceColumn(schema, spec, entry.getKey());
+            if (identity != null) {
+                fieldKeyed.put(identity.name(), entry.getValue());
+                continue;
+            }
+            PartitionField named = partitionFieldByName(spec, entry.getKey());
+            fieldKeyed.put(named == null ? entry.getKey() : named.name(), entry.getValue());
+        }
+        return fieldKeyed;
+    }
+
+    /**
+     * Returns the top-level column a partition source resolves to, or {@code null} for a nested source.
+     * A nested field's leaf name must not be mistaken for a top-level static partition column.
+     */
+    public static String topLevelSourceColumnName(Schema schema, int sourceId) {
+        for (NestedField column : schema.columns()) {
+            if (column.fieldId() == sourceId) {
+                return column.name();
+            }
+        }
+        return null;
+    }
+
+    /** Returns the identity partition over the top-level source column, or {@code null}. */
+    public static PartitionField identityPartitionBySourceColumn(
+            Schema schema, PartitionSpec spec, String columnName) {
+        for (PartitionField field : spec.fields()) {
+            if (!field.transform().isIdentity()) {
+                continue;
+            }
+            String source = topLevelSourceColumnName(schema, field.sourceId());
+            if (source != null && source.equalsIgnoreCase(columnName)) {
+                return field;
+            }
+        }
+        return null;
+    }
+
+    /** Returns any partition field over the top-level source column, or {@code null}. */
+    public static PartitionField partitionFieldBySourceColumn(
+            Schema schema, PartitionSpec spec, String columnName) {
+        for (PartitionField field : spec.fields()) {
+            String source = topLevelSourceColumnName(schema, field.sourceId());
+            if (source != null && source.equalsIgnoreCase(columnName)) {
+                return field;
+            }
+        }
+        return null;
+    }
+
+    /** Returns the top-level source columns of identity partitions in partition-field order. */
+    public static List<String> identityPartitionSourceColumns(Schema schema, PartitionSpec spec) {
+        List<String> columns = new ArrayList<>();
+        for (PartitionField field : spec.fields()) {
+            if (!field.transform().isIdentity()) {
+                continue;
+            }
+            String source = topLevelSourceColumnName(schema, field.sourceId());
+            if (source != null) {
+                columns.add(source);
+            }
+        }
+        return columns;
+    }
+
+    /** Returns the first partition field whose name matches case-insensitively, or {@code null}. */
+    private static PartitionField partitionFieldByName(PartitionSpec spec, String name) {
+        for (PartitionField field : spec.fields()) {
+            if (field.name().equalsIgnoreCase(name)) {
+                return field;
+            }
+        }
+        return null;
+    }
+
+    /**
      * Get identity partition columns that exist in all partition specs.
      * The legacy file scanner uses partition columns in the first scan range for all ranges,
      * so only common identity partition columns can be used for partition pruning.

@@ -1092,6 +1092,62 @@ public class IcebergUtilsTest {
     }
 
     @Test
+    public void testStaticPartitionKeysResolveRenamedIdentityFieldToFieldName() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "other", Types.IntegerType.get()),
+                Types.NestedField.required(3, "region", Types.StringType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema)
+                .bucket("id", 8)
+                .identity("other", "ID")
+                .identity("id", "id_identity")
+                .identity("region")
+                .build();
+
+        Map<String, String> sourceKeyed = ImmutableMap.of("ID", "7", "REGION", "us");
+        Map<String, String> fieldKeyed = IcebergUtils.toPartitionFieldKeys(
+                new HashMap<>(sourceKeyed), schema, spec);
+
+        Assert.assertEquals("7", fieldKeyed.get("id_identity"));
+        Assert.assertEquals("us", fieldKeyed.get("region"));
+        Assert.assertFalse(fieldKeyed.containsKey("ID"));
+
+        Map<String, String> fieldNameKeyed = IcebergUtils.toPartitionFieldKeys(
+                new HashMap<>(Collections.singletonMap("ID_IDENTITY", "8")), schema, spec);
+        Assert.assertEquals(Collections.singletonMap("id_identity", "8"), fieldNameKeyed);
+    }
+
+    @Test
+    public void testStaticPartitionIdentitySourceMustBeATopLevelColumn() {
+        Schema schema = new Schema(Types.NestedField.required(
+                1, "payload", Types.StructType.of(
+                        Types.NestedField.required(2, "id", Types.IntegerType.get()))));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("payload.id", "payload_id").build();
+
+        Assert.assertNull(IcebergUtils.identityPartitionBySourceColumn(schema, spec, "id"));
+        Assert.assertNull(IcebergUtils.partitionFieldBySourceColumn(schema, spec, "id"));
+        Assert.assertNull(IcebergUtils.partitionFieldBySourceColumn(schema, spec, "payload"));
+        Assert.assertTrue(IcebergUtils.identityPartitionSourceColumns(schema, spec).isEmpty());
+    }
+
+    @Test
+    public void testStaticPartitionSourceLookupIsCaseInsensitiveAndFieldOrderIndependent() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "region", Types.StringType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema)
+                .bucket("id", 8)
+                .identity("region")
+                .identity("id", "id_identity")
+                .build();
+
+        Assert.assertEquals("id_identity",
+                IcebergUtils.identityPartitionBySourceColumn(schema, spec, "ID").name());
+        Assert.assertEquals(Arrays.asList("region", "id"),
+                IcebergUtils.identityPartitionSourceColumns(schema, spec));
+    }
+
+    @Test
     public void testGetCommonIdentityPartitionColumnsUsesSafeIntersection() {
         Schema schema = new Schema(
                 Types.NestedField.required(1, "id", Types.IntegerType.get()),
