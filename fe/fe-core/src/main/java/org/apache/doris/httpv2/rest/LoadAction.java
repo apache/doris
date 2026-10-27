@@ -32,6 +32,7 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.entity.RestBaseResult;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
+import org.apache.doris.httpv2.util.HttpHeaderUtils;
 import org.apache.doris.httpv2.util.StreamLoadRedirectDrainUtil;
 import org.apache.doris.load.StreamLoadHandler;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -679,7 +680,7 @@ public class LoadAction extends RestBaseController {
         Enumeration<String> headerNames = request.getHeaderNames();
         while (headerNames.hasMoreElements()) {
             String headerName = headerNames.nextElement();
-            String headerValue = isSensitiveHeader(headerName) ? "***MASKED***" : request.getHeader(headerName);
+            String headerValue = HttpHeaderUtils.getRedactedHeaderValueForLogging(request, headerName);
             headers.append(headerName).append(":").append(headerValue).append(", ");
         }
         return headers.toString();
@@ -757,16 +758,6 @@ public class LoadAction extends RestBaseController {
         SKIP_NO_REQUEST_BODY,
         SKIP_CONTENT_LENGTH_EXCEEDS_MAX_BYTES,
         DRAIN
-    }
-
-    private boolean isSensitiveHeader(String headerName) {
-        return "Authorization".equalsIgnoreCase(headerName)
-                || "Proxy-Authorization".equalsIgnoreCase(headerName)
-                || "Cookie".equalsIgnoreCase(headerName)
-                || "Set-Cookie".equalsIgnoreCase(headerName)
-                || "token".equalsIgnoreCase(headerName)
-                || "Auth-Token".equalsIgnoreCase(headerName)
-                || "auth_code".equalsIgnoreCase(headerName);
     }
 
     private Backend selectBackendForGroupCommit(String clusterName, HttpServletRequest req, long tableId)
