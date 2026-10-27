@@ -211,6 +211,8 @@ public class TxnValuesWriteSchemaTest extends TestWithFeService {
                 invocation.callRealMethod();
                 return null;
             });
+            // Verify only RPC interactions, excluding real-method stubbing calls.
+            preparer.clearInvocations();
             TLoadTxnBeginResult result = service.loadTxnBegin(request);
             preparer.verify(() -> ChangelogColumnIdPreparer.ensureReady(db, table), Mockito.times(1));
             if (rejectPreparation) {
