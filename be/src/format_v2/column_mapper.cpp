@@ -2349,9 +2349,12 @@ Status TableColumnMapper::_create_mapping_for_column(const ColumnDefinition& tab
         DCHECK(table_column.is_filter_only);
         // The table block retains FE slot ordinals even when the last consumer was a predicate
         // proved TRUE by this file's partition. The placeholder must never escape a projection.
-        _set_constant_mapping(mapping,
-                              VExprContext::create_shared(VLiteral::create_shared(
-                                      mapping->table_type, mapping->table_type->get_default())));
+        // Use a typed column default so non-nullable slots get a valid value, e.g. INT -> 0,
+        // while nullable slots get NULL. IDataType exposes defaults through its column API.
+        Field default_value;
+        mapping->table_type->create_column_const_with_default_value(1)->get(0, default_value);
+        _set_constant_mapping(mapping, VExprContext::create_shared(VLiteral::create_shared(
+                                               mapping->table_type, default_value)));
         return Status::OK();
     }
     const auto iceberg_metadata_type = [&] {
