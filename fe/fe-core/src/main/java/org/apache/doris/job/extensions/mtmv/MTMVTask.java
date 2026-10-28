@@ -832,14 +832,16 @@ public class MTMVTask extends AbstractTask {
             } catch (JobException e) {
                 // The rebuild reads the tables the MV does not partition by through their streams at the
                 // offsets, so an offset changelog.ttl_seconds has expired stops it the way it stops the delta
-                // below -- and it is the same failure of this attempt, answered the same way.
+                // below. Only a failure whose one repair is COMPLETE becomes a fallback here: the rebuild already
+                // is the partition refresh, and the sync-and-retry the delta has for a missing MV partition does
+                // not exist on this path. Any other failure still fails the attempt.
                 String detail = Util.getRootCauseMessage(e);
-                if (IvmFailureClassifier.classifyExecutionFailure(detail)
-                        .filter(reason -> reason == IvmFailureReason.CHANGELOG_BROKEN).isEmpty()) {
+                Optional<IvmFailureReason> reason = IvmFailureClassifier.classifyExecutionFailure(detail)
+                        .filter(IvmFailureReason::requiresCompleteRefresh);
+                if (reason.isEmpty()) {
                     throw e;
                 }
-                return handleIvmFallbackResult(
-                        IvmIncrRefreshResult.fallback(IvmFailureReason.CHANGELOG_BROKEN, detail), request);
+                return handleIvmFallbackResult(IvmIncrRefreshResult.fallback(reason.get(), detail), request);
             } finally {
                 recordRebuiltPartitions(request);
             }
@@ -1194,15 +1196,6 @@ public class MTMVTask extends AbstractTask {
                     "IVM incremental refresh failed for mv=" + mtmv.getName()
                     + ", reason=" + ivmResult.getFailureReason()
                     + ", detail=" + ivmResult.getDetailMessage());
-        }
-        if (ivmResult.getFailureReason() == IvmFailureReason.CHANGELOG_BROKEN) {
-            // changelog.ttl_seconds has expired the offset of a stream this attempt reads, so no incremental
-            // attempt can catch the MV up. A partition refresh still reads the streams at their offsets, so
-            // go directly to COMPLETE: it is the only attempt that resets the stream baselines.
-            LOG.warn("IVM stream changelog expired for mv={}, detail={}, taskId={}. "
-                    + "Continuing with COMPLETE refresh.",
-                    mtmv.getName(), ivmResult.getDetailMessage(), getTaskId());
-            return AttemptResultType.FALLBACK_TO_COMPLETE;
         }
         if (ivmResult.getFailureReason().requiresCompleteRefresh()) {
             LOG.warn("IVM refresh fell back for mv={}, reason={}, detail={}, taskId={}. "
