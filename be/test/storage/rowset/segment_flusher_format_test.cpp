@@ -3398,7 +3398,7 @@ TEST_F(SegmentFlusherTransformFormatTest, HorizontalCompactionSealsIndexesAfterP
         for (size_t row = 0; row < block.rows(); ++row) {
             auto value = values.get_data_at(row);
             Slice slice(value.data, value.size);
-            ASSERT_TRUE(index_writer->add_values("v_inverted", &slice, 1).ok());
+            ASSERT_TRUE(index_writer->add_values(reinterpret_cast<const uint8_t*>(&slice), 1).ok());
         }
         ASSERT_TRUE(index_writer->finish().ok());
         RowsetSharedPtr rowset;
