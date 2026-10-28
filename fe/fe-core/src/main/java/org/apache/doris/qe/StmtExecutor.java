@@ -736,6 +736,9 @@ public class StmtExecutor {
                 // Drop the old execution state before replanning.
                 planner = null;
                 setCoord(null);
+                // Replanning reuses StatementContext, but the failed attempt's cleanup closes its connector
+                // scope. Old producers retain that scope until termination; new sessions need a fresh one.
+                statementContext.resetConnectorStatementScope();
                 profile.clearPlan();
             } catch (Exception e) {
                 profile.getSummaryProfile().recordFailedAttempt(context.queryId());

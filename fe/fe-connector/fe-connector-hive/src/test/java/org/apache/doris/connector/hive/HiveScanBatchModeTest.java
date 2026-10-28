@@ -28,6 +28,7 @@ import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.scan.ConnectorScanContext;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.scan.ConnectorScanProfile;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
@@ -53,6 +54,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
@@ -219,6 +227,55 @@ public class HiveScanBatchModeTest {
         }
         Assertions.assertEquals(1, lister.totalCalls);
         Assertions.assertEquals(Collections.singleton("year=2024/month=02"), lister.callsPerLocation.keySet());
+    }
+
+    @Test
+    public void streamingPassesCancellationToPartitionMetadataLookup() throws Exception {
+        ConnectorScanContext context = new ConnectorScanContext();
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        HmsClient client = new FakeHmsClient() {
+            @Override
+            public HmsPartitionBatchResult getExistingPartitionsWithStats(String db, String table,
+                    List<String> names) {
+                throw new AssertionError("Streaming metadata must carry its scan context");
+            }
+
+            @Override
+            public HmsPartitionBatchResult getExistingPartitionsWithStats(String db, String table,
+                    List<String> names, ConnectorScanContext actual) {
+                Assertions.assertSame(context, actual);
+                entered.countDown();
+                try {
+                    Assertions.assertTrue(release.await(5, TimeUnit.SECONDS));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new AssertionError(e);
+                }
+                actual.checkCancelled();
+                throw new AssertionError("The metadata lookup was cancelled");
+            }
+        };
+        CountingLister lister = new CountingLister();
+        HiveScanPlanProvider provider = provider(client, lister);
+        ConnectorScanRequest request = ConnectorScanRequest.builder(parquetHandle(PART_KEYS),
+                Collections.emptyList()).requiredPartitions(Collections.singletonList("year=2024/month=02"))
+                .scanContext(context).build();
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        try (ConnectorSplitSource source = provider.streamSplits(new FakeSession(), request)) {
+            Future<Boolean> pending = worker.submit(source::hasNext);
+            Assertions.assertTrue(entered.await(5, TimeUnit.SECONDS));
+            context.cancel();
+            release.countDown();
+            ExecutionException error = Assertions.assertThrows(ExecutionException.class,
+                    () -> pending.get(5, TimeUnit.SECONDS));
+            Assertions.assertInstanceOf(CancellationException.class, error.getCause());
+            Assertions.assertEquals(0, lister.totalCalls);
+        } finally {
+            release.countDown();
+            worker.shutdownNow();
+            Assertions.assertTrue(worker.awaitTermination(5, TimeUnit.SECONDS));
+        }
     }
 
     @Test

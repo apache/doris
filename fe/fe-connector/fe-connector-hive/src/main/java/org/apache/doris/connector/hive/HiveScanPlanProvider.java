@@ -409,7 +409,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             int end = Math.min(partitionNames.size(), nextPartition + partitionBatchSize);
             scanContext.checkCancelled();
             partitions = convertPartitions(loadPartitionsWithProfile(handle.getDbName(), handle.getTableName(),
-                    partitionNames.subList(nextPartition, end)), keys).iterator();
+                    partitionNames.subList(nextPartition, end), scanContext), keys).iterator();
             nextPartition = end;
             return true;
         }
@@ -748,9 +748,15 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
 
     private List<HmsPartitionInfo> loadPartitionsWithProfile(
             String dbName, String tableName, List<String> partitionNames) {
+        return loadPartitionsWithProfile(dbName, tableName, partitionNames, null);
+    }
+
+    private List<HmsPartitionInfo> loadPartitionsWithProfile(String dbName, String tableName,
+            List<String> partitionNames, ConnectorScanContext scanContext) {
         try {
-            HmsPartitionBatchResult result = hmsClient.getExistingPartitionsWithStats(
-                    dbName, tableName, partitionNames);
+            HmsPartitionBatchResult result = scanContext == null
+                    ? hmsClient.getExistingPartitionsWithStats(dbName, tableName, partitionNames)
+                    : hmsClient.getExistingPartitionsWithStats(dbName, tableName, partitionNames, scanContext);
             partitionBatchProfile.record(dbName, tableName, result.getStats());
             return result.getPartitions();
         } catch (HmsClientException e) {

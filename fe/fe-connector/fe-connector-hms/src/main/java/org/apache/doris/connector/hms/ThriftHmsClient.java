@@ -19,6 +19,7 @@ package org.apache.doris.connector.hms;
 
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.scan.ConnectorScanContext;
 
 import org.apache.commons.pool2.BasePooledObjectFactory;
 import org.apache.commons.pool2.PooledObject;
@@ -74,6 +75,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CancellationException;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -254,14 +256,31 @@ public class ThriftHmsClient implements HmsClient {
     @Override
     public HmsPartitionBatchResult getExistingPartitionsWithStats(
             String dbName, String tableName, List<String> partNames) {
+        return getExistingPartitionsWithStats(dbName, tableName, partNames, () -> { });
+    }
+
+    @Override
+    public HmsPartitionBatchResult getExistingPartitionsWithStats(String dbName, String tableName,
+            List<String> partNames, ConnectorScanContext scanContext) {
+        return getExistingPartitionsWithStats(dbName, tableName, partNames, scanContext::checkCancelled);
+    }
+
+    private HmsPartitionBatchResult getExistingPartitionsWithStats(String dbName, String tableName,
+            List<String> partNames, Runnable checkCancelled) {
+        checkCancelled.run();
         if (closed) {
             throw new HmsClientException("HMS client is closed");
         }
         HmsPartitionRequest request = partitionRequest(dbName, tableName, partNames);
         if (clientPool != null) {
-            return newPartitionBatchExecutor(this::getPartitionsByNames).executeExistingWithStats(request);
+            HmsPartitionTransport transport = (db, table, names) -> executePartitionCall(client -> {
+                checkCancelled.run();
+                return loadPartitionsByNames(client, db, table, names);
+            });
+            return new HmsPartitionBatchExecutor(partitionBatchSize, transport, checkCancelled)
+                    .executeExistingWithStats(request);
         }
-        return executeUnpooledPartitionBatch(request, true);
+        return executeUnpooledPartitionBatch(request, true, checkCancelled);
     }
 
     @Override
@@ -279,9 +298,15 @@ public class ThriftHmsClient implements HmsClient {
 
     private HmsPartitionBatchResult executeUnpooledPartitionBatch(
             HmsPartitionRequest request, boolean allowMissing) {
+        return executeUnpooledPartitionBatch(request, allowMissing, () -> { });
+    }
+
+    private HmsPartitionBatchResult executeUnpooledPartitionBatch(
+            HmsPartitionRequest request, boolean allowMissing, Runnable checkCancelled) {
         HmsPartitionBatchResult completed = null;
-        try (UnpooledPartitionTransport transport = new UnpooledPartitionTransport()) {
-            HmsPartitionBatchExecutor executor = newPartitionBatchExecutor(transport);
+        try (UnpooledPartitionTransport transport = new UnpooledPartitionTransport(checkCancelled)) {
+            HmsPartitionBatchExecutor executor =
+                    new HmsPartitionBatchExecutor(partitionBatchSize, transport, checkCancelled);
             completed = allowMissing
                     ? executor.executeExistingWithStats(request)
                     : executor.executeWithStats(request);
@@ -771,7 +796,7 @@ public class ThriftHmsClient implements HmsClient {
         }
         try (PooledHmsClient pooled = borrowClient()) {
             return executePartitionCall(pooled, action);
-        } catch (HmsClientException e) {
+        } catch (HmsClientException | CancellationException e) {
             throw e;
         } catch (Exception e) {
             throw new HmsClientException("HMS partition operation failed: " + e.getMessage(), e);
@@ -783,11 +808,15 @@ public class ThriftHmsClient implements HmsClient {
             return doAs(() -> {
                 try {
                     return action.call(pooled.client);
+                } catch (CancellationException e) {
+                    throw e;
                 } catch (Exception e) {
                     throw new HmsPartitionBatchExecutor.RemoteCallException(
                             "Remote HMS partition operation failed: " + e.getMessage(), e);
                 }
             });
+        } catch (CancellationException e) {
+            throw e;
         } catch (Exception e) {
             pooled.taint(e);
             if (e instanceof HmsClientException) {
@@ -1025,6 +1054,11 @@ public class ThriftHmsClient implements HmsClient {
     /** Reuses one temporary client across successful chunks when catalog pooling is disabled. */
     private final class UnpooledPartitionTransport implements HmsPartitionTransport, AutoCloseable {
         private PooledHmsClient current;
+        private final Runnable checkCancelled;
+
+        private UnpooledPartitionTransport(Runnable checkCancelled) {
+            this.checkCancelled = checkCancelled;
+        }
 
         @Override
         public List<HmsPartitionInfo> getPartitionsByNames(
@@ -1036,8 +1070,10 @@ public class ThriftHmsClient implements HmsClient {
                 current = createFreshClient();
             }
             try {
-                return executePartitionCall(current,
-                        client -> loadPartitionsByNames(client, dbName, tableName, partitionNames));
+                return executePartitionCall(current, client -> {
+                    checkCancelled.run();
+                    return loadPartitionsByNames(client, dbName, tableName, partitionNames);
+                });
             } catch (RuntimeException e) {
                 PooledHmsClient failed = current;
                 current = null;
