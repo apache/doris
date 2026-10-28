@@ -105,7 +105,6 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -541,15 +540,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             List<String> logParts = new ArrayList<>();
 
             validateComputeGroupProperty(alterJobCommand.getProperties());
-            List<String> updatedTables = null;
-            if (alterJobCommand.getSourceProperties().containsKey(DataSourceConfigKeys.INCLUDE_TABLES)) {
-                String includeTables = alterJobCommand.getSourceProperties().get(DataSourceConfigKeys.INCLUDE_TABLES);
-                updatedTables = StringUtils.isBlank(includeTables) ? Collections.emptyList()
-                        : new ArrayList<>(new LinkedHashSet<>(Arrays.asList(includeTables.split(","))));
-                if (updatedTables.isEmpty()) {
-                    throw new AnalysisException("include_tables cannot be empty");
-                }
-            }
+            List<String> updatedTables = alterJobCommand.getIncludeTables();
 
             // Prepare the merged source properties before mutating the job.
             Map<String, String> mergedSourceProperties = null;
@@ -569,8 +560,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 mergedTargetProperties = new HashMap<>(targetProperties);
                 mergedTargetProperties.putAll(alterJobCommand.getTargetProperties());
             }
-            alterIncludeTables(alterJobCommand, updatedTables,
-                    newConvertedSourceProperties, mergedTargetProperties);
+            alterIncludeTables(alterJobCommand, updatedTables, newConvertedSourceProperties);
 
             // update sql
             if (StringUtils.isNotEmpty(alterJobCommand.getSql())) {
@@ -621,9 +611,36 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         }
     }
 
+    public void prepareIncludeTables(AlterJobCommand command) throws AnalysisException, JobException {
+        List<String> updatedTables = command.getIncludeTables();
+        if (updatedTables == null) {
+            return;
+        }
+        if (new HashSet<>(updatedTables).equals(new HashSet<>(syncTables))) {
+            return;
+        }
+        List<String> addedTables = new ArrayList<>(updatedTables);
+        addedTables.removeAll(syncTables);
+        Map<String, String> source = new HashMap<>(sourceProperties);
+        source.putAll(command.getSourceProperties());
+        source = buildConvertedSourceProperties(source);
+        Map<String, String> target = new HashMap<>(targetProperties);
+        target.putAll(command.getTargetProperties());
+        try {
+            // Prepare resources before entering JobManager's global write lock.
+            StreamingJobUtils.validateAndCreateTables(targetDb, dataSourceType,
+                    source, target, updatedTables, addedTables);
+            if (dataSourceType == DataSourceType.POSTGRES) {
+                PostgresResourceValidator.ensurePublicationCoversTables(
+                        source, String.valueOf(getJobId()), updatedTables);
+            }
+        } catch (Exception e) {
+            throw new JobException("Failed to prepare include_tables change: " + e.getMessage(), e);
+        }
+    }
+
     private void alterIncludeTables(AlterJobCommand command, List<String> updatedTables,
-            Map<String, String> newConvertedSourceProperties, Map<String, String> mergedTargetProperties)
-            throws AnalysisException, JobException {
+            Map<String, String> newConvertedSourceProperties) throws AnalysisException, JobException {
         if (updatedTables == null || new HashSet<>(updatedTables).equals(new HashSet<>(syncTables))) {
             return;
         }
@@ -635,32 +652,12 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         offsetProvider.validateAlterIncludeTables(updatedTables);
         List<String> addedTables = new ArrayList<>(updatedTables);
         addedTables.removeAll(syncTables);
-        prepareIncludeTablesChange(newConvertedSourceProperties, mergedTargetProperties, updatedTables, addedTables);
 
         offsetProvider.applyIncludeTablesChange(updatedTables, addedTables);
         offsetProvider.ensureInitialized(getJobId(), newConvertedSourceProperties);
         syncTables = updatedTables;
         offsetProviderPersist = offsetProvider.getPersistInfo();
         needRebuildReader = true;
-    }
-
-    private void prepareIncludeTablesChange(Map<String, String> newConvertedProperties,
-            Map<String, String> newTargetProperties, List<String> updatedTables, List<String> addedTables)
-            throws JobException {
-        try {
-            StreamingJobUtils.validateAndCreateTables(targetDb, dataSourceType,
-                    newConvertedProperties, newTargetProperties, updatedTables, addedTables);
-            if (dataSourceType == DataSourceType.POSTGRES) {
-                PostgresResourceValidator.ensurePublicationCoversTables(
-                        newConvertedProperties, String.valueOf(getJobId()), updatedTables);
-            }
-            // Clear stale chunks so re-added tables restart splitting; an empty list means no saved splits.
-            for (String table : addedTables) {
-                StreamingJobUtils.upsertChunkList(getJobId(), table, Collections.emptyList());
-            }
-        } catch (Exception e) {
-            throw new JobException("Failed to prepare include_tables change: " + e.getMessage(), e);
-        }
     }
 
     @Override

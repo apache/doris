@@ -683,9 +683,15 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
             } else {
                 Map<String, List<SnapshotSplit>> snapshotSplits = StreamingJobUtils.restoreSplitsToJob(job.getJobId());
                 if (tableChangePending) {
-                    snapshotSplits.entrySet().removeIf(entry -> !addedTables.contains(getTableName(entry.getKey())));
+                    // Without a committed chunk, saved splits may belong to a previous snapshot round.
+                    Set<String> committedTables = chunkHighWatermarkMap == null ? Collections.emptySet()
+                            : chunkHighWatermarkMap.entrySet().stream()
+                                    .filter(entry -> MapUtils.isNotEmpty(entry.getValue()))
+                                    .map(entry -> getTableName(entry.getKey()))
+                                    .collect(Collectors.toSet());
+                    snapshotSplits.entrySet().removeIf(entry -> !addedTables.contains(getTableName(entry.getKey()))
+                            || !committedTables.contains(getTableName(entry.getKey())));
                 }
-                // Added-table chunks must also be restored before their first watermark is committed.
                 if (tableChangePending
                         || (MapUtils.isNotEmpty(chunkHighWatermarkMap) && MapUtils.isNotEmpty(snapshotSplits))) {
                     List<SnapshotSplit> nextSnapshotSplits = recalculateRemainingSplits(

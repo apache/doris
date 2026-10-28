@@ -47,7 +47,7 @@ import java.util.Map;
 public class JdbcSourceOffsetProviderOffsetTest {
 
     @Test
-    public void testTableChangeReplayRestoresUncommittedChunksWithoutWatermarks() throws Exception {
+    public void testTableChangeReplayDiscardsSavedChunksWithoutCommittedWatermarks() throws Exception {
         JdbcSourceOffsetProvider source = provider(DataSourceType.POSTGRES);
         source.updateOffset(new JdbcOffset(Collections.singletonList(new BinlogSplit(Map.of("lsn", "100")))));
         String retainedSchema = "[{\"i\":\"public.retained\",\"c\":{}}]";
@@ -74,19 +74,13 @@ public class JdbcSourceOffsetProviderOffsetTest {
             };
             restored.setSourceType(DataSourceType.POSTGRES);
             restored.replayIfNeed(job);
-            Assertions.assertEquals(1, restored.pendingSplitCount());
-            Assertions.assertTrue(restored.currentOffset.snapshotSplit());
-            Assertions.assertEquals("public.added:0", restored.remainingSplits.get(0).getSplitId());
-            Assertions.assertEquals("added", restored.cdcSplitProgress.getCurrentSplittingTable());
-            Assertions.assertArrayEquals(new Object[] {10}, restored.cdcSplitProgress.getNextSplitStart());
+            Assertions.assertEquals(0, restored.pendingSplitCount());
+            Assertions.assertNull(restored.currentOffset);
+            Assertions.assertNull(restored.cdcSplitProgress.getCurrentSplittingTable());
             Assertions.assertEquals("100", restored.getBinlogOffsetPersist().get("lsn"));
             Assertions.assertFalse(restored.noMoreSplits());
             Assertions.assertEquals(retainedSchema, restored.getTableSchemas());
             Assertions.assertFalse(restored.isTableSchemasDirty());
-            SnapshotSplit committed = new SnapshotSplit("public.added:0", "public.added",
-                    null, null, null, Map.of("lsn", "110"));
-            restored.updateOffset(new JdbcOffset(Collections.singletonList(committed)));
-            Assertions.assertEquals("public.added:0", restored.finishedSplits.get(0).getSplitId());
         }
     }
 
@@ -194,13 +188,15 @@ public class JdbcSourceOffsetProviderOffsetTest {
             restored.replayIfNeed(job);
             Assertions.assertNull(restored.currentOffset);
             Assertions.assertFalse(restored.hasMoreDataToConsume());
-            utilities.when(() -> StreamingJobUtils.restoreSplitsToJob(job.getJobId())).thenReturn(
+            utilities.when(() -> StreamingJobUtils.restoreSplitsToJob(job.getJobId())).thenAnswer(invocation ->
                     new HashMap<>(Map.of("added", new ArrayList<>(List.of(chunk)))));
             restored.replayIfNeed(job);
-            Assertions.assertTrue(restored.currentOffset.snapshotSplit());
-            Assertions.assertTrue(restored.hasMoreDataToConsume());
+            Assertions.assertNull(restored.currentOffset);
+            Assertions.assertFalse(restored.hasMoreDataToConsume());
             Assertions.assertThrows(JobException.class,
                     () -> restored.validateAlterIncludeTables(List.of("retained")));
+            // A fresh splitting batch replaces the saved definitions before its first commit.
+            restored.remainingSplits.add(chunk);
             SnapshotSplit committed = new SnapshotSplit("public.added:0", "public.added", List.of("id"),
                     null, null, Map.of("lsn", "120"));
             restored.updateOffset(new JdbcOffset(List.of(committed)));
@@ -274,7 +270,9 @@ public class JdbcSourceOffsetProviderOffsetTest {
         Deencapsulation.setField(job, "syncTables", List.of("added", "next"));
         try (MockedStatic<StreamingJobUtils> utilities = Mockito.mockStatic(StreamingJobUtils.class)) {
             utilities.when(() -> StreamingJobUtils.restoreSplitsToJob(job.getJobId())).thenAnswer(invocation ->
-                    new HashMap<>(Map.of("added", new ArrayList<>(List.of(first, second)))));
+                    new HashMap<>(Map.of("added", new ArrayList<>(List.of(first, second)),
+                            "next", new ArrayList<>(List.of(new SnapshotSplit("public.next:0", "public.next",
+                                    List.of("old_key"), null, null, null))))));
             JdbcSourceOffsetProvider restored = provider(DataSourceType.POSTGRES);
             restored.replayIfNeed(job);
             Assertions.assertEquals(List.of("added", "next"), restored.getAddedTables());

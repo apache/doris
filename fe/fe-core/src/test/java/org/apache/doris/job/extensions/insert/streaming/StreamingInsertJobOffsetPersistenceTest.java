@@ -112,9 +112,22 @@ public class StreamingInsertJobOffsetPersistenceTest {
         try (MockedStatic<StreamingJobUtils> utilities = Mockito.mockStatic(StreamingJobUtils.class)) {
             utilities.when(() -> StreamingJobUtils.convertCertFile(Mockito.anyLong(), Mockito.anyMap()))
                     .thenAnswer(invocation -> new HashMap<>(invocation.<Map<String, String>>getArgument(1)));
+            ReentrantReadWriteLock jobLock = Deencapsulation.getField(job, "lock");
+            utilities.when(() -> StreamingJobUtils.validateAndCreateTables(Mockito.any(),
+                    Mockito.any(), Mockito.anyMap(), Mockito.anyMap(), Mockito.anyList(), Mockito.anyList()))
+                    .thenAnswer(invocation -> {
+                        Assertions.assertFalse(jobLock.isWriteLockedByCurrentThread());
+                        Assertions.assertEquals(List.of("retained"), job.getSyncTables());
+                        return null;
+                    });
+            job.prepareIncludeTables(command);
+            Assertions.assertEquals(original, job.getSourceProperties());
+            Assertions.assertEquals(0, job.journalCount);
             job.alterJob(command);
+            utilities.verify(() -> StreamingJobUtils.upsertChunkList(
+                    Mockito.anyLong(), Mockito.anyString(), Mockito.anyList()), Mockito.never());
             utilities.verify(() -> StreamingJobUtils.convertCertFile(Mockito.anyLong(), Mockito.eq(expectedSource)),
-                    Mockito.times(1));
+                    Mockito.times(2));
             utilities.verify(() -> StreamingJobUtils.validateAndCreateTables(Mockito.any(),
                     Mockito.eq(DataSourceType.MYSQL), Mockito.eq(expectedConverted), Mockito.eq(expectedTarget),
                     Mockito.eq(List.of("retained", "added")), Mockito.eq(List.of("added"))));
@@ -153,7 +166,7 @@ public class StreamingInsertJobOffsetPersistenceTest {
             utilities.when(() -> StreamingJobUtils.convertCertFile(Mockito.anyLong(), Mockito.anyMap()))
                     .thenAnswer(invocation -> new HashMap<>(invocation.<Map<String, String>>getArgument(1)));
 
-            JobException failure = Assertions.assertThrows(JobException.class, () -> job.alterJob(command));
+            JobException failure = Assertions.assertThrows(JobException.class, () -> job.prepareIncludeTables(command));
             Assertions.assertTrue(failure.getMessage().contains("is missing required tables: [public.added]"));
             Assertions.assertSame(originalProvider, job.offsetProvider);
             Assertions.assertEquals(originalProperties, job.getSourceProperties());
