@@ -143,6 +143,47 @@ public class StreamingInsertJobOffsetPersistenceTest {
     }
 
     @Test
+    public void testPrepareRejectsOffsetChangeBeforeResources() throws Exception {
+        TestStreamingInsertJob job = newJob(new JdbcSourceOffsetProvider(), 1017L);
+        job.setJobStatus(JobStatus.PAUSED);
+        Deencapsulation.setField(job, "dataSourceType", DataSourceType.POSTGRES);
+        Deencapsulation.setField(job, "sourceProperties", Map.of(DataSourceConfigKeys.INCLUDE_TABLES, "retained"));
+        Deencapsulation.setField(job, "syncTables", List.of("retained"));
+        AlterJobCommand command = new AlterJobCommand("test_job",
+                Map.of(StreamingJobProperties.OFFSET_PROPERTY, "{\"lsn\":\"100\"}"), null,
+                "postgres", null, Map.of(DataSourceConfigKeys.INCLUDE_TABLES, "retained,added"), Map.of());
+        try (MockedStatic<StreamingJobUtils> utilities = Mockito.mockStatic(StreamingJobUtils.class);
+                MockedStatic<PostgresResourceValidator> publications =
+                        Mockito.mockStatic(PostgresResourceValidator.class)) {
+            AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                    () -> job.prepareIncludeTables(command));
+            Assertions.assertEquals("Cannot alter include_tables and offset together", error.getDetailMessage());
+            utilities.verifyNoInteractions();
+            publications.verifyNoInteractions();
+            Assertions.assertEquals(List.of("retained"), job.getSyncTables());
+            Assertions.assertEquals(0, job.journalCount);
+        }
+    }
+
+    @Test
+    public void testPrepareChecksComputeGroupBeforeResources() {
+        TestStreamingInsertJob job = newJob(new JdbcSourceOffsetProvider(), 1017L);
+        job.setJobStatus(JobStatus.PAUSED);
+        Deencapsulation.setField(job, "dataSourceType", DataSourceType.MYSQL);
+        Deencapsulation.setField(job, "sourceProperties", Map.of(DataSourceConfigKeys.INCLUDE_TABLES, "retained"));
+        Deencapsulation.setField(job, "syncTables", List.of("retained"));
+        AlterJobCommand command = new AlterJobCommand("test_job",
+                Map.of(StreamingJobProperties.COMPUTE_GROUP_PROPERTY, ""), null,
+                "mysql", null, Map.of(DataSourceConfigKeys.INCLUDE_TABLES, "retained,added"), Map.of());
+        try (MockedStatic<StreamingJobUtils> utilities = Mockito.mockStatic(StreamingJobUtils.class)) {
+            AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                    () -> job.prepareIncludeTables(command));
+            Assertions.assertEquals("compute_group cannot be empty", error.getDetailMessage());
+            utilities.verifyNoInteractions();
+        }
+    }
+
+    @Test
     public void testAlterChecksPublicationBeforeChangingTableSet() throws Exception {
         SourceOffsetProvider originalProvider = Mockito.mock(SourceOffsetProvider.class);
         TestStreamingInsertJob job = Mockito.spy(newJob(originalProvider, 1017L));
@@ -205,9 +246,20 @@ public class StreamingInsertJobOffsetPersistenceTest {
             original.put(DataSourceConfigKeys.SERVER_ID, "5400-5403");
             original.put(DataSourceConfigKeys.SNAPSHOT_PARALLELISM, "4");
             Deencapsulation.setField(job, "sourceProperties", original);
+            Deencapsulation.setField(job, "syncTables", List.of("retained"));
+            Map<String, String> sourceChanges = new HashMap<>(update);
+            sourceChanges.put(DataSourceConfigKeys.INCLUDE_TABLES, "retained,added");
+            AlterJobCommand prepareCommand = new AlterJobCommand("test_job", Collections.emptyMap(), null,
+                    "mysql", null, sourceChanges, Collections.singletonMap("replication_num", "3"));
+            try (MockedStatic<StreamingJobUtils> utilities = Mockito.mockStatic(StreamingJobUtils.class)) {
+                IllegalArgumentException preparationError = Assertions.assertThrows(IllegalArgumentException.class,
+                        () -> job.prepareIncludeTables(prepareCommand));
+                Assertions.assertTrue(preparationError.getMessage().contains("server_id range size"));
+                utilities.verifyNoInteractions();
+            }
+
             AlterJobCommand command = new AlterJobCommand("test_job", Collections.emptyMap(), null,
                     "mysql", null, update, Collections.singletonMap("replication_num", "3"));
-
             IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,
                     () -> job.alterJob(command));
 

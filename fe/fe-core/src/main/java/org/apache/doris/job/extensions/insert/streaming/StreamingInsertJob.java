@@ -548,11 +548,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             if (!alterJobCommand.getSourceProperties().isEmpty()) {
                 mergedSourceProperties = new HashMap<>(this.sourceProperties);
                 mergedSourceProperties.putAll(alterJobCommand.getSourceProperties());
-                if (alterJobCommand.getSourceProperties().containsKey(DataSourceConfigKeys.SERVER_ID)
-                        || alterJobCommand.getSourceProperties()
-                                .containsKey(DataSourceConfigKeys.SNAPSHOT_PARALLELISM)) {
-                    DataSourceConfigValidator.validateServerIdConfig(mergedSourceProperties);
-                }
+                validateAlterSourceProperties(alterJobCommand, mergedSourceProperties);
                 newConvertedSourceProperties = buildConvertedSourceProperties(mergedSourceProperties);
             }
             Map<String, String> mergedTargetProperties = targetProperties;
@@ -560,7 +556,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 mergedTargetProperties = new HashMap<>(targetProperties);
                 mergedTargetProperties.putAll(alterJobCommand.getTargetProperties());
             }
-            alterIncludeTables(alterJobCommand, updatedTables, newConvertedSourceProperties);
+            alterIncludeTables(updatedTables, newConvertedSourceProperties);
 
             // update sql
             if (StringUtils.isNotEmpty(alterJobCommand.getSql())) {
@@ -619,10 +615,15 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         if (new HashSet<>(updatedTables).equals(new HashSet<>(syncTables))) {
             return;
         }
+        if (command.getProperties().containsKey(StreamingJobProperties.OFFSET_PROPERTY)) {
+            throw new AnalysisException("Cannot alter include_tables and offset together");
+        }
+        validateComputeGroupProperty(command.getProperties());
         List<String> addedTables = new ArrayList<>(updatedTables);
         addedTables.removeAll(syncTables);
         Map<String, String> source = new HashMap<>(sourceProperties);
         source.putAll(command.getSourceProperties());
+        validateAlterSourceProperties(command, source);
         source = buildConvertedSourceProperties(source);
         Map<String, String> target = new HashMap<>(targetProperties);
         target.putAll(command.getTargetProperties());
@@ -639,13 +640,10 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         }
     }
 
-    private void alterIncludeTables(AlterJobCommand command, List<String> updatedTables,
-            Map<String, String> newConvertedSourceProperties) throws AnalysisException, JobException {
+    private void alterIncludeTables(List<String> updatedTables,
+            Map<String, String> newConvertedSourceProperties) throws JobException {
         if (updatedTables == null || new HashSet<>(updatedTables).equals(new HashSet<>(syncTables))) {
             return;
-        }
-        if (command.getProperties().containsKey(StreamingJobProperties.OFFSET_PROPERTY)) {
-            throw new AnalysisException("Cannot alter include_tables and offset together");
         }
         // A paused job may not have restored its committed progress after an FE restart.
         replayOffsetProviderIfNeed();
@@ -658,6 +656,13 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         syncTables = updatedTables;
         offsetProviderPersist = offsetProvider.getPersistInfo();
         needRebuildReader = true;
+    }
+
+    private void validateAlterSourceProperties(AlterJobCommand command, Map<String, String> mergedSourceProperties) {
+        if (command.getSourceProperties().containsKey(DataSourceConfigKeys.SERVER_ID)
+                || command.getSourceProperties().containsKey(DataSourceConfigKeys.SNAPSHOT_PARALLELISM)) {
+            DataSourceConfigValidator.validateServerIdConfig(mergedSourceProperties);
+        }
     }
 
     @Override
