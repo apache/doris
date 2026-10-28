@@ -17,6 +17,7 @@
 
 #include <utility>
 
+#include "core/column/column_const.h"
 #include "core/data_type/data_type_agg_state.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_number.h" // IWYU pragma: keep
@@ -39,7 +40,7 @@ namespace doris {
 
 namespace CastWrapper {
 
-WrapperType create_hll_wrapper(FunctionContext* context, const DataTypePtr& from_type_untyped,
+WrapperType create_hll_wrapper(const CastOptions& /*options*/, const DataTypePtr& from_type_untyped,
                                const DataTypeHLL& to_type) {
     /// Conversion from String through parsing.
     if (check_and_get_data_type<DataTypeString>(from_type_untyped.get())) {
@@ -49,7 +50,8 @@ WrapperType create_hll_wrapper(FunctionContext* context, const DataTypePtr& from
     return CastWrapper::create_unsupport_wrapper("Cast to HLL only support from String type");
 }
 
-WrapperType create_bitmap_wrapper(FunctionContext* context, const DataTypePtr& from_type_untyped,
+WrapperType create_bitmap_wrapper(const CastOptions& /*options*/,
+                                  const DataTypePtr& from_type_untyped,
                                   const DataTypeBitMap& to_type) {
     /// Conversion from String through parsing.
     if (check_and_get_data_type<DataTypeString>(from_type_untyped.get())) {
@@ -59,7 +61,7 @@ WrapperType create_bitmap_wrapper(FunctionContext* context, const DataTypePtr& f
     return CastWrapper::create_unsupport_wrapper("Cast to BitMap only support from String type");
 }
 
-WrapperType create_quantile_state_wrapper(FunctionContext* context,
+WrapperType create_quantile_state_wrapper(const CastOptions& /*options*/,
                                           const DataTypePtr& from_type_untyped,
                                           const DataTypeQuantileState& to_type) {
     /// Conversion from String through parsing.
@@ -84,19 +86,19 @@ WrapperType create_spatial_wrapper(const DataTypePtr& from_type) {
     if (from_type->get_primitive_type() != TYPE_VARBINARY) {
         return create_unsupport_wrapper("Cast to spatial type only supports raw Varbinary WKB");
     }
-    return [](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-              uint32_t result, size_t input_rows_count, const NullMap::value_type* null_map) {
-        const auto& target_type = block.get_by_position(result).type;
-        auto target = target_type->create_column();
-        RETURN_IF_ERROR(append_spatial_wkb(block.get_by_position(arguments[0]).column, *target,
-                                           target_type, null_map));
-        block.get_by_position(result).column = std::move(target);
+    return [](RuntimeState* /*state*/, const ColumnWithTypeAndName& source_column,
+              ColumnWithTypeAndName& target_column, size_t /*input_rows_count*/,
+              const NullMap::value_type* parent_null_map) {
+        auto target = target_column.type->create_column();
+        RETURN_IF_ERROR(append_spatial_wkb(source_column.column, *target, target_column.type,
+                                           parent_null_map));
+        target_column.column = std::move(target);
         return Status::OK();
     };
 }
 
-WrapperType prepare_unpack_dictionaries(FunctionContext* context, const DataTypePtr& from_type,
-                                        const DataTypePtr& to_type) {
+WrapperType bind_cast_executor(const CastOptions& options, const DataTypePtr& from_type,
+                               const DataTypePtr& to_type) {
     const auto& from_nested = from_type;
     const auto& to_nested = to_type;
 
@@ -106,22 +108,49 @@ WrapperType prepare_unpack_dictionaries(FunctionContext* context, const DataType
                     "Cannot convert NULL to a non-nullable type");
         }
 
-        return [](FunctionContext* context, Block& block, const ColumnNumbers&, uint32_t result,
-                  size_t input_rows_count, const NullMap::value_type* null_map = nullptr) {
+        return [](RuntimeState* /*state*/, const ColumnWithTypeAndName& /*source_column*/,
+                  ColumnWithTypeAndName& target_column, size_t input_rows_count,
+                  const NullMap::value_type* /*parent_null_map*/ = nullptr) {
             /// TODO: remove this in the future.
-            auto& res = block.get_by_position(result);
-            res.column = res.type->create_column_const_with_default_value(input_rows_count)
-                                 ->convert_to_full_column_if_const();
+            target_column.column =
+                    target_column.type->create_column_const_with_default_value(input_rows_count)
+                            ->convert_to_full_column_if_const();
             return Status::OK();
         };
     }
 
-    auto wrapper = prepare_remove_nullable(context, from_nested, to_nested);
+    auto wrapper = prepare_remove_nullable(options, from_nested, to_nested);
+    return [wrapper = std::move(wrapper), to_type](
+                   RuntimeState* state, const ColumnWithTypeAndName& source_column,
+                   ColumnWithTypeAndName& target_column, size_t input_rows_count,
+                   const NullMap::value_type* parent_null_map = nullptr) {
+        if (input_rows_count == 0) {
+            target_column.column = to_type->create_column();
+            return Status::OK();
+        }
 
-    return wrapper;
+        const auto* const_column = check_and_get_column<ColumnConst>(source_column.column.get());
+        if (const_column == nullptr) {
+            return wrapper(state, source_column, target_column, input_rows_count, parent_null_map);
+        }
+
+        if (parent_null_map != nullptr && has_masked_row(parent_null_map, input_rows_count)) {
+            ColumnWithTypeAndName expanded_source {const_column->convert_to_full_column(),
+                                                   source_column.type, source_column.name};
+            return wrapper(state, expanded_source, target_column, input_rows_count,
+                           parent_null_map);
+        }
+
+        ColumnWithTypeAndName one_row_source {const_column->get_data_column_ptr(),
+                                              source_column.type, source_column.name};
+        RETURN_IF_ERROR(wrapper(state, one_row_source, target_column, 1, nullptr));
+        target_column.column =
+                ColumnConst::create(std::move(target_column.column), input_rows_count);
+        return Status::OK();
+    };
 }
 
-bool need_replace_null_data_to_default(FunctionContext* context, const DataTypePtr& from_type,
+bool need_replace_null_data_to_default(const CastOptions& options, const DataTypePtr& from_type,
                                        const DataTypePtr& to_type) {
     if (from_type->equals(*to_type)) {
         return false;
@@ -179,10 +208,10 @@ bool need_replace_null_data_to_default(FunctionContext* context, const DataTypeP
                     to_precision = to_max_digits;
                 }
 
-                bool narrow_integral = context->check_overflow_for_decimal() &&
+                bool narrow_integral = options.check_overflow_for_decimal &&
                                        (to_precision - to_scale) <= (from_precision - from_scale);
 
-                bool multiply_may_overflow = context->check_overflow_for_decimal();
+                bool multiply_may_overflow = options.check_overflow_for_decimal;
                 if (to_scale > from_scale) {
                     multiply_may_overflow &=
                             (from_precision + to_scale - from_scale) >= to_max_digits;
@@ -196,70 +225,95 @@ bool need_replace_null_data_to_default(FunctionContext* context, const DataTypeP
     return call_on_index_and_data_type<void>(to_type->get_primitive_type(), make_default_wrapper);
 }
 
-WrapperType prepare_remove_nullable(FunctionContext* context, const DataTypePtr& from_type,
+ColumnPtr wrap_cast_result_with_source_nulls(ColumnPtr result, const ColumnWithTypeAndName& source,
+                                             const NullableColumnInfo& source_info, size_t rows) {
+    if (!source_info.has_null) {
+        return make_nullable(std::move(result));
+    }
+
+    ColumnPtr nested_result = result;
+    const NullMap* result_null_map = nullptr;
+    if (const auto* nullable = check_and_get_column<ColumnNullable>(result.get())) {
+        nested_result = nullable->get_nested_column_ptr();
+        result_null_map = &nullable->get_null_map_data();
+    } else {
+        return ColumnNullable::create(std::move(result), source.get_nullable_null_map_column());
+    }
+
+    ColumnUInt8::MutablePtr merged_null_map = ColumnUInt8::create(rows, 0);
+    auto& merged_data = merged_null_map->get_data();
+    const auto& source_null_map = source.get_nullable_null_map_column()->get_data();
+    for (size_t row = 0; row < rows; ++row) {
+        merged_data[row] =
+                (*result_null_map)[row] | source_null_map[source_info.is_const ? 0 : row];
+    }
+    return ColumnNullable::create(std::move(nested_result), std::move(merged_null_map));
+}
+
+WrapperType prepare_remove_nullable(const CastOptions& options, const DataTypePtr& from_type,
                                     const DataTypePtr& to_type) {
     /// Determine whether pre-processing and/or post-processing must take place during conversion.
     bool result_is_nullable = to_type->is_nullable();
 
     if (result_is_nullable) {
-        return [from_type, to_type](FunctionContext* context, Block& block,
-                                    const ColumnNumbers& arguments, uint32_t result,
-                                    size_t input_rows_count,
-                                    const NullMap::value_type* null_map = nullptr) {
-            auto from_type_not_nullable = remove_nullable(from_type);
-            auto to_type_not_nullable = remove_nullable(to_type);
+        auto from_type_not_nullable = remove_nullable(from_type);
+        auto to_type_not_nullable = remove_nullable(to_type);
+        const bool replace_null_data_to_default = need_replace_null_data_to_default(
+                options, from_type_not_nullable, to_type_not_nullable);
+        auto nested_wrapper = prepare_impl(options, from_type_not_nullable, to_type_not_nullable);
 
-            bool replace_null_data_to_default = need_replace_null_data_to_default(
-                    context, from_type_not_nullable, to_type_not_nullable);
-
+        return [nested_wrapper = std::move(nested_wrapper), from_type_not_nullable,
+                to_type_not_nullable, replace_null_data_to_default](
+                       RuntimeState* state, const ColumnWithTypeAndName& source,
+                       ColumnWithTypeAndName& target, size_t input_rows_count,
+                       const NullMap::value_type* parent_null_map = nullptr) {
             NullableColumnInfo source_info;
-            if (block.get_by_position(arguments[0]).type->is_nullable()) {
-                source_info = block.get_by_position(arguments[0]).get_nullable_column_info();
+            if (source.type->is_nullable()) {
+                source_info = source.get_nullable_column_info();
             }
-            auto nested_result_index = block.columns();
-            const auto& result_column = block.get_by_position(result);
-            block.insert({nullptr, to_type_not_nullable, result_column.name});
-            auto nested_source_index = block.columns();
-            if (source_info.is_nullable) {
-                block.insert(block.get_by_position(arguments[0])
-                                     .unnest_nullable(source_info, replace_null_data_to_default));
-            } else {
-                block.insert(block.get_by_position(arguments[0]));
-            }
+            auto nested_source =
+                    source_info.is_nullable
+                            ? source.unnest_nullable(source_info, replace_null_data_to_default)
+                            : ColumnWithTypeAndName {source.column, from_type_not_nullable,
+                                                     source.name};
 
-            /// get_nullable_column_info() already scanned the NULL map of the source, so the mask is
-            /// handed to the cast only when it really contains a NULL. An all zero mask is the common
-            /// case, and passing it would add a load and a branch to every row of the cast kernels.
-            const NullMap::value_type* arg_null_map = nullptr;
+            ColumnPtr source_null_mask_holder;
+            const NullMap::value_type* child_parent_null_map = parent_null_map;
             if (source_info.has_null) {
-                arg_null_map = block.get_by_position(arguments[0])
-                                       .get_nullable_null_map_column()
-                                       ->get_data()
-                                       .data();
+                const auto* source_null_map =
+                        source.get_nullable_null_map_column()->get_data().data();
+                if (parent_null_map == nullptr ||
+                    !has_masked_row(parent_null_map, input_rows_count)) {
+                    child_parent_null_map = source_null_map;
+                } else {
+                    auto merged = ColumnUInt8::create(input_rows_count, 0);
+                    auto& merged_data = merged->get_data();
+                    const auto& source_null_map_data =
+                            source.get_nullable_null_map_column()->get_data();
+                    for (size_t row = 0; row < input_rows_count; ++row) {
+                        merged_data[row] = parent_null_map[row] | source_null_map_data[row];
+                    }
+                    child_parent_null_map = merged_data.data();
+                    source_null_mask_holder = std::move(merged);
+                }
             }
-            RETURN_IF_ERROR(prepare_impl(context, from_type_not_nullable, to_type_not_nullable)(
-                    context, block, {nested_source_index}, nested_result_index, input_rows_count,
-                    arg_null_map));
 
-            NullableColumnInfos nullable_column_infos(block.columns());
-            nullable_column_infos[arguments[0]] = std::move(source_info);
-            block.get_by_position(result).column =
-                    wrap_in_nullable(block.get_by_position(nested_result_index).column, block,
-                                     arguments, nullable_column_infos, input_rows_count);
-
-            block.erase(nested_source_index);
-            block.erase(nested_result_index);
+            ColumnWithTypeAndName nested_target {nullptr, to_type_not_nullable, target.name};
+            RETURN_IF_ERROR(nested_wrapper(state, nested_source, nested_target, input_rows_count,
+                                           child_parent_null_map));
+            target.column = wrap_cast_result_with_source_nulls(
+                    std::move(nested_target.column), source, source_info, input_rows_count);
             return Status::OK();
         };
     } else {
-        return prepare_impl(context, from_type, to_type);
+        return prepare_impl(options, from_type, to_type);
     }
 }
 
 /// 'from_type' and 'to_type' are nested types in case of Nullable.
 /// 'requested_result_is_nullable' is true if CAST to Nullable type is requested.
 // NOLINTNEXTLINE(readability-function-size)
-WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_from_type,
+WrapperType prepare_impl(const CastOptions& options, const DataTypePtr& origin_from_type,
                          const DataTypePtr& origin_to_type) {
     auto to_type = get_serialized_type(origin_to_type);
     auto from_type = get_serialized_type(origin_from_type);
@@ -279,16 +333,16 @@ WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_fro
     }
     if (from_type->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
         DORIS_CHECK(from_variant_v2 != nullptr);
-        auto wrapper = create_cast_from_variant_v2_wrapper(to_type);
-        return [wrapper = std::move(wrapper)](FunctionContext* context, Block& block,
-                                              const ColumnNumbers& arguments, uint32_t result,
-                                              size_t rows, const NullMap::value_type* null_map) {
-            RETURN_IF_ERROR(wrapper(context, block, arguments, result, rows, null_map));
-            auto& result_column = block.get_by_position(result).column;
-            if (null_map == nullptr) {
-                const auto* nullable = check_and_get_column<ColumnNullable>(*result_column);
+        auto wrapper = create_cast_from_variant_v2_wrapper(to_type, options);
+        return [wrapper = std::move(wrapper)](RuntimeState* state,
+                                              const ColumnWithTypeAndName& source_column,
+                                              ColumnWithTypeAndName& target_column, size_t rows,
+                                              const NullMap::value_type* parent_null_map) {
+            RETURN_IF_ERROR(wrapper(state, source_column, target_column, rows, parent_null_map));
+            if (parent_null_map == nullptr) {
+                const auto* nullable = check_and_get_column<ColumnNullable>(*target_column.column);
                 if (nullable != nullptr && !nullable->has_null()) {
-                    result_column = nullable->get_nested_column_ptr();
+                    target_column.column = nullable->get_nested_column_ptr();
                 }
             }
             return Status::OK();
@@ -297,66 +351,65 @@ WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_fro
 
     if (from_type->get_primitive_type() == PrimitiveType::TYPE_JSONB) {
         return create_cast_from_jsonb_wrapper(static_cast<const DataTypeJsonb&>(*from_type),
-                                              to_type,
-                                              context ? context->jsonb_string_as_string() : false);
+                                              to_type, options);
     }
 
     switch (to_type->get_primitive_type()) {
     case PrimitiveType::TYPE_BOOLEAN:
-        return create_boolean_wrapper(context, from_type);
+        return create_boolean_wrapper(options, from_type);
     case PrimitiveType::TYPE_TINYINT:
     case PrimitiveType::TYPE_SMALLINT:
     case PrimitiveType::TYPE_INT:
     case PrimitiveType::TYPE_BIGINT:
     case PrimitiveType::TYPE_LARGEINT:
-        return create_int_wrapper(context, from_type, to_type->get_primitive_type());
+        return create_int_wrapper(options, from_type, to_type->get_primitive_type());
     case PrimitiveType::TYPE_FLOAT:
     case PrimitiveType::TYPE_DOUBLE:
-        return create_float_wrapper(context, from_type, to_type->get_primitive_type());
+        return create_float_wrapper(options, from_type, to_type->get_primitive_type());
     case PrimitiveType::TYPE_DATE:
     case PrimitiveType::TYPE_DATETIME:
     case PrimitiveType::TYPE_DATEV2:
     case PrimitiveType::TYPE_DATETIMEV2:
     case PrimitiveType::TYPE_TIMEV2:
-        return create_datelike_wrapper(context, from_type, to_type->get_primitive_type());
+        return create_datelike_wrapper(options, from_type, to_type->get_primitive_type());
     case PrimitiveType::TYPE_TIMESTAMP_NS:
-        return create_timestamp_ns_wrapper(context, from_type);
+        return create_timestamp_ns_wrapper(options, from_type);
     case PrimitiveType::TYPE_TIMESTAMPTZ:
-        return create_timestamptz_wrapper(context, from_type);
+        return create_timestamptz_wrapper(options, from_type);
     case PrimitiveType::TYPE_IPV4:
     case PrimitiveType::TYPE_IPV6:
-        return create_ip_wrapper(context, from_type, to_type->get_primitive_type());
+        return create_ip_wrapper(options, from_type, to_type->get_primitive_type());
     case PrimitiveType::TYPE_UUID:
-        return create_uuid_wrapper(context, from_type);
+        return create_uuid_wrapper(options, from_type);
     case PrimitiveType::TYPE_DECIMALV2:
     case PrimitiveType::TYPE_DECIMAL32:
     case PrimitiveType::TYPE_DECIMAL64:
     case PrimitiveType::TYPE_DECIMAL128I:
     case PrimitiveType::TYPE_DECIMAL256:
-        return create_decimal_wrapper(context, from_type, to_type->get_primitive_type());
+        return create_decimal_wrapper(options, from_type, to_type->get_primitive_type());
     case PrimitiveType::TYPE_CHAR:
     case PrimitiveType::TYPE_VARCHAR:
     case PrimitiveType::TYPE_STRING:
         return create_string_wrapper(from_type);
     case PrimitiveType::TYPE_ARRAY:
-        return create_array_wrapper(context, from_type,
+        return create_array_wrapper(options, from_type,
                                     static_cast<const DataTypeArray&>(*to_type));
     case PrimitiveType::TYPE_STRUCT:
-        return create_struct_wrapper(context, from_type,
+        return create_struct_wrapper(options, from_type,
                                      static_cast<const DataTypeStruct&>(*to_type));
     case PrimitiveType::TYPE_MAP:
-        return create_map_wrapper(context, from_type, static_cast<const DataTypeMap&>(*to_type));
+        return create_map_wrapper(options, from_type, static_cast<const DataTypeMap&>(*to_type));
     case PrimitiveType::TYPE_HLL:
-        return create_hll_wrapper(context, from_type, static_cast<const DataTypeHLL&>(*to_type));
+        return create_hll_wrapper(options, from_type, static_cast<const DataTypeHLL&>(*to_type));
     case PrimitiveType::TYPE_BITMAP:
-        return create_bitmap_wrapper(context, from_type,
+        return create_bitmap_wrapper(options, from_type,
                                      static_cast<const DataTypeBitMap&>(*to_type));
     case PrimitiveType::TYPE_QUANTILE_STATE:
-        return create_quantile_state_wrapper(context, from_type,
+        return create_quantile_state_wrapper(options, from_type,
                                              static_cast<const DataTypeQuantileState&>(*to_type));
     case PrimitiveType::TYPE_JSONB:
         return create_cast_to_jsonb_wrapper(from_type, static_cast<const DataTypeJsonb&>(*to_type),
-                                            context ? context->string_as_jsonb_string() : false);
+                                            options);
     case PrimitiveType::TYPE_VARBINARY:
         return create_varbinary_wrapper(from_type);
     case PrimitiveType::TYPE_GEOMETRY:
@@ -373,7 +426,8 @@ WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_fro
 
 class PreparedFunctionCast : public PreparedFunctionImpl {
 public:
-    explicit PreparedFunctionCast(CastWrapper::WrapperType&& wrapper_function_, const char* name_)
+    explicit PreparedFunctionCast(CastWrapper::FunctionContextWrapperType&& wrapper_function_,
+                                  const char* name_)
             : wrapper_function(std::move(wrapper_function_)), name(name_) {}
 
     String get_name() const override { return name; }
@@ -381,14 +435,15 @@ public:
 protected:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        return wrapper_function(context, block, arguments, result, input_rows_count, nullptr);
+        return wrapper_function(context, block.get_by_position(arguments[0]),
+                                block.get_by_position(result), input_rows_count, nullptr);
     }
 
     bool use_default_implementation_for_nulls() const override { return false; }
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
 
 private:
-    CastWrapper::WrapperType wrapper_function;
+    CastWrapper::FunctionContextWrapperType wrapper_function;
     const char* name;
 };
 
@@ -406,8 +461,8 @@ public:
                                 const ColumnNumbers& /*arguments*/,
                                 uint32_t /*result*/) const override {
         return std::make_shared<PreparedFunctionCast>(
-                CastWrapper::prepare_unpack_dictionaries(context, get_argument_types()[0],
-                                                         get_return_type()),
+                CastWrapper::bind_cast_executor(context, get_argument_types()[0],
+                                                get_return_type()),
                 name);
     }
 

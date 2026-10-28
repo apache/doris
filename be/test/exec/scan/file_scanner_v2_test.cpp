@@ -463,6 +463,20 @@ TEST(FileScannerV2Test, ConditionCacheDigestIncludesRuntimeFilterPayload) {
               0);
 }
 
+TEST(FileScannerV2Test, ArrowStreamLoadsSelectV2) {
+    TQueryOptions options;
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_ARROW);
+    params.__set_file_type(TFileType::FILE_STREAM);
+    params.__set_src_tuple_id(0);
+    TFileRangeDesc range;
+    range.__set_format_type(TFileFormatType::FORMAT_ARROW);
+    range.__set_file_type(TFileType::FILE_STREAM);
+    range.__set_load_id(TUniqueId());
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(options, true, params));
+    EXPECT_TRUE(FileScannerV2::is_supported(params, range));
+}
+
 TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesAndLoads) {
     TQueryOptions query_options;
     TFileScanRangeParams params;

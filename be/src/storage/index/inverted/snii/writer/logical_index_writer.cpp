@@ -522,9 +522,6 @@ uint32_t high_df_floor_for(const SniiIndexInput& in) {
                                  format::kHighDfDigestDivisor);
 }
 
-LogicalIndexWriter::LogicalIndexWriter(const SniiIndexInput& in)
-        : LogicalIndexWriter(in, TrackedNullDocids(std::vector<uint32_t>(in.null_docids))) {}
-
 LogicalIndexWriter::LogicalIndexWriter(const SniiIndexInput& in, TrackedNullDocids null_docids)
         : index_id_(in.index_id),
           index_suffix_(in.index_suffix),

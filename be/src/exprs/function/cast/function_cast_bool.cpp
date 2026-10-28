@@ -19,14 +19,14 @@
 
 namespace doris::CastWrapper {
 
-WrapperType create_boolean_wrapper(FunctionContext* context, const DataTypePtr& from_type) {
+WrapperType create_boolean_wrapper(const CastOptions& options, const DataTypePtr& from_type) {
     std::shared_ptr<CastToBase> cast_to_bool;
 
     auto make_bool_wrapper = [&](const auto& types) -> bool {
         using Types = std::decay_t<decltype(types)>;
         using FromDataType = typename Types::LeftType;
         if constexpr (CastUtil::IsBaseCastFromType<FromDataType>) {
-            if (context->enable_strict_mode()) {
+            if (options.strict_mode) {
                 cast_to_bool = std::make_shared<
                         CastToImpl<CastModeType::StrictMode, FromDataType, DataTypeBool>>();
             } else {
@@ -44,10 +44,10 @@ WrapperType create_boolean_wrapper(FunctionContext* context, const DataTypePtr& 
                 fmt::format("CAST AS bool not supported {}", from_type->get_name()));
     }
 
-    return [cast_to_bool](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          uint32_t result, size_t input_rows_count,
+    return [cast_to_bool](RuntimeState* state, const ColumnWithTypeAndName& source_column,
+                          ColumnWithTypeAndName& target_column, size_t input_rows_count,
                           const NullMap::value_type* null_map = nullptr) {
-        return cast_to_bool->execute_impl(context, block, arguments, result, input_rows_count,
+        return cast_to_bool->execute_impl(state, source_column, target_column, input_rows_count,
                                           null_map);
     };
 }

@@ -146,31 +146,24 @@ suite("test_search_escape", "p0") {
         ORDER BY id
     """
 
-    // ============ Test 9: Lowercase 'and' should cause parse error ============
-    // Per requirement: Only uppercase AND/OR/NOT are operators
-    // Lowercase 'and' is treated as a bare term (no field), causing error
-    test {
-        sql """
-            SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, content
-            FROM ${tableName}
-            WHERE search('content:first and content:fruit')
-            ORDER BY id
-        """
-        exception "No field specified and no default_field configured"
-    }
+    // ============ Test 9: Lowercase 'and' is an operator ============
+    // Boolean operators are case-insensitive, matching Lucene/ES query string syntax.
+    def lowercaseAndRows = sql """
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id
+        FROM ${tableName}
+        WHERE search('content:first and content:fruit')
+        ORDER BY id
+    """
+    assertEquals([[7]], lowercaseAndRows)
 
-    // ============ Test 10: Lowercase 'or' should cause parse error ============
-    // Per requirement: Only uppercase AND/OR/NOT are operators
-    // Lowercase 'or' is treated as a bare term (no field), causing error
-    test {
-        sql """
-            SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, content
-            FROM ${tableName}
-            WHERE search('content:first or content:second')
-            ORDER BY id
-        """
-        exception "No field specified and no default_field configured"
-    }
+    // ============ Test 10: Lowercase 'or' is an operator ============
+    def lowercaseOrRows = sql """
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id
+        FROM ${tableName}
+        WHERE search('content:first or content:second')
+        ORDER BY id
+    """
+    assertEquals([[1], [2], [7], [8]], lowercaseOrRows)
 
     // ============ Test 11: Exclamation NOT operator ============
     qt_exclamation_not """

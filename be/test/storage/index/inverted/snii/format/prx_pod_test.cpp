@@ -1453,6 +1453,41 @@ TEST(SniiPrxPodTest, MaterializedRawCandidateMustStrictlyReduceFrame) {
               static_cast<uint8_t>(PrxCodec::kPfor));
 }
 
+// ZSTD replaces a readable PFOR frame only if it saves the configured share of the PFOR frame.
+// PFOR frame 1007 bytes, ZSTD frame 859 bytes: it saves 14.7%.
+TEST(SniiPrxPodTest, ZstdMustSaveTheConfiguredShareOverPfor) {
+    constexpr uint32_t kLimit = 4096;
+    auto select = [&](uint32_t min_saving_percent) {
+        return doris::snii::format::testing::select_auto_prx_codec_for_test(
+                /*pfor_payload_size=*/1000, /*plain_payload_size=*/2000,
+                /*compressed_payload_size=*/850, kLimit, min_saving_percent);
+    };
+    EXPECT_EQ(select(0), static_cast<uint8_t>(PrxCodec::kZstd));
+    EXPECT_EQ(select(10), static_cast<uint8_t>(PrxCodec::kZstd));
+    EXPECT_EQ(select(14), static_cast<uint8_t>(PrxCodec::kZstd));
+    EXPECT_EQ(select(15), static_cast<uint8_t>(PrxCodec::kPfor));
+    EXPECT_EQ(select(20), static_cast<uint8_t>(PrxCodec::kPfor));
+    EXPECT_EQ(select(100), static_cast<uint8_t>(PrxCodec::kPfor));
+}
+
+// The share only protects PFOR: when the PFOR frame exceeds the reader byte limit, ZSTD is the
+// only readable compressed form and is chosen whatever the share.
+TEST(SniiPrxPodTest, ZstdShareDoesNotApplyWhenPforIsUnreadable) {
+    constexpr uint32_t kLimit = 1500;
+    EXPECT_EQ(doris::snii::format::testing::select_auto_prx_codec_for_test(
+                      /*pfor_payload_size=*/1600, /*plain_payload_size=*/1400,
+                      /*compressed_payload_size=*/500, kLimit, /*zstd_min_saving_percent=*/100),
+              static_cast<uint8_t>(PrxCodec::kZstd));
+}
+
+TEST(SniiPrxPodTest, ZstdMinSavingAboveOneHundredPercentIsRejected) {
+    doris::snii::format::PrxWindowLimits limits = doris::snii::format::kReaderPrxWindowLimits;
+    limits.zstd_min_saving_percent = 100;
+    EXPECT_TRUE(doris::snii::format::validate_prx_window_limits(limits).ok());
+    limits.zstd_min_saving_percent = 101;
+    EXPECT_FALSE(doris::snii::format::validate_prx_window_limits(limits).ok());
+}
+
 // [functional] F-RT-small: a small flat window round-trips through the CSR reader
 // (codec=pfor path) back to the original per-doc positions.
 TEST(SniiPrxPodTest, SmallFlatWindowRoundTripsViaCsr) {

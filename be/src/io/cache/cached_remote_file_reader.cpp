@@ -137,7 +137,9 @@ void CachedRemoteFileReader::_init_doris_table_cache() {
     _cache = FileCacheFactory::instance()->get_by_path(_cache_hash);
     if (_can_read_cache_file_directly()) {
         // this is designed for and test in doris table, external table need extra tests
-        _cache_file_readers = _cache->get_blocks_by_key(_cache_hash);
+        for (auto& [offset, block] : _cache->get_blocks_by_key(_cache_hash)) {
+            _cache_file_readers.emplace(offset, block);
+        }
     }
 }
 
@@ -179,15 +181,13 @@ void CachedRemoteFileReader::_insert_file_reader(FileBlockSPtr file_block) {
     if (_can_read_cache_file_directly()) {
         std::lock_guard lock(_mtx);
         DCHECK(file_block->state() == FileBlock::State::DOWNLOADED);
-        file_block->_owned_by_cached_reader = true;
-        _cache_file_readers.emplace(file_block->offset(), std::move(file_block));
+        // Overwrite rather than emplace: an older entry at this offset may point to a block the
+        // cache has already dropped, and keeping it would disable direct reads of this range.
+        _cache_file_readers.insert_or_assign(file_block->offset(), std::move(file_block));
     }
 }
 
 CachedRemoteFileReader::~CachedRemoteFileReader() {
-    for (auto& it : _cache_file_readers) {
-        it.second->_owned_by_cached_reader = false;
-    }
     static_cast<void>(close());
 }
 
@@ -777,27 +777,33 @@ bool CachedRemoteFileReader::_try_read_from_cached_files_directly(
 
     size_t current_offset = offset;
     while (need_read_size != 0 && iter != _cache_file_readers.end()) {
-        if (iter->second->offset() > current_offset ||
-            iter->second->range().right < current_offset) {
+        // Holding the block while reading it makes the cache treat it as busy, so its file is not
+        // deleted mid-read. If the block is marked deleting meanwhile, run_background_gc()
+        // reclaims it once this reference is gone.
+        FileBlockSPtr block = iter->second.lock();
+        if (block == nullptr) {
+            // The cache has dropped this block. Read the range through the cache instead.
+            break;
+        }
+        if (block->offset() > current_offset || block->range().right < current_offset) {
             break;
         }
 
-        size_t file_offset = current_offset - iter->second->offset();
-        size_t reserve_bytes = std::min(need_read_size, iter->second->range().size() - file_offset);
+        size_t file_offset = current_offset - block->offset();
+        size_t reserve_bytes = std::min(need_read_size, block->range().size() - file_offset);
         if (is_dryrun) [[unlikely]] {
             g_skip_local_cache_io_sum_bytes << reserve_bytes;
         } else {
             SCOPED_RAW_TIMER(&stats.local_read_timer);
-            if (!iter->second
-                         ->read(Slice(result.data + (current_offset - offset), reserve_bytes),
-                                file_offset)
+            if (!block->read(Slice(result.data + (current_offset - offset), reserve_bytes),
+                             file_offset)
                          .ok()) { // TODO: maybe read failed because block evict, should handle error
                 break;
             }
             source_read_breakdown.local_bytes += reserve_bytes;
         }
 
-        _cache->add_need_update_lru_block(iter->second);
+        _cache->add_need_update_lru_block(std::move(block));
         need_read_size -= reserve_bytes;
         current_offset += reserve_bytes;
         already_read += reserve_bytes;

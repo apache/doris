@@ -360,7 +360,10 @@ bool FileScannerV2::is_supported(const TFileScanRangeParams& params, const TFile
     } else if (format_type == TFileFormatType::FORMAT_ES_HTTP) {
         return table_format_name(range) == "es";
     } else if (format_type == TFileFormatType::FORMAT_ARROW) {
-        return is_supported_arrow_table_format(range);
+        // A plain Arrow range is an IPC load pipe; query Arrow ranges retain their connector.
+        return is_supported_arrow_table_format(range) ||
+               (table_format_name(range) == "NotSet" && params.__isset.src_tuple_id &&
+                params.__isset.file_type && params.file_type == TFileType::FILE_STREAM);
     } else if (format_type == TFileFormatType::FORMAT_JNI) {
         return is_supported_jni_table_format(range);
     } else if (is_wal_format(format_type)) {

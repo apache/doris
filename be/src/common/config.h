@@ -1466,6 +1466,9 @@ DECLARE_mInt32(inverted_index_max_buffered_docs);
 // import CPU; see the DEFINEs in config.cpp).
 DECLARE_mInt32(snii_dict_block_zstd_level);
 DECLARE_mInt32(snii_prx_zstd_level);
+// A .prx window is stored zstd-compressed only if that frame is smaller than the PFOR one by at
+// least this percentage; 0 picks the smaller frame. Affects segments written from now on.
+DECLARE_mInt32(snii_prx_zstd_min_saving_percent);
 // Patch C: prx zstd level for DIRECT-LOAD segments only (default 3, cheaper
 // import); compaction rewrites at snii_prx_zstd_level so settled segments are
 // unaffected. Full contract at the DEFINE in config.cpp.

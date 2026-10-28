@@ -575,6 +575,20 @@ TEST(JsonReaderTest, ReadsJsonPathsBySourceSlotAndReturnsRequestedBlockOrder) {
     EXPECT_EQ(nullable_int_at(*result.block.get_by_position(1).column, 1), 8);
 }
 
+TEST(JsonReaderTest, ReadsJsonPathsFromAnArraySelectedByJsonRoot) {
+    ObjectPool pool;
+    auto slots = build_slots(&pool);
+    auto result = read_once(
+            "rooted_outer_array_jsonpaths.json",
+            R"({"rows":[{"payload":{"id":12,"user":"kate"}},{"payload":{"id":13,"user":"leo"}}]})",
+            json_scan_params(false, true, R"(["$.payload.id","$.payload.user"])", "$.rows"), slots,
+            {0, 1});
+    ASSERT_TRUE(result.status.ok()) << result.status.to_string();
+    ASSERT_EQ(result.rows, 2);
+    EXPECT_EQ(nullable_int_at(*result.block.get_by_position(0).column, 0), 12);
+    EXPECT_EQ(nullable_string_at(*result.block.get_by_position(1).column, 1), "leo");
+}
+
 TEST(JsonReaderTest, ReadsJsonPathsFromSingleDocumentOuterArray) {
     ObjectPool pool;
     auto slots = build_slots(&pool);

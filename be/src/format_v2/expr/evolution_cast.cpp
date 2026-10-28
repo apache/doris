@@ -22,7 +22,7 @@
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_timestamptz.h"
-#include "exprs/vexpr_context.h"
+#include "exprs/function/cast/cast_base.h"
 
 namespace doris::format {
 
@@ -98,16 +98,13 @@ Status EvolutionCast::execute_column_impl(VExprContext* context, const Block* bl
     return Status::OK();
 }
 
-Status EvolutionCast::prepare(RuntimeState* state, const RowDescriptor& desc,
-                              VExprContext* context) {
-    RETURN_IF_ERROR(Cast::prepare(state, desc, context));
+void EvolutionCast::configure_cast_options(CastOptions& options) const {
     if (remove_nullable(_children[0]->data_type())->get_primitive_type() == TYPE_DATEV2 &&
         remove_nullable(_data_type)->get_primitive_type() == TYPE_TIMESTAMP_NS) {
         // Iceberg DATE promotion must fail outside the nanosecond range, even in non-strict SQL
         // sessions. Otherwise a localized IS NOT NULL filter can silently discard retained rows.
-        context->fn_context(_fn_context_index)->set_enable_strict_mode(true);
+        options.strict_mode = true;
     }
-    return Status::OK();
 }
 
 std::string EvolutionCast::debug_string() const {

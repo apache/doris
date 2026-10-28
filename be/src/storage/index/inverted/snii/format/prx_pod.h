@@ -65,14 +65,20 @@ struct AutoPrxCodecChoice {
 
 // Common policy for resident and replayable encoders: compare complete frames,
 // preserve PFOR/ZSTD/RAW priority on ties, and honor the reader byte limit.
+// A readable PFOR frame is replaced by the ZSTD one only if ZSTD is smaller by at least
+// `zstd_min_saving_percent` of the PFOR frame: every read of a ZSTD window pays a decompression,
+// which PFOR does not. 0 picks the smallest frame.
 AutoPrxCodecChoice select_auto_prx_codec(size_t pfor_payload_size, size_t plain_payload_size,
                                          size_t compressed_payload_size, bool has_compressed,
-                                         uint32_t max_uncomp_bytes);
+                                         uint32_t max_uncomp_bytes,
+                                         uint32_t zstd_min_saving_percent = 0);
 
 struct PrxWindowLimits {
     uint32_t max_docs;
     uint32_t max_positions;
     uint32_t max_uncomp_bytes;
+    // Writer-only choice, ignored by readers: see select_auto_prx_codec.
+    uint32_t zstd_min_saving_percent = 0;
 };
 
 enum class PrxWindowBuildOutcome : uint8_t {
@@ -197,7 +203,8 @@ uint64_t prx_delta_materialization_count();
 void reset_prx_delta_materialization_count();
 void note_prx_delta_materialization();
 uint8_t select_auto_prx_codec_for_test(size_t pfor_payload_size, size_t plain_payload_size,
-                                       size_t compressed_payload_size, uint32_t max_uncomp_bytes);
+                                       size_t compressed_payload_size, uint32_t max_uncomp_bytes,
+                                       uint32_t zstd_min_saving_percent = 0);
 #endif
 
 } // namespace doris::snii::format::testing

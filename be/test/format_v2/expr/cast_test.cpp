@@ -227,6 +227,36 @@ TEST_F(CastTest, EmptyBlockAppendsEmptyResultColumn) {
     context->close();
 }
 
+TEST_F(CastTest, CloneKeepsBoundCastAfterOriginalContextCloses) {
+    auto source_type = std::make_shared<DataTypeString>();
+    auto return_type = make_nullable(std::make_shared<DataTypeInt32>());
+    auto context = create_context(return_type, source_type);
+    ASSERT_TRUE(context->prepare(&state, RowDescriptor()).ok());
+    ASSERT_TRUE(context->open(&state).ok());
+    VExprContextSPtr cloned_context;
+    ASSERT_TRUE(context->clone(&state, cloned_context).ok());
+    context->close();
+    context.reset();
+
+    Block block;
+    block.insert(ColumnHelper::create_column_with_name<DataTypeString>({"10", "-3"}));
+    int result_column_id = -1;
+    auto status = cloned_context->execute(&block, &result_column_id);
+    ASSERT_TRUE(status.ok()) << status;
+    const auto& result =
+            assert_cast<const ColumnNullable&>(*block.get_by_position(result_column_id).column);
+    EXPECT_FALSE(result.is_null_at(0));
+    EXPECT_FALSE(result.is_null_at(1));
+    EXPECT_EQ(result.get_nested_column().get_int(0), 10);
+    EXPECT_EQ(result.get_nested_column().get_int(1), -3);
+
+    Block invalid_block;
+    invalid_block.insert(ColumnHelper::create_column_with_name<DataTypeString>({"bad"}));
+    status = cloned_context->execute(&invalid_block, &result_column_id);
+    EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>()) << status;
+    cloned_context->close();
+}
+
 TEST_F(CastTest, PrepareRejectsMissingChild) {
     auto cast = Cast::create_shared(std::make_shared<DataTypeInt64>());
     VExprContext context(cast);

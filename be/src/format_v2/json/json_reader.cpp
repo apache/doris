@@ -18,6 +18,7 @@
 #include "format_v2/json/json_reader.h"
 
 #include <rapidjson/document.h>
+#include <rapidjson/error/en.h>
 
 #include <algorithm>
 #include <cstring>
@@ -249,6 +250,83 @@ Status JsonReader::init(RuntimeState* state) {
     return Status::OK();
 }
 
+Status JsonReader::infer_schema(RuntimeState* state, std::vector<ColumnDefinition>* schema) {
+    RETURN_IF_ERROR(init(state));
+    _reader_range = _json_range();
+    RETURN_IF_ERROR(_open_file_reader(/*need_schema=*/true));
+    RETURN_IF_ERROR(_create_decompressor());
+    if (_read_json_by_line) {
+        RETURN_IF_ERROR(_create_line_reader());
+    }
+    RETURN_IF_ERROR(_parse_jsonpath_and_json_root());
+    if (_reader_range.size <= 0 && _scan_params->file_type != TFileType::FILE_STREAM) {
+        _reader_range.size = cast_set<int64_t>(_physical_file_reader->size()) - _current_offset;
+    }
+    size_t size = 0;
+    bool eof = false;
+    RETURN_IF_ERROR(_read_one_document(&size, &eof));
+    if (eof || size == 0) {
+        return Status::EndOfFile("Empty file");
+    }
+    // Schema probing retains the RPC's DOM semantics (including json_root before outer-array
+    // selection); normal scans continue to use the streaming v2 materializer.
+    rapidjson::Document document;
+    const bool parse_error = _num_as_string
+                                     ? document.Parse<rapidjson::kParseNumbersAsStringsFlag>(
+                                                       _document_view.data(), size)
+                                               .HasParseError()
+                                     : document.Parse(_document_view.data(), size).HasParseError();
+    if (parse_error) {
+        return Status::DataQualityError(
+                "Parse json data for JsonDoc failed. code: {}, error info: {}",
+                document.GetParseError(), rapidjson::GetParseError_En(document.GetParseError()));
+    }
+    rapidjson::Value* value = &document;
+    if (!_parsed_json_root.empty()) {
+        value = JsonFunctions::get_json_object_from_parsed_json(_parsed_json_root, &document,
+                                                                document.GetAllocator());
+        if (value == nullptr) {
+            return Status::DataQualityError("JSON Root not found");
+        }
+    }
+    if (value->IsArray() && !_strip_outer_array) {
+        return Status::DataQualityError(
+                "JSON data is array-object, `strip_outer_array` must be TRUE.");
+    }
+    if (!value->IsArray() && _strip_outer_array) {
+        return Status::DataQualityError(
+                "JSON data is not an array-object, `strip_outer_array` must be FALSE.");
+    }
+    if (value->IsArray()) {
+        if (value->Empty()) {
+            return Status::InternalError("Empty first json line");
+        }
+        value = &(*value)[0];
+    }
+    if (!value->IsObject()) {
+        return Status::DataQualityError("JSON data is not an object");
+    }
+    schema->clear();
+    const auto append = [&](const std::string& name) {
+        schema->push_back(synthetic_file_child(name,
+                                               make_nullable(std::make_shared<DataTypeString>()),
+                                               cast_set<int32_t>(schema->size())));
+    };
+    if (!_parsed_jsonpaths.empty()) {
+        for (const auto& path : _parsed_jsonpaths) {
+            if (path.empty()) {
+                return Status::InvalidArgument("Invalid jsonpaths");
+            }
+            append(path.back().key);
+        }
+    } else {
+        for (const auto& member : value->GetObject()) {
+            append(std::string(member.name.GetString(), member.name.GetStringLength()));
+        }
+    }
+    return Status::OK();
+}
+
 Status JsonReader::get_schema(std::vector<ColumnDefinition>* file_schema) const {
     SCOPED_TIMER(_total_time);
     if (file_schema == nullptr) {
@@ -444,7 +522,7 @@ TFileRangeDesc JsonReader::_json_range() const {
     return range;
 }
 
-Status JsonReader::_open_file_reader() {
+Status JsonReader::_open_file_reader(bool need_schema) {
     _current_offset = _reader_range.start_offset;
     if (_current_offset != 0) {
         // Include the whole delimiter when the split starts inside it, so skipping the first
@@ -456,7 +534,7 @@ Status JsonReader::_open_file_reader() {
             return Status::InvalidArgument("JSON v2 stream reader requires load id");
         }
         RETURN_IF_ERROR(FileFactory::create_pipe_reader(*_stream_load_id, &_physical_file_reader,
-                                                        _runtime_state, /*need_schema=*/false));
+                                                        _runtime_state, need_schema));
     } else {
         _file_description->mtime =
                 _reader_range.__isset.modification_time ? _reader_range.modification_time : 0;
@@ -683,10 +761,8 @@ Status JsonReader::_extract_json_value(size_t size, bool* eof, bool* is_empty_ro
         return Status::DataQualityError(
                 "JSON data is not an array-object, `strip_outer_array` must be FALSE.");
     }
-    if (!_parsed_jsonpaths.empty() && _strip_outer_array &&
-        _json_value.count_elements().value() == 0) {
-        *is_empty_row = true;
-    }
+    // A rooted ondemand array has a single cursor. Pre-counting {"rows":[...]} here
+    // consumes it before jsonpaths materialization; the append path detects empty arrays.
     return Status::OK();
 }
 

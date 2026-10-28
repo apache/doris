@@ -216,7 +216,8 @@ struct FunctionCastTest : public testing::Test {
                 {nullptr, to_type, "to"},
         };
 
-        EXPECT_TRUE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr));
+        EXPECT_TRUE(fn(ctx.get(), block.get_by_position(0), block.get_by_position(1), block.rows(),
+                       nullptr));
 
         auto result = block.get_by_position(1).column;
         auto expected = to.column;
