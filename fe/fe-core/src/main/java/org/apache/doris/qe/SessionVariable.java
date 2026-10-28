@@ -531,6 +531,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_SNAPSHOT_POINT_QUERY = "enable_snapshot_point_query";
 
     public static final String ENABLE_FILE_CACHE = "enable_file_cache";
+    public static final String ENABLE_FILE_CACHE_IO_ADAPTOR = "enable_file_cache_io_adaptor";
 
     public static final String DISABLE_FILE_CACHE = "disable_file_cache";
 
@@ -2403,6 +2404,11 @@ public class SessionVariable implements Serializable, Writable {
             "Set wether to use file cache. This variable takes effect only if the BE config enable_file_cache=true. "
                     + "The cache is not used when BE config enable_file_cache=false."})
     public boolean enableFileCache = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_FILE_CACHE_IO_ADAPTOR, needForward = true, description = {
+            "允许外表查询在本地缓存读取较慢时自适应读取远端数据。",
+            "Allow external queries to adaptively read remote data when local file-cache reads are slower."})
+    public boolean enableFileCacheIoAdaptor = true;
 
     // Specify base path for file cache, or chose a random path.
     @VariableMgr.VarAttr(name = FILE_CACHE_BASE_PATH, needForward = true, description = {
@@ -5810,6 +5816,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setSkipDeleteBitmap(skipDeleteBitmap);
 
         tResult.setEnableFileCache(enableFileCache);
+        tResult.setEnableFileCacheIoAdaptor(enableFileCacheIoAdaptor);
 
         tResult.setEnablePageCache(enablePageCache);
 

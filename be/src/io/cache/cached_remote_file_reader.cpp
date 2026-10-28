@@ -48,6 +48,7 @@
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/block_file_cache_profile.h"
 #include "io/cache/file_block.h"
+#include "io/cache/file_cache_io_adaptor.h"
 #include "io/cache/peer_file_cache_reader.h"
 #include "io/cache/remote_scan_cache_write_limiter.h"
 #include "io/fs/file_reader.h"
@@ -328,7 +329,11 @@ Status execute_s3_read(size_t empty_start, size_t& size, std::unique_ptr<char[]>
     s3_read_counter << 1;
     SCOPED_RAW_TIMER(&stats.remote_read_timer);
     stats.from_peer_cache = false;
-    return remote_file_reader->read_at(empty_start, Slice(buffer.get(), size), &size, io_ctx);
+    auto st = remote_file_reader->read_at(empty_start, Slice(buffer.get(), size), &size, io_ctx);
+    if (st.ok()) {
+        stats.remote_io_sample_bytes += size;
+    }
+    return st;
 }
 
 CloudWarmUpManager& get_warm_up_manager() {
@@ -1039,6 +1044,7 @@ Status CachedRemoteFileReader::_read_remaining_blocks_from_cache(
             RETURN_IF_ERROR(_remote_file_reader->read_at(
                     current_offset, Slice(result.data + (current_offset - offset), read_size),
                     &remote_bytes_read, io_ctx));
+            stats.remote_io_sample_bytes += remote_bytes_read;
             indirect_read_bytes += read_size;
             source_read_breakdown.remote_bytes += remote_bytes_read;
             DCHECK(remote_bytes_read == read_size);
@@ -1113,6 +1119,7 @@ Status CachedRemoteFileReader::_read_remote_only_on_cache_miss(
         SCOPED_RAW_TIMER(&stats.remote_read_timer);
         RETURN_IF_ERROR(_remote_file_reader->read_at(offset, Slice(result.data, bytes_req),
                                                      &remote_bytes_read, io_ctx));
+        stats.remote_io_sample_bytes += remote_bytes_read;
         *bytes_read = remote_bytes_read;
         DCHECK_EQ(*bytes_read, bytes_req);
         source_read_breakdown.remote_bytes += remote_bytes_read;
@@ -1180,6 +1187,100 @@ Status CachedRemoteFileReader::_read_remote_only_on_cache_miss(
     return Status::OK();
 }
 
+bool CachedRemoteFileReader::_io_adaptor_eligible(size_t bytes, const IOContext* io_ctx) const {
+    // Only explicitly enabled external query reads may adapt. Background/index/warmup reads
+    // and memory-cache/inflight payloads retain their existing policies.
+    return io_ctx->enable_file_cache_io_adaptor && !_is_doris_table && !io_ctx->is_dryrun &&
+           !io_ctx->is_warmup && !io_ctx->is_index_data && !io_ctx->is_inverted_index &&
+           !io_ctx->should_stop && io_ctx->read_file_cache && bytes > 0 &&
+           _cache->get_storage()->get_type() == FileCacheStorageType::DISK;
+}
+
+Status CachedRemoteFileReader::_try_read_with_io_adaptor(
+        size_t offset, Slice result, size_t bytes_req, size_t* bytes_read, const IOContext* io_ctx,
+        ReadStatistics& stats, SourceReadBreakdown& sources, bool* handled) {
+    *handled = false;
+    FileBlocks blocks;
+    bool fully_covered = false;
+    CacheContext context(io_ctx);
+    context.stats = &stats;
+    context.tablet_id = _tablet_id;
+    ++stats.io_adaptor_lookup_count;
+    {
+        SCOPED_RAW_TIMER(&stats.io_adaptor_lookup_time_ns);
+        RETURN_IF_ERROR(_cache->get_downloaded_blocks_if_fully_covered(
+                _cache_hash, offset, bytes_req, context, &blocks, &fully_covered));
+    }
+    if (!fully_covered) {
+        // A mixed hit/miss or inflight-buffer request follows the existing sync/async planner.
+        // In particular, a bypass must never acquire downloader ownership or cause writeback.
+        return Status::OK();
+    }
+    auto& adaptor = FileCacheIOAdaptor::instance();
+    const auto decision = adaptor.select(config::file_cache_io_adaptor_skip_read_factor);
+    stats.io_adaptor_local_feedbacks += decision.local_feedback;
+    stats.io_adaptor_remote_feedbacks += decision.remote_feedback;
+    if (decision.read_remote()) {
+        // Requested and returned bytes differ for failed/short reads recovered from local cache.
+        ++stats.io_adaptor_bypass_count;
+        stats.io_adaptor_bypass_bytes += bytes_req;
+        size_t remote_bytes = 0;
+        s3_read_counter << 1;
+        const auto start = MonotonicNanos();
+        Status status = _remote_file_reader->read_at(offset, Slice(result.data, bytes_req),
+                                                     &remote_bytes, io_ctx);
+        const auto elapsed = MonotonicNanos() - start;
+        stats.io_adaptor_remote_time_ns += elapsed;
+        stats.remote_read_timer += elapsed;
+        stats.io_adaptor_remote_bytes += remote_bytes;
+        if (status.ok() && remote_bytes == bytes_req) {
+            adaptor.record_remote(FileCacheIOAdaptor::latency_per_block_us(
+                    remote_bytes, elapsed, config::file_cache_each_block_size));
+            sources.remote_bytes += remote_bytes;
+            stats.hit_cache = false;
+            stats.skip_cache = true;
+            *bytes_read = remote_bytes;
+            *handled = true;
+            return Status::OK();
+        }
+        ++stats.io_adaptor_remote_failures;
+        if (io_ctx->should_stop || status.is<ErrorCode::CANCELLED>()) {
+            return status.ok() ? Status::Cancelled("Adaptive cache read cancelled") : status;
+        }
+        // The same immutable range is still cached. Overwrite the complete caller range after
+        // an error/short remote read; never publish the partially overwritten buffer as success.
+        ++stats.io_adaptor_fallback_local;
+    }
+    const auto local_start = MonotonicNanos();
+    ++stats.io_adaptor_local_reads;
+    Defer local_timer {[&] {
+        const auto elapsed = MonotonicNanos() - local_start;
+        stats.io_adaptor_local_time_ns += elapsed;
+        stats.local_read_timer += elapsed;
+    }};
+    for (const auto& block : blocks) {
+        const auto left = std::max(offset, block->range().left);
+        const auto right = std::min(offset + bytes_req - 1, block->range().right);
+        Status status = block->read(Slice(result.data + left - offset, right - left + 1),
+                                    left - block->range().left);
+        if (!status.ok()) {
+            // Concurrent eviction can remove a previously downloaded file. The ordinary path
+            // already handles self-healing and remote fallback, so retry the full request there.
+            if (status.is<ErrorCode::NOT_FOUND>()) {
+                _cache->remove_if_cached_async(_cache_hash);
+            }
+            return Status::OK();
+        }
+    }
+    const auto elapsed = MonotonicNanos() - local_start;
+    adaptor.record_local(FileCacheIOAdaptor::latency_per_block_us(
+            bytes_req, elapsed, config::file_cache_each_block_size));
+    sources.local_bytes += bytes_req;
+    *bytes_read = bytes_req;
+    *handled = true;
+    return Status::OK();
+}
+
 Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                             const IOContext* io_ctx) {
     SCOPED_CONCURRENCY_COUNT(ConcurrencyStatsManager::instance().cached_remote_reader_read_at);
@@ -1222,6 +1323,13 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
                     path().native(), offset, bytes_req, read_at_sw.elapsed_time_milliseconds(),
                     io_ctx->is_warmup);
         }
+        if (read_st.ok() && _io_adaptor_eligible(bytes_req, io_ctx) &&
+            stats.remote_io_sample_bytes > 0 && stats.io_adaptor_bypass_count == 0 &&
+            !stats.from_peer_cache) {
+            FileCacheIOAdaptor::instance().record_remote(FileCacheIOAdaptor::latency_per_block_us(
+                    static_cast<size_t>(stats.remote_io_sample_bytes), stats.remote_read_timer,
+                    config::file_cache_each_block_size));
+        }
         if (read_st.ok() && !is_dryrun) {
             // Only successful reads contribute to query profile and file-cache metrics.
             const auto file_cache_read_type =
@@ -1250,6 +1358,14 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         }
     }};
 
+    if (_io_adaptor_eligible(bytes_req, io_ctx)) {
+        bool handled = false;
+        read_st = _try_read_with_io_adaptor(offset, result, bytes_req, bytes_read, io_ctx, stats,
+                                            source_read_breakdown, &handled);
+        if (!read_st.ok() || handled) {
+            return read_st;
+        }
+    }
     if (use_remote_only_on_cache_miss(io_ctx)) {
         read_st = _read_remote_only_on_cache_miss(offset, result, bytes_req, is_dryrun, bytes_read,
                                                   stats, source_read_breakdown, io_ctx);
@@ -1380,6 +1496,18 @@ void CachedRemoteFileReader::_update_stats(const ReadStatistics& read_stats,
     statis->lock_wait_timer += read_stats.lock_wait_timer;
     statis->get_timer += read_stats.get_timer;
     statis->set_timer += read_stats.set_timer;
+    statis->io_adaptor_lookup_count += read_stats.io_adaptor_lookup_count;
+    statis->io_adaptor_lookup_time_ns += read_stats.io_adaptor_lookup_time_ns;
+    statis->io_adaptor_local_reads += read_stats.io_adaptor_local_reads;
+    statis->io_adaptor_local_time_ns += read_stats.io_adaptor_local_time_ns;
+    statis->io_adaptor_bypass_count += read_stats.io_adaptor_bypass_count;
+    statis->io_adaptor_bypass_bytes += read_stats.io_adaptor_bypass_bytes;
+    statis->io_adaptor_remote_bytes += read_stats.io_adaptor_remote_bytes;
+    statis->io_adaptor_remote_time_ns += read_stats.io_adaptor_remote_time_ns;
+    statis->io_adaptor_local_feedbacks += read_stats.io_adaptor_local_feedbacks;
+    statis->io_adaptor_remote_feedbacks += read_stats.io_adaptor_remote_feedbacks;
+    statis->io_adaptor_remote_failures += read_stats.io_adaptor_remote_failures;
+    statis->io_adaptor_fallback_local += read_stats.io_adaptor_fallback_local;
     statis->async_cache_write_submitted += read_stats.async_cache_write_submitted;
     statis->async_cache_write_rejected += read_stats.async_cache_write_rejected;
     statis->async_cache_write_buffer_alloc_fail += read_stats.async_cache_write_buffer_alloc_fail;

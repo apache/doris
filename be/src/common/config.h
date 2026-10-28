@@ -1349,6 +1349,8 @@ DECLARE_mBool(enable_evaluate_shadow_queue_diff);
 
 DECLARE_mBool(file_cache_enable_only_warm_up_idx);
 
+DECLARE_mDouble(file_cache_io_adaptor_skip_read_factor);
+
 // async file cache write
 DECLARE_mBool(enable_async_file_cache_write);
 DECLARE_mInt32(async_file_cache_write_workers_per_disk);

@@ -99,6 +99,18 @@ FileCacheStatistics diff_file_cache_statistics(const FileCacheStatistics& curren
     SUBTRACT_FIELD(lock_wait_timer);
     SUBTRACT_FIELD(get_timer);
     SUBTRACT_FIELD(set_timer);
+    SUBTRACT_FIELD(io_adaptor_lookup_count);
+    SUBTRACT_FIELD(io_adaptor_lookup_time_ns);
+    SUBTRACT_FIELD(io_adaptor_local_reads);
+    SUBTRACT_FIELD(io_adaptor_local_time_ns);
+    SUBTRACT_FIELD(io_adaptor_bypass_count);
+    SUBTRACT_FIELD(io_adaptor_bypass_bytes);
+    SUBTRACT_FIELD(io_adaptor_remote_bytes);
+    SUBTRACT_FIELD(io_adaptor_remote_time_ns);
+    SUBTRACT_FIELD(io_adaptor_local_feedbacks);
+    SUBTRACT_FIELD(io_adaptor_remote_feedbacks);
+    SUBTRACT_FIELD(io_adaptor_remote_failures);
+    SUBTRACT_FIELD(io_adaptor_fallback_local);
     SUBTRACT_FIELD(async_cache_write_submitted);
     SUBTRACT_FIELD(async_cache_write_rejected);
     SUBTRACT_FIELD(async_cache_write_buffer_alloc_fail);
@@ -176,6 +188,30 @@ FileCacheProfileReporter::FileCacheProfileReporter(RuntimeProfile* profile,
     lock_wait_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "LockWaitTimer", cache_profile, 1);
     get_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "GetTimer", cache_profile, 1);
     set_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "SetTimer", cache_profile, 1);
+    io_adaptor_lookup_count = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "IOAdaptorLookupCount",
+                                                           TUnit::UNIT, cache_profile, 1);
+    io_adaptor_lookup_time_ns = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "IOAdaptorLookupTime",
+                                                             TUnit::TIME_NS, cache_profile, 1);
+    io_adaptor_local_reads = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "IOAdaptorLocalReadCount",
+                                                          TUnit::UNIT, cache_profile, 1);
+    io_adaptor_local_time_ns = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "IOAdaptorLocalReadTime",
+                                                            TUnit::TIME_NS, cache_profile, 1);
+    io_adaptor_bypass_count = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "IOAdaptorBypassCount",
+                                                           TUnit::UNIT, cache_profile, 1);
+    io_adaptor_bypass_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "IOAdaptorBypassBytes",
+                                                           TUnit::BYTES, cache_profile, 1);
+    io_adaptor_remote_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "IOAdaptorRemoteReadBytes",
+                                                           TUnit::BYTES, cache_profile, 1);
+    io_adaptor_remote_time_ns = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "IOAdaptorRemoteReadTime",
+                                                             TUnit::TIME_NS, cache_profile, 1);
+    io_adaptor_local_feedbacks = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "IOAdaptorLocalFeedbackCount", TUnit::UNIT, cache_profile, 1);
+    io_adaptor_remote_feedbacks = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "IOAdaptorRemoteFeedbackCount", TUnit::UNIT, cache_profile, 1);
+    io_adaptor_remote_failures = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "IOAdaptorRemoteFailureCount", TUnit::UNIT, cache_profile, 1);
+    io_adaptor_fallback_local = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "IOAdaptorFallbackLocalCount",
+                                                             TUnit::UNIT, cache_profile, 1);
     async_cache_write_submitted = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "AsyncCacheWriteSubmittedCount", TUnit::UNIT, cache_profile, 1);
     async_cache_write_rejected = ADD_CHILD_COUNTER_WITH_LEVEL(
@@ -298,6 +334,18 @@ void FileCacheProfileReporter::update(const FileCacheStatistics* statistics) con
     COUNTER_UPDATE(lock_wait_timer, statistics->lock_wait_timer);
     COUNTER_UPDATE(get_timer, statistics->get_timer);
     COUNTER_UPDATE(set_timer, statistics->set_timer);
+    COUNTER_UPDATE(io_adaptor_lookup_count, statistics->io_adaptor_lookup_count);
+    COUNTER_UPDATE(io_adaptor_lookup_time_ns, statistics->io_adaptor_lookup_time_ns);
+    COUNTER_UPDATE(io_adaptor_local_reads, statistics->io_adaptor_local_reads);
+    COUNTER_UPDATE(io_adaptor_local_time_ns, statistics->io_adaptor_local_time_ns);
+    COUNTER_UPDATE(io_adaptor_bypass_count, statistics->io_adaptor_bypass_count);
+    COUNTER_UPDATE(io_adaptor_bypass_bytes, statistics->io_adaptor_bypass_bytes);
+    COUNTER_UPDATE(io_adaptor_remote_bytes, statistics->io_adaptor_remote_bytes);
+    COUNTER_UPDATE(io_adaptor_remote_time_ns, statistics->io_adaptor_remote_time_ns);
+    COUNTER_UPDATE(io_adaptor_local_feedbacks, statistics->io_adaptor_local_feedbacks);
+    COUNTER_UPDATE(io_adaptor_remote_feedbacks, statistics->io_adaptor_remote_feedbacks);
+    COUNTER_UPDATE(io_adaptor_remote_failures, statistics->io_adaptor_remote_failures);
+    COUNTER_UPDATE(io_adaptor_fallback_local, statistics->io_adaptor_fallback_local);
     COUNTER_UPDATE(async_cache_write_submitted, statistics->async_cache_write_submitted);
     COUNTER_UPDATE(async_cache_write_rejected, statistics->async_cache_write_rejected);
     COUNTER_UPDATE(async_cache_write_buffer_alloc_fail,

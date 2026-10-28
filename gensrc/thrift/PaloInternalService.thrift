@@ -514,6 +514,9 @@ struct TQueryOptions {
   // enable_paimon_cpp_reader.
   229: optional bool enable_paimon_rust_reader = false;
 
+  // Explicitly sent by new FEs; an omitted field keeps older-FE queries on the local policy.
+  230: optional bool enable_file_cache_io_adaptor = false;
+
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.

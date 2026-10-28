@@ -73,6 +73,18 @@ struct FileCacheStatistics {
     int64_t lock_wait_timer = 0;
     int64_t get_timer = 0;
     int64_t set_timer = 0;
+    int64_t io_adaptor_lookup_count = 0;
+    int64_t io_adaptor_lookup_time_ns = 0;
+    int64_t io_adaptor_local_reads = 0;
+    int64_t io_adaptor_local_time_ns = 0;
+    int64_t io_adaptor_bypass_count = 0;
+    int64_t io_adaptor_bypass_bytes = 0;
+    int64_t io_adaptor_remote_bytes = 0;
+    int64_t io_adaptor_remote_time_ns = 0;
+    int64_t io_adaptor_local_feedbacks = 0;
+    int64_t io_adaptor_remote_feedbacks = 0;
+    int64_t io_adaptor_remote_failures = 0;
+    int64_t io_adaptor_fallback_local = 0;
     int64_t async_cache_write_submitted = 0;
     int64_t async_cache_write_rejected = 0;
     int64_t async_cache_write_buffer_alloc_fail = 0;
@@ -145,6 +157,18 @@ struct FileCacheStatistics {
         lock_wait_timer += other.lock_wait_timer;
         get_timer += other.get_timer;
         set_timer += other.set_timer;
+        io_adaptor_lookup_count += other.io_adaptor_lookup_count;
+        io_adaptor_lookup_time_ns += other.io_adaptor_lookup_time_ns;
+        io_adaptor_local_reads += other.io_adaptor_local_reads;
+        io_adaptor_local_time_ns += other.io_adaptor_local_time_ns;
+        io_adaptor_bypass_count += other.io_adaptor_bypass_count;
+        io_adaptor_bypass_bytes += other.io_adaptor_bypass_bytes;
+        io_adaptor_remote_bytes += other.io_adaptor_remote_bytes;
+        io_adaptor_remote_time_ns += other.io_adaptor_remote_time_ns;
+        io_adaptor_local_feedbacks += other.io_adaptor_local_feedbacks;
+        io_adaptor_remote_feedbacks += other.io_adaptor_remote_feedbacks;
+        io_adaptor_remote_failures += other.io_adaptor_remote_failures;
+        io_adaptor_fallback_local += other.io_adaptor_fallback_local;
         async_cache_write_submitted += other.async_cache_write_submitted;
         async_cache_write_rejected += other.async_cache_write_rejected;
         async_cache_write_buffer_alloc_fail += other.async_cache_write_buffer_alloc_fail;
@@ -213,6 +237,8 @@ struct IOContext {
     bool is_disposable = false;
     bool is_index_data = false;
     bool read_file_cache = true;
+    // Only explicitly enabled query IO may use adaptation; warmup and background IO default off.
+    bool enable_file_cache_io_adaptor = false;
     // TODO(lightman): use following member variables to control file cache
     bool is_persistent = false;
     // stop reader when reading, used in some interrupted operations

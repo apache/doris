@@ -25,6 +25,7 @@
 #include <lz4/lz4hc.h>
 
 #include <cerrno> // IWYU pragma: keep
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <fstream> // IWYU pragma: keep
@@ -1321,6 +1322,11 @@ DEFINE_mBool(file_cache_enable_only_warm_up_idx, "false");
 
 DEFINE_Int32(file_cache_downloader_thread_num_min, "32");
 DEFINE_Int32(file_cache_downloader_thread_num_max, "32");
+
+// Larger values favor remote reads when a query enables the file-cache IO adaptor.
+DEFINE_mDouble(file_cache_io_adaptor_skip_read_factor, "1.0");
+DEFINE_Validator(file_cache_io_adaptor_skip_read_factor,
+                 [](double v) { return std::isfinite(v) && v > 0; });
 
 // async file cache write
 DEFINE_mBool(enable_async_file_cache_write, "false");
