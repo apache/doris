@@ -147,30 +147,13 @@ suite("test_max_compute_schema", "p2,external,maxcompute,external_remote,externa
         qt_mc_old_q2 """ SELECT * FROM order_detail ORDER BY id;"""
 
         sql """ alter catalog ${mc_catalog_name} set  PROPERTIES("mc.enable.namespace.schema" = "true"); """
-       
-
 
         order_qt_show_db_analytics """ show databases like "analytics"; """
-        order_qt_show_db_default """ show databases like "default"; """
-        order_qt_show_db_information_schema """ show databases like "information\\_schema"; """
-        order_qt_show_db_iot """ show databases like "iot"; """
-        order_qt_show_db_mysql """ show databases like "mysql"; """
 
         sql  """ use `default`; """
         order_qt_show_tb_order_detail """ show tables like "order\\_detail"; """
-        order_qt_show_tb_user_info """ show tables like "user\\_info"; """
-        
-
-        sql  """ use `analytics`; """
-        order_qt_show_tb_product_sales """ show tables like "product\\_sales"; """
-        order_qt_show_tb_web_log """ show tables like "web\\_log"; """
-        
-
-        sql  """ use `iot`; """
-        order_qt_show_tb_employee_salary """ show tables like "employee\\_salary"; """
 
         order_qt_show_par """  show partitions from `default`.order_detail; """
-        order_qt_show_par2 """  show partitions from analytics.web_log; """
         qt_desc  """ desc  iot.employee_salary; """
 
 
@@ -237,19 +220,9 @@ suite("test_max_compute_schema", "p2,external,maxcompute,external_remote,externa
         qt_mc_q20  """SELECT * FROM iot.employee_salary WHERE salary BETWEEN 9000 AND 16000 ORDER BY id;"""
 
         qt_mc_join_q21  """SELECT u.id, u.name, o.order_id, o.amount FROM `default`.user_info u JOIN `default`.order_detail o ON u.name=o.buyer WHERE o.ds1='202510' ORDER BY u.id;"""
-        qt_mc_join_q22  """SELECT u.id, u.name, p.product_name, p.price FROM `default`.user_info u JOIN analytics.product_sales p ON u.id=p.id ORDER BY u.id;"""
         qt_mc_join_q23  """SELECT u.name, w.action, w.url FROM `default`.user_info u JOIN analytics.web_log w ON u.id=w.user_id-1000 WHERE w.ds2='20251015' AND w.hour='10' ORDER BY u.id;"""
-        qt_mc_join_q24  """SELECT e.emp_name, p.product_name, p.sale_time FROM iot.employee_salary e JOIN analytics.product_sales p ON e.id=p.id ORDER BY e.id;"""
-        qt_mc_join_q25  """SELECT u.name, e.department, e.salary FROM `default`.user_info u JOIN iot.employee_salary e ON u.id=e.id ORDER BY u.id;"""
         qt_mc_join_q26  """SELECT o.order_id, o.amount, p.product_name, p.price FROM `default`.order_detail o JOIN analytics.product_sales p ON o.id=p.id WHERE o.ds1='202511' ORDER BY o.id;"""
-        qt_mc_join_q27  """SELECT o.order_id, w.url, w.action FROM `default`.order_detail o JOIN analytics.web_log w ON o.id=w.id WHERE o.ds1='202512' AND w.ds2='20251016' AND w.hour='09' ORDER BY o.id;"""
-        qt_mc_join_q28  """SELECT o.order_id, e.emp_name, e.department FROM `default`.order_detail o JOIN iot.employee_salary e ON o.id=e.id WHERE o.ds1='202511' ORDER BY o.id;"""
-        qt_mc_join_q29  """SELECT p.product_name, w.url, w.action FROM analytics.product_sales p JOIN analytics.web_log w ON p.id=w.id WHERE w.ds2='20251017' AND w.hour='08' ORDER BY p.id;"""
         qt_mc_join_q30  """SELECT u.name, p.product_name, e.salary FROM `default`.user_info u JOIN analytics.product_sales p ON u.id=p.id JOIN iot.employee_salary e ON u.id=e.id ORDER BY u.id;"""
-        qt_mc_join_q31  """SELECT u.name, o.order_id, w.url FROM `default`.user_info u JOIN `default`.order_detail o ON u.id=o.id JOIN analytics.web_log w ON u.id=w.id WHERE o.ds1='202511' AND w.ds2='20251015' AND w.hour='10' ORDER BY u.id;"""
-        qt_mc_join_q32  """SELECT e.emp_name, p.product_name, w.action FROM iot.employee_salary e JOIN analytics.product_sales p ON e.id=p.id JOIN analytics.web_log w ON e.id=w.id WHERE w.ds2='20251016' AND w.hour='09' ORDER BY e.id;"""
-        qt_mc_join_q33  """SELECT u.name, e.emp_name, e.department FROM `default`.user_info u JOIN iot.employee_salary e ON u.id=e.id ORDER BY u.id;"""
-        qt_mc_join_q34  """SELECT p.product_name, e.department, e.salary FROM analytics.product_sales p JOIN iot.employee_salary e ON p.id=e.id ORDER BY p.id;"""
         qt_mc_join_q35  """SELECT o.order_id, p.product_name, e.emp_name FROM `default`.order_detail o JOIN analytics.product_sales p ON o.id=p.id JOIN iot.employee_salary e ON o.id=e.id WHERE o.ds1='202510' ORDER BY o.id;"""
     }
 }

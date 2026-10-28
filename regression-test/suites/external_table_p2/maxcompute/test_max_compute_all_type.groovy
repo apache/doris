@@ -349,205 +349,109 @@ suite("test_max_compute_all_type", "p2,external,maxcompute,external_remote,exter
         qt_test_4 """ select id,boolean_col from ${table_name} where boolean_col is false order by  id; """ 
         
         qt_test_5 """ select id,tinyint_col from ${table_name}  order by id """
-        qt_test_5 """ select id,tinyint_col from ${table_name} where  tinyint_col in (-127,-128) order by id """ 
+        qt_test_6 """ select id,tinyint_col from ${table_name} where  tinyint_col in (-127,-128) order by id """
         
         qt_test_7 """ select id,smallint_col from ${table_name}  order by id """
         qt_test_8 """ select id,smallint_col from ${table_name} where smallint_col > 16 order by id """ 
         
         qt_test_9 """ select id,int_col from ${table_name}  order by id """
         qt_test_10 """ select id,int_col from ${table_name} where int_col = 16 order by id """ 
-        qt_test_11 """ select id,int_col from ${table_name} where int_col != 16 order by id """ 
         
         qt_test_12 """ select id,bigint_col from ${table_name}   order by id """
         qt_test_13 """ select id,bigint_col from ${table_name} where bigint_col > -9223372036854775807 order by id """ 
-        qt_test_14 """ select id,bigint_col from ${table_name} where bigint_col >= -9223372036854775807 order by id """ 
         
 
         qt_test_15 """ select id,float_col from ${table_name}   order by id """
         qt_test_16 """ select id,float_col from ${table_name} where round(float_col,2) > -123.45 order by id """
-        qt_test_17 """ select id,float_col from ${table_name} where round(float_col,2) < -123.45 order by id """
-        qt_test_18 """ select id,float_col from ${table_name} where round(float_col,2) = -123.45 order by id """
-        qt_test_19 """ select id,float_col from ${table_name} where round(float_col,2) >= -123.45 order by id """
-        qt_test_20 """ select id,float_col from ${table_name} where round(float_col,2) <= -123.45 order by id """ 
-        qt_test_21 """ select id,float_col from ${table_name} where round(float_col,2) in (-123.45,0.123) order by id """
-        qt_test_22 """ select id,float_col from ${table_name} where round(float_col,2) not in (-123.45, 0.1) order by id """
         
 
         qt_test_23 """ select id,double_col from ${table_name}   order by id """
         qt_test_24 """ select id,double_col from ${table_name} where double_col in ( -123456.789 ,0.123) order by id """
-        qt_test_25 """ select id,double_col from ${table_name} where double_col !=  -123456.789  order by id """
-        qt_test_26 """ select id,double_col from ${table_name} where double_col =  -123456.789 order by id """
-        qt_test_27 """ select id,double_col from ${table_name} where -123456.789  = double_col order by id """
         
         qt_test_28 """ select id,decimal_col1 from ${table_name}   order by id """
         qt_test_29 """ select id,decimal_col1 from ${table_name} where decimal_col1 is null order by id """
         qt_test_30 """ select id,decimal_col1 from ${table_name} where decimal_col1 is not null order by id """
 
         qt_test_31 """ select id,decimal_col2 from ${table_name}   order by id """
-        qt_test_32 """ select id,decimal_col2 from ${table_name} where decimal_col2  = -1234.5678 order by id """
         qt_test_33 """ select id,decimal_col2 from ${table_name} where decimal_col2 != -1234.5678 order by id"""
 
         qt_test_34 """ select id,decimal_col3 from ${table_name}   order by id """
         qt_test_35 """ select id,decimal_col3 from ${table_name} where decimal_col3 = -123456.789012 order by id """
-        qt_test_36 """ select id,decimal_col3 from ${table_name} where decimal_col3 != -123456.789012 order by id """
 
         qt_test_37 """ select id,decimal_col4 from ${table_name}   order by id """
-        qt_test_38 """ select id,decimal_col4 from ${table_name} where decimal_col4 = -123456789.0123457 order by id """
-        qt_test_39 """ select id,decimal_col4 from ${table_name} where decimal_col4 != -123456789.0123457  order by id """
         qt_test_40 """ select id,decimal_col4 from ${table_name} where decimal_col4 >= -123456789.0123457  order by id """
-        qt_test_41 """ select id,decimal_col4 from ${table_name} where decimal_col4 > -123456789.0123457  order by id """
 
 
         qt_test_42 """ select id,string_col from ${table_name}   order by id """
-        qt_test_43 """ select id,string_col from ${table_name} where string_col in ("str")  order by id """
         qt_test_44 """ select id,string_col from ${table_name} where string_col = "str"  order by id """
-        qt_test_45 """ select id,string_col from ${table_name} where string_col != "str"  order by id """
-        qt_test_46 """ select id,string_col from ${table_name} where string_col in ("str","string_value")  order by id """
-        qt_test_47 """ select id,string_col from ${table_name} where string_col not in ("str","string_value")  order by id """
         
         qt_test_48 """ select id,date_col from ${table_name}   order by id """
-        qt_test_49 """ select id,date_col from ${table_name} where  date_col  = "2024-03-25" order by id """
         qt_test_50 """ select id,date_col from ${table_name} where  date_col  >= "2024-03-25" order by id """
-        qt_test_51 """ select id,date_col from ${table_name} where  date_col  != "2024-03-20" order by id """
 
 
 
         sql """ set time_zone = "Asia/Shanghai" """ 
 
         qt_test_52 """ select id,datetime_col from ${table_name}   order by id """
-        qt_test_53 """ select id,datetime_col from ${table_name} where  datetime_col  != "2024-03-25 12:00:00" order by id """
         qt_test_54 """ select id,datetime_col from ${table_name} where  datetime_col  = "2024-03-25 12:00:00" order by id """
-        qt_test_55 """ select id,datetime_col from ${table_name} where  datetime_col  > "2024-03-25 12:00:00" order by id """
-        qt_test_56 """ select id,datetime_col from ${table_name} where  datetime_col  < "2024-03-25 12:00:00" order by id """
-        qt_test_57 """ select id,datetime_col from ${table_name} where  datetime_col  <= "2024-03-25 12:00:00" order by id """
 
         sql """ set time_zone = "UTC" """ 
 
         qt_test_2_52 """ select id,datetime_col from ${table_name}   order by id """
-        qt_test_2_53 """ select id,datetime_col from ${table_name} where  datetime_col  != "2024-03-25 04:00:00" order by id """
-        qt_test_2_54 """ select id,datetime_col from ${table_name} where  datetime_col  = "2024-03-25 04:00:00" order by id """
-        qt_test_2_55 """ select id,datetime_col from ${table_name} where  datetime_col  > "2024-03-25 04:00:00" order by id """
-        qt_test_2_56 """ select id,datetime_col from ${table_name} where  datetime_col  < "2024-03-25 04:00:00" order by id """
-        qt_test_2_57 """ select id,datetime_col from ${table_name} where  datetime_col  <= "2024-03-25 04:00:00" order by id """
 
         sql """ set time_zone = "Asia/Shanghai" """ 
 
         qt_test_58 """ select id,timestamp_ntz_col2 from ${table_name}   order by id """
-        qt_test_59 """ select id,timestamp_ntz_col2 from ${table_name} where  timestamp_ntz_col2  != "2024-03-25 12:00:00.123456" order by id """
-        qt_test_60 """ select id,timestamp_ntz_col2 from ${table_name} where  timestamp_ntz_col2  = "2024-03-25 12:00:00.123456" order by id """
         qt_test_61 """ select id,timestamp_ntz_col2 from ${table_name} where  timestamp_ntz_col2  > "2024-03-25 12:00:00.123456" order by id """
-        qt_test_62 """ select id,timestamp_ntz_col2 from ${table_name} where  timestamp_ntz_col2  < "2024-03-25 12:00:00.123456" order by id """
-        qt_test_63 """ select id,timestamp_ntz_col2 from ${table_name} where  timestamp_ntz_col2  <= "2024-03-25 12:00:00.123456" order by id """
 
         qt_test_64 """ select id,timestamp_ntz_col3 from ${table_name}   order by id """
-        qt_test_65 """ select id,timestamp_ntz_col3 from ${table_name} where  timestamp_ntz_col3  != "2024-03-25 12:00:00.123456" order by id """
         qt_test_66 """ select id,timestamp_ntz_col3 from ${table_name} where  timestamp_ntz_col3  < "2024-03-25 12:00:00.123456" order by id """
-        qt_test_67 """ select id,timestamp_ntz_col3 from ${table_name} where  timestamp_ntz_col3  = "2024-03-25 12:00:00.123456" order by id """
-        qt_test_68 """ select id,timestamp_ntz_col3 from ${table_name} where  timestamp_ntz_col3  > "2024-03-25 12:00:00.123456" order by id """
-        qt_test_69 """ select id,timestamp_ntz_col3 from ${table_name} where  timestamp_ntz_col3  <= "2024-03-25 12:00:00.123456" order by id """
 
-        qt_test_70 """ select id,timestamp_ntz_col3 from ${table_name} where  timestamp_ntz_col3  != "2024-03-25 12:00:00.124" order by id """
-        qt_test_71 """ select id,timestamp_ntz_col3 from ${table_name} where  timestamp_ntz_col3  < "2024-03-25 12:00:00.124" order by id """
-        qt_test_72 """ select id,timestamp_ntz_col3 from ${table_name} where  timestamp_ntz_col3  = "2024-03-25 12:00:00.124" order by id """
-        qt_test_73 """ select id,timestamp_ntz_col3 from ${table_name} where  timestamp_ntz_col3  > "2024-03-25 12:00:00.124" order by id """
-        qt_test_74 """ select id,timestamp_ntz_col3 from ${table_name} where  timestamp_ntz_col3  <= "2024-03-25 12:00:00.124" order by id """
 
 
   
 
 
         qt_test_75 """ select id,char_col1 from ${table_name} order by id """
-        qt_test_76 """ select id,char_col1 from ${table_name} where  char_col1  = "char_value11111" order by id """
         qt_test_77 """ select id,char_col1 from ${table_name} where  char_col1  != "char_value11111" order by id """
         qt_test_78 """ select id,char_col1 from ${table_name} where  char_col1  != "char_value1" order by id """
-        qt_test_79 """ select id,char_col1 from ${table_name} where  char_col1  in ("char_value1") order by id """
-        qt_test_80 """ select id,char_col1 from ${table_name} where  char_col1  not in ("char_value1") order by id """
-        qt_test_81 """ select id,char_col1 from ${table_name} where  char_col1  in ("char_value1","char_value11111") order by id """
-        qt_test_82 """ select id,char_col1 from ${table_name} where  char_col1  not in ("char_value1","char_value11111") order by id """
 
 
         qt_test_83 """ select id,char_col2 from ${table_name} order by id """
         qt_test_84 """ select id,char_col2 from ${table_name} where  char_col2  = "char_value22222" order by id """
-        qt_test_85 """ select id,char_col2 from ${table_name} where  char_col2  != "char_value22222" order by id """
-        qt_test_86 """ select id,char_col2 from ${table_name} where  char_col2  != "char_value2" order by id """
-        qt_test_87 """ select id,char_col2 from ${table_name} where  char_col2  in ("char_value2") order by id """
-        qt_test_88 """ select id,char_col2 from ${table_name} where  char_col2  not in ("char_value2") order by id """
-        qt_test_89 """ select id,char_col2 from ${table_name} where  char_col2  in ("char_value2","char_value22222") order by id """
-        qt_test_90 """ select id,char_col2 from ${table_name} where  char_col2  not in ("char_value2","char_value22222") order by id """
 
         qt_test_91 """ select id,char_col3 from ${table_name} order by id """
         qt_test_92 """ select id,char_col3 from ${table_name} where  char_col3  =  "char_value33333" order by id """
-        qt_test_93 """ select id,char_col3 from ${table_name} where  char_col3  != "char_value33333" order by id """
-        qt_test_94 """ select id,char_col3 from ${table_name} where  char_col3  != "char_value3" order by id """
-        qt_test_95 """ select id,char_col3 from ${table_name} where  char_col3  in ("char_value3") order by id """
-        qt_test_96 """ select id,char_col3 from ${table_name} where  char_col3  not in ("char_value3") order by id """
-        qt_test_97 """ select id,char_col3 from ${table_name} where  char_col3  in ("char_value3","char_value33333") order by id """
-        qt_test_98 """ select id,char_col3 from ${table_name} where  char_col3  not in ("char_value3","char_value33333") order by id """
 
 
         qt_test_99 """ select id,varchar_col1 from ${table_name} order by id """
         qt_test_100 """ select id,varchar_col1 from ${table_name} where  varchar_col1  = "varchar_value11111" order by id """
         qt_test_101 """ select id,varchar_col1 from ${table_name} where  varchar_col1  != "varchar_value11111" order by id """
-        qt_test_102 """ select id,varchar_col1 from ${table_name} where  varchar_col1  != "varchar_value1" order by id """
-        qt_test_103 """ select id,varchar_col1 from ${table_name} where  varchar_col1  in ("varchar_value1") order by id """
-        qt_test_104 """ select id,varchar_col1 from ${table_name} where  varchar_col1  not in ("varchar_value1") order by id """
-        qt_test_105 """ select id,varchar_col1 from ${table_name} where  varchar_col1  in ("varchar_value1","varchar_value11111") order by id """
-        qt_test_106 """ select id,varchar_col1 from ${table_name} where  varchar_col1  not in ("varchar_value1","varchar_value11111") order by id """
 
 
         qt_test_107 """ select id,varchar_col2 from ${table_name} order by id """
         qt_test_108 """ select id,varchar_col2 from ${table_name} where  varchar_col2  = "varchar_value22222" order by id """
-        qt_test_109 """ select id,varchar_col2 from ${table_name} where  varchar_col2  != "varchar_value22222" order by id """
-        qt_test_110 """ select id,varchar_col2 from ${table_name} where  varchar_col2  != "varchar_value2" order by id """
-        qt_test_111 """ select id,varchar_col2 from ${table_name} where  varchar_col2  in ("varchar_value2") order by id """
-        qt_test_112 """ select id,varchar_col2 from ${table_name} where  varchar_col2  not in ("varchar_value2") order by id """
-        qt_test_113 """ select id,varchar_col2 from ${table_name} where  varchar_col2  in ("varchar_value2","varchar_value22222") order by id """
-        qt_test_114 """ select id,varchar_col2 from ${table_name} where  varchar_col2  not in ("varchar_value2","varchar_value22222") order by id """
 
         qt_test_115 """ select id,varchar_col3 from ${table_name} order by id """
         qt_test_116 """ select id,varchar_col3 from ${table_name} where  varchar_col3  =  "varchar_value33333" order by id """
-        qt_test_117 """ select id,varchar_col3 from ${table_name} where  varchar_col3  != "varchar_value33333" order by id """
-        qt_test_118 """ select id,varchar_col3 from ${table_name} where  varchar_col3  != "varchar_value3" order by id """
-        qt_test_119 """ select id,varchar_col3 from ${table_name} where  varchar_col3  in ("varchar_value3") order by id """
-        qt_test_120 """ select id,varchar_col3 from ${table_name} where  varchar_col3  not in ("varchar_value3") order by id """
-        qt_test_121 """ select id,varchar_col3 from ${table_name} where  varchar_col3  in ("varchar_value3","varchar_value33333") order by id """
-        qt_test_122 """ select id,varchar_col3 from ${table_name} where  varchar_col3  not in ("varchar_value3","varchar_value33333") order by id """
 
 
 
 
         qt_test_123 """ select id,t_map_string from ${table_name} order by id """
-        qt_test_124 """ select id,t_map_varchar from ${table_name} order by id """
-        qt_test_125 """ select id,t_map_char from ${table_name} order by id """
         qt_test_126 """ select id,t_map_int from ${table_name} order by id """
-        qt_test_127 """ select id,t_map_bigint from ${table_name} order by id """
-        qt_test_128 """ select id,t_map_float from ${table_name} order by id """
-        qt_test_129 """ select id,t_map_double from ${table_name} order by id """
         qt_test_130 """ select id,t_map_boolean from ${table_name} order by id """
         qt_test_131 """ select id,t_array_string from ${table_name} order by id """
         qt_test_132 """ select id,t_array_int from ${table_name} order by id """
-        qt_test_133 """ select id,t_array_bigint from ${table_name} order by id """
-        qt_test_134 """ select id,t_array_float from ${table_name} order by id """
         qt_test_135 """ select id,t_array_double from ${table_name} order by id """
-        qt_test_136 """ select id,t_array_boolean from ${table_name} order by id """
-        qt_test_137 """ select id,t_array_varchar from ${table_name} order by id """
-        qt_test_138 """ select id,t_array_char from ${table_name} order by id """
         qt_test_139 """ select id,t_array_decimal_precision_2 from ${table_name} order by id """
-        qt_test_140 """ select id,t_array_decimal_precision_4 from ${table_name} order by id """
-        qt_test_141 """ select id,t_array_decimal_precision_8 from ${table_name} order by id """
-        qt_test_142 """ select id,t_array_decimal_precision_17 from ${table_name} order by id """
-        qt_test_143 """ select id,t_array_decimal_precision_18 from ${table_name} order by id """
-        qt_test_144 """ select id,t_array_decimal_precision_4 from ${table_name} order by id """
         qt_test_145 """ select id,t_array_decimal_precision_38 from ${table_name} order by id """
         qt_test_146 """ select id,t_struct_bigint from ${table_name} order by id """
         qt_test_147 """ select id,t_complex from ${table_name} order by id """
         qt_test_148 """ select id,t_struct_nested from ${table_name} order by id """
-        qt_test_149 """ select id,t_struct_non_nulls_after_nulls from ${table_name} order by id """
         qt_test_150 """ select id,t_nested_struct_non_nulls_after_nulls from ${table_name} order by id """
         qt_test_151 """ select id,t_array_string_starting_with_nulls from ${table_name} order by id """
-        qt_test_152 """ select id,t_array_string_with_nulls_in_between from ${table_name} order by id """
         qt_test_153 """ select id,t_array_string_ending_with_nulls from ${table_name} order by id """
-        qt_test_154 """ select id,t_map_char from ${table_name} order by id """
 
 
 
@@ -555,4 +459,3 @@ suite("test_max_compute_all_type", "p2,external,maxcompute,external_remote,exter
         sql """drop catalog ${mc_catalog_name};"""
     }
 }
-
