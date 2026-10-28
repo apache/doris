@@ -119,7 +119,7 @@ private:
 
     [[nodiscard]] Status _lazy_init(Block* block);
     [[nodiscard]] Status _init_impl(const StorageReadOptions& opts);
-    [[nodiscard]] Status _init_column_iterators();
+    [[nodiscard]] Status _init_column_iterators(bool defer_variant_columns);
     [[nodiscard]] Status _init_index_iterators();
 
     // calculate row ranges that fall into requested key ranges using short key index
