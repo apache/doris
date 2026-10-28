@@ -165,6 +165,22 @@ public class VariantType extends ScalarType {
         this.variantSerializeType = variantSerializeType;
     }
 
+    /**
+     * The layout a changelog stores this column with, as a new instance; this one is untouched. Both images of a
+     * changelog row are only read whole, so every path goes to the sparse column (V2 with no dynamic subcolumn and
+     * typed paths sent to the sparse column) whatever this column's layout is. The predefined fields stay, so typed
+     * paths keep their types.
+     */
+    public VariantType forChangelog() {
+        Preconditions.checkState(getClass() == VariantType.class,
+                "forChangelog copies a plain VariantType, not %s", getClass().getName());
+        // doc mode and nested group clear the sparse statistics size
+        int sparseColumnStatisticsSize = variantMaxSparseColumnStatisticsSize > 0
+                ? variantMaxSparseColumnStatisticsSize : new VariantType().variantMaxSparseColumnStatisticsSize;
+        return new VariantType(predefinedFields, 0, true, sparseColumnStatisticsSize,
+                variantSparseHashShardCount, false, 0L, 0, false, TVariantSerializeType.V2);
+    }
+
     @Override
     public String toSql(int depth) {
         return toSql(depth, false);

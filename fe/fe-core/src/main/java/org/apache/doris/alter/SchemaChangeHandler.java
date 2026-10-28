@@ -113,6 +113,7 @@ import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTaskType;
+import org.apache.doris.thrift.TVariantSerializeType;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -210,10 +211,6 @@ public class SchemaChangeHandler extends AlterHandler {
         // add column to changelog schema
         long changelogIndexId = olapTable.getBaseIndexMeta().getChangelogIndexId();
         if (changelogIndexId > 0) {
-            if (column.getType().isVariantType()) {
-                throw new DdlException(
-                        "table with changelog does not support VARIANT column: " + column.getName());
-            }
             if (!lightSchemaChange) {
                 throw new DdlException("table with changelog only support light schema change," + "add column: "
                         + column);
@@ -304,10 +301,6 @@ public class SchemaChangeHandler extends AlterHandler {
 
             // add column to changelog schema
             if (changelogIndexId > 0) {
-                if (column.getType().isVariantType()) {
-                    throw new DdlException(
-                            "table with changelog does not support VARIANT column: " + column.getName());
-                }
                 if (!lightSchemaChange) {
                     throw new DdlException("table with changelog only support light schema change," + "add column: "
                             + column);
@@ -331,9 +324,17 @@ public class SchemaChangeHandler extends AlterHandler {
             return;
         }
 
-        if (newColumn.isAutoInc() || newColumn.getDataType().isVariantType()) {
-            throw new DdlException("can't add AutoInc/Variant column " + " on table with changelog, column: "
+        if (newColumn.isAutoInc()) {
+            throw new DdlException("can't add AutoInc column on table with changelog, column: "
                     + newColumn.getDataType());
+        }
+        if (newColumn.getType().isVariantType() && newColumn.getVariantEnableNestedGroup()) {
+            throw new DdlException("can't add variant column with nested group on table with changelog, column: "
+                    + newColumn.getName());
+        }
+        if (newColumn.getType().isVariantType() && newColumn.getVariantSerializeType() != TVariantSerializeType.V2) {
+            throw new DdlException("variant column on table with changelog must use variant_serialize_type v2, column: "
+                    + newColumn.getName());
         }
 
         if (newColumn.isKey()) {

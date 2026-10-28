@@ -494,18 +494,13 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
                 "Table With changelog");
         expectException("ALTER TABLE test." + tableName + " ORDER BY (k1, v1)", "Table With changelog");
 
-        // 2) VARIANT not supported
+        // 2) VARIANT is supported
         String createVariant = "CREATE TABLE test.changelog_variant (k1 INT NOT NULL, v1 VARIANT) "
                 + "UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
                 + "PROPERTIES('replication_num'='1','light_schema_change'='true',"
                 + "'enable_unique_key_merge_on_write'='true',"
                 + "'changelog.enable'='true');";
-        try {
-            createTableWithChangelog(createVariant);
-            Assertions.fail("Expected exception for VARIANT column");
-        } catch (Exception e) {
-            Assertions.assertTrue(e.getMessage().toLowerCase().contains("variant"));
-        }
+        createTableWithChangelog(createVariant);
 
         String tableName2 = "changelog_add_variant";
         String create2 = "CREATE TABLE test." + tableName2 + " (k1 INT NOT NULL, v1 INT) "
@@ -514,7 +509,24 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
                 + "'enable_unique_key_merge_on_write'='true',"
                 + "'changelog.enable'='true');";
         createTableWithChangelog(create2);
-        expectException("ALTER TABLE test." + tableName2 + " ADD COLUMN v2 VARIANT", "VARIANT");
+        alterTable("ALTER TABLE test." + tableName2 + " ADD COLUMN v2 VARIANT", connectContext);
+        jobSize++;
+        waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
+        expectException("ALTER TABLE test." + tableName2 + " ADD COLUMN v3 VARIANT<PROPERTIES("
+                + "\"variant_serialize_type\" = \"v1\")>", "must use variant_serialize_type v2");
+        // a VARIANT on a table with changelog must be V2 and can not enable nested group
+        String[][] badVariants = {
+                {"VARIANT<PROPERTIES(\"variant_serialize_type\" = \"v1\")>", "must use variant_serialize_type v2"},
+                {"VARIANT<PROPERTIES(\"variant_enable_nested_group\" = \"true\")>",
+                        "nested group can't be created on table with changelog"}};
+        for (String[] badVariant : badVariants) {
+            Exception e = Assertions.assertThrows(Exception.class, () -> createTableWithChangelog(
+                    "CREATE TABLE test.changelog_bad_variant (k1 INT NOT NULL, v1 " + badVariant[0] + ") "
+                    + "UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
+                    + "PROPERTIES('replication_num'='1','light_schema_change'='true',"
+                    + "'enable_unique_key_merge_on_write'='true','changelog.enable'='true');"));
+            Assertions.assertTrue(e.getMessage().contains(badVariant[1]), e.getMessage());
+        }
 
         // 3) AUTO_INCREMENT not supported
         String createAutoinc = "CREATE TABLE test.changelog_autoinc (k1 BIGINT NOT NULL AUTO_INCREMENT, v1 INT) "

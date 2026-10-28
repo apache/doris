@@ -135,6 +135,10 @@ public class Column implements GsonPostProcessable {
         afterValueColumn.defaultValue = null;
         afterValueColumn.defaultValueExprDef = null;
         afterValueColumn.realDefaultValue = null;
+        // a changelog keeps every path of a VARIANT image in the sparse column, whatever the source layout
+        if (afterValueColumn.getType().isVariantType()) {
+            afterValueColumn.setType(((VariantType) afterValueColumn.getType()).forChangelog());
+        }
         return afterValueColumn;
     }
 
@@ -149,6 +153,9 @@ public class Column implements GsonPostProcessable {
         beforeValueColumn.defaultValue = null;
         beforeValueColumn.defaultValueExprDef = null;
         beforeValueColumn.realDefaultValue = null;
+        if (beforeValueColumn.getType().isVariantType()) {
+            beforeValueColumn.setType(((VariantType) beforeValueColumn.getType()).forChangelog());
+        }
         return beforeValueColumn;
     }
 

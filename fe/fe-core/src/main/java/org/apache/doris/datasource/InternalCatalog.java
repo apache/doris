@@ -161,6 +161,7 @@ import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTabletRole;
 import org.apache.doris.thrift.TTabletType;
 import org.apache.doris.thrift.TTaskType;
+import org.apache.doris.thrift.TVariantSerializeType;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
@@ -3086,8 +3087,13 @@ public class InternalCatalog implements CatalogIf<Database> {
                 for (Column column : baseSchema) {
                     if (column.isAutoInc()) {
                         throw new AnalysisException("auto-inc column can't be created on table with changelog");
-                    } else if (column.getDataType().isVariantType()) {
-                        throw new AnalysisException("variant column can't be created on table with changelog");
+                    } else if (column.getType().isVariantType() && column.getVariantEnableNestedGroup()) {
+                        throw new AnalysisException(
+                                "variant column with nested group can't be created on table with changelog");
+                    } else if (column.getType().isVariantType()
+                            && column.getVariantSerializeType() != TVariantSerializeType.V2) {
+                        throw new AnalysisException(
+                                "variant column on table with changelog must use variant_serialize_type v2");
                     }
                 }
                 olapTable.setChangelogConfig(changelogConfig);

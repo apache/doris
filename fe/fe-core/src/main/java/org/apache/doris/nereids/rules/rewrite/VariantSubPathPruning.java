@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.catalog.OlapChangelogTableWrapper;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -91,6 +92,14 @@ public class VariantSubPathPruning implements CustomRewriter {
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
+        // A changelog stores its Variant columns with every path in the sparse column and maps a BEFORE image onto
+        // its AFTER column by whole column, so a changelog scan reads Variant columns whole and sub-paths are taken
+        // above it. Its plan may union the changelog scan with a base table scan, whose union pushdown needs every
+        // child to supply the same sub-path slots, so the whole statement keeps whole-column reads.
+        if (plan.anyMatch(node -> node instanceof LogicalOlapScan
+                && ((LogicalOlapScan) node).getTable() instanceof OlapChangelogTableWrapper)) {
+            return plan;
+        }
         Context context = new Context();
         plan.accept(VariantSubPathCollector.INSTANCE, context);
         if (context.elementAtToSubPathMap.isEmpty()) {
