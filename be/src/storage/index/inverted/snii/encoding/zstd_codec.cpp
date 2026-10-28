@@ -63,8 +63,14 @@ Status ZstdDecompressor::decompress(Slice input, size_t expected_uncomp_len, Sli
     }
     if (expected_uncomp_len > _capacity) {
         // Every byte is written by the decompression before it is read, so the buffer is not
-        // zero-filled.
-        _buffer.reset(new uint8_t[expected_uncomp_len]);
+        // zero-filled. The old buffer goes first, so the two are never held together.
+        _buffer.reset();
+        _capacity = 0;
+        _buffer = make_unique_buffer<uint8_t>(expected_uncomp_len);
+        if (_buffer == nullptr) {
+            return Status::Error<ErrorCode::MEM_ALLOC_FAILED, false>(
+                    "zstd decompress: cannot allocate {} bytes", expected_uncomp_len);
+        }
         _capacity = expected_uncomp_len;
     }
     const size_t n = ZSTD_decompressDCtx(static_cast<ZSTD_DCtx*>(_context), _buffer.get(),

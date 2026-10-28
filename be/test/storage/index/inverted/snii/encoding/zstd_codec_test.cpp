@@ -23,8 +23,11 @@
 #include <vector>
 
 #include "common/status.h"
+#include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/thread_context.h"
 
 using namespace doris::snii;
+using doris::AttachTask; // SCOPED_ATTACH_TASK names it unqualified
 
 TEST(SniiZstd, RoundTrip) {
     std::vector<uint8_t> in;
@@ -97,4 +100,25 @@ TEST(SniiZstdDecompressor, ReportsCorruptionAndRecovers) {
     ASSERT_TRUE(decompressor.decompress(Slice(comp), in.size(), &out).ok());
     ASSERT_EQ(out.size(), in.size());
     EXPECT_TRUE(std::equal(in.begin(), in.end(), out.data()));
+}
+
+// The buffer a decompressor keeps between frames is as large as the largest frame it decoded, so
+// it is charged to the memory tracker of the task that decodes, until the decompressor goes away.
+TEST(SniiZstdDecompressor, ChargesItsBufferToTheTaskMemTracker) {
+    const std::vector<uint8_t> in = pattern(8 << 20, 5);
+    std::vector<uint8_t> comp;
+    ASSERT_TRUE(zstd_compress(Slice(in), 3, &comp).ok());
+    auto tracker = doris::MemTrackerLimiter::create_shared(doris::MemTrackerLimiter::Type::OTHER,
+                                                           "UT-SniiZstdDecompressor");
+    SCOPED_ATTACH_TASK(tracker);
+    const int64_t before = tracker->consumption();
+    {
+        ZstdDecompressor decompressor;
+        Slice out;
+        ASSERT_TRUE(decompressor.decompress(Slice(comp), in.size(), &out).ok());
+        doris::thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+        EXPECT_GE(tracker->consumption() - before, static_cast<int64_t>(in.size()));
+    }
+    doris::thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    EXPECT_LT(tracker->consumption() - before, static_cast<int64_t>(in.size()));
 }
