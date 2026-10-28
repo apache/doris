@@ -17,15 +17,24 @@
 
 package org.apache.doris.nereids.trees.copier;
 
+import org.apache.doris.catalog.SchemaTable;
+import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.trees.expressions.Add;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Repeat.RepeatType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.util.PlanConstructor;
 
@@ -81,6 +90,47 @@ public class LogicalPlanDeepCopierTest {
     }
 
     @Test
+    public void testDeepCopyOlapScanWithVirtualColumn() {
+        LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "a", 0);
+        Alias scoreColumn = new Alias(new Score(), "__score");
+        scan = scan.appendVirtualColumnsAndTopN(ImmutableList.of(scoreColumn), ImmutableList.of(), Optional.empty(),
+                ImmutableList.of(new OrderKey(scoreColumn.toSlot(), false, false)), Optional.of(0L),
+                Optional.empty());
+        DeepCopierContext context = new DeepCopierContext();
+        LogicalOlapScan copy = (LogicalOlapScan) scan.accept(LogicalPlanDeepCopier.INSTANCE, context);
+
+        // The copy outputs one new score column, which its order key and the slots above it use.
+        Slot copiedScore = copy.getVirtualColumns().get(0).toSlot();
+        Assertions.assertNotEquals(scoreColumn.getExprId(), copiedScore.getExprId());
+        Assertions.assertEquals(scan.getOutput().size(), copy.getOutput().size());
+        Assertions.assertTrue(copy.getOutput().contains(copiedScore));
+        Assertions.assertFalse(copy.getOutput().contains(scoreColumn.toSlot()));
+        Assertions.assertEquals(copiedScore, copy.getScoreOrderKeys().get(0).getExpr());
+        Assertions.assertEquals(copiedScore.getExprId(), context.exprIdReplaceMap.get(scoreColumn.getExprId()));
+        for (Slot slot : scan.getOutput()) {
+            Assertions.assertTrue(copy.getOutputExprIdSet().contains(context.exprIdReplaceMap.get(slot.getExprId())),
+                    slot.toString());
+        }
+    }
+
+    @Test
+    public void testDeepCopyOlapScanWithDependentVirtualColumns() {
+        LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "a", 0);
+        Slot id = scan.getOutput().get(0);
+        Alias sum = new Alias(new Add(id, id), "v1");
+        Alias product = new Alias(new Multiply(sum.toSlot(), sum.toSlot()), "v2");
+        // A virtual column can refer to one that comes after it.
+        for (List<NamedExpression> virtualColumns : ImmutableList.<List<NamedExpression>>of(
+                ImmutableList.of(sum, product), ImmutableList.of(product, sum))) {
+            LogicalOlapScan copy = (LogicalOlapScan) scan.withVirtualColumns(virtualColumns)
+                    .accept(LogicalPlanDeepCopier.INSTANCE, new DeepCopierContext());
+            for (NamedExpression column : copy.getVirtualColumns()) {
+                Assertions.assertTrue(copy.getOutputSet().containsAll(column.getInputSlots()), column.toString());
+            }
+        }
+    }
+
+    @Test
     public void testDeepCopyOlapScanWithNonFirstOperativeSlot() {
         LogicalOlapScan relationPlan = PlanConstructor.newLogicalOlapScan(0, "a", 0);
         relationPlan = (LogicalOlapScan) relationPlan.withOperativeSlots(
@@ -89,6 +139,29 @@ public class LogicalPlanDeepCopierTest {
                 (LogicalOlapScan) relationPlan.accept(LogicalPlanDeepCopier.INSTANCE, new DeepCopierContext());
 
         Assertions.assertEquals(ImmutableList.of(aCopy.getOutput().get(1)), aCopy.getOperativeSlots());
+    }
+
+    @Test
+    public void testDeepCopySchemaScanCopiesFrontendConjunctSlots() {
+        LogicalSchemaScan scan = new LogicalSchemaScan(PlanConstructor.getNextRelationId(),
+                SchemaTable.TABLE_MAP.get("table_stream_consumption"), ImmutableList.of("information_schema"));
+        SlotReference dbName = (SlotReference) scan.getOutput().stream()
+                .filter(slot -> slot.getName().equalsIgnoreCase("DB_NAME"))
+                .findFirst()
+                .orElseThrow(IllegalStateException::new);
+        scan = scan.withFrontendConjuncts(Optional.empty(), Optional.empty(), Optional.empty(),
+                ImmutableList.of(new EqualTo(dbName, new VarcharLiteral("db1"))));
+
+        LogicalSchemaScan copied = (LogicalSchemaScan) scan.accept(
+                LogicalPlanDeepCopier.INSTANCE, new DeepCopierContext());
+        Slot copiedConjunctSlot = copied.getFrontendConjuncts().get(0).getInputSlots().iterator().next();
+        Slot copiedDbName = copied.getOutput().stream()
+                .filter(slot -> slot.getName().equalsIgnoreCase("DB_NAME"))
+                .findFirst()
+                .orElseThrow(IllegalStateException::new);
+
+        Assertions.assertNotEquals(dbName.getExprId(), copiedConjunctSlot.getExprId());
+        Assertions.assertEquals(copiedDbName.getExprId(), copiedConjunctSlot.getExprId());
     }
 
     @Test

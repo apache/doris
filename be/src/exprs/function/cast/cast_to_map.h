@@ -15,59 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <array>
+
 #include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
 #include "core/data_type/data_type_map.h"
 #include "exprs/function/cast/cast_base.h"
 
 namespace doris::CastWrapper {
-
-inline Status deduplicate_map_keys_in_result(Block& block, uint32_t result) {
-    auto result_column_name = block.get_by_position(result).column->get_name();
-    auto mutable_result_column = IColumn::mutate(std::move(block.get_by_position(result).column));
-
-    if (auto* nullable_column = check_and_get_column<ColumnNullable>(*mutable_result_column)) {
-        auto nested_column = IColumn::mutate(nullable_column->get_nested_column_ptr());
-        auto* map_column = check_and_get_column<ColumnMap>(*nested_column);
-        if (!map_column) {
-            return Status::RuntimeError("Illegal column {} for function CAST AS MAP",
-                                        result_column_name);
-        }
-
-        RETURN_IF_ERROR(map_column->deduplicate_keys(true));
-        ColumnPtr nested_column_ptr = std::move(nested_column);
-        nullable_column->change_nested_column(nested_column_ptr);
-    } else {
-        auto* map_column = check_and_get_column<ColumnMap>(*mutable_result_column);
-        if (!map_column) {
-            return Status::RuntimeError("Illegal column {} for function CAST AS MAP",
-                                        result_column_name);
-        }
-
-        RETURN_IF_ERROR(map_column->deduplicate_keys(true));
-    }
-
-    block.get_by_position(result).column = std::move(mutable_result_column);
-    return Status::OK();
-}
-
-inline WrapperType wrap_string_to_map_wrapper(WrapperType wrapper) {
-    return [wrapper = std::move(wrapper)](FunctionContext* context, Block& block,
-                                          const ColumnNumbers& arguments, uint32_t result,
-                                          size_t input_rows_count,
-                                          const NullMap::value_type* null_map = nullptr) {
-        RETURN_IF_ERROR(wrapper(context, block, arguments, result, input_rows_count, null_map));
-        return deduplicate_map_keys_in_result(block, result);
-    };
-}
-
 //TODO(Amory) . Need support more cast for key , value for map
-WrapperType create_map_wrapper(FunctionContext* context, const DataTypePtr& from_type,
+WrapperType create_map_wrapper(const CastOptions& options, const DataTypePtr& from_type,
                                const DataTypeMap& to_type) {
     if (is_string_type(from_type->get_primitive_type())) {
-        auto wrapper = context->enable_strict_mode() ? cast_from_string_to_complex_type_strict_mode
-                                                     : cast_from_string_to_complex_type;
-        return wrap_string_to_map_wrapper(wrapper);
+        return options.strict_mode ? cast_from_string_to_complex_type_strict_mode
+                                   : cast_from_string_to_complex_type;
     }
     const auto* from = check_and_get_data_type<DataTypeMap>(from_type.get());
     if (!from) {
@@ -85,16 +46,19 @@ WrapperType create_map_wrapper(FunctionContext* context, const DataTypePtr& from
     to_kv_types.push_back(to_type.get_key_type());
     to_kv_types.push_back(to_type.get_value_type());
 
-    auto kv_wrappers = get_element_wrappers(context, from_kv_types, to_kv_types);
-    return [kv_wrappers, from_kv_types, to_kv_types](
-                   FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                   uint32_t result, size_t /*input_rows_count*/,
-                   const NullMap::value_type* null_map = nullptr) -> Status {
-        auto& from_column = block.get_by_position(arguments.front()).column;
-        const auto* from_col_map = check_and_get_column<ColumnMap>(from_column.get());
+    auto kv_wrappers = get_element_wrappers(options, from_kv_types, to_kv_types);
+    /// A key or value whose type does not change is passed through, so it needs neither a child mask
+    /// nor a call into its (identity) wrapper.
+    std::array<bool, 2> unchanged_kv = {from_kv_types[0]->equals(*to_kv_types[0]),
+                                        from_kv_types[1]->equals(*to_kv_types[1])};
+    return [kv_wrappers, from_kv_types, to_kv_types, unchanged_kv](
+                   RuntimeState* state, const ColumnWithTypeAndName& source_column,
+                   ColumnWithTypeAndName& target_column, size_t /*input_rows_count*/,
+                   const NullMap::value_type* parent_null_map = nullptr) -> Status {
+        const auto* from_col_map = check_and_get_column<ColumnMap>(source_column.column.get());
         if (!from_col_map) {
             return Status::RuntimeError("Illegal column {} for function CAST AS MAP",
-                                        from_column->get_name());
+                                        source_column.column->get_name());
         }
 
         Columns converted_columns(2);
@@ -102,20 +66,32 @@ WrapperType create_map_wrapper(FunctionContext* context, const DataTypePtr& from
         columnsWithTypeAndName[0] = {from_col_map->get_keys_ptr(), from_kv_types[0], ""};
         columnsWithTypeAndName[1] = {from_col_map->get_values_ptr(), from_kv_types[1], ""};
 
+        const auto& offsets = from_col_map->get_offsets();
+        // Keys and values share the rows of their parent, so the parent mask is scanned once.
+        const NullMap::value_type* effective_parent_null_map =
+                (parent_null_map != nullptr && has_masked_row(parent_null_map, offsets.size()))
+                        ? parent_null_map
+                        : nullptr;
         for (size_t i = 0; i < 2; ++i) {
-            ColumnNumbers element_arguments {block.columns()};
-            block.insert(columnsWithTypeAndName[i]);
-            auto element_result = block.columns();
-            block.insert({to_kv_types[i], ""});
-            RETURN_IF_ERROR(kv_wrappers[i](context, block, element_arguments, element_result,
-                                           columnsWithTypeAndName[i].column->size(), null_map));
-            converted_columns[i] = block.get_by_position(element_result).column;
+            if (unchanged_kv[i]) {
+                converted_columns[i] = columnsWithTypeAndName[i].column;
+                continue;
+            }
+            /// Keys and values are flattened, so the NULL of a map row has to be inherited by the
+            /// entries that belong to it before they are cast.
+            auto child_mask = build_child_null_mask(effective_parent_null_map, &offsets,
+                                                    columnsWithTypeAndName[i].column);
+            ColumnWithTypeAndName child_column {child_mask.column, from_kv_types[i], ""};
+            ColumnWithTypeAndName element_result {nullptr, to_kv_types[i], ""};
+            RETURN_IF_ERROR(kv_wrappers[i](state, child_column, element_result,
+                                           child_mask.column->size(), child_mask.null_map));
+            converted_columns[i] = std::move(element_result.column);
         }
 
         auto map_column = ColumnMap::create(converted_columns[0], converted_columns[1],
                                             from_col_map->get_offsets_ptr());
         static_cast<void>(map_column->deduplicate_keys());
-        block.get_by_position(result).column = std::move(map_column);
+        target_column.column = std::move(map_column);
         return Status::OK();
     };
 }

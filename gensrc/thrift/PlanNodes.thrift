@@ -81,7 +81,8 @@ struct TKeyRange {
 // - T<subclass>: all other operational parameters that are the same across
 //   all plan fragments
 
-enum TBinlogScanType {
+// ATTN(changelog-rename): formerly "TBinlogScanType"
+enum TChangelogScanType {
   NONE = 0,
   APPEND_ONLY = 1,
   MIN_DELTA = 2,
@@ -101,10 +102,10 @@ struct TPaloScanRange {
   9: optional string table_name
   10: optional i64 start_tso
   11: optional i64 end_tso
-  12: optional TBinlogScanType binlog_scan_type
-  // Bucket metadata for BE-side runtime-filter bucket pruning. These fields
-  // are populated only when the scan has an eligible single-column HASH
-  // distribution runtime-filter target.
+  // ATTN(changelog-rename): formerly "binlog_scan_type"
+  12: optional TChangelogScanType changelog_scan_type
+  // Full distribution bucket ordinal/count for runtime-filter bucket pruning
+  // and exact scan-key bucket pruning. The count is not the selected tablet count.
   13: optional i32 bucket_seq
   14: optional i32 bucket_num
 }
@@ -123,7 +124,7 @@ enum TFileFormatType {
     FORMAT_JSON = 9,
     FORMAT_PROTO = 10,
     FORMAT_JNI = 11,
-    FORMAT_AVRO = 12,
+    FORMAT_AVRO = 12, // Deprecated: reading this format is no longer supported.
     FORMAT_CSV_LZ4BLOCK = 13,
     FORMAT_CSV_SNAPPYBLOCK = 14,
     FORMAT_WAL = 15,
@@ -313,6 +314,10 @@ struct TFileAttributes {
     // org.openx.data.jsonserde.JsonSerDe
     13: optional bool openx_json_ignore_malformed = false;
 
+    // Hive OpenCSVSerde has different field states and physical record boundaries from load CSV.
+    // Requires BE execution version >= 15 and excludes smooth-upgrade source backends.
+    14: optional bool hive_open_csv = false;
+
     // for cloud copy into
     1001: optional bool ignore_csv_redundant_col;
 }
@@ -357,6 +362,9 @@ struct TIcebergFileDesc {
     // Only for format_version >= 3, the sequence number which last updated this file.
     11: optional i64 last_updated_sequence_number;
     12: optional string serialized_split;
+    // Reserved for branch-4.1 / branch-4.2 field `13: optional ExternalTableSchema.TSchema
+    // equality_delete_schema` (the split-local schema of dropped equality-delete keys). Master
+    // carries those schemas in TFileScanRangeParams.history_schema_info. Do not reuse this id.
 }
 
 struct TPaimonDeletionFileDesc {
@@ -370,6 +378,7 @@ enum TPaimonReaderType {
     PAIMON_JNI = 1,
     // Deprecated wire value kept during rolling upgrades. New plans never emit it.
     PAIMON_CPP = 2,
+    PAIMON_RUST = 3,
 }
 
 struct TPaimonFileDesc {
@@ -391,9 +400,13 @@ struct TPaimonFileDesc {
     16: optional i64 schema_id; // for schema change.
     // Reader implementation for logical paimon split. Native file split uses range format type.
     17: optional TPaimonReaderType reader_type;
+    // Reserved for the Paimon Rust reader. Keep these ids aligned with branch-4.1.
+    18: optional string paimon_table_schema_json
+    19: optional string paimon_branch
     // Original Paimon RawFile.path() before Doris storage path normalization. Native readers use this
-    // to materialize the public file-location metadata column.
-    18: optional string original_file_path;
+    // to materialize the public file-location metadata column. This master-only field is appended after
+    // the branch-4.1 fields instead of reusing field 18.
+    20: optional string original_file_path;
 }
 
 struct TTrinoConnectorFileDesc {
@@ -435,6 +448,7 @@ struct THudiFileDesc {
     12: optional i64 schema_id; // for schema change. (native reader)
 }
 
+// Deprecated: the associated external table read support has been removed.
 struct TLakeSoulFileDesc {
     1: optional list<string> file_paths;
     2: optional list<string> primary_keys;
@@ -443,11 +457,13 @@ struct TLakeSoulFileDesc {
     5: optional string options;
 }
 
+// Deprecated: the associated external table read support has been removed.
 struct TTransactionalHiveDeleteDeltaDesc {
     1: optional string directory_location
     2: optional list<string> file_names
 }
 
+// Deprecated: the associated external table read support has been removed.
 struct TTransactionalHiveDesc {
     1: optional string partition
     2: optional list<TTransactionalHiveDeleteDeltaDesc> delete_deltas
@@ -476,10 +492,10 @@ struct TTableFormatFileDesc {
     2: optional TIcebergFileDesc iceberg_params
     3: optional THudiFileDesc hudi_params
     4: optional TPaimonFileDesc paimon_params
-    5: optional TTransactionalHiveDesc transactional_hive_params
+    5: optional TTransactionalHiveDesc transactional_hive_params // Deprecated: reading this format is no longer supported.
     6: optional TMaxComputeFileDesc max_compute_params
     7: optional TTrinoConnectorFileDesc trino_connector_params
-    8: optional TLakeSoulFileDesc lakesoul_params
+    8: optional TLakeSoulFileDesc lakesoul_params // Deprecated: reading this format is no longer supported.
     9: optional i64 table_level_row_count = -1
     10: optional TRemoteDorisFileDesc remote_doris_params
     // JDBC connection parameters (used when table_format_type == "jdbc")
@@ -493,6 +509,18 @@ struct TTableFormatFileDesc {
     //       adbc.<option> passthrough, and either query_sql or partition_b64.
     // The partition descriptor is opaque binary, so it travels base64-encoded.
     14: optional map<string, string> adbc_params
+    // Fluss per-split parameters (used when table_format_type == "fluss"; the range_type key says
+    // which kind of range this is and picks the reader inside BE's fluss dispatch).
+    // Carries ONLY what varies per split: partition/bucket identity, range type, log offsets and
+    // the kv snapshot id; a lake split (range_type LAKE / LAKE_SUPPRESS) is another connector's
+    // split wrapped, so it carries at most the log tail that suppresses its rows here and keeps
+    // the wrapped connector's own params untouched. Everything constant for the whole scan
+    // (bootstrap servers, table identity, client/table options) lives in
+    // TFileScanRangeParams.fluss_properties so it is not re-serialized once per bucket.
+    // Untyped on purpose: BE C++ holds no fluss logic beyond that dispatch, it hands this map
+    // straight to the Java scanner, so a typed struct would only add a transcription step (see
+    // es_params, jdbc_params).
+    15: optional map<string, string> fluss_params
 }
 
 // Deprecated, hive text talbe is a special format, not a serde type
@@ -593,13 +621,21 @@ struct TFileScanRangeParams {
     34: optional i32 iceberg_scan_semantics_version
     // FE-generated identity for sharing a deserialized table across JNI scanners in one scan node.
     35: optional string serialized_table_cache_key
-    // HMS catalog property hive.parquet.time-zone. When absent, format_v2 keeps INT96 wall-clock
-    // values unchanged. When present, only INT96 TIMESTAMP values are converted with this zone.
+    // HMS catalog property hive.parquet.time-zone. Interpretation is versioned by
+    // parquet_timestamp_semantics_version.
     36: optional string hive_parquet_time_zone
     37: optional TLanceScanParams lance_scan_params
     // Non-regular columns in the pinned full schema, including columns pruned from phase one.
     // When present, omitted names are REGULAR. Used to rebuild row-id fetch projections.
     38: optional map<string, TColumnCategory> column_name_to_category
+    // If both this marker and the timezone are absent, preserve legacy session-timezone decoding.
+    // Version 1 makes an absent/empty hive_parquet_time_zone explicitly disable INT96 conversion.
+    39: optional i32 parquet_timestamp_semantics_version
+    // Hybrid Paimon/Hudi scans keep FORMAT_JNI while individual ranges can be native Parquet.
+    40: optional bool contains_native_parquet
+    // Fluss scan-level properties (bootstrap servers, table identity, client/table options,
+    // projected columns). Set at ScanNode level to avoid redundant serialization in each split.
+    41: optional map<string, string> fluss_properties
 }
 
 struct TFileRangeDesc {
@@ -811,6 +847,29 @@ struct TLanceIndexMetadataParams {
   3: optional string table
 }
 
+// A tablet to inspect and the partition visible version to read.
+struct TIndexDiskUsageTablet {
+  1: optional i64 tablet_id
+  2: optional i64 partition_id
+  3: optional i64 version
+  // The base or rollup index that the tablet belongs to.
+  4: optional i64 materialized_index_id
+}
+
+// Parameters of the index_disk_usage table function.
+struct TIndexDiskUsageMetadataParams {
+  // "tablet", "rowset" or "segment".
+  1: optional string level
+  // Scan SNII dictionary regions to split positions out of postings.
+  2: optional bool position_detail
+  // Empty means all indexes.
+  3: optional list<i64> index_ids
+  4: optional map<i64, string> partition_names
+  5: optional list<TIndexDiskUsageTablet> tablets
+  // Names of the base and rollup indexes, keyed by materialized index id.
+  6: optional map<i64, string> materialized_index_names
+}
+
 struct TMetaScanRange {
   1: optional Types.TMetadataType metadata_type
   2: optional TIcebergMetadataParams iceberg_params // deprecated
@@ -832,6 +891,7 @@ struct TMetaScanRange {
   16: optional list<string> serialized_splits;
   17: optional TParquetMetadataParams parquet_params;
   18: optional TLanceIndexMetadataParams lance_index_params;
+  19: optional TIndexDiskUsageMetadataParams index_disk_usage_params;
 }
 
 // Specification of an individual data range which is held in its entirety
@@ -1066,14 +1126,19 @@ struct TOlapScanNode {
   24: optional bool enable_mor_value_predicate_pushdown
   // Read MOR table as DUP table: skip merge, skip delete sign
   25: optional bool read_mor_as_dup
-  // Read row binlog index instead of base index
-  26: optional bool read_row_binlog
+  // Read changelog index instead of base index
+  // ATTN(changelog-rename): formerly "read_row_binlog"
+  26: optional bool read_changelog
   // Partition boundary descriptors for BE-side runtime filter partition pruning.
   // Only partitions that are candidates for pruning are included; partitions FE
   // does not want pruned (e.g. default catch-all) are omitted from this list.
   27: optional list<TPartitionBoundary> partition_boundaries
   // Slot ids of extra storage key columns used only to align the scan tuple with storage schema.
   28: optional set<i32> extra_key_column_slot_ids
+  // FE attests: unpartitioned base index, sole non-null VARCHAR storage key
+  // equals the sole HASH distribution key, and all scan ranges carry bucket metadata.
+  // BE may prune only final inclusive point ranges; absent means disabled.
+  29: optional bool enable_scan_key_bucket_prune
 }
 
 struct TEqJoinCondition {
@@ -1260,6 +1325,9 @@ struct TBucketedAggregationNode {
   // so intermediate and output tuples are always identical.
   3: optional Types.TTupleId tuple_id
   5: optional bool need_finalize
+  // 0 selects one bucket when both sink and source have one instance, otherwise 256 buckets.
+  // Positive values must be powers of two in [1, 256]. Missing retains 256 buckets.
+  6: optional i32 num_buckets
 }
 
 struct TRepeatNode {
@@ -1785,6 +1853,9 @@ struct TPlanNode {
 
   106: optional list<i32> topn_filter_source_node_ids
   107: optional i32 nereids_id
+  // FE expression eligibility, independent of the session switch. An old FE has not checked
+  // volatility, so absence must disable condition cache on a new BE.
+  108: optional bool enable_condition_cache = false
 }
 
 // A flattened representation of a tree of PlanNodes, obtained by depth-first

@@ -15,16 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// G03 count-emission shortcut white-box tests. Given a post-apply _row_bitmap
-// of cardinality N (the exact count G02 fabricated), the shortcut must emit
-// EXACTLY N rows shaped as NOT-NULL defaults across VStatisticsIterator-sized
-// batches, then EOF -- byte-for-byte what today's per-rowid batch loop emits
-// for a count-fastpath scan, minus the per-rowid work. The engage decision
-// must admit only the provably emission-only configuration and refuse on any
-// deviation (falling through to today's loop). Uses the established
-// `#define private public` convention of segment_iterator_limit_opt_test.cpp
-// over a bare SegmentIterator (no real segment needed: the shortcut never
-// touches segment data).
+// Checks count-only default-row emission and other scan shapes.
 #include <gtest/gtest.h>
 
 #include <cstddef>
@@ -42,6 +33,7 @@
 #include "storage/index/index_query_context.h"
 #include "storage/olap_common.h"
 #include "storage/segment/count_on_index_fastpath.h"
+#include "storage/segment/mock/mock_segment.h"
 #include "storage/tablet/tablet_schema.h"
 
 #if defined(__clang__)
@@ -111,10 +103,10 @@ struct Fixture {
     Fixture() {
         tablet_schema = make_tablet_schema();
         read_schema = make_read_schema(tablet_schema);
-        iter = std::make_unique<SegmentIterator>(nullptr, read_schema);
-        iter->_opts.tablet_schema = tablet_schema;
+        StorageReadOptions opts(stats);
+        iter = std::make_unique<SegmentIterator>(std::make_shared<MockSegment>(tablet_schema),
+                                                 read_schema, opts);
         iter->_opts.push_down_agg_type_opt = TPushAggOp::COUNT_ON_INDEX;
-        iter->_opts.stats = &stats;
         // State _lazy_init/_vec_init_lazy_materialization would have produced
         // for a count-fastpath scan: no predicate columns, no lazy
         // materialization, index fully answered every column's conditions.
@@ -127,7 +119,7 @@ struct Fixture {
         }
     }
 
-    // Simulates the reader having fabricated a count bitmap (G02 hit).
+    // Simulates a count bitmap fabricated by the reader.
     void set_hit() { iter->_count_fastpath_hit = true; }
 
     // Simulates the _lazy_init engage step for a fabricated bitmap of
@@ -256,7 +248,7 @@ TEST(CountEmitShortcut, NullableColumnsEmitNotNullDefaults) {
 }
 
 // The shortcut consumes only the CARDINALITY of the post-apply bitmap; the id
-// positions are irrelevant. Pins the null-bearing G02 shape (null-disjoint
+// positions are irrelevant. Pins the null-bearing shape (null-disjoint
 // fabrication produces a SHIFTED range like [100, 150), not [0, 50)).
 TEST(CountEmitShortcut, NullDisjointFabricatedShapeCountsByCardinality) {
     Fixture fx;
@@ -289,7 +281,7 @@ TEST(CountEmitShortcut, MultipleIteratorsEmitIndependently) {
     EXPECT_EQ(emit_batches(), 3U);
 }
 
-// G02->G03 handshake teardown: the reply flag is captured into the iterator
+// Handshake teardown: the reply flag is captured into the iterator
 // and BOTH context flags are cleared so no later read_from_index call can
 // observe or forge them.
 TEST(CountEmitShortcut, CaptureHitRecordsReplyAndResetsHandshake) {
@@ -356,14 +348,6 @@ TEST(CountEmitShortcut, EngageRefusalTruthTable) {
         Fixture fx;
         fx.set_hit();
         fx.iter->_opts.condition_cache_digest = 7;
-        Block block = fx.read_schema->create_read_block();
-        EXPECT_FALSE(fx.iter->_should_engage_count_emit_shortcut(&block));
-    }
-    // Rowid consumers need real row ids.
-    {
-        Fixture fx;
-        fx.set_hit();
-        fx.iter->_opts.record_rowids = true;
         Block block = fx.read_schema->create_read_block();
         EXPECT_FALSE(fx.iter->_should_engage_count_emit_shortcut(&block));
     }

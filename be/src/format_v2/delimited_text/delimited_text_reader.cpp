@@ -32,6 +32,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "format/file_reader/new_plain_text_line_reader.h"
 #include "format/line_reader.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/materialized_reader_util.h"
@@ -42,6 +43,7 @@
 #include "runtime/runtime_state.h"
 #include "util/decompressor.h"
 #include "util/string_util.h"
+#include "util/utf8_check.h"
 
 namespace doris::format {
 namespace {
@@ -241,7 +243,7 @@ Status DelimitedTextReader::init(RuntimeState* state) {
     // each physical file slot maps to a field ordinal in the text row. The local id exposed in the
     // file schema is therefore the text-field ordinal, not the slot vector position.
     _source_column_idxs.clear();
-    if (_scan_params->__isset.column_idxs && !_scan_params->column_idxs.empty()) {
+    if (!_schema_only && _scan_params->__isset.column_idxs && !_scan_params->column_idxs.empty()) {
         if (_scan_params->column_idxs.size() != _source_file_slot_descs.size()) {
             return Status::InvalidArgument(
                     "{} v2 reader column_idxs size {} does not match file slot size {}",
@@ -268,7 +270,7 @@ Status DelimitedTextReader::init(RuntimeState* state) {
         field.identifier = Field::create_field<TYPE_STRING>(slot->col_name());
         field.local_id = _source_column_idxs[i];
         field.name = slot->col_name();
-        field.type = nullable_type(delimited_file_type_from_slot_type(slot->get_data_type_ptr()));
+        field.type = nullable_type(delimited_file_type_from_slot_type(slot->type()));
         // Delimited text stores a complex value in one top-level text field, but TableColumnMapper
         // still needs semantic children to localize nested projections and predicates. Expose
         // ARRAY element, MAP key/value, and STRUCT fields as file-schema children while keeping the
@@ -277,6 +279,49 @@ Status DelimitedTextReader::init(RuntimeState* state) {
         _file_schema.push_back(std::move(field));
     }
     _eof = false;
+    return Status::OK();
+}
+
+Status DelimitedTextReader::infer_schema(RuntimeState* state,
+                                         std::vector<ColumnDefinition>* schema) {
+    _schema_only = true;
+    RETURN_IF_ERROR(init(state));
+    if (_file_description->range_start_offset != 0) {
+        return Status::InvalidArgument("Schema inference requires a zero start offset");
+    }
+    if (_scan_params->file_type == TFileType::FILE_BROKER) {
+        return Status::NotSupported("Delimited schema inference does not support broker load");
+    }
+    RETURN_IF_ERROR(_open_file());
+    RETURN_IF_ERROR(_create_decompressor());
+    RETURN_IF_ERROR(_create_line_reader());
+    // A header is the schema input, not a data record to skip. For example,
+    // csv_with_names must return "id,name" rather than the first row's values.
+    _skip_lines = 0;
+    Slice line;
+    bool eof = false;
+    RETURN_IF_ERROR(_read_next_line(&line, &eof));
+    const auto header = to_lower(_scan_params->file_attributes.header_type);
+    const bool has_names =
+            header == BeConsts::CSV_WITH_NAMES || header == BeConsts::CSV_WITH_NAMES_AND_TYPES;
+    if (eof || line.empty()) {
+        // Empty compressed files reach this same check after decompression. Preserve the
+        // schema RPC's existing diagnostics for callers such as the empty-LZOP TVF case.
+        return Status::InternalError("The first line is empty, can not parse column {}",
+                                     has_names ? "names" : "numbers");
+    }
+    // TEXT scans allow raw bytes, but schema RPCs must retain their UTF-8 validation contract
+    // (for example, a header containing 0xFF must fail unless validation is explicitly disabled).
+    if (!validate_utf8(*_scan_params, line.data, line.size)) {
+        return Status::InternalError("Only support csv data in utf8 codec");
+    }
+    _split_line(line);
+    schema->clear();
+    for (size_t i = 0; i < _split_values.size(); ++i) {
+        const auto name = has_names ? _split_values[i].to_string() : fmt::format("c{}", i + 1);
+        schema->push_back(synthetic_file_child(
+                name, make_nullable(std::make_shared<DataTypeString>()), cast_set<int32_t>(i)));
+    }
     return Status::OK();
 }
 
@@ -343,7 +388,30 @@ Status DelimitedTextReader::get_block(Block* file_block, size_t* rows, bool* eof
             if (line_eof) {
                 break;
             }
-            RETURN_IF_ERROR(_fill_columns_from_line(line, &columns, rows));
+            const auto status = _fill_columns_from_line(line, &columns, rows);
+            if (!status.ok()) {
+                if (!_request->reject_invalid_rows ||
+                    (!status.is<ErrorCode::DATA_QUALITY_ERROR>() &&
+                     !status.is<ErrorCode::INVALID_ARGUMENT>())) {
+                    return status;
+                }
+                // A bad cell may follow already appended cells. Roll back the entire record.
+                for (auto& column : columns) {
+                    if (column->size() > *rows) {
+                        column->pop_back(column->size() - *rows);
+                    }
+                }
+                RETURN_IF_ERROR(_runtime_state->append_error_msg_to_file(
+                        [&] {
+                            return _scan_params->format_type == TFileFormatType::FORMAT_PROTO
+                                           ? std::string("binary record")
+                                           : line.to_string();
+                        },
+                        [&] { return status.to_string(); }));
+                if (_io_ctx != nullptr) {
+                    ++_io_ctx->load_filtered_rows;
+                }
+            }
         }
     }
 
@@ -458,7 +526,7 @@ Status DelimitedTextReader::_build_requested_columns(const FileScanRequest& requ
                                            _reader_name, block_position.value());
         }
         const auto* slot = _source_file_slot_descs[source_index];
-        const auto type = slot->get_data_type_ptr();
+        const auto type = slot->type();
         RequestedColumn requested_column;
         requested_column.file_column_id = file_column_id;
         requested_column.block_position = block_position;
@@ -532,8 +600,8 @@ Status DelimitedTextReader::_open_file() {
         // Stream load/http_stream data lives in NewLoadStreamMgr rather than a filesystem. The
         // generic FileFactory path only supports real file systems, so FILE_STREAM must use the
         // same pipe-reader lookup as the old CSV reader.
-        RETURN_IF_ERROR(FileFactory::create_pipe_reader(*_stream_load_id, &_file_reader,
-                                                        _runtime_state, /*need_schema=*/false));
+        RETURN_IF_ERROR(FileFactory::create_pipe_reader(
+                *_stream_load_id, &_file_reader, _runtime_state, /*need_schema=*/_schema_only));
     } else {
         auto reader_options = FileFactory::get_reader_options(_runtime_state->query_options(),
                                                               *_file_description);
@@ -555,6 +623,19 @@ Status DelimitedTextReader::_open_file() {
 Status DelimitedTextReader::_read_next_line(Slice* line, bool* eof) {
     DORIS_CHECK(line != nullptr);
     DORIS_CHECK(eof != nullptr);
+    if (_align_split_prefix) {
+        SCOPED_TIMER(_text_profile.read_line_time);
+        DCHECK_EQ(_skip_lines, 1);
+        size_t skipped_lines = 0;
+        auto* text_reader = assert_cast<NewPlainTextLineReader*>(_line_reader.get());
+        RETURN_IF_ERROR(text_reader->skip_split_prefix(_file_description->range_start_offset,
+                                                       _line_delimiter, &_line_reader_eof,
+                                                       _io_ctx.get(), &skipped_lines));
+        _align_split_prefix = false;
+        _skip_lines = 0;
+        _bom_removed = true;
+        update_counter(_text_profile.skipped_lines, skipped_lines);
+    }
     while (true) {
         const uint8_t* ptr = nullptr;
         size_t size = 0;
@@ -609,6 +690,15 @@ Status DelimitedTextReader::_fill_columns_from_line(const Slice& line,
         _split_line(line);
     }
     SCOPED_TIMER(_text_profile.deserialize_time);
+    if (_request->reject_invalid_rows) {
+        const auto expected = cast_set<size_t>(_scan_params->num_of_columns_from_file);
+        const bool ignore_extra = _scan_params->file_attributes.ignore_csv_redundant_col;
+        if (_split_values.size() < expected ||
+            (!ignore_extra && _split_values.size() != expected)) {
+            return Status::DataQualityError("Expected {} fields, found {}", expected,
+                                            _split_values.size());
+        }
+    }
     for (const auto& column : _requested_columns) {
         auto* output = (*columns)[column.block_position.value()].get();
         const int32_t field_index = column.file_column_id.value();

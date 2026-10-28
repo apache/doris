@@ -48,6 +48,8 @@
 #include "cpp/obj-client/azure_obj_storage_client.h"
 #endif
 #include "cpp/aws_logger.h"
+#include "cpp/obj-client/auth/obj_credential.h"
+#include "cpp/obj-client/auth/obj_s3_client_factory.h"
 #include "cpp/obj-client/rate_limited_obj_storage_client.h"
 #include "cpp/obj-client/s3_obj_storage_client.h"
 #include "cpp/obj_retry_strategy.h"
@@ -301,6 +303,8 @@ std::optional<S3Conf> S3Conf::from_obj_store_info(const ObjectStoreInfoPB& obj_i
         }
     }
 
+    convert_obj_credential(obj_info, &s3_conf.credential);
+
     s3_conf.endpoint = obj_info.endpoint();
     s3_conf.region = obj_info.region();
     s3_conf.bucket = obj_info.bucket();
@@ -325,15 +329,7 @@ std::string S3Accessor::to_uri(const std::string& relative_path) const {
 
 int S3Accessor::create(S3Conf conf, std::shared_ptr<S3Accessor>* accessor) {
     TEST_SYNC_POINT_RETURN_WITH_VALUE("S3Accessor::init.s3_init_failed", (int)-1);
-    switch (conf.provider) {
-    case S3Conf::GCS:
-        *accessor = std::make_shared<GcsAccessor>(conf);
-        break;
-    default:
-        *accessor = std::make_shared<S3Accessor>(conf);
-        break;
-    }
-
+    *accessor = std::make_shared<S3Accessor>(conf);
     return (*accessor)->init();
 }
 
@@ -468,10 +464,16 @@ int S3Accessor::init() {
             LOG(WARNING) << "failed to create AWS credential provider: " << credentials.error;
             return -1;
         }
-        auto s3_client = std::make_shared<Aws::S3::S3Client>(
-                std::move(credentials.provider), std::move(aws_config),
-                Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
-                conf_.use_virtual_addressing /* useVirtualAddressing */);
+        auto s3_client = doris::make_s3_client(
+                conf_.credential,
+                doris::S3ClientBuildContext {
+                        .fallback_provider = std::move(credentials.provider),
+                        .config = std::move(aws_config),
+                        .payload_signing_policy =
+                                Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
+                        .use_virtual_addressing = conf_.use_virtual_addressing,
+                        .ca_cert_path = _ca_cert_file_path,
+                });
         auto client = std::make_shared<S3ObjStorageClient>(std::move(s3_client),
                                                            ObjStorageEndpointInfo {
                                                                    .endpoint = conf_.endpoint,
@@ -609,85 +611,6 @@ int S3Accessor::get_lifecycle(int64_t* expiration_days) {
 
 int S3Accessor::check_versioning() {
     return obj_client_->check_versioning(conf_.bucket).status.code;
-}
-
-int GcsAccessor::delete_prefix_impl(const std::string& path_prefix, int64_t expiration_time) {
-    LOG_INFO("begin delete prefix").tag("uri", to_uri(path_prefix));
-
-    int ret = 0;
-    int cnt = 0;
-    int skip = 0;
-    int64_t del_nonexisted = 0;
-    int del = 0;
-    auto iter = obj_client_->list_objects({.bucket = conf_.bucket, .prefix = get_key(path_prefix)});
-    for (;;) {
-        auto result = iter->next();
-        if (!result.object.has_value()) {
-            if (result.resp.status.code != ObjStorageStatus::NOT_FOUND &&
-                result.resp.status.code != ObjStorageStatus::OK) {
-                ret = result.resp.status.code;
-            }
-            break;
-        }
-        auto& obj = *result.object;
-        if (!(++cnt % 100)) {
-            LOG_INFO("loop delete prefix")
-                    .tag("uri", to_uri(path_prefix))
-                    .tag("total_obj_cnt", cnt)
-                    .tag("deleted", del)
-                    .tag("del_nonexisted", del_nonexisted)
-                    .tag("skipped", skip);
-        }
-        if (expiration_time > 0 && obj.mtime_s > expiration_time) {
-            skip++;
-            continue;
-        }
-        del++;
-
-        // FIXME(plat1ko): Delete objects by batch with genuine GCS client
-        int del_ret =
-                obj_client_->delete_object({.bucket = conf_.bucket, .key = obj.key}).status.code;
-        del_nonexisted += (del_ret == ObjStorageStatus::NOT_FOUND);
-        static_assert(ObjStorageStatus::OK == 0);
-        if (del_ret != ObjStorageStatus::OK && del_ret != ObjStorageStatus::NOT_FOUND) {
-            ret = del_ret;
-        }
-    }
-
-    LOG_INFO("finish delete prefix")
-            .tag("uri", to_uri(path_prefix))
-            .tag("total_obj_cnt", cnt)
-            .tag("deleted", del)
-            .tag("del_nonexisted", del_nonexisted)
-            .tag("skipped", skip);
-
-    if (!iter->is_valid()) {
-        return -1;
-    }
-
-    return ret;
-}
-
-int GcsAccessor::delete_files(const std::vector<std::string>& paths) {
-    std::vector<int> delete_rets(paths.size());
-#ifdef USE_LIBCPP
-    std::transform(paths.begin(), paths.end(), delete_rets.begin(),
-#else
-    std::transform(std::execution::par, paths.begin(), paths.end(), delete_rets.begin(),
-#endif
-                   [this](const std::string& path) {
-                       LOG_INFO("delete file").tag("uri", to_uri(path));
-                       return delete_file(path);
-                   });
-
-    int ret = 0;
-    for (int delete_ret : delete_rets) {
-        if (delete_ret != 0) {
-            ret = delete_ret;
-            break;
-        }
-    }
-    return ret;
 }
 
 } // namespace doris::cloud

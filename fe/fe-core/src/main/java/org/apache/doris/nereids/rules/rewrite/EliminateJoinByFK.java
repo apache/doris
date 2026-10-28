@@ -77,7 +77,7 @@ public class EliminateJoinByFK extends OneRewriteRuleFactory {
 
     private @Nullable Plan tryEliminatePrimary(LogicalProject<LogicalJoin<Plan, Plan>> project,
             ImmutableEqualSet<Slot> equalSet, Plan primary, Plan foreign) {
-        if (!JoinUtils.canEliminateByFk(project.child(), primary, foreign)) {
+        if (JoinUtils.canEliminateByFk(project.child(), primary, foreign) == null) {
             return null;
         }
         Set<Slot> output = project.getInputSlots();

@@ -35,6 +35,7 @@ import org.apache.doris.thrift.TReportExecStatusResult;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.transaction.CommitDataSerializer;
 
 import com.google.common.base.Strings;
 import com.google.common.cache.Cache;
@@ -218,6 +219,11 @@ public final class QeProcessorImpl implements QeProcessor {
 
         // Run connector-registered query-finish callbacks (e.g. committing a hive
         // read transaction). Connector-agnostic: fe-core names no source here.
+        finishQueryCallbacks(queryId);
+    }
+
+    @Override
+    public void finishQueryCallbacks(TUniqueId queryId) {
         queryFinishCallbackRegistry.runAndClear(DebugUtil.printId(queryId));
     }
 
@@ -337,7 +343,7 @@ public final class QeProcessorImpl implements QeProcessor {
     }
 
     private static boolean hasExternalCommitData(TReportExecStatusParams params) {
-        return params.isSetHivePartitionUpdates() || params.isSetIcebergCommitDatas() || params.isSetMcCommitDatas();
+        return CommitDataSerializer.hasCommitData(params);
     }
 
     private static String externalFileReportKey(TReportExecStatusParams params) {

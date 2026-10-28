@@ -63,6 +63,20 @@ Status validate_deletion_vector_read_range(const char* description, int64_t offs
     return Status::OK();
 }
 
+// A deletion vector belongs to the snapshot that planned its data file, so a missing one is never a
+// stale file listing. The file scanners skip a data file whose reader reports NOT_FOUND when
+// ignore_not_found_file_in_external_table is on. Example: a Paimon split reads data file F with
+// deletion vector D1, and D1 is gone (expired with an older snapshot, or written under a partition
+// name that is never found) while F is still live. NOT_FOUND would skip F and drop its surviving rows
+// together with the deleted ones, so the query must fail instead.
+Status missing_file_as_error(Status status, const std::string& path) {
+    if (status.is<ErrorCode::NOT_FOUND>()) {
+        return Status::InternalError("Deletion vector file is missing: path {}, {}", path,
+                                     status.msg());
+    }
+    return status;
+}
+
 } // namespace
 
 Status validate_iceberg_deletion_vector_read_range(int64_t offset, int64_t size,
@@ -134,7 +148,7 @@ Status DeletionVectorReader::open() {
 
     _init_system_properties();
     _init_file_description();
-    RETURN_IF_ERROR(_create_file_reader());
+    RETURN_IF_ERROR(missing_file_as_error(_create_file_reader(), _desc.path));
 
     const size_t file_size = _file_reader->size();
     const size_t start_offset = static_cast<size_t>(_desc.start_offset);
@@ -157,7 +171,8 @@ Status DeletionVectorReader::read_at(size_t offset, Slice result) {
         _io_ctx->should_stop = _parent_io_ctx->should_stop;
     }
     size_t bytes_read = 0;
-    RETURN_IF_ERROR(_file_reader->read_at(offset, result, &bytes_read, _io_ctx));
+    RETURN_IF_ERROR(missing_file_as_error(
+            _file_reader->read_at(offset, result, &bytes_read, _io_ctx), _desc.path));
     if (bytes_read != result.size) [[unlikely]] {
         return Status::IOError("Failed to read fully at offset {}, expected {}, got {}", offset,
                                result.size, bytes_read);

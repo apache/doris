@@ -17,6 +17,9 @@
 
 package org.apache.doris.datasource.jdbc.client;
 
+import org.apache.doris.catalog.Type;
+import org.apache.doris.datasource.jdbc.util.JdbcFieldSchema;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Answers;
@@ -24,6 +27,7 @@ import org.mockito.Mockito;
 
 import java.lang.reflect.Method;
 import java.sql.DatabaseMetaData;
+import java.util.Optional;
 
 public class JdbcClickHouseClientTest {
 
@@ -47,6 +51,30 @@ public class JdbcClickHouseClientTest {
         Assertions.assertArrayEquals(
                 new String[] {"TABLE", "VIEW", "SYSTEM TABLE", "REMOTE TABLE", "MATERIALIZED VIEW"},
                 client.getTableTypes());
+    }
+
+    @Test
+    public void testUuidMapsToNativeType() {
+        JdbcClickHouseClient client = Mockito.mock(JdbcClickHouseClient.class, Answers.CALLS_REAL_METHODS);
+        JdbcFieldSchema field = Mockito.mock(JdbcFieldSchema.class);
+        Mockito.when(field.getDataTypeName()).thenReturn(Optional.of("UUID"));
+
+        Assertions.assertEquals(Type.UUID, client.jdbcTypeToDoris(field));
+    }
+
+    @Test
+    public void testPrefixedDriverVersions() throws Exception {
+        Method method = JdbcClickHouseClient.class.getDeclaredMethod("isNewClickHouseDriver", String.class);
+        method.setAccessible(true);
+        Assertions.assertFalse((boolean) method.invoke(null,
+                "clickhouse-jdbc 0.3.2-patch11 (revision: 27f8951)"));
+        Assertions.assertFalse((boolean) method.invoke(null, "clickhouse-jdbc 0.4.2 (revision: 1513b27)"));
+        Assertions.assertTrue((boolean) method.invoke(null, "clickhouse-jdbc 0.5.0 (revision: test)"));
+        Assertions.assertTrue((boolean) method.invoke(null, "clickhouse-jdbc 1.0.0"));
+        DatabaseMetaData metadata = Mockito.mock(DatabaseMetaData.class);
+        Mockito.when(metadata.supportsCatalogsInDataManipulation()).thenReturn(true);
+        Assertions.assertFalse(JdbcClickHouseClient.isDatabaseTermCatalog(metadata,
+                "clickhouse-jdbc 0.3.2-patch11 (revision: 27f8951)"));
     }
 
     @Test

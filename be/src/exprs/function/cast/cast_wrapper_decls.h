@@ -22,33 +22,36 @@
 namespace doris::CastWrapper {
 
 // Implemented in function_cast_int.cpp
-WrapperType create_int_wrapper(FunctionContext* context, const DataTypePtr& from_type,
+WrapperType create_int_wrapper(const CastOptions& options, const DataTypePtr& from_type,
                                PrimitiveType to_type);
 
 // Implemented in function_cast_float.cpp
-WrapperType create_float_wrapper(FunctionContext* context, const DataTypePtr& from_type,
+WrapperType create_float_wrapper(const CastOptions& options, const DataTypePtr& from_type,
                                  PrimitiveType to_type);
 
 // Implemented in function_cast_decimal.cpp
-WrapperType create_decimal_wrapper(FunctionContext* context, const DataTypePtr& from_type,
+WrapperType create_decimal_wrapper(const CastOptions& options, const DataTypePtr& from_type,
                                    PrimitiveType to_type);
 
 // Implemented in function_cast_date.cpp (handles DATE / DATETIME / DATEv2 / DATETIMEv2 / TIMEv2)
-WrapperType create_datelike_wrapper(FunctionContext* context, const DataTypePtr& from_type,
+WrapperType create_datelike_wrapper(const CastOptions& options, const DataTypePtr& from_type,
                                     PrimitiveType to_type);
 
 // Implemented in function_cast_timestamp_ns.cpp
-WrapperType create_timestamp_ns_wrapper(FunctionContext* context, const DataTypePtr& from_type);
+WrapperType create_timestamp_ns_wrapper(const CastOptions& options, const DataTypePtr& from_type);
 
 // Implemented in function_cast_timestamptz.cpp
-WrapperType create_timestamptz_wrapper(FunctionContext* context, const DataTypePtr& from_type);
+WrapperType create_timestamptz_wrapper(const CastOptions& options, const DataTypePtr& from_type);
 
 // Implemented in function_cast_ip.cpp
-WrapperType create_ip_wrapper(FunctionContext* context, const DataTypePtr& from_type,
+WrapperType create_ip_wrapper(const CastOptions& options, const DataTypePtr& from_type,
                               PrimitiveType to_type);
 
+// Implemented in function_cast_uuid.cpp
+WrapperType create_uuid_wrapper(const CastOptions& options, const DataTypePtr& from_type);
+
 // Implemented in function_cast_bool.cpp
-WrapperType create_boolean_wrapper(FunctionContext* context, const DataTypePtr& from_type);
+WrapperType create_boolean_wrapper(const CastOptions& options, const DataTypePtr& from_type);
 
 // Implemented in function_cast_string.cpp
 WrapperType create_string_wrapper(const DataTypePtr& from_type);

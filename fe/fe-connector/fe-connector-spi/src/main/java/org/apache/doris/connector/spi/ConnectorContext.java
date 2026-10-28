@@ -20,6 +20,8 @@ package org.apache.doris.connector.spi;
 import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.Callable;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.RunnableFuture;
 
 /**
  * Runtime context provided by fe-core to connector implementations.
@@ -32,11 +34,33 @@ import java.util.concurrent.Callable;
  */
 public interface ConnectorContext {
 
+    /**
+     * Offers independent metadata work to the engine's shared scheduling pool without waiting for queue space.
+     * The returned task may remain unstarted when the pool is full. Its owner MUST call {@code run()} before
+     * {@code get()}: FutureTask arbitrates execution exactly once, so the caller can help its own queued work
+     * even when every pool worker is occupied by a parent task. Always use get() to observe completion/errors.
+     * Cancel unused tasks; completion/cancellation removes accepted work from the engine queue.
+     * The callable owns its plugin classloader and authentication context. The default defers to caller help.
+     */
+    default <T> RunnableFuture<T> submitMetadataTask(Callable<T> task) {
+        return new FutureTask<>(task);
+    }
+
+    /** Returns the captured query-owned scheduler for independent metadata children. */
+    default ConnectorTaskScheduler getMetadataTaskScheduler(ConnectorSession session) {
+        return session.getTaskScheduler(ConnectorTaskScheduler.Stage.METADATA);
+    }
+
     /** Returns the catalog name. */
     String getCatalogName();
 
     /** Returns the catalog ID. */
     long getCatalogId();
+
+    /** Returns the persisted Doris cluster id used to namespace external commit identities. */
+    default int getClusterId() {
+        return 0;
+    }
 
     /**
      * Returns engine-level environment properties that connectors may need.

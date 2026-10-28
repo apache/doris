@@ -38,13 +38,16 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "exec/scan/scanner.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
+#include "format/json/new_json_reader.h"
 #include "format_v2/column_data.h"
 #include "io/io_common.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_profile.h"
 #include "testutil/mock/mock_runtime_state.h"
+#include "testutil/scoped_temp_dir.h"
 
 namespace doris::format::json {
 namespace {
@@ -136,9 +139,8 @@ std::unique_ptr<io::FileDescription> file_description(const std::string& path) {
 }
 
 std::filesystem::path write_json_file(const std::string& name, const std::string& content) {
-    const auto test_dir = std::filesystem::temp_directory_path() / "doris_format_v2_json_reader";
-    std::filesystem::create_directories(test_dir);
-    const auto file_path = test_dir / name;
+    static const doris::test::ScopedTempDirectory test_dir("doris_format_v2_json_reader");
+    const auto file_path = test_dir.path() / name;
     std::ofstream out(file_path);
     out << content;
     return file_path;
@@ -174,13 +176,15 @@ struct ReadResult {
     size_t second_rows = 0;
     bool second_eof = false;
     size_t document_buffer_size = 0;
+    int64_t rejected_rows = 0;
+    std::map<LocalColumnId, std::vector<uint8_t>> missing_fields;
     std::vector<ColumnDefinition> schema;
 };
 
 ReadResult read_once(const std::string& file_name, const std::string& content,
                      TFileScanRangeParams params, const std::vector<SlotDescriptor*>& slots,
                      const std::vector<int32_t>& requested_local_ids, bool read_twice = false,
-                     bool is_hive_table = false) {
+                     bool is_hive_table = false, bool reject_invalid_rows = false) {
     const auto file_path = write_json_file(file_name, content);
     auto range = file_range(file_path);
     if (is_hive_table) {
@@ -194,7 +198,8 @@ ReadResult read_once(const std::string& file_name, const std::string& content,
     auto desc = file_description(file_path.string());
     RuntimeProfile profile("json_v2_reader_test");
     MockRuntimeState state;
-    JsonReader reader(system_properties, desc, nullptr, &profile, &params, range, slots);
+    auto io_ctx = std::make_shared<io::IOContext>();
+    JsonReader reader(system_properties, desc, io_ctx, &profile, &params, range, slots);
 
     ReadResult result;
     result.status = reader.init(&state);
@@ -207,6 +212,7 @@ ReadResult read_once(const std::string& file_name, const std::string& content,
     }
 
     auto request = std::make_shared<FileScanRequest>();
+    request->reject_invalid_rows = reject_invalid_rows;
     for (size_t i = 0; i < requested_local_ids.size(); ++i) {
         request->local_positions.emplace(LocalColumnId(requested_local_ids[i]), LocalIndex(i));
     }
@@ -218,6 +224,8 @@ ReadResult read_once(const std::string& file_name, const std::string& content,
     result.block = make_block(result.schema, requested_local_ids);
     result.status = reader.get_block(&result.block, &result.rows, &result.eof);
     result.document_buffer_size = reader.TEST_document_buffer_size();
+    result.rejected_rows = io_ctx->load_filtered_rows;
+    result.missing_fields = reader.missing_fields();
     if (result.status.ok() && read_twice) {
         auto eof_block = make_block(result.schema, requested_local_ids);
         result.second_status =
@@ -300,6 +308,179 @@ VExprContextSPtr prepared_conjunct(RuntimeState* state, const VExprSPtr& expr) {
 }
 
 } // namespace
+
+// Exercise both readers with the same physical splits and compare the complete record sequence,
+// since a row-count assertion alone can hide one lost record and one duplicated record.
+class JsonReaderSplitTest : public testing::TestWithParam<bool> {
+protected:
+    void read_range(const std::filesystem::path& path, const std::string& delimiter, int64_t start,
+                    int64_t size, std::vector<int32_t>* ids) {
+        auto params = json_scan_params();
+        params.file_attributes.text_params.__set_line_delimiter(delimiter);
+        auto range = file_range(path);
+        range.__set_start_offset(start);
+        range.__set_size(size);
+        ObjectPool pool;
+        auto type = make_nullable(std::make_shared<DataTypeInt32>());
+        std::vector<SlotDescriptor*> slots {make_test_slot(&pool, 0, 0, type, "id")};
+        RuntimeProfile profile("json_split_test");
+        MockRuntimeState state;
+        state._batch_size = 2;
+
+        auto read_blocks = [&](auto&& next_block) {
+            bool eof = false;
+            while (!eof) {
+                Block block;
+                block.insert({type->create_column(), type, "id"});
+                size_t rows = 0;
+                auto status = next_block(&block, &rows, &eof);
+                ASSERT_TRUE(status.ok()) << status;
+                ASSERT_EQ(rows, block.rows());
+                const auto& nullable =
+                        assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+                const auto& column = assert_cast<const ColumnInt32&>(nullable.get_nested_column());
+                for (size_t row = 0; row < rows; ++row) {
+                    ASSERT_FALSE(nullable.is_null_at(row));
+                    ids->push_back(column.get_element(row));
+                }
+            }
+        };
+
+        if (GetParam()) {
+            auto properties = std::make_shared<io::FileSystemProperties>();
+            properties->system_type = TFileType::FILE_LOCAL;
+            auto desc = file_description(path.string());
+            desc->range_start_offset = start;
+            desc->range_size = size;
+            JsonReader reader(properties, desc, nullptr, &profile, &params, range, slots);
+            ASSERT_TRUE(reader.init(&state).ok());
+            auto request = std::make_shared<FileScanRequest>();
+            request->local_positions.emplace(LocalColumnId(0), LocalIndex(0));
+            ASSERT_TRUE(reader.open(request).ok());
+            read_blocks([&](Block* block, size_t* rows, bool* eof) {
+                return reader.get_block(block, rows, eof);
+            });
+        } else {
+            ScannerCounter counter;
+            bool scanner_eof = false;
+            auto reader =
+                    NewJsonReader::create_unique(&state, &profile, &counter, params, range, slots,
+                                                 &scanner_eof, state.batch_size(), nullptr);
+            ASSERT_TRUE(reader->init_reader({}, true).ok());
+            read_blocks([&](Block* block, size_t* rows, bool* eof) {
+                return reader->get_next_block(block, rows, eof);
+            });
+            EXPECT_EQ(counter.num_rows_filtered, 0);
+        }
+    }
+};
+
+TEST_P(JsonReaderSplitTest, EveryByteBoundaryPreservesRecords) {
+    // Includes single-byte delimiters, CRLF, UTF-8 bytes, and a delimiter longer than a record
+    // to cover starts smaller than the amount of lookbehind. Test EOF with and without a delimiter.
+    for (const std::string delimiter : {"\n", "\r\n", "ABCDE", "\xE2\x98\x83", "ABCDEFGHIJKLM"}) {
+        for (bool trailing_delimiter : {false, true}) {
+            SCOPED_TRACE(testing::Message()
+                         << "delimiter=" << delimiter << ", trailing=" << trailing_delimiter);
+            std::string content =
+                    R"({"id":1})" + delimiter + R"({"id":2})" + delimiter + R"({"id":3})";
+            if (trailing_delimiter) {
+                content += delimiter;
+            }
+            const auto path = write_json_file("split_boundaries.json", content);
+            const auto file_size = static_cast<int64_t>(content.size());
+            const std::vector<int32_t> expected {1, 2, 3};
+            std::vector<int32_t> unsplit;
+            ASSERT_NO_FATAL_FAILURE(read_range(path, delimiter, 0, file_size, &unsplit));
+            ASSERT_EQ(unsplit, expected);
+            for (int64_t split = 1; split < file_size; ++split) {
+                SCOPED_TRACE(testing::Message() << "split=" << split);
+                std::vector<int32_t> ids;
+                ASSERT_NO_FATAL_FAILURE(read_range(path, delimiter, 0, split, &ids));
+                ASSERT_NO_FATAL_FAILURE(
+                        read_range(path, delimiter, split, file_size - split, &ids));
+                ASSERT_EQ(ids, expected);
+            }
+        }
+    }
+}
+
+TEST_P(JsonReaderSplitTest, OverlappingDelimitersPreserveRecords) {
+    for (const std::string delimiter : {"\n\n", "\r\n\r\n", " \t "}) {
+        for (bool trailing_delimiter : {false, true}) {
+            SCOPED_TRACE(testing::Message()
+                         << "delimiter=" << delimiter << ", trailing=" << trailing_delimiter);
+            // The delimiter followed by its prefix has overlapping matches. For "\n\n", a split
+            // at byte 11 previously returned {1, 2, 2, 3}: the two splits matched different pairs
+            // of newlines in the three-newline run before id=2.
+            std::string content = R"({"id":1})" + delimiter +
+                                  delimiter.substr(0, delimiter.size() / 2) + R"({"id":2})" +
+                                  delimiter + R"({"id":3})";
+            if (trailing_delimiter) {
+                content += delimiter;
+            }
+            const auto path = write_json_file("overlapping_delimiters.json", content);
+            const auto file_size = static_cast<int64_t>(content.size());
+            const std::vector<int32_t> expected {1, 2, 3};
+            std::vector<int32_t> unsplit;
+            ASSERT_NO_FATAL_FAILURE(read_range(path, delimiter, 0, file_size, &unsplit));
+            ASSERT_EQ(unsplit, expected);
+            for (int64_t split = 1; split < file_size; ++split) {
+                SCOPED_TRACE(testing::Message() << "split=" << split);
+                std::vector<int32_t> ids;
+                ASSERT_NO_FATAL_FAILURE(read_range(path, delimiter, 0, split, &ids));
+                ASSERT_NO_FATAL_FAILURE(
+                        read_range(path, delimiter, split, file_size - split, &ids));
+                ASSERT_EQ(ids, expected);
+            }
+            std::vector<int32_t> ids;
+            for (int64_t start = 0; start < file_size; ++start) {
+                ASSERT_NO_FATAL_FAILURE(read_range(path, delimiter, start, 1, &ids));
+            }
+            EXPECT_EQ(ids, expected);
+        }
+    }
+}
+
+TEST_P(JsonReaderSplitTest, OverlappingDelimiterRunCrossesLookbehindBuffers) {
+    const std::string delimiter = "\n\n";
+    // An odd run longer than the alignment scratch buffer must be replayed from its true start.
+    const std::string prefix = R"({"id":1})" + std::string(64 * 1024 + 3, '\n');
+    const std::string content = prefix + R"({"id":2})" + delimiter + R"({"id":3})";
+    const auto path = write_json_file("long_overlapping_delimiters.json", content);
+    const auto file_size = static_cast<int64_t>(content.size());
+    const auto split = static_cast<int64_t>(prefix.size());
+    const std::vector<int32_t> expected {1, 2, 3};
+    std::vector<int32_t> ids;
+    ASSERT_NO_FATAL_FAILURE(read_range(path, delimiter, 0, split, &ids));
+    ASSERT_NO_FATAL_FAILURE(read_range(path, delimiter, split, file_size - split, &ids));
+    EXPECT_EQ(ids, expected);
+}
+
+TEST_P(JsonReaderSplitTest, FourRangesPreserveEveryRecord) {
+    const std::string delimiter = "ABCDE";
+    std::string content;
+    std::vector<int32_t> expected;
+    // Equal-width, distinct IDs retain deterministic byte boundaries while detecting duplicates.
+    for (int32_t id = 100; id < 503; ++id) {
+        content += "{\"id\":" + std::to_string(id) + "}" + delimiter;
+        expected.push_back(id);
+    }
+    const auto path = write_json_file("four_ranges.json", content);
+    const auto file_size = static_cast<int64_t>(content.size());
+    const int64_t bytes_per_range = file_size / 4 + 1;
+    std::vector<int32_t> ids;
+    for (int64_t start = 0; start < file_size; start += bytes_per_range) {
+        ASSERT_NO_FATAL_FAILURE(read_range(path, delimiter, start,
+                                           std::min(bytes_per_range, file_size - start), &ids));
+    }
+    EXPECT_EQ(ids, expected);
+}
+
+INSTANTIATE_TEST_SUITE_P(LegacyAndV2, JsonReaderSplitTest, testing::Bool(),
+                         [](const testing::TestParamInfo<bool>& info) {
+                             return info.param ? "V2" : "Legacy";
+                         });
 
 TEST(JsonReaderTest, ReadsRequestedColumnsInFileScanRequestOrder) {
     ObjectPool pool;
@@ -392,6 +573,20 @@ TEST(JsonReaderTest, ReadsJsonPathsBySourceSlotAndReturnsRequestedBlockOrder) {
     EXPECT_EQ(nullable_string_at(*result.block.get_by_position(0).column, 1), "heidi");
     EXPECT_EQ(nullable_int_at(*result.block.get_by_position(1).column, 0), 7);
     EXPECT_EQ(nullable_int_at(*result.block.get_by_position(1).column, 1), 8);
+}
+
+TEST(JsonReaderTest, ReadsJsonPathsFromAnArraySelectedByJsonRoot) {
+    ObjectPool pool;
+    auto slots = build_slots(&pool);
+    auto result = read_once(
+            "rooted_outer_array_jsonpaths.json",
+            R"({"rows":[{"payload":{"id":12,"user":"kate"}},{"payload":{"id":13,"user":"leo"}}]})",
+            json_scan_params(false, true, R"(["$.payload.id","$.payload.user"])", "$.rows"), slots,
+            {0, 1});
+    ASSERT_TRUE(result.status.ok()) << result.status.to_string();
+    ASSERT_EQ(result.rows, 2);
+    EXPECT_EQ(nullable_int_at(*result.block.get_by_position(0).column, 0), 12);
+    EXPECT_EQ(nullable_string_at(*result.block.get_by_position(1).column, 1), "leo");
 }
 
 TEST(JsonReaderTest, ReadsJsonPathsFromSingleDocumentOuterArray) {
@@ -535,6 +730,40 @@ TEST(JsonReaderTest, RejectsInvalidFileScanRequestsBeforeOpeningFile) {
     status = reader.get_block(&block, &rows, &eof);
     EXPECT_FALSE(status.ok());
     EXPECT_NE(status.to_string().find("reader is not open"), std::string::npos);
+}
+
+TEST(JsonReaderTest, LoadRejectsMalformedRecordsAndPreservesFieldPresence) {
+    ObjectPool pool;
+    auto slots = build_slots(&pool);
+    auto result = read_once("load_missing.jsonl",
+                            "not-json\n"
+                            R"({"id":1})"
+                            "\n"
+                            R"({"id":2,"name":null})"
+                            "\n"
+                            R"({"id":3,"name":"ok"})"
+                            "\n",
+                            json_scan_params(), slots, {1, 0}, true, false, true);
+    ASSERT_TRUE(result.status.ok()) << result.status;
+    ASSERT_EQ(result.rows, 3);
+    EXPECT_EQ(result.rejected_rows, 1);
+    EXPECT_TRUE(result.block.get_by_position(0).column->is_null_at(0));
+    EXPECT_TRUE(result.block.get_by_position(0).column->is_null_at(1));
+    EXPECT_EQ(result.missing_fields.at(LocalColumnId(1)), (std::vector<uint8_t> {1, 0, 0}));
+    EXPECT_TRUE(result.second_status.ok());
+    EXPECT_TRUE(result.second_eof);
+}
+
+TEST(JsonReaderTest, LoadRejectsUnmatchedArrayElementWithoutLosingSiblings) {
+    ObjectPool pool;
+    auto slots = build_slots(&pool);
+    auto result = read_once("load_array.json",
+                            R"([{"id":1,"name":"a"},{"unknown":2},{"id":3,"name":"c"}])",
+                            json_scan_params(false, true), slots, {0, 1}, true, false, true);
+    ASSERT_TRUE(result.status.ok()) << result.status;
+    EXPECT_EQ(result.rows, 2);
+    EXPECT_EQ(result.rejected_rows, 1);
+    EXPECT_TRUE(result.second_eof);
 }
 
 TEST(JsonReaderTest, ReturnsErrorForMalformedJsonByDefault) {

@@ -30,6 +30,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -302,6 +303,8 @@ public class NereidsStreamLoadPlanner {
         params.setTotalLoadStreams(taskInfo.getStreamPerNode());
         params.setNumLocalSink(1);
         TQueryOptions queryOptions = new TQueryOptions();
+        // Load plans do not inherit session query options; explicitly select the V2 load path.
+        queryOptions.setEnableFileScannerV2(true);
         queryOptions.setQueryType(TQueryType.LOAD);
         int timeout = taskInfo.getTimeout();
         queryOptions.setQueryTimeout(timeout);
@@ -326,7 +329,7 @@ public class NereidsStreamLoadPlanner {
         params.setQueryOptions(queryOptions);
         TQueryGlobals queryGlobals = new TQueryGlobals();
         CoordinatorContext.setQueryGlobalsCurrentTime(queryGlobals);
-        queryGlobals.setTimeZone(taskInfo.getTimezone());
+        queryGlobals.setTimeZone(TimeUtils.getCanonicalTimeZone(taskInfo.getTimezone()));
         if (taskInfo instanceof NereidsRoutineLoadTaskInfo) {
             queryGlobals.setLoadZeroTolerance(false);
         } else {

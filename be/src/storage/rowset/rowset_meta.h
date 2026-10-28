@@ -72,7 +72,18 @@ public:
     // Note that if the resource id cannot be found for the corresponding remote file system, nullptr will be returned.
     MOCK_FUNCTION io::FileSystemSPtr fs();
 
+    // The bare file system holding this rowset's files. It resolves neither packed files nor
+    // encryption, so it cannot open a segment whose bytes live inside a packed object. Prefer
+    // `fs()`, or `packed_physical_fs()` when the raw bytes are what you are after.
     io::FileSystemSPtr physical_fs();
+
+    // Same as `physical_fs()`, but additionally wrapped with `PackedFileSystem` when this
+    // rowset's files are packed into shared objects, so that segment/index paths still
+    // resolve. Unlike `fs()`, no encryption layer is applied, i.e. reads return the raw
+    // on-disk bytes. Callers that inspect the physical layout of a file (encryption footer,
+    // magic code, ...) must use this instead of `physical_fs()`, otherwise packed files
+    // cannot be opened at all.
+    io::FileSystemSPtr packed_physical_fs();
 
     Result<const StorageResource*> remote_storage_resource();
 
@@ -139,10 +150,10 @@ public:
         _rowset_meta_pb.set_tablet_schema_hash(tablet_schema_hash);
     }
 
-    void mark_row_binlog() { _rowset_meta_pb.set_is_row_binlog(true); }
+    void mark_changelog() { _rowset_meta_pb.set_is_changelog(true); }
 
-    bool is_row_binlog() const {
-        return _rowset_meta_pb.has_is_row_binlog() && _rowset_meta_pb.is_row_binlog();
+    bool is_changelog() const {
+        return _rowset_meta_pb.has_is_changelog() && _rowset_meta_pb.is_changelog();
     }
 
     RowsetTypePB rowset_type() const { return _rowset_meta_pb.rowset_type(); }
@@ -318,7 +329,7 @@ public:
 
     RowsetSegmentMetaRange segments() const;
 
-    size_t position_of(int64_t seg_id) const;
+    Result<size_t> position_of(int64_t seg_id) const;
 
     // Convert to RowsetMetaPB, skip_schema is only used by cloud to separate schema from rowset meta.
     void to_rowset_pb(RowsetMetaPB* rs_meta_pb, bool skip_schema = false) const;
@@ -362,11 +373,11 @@ public:
     // 1. The rowset contains more than one segment.
     // 2. segments_overlap() is not NONOVERLAPPING (OVERLAP_UNKNOWN, OVERLAPPING, and
     //    NONOVERLAPPING_WITHIN_GROUP are considered overlapping).
-    // 3. The rowset has a singleton version, except row-binlog LMax quick merge rowsets that
+    // 3. The rowset has a singleton version, except changelog LMax quick merge rowsets that
     //    explicitly set segments_overlap() to OVERLAPPING.
     bool is_segments_overlapping() const {
         return num_segments() > 1 && segments_overlap() != NONOVERLAPPING &&
-               (is_singleton_delta() || (is_row_binlog() && segments_overlap() == OVERLAPPING));
+               (is_singleton_delta() || (is_changelog() && segments_overlap() == OVERLAPPING));
     }
 
     bool produced_by_compaction() const {
@@ -572,6 +583,10 @@ public:
     }
 
 private:
+    // Wraps `fs` with `PackedFileSystem` if this rowset has packed slice locations,
+    // otherwise returns `fs` unchanged.
+    io::FileSystemSPtr _wrap_packed_fs(io::FileSystemSPtr fs);
+
     bool _deserialize_from_pb(std::string_view value);
 
     bool _serialize_to_pb(std::string* value);

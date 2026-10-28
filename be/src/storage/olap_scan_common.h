@@ -125,9 +125,9 @@ public:
 
     bool is_high_value_maximum() const { return Compare::equal(_high_value, TYPE_MAX); }
 
-    bool is_begin_include() const { return _low_op == FILTER_LARGER_OR_EQUAL; }
+    bool is_begin_include() const { return _low_op == SQLFilterOp::FILTER_LARGER_OR_EQUAL; }
 
-    bool is_end_include() const { return _high_op == FILTER_LESS_OR_EQUAL; }
+    bool is_end_include() const { return _high_op == SQLFilterOp::FILTER_LESS_OR_EQUAL; }
 
     PrimitiveType type() const { return _column_type; }
 
@@ -141,8 +141,8 @@ public:
         _fixed_values.clear();
         _low_value = TYPE_MIN;
         _high_value = TYPE_MAX;
-        _low_op = FILTER_LARGER_OR_EQUAL;
-        _high_op = FILTER_LESS_OR_EQUAL;
+        _low_op = SQLFilterOp::FILTER_LARGER_OR_EQUAL;
+        _high_op = SQLFilterOp::FILTER_LESS_OR_EQUAL;
         _contain_null = _is_nullable_col;
     }
 
@@ -151,8 +151,9 @@ public:
                 << "Non-nullable column cannot contains null value";
 
         return _fixed_values.empty() && Compare::equal(_low_value, TYPE_MIN) &&
-               Compare::equal(_high_value, TYPE_MAX) && _low_op == FILTER_LARGER_OR_EQUAL &&
-               _high_op == FILTER_LESS_OR_EQUAL && _is_nullable_col == contain_null();
+               Compare::equal(_high_value, TYPE_MAX) &&
+               _low_op == SQLFilterOp::FILTER_LARGER_OR_EQUAL &&
+               _high_op == SQLFilterOp::FILTER_LESS_OR_EQUAL && _is_nullable_col == contain_null();
     }
 
     // only two case will set range contain null, call by temp_range in olap scan node
@@ -339,9 +340,10 @@ using ColumnValueRangeType = std::variant<
         ColumnValueRange<TYPE_STRING>, ColumnValueRange<TYPE_DATE>, ColumnValueRange<TYPE_DATEV2>,
         ColumnValueRange<TYPE_DATETIME>, ColumnValueRange<TYPE_DATETIMEV2>,
         ColumnValueRange<TYPE_TIMESTAMP_NS>, ColumnValueRange<TYPE_TIMESTAMPTZ>,
-        ColumnValueRange<TYPE_DECIMALV2>, ColumnValueRange<TYPE_BOOLEAN>,
-        ColumnValueRange<TYPE_DECIMAL32>, ColumnValueRange<TYPE_DECIMAL64>,
-        ColumnValueRange<TYPE_DECIMAL128I>, ColumnValueRange<TYPE_DECIMAL256>>;
+        ColumnValueRange<TYPE_UUID>, ColumnValueRange<TYPE_DECIMALV2>,
+        ColumnValueRange<TYPE_BOOLEAN>, ColumnValueRange<TYPE_DECIMAL32>,
+        ColumnValueRange<TYPE_DECIMAL64>, ColumnValueRange<TYPE_DECIMAL128I>,
+        ColumnValueRange<TYPE_DECIMAL256>>;
 
 template <PrimitiveType primitive_type>
 const typename ColumnValueRange<primitive_type>::CppType
@@ -364,8 +366,8 @@ ColumnValueRange<primitive_type>::ColumnValueRange(std::string col_name, const C
           _column_type(primitive_type),
           _low_value(min),
           _high_value(max),
-          _low_op(FILTER_LARGER_OR_EQUAL),
-          _high_op(FILTER_LESS_OR_EQUAL),
+          _low_op(SQLFilterOp::FILTER_LARGER_OR_EQUAL),
+          _high_op(SQLFilterOp::FILTER_LESS_OR_EQUAL),
           _is_nullable_col(is_nullable_col),
           _contain_null(is_nullable_col && contain_null),
           _precision(precision),
@@ -587,9 +589,9 @@ void ColumnValueRange<primitive_type>::convert_to_range_value() {
 
     if (!_fixed_values.empty()) {
         _low_value = *_fixed_values.begin();
-        _low_op = FILTER_LARGER_OR_EQUAL;
+        _low_op = SQLFilterOp::FILTER_LARGER_OR_EQUAL;
         _high_value = *_fixed_values.rbegin();
-        _high_op = FILTER_LESS_OR_EQUAL;
+        _high_op = SQLFilterOp::FILTER_LESS_OR_EQUAL;
         _fixed_values.clear();
     }
 }
@@ -607,17 +609,17 @@ Status ColumnValueRange<primitive_type>::add_range(SQLFilterOp op, const CppType
         std::pair<IteratorType, IteratorType> bound_pair = _fixed_values.equal_range(value);
 
         switch (op) {
-        case FILTER_LARGER: {
+        case SQLFilterOp::FILTER_LARGER: {
             _fixed_values.erase(_fixed_values.begin(), bound_pair.second);
             break;
         }
 
-        case FILTER_LARGER_OR_EQUAL: {
+        case SQLFilterOp::FILTER_LARGER_OR_EQUAL: {
             _fixed_values.erase(_fixed_values.begin(), bound_pair.first);
             break;
         }
 
-        case FILTER_LESS: {
+        case SQLFilterOp::FILTER_LESS: {
             if (bound_pair.first == _fixed_values.find(value)) {
                 _fixed_values.erase(bound_pair.first, _fixed_values.end());
             } else {
@@ -627,7 +629,7 @@ Status ColumnValueRange<primitive_type>::add_range(SQLFilterOp op, const CppType
             break;
         }
 
-        case FILTER_LESS_OR_EQUAL: {
+        case SQLFilterOp::FILTER_LESS_OR_EQUAL: {
             _fixed_values.erase(bound_pair.second, _fixed_values.end());
             break;
         }
@@ -642,7 +644,7 @@ Status ColumnValueRange<primitive_type>::add_range(SQLFilterOp op, const CppType
     } else {
         if (Compare::greater(_high_value, _low_value)) {
             switch (op) {
-            case FILTER_LARGER: {
+            case SQLFilterOp::FILTER_LARGER: {
                 if (Compare::greater_equal(value, _low_value)) {
                     _low_value = value;
                     _low_op = op;
@@ -651,7 +653,7 @@ Status ColumnValueRange<primitive_type>::add_range(SQLFilterOp op, const CppType
                 break;
             }
 
-            case FILTER_LARGER_OR_EQUAL: {
+            case SQLFilterOp::FILTER_LARGER_OR_EQUAL: {
                 if (Compare::greater(value, _low_value)) {
                     _low_value = value;
                     _low_op = op;
@@ -660,7 +662,7 @@ Status ColumnValueRange<primitive_type>::add_range(SQLFilterOp op, const CppType
                 break;
             }
 
-            case FILTER_LESS: {
+            case SQLFilterOp::FILTER_LESS: {
                 if (Compare::less_equal(value, _high_value)) {
                     _high_value = value;
                     _high_op = op;
@@ -669,7 +671,7 @@ Status ColumnValueRange<primitive_type>::add_range(SQLFilterOp op, const CppType
                 break;
             }
 
-            case FILTER_LESS_OR_EQUAL: {
+            case SQLFilterOp::FILTER_LESS_OR_EQUAL: {
                 if (Compare::less(value, _high_value)) {
                     _high_value = value;
                     _high_op = op;
@@ -684,7 +686,8 @@ Status ColumnValueRange<primitive_type>::add_range(SQLFilterOp op, const CppType
             }
         }
 
-        if (FILTER_LARGER_OR_EQUAL == _low_op && FILTER_LESS_OR_EQUAL == _high_op &&
+        if (SQLFilterOp::FILTER_LARGER_OR_EQUAL == _low_op &&
+            SQLFilterOp::FILTER_LESS_OR_EQUAL == _high_op &&
             Compare::equal(_high_value, _low_value)) {
             RETURN_IF_ERROR(add_fixed_value(_high_value));
             _high_value = TYPE_MIN;
@@ -698,13 +701,13 @@ Status ColumnValueRange<primitive_type>::add_range(SQLFilterOp op, const CppType
 template <PrimitiveType primitive_type>
 bool ColumnValueRange<primitive_type>::is_in_range(const CppType& value) {
     switch (_high_op) {
-    case FILTER_LESS: {
+    case SQLFilterOp::FILTER_LESS: {
         switch (_low_op) {
-        case FILTER_LARGER: {
+        case SQLFilterOp::FILTER_LARGER: {
             return Compare::less(value, _high_value) && Compare::greater(value, _low_value);
         }
 
-        case FILTER_LARGER_OR_EQUAL: {
+        case SQLFilterOp::FILTER_LARGER_OR_EQUAL: {
             return Compare::less(value, _high_value) && Compare::greater_equal(value, _low_value);
         }
 
@@ -716,13 +719,13 @@ bool ColumnValueRange<primitive_type>::is_in_range(const CppType& value) {
         break;
     }
 
-    case FILTER_LESS_OR_EQUAL: {
+    case SQLFilterOp::FILTER_LESS_OR_EQUAL: {
         switch (_low_op) {
-        case FILTER_LARGER: {
+        case SQLFilterOp::FILTER_LARGER: {
             return Compare::less_equal(value, _high_value) && Compare::greater(value, _low_value);
         }
 
-        case FILTER_LARGER_OR_EQUAL: {
+        case SQLFilterOp::FILTER_LARGER_OR_EQUAL: {
             return Compare::less_equal(value, _high_value) &&
                    Compare::greater_equal(value, _low_value);
         }

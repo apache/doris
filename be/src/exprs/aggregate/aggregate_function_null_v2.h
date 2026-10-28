@@ -135,11 +135,23 @@ public:
         return nested_function->get_serialized_type();
     }
 
+    void set_ai_statistics(std::shared_ptr<AIExecutionStatistics> statistics) override {
+        nested_function->set_ai_statistics(std::move(statistics));
+    }
+
     void set_query_context(QueryContext* ctx) override {
         return nested_function->set_query_context(ctx);
     }
 
     bool is_blockable() const override { return nested_function->is_blockable(); }
+
+    WindowSpillStrategy window_spill_strategy() const override {
+        return nested_function->window_spill_strategy();
+    }
+
+    WindowSpillPeerFunction window_spill_peer_function() const override {
+        return nested_function->window_spill_peer_function();
+    }
 
     void set_version(const int version_) override {
         IAggregateFunctionHelper<Derived>::set_version(version_);
@@ -302,6 +314,10 @@ public:
         }
     }
 
+    bool needs_deserialize_and_merge_scratch() const override {
+        return nested_function->needs_deserialize_and_merge_scratch();
+    }
+
     void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
                                    AggregateDataPtr rhs, const IColumn* column, Arena& arena,
                                    const size_t num_rows) const override {
@@ -339,6 +355,21 @@ public:
         } else {
             this->nested_function->deserialize_and_merge_vec_selected(places, offset, rhs, column,
                                                                       arena, num_rows);
+        }
+    }
+
+    void deserialize_from_column_row(AggregateDataPtr __restrict place, const IColumn& column,
+                                     size_t row, Arena& arena) const override {
+        DCHECK_LT(row, column.size());
+        if constexpr (result_is_nullable) {
+            const auto& nullable_col = assert_cast<const ColumnNullable&>(column);
+            if (!nullable_col.is_null_at(row)) {
+                set_flag(place);
+                nested_function->deserialize_from_column_row(
+                        nested_place(place), nullable_col.get_nested_column(), row, arena);
+            }
+        } else {
+            nested_function->deserialize_from_column_row(place, column, row, arena);
         }
     }
 

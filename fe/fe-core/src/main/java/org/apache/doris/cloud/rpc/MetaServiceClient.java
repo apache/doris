@@ -59,7 +59,6 @@ public class MetaServiceClient {
     private final MetaServiceGrpc.MetaServiceBlockingStub blockingStub;
     private final ManagedChannel channel;
     private final long expiredAt;
-    private final long channelConfigVersion;
     private Random random = new Random();
 
     static {
@@ -81,7 +80,6 @@ public class MetaServiceClient {
         }
 
         Preconditions.checkNotNull(serviceConfig, "serviceConfig is null");
-        channelConfigVersion = CHANNEL_PROVIDER.currentConfigVersion();
         channel = CHANNEL_PROVIDER.createChannel(target);
         Channel intercepted = ClientInterceptors.intercept(channel, new MetaServiceResponseStatusInterceptor());
         stub = MetaServiceGrpc.newFutureStub(intercepted);
@@ -204,10 +202,6 @@ public class MetaServiceClient {
         return state == ConnectivityState.CONNECTING
                 || state == ConnectivityState.IDLE
                 || state == ConnectivityState.READY;
-    }
-
-    public boolean isUsingLatestChannelConfig() {
-        return channelConfigVersion == CHANNEL_PROVIDER.currentConfigVersion();
     }
 
     public static Map<String, ?> serviceConfig() {
@@ -369,6 +363,11 @@ public class MetaServiceClient {
     public Cloud.CheckTxnConflictResponse checkTxnConflict(Cloud.CheckTxnConflictRequest request) {
         return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
                 .checkTxnConflict(request);
+    }
+
+    public Cloud.AdvanceTsoFenceResponse advanceTsoFence(Cloud.AdvanceTsoFenceRequest request) {
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .advanceTsoFence(request);
     }
 
     public Cloud.CleanTxnLabelResponse cleanTxnLabel(Cloud.CleanTxnLabelRequest request) {

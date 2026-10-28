@@ -20,6 +20,7 @@ package org.apache.doris.connector.jdbc;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
+import org.apache.doris.connector.spi.ConnectorSecuritySurface;
 
 import java.util.Map;
 
@@ -41,12 +42,18 @@ public class JdbcConnectorProvider implements ConnectorProvider {
     /**
      * Validates catalog properties at CREATE/ALTER time. Building the holder covers what a stored
      * catalog must satisfy; checkCreateTimeOnlyRules covers the rest, which has only ever applied to a
-     * statement (see {@link JdbcCatalogProperties}). The driver_url security rule stays a separate call
-     * because it is enforced here and in preCreateValidation, and lives with the connector that owns it.
+     * statement (see {@link JdbcCatalogProperties}) — including the mandatory driver_url security rule
+     * ({@code JdbcDriverUrlSecurity}), shared with the iceberg-jdbc / paimon-jdbc catalogs.
      */
     @Override
     public void validateProperties(Map<String, String> properties) {
-        JdbcCatalogProperties props = JdbcCatalogProperties.of(properties).checkCreateTimeOnlyRules();
-        JdbcDorisConnector.checkDriverUrlSecurityRule(props.getDriverUrl());
+        JdbcCatalogProperties.of(properties).checkCreateTimeOnlyRules();
+    }
+
+    @Override
+    public ConnectorSecuritySurface securitySurface() {
+        // driver_url (documented alias: jdbc.driver_url) is the jar the connector loads into the FE JVM;
+        // the engine's operator gate applies jdbc_driver_secure_path / the mandatory rule on CREATE + ALTER.
+        return ConnectorSecuritySurface.ofJdbcDriverUrls(null, "driver_url", "jdbc.driver_url");
     }
 }

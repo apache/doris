@@ -445,8 +445,7 @@ TEST_F(PartitionedAggregationSinkOperatorTest, SinkWithSpilError) {
     ASSERT_FALSE(st.ok()) << "spilll status should be failed";
 
     st = sink_operator->close(_helper.runtime_state.get(), st);
-    ASSERT_TRUE(st.ok()) << "close status should be successful even if spill failed: "
-                         << st.to_string();
+    ASSERT_FALSE(st.ok()) << "close status should surface the earlier spill failure";
 }
 
 // Test multiple consecutive revoke_memory calls to verify repeated spilling works.

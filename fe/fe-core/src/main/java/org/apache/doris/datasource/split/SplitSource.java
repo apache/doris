@@ -21,10 +21,12 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TScanRangeLocations;
 
-import com.google.common.collect.Lists;
+import com.google.common.base.Preconditions;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -43,15 +45,23 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public class SplitSource {
     private static final AtomicLong UNIQUE_ID_GENERATOR = new AtomicLong(0);
-    private static final long WAIT_TIME_OUT = 100; // 100ms
 
     private final long uniqueId;
     private final Backend backend;
     private final SplitAssignment splitAssignment;
     private final AtomicBoolean isLastBatch;
+    private final AtomicBoolean firstBatchRequested = new AtomicBoolean();
     private final long maxWaitTime;
+    private final int initialBatchSize;
+    private Iterator<TScanRangeLocations> pendingSplits = Collections.emptyIterator();
 
     public SplitSource(Backend backend, SplitAssignment splitAssignment, long maxWaitTime) {
+        this(backend, splitAssignment, maxWaitTime, Integer.MAX_VALUE);
+    }
+
+    public SplitSource(Backend backend, SplitAssignment splitAssignment, long maxWaitTime, int initialBatchSize) {
+        Preconditions.checkArgument(initialBatchSize > 0, "Initial split batch size must be positive");
+        this.initialBatchSize = initialBatchSize;
         this.uniqueId = UNIQUE_ID_GENERATOR.getAndIncrement();
         this.backend = backend;
         this.splitAssignment = splitAssignment;
@@ -67,40 +77,86 @@ public class SplitSource {
     /**
      * Get the next batch of file splits. If there's no more split, return empty list.
      */
-    public List<TScanRangeLocations> getNextBatch(int maxBatchSize) throws UserException {
+    public synchronized List<TScanRangeLocations> getNextBatch(int maxBatchSize) throws UserException {
+        Preconditions.checkArgument(maxBatchSize > 0, "Requested split batch size must be positive");
         if (isLastBatch.get()) {
             return Collections.emptyList();
         }
-        List<TScanRangeLocations> scanRanges = Lists.newArrayListWithExpectedSize(maxBatchSize);
-        long startTime = System.currentTimeMillis();
-        while (scanRanges.size() < maxBatchSize && System.currentTimeMillis() - startTime < maxWaitTime) {
+        if (firstBatchRequested.compareAndSet(false, true)) {
+            // Limit startup RPC work independently of producer batches and buffered lookahead.
+            maxBatchSize = Math.min(maxBatchSize, initialBatchSize);
+        } else {
+            splitAssignment.onMoreSplitsRequested();
+        }
+        List<TScanRangeLocations> scanRanges = new ArrayList<>(
+                Math.min(maxBatchSize, splitAssignment.getSplitBatchSize()));
+        long startTime = System.nanoTime();
+        long waitNanos = TimeUnit.MILLISECONDS.toNanos(maxWaitTime);
+        while (scanRanges.size() < maxBatchSize) {
+            // Check producer errors even while draining a previously fetched batch.
             BlockingQueue<Collection<TScanRangeLocations>> splits = splitAssignment.getAssignedSplits(backend);
+            if (splitAssignment.isStop()) {
+                pendingSplits = Collections.emptyIterator();
+                isLastBatch.set(true);
+                break;
+            }
+            while (pendingSplits.hasNext() && scanRanges.size() < maxBatchSize) {
+                scanRanges.add(pendingSplits.next());
+            }
+            if (scanRanges.size() == maxBatchSize) {
+                return FileScanRangeCompactor.compactSplitBatch(scanRanges);
+            }
+            pendingSplits = Collections.emptyIterator();
+            // A finished, empty queue is EOF only after the pending batch has been drained.
             if (splits == null) {
                 isLastBatch.set(true);
                 break;
             }
-            while (scanRanges.size() < maxBatchSize) {
-                try {
-                    Collection<TScanRangeLocations> splitCollection = splits.poll(WAIT_TIME_OUT, TimeUnit.MILLISECONDS);
-                    if (splitCollection != null) {
-                        scanRanges.addAll(splitCollection);
-                    }
-                    if (!scanRanges.isEmpty() && System.currentTimeMillis() - startTime > maxWaitTime) {
-                        return scanRanges;
-                    }
-                    if (splitCollection == null) {
-                        break;
-                    }
-                } catch (InterruptedException e) {
-                    throw new UserException(e.getMessage(), e);
+            // Each queued batch contains at most splitBatchSize ranges. Drain only batches
+            // that fit this response, bounding the local buffer and amortizing the queue lock.
+            int batchesToDrain = Math.min(64,
+                    (maxBatchSize - scanRanges.size()) / splitAssignment.getSplitBatchSize());
+            if (batchesToDrain > 1 && splits.size() > 1) {
+                List<Collection<TScanRangeLocations>> readyBatches = new ArrayList<>(batchesToDrain);
+                splits.drainTo(readyBatches, batchesToDrain);
+                splitAssignment.notifyQueueSpace(backend);
+                // Resuming a producer may publish an error or cancellation before we return.
+                splitAssignment.getAssignedSplits(backend);
+                if (splitAssignment.isStop()) {
+                    isLastBatch.set(true);
+                    break;
                 }
+                for (Collection<TScanRangeLocations> readyBatch : readyBatches) {
+                    for (TScanRangeLocations range : readyBatch) {
+                        scanRanges.add(range);
+                    }
+                }
+                continue;
+            }
+            Collection<TScanRangeLocations> batch = splits.poll();
+            if (batch != null) {
+                splitAssignment.notifyQueueSpace(backend);
+                pendingSplits = batch.iterator();
+                continue;
+            }
+            if (!scanRanges.isEmpty()) {
+                break;
+            }
+            long remainingNanos = waitNanos - (System.nanoTime() - startTime);
+            if (remainingNanos <= 0) {
+                throw new UserException("Timeout. Max wait time(ms): " + maxWaitTime);
+            }
+            try {
+                batch = splitAssignment.awaitBatch(backend, remainingNanos);
+                if (batch != null) {
+                    splitAssignment.notifyQueueSpace(backend);
+                    pendingSplits = batch.iterator();
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new UserException(e.getMessage(), e);
             }
         }
-
-        if (scanRanges.isEmpty() && !isLastBatch.get()) {
-            // This is timeout
-            throw new UserException("Timeout. Max wait time(ms): " + maxWaitTime);
-        }
-        return scanRanges;
+        return FileScanRangeCompactor.compactSplitBatch(scanRanges);
     }
 }

@@ -29,9 +29,10 @@
 
 #include "common/exception.h"
 #include "core/value/variant/variant_parquet_encoding.h"
+#include "core/value/variant/variant_payload_validator.h"
 #include "exprs/function/parse/variant_string_parse.h"
-#include "util/json/json_parser.h"
-#include "util/json/simd_json_parser.h"
+#include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/thread_context.h"
 
 namespace doris {
 namespace {
@@ -212,12 +213,40 @@ void expect_encode_and_decode_preservation(const std::string& metadata_bytes,
 }
 
 VariantField encode_json(std::string_view json) {
-    JsonStringToVariantEncoder encoder({.max_json_key_length = 255,
-                                        .throw_on_invalid_json = true,
-                                        .check_duplicate_json_path = false});
+    JsonStringToVariantEncoder encoder({.max_json_key_length = 255, .throw_on_invalid_json = true});
     encoder.add_json({json.data(), json.size()});
     VariantBatchBuilder block = encoder.finish_batch();
     return VariantField::from_ref(block.value_at(0));
+}
+
+std::string wide_object_json(size_t fields) {
+    std::string json = "{";
+    for (size_t field = 0; field < fields; ++field) {
+        if (field != 0) {
+            json.push_back(',');
+        }
+        json += "\"k" + std::to_string(field) + "\":" + std::to_string(field);
+    }
+    json.push_back('}');
+    return json;
+}
+
+bool one_shot_accepts(VariantRef value) {
+    try {
+        validate_variant_payload(value);
+        return true;
+    } catch (const Exception&) {
+        return false;
+    }
+}
+
+bool validator_accepts(VariantPayloadValidator& validator, VariantRef value) {
+    try {
+        validator.validate(value);
+        return true;
+    } catch (const Exception&) {
+        return false;
+    }
 }
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity) -- GTest assertions are the matrix.
@@ -541,29 +570,11 @@ TEST(VariantFieldTest, AllComparisonsThrow) {
     EXPECT_THROW(static_cast<void>(left > right), Exception);
 }
 
-// This is a narrow current-source comparison, not the deferred T0.2 semantics baseline.
-TEST(VariantFieldTest, LegacyJsonDataParserStableSubsetDoesNotReplaceT02) {
-    JSONDataParser<SimdJSONParser> legacy;
-    ParseConfig config;
-
-    auto old_scalar = legacy.parse("123", 3, config);
-    ASSERT_TRUE(old_scalar.has_value());
-    ASSERT_EQ(old_scalar->values.size(), 1);
-    EXPECT_EQ(old_scalar->values[0].get<TYPE_BIGINT>(), 123);
+TEST(VariantFieldTest, EncodeJsonStableSubset) {
     EXPECT_EQ(encode_json("123").ref().get_int(), 123);
-
-    old_scalar = legacy.parse("\"text\"", 6, config);
-    ASSERT_TRUE(old_scalar.has_value());
-    EXPECT_EQ(old_scalar->values[0].get<TYPE_STRING>(), "text");
     EXPECT_EQ(encode_json("\"text\"").ref().get_string(), StringRef("text"));
 
-    const std::string object_json = R"({"a":1,"b":"x"})";
-    auto old_object = legacy.parse(object_json.data(), object_json.size(), config);
-    ASSERT_TRUE(old_object.has_value());
-    ASSERT_EQ(old_object->paths.size(), 2);
-    EXPECT_EQ(old_object->paths[0].get_path(), "a");
-    EXPECT_EQ(old_object->paths[1].get_path(), "b");
-    VariantField new_object = encode_json(object_json);
+    VariantField new_object = encode_json(R"({"a":1,"b":"x"})");
     VariantRef a;
     ASSERT_TRUE(new_object.ref().object_find(StringRef("a"), &a));
     EXPECT_EQ(a.get_int(), 1);
@@ -571,30 +582,131 @@ TEST(VariantFieldTest, LegacyJsonDataParserStableSubsetDoesNotReplaceT02) {
     ASSERT_TRUE(new_object.ref().object_find(StringRef("b"), &b));
     EXPECT_EQ(b.get_string(), StringRef("x"));
 
-    const std::string array_json = R"([1,null,"x"])";
-    auto old_array = legacy.parse(array_json.data(), array_json.size(), config);
-    ASSERT_TRUE(old_array.has_value());
-    const auto& old_elements = old_array->values[0].get<TYPE_ARRAY>();
-    ASSERT_EQ(old_elements.size(), 3);
-    EXPECT_EQ(old_elements[0].get<TYPE_BIGINT>(), 1);
-    EXPECT_TRUE(old_elements[1].is_null());
-    EXPECT_EQ(old_elements[2].get<TYPE_STRING>(), "x");
-    VariantField new_array_field = encode_json(array_json);
+    VariantField new_array_field = encode_json(R"([1,null,"x"])");
     VariantRef new_array = new_array_field.ref();
     ASSERT_EQ(new_array.num_elements(), 3);
     EXPECT_EQ(new_array.array_at(0).get_int(), 1);
     EXPECT_TRUE(new_array.array_at(1).is_null());
     EXPECT_EQ(new_array.array_at(2).get_string(), StringRef("x"));
 
-    auto old_empty_object = legacy.parse("{}", 2, config);
-    ASSERT_TRUE(old_empty_object.has_value());
-    EXPECT_TRUE(old_empty_object->paths.empty());
     EXPECT_EQ(encode_json("{}").ref().num_elements(), 0);
-
-    auto old_empty_array = legacy.parse("[]", 2, config);
-    ASSERT_TRUE(old_empty_array.has_value());
-    EXPECT_TRUE(old_empty_array->values[0].get<TYPE_ARRAY>().empty());
     EXPECT_EQ(encode_json("[]").ref().num_elements(), 0);
+}
+
+TEST(VariantFieldTest, ReusableValidatorMatchesOneShotValidation) {
+    const VariantField nested =
+            encode_json(R"({"a":1,"b":{"c":2,"d":{"e":[{"f":3},{"g":{"h":4}}]}},"i":5})");
+    const VariantField wide = encode_json(wide_object_json(300));
+    const VariantField objects_in_array = encode_json(R"([{"a":1},{"b":{"c":2}},{}])");
+    const VariantField scalar = encode_json("7");
+
+    const std::string metadata_bytes = metadata({"a", "b"}, true);
+    const std::string reversed_metadata = metadata({"b", "a"}, false);
+    const std::string null_value = primitive(VariantPrimitiveId::NULL_VALUE);
+    const std::string true_value = primitive(VariantPrimitiveId::TRUE_VALUE);
+    const std::string two_values = object({0, 1}, {0, 1}, {null_value, true_value});
+    const std::string duplicate_offset = object({0, 1}, {0, 0}, {null_value, true_value});
+    const std::string overlapping_spans = object({0, 1}, {0, 1}, {long_string("x")});
+    const std::string internal_gap = object({0, 1}, {0, 2}, {null_value, null_value, true_value});
+    const std::string trailing_unreferenced =
+            object({0, 1}, {0, 1}, {null_value, true_value, null_value});
+    // Only the object in field "b" is corrupt. It throws after the root has pushed the span of
+    // "a" and it has pushed two spans of its own; the next validate() must not inherit them.
+    const std::string gap_in_second_field = object({0, 1}, {0, 1}, {null_value, internal_gap});
+
+    struct Case {
+        VariantRef value;
+        bool valid;
+    };
+    const std::vector<Case> cases {
+            {.value = nested.ref(), .valid = true},
+            {.value = value_ref(metadata_bytes, gap_in_second_field), .valid = false},
+            {.value = nested.ref(), .valid = true},
+            {.value = wide.ref(), .valid = true},
+            {.value = value_ref(metadata_bytes, duplicate_offset), .valid = false},
+            {.value = objects_in_array.ref(), .valid = true},
+            {.value = value_ref(metadata_bytes, overlapping_spans), .valid = false},
+            {.value = value_ref(metadata_bytes, internal_gap), .valid = false},
+            {.value = value_ref(metadata_bytes, trailing_unreferenced), .valid = false},
+            {.value = value_ref(reversed_metadata, two_values), .valid = false},
+            {.value = value_ref(metadata_bytes, two_values), .valid = true},
+            {.value = scalar.ref(), .valid = true},
+            {.value = wide.ref(), .valid = true},
+    };
+
+    VariantPayloadValidator validator;
+    for (size_t index = 0; index < cases.size(); ++index) {
+        EXPECT_EQ(one_shot_accepts(cases[index].value), cases[index].valid) << "case " << index;
+        EXPECT_EQ(validator_accepts(validator, cases[index].value), cases[index].valid)
+                << "case " << index;
+    }
+}
+
+TEST(VariantFieldTest, ReusableValidatorReusesScratchAcrossRows) {
+    constexpr size_t FIELDS = 1'000;
+    constexpr size_t ROWS = 4'096;
+    const VariantField wide = encode_json(wide_object_json(FIELDS));
+    const VariantField nested = encode_json(R"({"a":{"b":{"c":1,"d":2},"e":3},"f":[{"g":4}]})");
+
+    VariantPayloadValidator validator;
+    EXPECT_EQ(validator.object_span_capacity_for_test(), 0);
+    validator.validate(wide.ref());
+    const size_t capacity = validator.object_span_capacity_for_test();
+    EXPECT_GE(capacity, FIELDS);
+    for (size_t row = 0; row < ROWS; ++row) {
+        validator.validate(wide.ref());
+        validator.validate(nested.ref());
+    }
+    EXPECT_EQ(validator.object_span_capacity_for_test(), capacity);
+}
+
+TEST(VariantFieldTest, FreshValidatorReservesAnObjectOnce) {
+    // validate_variant_payload() and single-row callers such as ColumnVariantV2::insert_data()
+    // validate with a fresh validator, so its first object must not grow from zero.
+    constexpr size_t FIELDS = 1'000;
+    const VariantField wide = encode_json(wide_object_json(FIELDS));
+    VariantPayloadValidator flat_validator;
+    flat_validator.validate(wide.ref());
+    EXPECT_EQ(flat_validator.object_span_capacity_for_test(), FIELDS);
+
+    // 26 objects of 30 fields: the root reserves 26 entries, and its children, which need
+    // index + 30, double the buffer twice instead of reallocating for every sibling.
+    std::string nested_json = "{";
+    for (char key = 'a'; key <= 'z'; ++key) {
+        if (key != 'a') {
+            nested_json.push_back(',');
+        }
+        nested_json += '"';
+        nested_json += key;
+        nested_json += "\":" + wide_object_json(30);
+    }
+    nested_json.push_back('}');
+    const VariantField nested = encode_json(nested_json);
+    VariantPayloadValidator nested_validator;
+    nested_validator.validate(nested.ref());
+    EXPECT_EQ(nested_validator.object_span_capacity_for_test(), 104);
+}
+
+TEST(VariantFieldTest, ReusableValidatorScratchIsMemTrackerVisible) {
+    constexpr size_t FIELDS = 4'096;
+    // Each field of the object being checked takes one span of two size_t values.
+    constexpr auto MIN_SCRATCH_BYTES = static_cast<int64_t>(FIELDS * 2 * sizeof(size_t));
+    const VariantField wide = encode_json(wide_object_json(FIELDS));
+    const auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                          "VariantPayloadValidatorScratch");
+    auto scoped_tracker = SwitchThreadMemTrackerLimiter(tracker);
+    thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    const int64_t baseline = tracker->consumption();
+
+    {
+        VariantPayloadValidator validator;
+        validator.validate(wide.ref());
+        thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+        EXPECT_GE(tracker->consumption(), baseline + MIN_SCRATCH_BYTES);
+    }
+
+    thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    EXPECT_EQ(tracker->consumption(), baseline);
 }
 
 } // namespace

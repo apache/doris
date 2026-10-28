@@ -24,7 +24,9 @@
 // IWYU pragma: no_include <bthread/errno.h>
 #include <lz4/lz4hc.h>
 
+#include <atomic>
 #include <cerrno> // IWYU pragma: keep
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <fstream> // IWYU pragma: keep
@@ -110,6 +112,10 @@ DEFINE_Int32(brpc_num_threads, "256");
 // the time of brpc server keep idle connection, setting this value too small may cause rpc between backends to fail,
 // the default value is set to -1, which means never close idle connection.
 DEFINE_Int32(brpc_idle_timeout_sec, "-1");
+
+// Maximum number of multi-dimensional bvar samples exported by /brpc_metrics.
+// brpc 1.4 defaults this flag to 0, which disables all MultiDimension metrics.
+DEFINE_String(bvar_max_dump_multi_dimension_metric_num, "5000");
 
 // Declare a selection strategy for those servers have many ips.
 // Note that there should at most one ip match this list.
@@ -333,9 +339,9 @@ DEFINE_Int32(task_executor_max_concurrency_per_task, "-1");
 DEFINE_Int32(task_executor_initial_max_concurrency_per_task, "-1");
 
 // Enable task executor in internal table scan.
-DEFINE_Bool(enable_task_executor_in_internal_table, "true");
+DEFINE_Bool(enable_task_executor_in_internal_table, "false");
 // Enable task executor in external table scan.
-DEFINE_Bool(enable_task_executor_in_external_table, "true");
+DEFINE_Bool(enable_task_executor_in_external_table, "false");
 
 // number of scanner thread pool size for olap table
 // and the min thread num of remote scanner thread pool
@@ -488,14 +494,21 @@ DEFINE_mInt32(ordered_data_compaction_min_segment_size, "10485760");
 DEFINE_mInt32(max_base_compaction_threads, "4");
 DEFINE_mInt32(max_cumu_compaction_threads, "-1");
 
-// Binlog Compaction
-DEFINE_mInt64(binlog_compaction_wait_timesec_after_visible, "600");
-DEFINE_mInt64(binlog_compaction_goal_size_mbytes, "128");
-DEFINE_mInt32(binlog_compaction_task_num_per_disk, "4");
-DEFINE_mInt32(binlog_compaction_file_count_threshold, "100");
-DEFINE_mInt32(binlog_level_compaction_max_deltas, "2000");
-DEFINE_mInt64(binlog_compaction_time_threshold_seconds, "3600");
-DEFINE_mInt32(max_binlog_compaction_threads, "-1");
+// Changelog compaction
+// ATTN(changelog-rename): formerly "binlog_compaction_wait_timesec_after_visible"
+DEFINE_mInt64(changelog_compaction_wait_timesec_after_visible, "600");
+// ATTN(changelog-rename): formerly "binlog_compaction_goal_size_mbytes"
+DEFINE_mInt64(changelog_compaction_goal_size_mbytes, "128");
+// ATTN(changelog-rename): formerly "binlog_compaction_task_num_per_disk"
+DEFINE_mInt32(changelog_compaction_task_num_per_disk, "4");
+// ATTN(changelog-rename): formerly "binlog_compaction_file_count_threshold"
+DEFINE_mInt32(changelog_compaction_file_count_threshold, "100");
+// ATTN(changelog-rename): formerly "binlog_level_compaction_max_deltas"
+DEFINE_mInt32(changelog_level_compaction_max_deltas, "2000");
+// ATTN(changelog-rename): formerly "binlog_compaction_time_threshold_seconds"
+DEFINE_mInt64(changelog_compaction_time_threshold_seconds, "3600");
+// ATTN(changelog-rename): formerly "max_binlog_compaction_threads"
+DEFINE_mInt32(max_changelog_compaction_threads, "-1");
 
 DEFINE_Bool(enable_base_compaction_idle_sched, "true");
 DEFINE_mInt64(base_compaction_min_rowset_num, "5");
@@ -521,10 +534,10 @@ DEFINE_mDouble(compaction_promotion_ratio, "0.05");
 DEFINE_mInt64(compaction_promotion_min_size_mbytes, "128");
 
 // When output rowset of cumulative compaction total version count (end_version - start_version)
-// exceed this config count, the rowset will be moved to base compaction
-// NOTE: this config will work for unique key merge-on-write table only, to reduce version count
-// related cost on delete bitmap more effectively.
-DEFINE_mInt64(compaction_promotion_version_count, "1000");
+// exceed this config count, the rowset will be moved to base compaction.
+// NOTE: this config only works for unique key merge-on-write tables. The default maximum value
+// disables version-count-based promotion while retaining the option to enable it when needed.
+DEFINE_mInt64(compaction_promotion_version_count, "9223372036854775807");
 
 // The lower bound size to do cumulative compaction. When total disk size of candidate rowsets is less than
 // this size, size_based policy may not do to cumulative compaction. The unit is m byte.
@@ -655,6 +668,15 @@ DEFINE_Int64(load_data_reserve_hours, "4");
 DEFINE_mInt64(load_error_log_reserve_hours, "48");
 // error log size limit, default 200MB
 DEFINE_mInt64(load_error_log_limit_bytes, "209715200");
+
+// Dedicated load cancellation workers. Requires a restart.
+DEFINE_Int32(brpc_load_light_work_pool_threads, "32");
+DEFINE_Validator(brpc_load_light_work_pool_threads,
+                 [](const int config) -> bool { return config > 0; });
+// Queue capacity: -1 selects a CPU-scaled default. Requires a restart.
+DEFINE_Int32(brpc_load_light_work_pool_max_queue_size, "-1");
+DEFINE_Validator(brpc_load_light_work_pool_max_queue_size,
+                 [](const int config) -> bool { return config == -1 || config > 0; });
 
 DEFINE_Int32(brpc_heavy_work_pool_threads, "-1");
 DEFINE_Int32(brpc_peer_fetch_pool_threads, "-1");
@@ -1193,8 +1215,6 @@ DEFINE_Bool(enable_debug_points, "false");
 DEFINE_Int32(pipeline_executor_size, "0");
 DEFINE_Int32(blocking_pipeline_executor_size, "0");
 DEFINE_mInt32(variant_max_json_key_length, "255");
-DEFINE_mBool(variant_throw_exeception_on_invalid_json, "false");
-DEFINE_mBool(variant_enable_duplicate_json_path_check, "false");
 // Controls storage-layer parse target for plain non-doc VARIANT columns:
 // 0 = auto, 1 = force parse-time subcolumns, 2 = force doc-value KV staging.
 // NestedGroup, deprecated flatten-nested, and persistent doc mode keep their required paths.
@@ -1213,7 +1233,7 @@ DEFINE_Validator(variant_storage_parse_mode,
                  [](const int config) -> bool { return config >= 0 && config <= 2; });
 
 // block file cache
-DEFINE_Bool(enable_file_cache, "false");
+DEFINE_Bool(enable_file_cache, "true");
 // ATTENTION: For test only. Keep this enabled in production.
 // Whether S3 storage write paths populate file cache while writing data to object storage.
 // Disable this for tests that need load and compaction output to bypass file cache while keeping
@@ -1285,7 +1305,10 @@ DEFINE_mInt64(file_cache_background_tablet_id_flush_interval_ms, "1000");
 DEFINE_mInt64(file_cache_background_lru_dump_interval_ms, "60000");
 // dump queue only if the queue update specific times through several dump intervals
 DEFINE_mInt64(file_cache_background_lru_dump_update_cnt_threshold, "1000");
-DEFINE_mInt64(file_cache_background_lru_dump_tail_record_num, "5000000");
+// Disabled by default. The restored LRU order can be worse than no order at all: restored blocks
+// are put at the cold end while blocks missing from the dump are appended to the hot end, and the
+// restore itself can overflow the bounded LRU log queue and drop the hottest part of the dump.
+DEFINE_mInt64(file_cache_background_lru_dump_tail_record_num, "0");
 DEFINE_mInt64(file_cache_background_lru_log_queue_max_size, "500000");
 DEFINE_mInt64(file_cache_background_lru_log_replay_interval_ms, "1");
 DEFINE_mBool(enable_evaluate_shadow_queue_diff, "false");
@@ -1320,9 +1343,72 @@ DEFINE_Bool(enable_inverted_index_cache_check_timestamp, "true");
 DEFINE_mBool(enable_inverted_index_correct_term_write, "true");
 DEFINE_Int32(inverted_index_fd_number_limit_percent, "20"); // 20%
 DEFINE_Int32(inverted_index_query_cache_shards, "256");
+DEFINE_mDouble(inverted_index_candidate_pushdown_ratio, "0.3");
+DEFINE_Validator(inverted_index_candidate_pushdown_ratio,
+                 [](const double v) -> bool { return std::isfinite(v) && v <= 1.0; });
+static std::atomic<double> published_inverted_index_candidate_pushdown_ratio {0.0};
+DEFINE_ON_UPDATE(inverted_index_candidate_pushdown_ratio, [](double, double value) {
+    published_inverted_index_candidate_pushdown_ratio.store(value);
+});
+
+double get_inverted_index_candidate_pushdown_ratio() {
+    return published_inverted_index_candidate_pushdown_ratio.load();
+}
 
 // inverted index match bitmap cache size
 DEFINE_String(inverted_index_query_cache_limit, "10%");
+
+namespace {
+
+bool valid_gram_index_candidate_ratio(int32_t value) {
+    return value >= 0;
+}
+
+bool valid_gram_index_candidate_min_rows(int32_t value) {
+    return value >= 0;
+}
+
+bool valid_gram_index_min_literal_bytes(int32_t value) {
+    return value >= 1;
+}
+
+// A share of windows: (0, 1000]. 0 would ask for nothing and a negative value used to reach
+// the writer's checked cast and fail every gram-index load until the config was repaired.
+bool valid_gram_index_density_coverage_permille(int32_t value) {
+    return value >= 1 && value <= 1000;
+}
+
+bool valid_gram_index_density_sample_bytes(int64_t value) {
+    return value >= 0;
+}
+
+} // namespace
+
+// Whether LIKE/REGEXP tries to compile a constant pattern into a gram boolean query pushed down
+// to a gram-family inverted index (master switch).
+DEFINE_mBool(enable_gram_index_regexp, "true");
+
+// Cost gate for the gram boolean query: give up pruning above this share (in basis points) of a
+// segment's rows, and only on segments of at least this many rows. Giving up returns the segment's
+// whole docid range, so it can never drop a candidate row.
+DEFINE_mInt32(gram_index_max_candidate_ratio_bp, "15");
+DEFINE_Validator(gram_index_max_candidate_ratio_bp, valid_gram_index_candidate_ratio);
+DEFINE_mInt32(gram_index_candidate_ratio_min_rows, "65536");
+
+// On by default: a configured density is wrong on every column but the one it was chosen for,
+// and the solve costs one pass over a bounded sample.
+DEFINE_mBool(enable_gram_index_adaptive_density, "true");
+// 12 bytes at 95% of windows. Both are the promise rather than a tuning pair -- what a user
+// may reasonably change is how short a literal they expect to find, not the boundary rate.
+// A literal shorter than the scheme's max_gram cannot hold a whole gram, so the writer
+// raises the promise to max_gram where a tokenizer sets a longer one.
+DEFINE_mInt32(gram_index_min_literal_bytes, "12");
+DEFINE_mInt32(gram_index_density_coverage_permille, "950");
+DEFINE_mInt64(gram_index_density_sample_bytes, "4194304");
+DEFINE_Validator(gram_index_candidate_ratio_min_rows, valid_gram_index_candidate_min_rows);
+DEFINE_Validator(gram_index_min_literal_bytes, valid_gram_index_min_literal_bytes);
+DEFINE_Validator(gram_index_density_coverage_permille, valid_gram_index_density_coverage_permille);
+DEFINE_Validator(gram_index_density_sample_bytes, valid_gram_index_density_sample_bytes);
 
 // condition cache limit
 DEFINE_Int16(condition_cache_limit, "512");
@@ -1337,29 +1423,16 @@ DEFINE_mDouble(inverted_index_ram_buffer_size, "512");
 // -1 indicates not working.
 // Normally we should not change this, it's useful for testing.
 DEFINE_mInt32(inverted_index_max_buffered_docs, "-1");
-// G16-h: zstd levels for the SNII dict-block compression and the .prx window
-// auto mode. Level 9 (vs the historical 3) shrinks the two largest compressed
-// sections -- textbench: index -457 MB (0.918x -> 0.891x V3) -- for an import
-// CPU cost inside the run-to-run variance band; zstd decode speed does not
-// depend on the level, and warm/cold benches measured no query change.
-// Write side only; segments self-describe their compression.
-// Default 3 since the all-level-3 evaluation (2026-07-11, 4 corpora): vs
-// level 9 the settled index grows only +0.6%..+6.3% (whole table
-// +0.3%..+1.9%) while import index CPU drops 17-24% and full-compaction CPU
-// 8-24%; settled cold-query latency is unchanged (interleaved A/B). The
-// delta+varint-encoded payloads are high-entropy, so level 9's extra search
-// buys almost no ratio. Raise only for size-critical deployments.
+// Zstd levels for SNII DICT blocks and .prx windows. These affect writes; each segment records its compression mode.
 DEFINE_mInt32(snii_dict_block_zstd_level, "3");
 DEFINE_mInt32(snii_prx_zstd_level, "3");
-// Patch C prx tiering: zstd level for the prx region of DIRECT-LOAD segments
-// only (stream/broker load, see IndexColumnWriter::set_direct_load). Inert at
-// the defaults (both levels 3); it exists for size-critical deployments that
-// RAISE snii_prx_zstd_level (e.g. 9) and still want cheap loads: compaction
-// rewrites every segment at snii_prx_zstd_level, so SETTLED data (and the
-// cold-query path over it) is unaffected by the load tier -- measured -290s
-// (httplogs) / -204s (agentlogs) of import index CPU at 3 vs 9. Same clamp
-// [3, 19]. Read at index flush like snii_prx_zstd_level (a mid-load change
-// lands on in-flight segments); the direct-load BIT itself is captured once.
+// A .prx window is stored zstd-compressed only if that frame is smaller than the PFOR one by at
+// least this percentage; 0 picks the smaller frame. Every read of a zstd window pays a
+// decompression that PFOR does not, and on text positions zstd beats PFOR by 20-30% only on the
+// large windows of frequent terms, which are the ones phrase queries read most: 30 costs about 2%
+// of the index size. Readers handle every codec, so changing this never affects existing segments.
+DEFINE_mInt32(snii_prx_zstd_min_saving_percent, "30");
+// Zstd level for direct-load .prx regions. Compaction rewrites them using snii_prx_zstd_level.
 DEFINE_mInt32(snii_prx_zstd_level_direct_load, "3");
 // G16-d: target SNII dict block size in bytes; 0 uses the format default
 // (64 KiB). Larger blocks compress better under the per-block zstd (the dict
@@ -1389,10 +1462,17 @@ DEFINE_mInt32(snii_index_build_max_memory_limit_percent, "10");
 // ONLY the arena, so smaller triggers cut tiny runs for near-zero relief.
 // Default 64 MiB.
 DEFINE_mInt64(snii_forced_spill_min_arena_bytes, "67108864");
-// Max spill-run files one SNII writer accumulates before its runs are
-// merge-compacted into one (bounds the k-way merge fan-in and its open fds;
-// every run is held open for the whole merge). 0 = uncapped. Default 64.
+// Historical run-file cap: spill ranges now share one append-only spool, so
+// ingestion does not accumulate one physical file per run. This knob additionally
+// limits active inputs per final/intermediate merge group (minimum two). Workspace
+// and fd limits also constrain fan-in; 0 uses those bounds without an extra cap.
 DEFINE_mInt32(snii_spill_max_run_files_per_buffer, "64");
+// Hard budget shared by a logical writer's posting spill, merge, and encoding
+// buffers. Captured when an ingestion writer or compaction reporter is created.
+// High ZSTD levels may require a larger budget for the compression context.
+DEFINE_mInt64(snii_postings_workspace_bytes, "33554432");
+DEFINE_Validator(snii_postings_workspace_bytes,
+                 [](const int64_t value) -> bool { return value > 0; });
 // dict path for chinese analyzer
 DEFINE_String(inverted_index_dict_path, "${DORIS_HOME}/dict");
 // The kuromoji (Japanese) analyzer
@@ -1408,6 +1488,11 @@ DEFINE_mBool(debug_inverted_index_compaction, "false");
 DEFINE_mBool(inverted_index_ram_dir_enable, "true");
 // wheather index by RAM directory when base compaction
 DEFINE_mBool(inverted_index_ram_dir_enable_when_base_compaction, "true");
+// Norms cost one byte per segment row, including rows that hold no value for the field. A segment
+// holds one index per variant path, so writing norms for them costs rows * paths bytes. Turn this on
+// to leave norms out of every index on a variant path, whatever its "norms" property says; BM25
+// scoring (score()) on those indexes then fails.
+DEFINE_mBool(inverted_index_skip_norms_for_variant, "false");
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DEFINE_Int32(num_broadcast_buffer, "32");
 
@@ -1442,6 +1527,9 @@ DEFINE_Bool(enable_segment_cache_prune, "false");
 
 // enable feature binlog, default false
 DEFINE_Bool(enable_feature_binlog, "false");
+// enable feature changelog, default false
+// ATTN(changelog-rename): formerly "enable_feature_binlog" (non-CCR uses)
+DEFINE_Bool(enable_feature_changelog, "false");
 
 // enable set in BitmapValue
 DEFINE_Bool(enable_set_in_bitmap_value, "true");
@@ -1480,6 +1568,19 @@ DEFINE_mInt64(auto_inc_low_water_level_mark_size_ratio, "3");
 DEFINE_mInt64(auto_inc_fetch_thread_num, "3");
 // default max to 2048 connections
 DEFINE_mInt64(lookup_connection_cache_capacity, "2048");
+// Number of reusable result blocks retained by each point lookup cache entry, in [1, 32].
+DEFINE_mInt32(lookup_connection_cache_block_pool_size, "1");
+DEFINE_Validator(lookup_connection_cache_block_pool_size,
+                 [](int32_t value) -> bool { return value >= 1 && value <= 32; });
+static std::atomic<size_t> atomic_lookup_connection_cache_block_pool_size {1};
+DEFINE_ON_UPDATE(lookup_connection_cache_block_pool_size, [](int32_t, int32_t value) {
+    atomic_lookup_connection_cache_block_pool_size.store(static_cast<size_t>(value),
+                                                         std::memory_order_relaxed);
+});
+
+size_t get_lookup_connection_cache_block_pool_size() {
+    return atomic_lookup_connection_cache_block_pool_size.load(std::memory_order_relaxed);
+}
 
 // level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
 DEFINE_mInt64(LZ4_HC_compression_level, "9");
@@ -1606,10 +1707,31 @@ DEFINE_mDouble(high_disk_avail_level_diff_usages, "0.15");
 DEFINE_Int32(partition_disk_index_lru_size, "10000");
 // limit the storage space that query spill files can use
 DEFINE_String(spill_storage_root_path, "");
-DEFINE_String(spill_storage_limit, "20%");               // 20%
+DEFINE_String(spill_storage_limit, "20%"); // 20%
+DEFINE_mInt64(spill_storage_limit_bytes, "0");
+DEFINE_Validator(spill_storage_limit_bytes, [](int64_t config) -> bool { return config >= 0; });
 DEFINE_mInt32(spill_gc_interval_ms, "2000");             // 2s
 DEFINE_mInt32(spill_gc_work_time_ms, "2000");            // 2s
 DEFINE_mInt64(spill_file_part_size_bytes, "1073741824"); // 1GB
+DEFINE_String(spill_storage_type, "local");
+// s3: cloud mode only; spill is written to the S3 storage vault under
+// spill/{ip}_{port}/{query_id}/, where ip is the address of this BE and port its
+// heartbeat_service_port.
+// The BE deletes the objects of a spill file when the query is done with it. What a BE that
+// crashed left behind is not deleted by Doris: give the bucket a lifecycle rule that expires
+// the keys under <vault prefix>/spill/ and aborts incomplete multipart uploads.
+// Incomplete multipart uploads from failed or cancelled queries also rely on that rule.
+DEFINE_Validator(spill_storage_type, [](const std::string& config) -> bool {
+    return config == "local" || config == "s3";
+});
+DEFINE_String(spill_s3_storage_vault_id, "");
+DEFINE_mInt64(spill_s3_max_inflight_upload_bytes, "268435456"); // 256MB
+DEFINE_Validator(spill_s3_max_inflight_upload_bytes,
+                 [](int64_t config) -> bool { return config > 0; });
+// The footer probe is bounded by it as well; the rest of a block offset array that does not fit
+// in the probe is read whole, like a single block larger than it.
+DEFINE_mInt64(spill_s3_read_coalesce_bytes, "8388608"); // 8MB
+DEFINE_Validator(spill_s3_read_coalesce_bytes, [](int64_t config) -> bool { return config >= 0; });
 
 // paused query in queue timeout(ms) will be resumed or canceled
 DEFINE_Int64(spill_in_paused_queue_timeout_ms, "60000");
@@ -2316,6 +2438,11 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
         SET_FIELD(it.second, std::vector<double>, fill_conf_map, set_to_default);
         SET_FIELD(it.second, std::vector<std::string>, fill_conf_map, set_to_default);
     }
+    published_inverted_index_candidate_pushdown_ratio.store(
+            inverted_index_candidate_pushdown_ratio);
+    atomic_lookup_connection_cache_block_pool_size.store(
+            static_cast<size_t>(lookup_connection_cache_block_pool_size),
+            std::memory_order_relaxed);
 
     // Emit a warning for every key present in the conf file that does not correspond to a
     // registered BE config field. Such keys (typos or configs removed in a newer version)
@@ -2364,13 +2491,17 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
                                                                          (FIELD).name, new_value); \
             }                                                                                      \
         }                                                                                          \
+        if (PERSIST) {                                                                             \
+            Status persist_status = persist_config(std::string((FIELD).name), VALUE);              \
+            if (!persist_status.ok()) {                                                            \
+                ref_conf_value = old_value;                                                        \
+                return persist_status;                                                             \
+            }                                                                                      \
+        }                                                                                          \
         if (full_conf_map != nullptr) {                                                            \
             std::ostringstream oss;                                                                \
             oss << new_value;                                                                      \
             (*full_conf_map)[(FIELD).name] = oss.str();                                            \
-        }                                                                                          \
-        if (PERSIST) {                                                                             \
-            RETURN_IF_ERROR(persist_config(std::string((FIELD).name), VALUE));                     \
         }                                                                                          \
         if (RegisterConfUpdateCallback::_s_field_update_callback != nullptr) {                     \
             auto callback_it =                                                                     \
@@ -2389,7 +2520,7 @@ Status persist_config(const std::string& field, const std::string& value) {
     // lock to make sure only one thread can modify the be_custom.conf
     std::lock_guard<std::mutex> l(custom_conf_lock);
 
-    static const std::string conffile = config::custom_config_dir + "/be_custom.conf";
+    const std::string conffile = config::custom_config_dir + "/be_custom.conf";
 
     Properties tmp_props;
     if (!tmp_props.load(conffile.c_str(), false)) {
@@ -2413,16 +2544,14 @@ Status set_config(const std::string& field, const std::string& value, bool need_
                 "'{}' is not support to modify", field);
     }
 
+    // Keep the value, config map, and callback in the same update order.
+    std::lock_guard<std::mutex> lock(mutable_string_config_lock);
     UPDATE_FIELD(it->second, value, bool, need_persist);
     UPDATE_FIELD(it->second, value, int16_t, need_persist);
     UPDATE_FIELD(it->second, value, int32_t, need_persist);
     UPDATE_FIELD(it->second, value, int64_t, need_persist);
     UPDATE_FIELD(it->second, value, double, need_persist);
-    {
-        // add lock to ensure thread safe
-        std::lock_guard<std::mutex> lock(mutable_string_config_lock);
-        UPDATE_FIELD(it->second, value, std::string, need_persist);
-    }
+    UPDATE_FIELD(it->second, value, std::string, need_persist);
 
     // The other types are not thread safe to change dynamically.
     return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR, false>(

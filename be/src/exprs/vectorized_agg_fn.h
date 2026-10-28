@@ -114,7 +114,12 @@ public:
     size_t align_of_data() const { return _function->align_of_data(); }
     bool result_column_could_resize() const { return _function->result_column_could_resize(); }
     bool supported_incremental_mode() const { return _function->supported_incremental_mode(); }
-    bool is_simple_count() const { return _function->is_simple_count(); }
+    WindowSpillStrategy window_spill_strategy() const { return _function->window_spill_strategy(); }
+    WindowSpillPeerFunction window_spill_peer_function() const {
+        return _function->window_spill_peer_function();
+    }
+    // Whether the inline UInt64 count path can replace this aggregate function.
+    bool is_simple_count() const;
     void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena& arena) const {
         _function->merge(place, rhs, arena);
     }

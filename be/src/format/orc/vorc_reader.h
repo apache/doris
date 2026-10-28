@@ -43,7 +43,6 @@
 #include "format/format_common.h"
 #include "format/table/table_format_reader.h"
 #include "format/table/table_schema_change_helper.h"
-#include "format/table/transactional_hive_common.h"
 #include "io/file_factory.h"
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"
@@ -207,8 +206,6 @@ public:
         _deletion_vector = deletion_vector;
     }
 
-    void set_delete_rows(const AcidRowIDSet* delete_rows) { _delete_rows = delete_rows; }
-
     Status filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t size, void* arg);
 
     Status fill_dict_filter_column_names(
@@ -253,7 +250,6 @@ public:
         }
         return true;
     }
-    static const orc::Type& remove_acid(const orc::Type& type);
 
     bool count_read_rows() override { return true; }
 
@@ -270,8 +266,7 @@ public:
     bool has_delete_operations() const override {
         return (_position_delete_ordered_rowids != nullptr &&
                 !_position_delete_ordered_rowids->empty()) ||
-               (_deletion_vector != nullptr && !_deletion_vector->isEmpty()) ||
-               (_delete_rows != nullptr && !_delete_rows->empty());
+               (_deletion_vector != nullptr && !_deletion_vector->isEmpty());
     }
 
     // RowPositionProvider implementation
@@ -370,8 +365,6 @@ private:
     Status _init_read_columns();
     void _init_file_column_mapping();
 
-    static bool _check_acid_schema(const orc::Type& type);
-
     // ---- set_fill_columns sub-functions ----
     // Collect predicate columns from conjuncts for lazy materialization.
     void _collect_predicate_columns_from_conjuncts(
@@ -414,7 +407,6 @@ private:
     void _fill_batch_vec(std::vector<orc::ColumnVectorBatch*>& result,
                          orc::ColumnVectorBatch* batch, int idx);
 
-    void _build_delete_row_filter(const Block* block, size_t rows);
     Status _get_next_block_impl(Block* block, size_t* read_rows, bool* eof);
     void _init_system_properties();
     void _init_file_description();
@@ -654,6 +646,18 @@ private:
                     continue;
                 }
             }
+            if (data->hasNulls && !data->notNull[i]) {
+                continue;
+            }
+            // Check the UTC epoch before packing: ORC permits years outside Doris's 0000-9999 range.
+            static constexpr int64_t MIN_SECONDS = -62167219200LL;
+            static constexpr int64_t MAX_SECONDS = 253402300799LL;
+            if (data->data[i] < MIN_SECONDS || data->data[i] > MAX_SECONDS) {
+                return Status::DataQualityError(
+                        "Decoded TIMESTAMPTZ column '{}' is outside the Doris 0000-9999 range: "
+                        "seconds={}",
+                        col_name, data->data[i]);
+            }
             tz.from_unixtime(data->data[i], utc_time_zone);
             // nanoseconds will lose precision. only keep microseconds.
             tz.set_microsecond(data->nanoseconds[i] / 1000);
@@ -714,16 +718,7 @@ private:
         return true;
     }
 
-    bool _seek_to_read_one_line() {
-        if (_read_by_rows) {
-            if (_row_ids.empty()) {
-                return false;
-            }
-            _row_reader->seekToRow(_row_ids.front());
-            _row_ids.pop_front();
-        }
-        return true;
-    }
+    bool _seek_to_read_one_line();
 
     Status _set_read_one_line_impl() override {
         _batch_size = 1;
@@ -814,7 +809,6 @@ private:
     size_t _decimal_scale_params_index = 0;
 
 protected:
-    bool _is_acid = false;
     // Protected so Iceberg subclasses can register synthesized columns
     // in on_before_init_reader.
     LazyReadContext _lazy_read_ctx;
@@ -824,8 +818,6 @@ protected:
 
 private:
     std::unique_ptr<IColumn::Filter> _filter;
-    const AcidRowIDSet* _delete_rows = nullptr;
-    std::unique_ptr<IColumn::Filter> _delete_rows_filter_ptr;
 
     VExprContextSPtrs _not_single_slot_filter_conjuncts;
     const std::unordered_map<int, VExprContextSPtrs>* _slot_id_to_filter_conjuncts = nullptr;

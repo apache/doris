@@ -92,6 +92,8 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
 
     // record the table update time, like insert/alter/delete
     protected volatile long updateTime = 0;
+    // Fences missing-table responses that started before a metadata-only refresh of this object.
+    private transient volatile long metadataRefreshGeneration;
 
     protected long dbId;
     protected boolean objectCreated;
@@ -338,6 +340,17 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         this.updateTime = updateTime;
     }
 
+    public long getMetadataRefreshGeneration() {
+        return metadataRefreshGeneration;
+    }
+
+    /** Ordered with guarded missing-table cleanup, which holds the same catalog monitor. */
+    public void advanceMetadataRefreshGeneration() {
+        synchronized (catalog) {
+            metadataRefreshGeneration++;
+        }
+    }
+
     @Override
     public long getLastCheckTime() {
         return 0;
@@ -531,10 +544,19 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     }
 
     /**
+     * Whether this snapshot's partition values can be pruned using source-column predicates.
+     * Enumeration may still be needed for partition counts when this returns false.
+     */
+    public boolean supportInternalPartitionPruned(Optional<MvccSnapshot> snapshot) {
+        return supportInternalPartitionPruned();
+    }
+
+    /**
      * Cross-query cache of the pre-built {@link SortedPartitionRanges} for binary-search partition
-     * pruning. Tables that implement {@link SupportBinarySearchFilteringPartitions} (external MVCC:
-     * iceberg/paimon) route through the shared {@link NereidsSortedPartitionsCacheManager}, keyed by the
-     * pinned connector snapshot; others return empty (the caller falls back to building ranges fresh).
+     * pruning. The default implementation delegates tables implementing
+     * {@link SupportBinarySearchFilteringPartitions} to {@link NereidsSortedPartitionsCacheManager}.
+     * Plugin MVCC tables override this to return the index owned by their pinned partition view;
+     * other tables return empty (the caller falls back to building ranges fresh).
      *
      * @param scan the catalog relation
      * @return sorted partition ranges, or empty if not supported

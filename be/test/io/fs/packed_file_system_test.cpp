@@ -30,6 +30,7 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
+#include "io/fs/packed_file_writer.h"
 #include "io/fs/path.h"
 #include "util/slice.h"
 
@@ -247,7 +248,7 @@ TEST_F(PackedFileSystemTest, FirstSegmentDataFileUsesPackedWriter) {
 
     ASSERT_NE(_inner_fs->last_writer(), nullptr);
     EXPECT_EQ(_inner_fs->last_writer()->bytes_appended(), 0);
-    EXPECT_TRUE(writer->is_in_packed_file());
+    EXPECT_NE(dynamic_cast<PackedFileWriter*>(writer.get()), nullptr);
 }
 
 TEST_F(PackedFileSystemTest, LaterSegmentDataFileUsesDirectWriter) {
@@ -264,7 +265,7 @@ TEST_F(PackedFileSystemTest, LaterSegmentDataFileUsesDirectWriter) {
 
     ASSERT_NE(_inner_fs->last_writer(), nullptr);
     EXPECT_EQ(_inner_fs->last_writer()->bytes_appended(), data.size());
-    EXPECT_FALSE(writer->is_in_packed_file());
+    EXPECT_EQ(dynamic_cast<PackedFileWriter*>(writer.get()), nullptr);
 }
 
 TEST_F(PackedFileSystemTest, LaterSegmentIndexFileUsesDirectWriter) {
@@ -281,7 +282,7 @@ TEST_F(PackedFileSystemTest, LaterSegmentIndexFileUsesDirectWriter) {
 
     ASSERT_NE(_inner_fs->last_writer(), nullptr);
     EXPECT_EQ(_inner_fs->last_writer()->bytes_appended(), data.size());
-    EXPECT_FALSE(writer->is_in_packed_file());
+    EXPECT_EQ(dynamic_cast<PackedFileWriter*>(writer.get()), nullptr);
 }
 
 TEST_F(PackedFileSystemTest, NonzeroFirstSegmentUsesPackedWriter) {
@@ -298,7 +299,7 @@ TEST_F(PackedFileSystemTest, NonzeroFirstSegmentUsesPackedWriter) {
     ASSERT_TRUE(first_segment_writer->appendv(&data_slice, 1).ok());
     ASSERT_NE(_inner_fs->last_writer(), nullptr);
     EXPECT_EQ(_inner_fs->last_writer()->bytes_appended(), 0);
-    EXPECT_TRUE(first_segment_writer->is_in_packed_file());
+    EXPECT_NE(dynamic_cast<PackedFileWriter*>(first_segment_writer.get()), nullptr);
 
     Path segment_zero_path("rowset_1_0.dat");
     FileWriterPtr segment_zero_writer;
@@ -307,7 +308,7 @@ TEST_F(PackedFileSystemTest, NonzeroFirstSegmentUsesPackedWriter) {
     ASSERT_TRUE(segment_zero_writer->appendv(&data_slice, 1).ok());
     ASSERT_NE(_inner_fs->last_writer(), nullptr);
     EXPECT_EQ(_inner_fs->last_writer()->bytes_appended(), data.size());
-    EXPECT_FALSE(segment_zero_writer->is_in_packed_file());
+    EXPECT_EQ(dynamic_cast<PackedFileWriter*>(segment_zero_writer.get()), nullptr);
 
     Path first_segment_index_path("rowset_1_10.idx");
     FileWriterPtr first_segment_index_writer;
@@ -320,7 +321,35 @@ TEST_F(PackedFileSystemTest, NonzeroFirstSegmentUsesPackedWriter) {
     ASSERT_TRUE(first_segment_index_writer->appendv(&index_slice, 1).ok());
     ASSERT_NE(_inner_fs->last_writer(), nullptr);
     EXPECT_EQ(_inner_fs->last_writer()->bytes_appended(), 0);
-    EXPECT_TRUE(first_segment_index_writer->is_in_packed_file());
+    EXPECT_NE(dynamic_cast<PackedFileWriter*>(first_segment_index_writer.get()), nullptr);
+}
+
+TEST_F(PackedFileSystemTest, CreateFileFollowsWriteFileCacheOption) {
+    ASSERT_FALSE(config::enable_file_cache_write_index_file_only);
+    PackedFileSystem merge_fs(_inner_fs, _append_info);
+
+    // A load with disable_file_cache=true must not write packed small files to file cache.
+    FileWriterOptions no_cache_opts {.write_file_cache = false};
+    FileWriterPtr no_cache_writer;
+    ASSERT_TRUE(
+            merge_fs.create_file(Path("rowset_1_0.dat"), &no_cache_writer, &no_cache_opts).ok());
+    auto* packed_writer = dynamic_cast<PackedFileWriter*>(no_cache_writer.get());
+    ASSERT_NE(packed_writer, nullptr);
+    EXPECT_FALSE(packed_writer->_append_info.write_file_cache);
+
+    FileWriterOptions cache_opts {.write_file_cache = true};
+    FileWriterPtr cache_writer;
+    ASSERT_TRUE(merge_fs.create_file(Path("rowset_1_0.idx"), &cache_writer, &cache_opts).ok());
+    packed_writer = dynamic_cast<PackedFileWriter*>(cache_writer.get());
+    ASSERT_NE(packed_writer, nullptr);
+    EXPECT_TRUE(packed_writer->_append_info.write_file_cache);
+
+    // Without options, keep the write_file_cache from append context.
+    FileWriterPtr default_writer;
+    ASSERT_TRUE(merge_fs.create_file(Path("rowset_1_0.dat"), &default_writer, nullptr).ok());
+    packed_writer = dynamic_cast<PackedFileWriter*>(default_writer.get());
+    ASSERT_NE(packed_writer, nullptr);
+    EXPECT_TRUE(packed_writer->_append_info.write_file_cache);
 }
 
 TEST_F(PackedFileSystemTest, OpenFileNotInMergeFile) {

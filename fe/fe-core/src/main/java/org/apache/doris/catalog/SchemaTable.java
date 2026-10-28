@@ -555,7 +555,11 @@ public class SchemaTable extends Table {
                                     .column("TraceId", ScalarType.createVarchar(256))
                                     .column("Info", ScalarType.createVarchar(ScalarType.MAX_VARCHAR_LENGTH))
                                     .column("FE", ScalarType.createVarchar(64))
-                                    .column("CloudCluster", ScalarType.createVarchar(64)).build(), true))
+                                    .column("CloudCluster", ScalarType.createVarchar(64))
+                                    // MySQL / ArrowFlightSQL. Keep it the last column: ConnectContext.ThreadInfo
+                                    // builds the row in this order, and the BE processlist scanner reads it
+                                    // by position and pads a row of an older FE that ends at CloudCluster.
+                                    .column("Protocol", ScalarType.createVarchar(16)).build(), true))
             .put("workload_policy",
                     new SchemaTable(SystemIdGenerator.getNextId(), "workload_policy", TableType.SCHEMA,
                             builder().column("ID", ScalarType.createType(PrimitiveType.BIGINT))
@@ -656,6 +660,14 @@ public class SchemaTable extends Table {
                                     .column("ESTIMATED_WEIGHT", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("WEIGHT_REJECT_COUNT", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("LAST_WEIGHT_REJECT_REASON", ScalarType.createStringType())
+                                    // Appended last: the BE scanner falls back to asking an older FE for only the
+                                    // leading columns.
+                                    .column("WEIGHT_BOUNDED", ScalarType.createType(PrimitiveType.BOOLEAN))
+                                    .column("EVICTION_WEIGHT", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("CATALOG_MAX_WEIGHT", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("CATALOG_ESTIMATED_WEIGHT", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("GLOBAL_MAX_WEIGHT", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("GLOBAL_ESTIMATED_WEIGHT", ScalarType.createType(PrimitiveType.BIGINT))
                                     .build())
             )
             .put("backend_kerberos_ticket_cache",
@@ -913,6 +925,8 @@ public class SchemaTable extends Table {
                                             ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("CURRENT_TSO_LOGICAL_COUNTER",
                                             ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("COMMITTED_TSO", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("COMMITTED_TSO_PHYSICAL_TIME", ScalarType.createType(PrimitiveType.BIGINT))
                                     .build()))
             .put("be_compaction_tasks",
                     new SchemaTable(SystemIdGenerator.getNextId(), "be_compaction_tasks", TableType.SCHEMA,

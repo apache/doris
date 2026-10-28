@@ -82,6 +82,8 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
 
     @Override
     public Boolean visit(Plan plan, PushDownContext ctx) {
+        // A bound on a grouping key can exclude whole groups. Stopping at unlisted operators
+        // here would disable existing scan filters below aggregates and their join inputs.
         boolean pushed = false;
         for (Plan child : plan.children()) {
             pushed |= child.accept(this, ctx);

@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -156,6 +157,9 @@ DECLARE_Int32(arrow_flight_sql_proxy_port);
 // which means the number of bthreads is #cpu-cores
 DECLARE_Int32(brpc_num_threads);
 DECLARE_Int32(brpc_idle_timeout_sec);
+
+// Maximum number of multi-dimensional bvar samples exported by /brpc_metrics.
+DECLARE_String(bvar_max_dump_multi_dimension_metric_num);
 
 // Declare a selection strategy for those servers have many ips.
 // Note that there should at most one ip match this list.
@@ -579,14 +583,14 @@ DECLARE_mInt32(ordered_data_compaction_min_segment_size);
 DECLARE_mInt32(max_base_compaction_threads);
 DECLARE_mInt32(max_cumu_compaction_threads);
 
-// Binlog Compaction
-DECLARE_mInt64(binlog_compaction_wait_timesec_after_visible);
-DECLARE_mInt64(binlog_compaction_goal_size_mbytes);
-DECLARE_mInt32(binlog_compaction_task_num_per_disk);
-DECLARE_mInt32(binlog_compaction_file_count_threshold);
-DECLARE_mInt32(binlog_level_compaction_max_deltas);
-DECLARE_mInt64(binlog_compaction_time_threshold_seconds);
-DECLARE_mInt32(max_binlog_compaction_threads);
+// Changelog compaction
+DECLARE_mInt64(changelog_compaction_wait_timesec_after_visible);
+DECLARE_mInt64(changelog_compaction_goal_size_mbytes);
+DECLARE_mInt32(changelog_compaction_task_num_per_disk);
+DECLARE_mInt32(changelog_compaction_file_count_threshold);
+DECLARE_mInt32(changelog_level_compaction_max_deltas);
+DECLARE_mInt64(changelog_compaction_time_threshold_seconds);
+DECLARE_mInt32(max_changelog_compaction_threads);
 
 DECLARE_Bool(enable_base_compaction_idle_sched);
 DECLARE_mInt64(base_compaction_min_rowset_num);
@@ -611,9 +615,9 @@ DECLARE_mDouble(compaction_promotion_ratio);
 DECLARE_mInt64(compaction_promotion_min_size_mbytes);
 
 // When output rowset of cumulative compaction total version count (end_version - start_version)
-// exceed this config count, the rowset will be moved to base compaction
-// NOTE: this config will work for unique key merge-on-write table only, to reduce version count
-// related cost on delete bitmap more effectively.
+// exceed this config count, the rowset will be moved to base compaction.
+// NOTE: this config only works for unique key merge-on-write tables. The default maximum value
+// disables version-count-based promotion while retaining the option to enable it when needed.
 DECLARE_mInt64(compaction_promotion_version_count);
 
 // The lower bound size to do cumulative compaction. When total disk size of candidate rowsets is less than
@@ -738,6 +742,12 @@ DECLARE_Int64(load_data_reserve_hours);
 DECLARE_mInt64(load_error_log_reserve_hours);
 // error log size limit, default 200MB
 DECLARE_mInt64(load_error_log_limit_bytes);
+
+// Dedicated load cancellation workers, default 32. Must be positive; requires a restart.
+DECLARE_Int32(brpc_load_light_work_pool_threads);
+// Queue capacity for the dedicated load cancellation pool.
+// -1 selects max(1024, CPU cores * 32) queued requests. Requires a restart.
+DECLARE_Int32(brpc_load_light_work_pool_max_queue_size);
 
 // be brpc interface is classified into two categories: light and heavy
 // each category has diffrent thread number
@@ -1345,6 +1355,7 @@ DECLARE_Int32(file_cache_downloader_thread_num_max);
 DECLARE_mInt64(file_cache_background_lru_dump_interval_ms);
 // dump queue only if the queue update specific times through several dump intervals
 DECLARE_mInt64(file_cache_background_lru_dump_update_cnt_threshold);
+// max LRU entries to dump for each queue, 0 disables LRU log recording, dumping and restoring
 DECLARE_mInt64(file_cache_background_lru_dump_tail_record_num);
 DECLARE_mInt64(file_cache_background_lru_log_queue_max_size);
 DECLARE_mInt64(file_cache_background_lru_log_replay_interval_ms);
@@ -1371,6 +1382,12 @@ DECLARE_Bool(enable_inverted_index_cache_check_timestamp);
 DECLARE_mBool(enable_inverted_index_correct_term_write);
 DECLARE_Int32(inverted_index_fd_number_limit_percent); // 50%
 DECLARE_Int32(inverted_index_query_cache_shards);
+// When the candidate row bitmap of a segment scan is smaller than
+// num_rows * this ratio, it is pushed down into inverted index queries so
+// doc-list intersection and verification run only over the candidates
+// (see IndexQueryContext::candidate_rows). <= 0 disables the pushdown.
+DECLARE_mDouble(inverted_index_candidate_pushdown_ratio);
+double get_inverted_index_candidate_pushdown_ratio();
 
 // inverted index match bitmap cache size
 DECLARE_String(inverted_index_query_cache_limit);
@@ -1378,6 +1395,60 @@ DECLARE_String(inverted_index_query_cache_limit);
 // Build-only CommonGrams kill switch. Logical index writers snapshot it at construction; changing
 // it affects only writers created after the transition and never changes query/cache semantics.
 // Release-calibrated query-planner coefficients. Both remain mutable for controlled recalibration.
+
+// Whether LIKE/REGEXP tries to compile a constant pattern into a gram boolean query pushed down
+// to a gram-family inverted index (master switch). Turning it off behaves as if the index did
+// not exist -- it only gives up the speedup, it never changes query results.
+//
+// A pattern is compiled against the gram scheme the segment itself carries, read back from the
+// core metadata of the physical index the query is about to read, so the scheme can never
+// disagree with the one the writer used -- a policy that was dropped and recreated with different
+// properties does not affect segments already written.
+DECLARE_mBool(enable_gram_index_regexp);
+
+// Cost gate for the gram boolean query, in basis points (1/10000) of a segment's rows: give up
+// pruning once the candidate set is larger than that share. 0 disables the gate, 10000 or more can
+// never fire. This is a COST switch, never a semantic one -- a gram index only produces a superset
+// of the candidate rows and the expression above re-verifies each of them, so giving up means the
+// query returns the whole docid range of the segment and prunes nothing. It can therefore only
+// cost speed, never correctness, whatever value it is set to.
+//
+// The unit is basis points rather than percent because the useful range is far below one percent.
+// Pruning only pays when the surviving candidates are sparse enough that whole pages of the column
+// can be skipped: with B rows per remote read unit and candidates spread uniformly, the fraction of
+// units still touched is 1 - (1 - C/N)^B, which is already ~1 by C/N = 1%. Measured on a 34.46M row
+// httplogs table against remote object storage, cold-read speedup by candidate count was 14.1x at
+// 2 candidates, 5.5x at 128, 1.5x at 25K, 1.2x at 46K, and turned into a regression from 56K
+// upwards, bottoming out at 0.70x. 15 bp (0.15%) is the largest share that admitted no regression
+// in that sweep while keeping every double-digit win.
+DECLARE_mInt32(gram_index_max_candidate_ratio_bp);
+
+// Row floor below which the candidate ratio gate above is not applied at all. A small segment's
+// entire gram index is a few KB and one or two requests, so giving up there saves nothing
+// measurable while throwing away the pruning the index really does deliver; the ratio only starts
+// to mean something at a size where the skipped index IO can outweigh the rows it stops
+// eliminating. The default is one Roaring container's worth of rows (65536). 0 applies the ratio
+// at every segment size.
+DECLARE_mInt32(gram_index_candidate_ratio_min_rows);
+
+// Adaptive gram density: solve the boundary rate from each segment's own bytes instead of
+// taking the rate configured on the tokenizer.
+//
+// A configured rate cannot mean the same thing on two columns. Measured at a nominal 0.25 the
+// realised grams per byte were 0.204 on log text, 0.287 on URL paths and 0.182 on agent
+// traces, and the coverage it bought ranged from 91.7% of 12-byte literals to 98.9% -- under
+// serving one column while overpaying on another, in every posting list. Solving instead
+// makes the promise the constant and the rate the variable.
+DECLARE_mBool(enable_gram_index_adaptive_density);
+// The promise the solve keeps, not a tuning pair: literals of at least this many bytes are
+// findable, for this share of the column's own windows of that length. Both are dimensionless
+// and the same on every dataset; what varies is the density they resolve to.
+DECLARE_mInt32(gram_index_min_literal_bytes);
+DECLARE_mInt32(gram_index_density_coverage_permille);
+// How much of a segment is held back to solve on. The sample is buffered rather than
+// tokenized, so this is a transient memory cost and a bound on how long the write path waits
+// before it can cut anything; the histogram behind the solve is a fixed 256 KB regardless.
+DECLARE_mInt64(gram_index_density_sample_bytes);
 
 // condition cache limit
 DECLARE_Int16(condition_cache_limit);
@@ -1395,6 +1466,9 @@ DECLARE_mInt32(inverted_index_max_buffered_docs);
 // import CPU; see the DEFINEs in config.cpp).
 DECLARE_mInt32(snii_dict_block_zstd_level);
 DECLARE_mInt32(snii_prx_zstd_level);
+// A .prx window is stored zstd-compressed only if that frame is smaller than the PFOR one by at
+// least this percentage; 0 picks the smaller frame. Affects segments written from now on.
+DECLARE_mInt32(snii_prx_zstd_min_saving_percent);
 // Patch C: prx zstd level for DIRECT-LOAD segments only (default 3, cheaper
 // import); compaction rewrites at snii_prx_zstd_level so settled segments are
 // unaffected. Full contract at the DEFINE in config.cpp.
@@ -1403,50 +1477,15 @@ DECLARE_mInt32(snii_prx_zstd_level_direct_load);
 // Bigger blocks -> better per-block zstd on the dict region, larger cold
 // fetch+decompress unit per dict-block miss. Write side only.
 DECLARE_mInt32(snii_target_dict_block_bytes);
-// PROCESS-WIDE share for SNII index-build RAM, as a PERCENT of the process
-// memory limit -- the index-build analogue of
-// load_process_max_memory_limit_percent. The per-writer
-// inverted_index_ram_buffer_size is a reclaimable-buffer spill threshold, not a
-// hard cap on persistent vocabulary bytes: a concurrent load keeps (tablets x
-// concurrency) writers alive at once, none of which may reach that threshold,
-// while their SUM can still be large. Once live SNII index-build memory
-// (ingestion plus index-merge compaction) crosses this share, the writers
-// holding the largest reclaimable posting arenas are asked to spill early
-// (async-safe advisory requests, honored on each writer's own thread; output
-// stays byte-identical). Read at every decision, so a change takes effect
-// immediately for writers that are already running.
-//
-// 0 disables SNII's own share trigger; the process-level backstops (system
-// available memory below its warning water mark, process usage above the soft
-// limit) still apply.
-//
-// FLOORED AGAINST inverted_index_ram_buffer_size: the share is never less than
-// four writers' worth of the per-writer spill threshold. A smaller share would
-// put a small BE permanently over it as soon as two writers exist -- unrelievable
-// back-pressure rather than a limit -- because the per-writer threshold is what
-// one writer may hold before it spills on its own.
+// Maximum process-memory share for SNII index builds. Above this share, writers with reclaimable posting arenas receive spill requests; zero disables the share trigger but keeps process-pressure backstops.
 DECLARE_mInt32(snii_index_build_max_memory_limit_percent);
-// G09 forced-spill floor: minimum reclaimable posting-arena bytes a SNII
-// writer must hold before a process-wide forced-spill request is honored, and
-// before the global limiter selects it as a spill victim. A forced spill
-// reclaims ONLY the posting arena -- the persistent vocab / pair-map
-// structures survive it -- so honoring below a real floor degenerates into a
-// storm of tiny runs whenever the memory over the share is dominated by
-// persistent bytes (each run then costs a file, a sort and a merge-fd for
-// near-zero memory relief). THIS FLOOR, not any judgement about whether the
-// overage is reachable, is what bounds forced spilling: it caps the cost at one
-// >= floor-sized run per floor of arena growth per writer. Forced spilling
-// therefore reclaims SPILLABLE memory only, never persistent memory.
-// Default 64 MiB.
+// Minimum reclaimable posting-arena size for a forced spill. Smaller requests remain pending.
 DECLARE_mInt64(snii_forced_spill_min_arena_bytes);
-// G09 run-file cap: maximum spill-run files one SNII writer may accumulate;
-// on the next spill past the cap, the existing runs are merge-compacted into
-// a single run first (term stream unchanged). Bounds the final k-way merge's
-// fan-in and, decisively, its simultaneously-open file descriptors -- every
-// run of a buffer is reopened and held open for the whole merge, so unbounded
-// run counts across ~100 concurrent writers can exhaust the BE nofile rlimit
-// ("Too many open files" at run reopen). 0 disables the cap. Default 64.
+// Additional cap on active merge inputs, with a minimum of two. Zero retains workspace and file descriptor limits.
 DECLARE_mInt32(snii_spill_max_run_files_per_buffer);
+// Shared hard posting-workspace budget, captured by new ingestion/compaction
+// reporters. Positive bytes; default 32 MiB. High ZSTD levels may need more.
+DECLARE_mInt64(snii_postings_workspace_bytes);
 // dict path for chinese analyzer
 DECLARE_String(inverted_index_dict_path);
 // The kuromoji (Japanese) analyzer
@@ -1462,6 +1501,11 @@ DECLARE_mBool(debug_inverted_index_compaction);
 DECLARE_mBool(inverted_index_ram_dir_enable);
 // wheather index by RAM directory when base compaction
 DECLARE_mBool(inverted_index_ram_dir_enable_when_base_compaction);
+// Norms cost one byte per segment row, including rows that hold no value for the field. A segment
+// holds one index per variant path, so writing norms for them costs rows * paths bytes. Turn this on
+// to leave norms out of every index on a variant path, whatever its "norms" property says; BM25
+// scoring (score()) on those indexes then fails.
+DECLARE_mBool(inverted_index_skip_norms_for_variant);
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DECLARE_Int32(num_broadcast_buffer);
 
@@ -1495,6 +1539,8 @@ DECLARE_mInt32(estimated_mem_per_column_reader);
 
 // enable binlog
 DECLARE_Bool(enable_feature_binlog);
+// enable changelog
+DECLARE_Bool(enable_feature_changelog);
 
 // enable set in BitmapValue
 DECLARE_Bool(enable_set_in_bitmap_value);
@@ -1545,15 +1591,14 @@ DECLARE_mInt64(auto_inc_low_water_level_mark_size_ratio);
 DECLARE_mInt64(auto_inc_fetch_thread_num);
 // Max connection cache num for point lookup queries
 DECLARE_mInt64(lookup_connection_cache_capacity);
+// Number of reusable result blocks retained by each point lookup cache entry, in [1, 32].
+DECLARE_mInt32(lookup_connection_cache_block_pool_size);
+size_t get_lookup_connection_cache_block_pool_size();
 
 // level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
 DECLARE_mInt64(LZ4_HC_compression_level);
 // Max json key length in bytes when parsing json into variant subcolumns/jsonb.
 DECLARE_mInt32(variant_max_json_key_length);
-// Treat invalid json format str as string, instead of throwing exception if false
-DECLARE_mBool(variant_throw_exeception_on_invalid_json);
-// Enable duplicate path check when parsing json into variant subcolumns/jsonb.
-DECLARE_mBool(variant_enable_duplicate_json_path_check);
 // Controls storage-layer parse target for plain non-doc VARIANT columns:
 // 0 = auto, 1 = force parse-time subcolumns, 2 = force doc-value KV staging.
 DECLARE_mInt32(variant_storage_parse_mode);
@@ -1697,19 +1742,50 @@ DECLARE_mDouble(high_disk_avail_level_diff_usages);
 // create tablet in partition random robin idx lru size, default 10000
 DECLARE_Int32(partition_disk_index_lru_size);
 DECLARE_String(spill_storage_root_path);
-// Spill storage limit specified as number of bytes
+// Spill storage limit of each local spill path, specified as number of bytes
 // ('<int>[bB]?'), megabytes ('<float>[mM]'), gigabytes ('<float>[gG]'),
 // or percentage of capaity ('<int>%').
 // Defaults to bytes if no unit is given.
 // Must larger than 0.
 // If specified as percentage, the final limit value is:
 //   disk_capacity_bytes * storage_flood_stage_usage_percent * spill_storage_limit
+// It does not apply to the object storage store of spill_storage_type=s3, which is bounded by
+// spill_storage_limit_bytes only.
 DECLARE_String(spill_storage_limit);
+// Upper bound, in bytes, of the spill data kept by each spill store: every local spill path
+// and the object storage store of spill_storage_type=s3 are limited separately. For a local
+// path the effective limit is the smaller of this and spill_storage_limit, which always
+// applies. 0 means no byte limit (a local path is then bounded by spill_storage_limit only,
+// object storage is unbounded).
+DECLARE_mInt64(spill_storage_limit_bytes);
 DECLARE_mInt32(spill_gc_interval_ms);
 DECLARE_mInt32(spill_gc_work_time_ms);
 // Maximum size of each spill part file before rotation (bytes). Default 1GB.
 DECLARE_mInt64(spill_file_part_size_bytes);
 DECLARE_Int64(spill_in_paused_queue_timeout_ms);
+// Where spill data is written: "local" (spill_storage_root_path) or "s3" (the storage vault of a
+// cloud instance). "s3" is only valid in cloud mode.
+DECLARE_String(spill_storage_type);
+// Storage vault ID (not the vault name) used by spill when spill_storage_type is "s3". When
+// empty, an instance without storage vaults uses its latest object storage and an instance
+// with storage vaults uses the S3 vault with the largest ID (the newest one), so that changing
+// the default vault does not move spill. Files already spilled stay on the vault they were
+// written to until they are deleted.
+DECLARE_String(spill_s3_storage_vault_id);
+// Back-pressure threshold for spill uploads to object storage: spill writers pause before
+// appending another serialized block to object storage while the S3 upload queue (shared with
+// every other S3 writer of this BE) holds at least this many bytes of buffers waiting for an
+// upload thread, every buffer counted as s3_write_buffer_size. It slows down a spill that
+// produces data faster than object storage takes it, but is not a hard memory limit: buffers
+// being uploaded by a thread and buffers still being filled by open writers are not counted,
+// the buffers of one block each concurrently appending writer may add after the check and the
+// final buffer of every part are queued without waiting for the check.
+DECLARE_mInt64(spill_s3_max_inflight_upload_bytes);
+// Upper bound of one object-storage read of spill data. Adjacent spilled blocks are coalesced
+// into one GET of at most this size (further capped by the query's spill_buffer_size_bytes);
+// a single block larger than it is still read whole. 0 reads the part footer exactly and
+// every block with its own GET.
+DECLARE_mInt64(spill_s3_read_coalesce_bytes);
 DECLARE_Int64(wait_cancel_release_memory_ms);
 
 DECLARE_mBool(check_segment_when_build_rowset_meta);

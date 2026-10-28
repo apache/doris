@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
@@ -72,7 +73,14 @@ final class IcebergStatementScope {
     static final String WRITE_SCHEMA_NAMESPACE = "iceberg.write-schema";
     static final String ACTIVE_WRITE_SCHEMA_NAMESPACE = "iceberg.active-write-schema";
 
+    static final String MANIFEST_READ_BUDGET_NAMESPACE = "iceberg.manifest-read-budget";
+
     private IcebergStatementScope() {}
+
+    /** A frozen read or its live lease proves existence even if REFRESH retires the catalog cache. */
+    static boolean hasReadTable(ConnectorSession session, String dbName, String tableName) {
+        return ConnectorStatementScopes.getIfPresent(session, TABLE_NAMESPACE, dbName, tableName) != null;
+    }
 
     /**
      * Loads and freezes the iceberg {@link Table} for {@code db.tbl} once per statement. The frozen operations
@@ -83,7 +91,7 @@ final class IcebergStatementScope {
         // historical "iceberg.table:" key prefix byte-for-byte, so the funnel keeps identical hits / misses / NONE
         // fall-through (proved by IcebergStatementScopeTest#sharedTableKeyReproducesLegacyPrefixByteForByte).
         return ConnectorStatementScopes.resolveInStatement(session, TABLE_NAMESPACE, dbName, tableName,
-                () -> snapshotReadTable(loader.get()));
+                () -> snapshotReadTable(loader.get(), dbName, tableName));
     }
 
     /**
@@ -97,11 +105,39 @@ final class IcebergStatementScope {
         if (session == null || session.getStatementScope() == ConnectorStatementScope.NONE) {
             // NONE has no statement-end callback, so it cannot safely own a lease. Preserve its original direct
             // load-every-time behavior; creating a lease here would drop its only close handle and leak forever.
-            return snapshotReadTable(unscopedLoader.get());
+            return snapshotReadTable(unscopedLoader.get(), dbName, tableName);
         }
         ScopedBorrow borrowed = ConnectorStatementScopes.resolveInStatement(
                 session, TABLE_NAMESPACE, dbName, tableName, () -> new ScopedBorrow(loader.get()));
         return borrowed.table;
+    }
+
+    /** Shared across all Iceberg scans/catalogs in one execution, isolated across reused query scopes. */
+    static Semaphore manifestReadBudget(ConnectorSession session, int concurrency) {
+        if (session == null) {
+            return new Semaphore(concurrency);
+        }
+        return session.getStatementScope().computeIfAbsent(
+                MANIFEST_READ_BUDGET_NAMESPACE + ":" + session.getQueryId(), () -> new Semaphore(concurrency));
+    }
+
+    /** Capture the existing statement owner; each actual callable retains it until its body exits. */
+    static Supplier<AutoCloseable> readTableLeaseFactory(ConnectorSession session, String dbName, String tableName) {
+        if (session == null || session.getStatementScope() == ConnectorStatementScope.NONE) {
+            return () -> () -> { };
+        }
+        Object owner = ConnectorStatementScopes.resolveInStatement(session, TABLE_NAMESPACE, dbName, tableName,
+                () -> {
+                    throw new IllegalStateException("Read table was not resolved: " + dbName + "." + tableName);
+                });
+        if (owner instanceof TrackedTable) {
+            return () -> ((TrackedTable) owner).retainLease()::close;
+        }
+        if (owner instanceof ScopedBorrow) {
+            return () -> ((ScopedBorrow) owner).lease.retainLease()::close;
+        }
+        // A plain table is catalog-owned, with no statement-local FileIO cleanup.
+        return () -> () -> { };
     }
 
     /** Runs a metadata-only load under a bounded lease when no statement scope exists. */
@@ -121,11 +157,34 @@ final class IcebergStatementScope {
             IcebergCatalogResourceTracker resourceTracker, Supplier<Table> loader,
             Function<Table, Runnable> cleanupFactory) {
         if (session == null || session.getStatementScope() == ConnectorStatementScope.NONE) {
-            return snapshotReadTable(loader.get());
+            Table table = loader.get();
+            try {
+                return snapshotReadTable(table, dbName, tableName);
+            } catch (RuntimeException | Error failure) {
+                try {
+                    cleanupFactory.apply(table).run();
+                } catch (RuntimeException | Error cleanupFailure) {
+                    failure.addSuppressed(cleanupFailure);
+                }
+                throw failure;
+            }
         }
         TrackedTable tracked = ConnectorStatementScopes.resolveInStatement(
                 session, TABLE_NAMESPACE, dbName, tableName,
-                () -> trackedTable(resourceTracker, loader, cleanupFactory, true));
+                () -> {
+                    TrackedTable loaded = trackedTable(resourceTracker, loader, cleanupFactory, true);
+                    try {
+                        IcebergScanPlanning.rejectServerSideScanPlanning(loaded.table(), dbName + "." + tableName);
+                        return loaded;
+                    } catch (RuntimeException | Error failure) {
+                        try {
+                            loaded.close();
+                        } catch (RuntimeException | Error cleanupFailure) {
+                            failure.addSuppressed(cleanupFailure);
+                        }
+                        throw failure;
+                    }
+                });
         return tracked.table();
     }
 
@@ -135,7 +194,7 @@ final class IcebergStatementScope {
             Function<Table, Runnable> cleanupFactory, Function<Table, T> action) {
         if (session == null || session.getStatementScope() == ConnectorStatementScope.NONE) {
             try (TrackedTable tracked = trackedTable(resourceTracker, loader, cleanupFactory, false)) {
-                return action.apply(snapshotReadTable(tracked.table()));
+                return action.apply(snapshotReadTable(tracked.table(), dbName, tableName));
             }
         }
         return action.apply(sharedTrackedTable(
@@ -254,7 +313,8 @@ final class IcebergStatementScope {
         }
     }
 
-    private static Table snapshotReadTable(Table table) {
+    private static Table snapshotReadTable(Table table, String dbName, String tableName) {
+        IcebergScanPlanning.rejectServerSideScanPlanning(table, dbName + "." + tableName);
         if (!(table instanceof BaseTable)) {
             return table;
         }
@@ -263,7 +323,7 @@ final class IcebergStatementScope {
         TableMetadata metadata = operations.current();
         // Keep IO, encryption and location behavior from the raw table while pinning only metadata.
         return new BaseTable(new IcebergSnapshotTableOperations(operations, metadata),
-                table.name(), baseTable.reporter());
+                table.name(), baseTable.reporter(), baseTable.labels());
     }
 
     /**

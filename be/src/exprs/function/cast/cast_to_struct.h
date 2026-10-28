@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <vector>
+
 #include "core/column/column_struct.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/types.h"
@@ -23,11 +25,11 @@
 namespace doris::CastWrapper {
 // check struct value type and get to_type value
 // TODO: need handle another type to cast struct
-WrapperType create_struct_wrapper(FunctionContext* context, const DataTypePtr& from_type,
+WrapperType create_struct_wrapper(const CastOptions& options, const DataTypePtr& from_type,
                                   const DataTypeStruct& to_type) {
     // support CAST AS Struct from string
     if (is_string_type(from_type->get_primitive_type())) {
-        if (context->enable_strict_mode()) {
+        if (options.strict_mode) {
             return cast_from_string_to_complex_type_strict_mode;
         } else {
             return cast_from_string_to_complex_type;
@@ -53,35 +55,54 @@ WrapperType create_struct_wrapper(FunctionContext* context, const DataTypePtr& f
                             from_type->get_name(), to_type.get_name()));
     }
 
-    auto element_wrappers = get_element_wrappers(context, from_element_types, to_element_types);
-    return [element_wrappers, from_element_types, to_element_types](
-                   FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                   uint32_t result, size_t /*input_rows_count*/,
-                   const NullMap::value_type* null_map = nullptr) -> Status {
-        auto& from_column = block.get_by_position(arguments.front()).column;
-        const auto* from_col_struct = check_and_get_column<ColumnStruct>(from_column.get());
+    auto element_wrappers = get_element_wrappers(options, from_element_types, to_element_types);
+    /// A field whose type does not change is passed through, so it needs neither a child mask nor a
+    /// call into its (identity) wrapper.
+    std::vector<bool> unchanged_fields;
+    unchanged_fields.reserve(from_element_types.size());
+    for (size_t i = 0; i < from_element_types.size(); ++i) {
+        unchanged_fields.push_back(from_element_types[i]->equals(*to_element_types[i]));
+    }
+    return [element_wrappers, from_element_types, to_element_types,
+            unchanged_fields = std::move(unchanged_fields)](
+                   RuntimeState* state, const ColumnWithTypeAndName& source_column,
+                   ColumnWithTypeAndName& target_column, size_t /*input_rows_count*/,
+                   const NullMap::value_type* parent_null_map = nullptr) -> Status {
+        const auto* from_col_struct =
+                check_and_get_column<ColumnStruct>(source_column.column.get());
         if (!from_col_struct) {
             return Status::RuntimeError("Illegal column {} for function CAST AS Struct",
-                                        from_column->get_name());
+                                        source_column.column->get_name());
         }
 
         size_t elements_num = to_element_types.size();
         Columns converted_columns(elements_num);
+        // Fields share the rows of their parent, so the parent mask is scanned once for all of them.
+        const NullMap::value_type* effective_parent_null_map =
+                (parent_null_map != nullptr &&
+                 has_masked_row(parent_null_map, from_col_struct->size()))
+                        ? parent_null_map
+                        : nullptr;
         for (size_t i = 0; i < elements_num; ++i) {
-            ColumnWithTypeAndName from_element_column {from_col_struct->get_column_ptr(i),
-                                                       from_element_types[i], ""};
-            ColumnNumbers element_arguments {block.columns()};
-            block.insert(from_element_column);
-
-            auto element_result = block.columns();
-            block.insert({to_element_types[i], ""});
-
-            RETURN_IF_ERROR(element_wrappers[i](context, block, element_arguments, element_result,
-                                                from_col_struct->get_column(i).size(), null_map));
-            converted_columns[i] = block.get_by_position(element_result).column;
+            if (unchanged_fields[i]) {
+                /// The field is not converted, so it cannot validate the hidden payload of a NULL
+                /// row, and the NULL of the row hides the field anyway.
+                converted_columns[i] = from_col_struct->get_column_ptr(i);
+                continue;
+            }
+            /// A field of a row that is NULL is a hidden payload as well. Fields share the rows of
+            /// their parent, so the mask of the parent can be used as is.
+            auto child_mask = build_child_null_mask(effective_parent_null_map, nullptr,
+                                                    from_col_struct->get_column_ptr(i));
+            ColumnWithTypeAndName from_element_column {child_mask.column, from_element_types[i],
+                                                       ""};
+            ColumnWithTypeAndName element_result {nullptr, to_element_types[i], ""};
+            RETURN_IF_ERROR(element_wrappers[i](state, from_element_column, element_result,
+                                                child_mask.column->size(), child_mask.null_map));
+            converted_columns[i] = std::move(element_result.column);
         }
 
-        block.get_by_position(result).column = ColumnStruct::create(converted_columns);
+        target_column.column = ColumnStruct::create(converted_columns);
         return Status::OK();
     };
 }

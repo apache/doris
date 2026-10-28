@@ -20,6 +20,7 @@ import java.nio.file.Files
 import java.nio.file.Paths
 import java.net.URL
 import java.io.File
+import java.time.LocalDate
 
 suite("stress_test_insert_into", "p1,nonConcurrent") { // stress case should use resource fully
     // get doris-db from s3
@@ -28,7 +29,8 @@ suite("stress_test_insert_into", "p1,nonConcurrent") { // stress case should use
     def fileName = "doris-dbgen"
     def fileUrl = "${getS3Url()}/regression/doris-dbgen-23-10-18/doris-dbgen-23-10-20/doris-dbgen"
     def filePath = Paths.get(dirPath, fileName)
-    if (!Files.exists(filePath)) {
+    boolean enableTls = context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true") ?: false
+    if (!enableTls && !Files.exists(filePath)) {
         new URL(fileUrl).withInputStream { inputStream ->
             Files.copy(inputStream, filePath)
         }
@@ -41,6 +43,24 @@ suite("stress_test_insert_into", "p1,nonConcurrent") { // stress case should use
     // load data via doris-dbgen
     def doris_dbgen_create_data = { db_name, tb_name ->
         def tableName = tb_name
+
+        if (enableTls) {
+            // The archived doris-dbgen cannot present a client certificate. Use the framework's
+            // mTLS stream load to keep the source table size and date partition coverage.
+            StringBuilder data = new StringBuilder(rows * 120)
+            for (int i = 0; i < rows; i++) {
+                LocalDate date = LocalDate.of(2023, 7, 1).plusDays(i % 194)
+                data.append("${date}|parent_${i}|org_${i}|org_${i}|${date.toString().substring(0, 7)}|type|1|1|1.0|1|0|1\n")
+            }
+            streamLoad {
+                db db_name
+                table tableName
+                set 'column_separator', '|'
+                inputStream new ByteArrayInputStream(data.toString().getBytes('UTF-8'))
+                time 1800000
+            }
+            return
+        }
 
         def jdbcUrl = context.config.jdbcUrl
         def urlWithoutSchema = jdbcUrl.substring(jdbcUrl.indexOf("://") + 3)

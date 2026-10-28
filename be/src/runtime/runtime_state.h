@@ -78,13 +78,31 @@ class TaskExecutionContext;
 
 // Keep RuntimeState self-contained without importing the full frontend Thrift service header.
 class TReportExecStatusParams;
+class RuntimeState;
+
+// Owns a share of the external-file report budget until the prepared commit messages are
+// published. Destruction releases an unpublished reservation automatically.
+class ExternalFileReportReservation {
+public:
+    ExternalFileReportReservation() = default;
+    ~ExternalFileReportReservation();
+
+    ExternalFileReportReservation(const ExternalFileReportReservation&) = delete;
+    ExternalFileReportReservation& operator=(const ExternalFileReportReservation&) = delete;
+
+private:
+    friend class RuntimeState;
+
+    RuntimeState* _state = nullptr;
+    size_t _reserved_bytes = 0;
+};
 
 class ExternalFileReportState {
     friend class RuntimeState;
 
 private:
     std::mutex mutex;
-    size_t iceberg_serialized_bytes = 0;
+    size_t serialized_commit_bytes = 0;
     bool ownership_may_have_transferred = false;
     std::vector<std::function<void()>> rejected_report_cleanups;
 };
@@ -547,6 +565,20 @@ public:
 
     Status add_iceberg_commit_datas(TIcebergCommitData iceberg_commit_data);
 
+    // Reserve report space before closing the Paimon writer, then either publish the prepared
+    // messages after a clean close or let the reservation release itself while aborting the writer.
+    Status reserve_paimon_commit_messages(const std::vector<TPaimonCommitMessage>& commit_messages,
+                                          ExternalFileReportReservation* reservation);
+
+    void publish_reserved_paimon_commit_messages(std::vector<TPaimonCommitMessage> commit_messages,
+                                                 ExternalFileReportReservation* reservation);
+
+    void append_paimon_commit_messages(std::vector<TPaimonCommitMessage>* output) const {
+        std::lock_guard<std::mutex> lock(_paimon_commit_messages_mutex);
+        output->insert(output->end(), _paimon_commit_messages.begin(),
+                       _paimon_commit_messages.end());
+    }
+
     size_t coordinator_thrift_message_limit() const;
 
     void append_external_file_commit_data(TReportExecStatusParams* params, bool final_report) const;
@@ -818,6 +850,17 @@ public:
         return kDefault;
     }
 
+    int64_t spill_analytic_sink_mem_limit_bytes() const {
+        constexpr int64_t kMin = 1LL * 1024 * 1024;
+        constexpr int64_t kMax = 4LL * 1024 * 1024 * 1024;
+        constexpr int64_t kDefault = 64LL * 1024 * 1024;
+        if (_query_options.__isset.spill_analytic_sink_mem_limit_bytes) {
+            int64_t v = _query_options.spill_analytic_sink_mem_limit_bytes;
+            return std::min(std::max(v, kMin), kMax);
+        }
+        return kDefault;
+    }
+
     int64_t spill_sort_merge_mem_limit_bytes() const {
         constexpr int64_t kMin = 1LL * 1024 * 1024;
         constexpr int64_t kMax = 4LL * 1024 * 1024 * 1024;
@@ -906,6 +949,10 @@ public:
     void merge_register_runtime_filter(const std::set<int>& runtime_filter_ids);
 
 private:
+    friend class ExternalFileReportReservation;
+
+    void release_external_file_report_reservation(size_t reserved_bytes);
+
     Status create_error_log_file();
 
     static const int DEFAULT_BATCH_SIZE = 4062;
@@ -1011,6 +1058,9 @@ private:
 
     mutable std::mutex _mc_commit_datas_mutex;
     std::vector<TMCCommitData> _mc_commit_datas;
+
+    mutable std::mutex _paimon_commit_messages_mutex;
+    std::vector<TPaimonCommitMessage> _paimon_commit_messages;
 
     std::vector<std::unique_ptr<doris::PipelineXLocalStateBase>> _op_id_to_local_state;
 

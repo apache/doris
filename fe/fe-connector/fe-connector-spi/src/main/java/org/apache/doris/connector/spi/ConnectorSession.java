@@ -27,6 +27,15 @@ import java.util.Optional;
  */
 public interface ConnectorSession {
 
+    /**
+     * Query-owned scheduling captured with this session, shared by all scans/catalogs of the statement.
+     * SPLIT tasks may wait for METADATA tasks, never the reverse. Closing the query rejects outstanding
+     * work and prevents this captured handle from creating a new queue. The default is for offline use.
+     */
+    default ConnectorTaskScheduler getTaskScheduler(ConnectorTaskScheduler.Stage stage) {
+        return ConnectorTaskScheduler.DIRECT;
+    }
+
     /** Returns the unique query identifier. */
     String getQueryId();
 
@@ -101,6 +110,28 @@ public interface ConnectorSession {
      */
     default Map<String, String> getSessionProperties() {
         return java.util.Collections.emptyMap();
+    }
+
+    /**
+     * Returns whether equivalent external scan plans may be reused within the current statement.
+     *
+     * <p>The property must be explicitly present and {@code true}. Sessions created by an older engine or by
+     * offline tooling do not carry this setting and therefore keep the optimization disabled.</p>
+     */
+    default boolean isExternalScanTaskReuseEnabled() {
+        return "true".equalsIgnoreCase(
+                getSessionProperties().get("enable_external_scan_task_reuse"));
+    }
+
+    /**
+     * Query-wide backend execution version selected by the engine, for planning decisions that depend on a
+     * backend capability (for example a write distribution whose partition function older backends reject).
+     * Mirrors {@link org.apache.doris.connector.spi.handle.ConnectorWriteHandle#getBeExecVersion()}, which
+     * carries the same value at {@code planWrite}. Offline and third-party sessions default to the
+     * newest-capability side of any fence.
+     */
+    default int getBeExecVersion() {
+        return Integer.MAX_VALUE;
     }
 
     /**

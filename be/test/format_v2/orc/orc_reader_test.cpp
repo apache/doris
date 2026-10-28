@@ -62,6 +62,7 @@
 #include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type/data_type_varbinary.h"
 #include "core/data_type/primitive_type.h"
+#include "core/data_type_serde/orc_timestamp_decode_context.h"
 #include "core/value/timestamptz_value.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/runtime_filter_expr.h"
@@ -76,6 +77,7 @@
 #include "format_v2/expr/delete_predicate.h"
 #include "format_v2/file_reader.h"
 #include "format_v2/parquet/parquet_profile.h"
+#include "format_v2/schema_reader.h"
 #include "gen_cpp/Types_types.h"
 #include "io/fs/buffered_reader.h"
 #include "io/io_common.h"
@@ -4320,7 +4322,7 @@ void write_multi_stripe_orc_sarg_types_file(const std::string& file_path) {
 
 void write_multi_stripe_orc_timestamp_instant_sarg_file(
         const std::string& file_path, int64_t first_timestamp_second = 0,
-        int64_t second_timestamp_second = 1609459200) {
+        int64_t second_timestamp_second = 1609459200, int64_t nanoseconds = 123000000) {
     auto type = std::unique_ptr<::orc::Type>(::orc::Type::buildTypeFromString(
             "struct<timestamp_instant_col:timestamp with local time zone,payload:string>"));
 
@@ -4342,7 +4344,7 @@ void write_multi_stripe_orc_timestamp_instant_sarg_file(
         payloads.reserve(ROWS_PER_STRIPE);
         for (int64_t row = 0; row < ROWS_PER_STRIPE; ++row) {
             timestamp_batch.data[row] = first_timestamp_second + row;
-            timestamp_batch.nanoseconds[row] = 123000000;
+            timestamp_batch.nanoseconds[row] = nanoseconds;
             payloads.push_back(std::string(2048, static_cast<char>('a' + row % 26)));
             set_string_value(payload_batch, row, payloads.back());
         }
@@ -4587,14 +4589,16 @@ protected:
 
     std::unique_ptr<format::orc::OrcReader> create_reader(
             RuntimeProfile* profile = nullptr,
-            std::optional<format::GlobalRowIdContext> global_rowid_context = std::nullopt) const {
+            std::optional<format::GlobalRowIdContext> global_rowid_context = std::nullopt,
+            bool enable_mapping_varbinary = false) const {
         auto system_properties = std::make_shared<io::FileSystemProperties>();
         system_properties->system_type = TFileType::FILE_LOCAL;
         auto file_description = std::make_unique<io::FileDescription>();
         file_description->path = _file_path;
         file_description->file_size = static_cast<int64_t>(std::filesystem::file_size(_file_path));
         return std::make_unique<format::orc::OrcReader>(system_properties, file_description,
-                                                        nullptr, profile, global_rowid_context);
+                                                        nullptr, profile, global_rowid_context,
+                                                        false, enable_mapping_varbinary);
     }
 
     std::unique_ptr<format::orc::OrcReader> create_reader_for_path(
@@ -4714,6 +4718,59 @@ protected:
     std::filesystem::path _test_dir;
     std::string _file_path;
 };
+
+TEST_F(NewOrcReaderTest, UuidBinaryRequiresLogicalTypeAttribute) {
+    auto reader = create_reader();
+    auto binary = ::orc::createPrimitiveType(::orc::BINARY);
+    EXPECT_EQ(remove_nullable(reader->_convert_to_doris_type(*binary))->get_primitive_type(),
+              TYPE_STRING);
+    binary->setAttribute("doris.logical_type", "uuid");
+    EXPECT_EQ(remove_nullable(reader->_convert_to_doris_type(*binary))->get_primitive_type(),
+              TYPE_UUID);
+    auto list = ::orc::createListType(std::move(binary));
+    const auto array = remove_nullable(reader->_convert_to_doris_type(*list));
+    const auto& array_type = assert_cast<const DataTypeArray&>(*array);
+    EXPECT_EQ(remove_nullable(array_type.get_nested_type())->get_primitive_type(), TYPE_UUID);
+}
+
+TEST_F(NewOrcReaderTest, UuidAnnotationOverridesBinaryMapping) {
+    auto reader = create_reader(nullptr, std::nullopt, true);
+    auto binary = ::orc::createPrimitiveType(::orc::BINARY);
+    EXPECT_EQ(remove_nullable(reader->_convert_to_doris_type(*binary))->get_primitive_type(),
+              TYPE_VARBINARY);
+    binary->setAttribute("doris.logical_type", "uuid");
+    EXPECT_EQ(remove_nullable(reader->_convert_to_doris_type(*binary))->get_primitive_type(),
+              TYPE_UUID);
+    auto string = ::orc::createPrimitiveType(::orc::STRING);
+    string->setAttribute("doris.logical_type", "uuid");
+    EXPECT_EQ(remove_nullable(reader->_convert_to_doris_type(*string))->get_primitive_type(),
+              TYPE_STRING);
+}
+
+TEST_F(NewOrcReaderTest, NestedUuidAnnotationsOverrideBinaryMapping) {
+    auto reader = create_reader(nullptr, std::nullopt, true);
+    const auto uuid_type = [] {
+        auto binary = ::orc::createPrimitiveType(::orc::BINARY);
+        binary->setAttribute("doris.logical_type", "uuid");
+        return binary;
+    };
+    auto list = ::orc::createListType(uuid_type());
+    const auto array = remove_nullable(reader->_convert_to_doris_type(*list));
+    const auto& array_type = assert_cast<const DataTypeArray&>(*array);
+    EXPECT_EQ(remove_nullable(array_type.get_nested_type())->get_primitive_type(), TYPE_UUID);
+
+    auto map = ::orc::createMapType(uuid_type(), uuid_type());
+    const auto mapped = remove_nullable(reader->_convert_to_doris_type(*map));
+    const auto& map_type = assert_cast<const DataTypeMap&>(*mapped);
+    EXPECT_EQ(remove_nullable(map_type.get_key_type())->get_primitive_type(), TYPE_UUID);
+    EXPECT_EQ(remove_nullable(map_type.get_value_type())->get_primitive_type(), TYPE_UUID);
+
+    auto structure = ::orc::createStructType();
+    structure->addStructField("uuid", uuid_type());
+    const auto converted = remove_nullable(reader->_convert_to_doris_type(*structure));
+    const auto& struct_type = assert_cast<const DataTypeStruct&>(*converted);
+    EXPECT_EQ(remove_nullable(struct_type.get_elements()[0])->get_primitive_type(), TYPE_UUID);
+}
 
 TEST_F(NewOrcReaderTest, AggregatePushdownReturnsCountFromFileMetadata) {
     auto reader = create_reader();
@@ -4941,7 +4998,7 @@ TEST_F(NewOrcReaderTest, AggregatePushdownUsesPrunedStripes) {
 TEST_F(NewOrcReaderTest, AggregatePushdownTimestampMinMaxMatchesScanInSessionTimezone) {
     const auto multi_stripe_file_path = (_test_dir / "aggregate_timestamp_timezone.orc").string();
     write_two_stripe_constant_timestamp_file(multi_stripe_file_path, 1609430400, 1609434000,
-                                             "Asia/Shanghai");
+                                             "Asia/Shanghai", 123456789);
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     state.set_timezone("Asia/Shanghai");
@@ -4976,8 +5033,9 @@ TEST_F(NewOrcReaderTest, AggregatePushdownTimestampMinMaxMatchesScanInSessionTim
     ASSERT_EQ(scan_rows, 400);
     ASSERT_TRUE(scan_min.has_value());
     ASSERT_TRUE(scan_max.has_value());
-    EXPECT_EQ(*scan_min, make_datetime_v2(2021, 1, 1, 0, 0, 0, 123000));
-    EXPECT_EQ(*scan_max, make_datetime_v2(2021, 1, 1, 1, 0, 0, 123000));
+    // The fixture retains an exact 123456789ns tail, which rounds to 123457 microseconds.
+    EXPECT_EQ(*scan_min, make_datetime_v2(2021, 1, 1, 0, 0, 0, 123457));
+    EXPECT_EQ(*scan_max, make_datetime_v2(2021, 1, 1, 1, 0, 0, 123457));
 
     auto reader = create_reader_for_path(multi_stripe_file_path);
     ASSERT_TRUE(reader->init(&state).ok());
@@ -5111,6 +5169,37 @@ TEST_F(NewOrcReaderTest, AggregatePushdownTimestampMinMaxMatchesNegativeRowDecod
     EXPECT_EQ(aggregate_result.columns[0].max_value.get<TYPE_DATETIMEV2>(), expected);
 }
 
+TEST_F(NewOrcReaderTest, AggregatePushdownTimestampMinMaxFallsBackWithoutExactNanosTails) {
+    const auto assert_fallback = [&](std::string_view file_name, bool timestamp_instant) {
+        const auto file_path = (_test_dir / file_name).string();
+        if (timestamp_instant) {
+            write_multi_stripe_orc_timestamp_instant_sarg_file(file_path);
+        } else {
+            write_two_stripe_constant_timestamp_file(file_path, 1, 2);
+        }
+
+        auto reader = create_reader_for_path(file_path, nullptr, nullptr, std::nullopt,
+                                             timestamp_instant);
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        state.set_timezone("+00:00");
+        EXPECT_TRUE(reader->init(&state).ok());
+        auto request = std::make_shared<format::FileScanRequest>();
+        request->non_predicate_columns = {field_projection(0)};
+        EXPECT_TRUE(reader->open(request).ok());
+
+        format::FileAggregateRequest aggregate_request;
+        aggregate_request.agg_type = TPushAggOp::type::MINMAX;
+        aggregate_request.columns.push_back(
+                {.projection = format::LocalColumnIndex::top_level(format::LocalColumnId(0))});
+        format::FileAggregateResult aggregate_result;
+        const auto status = reader->get_aggregate_result(aggregate_request, &aggregate_result);
+        EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
+    };
+
+    assert_fallback("aggregate_timestamp_no_nanos_tail.orc", false);
+    assert_fallback("aggregate_timestamp_instant_no_nanos_tail.orc", true);
+}
+
 TEST_F(NewOrcReaderTest, AggregatePushdownTimestampMinMaxRejectsNamedTimezone) {
     const auto multi_stripe_file_path = (_test_dir / "aggregate_timestamp_dst_fold.orc").string();
     // 2021-11-07 08:30Z and 09:00Z straddle the America/Los_Angeles fall-back transition.
@@ -5137,7 +5226,8 @@ TEST_F(NewOrcReaderTest, AggregatePushdownTimestampMinMaxRejectsNamedTimezone) {
 
 TEST_F(NewOrcReaderTest, AggregatePushdownTimestampInstantMinMaxUsesTimestampTzWhenMapped) {
     const auto multi_stripe_file_path = (_test_dir / "aggregate_timestamp_instant_tz.orc").string();
-    write_multi_stripe_orc_timestamp_instant_sarg_file(multi_stripe_file_path);
+    write_multi_stripe_orc_timestamp_instant_sarg_file(multi_stripe_file_path, 0, 1609459200,
+                                                       123456789);
 
     auto reader =
             create_reader_for_path(multi_stripe_file_path, nullptr, nullptr, std::nullopt, true);
@@ -5167,12 +5257,13 @@ TEST_F(NewOrcReaderTest, AggregatePushdownTimestampInstantMinMaxUsesTimestampTzW
     EXPECT_TRUE(aggregate_result.columns[0].has_max);
     ASSERT_EQ(aggregate_result.columns[0].min_value.get_type(), TYPE_TIMESTAMPTZ);
     ASSERT_EQ(aggregate_result.columns[0].max_value.get_type(), TYPE_TIMESTAMPTZ);
+    // The fixture retains an exact 123456789ns tail, which rounds to 123457 microseconds.
     EXPECT_EQ(aggregate_result.columns[0].min_value.get<TYPE_TIMESTAMPTZ>().to_string(
                       state.timezone_obj(), 6),
-              "1970-01-01 08:00:00.123000+08:00");
+              "1970-01-01 08:00:00.123457+08:00");
     EXPECT_EQ(aggregate_result.columns[0].max_value.get<TYPE_TIMESTAMPTZ>().to_string(
                       state.timezone_obj(), 6),
-              "2021-01-01 08:03:19.123000+08:00");
+              "2021-01-01 08:03:19.123457+08:00");
 }
 
 TEST_F(NewOrcReaderTest, AggregatePushdownCharMinMaxTrimsTrailingSpaces) {
@@ -9827,6 +9918,7 @@ TEST_F(NewOrcReaderTest, SargDecimalCastToStringDoesNotPruneStripes) {
 
     auto reader = create_reader_for_path(multi_stripe_file_path);
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    state.set_timezone("+00:00");
     ASSERT_TRUE(reader->init(&state).ok());
 
     std::vector<format::ColumnDefinition> schema;
@@ -10406,20 +10498,364 @@ TEST_F(NewOrcReaderTest, ReadTimestampNanosecondsRoundsToMicroseconds) {
     }
 }
 
-Status decode_orc_timestamp_boundary(int64_t seconds, int64_t nanoseconds, bool use_timestamp_tz,
+TEST_F(NewOrcReaderTest, NanosecondFilesPreserveNegativeFractionsAcrossWriterTimezones) {
+    for (const auto& [writer_zone, offset] : std::vector<std::pair<std::string, int64_t>> {
+                 {"GMT", 0}, {"Asia/Shanghai", 28800}, {"America/New_York", -18000}}) {
+        SCOPED_TRACE(writer_zone);
+        const auto file_path = (_test_dir / "timestamp_ns_writer_zone.orc").string();
+        auto type = ::orc::createStructType();
+        auto ns_type = ::orc::createPrimitiveType(::orc::TIMESTAMP);
+        ns_type->setAttribute("iceberg.timestamp-unit", "NANOS");
+        type->addStructField("ns", std::move(ns_type));
+        type->addStructField("plain", ::orc::createPrimitiveType(::orc::TIMESTAMP));
+        MemoryOutputStream stream(1024 * 1024);
+        ::orc::WriterOptions options;
+        options.setTimezoneName(writer_zone);
+        options.setCompression(::orc::CompressionKind_NONE);
+        auto writer = ::orc::createWriter(*type, &stream, options);
+        constexpr std::array<int64_t, 6> fractions {0, 1, 999999, 1000000, 500000123, 999999999};
+        constexpr size_t row_count = 3 * fractions.size();
+        auto batch = writer->createRowBatch(row_count);
+        auto& root = dynamic_cast<::orc::StructVectorBatch&>(*batch);
+        root.numElements = row_count;
+        for (auto* field : root.fields) {
+            auto& timestamps = dynamic_cast<::orc::TimestampVectorBatch&>(*field);
+            timestamps.numElements = row_count;
+            for (size_t row = 0; row < row_count; ++row) {
+                // Use the external writer's epoch carrier, not Doris's UTC writer convention.
+                timestamps.data[row] =
+                        (static_cast<int64_t>(row / fractions.size()) - 1) * 2 - offset;
+                timestamps.nanoseconds[row] = fractions[row % fractions.size()];
+            }
+        }
+        writer->add(*batch);
+        writer->close();
+        {
+            std::ofstream out(file_path, std::ios::binary);
+            out.write(stream.getData(), static_cast<std::streamsize>(stream.getLength()));
+        }
+        for (bool sparse : {false, true}) {
+            auto reader = create_reader_for_path(file_path);
+            RuntimeState state {TQueryOptions(), TQueryGlobals()};
+            state.set_timezone("+08:00");
+            ASSERT_TRUE(reader->init(&state).ok());
+            std::vector<format::ColumnDefinition> schema;
+            ASSERT_TRUE(reader->get_schema(&schema).ok());
+            Block block = build_file_block(schema);
+            auto request = std::make_shared<format::FileScanRequest>();
+            request->non_predicate_columns = {field_projection(0), field_projection(1)};
+            std::vector<int64_t> source_rows;
+            for (size_t row = 0; row < row_count; row += sparse ? 2 : 1) {
+                source_rows.push_back(static_cast<int64_t>(row));
+            }
+            if (sparse) {
+                request->row_ids = source_rows;
+            }
+            ASSERT_TRUE(reader->open(request).ok());
+            const std::array<std::string, 3> seconds {"1969-12-31 23:59:58", "1970-01-01 00:00:00",
+                                                      "1970-01-01 00:00:02"};
+            const std::array<std::string, 3> carried_seconds {
+                    "1969-12-31 23:59:59", "1970-01-01 00:00:01", "1970-01-01 00:00:03"};
+            const std::array<std::string, 6> micros {"000000", "000000", "001000",
+                                                     "001000", "500000", "000000"};
+            bool eof = false;
+            size_t output_row = 0;
+            while (!eof) {
+                size_t rows = 0;
+                ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+                for (size_t row = 0; row < rows; ++row) {
+                    ASSERT_LT(output_row, source_rows.size());
+                    const size_t source = static_cast<size_t>(source_rows[output_row++]);
+                    const size_t second_index = source / fractions.size();
+                    const size_t fraction_index = source % fractions.size();
+                    EXPECT_EQ(schema[0].type->to_string(*block.get_by_position(0).column, row),
+                              fmt::format("{}.{:09}", seconds[second_index],
+                                          fractions[fraction_index]));
+                    const auto& whole = fraction_index == 5 ? carried_seconds : seconds;
+                    EXPECT_EQ(schema[1].type->to_string(*block.get_by_position(1).column, row),
+                              whole[second_index] + "." + micros[fraction_index]);
+                }
+            }
+            EXPECT_EQ(output_row, source_rows.size());
+        }
+    }
+}
+
+TEST_F(NewOrcReaderTest, AdjacentNanosStripesReuseOneRowReader) {
+    const auto file = (_test_dir / "many_nanos_stripes.orc").string();
+    auto type = ::orc::createStructType();
+    auto ns = ::orc::createPrimitiveType(::orc::TIMESTAMP);
+    ns->setAttribute("iceberg.timestamp-unit", "NANOS");
+    type->addStructField("ns", std::move(ns));
+    MemoryOutputStream stream(1024 * 1024);
+    ::orc::WriterOptions options;
+    options.setTimezoneName("UTC");
+    options.setStripeSize(0);
+    auto writer = ::orc::createWriter(*type, &stream, options);
+    constexpr size_t STRIPES = 64;
+    for (size_t i = 0; i < STRIPES; ++i) {
+        auto batch = writer->createRowBatch(1);
+        auto& root = dynamic_cast<::orc::StructVectorBatch&>(*batch);
+        root.numElements = 1;
+        auto& ts = dynamic_cast<::orc::TimestampVectorBatch&>(*root.fields[0]);
+        ts.numElements = 1;
+        ts.data[0] = 0;
+        ts.nanoseconds[0] = static_cast<int64_t>(i);
+        writer->add(*batch);
+    }
+    writer->close();
+    {
+        std::ofstream out(file, std::ios::binary);
+        out.write(stream.getData(), static_cast<std::streamsize>(stream.getLength()));
+    }
+    ASSERT_EQ(get_orc_stripe_count(file), STRIPES);
+    RuntimeProfile profile("many_stripes");
+    auto reader = create_reader_for_path(file, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(0)};
+    ASSERT_TRUE(reader->open(request).ok());
+    bool eof = false;
+    size_t total = 0;
+    while (!eof) {
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        const auto& values = assert_cast<const ColumnTimeStampNs&>(
+                assert_cast<const ColumnNullable&>(*block.get_by_position(0).column)
+                        .get_nested_column());
+        for (size_t i = 0; i < rows; ++i) {
+            EXPECT_EQ(values.get_element(i).epoch_nanos(), total + i);
+        }
+        total += rows;
+    }
+    EXPECT_EQ(total, STRIPES);
+    EXPECT_EQ(profile.get_counter("OrcRowReadersCreated")->value(), 1);
+}
+
+TEST_F(NewOrcReaderTest, JavaNanosSiblingPreservesHistoricalCivilTime) {
+    const auto file = find_repo_file("be/test/format_v2/orc/test_data/java_timestamp_nanos.orc");
+    const std::array<std::string, 3> plain {"1800-01-01 00:00:00.123457",
+                                            "1969-12-31 23:59:59.500000",
+                                            "1970-01-01 00:00:00.000000"};
+    const std::array<std::string, 3> nanos {"1800-01-01 00:00:00.123456789",
+                                            "1969-12-31 23:59:59.500000123",
+                                            "1970-01-01 00:00:00.000000001"};
+    for (const auto& zone : {"UTC", "Asia/Shanghai", "America/New_York"}) {
+        for (bool project_ns : {false, true}) {
+            auto reader = create_reader_for_path(file);
+            RuntimeState state {TQueryOptions(), TQueryGlobals()};
+            state.set_timezone(zone);
+            ASSERT_TRUE(reader->init(&state).ok());
+            std::vector<format::ColumnDefinition> schema;
+            ASSERT_TRUE(reader->get_schema(&schema).ok());
+            auto request = std::make_shared<format::FileScanRequest>();
+            request->non_predicate_columns = {field_projection(0)};
+            if (project_ns) {
+                request->non_predicate_columns.push_back(field_projection(1));
+            } else {
+                schema.resize(1);
+            }
+            ASSERT_TRUE(reader->open(request).ok());
+            size_t row = 0;
+            bool eof = false;
+            while (!eof) {
+                Block block = build_file_block(schema);
+                size_t rows = 0;
+                auto status = reader->get_block(&block, &rows, &eof);
+                ASSERT_TRUE(status.ok()) << status;
+                for (size_t i = 0; i < rows; ++i, ++row) {
+                    ASSERT_LT(row, plain.size());
+                    EXPECT_EQ(schema[0].type->to_string(*block.get_by_position(0).column, i),
+                              plain[row]);
+                    if (project_ns) {
+                        EXPECT_EQ(schema[1].type->to_string(*block.get_by_position(1).column, i),
+                                  nanos[row]);
+                    }
+                }
+            }
+            EXPECT_EQ(row, plain.size());
+        }
+    }
+}
+
+TEST_F(NewOrcReaderTest, NanosecondFilesPreserveHistoricalWriterCivilTime) {
+    const auto file_path = (_test_dir / "timestamp_ns_historical.orc").string();
+    auto type = ::orc::createStructType();
+    type->addStructField("id", ::orc::createPrimitiveType(::orc::INT));
+    auto ns_type = ::orc::createPrimitiveType(::orc::TIMESTAMP);
+    ns_type->setAttribute("iceberg.timestamp-unit", "NANOS");
+    type->addStructField("ns", std::move(ns_type));
+    type->addStructField("plain", ::orc::createPrimitiveType(::orc::TIMESTAMP));
+    type->addStructField("instant", ::orc::createPrimitiveType(::orc::TIMESTAMP_INSTANT));
+    MemoryOutputStream stream(1024 * 1024);
+    ::orc::WriterOptions options;
+    options.setTimezoneName("America/New_York");
+    options.setCompression(::orc::CompressionKind_NONE);
+    // Flush each tiny batch even while all encoded values still fit in the RLE buffers.
+    options.setStripeSize(0);
+    auto writer = ::orc::createWriter(*type, &stream, options);
+    // The SDK accepts UTC seconds. These cover the historical LMT offset, the second
+    // preceding a DST fold, and different fractions at the same negative epoch second.
+    const std::array<int64_t, 4> seconds {-5364644638, -5767201, 1, 1};
+    const std::array<int64_t, 4> nanos {123456789, 500000000, 500000123, 1};
+    const std::array<std::string, 4> expected_ns {
+            "1800-01-01 00:00:00.123456789", "1969-10-26 01:59:59.500000000",
+            "1969-12-31 19:00:01.500000123", "1969-12-31 19:00:01.000000001"};
+    const std::array<std::string, 4> expected_plain {
+            "1800-01-01 00:00:00.123457", "1969-10-26 01:59:59.500000",
+            "1969-12-31 19:00:01.500000", "1969-12-31 19:00:01.000000"};
+    const std::array<std::string, 4> expected_instant {
+            "1800-01-01 12:56:02.123457", "1969-10-26 13:59:59.500000",
+            "1970-01-01 08:00:01.500000", "1970-01-01 08:00:01.000000"};
+    for (size_t start = 0; start < seconds.size(); start += 2) {
+        auto batch = writer->createRowBatch(2);
+        auto& root = dynamic_cast<::orc::StructVectorBatch&>(*batch);
+        root.numElements = 2;
+        auto& ids = dynamic_cast<::orc::LongVectorBatch&>(*root.fields[0]);
+        ids.numElements = 2;
+        for (size_t row = 0; row < 2; ++row) {
+            ids.data[row] = static_cast<int64_t>(start + row);
+            for (size_t field = 1; field < root.fields.size(); ++field) {
+                auto& ts = dynamic_cast<::orc::TimestampVectorBatch&>(*root.fields[field]);
+                ts.numElements = 2;
+                ts.data[row] = seconds[start + row];
+                ts.nanoseconds[row] = nanos[start + row];
+            }
+        }
+        writer->add(*batch);
+    }
+    writer->close();
+    {
+        std::ofstream out(file_path, std::ios::binary);
+        out.write(stream.getData(), static_cast<std::streamsize>(stream.getLength()));
+    }
+    ASSERT_EQ(get_orc_stripe_count(file_path), 2);
+    TFileScanRangeParams params;
+    params.__set_file_type(TFileType::FILE_S3);
+    params.__set_format_type(TFileFormatType::FORMAT_ORC);
+    TFileRangeDesc range;
+    range.__set_file_type(TFileType::FILE_LOCAL);
+    range.__set_path(file_path);
+    std::vector<format::ColumnDefinition> tvf_schema;
+    ASSERT_TRUE(format::fetch_file_schema(params, range, std::make_shared<io::IOContext>(), nullptr,
+                                          &tvf_schema)
+                        .ok());
+    ASSERT_EQ(tvf_schema.size(), 4);
+    EXPECT_EQ(tvf_schema[1].type->get_primitive_type(), TYPE_TIMESTAMP_NS);
+    auto aggregate_reader = create_reader_for_path(file_path);
+    RuntimeState aggregate_state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(aggregate_reader->init(&aggregate_state).ok());
+    auto plain_request = std::make_shared<format::FileScanRequest>();
+    plain_request->non_predicate_columns = {field_projection(2)};
+    ASSERT_TRUE(aggregate_reader->open(plain_request).ok());
+    format::FileAggregateRequest aggregate_request;
+    aggregate_request.agg_type = TPushAggOp::type::MINMAX;
+    aggregate_request.columns.push_back({.projection = field_projection(2)});
+    format::FileAggregateResult aggregate_result;
+    EXPECT_TRUE(aggregate_reader->get_aggregate_result(aggregate_request, &aggregate_result)
+                        .is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
+    for (bool project_ns : {false, true}) {
+        for (int mode : {0, 1, 2, 3}) {
+            const bool lazy = mode == 1 || mode == 3;
+            for (int threshold : {-1, 0, 2}) {
+                RuntimeProfile profile("timestamp_stripe_ranges");
+                auto reader = create_reader_for_path(file_path, &profile);
+                TQueryOptions query_options;
+                query_options.__set_enable_orc_lazy_mat(lazy);
+                RuntimeState state {query_options, TQueryGlobals()};
+                state.set_timezone("+08:00");
+                ASSERT_TRUE(reader->init(&state).ok());
+                std::vector<format::ColumnDefinition> schema;
+                ASSERT_TRUE(reader->get_schema(&schema).ok());
+                auto request = std::make_shared<format::FileScanRequest>();
+                if (mode != 3) {
+                    // Isolate the lazy callback from integer stripe pruning, then test both together.
+                    request->metadata_pruning_safe_conjunct_count = 0;
+                }
+                request->predicate_columns = {field_projection(0)};
+                request->non_predicate_columns =
+                        project_ns ? decltype(request->non_predicate_columns) {field_projection(1),
+                                                                               field_projection(2)}
+                                   : decltype(request->non_predicate_columns) {field_projection(2)};
+                request->non_predicate_columns.push_back(field_projection(3));
+                request->local_positions = {
+                        {format::LocalColumnId(0), format::LocalIndex(0)},
+                        {format::LocalColumnId(2), format::LocalIndex(project_ns ? 2 : 1)}};
+                request->local_positions.emplace(format::LocalColumnId(3),
+                                                 format::LocalIndex(project_ns ? 3 : 2));
+                if (project_ns) {
+                    request->local_positions.emplace(format::LocalColumnId(1),
+                                                     format::LocalIndex(1));
+                }
+                if (mode == 2) {
+                    request->predicate_columns.clear();
+                    request->non_predicate_columns.insert(request->non_predicate_columns.begin(),
+                                                          field_projection(0));
+                    request->row_ids = std::vector<int64_t> {};
+                    for (int row = threshold + 1; row < static_cast<int>(seconds.size()); ++row) {
+                        request->row_ids->push_back(row);
+                    }
+                } else {
+                    request->conjuncts.push_back(VExprContext::create_shared(
+                            std::make_shared<NullableInt32GreaterThanExpr>(0, threshold)));
+                }
+                ASSERT_TRUE(reader->open(request).ok());
+                auto block_schema = project_ns ? schema
+                                               : std::vector<format::ColumnDefinition> {
+                                                         schema[0], schema[2], schema[3]};
+                Block block = build_file_block(block_schema);
+                bool eof = false;
+                size_t output_row = static_cast<size_t>(threshold + 1);
+                while (!eof) {
+                    size_t rows = 0;
+                    auto status = reader->get_block(&block, &rows, &eof);
+                    ASSERT_TRUE(status.ok()) << status;
+                    for (size_t row = 0; row < rows; ++row, ++output_row) {
+                        ASSERT_LT(output_row, seconds.size());
+                        if (project_ns) {
+                            EXPECT_EQ(schema[1].type->to_string(*block.get_by_position(1).column,
+                                                                row),
+                                      expected_ns[output_row]);
+                        }
+                        EXPECT_EQ(schema[2].type->to_string(
+                                          *block.get_by_position(project_ns ? 2 : 1).column, row),
+                                  expected_plain[output_row]);
+                        // An instant sibling must retain the session zone when plain values use the writer zone.
+                        EXPECT_EQ(schema[3].type->to_string(
+                                          *block.get_by_position(project_ns ? 3 : 2).column, row),
+                                  expected_instant[output_row]);
+                    }
+                }
+                EXPECT_EQ(output_row, seconds.size());
+                EXPECT_EQ(profile.get_counter("OrcRowReadersCreated")->value(), 1);
+                const auto& stats = reader->reader_statistics();
+                EXPECT_EQ(stats.lazy_read_filtered_rows + (lazy ? stats.filtered_group_rows : 0),
+                          lazy ? threshold + 1 : 0);
+            }
+        }
+    }
+}
+
+Status decode_orc_timestamp_boundary(int64_t seconds, int64_t nanoseconds, bool file_is_instant,
+                                     bool use_timestamp_tz,
                                      const cctz::time_zone& timezone = cctz::utc_time_zone(),
                                      std::string* decoded_value = nullptr) {
     auto type = std::unique_ptr<::orc::Type>(::orc::Type::buildTypeFromString(
-            use_timestamp_tz ? "timestamp with local time zone" : "timestamp"));
+            file_is_instant ? "timestamp with local time zone" : "timestamp"));
     ::orc::TimestampVectorBatch batch(1, *::orc::getDefaultPool());
     batch.numElements = 1;
     batch.data[0] = seconds;
     batch.nanoseconds[0] = nanoseconds;
+    const OrcTimestampDecodeContext timestamp_context(timezone);
     OrcDecodedColumnView view {.file_type = type.get(),
                                .selected_type = type.get(),
                                .batch = &batch,
                                .rows = 1,
-                               .timezone = &timezone,
+                               .timestamp_context = &timestamp_context,
                                .enable_mapping_timestamp_tz = use_timestamp_tz};
     if (use_timestamp_tz) {
         DataTypeTimeStampTz data_type(6);
@@ -10446,13 +10882,13 @@ TEST_F(NewOrcReaderTest, PlainTimestampRoundsCarryInCivilTimeAcrossDstTransition
 
     constexpr int64_t ROUNDING_CARRY_NANOS = 999999500;
     std::string decoded_value;
-    ASSERT_TRUE(decode_orc_timestamp_boundary(1636275599, ROUNDING_CARRY_NANOS, false, los_angeles,
-                                              &decoded_value)
+    ASSERT_TRUE(decode_orc_timestamp_boundary(1636275599, ROUNDING_CARRY_NANOS, false, false,
+                                              los_angeles, &decoded_value)
                         .ok());
     EXPECT_EQ(decoded_value, "2021-11-07 02:00:00.000000");
 
-    ASSERT_TRUE(decode_orc_timestamp_boundary(1615715999, ROUNDING_CARRY_NANOS, false, los_angeles,
-                                              &decoded_value)
+    ASSERT_TRUE(decode_orc_timestamp_boundary(1615715999, ROUNDING_CARRY_NANOS, false, false,
+                                              los_angeles, &decoded_value)
                         .ok());
     EXPECT_EQ(decoded_value, "2021-03-14 02:00:00.000000");
 }
@@ -10464,13 +10900,13 @@ TEST_F(NewOrcReaderTest, TimestampInstantKeepsEpochCarryAcrossDstTransitions) {
 
     constexpr int64_t ROUNDING_CARRY_NANOS = 999999500;
     std::string decoded_value;
-    ASSERT_TRUE(decode_orc_timestamp_boundary(1636275599, ROUNDING_CARRY_NANOS, true, los_angeles,
-                                              &decoded_value)
+    ASSERT_TRUE(decode_orc_timestamp_boundary(1636275599, ROUNDING_CARRY_NANOS, true, true,
+                                              los_angeles, &decoded_value)
                         .ok());
     EXPECT_EQ(decoded_value, "2021-11-07 09:00:00.000000+00:00");
 
-    ASSERT_TRUE(decode_orc_timestamp_boundary(1615715999, ROUNDING_CARRY_NANOS, true, los_angeles,
-                                              &decoded_value)
+    ASSERT_TRUE(decode_orc_timestamp_boundary(1615715999, ROUNDING_CARRY_NANOS, true, true,
+                                              los_angeles, &decoded_value)
                         .ok());
     EXPECT_EQ(decoded_value, "2021-03-14 10:00:00.000000+00:00");
 }
@@ -10507,8 +10943,8 @@ TEST_F(NewOrcReaderTest, PlainTimestampDstCarryMatchesStripeStatistics) {
 
 TEST_F(NewOrcReaderTest, TimestampAcceptsDorisYearZeroBoundary) {
     constexpr int64_t MIN_DORIS_EPOCH_SECOND = -62167219200LL;
-    EXPECT_TRUE(decode_orc_timestamp_boundary(MIN_DORIS_EPOCH_SECOND, 0, false).ok());
-    EXPECT_TRUE(decode_orc_timestamp_boundary(MIN_DORIS_EPOCH_SECOND, 0, true).ok());
+    EXPECT_TRUE(decode_orc_timestamp_boundary(MIN_DORIS_EPOCH_SECOND, 0, false, false).ok());
+    EXPECT_TRUE(decode_orc_timestamp_boundary(MIN_DORIS_EPOCH_SECOND, 0, true, true).ok());
 }
 
 TEST_F(NewOrcReaderTest, PlainTimestampAcceptsDorisBoundariesAcrossTimezones) {
@@ -10516,8 +10952,9 @@ TEST_F(NewOrcReaderTest, PlainTimestampAcceptsDorisBoundariesAcrossTimezones) {
     const auto minus_eight = cctz::fixed_time_zone(std::chrono::hours(-8));
     constexpr int64_t YEAR_ZERO_IN_PLUS_EIGHT = -62167248000LL;
     constexpr int64_t YEAR_9999_END_IN_MINUS_EIGHT = 253402329599LL;
-    EXPECT_TRUE(decode_orc_timestamp_boundary(YEAR_ZERO_IN_PLUS_EIGHT, 0, false, plus_eight).ok());
-    EXPECT_TRUE(decode_orc_timestamp_boundary(YEAR_9999_END_IN_MINUS_EIGHT, 999999000, false,
+    EXPECT_TRUE(decode_orc_timestamp_boundary(YEAR_ZERO_IN_PLUS_EIGHT, 0, false, false, plus_eight)
+                        .ok());
+    EXPECT_TRUE(decode_orc_timestamp_boundary(YEAR_9999_END_IN_MINUS_EIGHT, 999999000, false, false,
                                               minus_eight)
                         .ok());
 }
@@ -10527,20 +10964,67 @@ TEST_F(NewOrcReaderTest, TimestampRoundingRejectsUpperDorisBoundary) {
     // into year 10000, which neither Doris timestamp representation can store.
     constexpr int64_t MAX_DORIS_EPOCH_SECOND = 253402300799LL;
     constexpr int64_t ROUNDING_CARRY_NANOS = 999999500;
-    EXPECT_FALSE(decode_orc_timestamp_boundary(MAX_DORIS_EPOCH_SECOND, ROUNDING_CARRY_NANOS, false)
+    EXPECT_FALSE(decode_orc_timestamp_boundary(MAX_DORIS_EPOCH_SECOND, ROUNDING_CARRY_NANOS, false,
+                                               false)
                          .ok());
     EXPECT_FALSE(
-            decode_orc_timestamp_boundary(MAX_DORIS_EPOCH_SECOND, ROUNDING_CARRY_NANOS, true).ok());
+            decode_orc_timestamp_boundary(MAX_DORIS_EPOCH_SECOND, ROUNDING_CARRY_NANOS, true, true)
+                    .ok());
 }
 
 TEST_F(NewOrcReaderTest, TimestampRoundingRejectsSecondOverflow) {
     constexpr int64_t ROUNDING_CARRY_NANOS = 999999500;
     EXPECT_FALSE(decode_orc_timestamp_boundary(std::numeric_limits<int64_t>::max(),
-                                               ROUNDING_CARRY_NANOS, false)
+                                               ROUNDING_CARRY_NANOS, false, false)
                          .ok());
     EXPECT_FALSE(decode_orc_timestamp_boundary(std::numeric_limits<int64_t>::max(),
-                                               ROUNDING_CARRY_NANOS, true)
+                                               ROUNDING_CARRY_NANOS, true, true)
                          .ok());
+}
+
+TEST_F(NewOrcReaderTest, TimestampInstantMappedToDatetimeRoundsBeforeTimezoneConversion) {
+    TimezoneUtils::load_timezones_to_cache();
+    cctz::time_zone los_angeles;
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone("America/Los_Angeles", los_angeles));
+
+    constexpr int64_t ROUNDING_CARRY_NANOS = 999999500;
+    std::string decoded_value;
+    ASSERT_TRUE(decode_orc_timestamp_boundary(1636275599, ROUNDING_CARRY_NANOS, true, false,
+                                              los_angeles, &decoded_value)
+                        .ok());
+    EXPECT_EQ(decoded_value, "2021-11-07 01:00:00.000000");
+}
+
+TEST_F(NewOrcReaderTest, TimestampInstantRoundingCanEnterDorisRange) {
+    constexpr int64_t MIN_DORIS_EPOCH_SECOND = -62167219200LL;
+    constexpr int64_t ROUNDING_CARRY_NANOS = 999999500;
+    std::string decoded_value;
+    ASSERT_TRUE(decode_orc_timestamp_boundary(MIN_DORIS_EPOCH_SECOND - 1, ROUNDING_CARRY_NANOS,
+                                              true, false, cctz::utc_time_zone(), &decoded_value)
+                        .ok());
+    EXPECT_EQ(decoded_value, "0000-01-01 00:00:00.000000");
+}
+
+TEST_F(NewOrcReaderTest, TimestampRejectsYearsBeforeNarrowingToPackedStorage) {
+    const auto utc = cctz::utc_time_zone();
+    for (int year : {-65536, 65536, 65537}) {
+        const auto seconds =
+                cctz::convert(cctz::civil_second(year, 1, 1), utc).time_since_epoch().count();
+        for (bool file_is_instant : {false, true}) {
+            // These years wrap into valid packed years if checked only after from_unixtime().
+            EXPECT_EQ(decode_orc_timestamp_boundary(seconds, 0, file_is_instant, false).code(),
+                      ErrorCode::DATA_QUALITY_ERROR);
+        }
+        EXPECT_EQ(decode_orc_timestamp_boundary(seconds, 0, true, true).code(),
+                  ErrorCode::DATA_QUALITY_ERROR);
+    }
+}
+
+TEST_F(NewOrcReaderTest, TimestampRejectsInvalidNanosecondsWithoutCrashing) {
+    EXPECT_EQ(decode_orc_timestamp_boundary(0, -1, false, false).code(),
+              ErrorCode::DATA_QUALITY_ERROR);
+    EXPECT_EQ(decode_orc_timestamp_boundary(0, 1000000000, true, false).code(),
+              ErrorCode::DATA_QUALITY_ERROR);
 }
 
 TEST_F(NewOrcReaderTest, TimestampSargMatchesRoundedMicroseconds) {
@@ -10628,6 +11112,44 @@ TEST_F(NewOrcReaderTest, TimestampSargMillisecondBoundsNeverPruneMatches) {
     const auto not_in = scan_rows("not_in", TExprOpcode::INVALID_OPCODE, 111001, true);
     EXPECT_EQ(not_in.first, 400);
     EXPECT_EQ(not_in.second, 0);
+}
+
+TEST_F(NewOrcReaderTest, TimestampSargExactEpochBypassesUnsafeRoundingBounds) {
+    const auto file_path = (_test_dir / "timestamp_sarg_exact_epoch.orc").string();
+    // Values within half a microsecond of the epoch round to zero; its lower bound is negative.
+    write_two_stripe_constant_timestamp_file(file_path, -2, 0, "GMT", 499);
+    ASSERT_EQ(get_orc_stripe_count(file_path), 2);
+
+    auto reader = create_reader_for_path(file_path);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    state.set_timezone("+00:00");
+    ASSERT_TRUE(reader->init(&state).ok());
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 2);
+
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->predicate_columns = {field_projection(0)};
+    request->conjuncts.push_back(
+            VExprContext::create_shared(std::make_shared<NullableInExpr<TYPE_DATETIMEV2>>(
+                    0, remove_nullable(schema[0].type),
+                    std::vector<Field> {
+                            Field::create_field<TYPE_DATETIMEV2>(make_datetime_v2(1970, 1, 1))},
+                    "timestamp_col")));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    bool eof = false;
+    size_t result_rows = 0;
+    while (!eof) {
+        Block block = build_file_block({schema[0]});
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        result_rows += rows;
+    }
+    EXPECT_EQ(result_rows, 200);
+    EXPECT_EQ(reader->reader_statistics().filtered_row_groups, 0);
+    EXPECT_EQ(reader->reader_statistics().filtered_row_groups_by_min_max, 0);
+    EXPECT_EQ(reader->reader_statistics().filtered_group_rows, 0);
 }
 
 TEST_F(NewOrcReaderTest, NegativeTimestampRoundingBypassesUnsafeSarg) {

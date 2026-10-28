@@ -32,6 +32,146 @@
 #include "exprs/function/ai/ai_summarize.h"
 
 namespace doris {
+
+TEST(AI_ADAPTER_TEST, parses_only_reported_usage_fields) {
+    struct UsageCase {
+        const char* provider;
+        const char* body;
+        std::optional<int64_t> prompt;
+        std::optional<int64_t> completion;
+        std::optional<int64_t> total;
+    };
+    const UsageCase cases[] = {
+            {.provider = "OPENAI",
+             .body = R"({"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}})",
+             .prompt = 7,
+             .completion = 3,
+             .total = 10},
+            {.provider = "OPENAI",
+             .body = R"({"usage":{"input_tokens":7,"output_tokens":3,"total_tokens":10}})",
+             .prompt = 7,
+             .completion = 3,
+             .total = 10},
+            {.provider = "OPENAI",
+             .body = R"({"usage":{"prompt_tokens":7,"total_tokens":7}})",
+             .prompt = 7,
+             .completion = std::nullopt,
+             .total = 7},
+            {.provider = "OPENAI",
+             .body = R"({"usage":{"prompt_tokens":0,"completion_tokens":0}})",
+             .prompt = 0,
+             .completion = 0,
+             .total = std::nullopt},
+            {.provider = "DEEPSEEK",
+             .body = R"({"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}})",
+             .prompt = 7,
+             .completion = 3,
+             .total = 10},
+            {.provider = "MOONSHOT",
+             .body = R"({"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}})",
+             .prompt = 7,
+             .completion = 3,
+             .total = 10},
+            {.provider = "MINIMAX",
+             .body = R"({"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}})",
+             .prompt = 7,
+             .completion = 3,
+             .total = 10},
+            {.provider = "ZHIPU",
+             .body = R"({"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}})",
+             .prompt = 7,
+             .completion = 3,
+             .total = 10},
+            {.provider = "BAICHUAN",
+             .body = R"({"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}})",
+             .prompt = 7,
+             .completion = 3,
+             .total = 10},
+            {.provider = "ANTHROPIC",
+             .body = R"({"usage":{"input_tokens":7,"output_tokens":3,"cache_read_input_tokens":20}})",
+             .prompt = 7,
+             .completion = 3,
+             .total = std::nullopt},
+            {.provider = "GEMINI",
+             .body = R"({"usageMetadata":{"promptTokenCount":7,"candidatesTokenCount":3,"totalTokenCount":12}})",
+             .prompt = 7,
+             .completion = 3,
+             .total = 12},
+            {.provider = "QWEN",
+             .body = R"({"usage":{"input_tokens":7,"output_tokens":3,"total_tokens":10}})",
+             .prompt = 7,
+             .completion = 3,
+             .total = 10},
+            {.provider = "QWEN",
+             .body = R"({"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}})",
+             .prompt = 7,
+             .completion = 3,
+             .total = 10},
+            {.provider = "LOCAL",
+             .body = R"({"prompt_eval_count":7,"eval_count":3})",
+             .prompt = 7,
+             .completion = 3,
+             .total = std::nullopt},
+            {.provider = "LOCAL",
+             .body = R"({"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}})",
+             .prompt = 7,
+             .completion = 3,
+             .total = 10},
+            {.provider = "VOYAGEAI",
+             .body = R"({"usage":{"total_tokens":7}})",
+             .prompt = std::nullopt,
+             .completion = std::nullopt,
+             .total = 7},
+            {.provider = "JINA",
+             .body = R"({"usage":{"total_tokens":7}})",
+             .prompt = std::nullopt,
+             .completion = std::nullopt,
+             .total = 7},
+            {.provider = "OPENAI",
+             .body = R"({"error":{"message":"rate limited"},"usage":{"prompt_tokens":7}})",
+             .prompt = 7,
+             .completion = std::nullopt,
+             .total = std::nullopt},
+    };
+    for (const auto& test : cases) {
+        SCOPED_TRACE(test.provider);
+        SCOPED_TRACE(test.body);
+        const auto adapter = AIAdapterFactory::create_adapter(test.provider);
+        const auto usage = adapter->parse_usage(test.body);
+        EXPECT_EQ(usage.prompt_tokens, test.prompt);
+        EXPECT_EQ(usage.completion_tokens, test.completion);
+        EXPECT_EQ(usage.total_tokens, test.total);
+    }
+}
+
+TEST(AI_ADAPTER_TEST, missing_or_malformed_usage_is_absent) {
+    for (const auto* provider :
+         {"OPENAI", "ANTHROPIC", "GEMINI", "QWEN", "LOCAL", "VOYAGEAI", "MOCK"}) {
+        const auto adapter = AIAdapterFactory::create_adapter(provider);
+        for (const auto* body :
+             {"", "not json", "null", "[]", "{}", R"({"usage":[]})",
+              R"({"usage":null,"usageMetadata":false})",
+              R"({"usage":{"prompt_tokens":-1,"completion_tokens":"3","total_tokens":1.5,"input_tokens":true,"output_tokens":null},"usageMetadata":{"promptTokenCount":-1,"candidatesTokenCount":"3","totalTokenCount":1.5},"prompt_eval_count":-1,"eval_count":false})",
+              R"({"usage":{"total_tokens":9223372036854775808}})"}) {
+            SCOPED_TRACE(provider);
+            SCOPED_TRACE(body);
+            const auto usage = adapter->parse_usage(body);
+            EXPECT_FALSE(usage.prompt_tokens.has_value());
+            EXPECT_FALSE(usage.completion_tokens.has_value());
+            EXPECT_FALSE(usage.total_tokens.has_value());
+        }
+    }
+}
+
+TEST(AI_ADAPTER_TEST, malformed_usage_field_does_not_discard_other_counts) {
+    OpenAIAdapter adapter;
+    const auto usage = adapter.parse_usage(
+            R"({"usage":{"prompt_tokens":-1,"completion_tokens":3,"total_tokens":9223372036854775807}})");
+    EXPECT_FALSE(usage.prompt_tokens.has_value());
+    EXPECT_EQ(usage.completion_tokens, 3);
+    EXPECT_EQ(usage.total_tokens, INT64_MAX);
+}
+
 class MockHttpClient : public HttpClient {
 public:
     curl_slist* get() { return this->_header_list; }
@@ -248,6 +388,7 @@ TEST(AI_ADAPTER_TEST, openai_adapter_completions_request) {
     config.temperature = 0.5;
     config.max_tokens = 64;
     config.api_key = "test_openai_key";
+    config.effort = "low";
     adapter.init(config);
 
     // header
@@ -284,6 +425,8 @@ TEST(AI_ADAPTER_TEST, openai_adapter_completions_request) {
     ASSERT_TRUE(doc.HasMember("max_tokens")) << "Missing max_tokens field";
     ASSERT_TRUE(doc["max_tokens"].IsInt()) << "Max_tokens field is not an integer";
     ASSERT_EQ(doc["max_tokens"].GetInt(), 64);
+    ASSERT_TRUE(doc.HasMember("reasoning_effort"));
+    ASSERT_STREQ(doc["reasoning_effort"].GetString(), "low");
     // msg
     ASSERT_TRUE(doc.HasMember("messages")) << "Missing messages field";
     ASSERT_TRUE(doc["messages"].IsArray()) << "Messages is not an array";
@@ -321,6 +464,7 @@ TEST(AI_ADAPTER_TEST, openai_adatper_responses_request) {
     config.max_tokens = 64;
     config.api_key = "test_openai_key";
     config.endpoint = "https://api.openai.com/v1/responses";
+    config.effort = "max";
     adapter.init(config);
 
     // header
@@ -357,6 +501,9 @@ TEST(AI_ADAPTER_TEST, openai_adatper_responses_request) {
     ASSERT_TRUE(doc.HasMember("max_output_tokens")) << "Missing max_output_tokens field";
     ASSERT_TRUE(doc["max_output_tokens"].IsInt()) << "max_output_tokens field is not an integer";
     ASSERT_EQ(doc["max_output_tokens"].GetInt(), 64);
+    ASSERT_TRUE(doc.HasMember("reasoning"));
+    ASSERT_TRUE(doc["reasoning"].IsObject());
+    ASSERT_STREQ(doc["reasoning"]["effort"].GetString(), "max");
 
     // input
     ASSERT_TRUE(doc.HasMember("input")) << "Missing input field";
@@ -671,6 +818,7 @@ TEST(AI_ADAPTER_TEST, gemini_adapter_request) {
     config.temperature = 0.2;
     config.max_tokens = 32;
     config.api_key = "test_gemini_key";
+    config.effort = "high";
     adapter.init(config);
 
     // header test
@@ -705,6 +853,9 @@ TEST(AI_ADAPTER_TEST, gemini_adapter_request) {
     ASSERT_TRUE(gen_cfg.HasMember("maxOutputTokens")) << "Missing maxOutputTokens field";
     ASSERT_TRUE(gen_cfg["maxOutputTokens"].IsInt());
     ASSERT_EQ(gen_cfg["maxOutputTokens"].GetInt(), 32);
+    ASSERT_TRUE(gen_cfg.HasMember("thinkingConfig"));
+    ASSERT_TRUE(gen_cfg["thinkingConfig"].IsObject());
+    ASSERT_STREQ(gen_cfg["thinkingConfig"]["thinkingLevel"].GetString(), "high");
 
     // system_prompt
     ASSERT_TRUE(doc.HasMember("systemInstruction")) << "Missing system field";
@@ -753,6 +904,7 @@ TEST(AI_ADAPTER_TEST, anthropic_adapter_request) {
     config.max_tokens = 256;
     config.api_key = "test_anthropic_key";
     config.anthropic_version = "2023-06-01";
+    config.effort = "medium";
     adapter.init(config);
 
     // header
@@ -790,6 +942,9 @@ TEST(AI_ADAPTER_TEST, anthropic_adapter_request) {
     ASSERT_TRUE(doc.HasMember("max_tokens")) << "Missing max_tokens field";
     ASSERT_TRUE(doc["max_tokens"].IsInt()) << "Max_tokens field is not an integer";
     ASSERT_EQ(doc["max_tokens"].GetInt(), 256);
+    ASSERT_TRUE(doc.HasMember("output_config"));
+    ASSERT_TRUE(doc["output_config"].IsObject());
+    ASSERT_STREQ(doc["output_config"]["effort"].GetString(), "medium");
 
     // system_prompt
     ASSERT_TRUE(doc.HasMember("system")) << "Missing system field";
@@ -863,6 +1018,20 @@ TEST(AI_ADAPTER_TEST, parse_response_wrong_type) {
                 ::testing::HasSubstr("Unsupported response format from local AI."));
 }
 
+TEST(AI_ADAPTER_TEST, local_adapter_rejects_non_object_choice) {
+    LocalAdapter adapter;
+    std::vector<std::string> results;
+    Status st = adapter.parse_response(R"({"choices":[1]})", results);
+    ASSERT_FALSE(st.ok());
+}
+
+TEST(AI_ADAPTER_TEST, local_adapter_rejects_non_object_message) {
+    LocalAdapter adapter;
+    std::vector<std::string> results;
+    Status st = adapter.parse_response(R"({"choices":[{"message":1}]})", results);
+    ASSERT_FALSE(st.ok());
+}
+
 TEST(AI_ADAPTER_TEST, openai_adapter_parse_response_choice_format_error) {
     OpenAIAdapter adapter;
     // message field missing
@@ -878,6 +1047,20 @@ TEST(AI_ADAPTER_TEST, openai_adapter_parse_response_choice_format_error) {
     st = adapter.parse_response(resp, results);
     ASSERT_FALSE(st.ok());
     EXPECT_THAT(st.to_string().c_str(), ::testing::HasSubstr("Invalid choice format in  response"));
+}
+
+TEST(AI_ADAPTER_TEST, openai_adapter_rejects_non_object_choice) {
+    OpenAIAdapter adapter;
+    std::vector<std::string> results;
+    Status st = adapter.parse_response(R"({"choices":[1]})", results);
+    ASSERT_FALSE(st.ok());
+}
+
+TEST(AI_ADAPTER_TEST, openai_adapter_rejects_non_object_message) {
+    OpenAIAdapter adapter;
+    std::vector<std::string> results;
+    Status st = adapter.parse_response(R"({"choices":[{"message":1}]})", results);
+    ASSERT_FALSE(st.ok());
 }
 
 TEST(AI_ADAPTER_TEST, openai_adapter_parse_response_parse_error) {
@@ -916,6 +1099,27 @@ TEST(AI_ADAPTER_TEST, gemini_parse_response_missing_candidates) {
     EXPECT_THAT(st.to_string().c_str(), ::testing::HasSubstr("Invalid  response format"));
 }
 
+TEST(AI_ADAPTER_TEST, gemini_adapter_rejects_non_object_candidate) {
+    GeminiAdapter adapter;
+    std::vector<std::string> results;
+    Status st = adapter.parse_response(R"({"candidates":[1]})", results);
+    ASSERT_FALSE(st.ok());
+}
+
+TEST(AI_ADAPTER_TEST, gemini_adapter_rejects_non_object_content) {
+    GeminiAdapter adapter;
+    std::vector<std::string> results;
+    Status st = adapter.parse_response(R"({"candidates":[{"content":1}]})", results);
+    ASSERT_FALSE(st.ok());
+}
+
+TEST(AI_ADAPTER_TEST, gemini_adapter_rejects_non_object_part) {
+    GeminiAdapter adapter;
+    std::vector<std::string> results;
+    Status st = adapter.parse_response(R"({"candidates":[{"content":{"parts":[1]}}]})", results);
+    ASSERT_FALSE(st.ok());
+}
+
 TEST(AI_ADAPTER_TEST, anthropic_adapter_parse_response_parse_error) {
     AnthropicAdapter adapter;
     std::string resp = "not a json";
@@ -932,6 +1136,13 @@ TEST(AI_ADAPTER_TEST, anthropic_adapter_parse_response_content_not_array) {
     Status st = adapter.parse_response(resp, results);
     ASSERT_FALSE(st.ok());
     EXPECT_THAT(st.to_string().c_str(), ::testing::HasSubstr("Invalid  response format"));
+}
+
+TEST(AI_ADAPTER_TEST, anthropic_adapter_rejects_non_object_content_item) {
+    AnthropicAdapter adapter;
+    std::vector<std::string> results;
+    Status st = adapter.parse_response(R"({"content":[1]})", results);
+    ASSERT_FALSE(st.ok());
 }
 
 TEST(AI_ADAPTER_TEST, voyage_adapter_chat_test) {

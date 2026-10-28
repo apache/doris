@@ -48,6 +48,8 @@ public:
     ~DelimitedTextReader() override;
 
     Status init(RuntimeState* state) override;
+    // Discover the first record without FE slots or skipping a configured header.
+    Status infer_schema(RuntimeState* state, std::vector<ColumnDefinition>* schema);
     Status get_schema(std::vector<ColumnDefinition>* file_schema) const override;
     std::unique_ptr<TableColumnMapper> create_column_mapper(
             TableColumnMapperOptions options) const override;
@@ -135,6 +137,7 @@ protected:
     const uint8_t* _remove_bom(const uint8_t* ptr, size_t* size);
     void _init_profile() override;
 
+    bool _schema_only = false;
     const TFileScanRangeParams* _scan_params = nullptr;
     std::vector<SlotDescriptor*> _source_file_slot_descs;
     std::vector<int32_t> _source_column_idxs;
@@ -156,6 +159,8 @@ protected:
     int64_t _start_offset = 0;
     int64_t _size = -1;
     int _skip_lines = 0;
+    // Enabled only by readers using plain, quote-independent delimiter matching.
+    bool _align_split_prefix = false;
     char _escape = 0;
     bool _line_reader_eof = false;
     bool _bom_removed = false;

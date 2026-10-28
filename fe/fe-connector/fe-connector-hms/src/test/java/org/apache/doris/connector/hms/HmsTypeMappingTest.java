@@ -42,6 +42,15 @@ public class HmsTypeMappingTest {
     }
 
     @Test
+    public void binaryReadTypesCanBeWrittenBackToHive() {
+        // INSERT/CTAS must reverse the binary mapping at every nesting level.
+        for (String hiveType : new String[] {"binary", "array<binary>", "map<string,binary>",
+                "struct<payload:binary,items:array<binary>>"}) {
+            Assertions.assertEquals(hiveType, HmsTypeMapping.toHiveTypeString(map(hiveType)));
+        }
+    }
+
+    @Test
     public void testPrimitives() {
         Assertions.assertEquals(ConnectorType.of("BOOLEAN"), map("boolean"));
         Assertions.assertEquals(ConnectorType.of("TINYINT"), map("tinyint"));
@@ -65,7 +74,7 @@ public class HmsTypeMappingTest {
 
     @Test
     public void testBinaryDefaultAndVarbinaryOption() {
-        Assertions.assertEquals(ConnectorType.of("STRING"), map("binary"));
+        Assertions.assertEquals(ConnectorType.of("VARBINARY"), map("binary"));
         Assertions.assertEquals(ConnectorType.of("VARBINARY"),
                 HmsTypeMapping.toConnectorType("binary", new HmsTypeMapping.Options(6, true, false)));
     }
@@ -124,8 +133,8 @@ public class HmsTypeMappingTest {
 
     @Test
     public void testTimestampWithLocalTimeZone() {
-        // Default: mapped to DATETIMEV2.
-        Assertions.assertEquals(ConnectorType.of("DATETIMEV2", 6, -1),
+        // Instant semantics are unconditional, including legacy false options.
+        Assertions.assertEquals(ConnectorType.of("TIMESTAMPTZ", 6, -1),
                 map("timestamp with local time zone"));
         // With the timestamp-tz option: mapped to TIMESTAMPTZ.
         Assertions.assertEquals(ConnectorType.of("TIMESTAMPTZ", 6, -1),

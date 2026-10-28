@@ -17,66 +17,75 @@
 
 #include "agent/heartbeat_server.h"
 
-#include <gen_cpp/HeartbeatService_types.h>
-#include <gen_cpp/Status_types.h>
-#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
+#include <gtest/gtest.h>
 
-#include <ctime>
+#include <memory>
+#include <string>
 
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
-
-using ::testing::_;
-using ::testing::Return;
-using ::testing::SetArgPointee;
-using std::string;
-using std::vector;
+#include "runtime/cluster_info.h"
+#include "runtime/exec_env.h"
+#include "storage/storage_engine.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
-TEST(HeartbeatTest, TestHeartbeat) {
-    // setenv("DORIS_HOME", "./", 1);
-    THeartbeatResult heartbeat_result;
-    ClusterInfo ori_cluster_info;
-    ori_cluster_info.cluster_id = -1;
-    ori_cluster_info.epoch = 0;
-    ori_cluster_info.network_address.hostname = "";
-    ori_cluster_info.network_address.port = 0;
-    HeartbeatServer heartbeat_server(&ori_cluster_info);
+class HeartbeatLogSink : public google::LogSink {
+public:
+    void send(google::LogSeverity /*severity*/, const char* /*full_filename*/,
+              const char* /*base_filename*/, int /*line*/, const google::LogMessageTime& /*time*/,
+              const char* message, std::size_t message_len) override {
+        messages.append(message, message_len);
+    }
 
-    heartbeat_server.heartbeat(heartbeat_result, master_info);
-    EXPECT_EQ(TStatusCode::OK, heartbeat_result.status.status_code);
-    EXPECT_EQ(master_info.epoch, heartbeat_server._epoch);
-    EXPECT_EQ(master_info.cluster_id, heartbeat_server._master_info->cluster_id);
-    EXPECT_EQ(master_info.network_address.hostname,
-              heartbeat_server._master_info->network_address.hostname);
-    EXPECT_EQ(master_info.network_address.port,
-              heartbeat_server._master_info->network_address.port);
+    std::string messages;
+};
 
-    // Diff cluster heartbeat
-    master_info.cluster_id = 2;
-    heartbeat_server.heartbeat(heartbeat_result, master_info);
-    EXPECT_EQ(TStatusCode::RUNTIME_ERROR, heartbeat_result.status.status_code);
+TEST(HeartbeatServerTest, DoesNotExposeTokens) {
+    ExecEnv::GetInstance()->set_storage_engine(std::make_unique<StorageEngine>(EngineOptions {}));
+    Defer reset_engine([] { ExecEnv::GetInstance()->set_storage_engine(nullptr); });
+    ClusterInfo cluster;
+    cluster.cluster_id = 7;
+    HeartbeatServer server(&cluster);
+    TMasterInfo master;
+    master.__set_cluster_id(7);
+    master.__set_epoch(10);
+    TNetworkAddress address;
+    address.__set_hostname("master-a");
+    address.__set_port(9020);
+    master.__set_network_address(address);
+    master.__set_token("heartbeat_cluster_secret");
 
-    // New master but epoch small
-    master_info.cluster_id = 1;
-    master_info.epoch = 9;
-    master_info.network_address.hostname = "new_host";
-    master_info.network_address.port = 54321;
-    heartbeat_server.heartbeat(heartbeat_result, master_info);
-    EXPECT_EQ(TStatusCode::RUNTIME_ERROR, heartbeat_result.status.status_code);
+    HeartbeatLogSink log_sink;
+    google::AddLogSink(&log_sink);
+    Defer remove_log_sink([&] { google::RemoveLogSink(&log_sink); });
 
-    // New master and epoch bigger
-    master_info.epoch = 11;
-    heartbeat_server.heartbeat(heartbeat_result, master_info);
-    EXPECT_EQ(TStatusCode::OK, heartbeat_result.status.status_code);
-    EXPECT_EQ(master_info.epoch, heartbeat_server._epoch);
-    EXPECT_EQ(master_info.network_address.hostname,
-              heartbeat_server._master_info->network_address.hostname);
-    EXPECT_EQ(master_info.network_address.port,
-              heartbeat_server._master_info->network_address.port);
+    THeartbeatResult result;
+    for (const auto* token :
+         {"heartbeat_auth_secret_a", "heartbeat_auth_secret_b", "heartbeat_auth_secret_c"}) {
+        master.__set_auth_token(token);
+        server.heartbeat(result, master);
+        ASSERT_EQ(TStatusCode::OK, result.status.status_code);
+    }
 
-    heartbeat_server._olap_rootpath_instance = ori_olap_rootpath;
+    server.heartbeat(result, master);
+    ASSERT_EQ(TStatusCode::OK, result.status.status_code);
+    EXPECT_EQ("heartbeat_auth_secret_c", cluster.curr_auth_token);
+    EXPECT_EQ("heartbeat_auth_secret_b", cluster.last_auth_token);
+
+    master.__set_token("heartbeat_mismatched_secret");
+    server.heartbeat(result, master);
+    ASSERT_EQ(TStatusCode::INTERNAL_ERROR, result.status.status_code);
+    ASSERT_EQ(1, result.status.error_msgs.size());
+    EXPECT_NE(std::string::npos, result.status.error_msgs.front().find("invalid token"));
+    EXPECT_EQ("heartbeat_cluster_secret", cluster.token);
+
+    for (const auto* secret :
+         {"heartbeat_cluster_secret", "heartbeat_mismatched_secret", "heartbeat_auth_secret_a",
+          "heartbeat_auth_secret_b", "heartbeat_auth_secret_c"}) {
+        EXPECT_EQ(std::string::npos, log_sink.messages.find(secret));
+        EXPECT_EQ(std::string::npos, result.status.error_msgs.front().find(secret));
+    }
 }
 
 } // namespace doris

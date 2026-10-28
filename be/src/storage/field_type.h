@@ -20,7 +20,7 @@
 namespace doris {
 
 // Storage-engine cell types, used by TabletColumn / KeyCoder and the
-// data_type traits chain. When adding a new value, also extend CppTypeTraits,
+// data_type traits chain. When adding a new value, also extend StorageTypeTraits,
 // FieldTypeTraits and the field_type_size() switch in storage/types.h. Decide how it maps to
 // PrimitiveType and explicitly define its behavior in primitive_type_to_storage_field_type() and
 // storage_field_type_to_primitive_type(), either by providing a mapping or by throwing.
@@ -67,6 +67,7 @@ enum class FieldType {
     OLAP_FIELD_TYPE_IPV6 = 39,
     OLAP_FIELD_TYPE_TIMESTAMPTZ = 40,
     OLAP_FIELD_TYPE_TIMESTAMP_NS = 41,
+    OLAP_FIELD_TYPE_UUID = 42,
 };
 
 constexpr bool field_is_slice_type(const FieldType& field_type) {
@@ -107,7 +108,8 @@ constexpr bool field_is_numeric_type(const FieldType& field_type) {
            field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL256 ||
            field_type == FieldType::OLAP_FIELD_TYPE_BOOL ||
            field_type == FieldType::OLAP_FIELD_TYPE_IPV4 ||
-           field_type == FieldType::OLAP_FIELD_TYPE_IPV6;
+           field_type == FieldType::OLAP_FIELD_TYPE_IPV6 ||
+           field_type == FieldType::OLAP_FIELD_TYPE_UUID;
 }
 
 } // namespace doris

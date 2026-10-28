@@ -288,6 +288,16 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         }
         long id = Env.getCurrentEnv().getNextId();
         CatalogIf catalog = CatalogFactory.createFromCommand(id, cmd);
+        if (catalog instanceof ExternalCatalog) {
+            try {
+                ((ExternalCatalog) catalog).checkProperties();
+                ((ExternalCatalog) catalog).checkSubmittedMetaCacheProperties(
+                        catalog.getProperties(), cmd.getProperties());
+            } catch (DdlException | RuntimeException e) {
+                catalog.onCreateFailure();
+                throw e;
+            }
+        }
         createCatalogImpl(catalog, cmd.getCatalogName(), cmd.isSetIfNotExists());
     }
 
@@ -410,26 +420,117 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
      * Modify the catalog property and write the meta log.
      */
     public void alterCatalogProps(String catalogName, Map<String, String> newProperties) throws UserException {
-        Runnable accessControllerCleanup = () -> { };
+        Map<String, String> updates = Maps.newHashMap(newProperties);
+        while (true) {
+            CatalogIf catalog;
+            Map<String, String> oldProperties;
+            readLock();
+            try {
+                catalog = nameToCatalog.get(catalogName);
+                if (catalog == null) {
+                    throw new DdlException("No catalog found with name: " + catalogName);
+                }
+                oldProperties = Maps.newHashMap(catalog.getProperties());
+                if (updates.containsKey("type") && !catalog.getType()
+                        .equalsIgnoreCase(updates.get("type"))) {
+                    throw new DdlException("Can't modify the type of catalog property with name: " + catalogName);
+                }
+            } finally {
+                readUnlock();
+            }
+
+            if (catalog instanceof ExternalCatalog) {
+                // Validate and journal the effective mapping policy so older followers replay it verbatim.
+                for (String marker : new String[] {CatalogProperty.ENABLE_MAPPING_VARBINARY,
+                        CatalogProperty.ENABLE_MAPPING_TIMESTAMP_TZ}) {
+                    if (updates.containsKey(marker)) {
+                        updates.put(marker, "true");
+                    }
+                }
+            }
+
+            if (catalog instanceof ExternalCatalog) {
+                Map<String, String> effectiveProperties = Maps.newHashMap(oldProperties);
+                effectiveProperties.putAll(updates);
+                ((ExternalCatalog) catalog).checkSubmittedMetaCacheProperties(effectiveProperties, updates);
+            }
+
+            // Filesystem binding may read Hadoop XML files. Validate the detached snapshot before
+            // taking the global catalog write lock, then retry if another ALTER changed the snapshot.
+            boolean validatedWithoutMutation = catalog instanceof ExternalCatalog
+                    && validateCatalogPropsBeforeUpdate((ExternalCatalog) catalog, oldProperties, updates);
+            Runnable accessControllerCleanup = () -> { };
+            writeLock();
+            try {
+                if (nameToCatalog.get(catalogName) != catalog
+                        || !oldProperties.equals(catalog.getProperties())) {
+                    continue;
+                }
+                CatalogLog log = new CatalogLog();
+                log.setCatalogId(catalog.getId());
+                log.setNewProps(updates);
+                accessControllerCleanup = applyAlterCatalogProps(
+                        log, oldProperties, false, true, validatedWithoutMutation);
+                Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_ALTER_CATALOG_PROPS, log);
+                return;
+            } finally {
+                writeUnlock();
+                accessControllerCleanup.run();
+            }
+        }
+    }
+
+    private boolean validateCatalogPropsBeforeUpdate(ExternalCatalog catalog, Map<String, String> oldProperties,
+            Map<String, String> newProperties) throws DdlException {
+        try {
+            return catalog.validatePropertiesBeforeUpdate(oldProperties, newProperties);
+        } catch (Exception validationException) {
+            if (validationException instanceof DdlException) {
+                throw (DdlException) validationException;
+            }
+            throw new DdlException("Invalid catalog properties: "
+                    + validationException.getMessage(), validationException);
+        }
+    }
+
+    /**
+     * Migrate legacy markers after fenced master replay, before accepting queries or starting checkpoints.
+     */
+    public void migrateVarbinaryMappingProperties() throws DdlException {
+        List<Runnable> cleanups = Lists.newArrayList();
         writeLock();
         try {
-            CatalogIf catalog = nameToCatalog.get(catalogName);
-            if (catalog == null) {
-                throw new DdlException("No catalog found with name: " + catalogName);
+            for (CatalogIf catalog : idToCatalog.values()) {
+                if (!(catalog instanceof ExternalCatalog)) {
+                    continue;
+                }
+                ExternalCatalog externalCatalog = (ExternalCatalog) catalog;
+                Map<String, String> migratedProperties = Maps.newHashMap();
+                for (String marker : new String[] {CatalogProperty.ENABLE_MAPPING_VARBINARY,
+                        CatalogProperty.ENABLE_MAPPING_TIMESTAMP_TZ}) {
+                    if (!Boolean.parseBoolean(externalCatalog.getProperties().get(marker))) {
+                        migratedProperties.put(marker, "true");
+                    }
+                }
+                if (migratedProperties.isEmpty()) {
+                    continue;
+                }
+                CatalogLog log = new CatalogLog();
+                log.setCatalogId(catalog.getId());
+                log.setNewProps(migratedProperties);
+                // Use the existing ALTER format so running older followers can replay the change.
+                // Journal first: a failed write must leave the marker eligible for a retry.
+                Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_ALTER_CATALOG_PROPS, log);
+                // Migration must not revalidate unrelated legacy connection properties or contact
+                // the external system while the master is still becoming ready.
+                cleanups.add(applyAlterCatalogProps(log, null, true, true, false));
             }
-            Map<String, String> oldProperties = catalog.getProperties();
-            if (newProperties.containsKey("type") && !catalog.getType()
-                    .equalsIgnoreCase(newProperties.get("type"))) {
-                throw new DdlException("Can't modify the type of catalog property with name: " + catalogName);
-            }
-            CatalogLog log = new CatalogLog();
-            log.setCatalogId(catalog.getId());
-            log.setNewProps(newProperties);
-            accessControllerCleanup = applyAlterCatalogProps(log, oldProperties, false, true);
-            Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_ALTER_CATALOG_PROPS, log);
         } finally {
             writeUnlock();
-            accessControllerCleanup.run();
+            // Reentrant replay would close plugins while the outer migration write lock is still held.
+            for (Runnable cleanup : cleanups) {
+                cleanup.run();
+            }
         }
     }
 
@@ -500,7 +601,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                     if (DatasourcePrintableMap.HIDDEN_KEY.contains(key)) {
                         return;
                     }
-                    if (DatasourcePrintableMap.SENSITIVE_KEY.contains(key)) {
+                    if (DatasourcePrintableMap.isSensitiveKey(key)) {
                         sortedMap.put(key, DatasourcePrintableMap.PASSWORD_MASK);
                     } else {
                         sortedMap.put(key, value);
@@ -553,9 +654,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     private void createCatalogInternal(CatalogIf catalog, boolean isReplay) throws DdlException {
         writeLock();
         try {
-            if (!isReplay && catalog instanceof ExternalCatalog) {
-                ((ExternalCatalog) catalog).checkProperties();
-            }
             Map<String, String> props = catalog.getProperties();
             if (props.containsKey(METADATA_REFRESH_INTERVAL_SEC)) {
                 // need refresh
@@ -647,7 +745,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         Runnable accessControllerCleanup = () -> { };
         writeLock();
         try {
-            accessControllerCleanup = applyAlterCatalogProps(log, oldProperties, isReplay, true);
+            accessControllerCleanup = applyAlterCatalogProps(log, oldProperties, isReplay, true, false);
         } finally {
             writeUnlock();
             accessControllerCleanup.run();
@@ -655,16 +753,17 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     }
 
     private Runnable applyAlterCatalogProps(CatalogLog log, Map<String, String> oldProperties,
-            boolean isReplay, boolean deferAccessControllerCleanup) throws DdlException {
+            boolean isReplay, boolean deferAccessControllerCleanup, boolean validatedWithoutMutation)
+            throws DdlException {
         CatalogIf catalog = idToCatalog.get(log.getCatalogId());
         if (catalog instanceof ExternalCatalog) {
             Map<String, String> newProps = log.getNewProps();
-            if (!isReplay) {
+            if (!isReplay && !validatedWithoutMutation) {
                 ExternalCatalog externalCatalog = (ExternalCatalog) catalog;
                 try {
-                    boolean validatedWithoutMutation = externalCatalog.validatePropertiesBeforeUpdate(
+                    boolean validatedWithoutMutationInLock = externalCatalog.validatePropertiesBeforeUpdate(
                             oldProperties, newProps);
-                    if (!validatedWithoutMutation) {
+                    if (!validatedWithoutMutationInLock) {
                         synchronized (externalCatalog) {
                             Map<String, String> currentProperties = Maps.newHashMap(externalCatalog.getProperties());
                             try {

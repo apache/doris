@@ -35,7 +35,7 @@
 
 namespace doris {
 class Decompressor;
-class LineReader;
+class NewPlainTextLineReader;
 class SlotDescriptor;
 class IColumn;
 } // namespace doris
@@ -97,6 +97,7 @@ public:
 
     // Initializes scan attributes and builds the synthetic schema from FE slots.
     Status init(RuntimeState* state) override;
+    Status infer_schema(RuntimeState* state, std::vector<ColumnDefinition>* schema);
     Status get_schema(std::vector<ColumnDefinition>* file_schema) const override;
     std::unique_ptr<TableColumnMapper> create_column_mapper(
             TableColumnMapperOptions options) const override;
@@ -129,12 +130,12 @@ private:
                                     std::vector<RequestedColumn>* columns) const;
     // Reconciles TableReader's split/range descriptor with FileReader's concrete file description.
     TFileRangeDesc _json_range() const;
-    Status _open_file_reader();
+    Status _open_file_reader(bool need_schema = false);
     Status _create_decompressor();
     Status _create_line_reader();
     Status _parse_jsonpath_and_json_root();
-    // Reads one logical JSON document: one line for JSON Lines, or the whole range/pipe payload for
-    // single-document mode.
+    // Reads one logical JSON document: one line, one file range, or one pipe message.
+    // Chunked HTTP transfers concatenate their pipe buffers into one document.
     Status _read_one_document(size_t* size, bool* eof);
     Status _read_one_document_from_pipe(size_t* read_size);
     // Moves the logical document into a simdjson-padded buffer and creates an ondemand document.
@@ -188,7 +189,7 @@ private:
 
     io::FileReaderSPtr _physical_file_reader;
     std::unique_ptr<Decompressor> _decompressor;
-    std::unique_ptr<LineReader> _line_reader;
+    std::unique_ptr<NewPlainTextLineReader> _line_reader;
     int64_t _current_offset = 0;
     bool _reader_eof = false;
     bool _skip_first_line = false;

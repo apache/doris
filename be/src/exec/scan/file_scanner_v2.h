@@ -92,8 +92,9 @@ public:
     static bool TEST_should_skip_not_found(const Status& status, bool ignore_not_found);
     static bool TEST_should_skip_empty(const Status& status, bool stopped);
     static Status TEST_validate_variant_projection(TFileFormatType::type format_type,
-                                                   bool has_variant_projection) {
-        return _validate_variant_projection(format_type, has_variant_projection);
+                                                   bool has_variant_projection,
+                                                   const std::string& table_format) {
+        return _validate_variant_projection(format_type, has_variant_projection, table_format);
     }
     static Status TEST_contextualize_output_filter_status(Status status,
                                                           TFileFormatType::type format_type) {
@@ -142,7 +143,8 @@ private:
     static Status _validate_scan_range(const TFileScanRangeParams& params,
                                        const TFileRangeDesc& range);
     static Status _validate_variant_projection(TFileFormatType::type format_type,
-                                               bool has_variant_projection);
+                                               bool has_variant_projection,
+                                               const std::string& table_format);
     Status _get_next_scan_range(bool* has_next);
     TFileFormatType::type _get_current_format_type() const;
     Status _init_io_ctx();
@@ -220,6 +222,7 @@ private:
     std::unique_ptr<io::FileReaderStats> _file_reader_stats;
     std::shared_ptr<io::IOContext> _io_ctx;
     ShardedKVCache* _kv_cache = nullptr;
+    format::parquet::ParquetProfileCache* _parquet_profile_cache = nullptr;
 
     RuntimeProfile::Counter* _scanner_total_timer = nullptr;
     RuntimeProfile::Counter* _init_timer = nullptr;
@@ -240,6 +243,8 @@ private:
     RuntimeProfile::Counter* _adaptive_batch_probe_count_counter = nullptr;
     std::unique_ptr<AdaptiveBlockSizePredictor> _block_size_predictor;
     int64_t _reported_predicate_filtered_rows = 0;
+    int64_t _reported_load_filtered_rows = 0;
+    int64_t _reported_load_unselected_rows = 0;
     int64_t _reported_condition_cache_hit_count = 0;
     int64_t _reported_condition_cache_filtered_rows = 0;
     int64_t _last_read_bytes = 0;

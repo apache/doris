@@ -76,12 +76,12 @@ Usage: $0 <options>
      --hive-modules <list>  comma separated hive modules to refresh
 
   All valid components:
-    mysql,pg,oracle,sqlserver,clickhouse,es,hive2,hive3,iceberg,iceberg-rest,hudi,kafka,mariadb,db2,oceanbase,lakesoul,kerberos,ranger,polaris,minio
+    mysql,pg,oracle,sqlserver,clickhouse,es,hive2,hive3,iceberg,iceberg-rest,hudi,kafka,mariadb,db2,oceanbase,kerberos,ranger,polaris,minio,fluss
   "
     exit 1
 }
 DEFAULT_COMPONENTS="mysql,es,hive2,hive3,pg,oracle,sqlserver,clickhouse,mariadb,iceberg,hudi,db2,oceanbase,kerberos,minio"
-ALL_COMPONENTS="${DEFAULT_COMPONENTS},kafka,lakesoul,ranger,polaris"
+ALL_COMPONENTS="${DEFAULT_COMPONENTS},kafka,ranger,polaris,fluss"
 COMPONENTS=$2
 HELP=0
 STOP=0
@@ -257,6 +257,7 @@ RUN_KERBEROS=0
 RUN_MINIO=0
 RUN_RANGER=0
 RUN_POLARIS=0
+RUN_FLUSS=0
 
 RESERVED_PORTS="65535"
 
@@ -293,8 +294,6 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RUN_DB2=1
     elif [[ "${element}"x == "oceanbase"x ]];then
         RUN_OCEANBASE=1
-    elif [[ "${element}"x == "lakesoul"x ]]; then
-        RUN_LAKESOUL=1
     elif [[ "${element}"x == "kerberos"x ]]; then
         RUN_KERBEROS=1
     elif [[ "${element}"x == "minio"x ]]; then
@@ -303,6 +302,8 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RUN_RANGER=1
     elif [[ "${element}"x == "polaris"x ]]; then
         RUN_POLARIS=1
+    elif [[ "${element}"x == "fluss"x ]]; then
+        RUN_FLUSS=1
     else
         echo "Invalid component: ${element}"
         usage
@@ -649,8 +650,8 @@ reset_data_dirs() {
     local data_dir
 
     for data_dir in "$@"; do
-        sudo mkdir -p "${data_dir}"
-        sudo rm -rf "${data_dir:?}"/*
+        host_admin_cmd mkdir -p "${data_dir}"
+        host_admin_cmd rm -rf "${data_dir:?}"/*
     done
 }
 
@@ -1434,21 +1435,34 @@ start_iceberg() {
     register_stack_metadata "iceberg" "${ROOT}/docker-compose/iceberg/iceberg.yaml" "${ROOT}/docker-compose/iceberg/iceberg.env"
     compose_down_stack "${ROOT}/docker-compose/iceberg/iceberg.yaml" "${ROOT}/docker-compose/iceberg/iceberg.env" --remove-orphans
     if [[ "${STOP}" -ne 1 ]]; then
+        # data/ is extracted from the fixture archive once and then reused. A data/ from an older archive lacks
+        # jars that iceberg.yaml now mounts, and Compose would create empty directories in their place, so
+        # start over from the current archive.
+        if [[ -d "${ICEBERG_DIR}/data" ]]; then
+            local jar
+            for jar in $(grep -o '\./data/input/jars/[^:]*\.jar' "${ICEBERG_DIR}/iceberg.yaml"); do
+                if [[ ! -f "${ICEBERG_DIR}/${jar#./}" ]]; then
+                    echo "${ICEBERG_DIR}/${jar#./} is missing, ${ICEBERG_DIR}/data is from an older archive"
+                    host_admin_cmd rm -rf "${ICEBERG_DIR:?}/data"
+                    break
+                fi
+            done
+        fi
         if [[ ! -d "${ICEBERG_DIR}/data" ]]; then
             echo "${ICEBERG_DIR}/data does not exist"
             (
                 cd "${ICEBERG_DIR}" || exit 1
                 rm -f iceberg_data*.zip
                 if [[ "${HOST_OS}" == "Darwin" ]]; then
-                    curl -fL -o iceberg_data_spark40.zip \
-                        "https://${s3BucketName}.${s3Endpoint}/regression/datalake/pipeline_data/iceberg_data_spark40.zip"
+                    curl -fL -o iceberg_data_spark40_paimon142.zip \
+                        "https://${s3BucketName}.${s3Endpoint}/regression/datalake/pipeline_data/iceberg_data_spark40_paimon142.zip"
                 else
                     wget -P "${ROOT}/docker-compose/iceberg" \
-                        "https://${s3BucketName}.${s3Endpoint}/regression/datalake/pipeline_data/iceberg_data_spark40.zip"
+                        "https://${s3BucketName}.${s3Endpoint}/regression/datalake/pipeline_data/iceberg_data_spark40_paimon142.zip"
                 fi
-                host_admin_cmd unzip iceberg_data_spark40.zip
+                host_admin_cmd unzip iceberg_data_spark40_paimon142.zip
                 host_admin_cmd mv iceberg_data data
-                host_admin_cmd rm -rf iceberg_data_spark40.zip
+                host_admin_cmd rm -rf iceberg_data_spark40_paimon142.zip
             )
         else
             echo "${ICEBERG_DIR}/data exist, continue !"
@@ -1488,41 +1502,42 @@ start_mariadb() {
         "${ROOT}/docker-compose/mariadb/data"
 }
 
-start_lakesoul() {
-    echo "RUN_LAKESOUL"
-    cp "${ROOT}"/docker-compose/lakesoul/lakesoul.yaml.tpl "${ROOT}"/docker-compose/lakesoul/lakesoul.yaml
-    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/lakesoul/lakesoul.yaml
-    register_stack_metadata "lakesoul" "${ROOT}/docker-compose/lakesoul/lakesoul.yaml" ""
-    compose_cmd "${ROOT}/docker-compose/lakesoul/lakesoul.yaml" "" down --remove-orphans
-    sudo rm -rf "${ROOT}"/docker-compose/lakesoul/data
-    if [[ "${STOP}" -ne 1 ]]; then
-        echo "PREPARE_LAKESOUL_DATA"
-        compose_cmd "${ROOT}/docker-compose/lakesoul/lakesoul.yaml" "" up -d
-        ## import tpch data into lakesoul
-        ## install rustup
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --default-toolchain none -y
-        # shellcheck source=/dev/null
-        . "${HOME}/.cargo/env"
-        ## install rust nightly-2023-05-20
-        rustup install nightly-2023-05-20
-        ## download&generate tpch data
-        mkdir -p lakesoul/test_files/tpch/data
-        git clone https://github.com/databricks/tpch-dbgen.git
-        (
-            cd tpch-dbgen
-            make
-            ./dbgen -f -s 0.1
-            mv *.tbl ../lakesoul/test_files/tpch/data
-        )
-        export TPCH_DATA=$(realpath lakesoul/test_files/tpch/data)
-        ## import tpch data
-        git clone https://github.com/lakesoul-io/LakeSoul.git
-        #    git checkout doris_dev
-        (
-            cd LakeSoul/rust
-            cargo test load_tpch_data --package lakesoul-datafusion --features=ci -- --nocapture
-        )
+start_fluss() {
+    local fluss_dir="${ROOT}/docker-compose/fluss"
+
+    # The compose file bind mounts remote.data.dir and the paimon warehouse at
+    # the same absolute paths it uses inside the containers, so Doris (running on
+    # the host) can read the kv snapshots and remote log segments the servers
+    # write, and the lake files the tiering service writes.
+    export FLUSS_COMPOSE_DIR="${fluss_dir}"
+    CONTAINER_UID="${CONTAINER_UID}" envsubst \
+        <"${fluss_dir}/fluss.env.tpl" >"${fluss_dir}/fluss.env"
+    set -a
+    # shellcheck source=/dev/null
+    . "${fluss_dir}/fluss.env"
+    set +a
+
+    render_uid_template "${fluss_dir}/fluss.yaml.tpl" "${fluss_dir}/fluss.yaml"
+    register_stack_metadata "fluss" "${fluss_dir}/fluss.yaml" "${fluss_dir}/fluss.env"
+    compose_down_stack "${fluss_dir}/fluss.yaml" "${fluss_dir}/fluss.env" --remove-orphans
+
+    if [[ "${STOP}" -eq 1 ]]; then
+        return 0
     fi
+
+    # The official fluss server image carries no paimon-s3, and the servers need
+    # it to reach the object-store warehouse: fetched once into cache/ and bind
+    # mounted into both server containers (fluss.env.tpl says why; the images
+    # themselves are pulled by compose).
+    bash "${fluss_dir}/fetch-paimon-s3.sh"
+
+    reset_data_dirs "${FLUSS_REMOTE_DATA_DIR}" "${FLUSS_PAIMON_WAREHOUSE_DIR}"
+    # The fluss and flink images run as uid 9999, the host directories are
+    # created by root.
+    host_admin_cmd chmod 777 "${FLUSS_REMOTE_DATA_DIR}" "${FLUSS_PAIMON_WAREHOUSE_DIR}"
+    host_admin_cmd chmod +x "${fluss_dir}/scripts/run-init-sql.sh"
+
+    compose_up_stack "${fluss_dir}/fluss.yaml" "${fluss_dir}/fluss.env" -d --wait
 }
 
 dump_kerberos_container_state() {
@@ -1928,8 +1943,8 @@ if [[ "${RUN_MARIADB}" -eq 1 ]]; then
     launch_component "mariadb" "${LOG_ROOT}/start_mariadb.log" start_mariadb
 fi
 
-if [[ "${RUN_LAKESOUL}" -eq 1 ]]; then
-    launch_component "lakesoul" "${LOG_ROOT}/start_lakesoul.log" start_lakesoul
+if [[ "${RUN_FLUSS}" -eq 1 ]]; then
+    launch_component "fluss" "${LOG_ROOT}/start_fluss.log" start_fluss
 fi
 
 if [[ "${RUN_MINIO}" -eq 1 ]]; then

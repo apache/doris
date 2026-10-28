@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <type_traits>
 #include <typeinfo>
@@ -46,6 +47,7 @@ class Arena;
 class IColumn;
 class IDataType;
 class QueryContext;
+class AIExecutionStatistics;
 
 struct AggregateFunctionAttr {
     bool is_window_function {false};
@@ -53,6 +55,8 @@ struct AggregateFunctionAttr {
     bool enable_aggregate_function_null_v2 {false};
     bool new_version_percentile {false};
     std::vector<std::string> column_names;
+    // Negotiated execution version propagated to nested aggregate function creators.
+    int be_exec_version {-1};
 };
 
 template <bool nullable, typename ColVecType>
@@ -68,6 +72,20 @@ using DataTypes = std::vector<DataTypePtr>;
 
 using AggregateDataPtr = char*;
 using ConstAggregateDataPtr = const char*;
+
+enum class WindowSpillStrategy : uint8_t {
+    UNSUPPORTED,
+    PARTITION_REDUCE,
+    // NTILE-specific replay: one constant bucket count plus partition size and row position.
+    NTILE,
+    PEER_GROUP,
+};
+
+enum class WindowSpillPeerFunction : uint8_t {
+    NONE,
+    PERCENT_RANK,
+    CUME_DIST,
+};
 
 #define SAFE_CREATE(create, destroy) \
     do {                             \
@@ -166,8 +184,18 @@ public:
     virtual void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                              Arena&) const = 0;
 
+    /// Deserializes one row into an empty, initialized state. The caller owns its lifecycle
+    /// and must keep the serialized column alive until the state is destroyed.
+    virtual void deserialize_from_column_row(AggregateDataPtr __restrict place,
+                                             const IColumn& column, size_t row,
+                                             Arena& arena) const = 0;
+
     virtual void deserialize_vec(AggregateDataPtr places, const ColumnString* column, Arena&,
                                  size_t num_rows) const = 0;
+
+    // Returning false guarantees that both deserialize_and_merge_vec variants accept nullptr
+    // for rhs and never access it. Generic readers require storage for temporary states.
+    virtual bool needs_deserialize_and_merge_scratch() const { return true; }
 
     virtual void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
                                            AggregateDataPtr rhs, const IColumn* column, Arena&,
@@ -278,12 +306,25 @@ public:
     /// sum[i] = sum[i-1] - col[x] + col[y]
     virtual bool supported_incremental_mode() const { return false; }
 
+    /// Describes how this function can be evaluated from a spilled window partition.
+    /// Capability alone is not sufficient to enable spill: the analytic operator must also
+    /// validate that the window frame matches the strategy.
+    virtual WindowSpillStrategy window_spill_strategy() const {
+        return WindowSpillStrategy::UNSUPPORTED;
+    }
+
+    virtual WindowSpillPeerFunction window_spill_peer_function() const {
+        return WindowSpillPeerFunction::NONE;
+    }
+
     virtual void set_query_context(QueryContext* context) {
         throw Exception(ErrorCode::FATAL_ERROR,
                         "set_query_context is not supported by aggregate function '{}'; "
                         "only LLM aggregate functions implement this method",
                         get_name());
     }
+
+    virtual void set_ai_statistics(std::shared_ptr<AIExecutionStatistics> statistics) {}
 
     virtual bool is_blockable() const { return false; }
 
@@ -627,6 +668,14 @@ public:
                 derived->merge(places[i] + offset, rhs + size_of_data * i, arena);
             }
         }
+    }
+
+    void deserialize_from_column_row(AggregateDataPtr __restrict place, const IColumn& column,
+                                     size_t row, Arena& arena) const override {
+        DCHECK_LT(row, column.size());
+        const auto& strings = assert_cast<const ColumnString&>(column);
+        VectorBufferReader reader(strings.get_data_at(row));
+        assert_cast<const Derived*>(this)->deserialize(place, reader, arena);
     }
 
     void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,

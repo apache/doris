@@ -57,6 +57,7 @@ size_t topn_raw_value_size(PrimitiveType type) {
         RETURN_TOPN_RAW_SIZE(TYPE_DECIMAL256);
         RETURN_TOPN_RAW_SIZE(TYPE_IPV4);
         RETURN_TOPN_RAW_SIZE(TYPE_IPV6);
+        RETURN_TOPN_RAW_SIZE(TYPE_UUID);
 #undef RETURN_TOPN_RAW_SIZE
     default:
         return 0;
@@ -95,6 +96,42 @@ bool topn_string_matches(int comparison, RawComparisonOp op) {
 }
 
 } // namespace
+
+bool VTopNPred::can_evaluate_zonemap_filter() const {
+    // Capability must remain available before the first bound; readers cache it during open.
+    return _predicate != nullptr && _children.size() == 1 && _children[0]->is_slot_ref();
+}
+
+ZoneMapFilterResult VTopNPred::evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const {
+    if (!can_evaluate_zonemap_filter()) {
+        return unsupported_zonemap_filter(ctx);
+    }
+    const Field bound = _predicate->get_value();
+    if (bound.is_null()) {
+        return ZoneMapFilterResult::kMayMatch;
+    }
+    const auto* slot = assert_cast<const VSlotRef*>(_children[0].get());
+    const auto zone = ctx.zone_map(slot->column_id());
+    const auto type = ctx.data_type(slot->column_id());
+    if (zone == nullptr || !expr_zonemap::data_types_compatible(type, slot->data_type())) {
+        return unsupported_zonemap_filter(ctx);
+    }
+    if (_predicate->nulls_first() && zone->has_null) {
+        return ZoneMapFilterResult::kMayMatch;
+    }
+    if (!zone->has_not_null) {
+        return ZoneMapFilterResult::kNoMatch;
+    }
+    if (ctx.floating_nan_count_unknown(slot->column_id()) || bound.is_nan() ||
+        !expr_zonemap::range_stats_usable_for_zonemap(*zone, type) ||
+        !expr_zonemap::field_types_compatible(bound.get_type(),
+                                              remove_nullable(type)->get_primitive_type())) {
+        return unsupported_zonemap_filter(ctx);
+    }
+    // Keep equality: with ORDER BY a, b a row tied on a can still improve b.
+    const bool excluded = _predicate->is_asc() ? bound < zone->min_value : zone->max_value < bound;
+    return excluded ? ZoneMapFilterResult::kNoMatch : ZoneMapFilterResult::kMayMatch;
+}
 
 bool VTopNPred::can_execute_on_raw_fixed_values(const DataTypePtr& data_type, int column_id) const {
     if (_predicate == nullptr || data_type == nullptr || _children.size() != 1) {
@@ -172,6 +209,7 @@ Status VTopNPred::execute_on_raw_fixed_values(const uint8_t* values, size_t num_
         EXECUTE_TOPN_RAW_SCALAR(TYPE_DECIMAL256);
         EXECUTE_TOPN_RAW_SCALAR(TYPE_IPV4);
         EXECUTE_TOPN_RAW_SCALAR(TYPE_IPV6);
+        EXECUTE_TOPN_RAW_SCALAR(TYPE_UUID);
 #undef EXECUTE_TOPN_RAW_SCALAR
     default:
         return Status::NotSupported("TopN raw fixed-width type {} is unsupported",

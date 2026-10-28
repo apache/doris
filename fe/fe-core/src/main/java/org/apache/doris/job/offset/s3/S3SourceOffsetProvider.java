@@ -19,10 +19,12 @@ package org.apache.doris.job.offset.s3;
 
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.GlobListing;
 import org.apache.doris.filesystem.Location;
+import org.apache.doris.filesystem.spi.ObjectStorageGlob;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.job.extensions.insert.streaming.StreamingJobProperties;
@@ -30,27 +32,42 @@ import org.apache.doris.job.offset.Offset;
 import org.apache.doris.job.offset.SourceOffsetProvider;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.trees.expressions.Properties;
-import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.expressions.functions.table.S3;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.thrift.TBrokerFileStatus;
 
+import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import lombok.extern.log4j.Log4j2;
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Log4j2
 public class S3SourceOffsetProvider implements SourceOffsetProvider {
-    S3Offset currentOffset;
-    String maxEndFile;
+    private final boolean oneTimeMode;
+    private volatile S3Offset noMoreFilesAfterOffset;
+    private volatile Comparator<String> fileKeyOrder = ObjectStorageGlob::compareUtf8Binary;
+    volatile S3Offset currentOffset;
+    volatile String maxEndFile;
+
+    public S3SourceOffsetProvider() {
+        this.oneTimeMode = false;
+    }
+
+    public S3SourceOffsetProvider(StreamingJobProperties jobProperties) {
+        this.oneTimeMode = jobProperties.isS3OneTimeMode();
+    }
 
     @Override
     public String getSourceType() {
@@ -65,6 +82,7 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
         String startFile = currentOffset == null ? null : currentOffset.endFile;
         String filePath = null;
         StorageAdapter storageAdapter = StorageAdapter.of(copiedProps);
+        updateFileKeyOrder(storageAdapter);
         try (FileSystem fileSystem = FileSystemFactory.getFileSystem(storageAdapter)) {
             String uri = storageAdapter.validateAndGetUri(copiedProps);
             filePath = storageAdapter.validateAndNormalizeUri(uri);
@@ -74,27 +92,18 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
             List<FileEntry> rfiles = globListing.getFiles();
             if (!rfiles.isEmpty()) {
                 String bucket = globListing.getBucket();
-                String prefix = globListing.getPrefix();
-
                 String bucketBase = "s3://" + bucket + "/";
-                // Get the path of the last directory
-                int lastSlash = prefix.lastIndexOf('/');
-                String basePrefix = (lastSlash >= 0) ? prefix.substring(0, lastSlash + 1) : "";
-                String filePathBase = bucketBase + basePrefix;
-                String joined = rfiles.stream()
-                        .map(entry -> entry.location().uri().replace(filePathBase, ""))
-                        .collect(Collectors.joining(","));
-
-                String normalizedPrefix = basePrefix.endsWith("/")
-                        ? basePrefix.substring(0, basePrefix.length() - 1) : basePrefix;
-                String finalFileLists = String.format("s3://%s/%s/{%s}", bucket, normalizedPrefix, joined);
                 String beginFile = rfiles.get(0).location().uri().replace(bucketBase, "");
                 String lastFile = rfiles.get(rfiles.size() - 1).location().uri().replace(bucketBase, "");
-                offset.setFileLists(finalFileLists);
+                offset.setFileStatuses(rfiles.stream().map(entry -> new TBrokerFileStatus(
+                        entry.location().uri(), entry.isDirectory(), entry.length(), !entry.isDirectory())
+                        .setModificationTime(entry.modificationTime()))
+                        .collect(Collectors.toList()));
                 offset.setStartFile(beginFile);
                 offset.setEndFile(lastFile);
                 offset.setFileNum(rfiles.size());
                 maxEndFile = globListing.getMaxFile();
+                offset.setLastBatch(oneTimeMode && lastFile.equals(globListing.getMaxFile()));
             } else {
                 throw new RuntimeException("No new files found in path: " + filePath);
             }
@@ -129,29 +138,54 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
     public InsertIntoTableCommand rewriteTvfParams(InsertIntoTableCommand originCommand,
             Offset runningOffset, long taskId) {
         S3Offset offset = (S3Offset) runningOffset;
-        Map<String, String> props = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-        // rewrite plan
-        Plan rewritePlan = originCommand.getParsedPlan().get().rewriteUp(plan -> {
+        return rewriteS3Tvf(originCommand, offset.getFileStatuses());
+    }
+
+    // Render the same literal batch in task properties and audit SQL; execution uses file statuses.
+    public static String buildFileListUri(List<TBrokerFileStatus> files) {
+        Preconditions.checkArgument(!files.isEmpty(), "S3 task batch must contain files");
+        String[] paths = files.stream().map(TBrokerFileStatus::getPath).toArray(String[]::new);
+        String commonPrefix = StringUtils.getCommonPrefix(paths);
+        String baseUri = commonPrefix.substring(0, commonPrefix.lastIndexOf('/') + 1);
+        String joined = Arrays.stream(paths).map(path -> escapeGlob(path.substring(baseUri.length())))
+                .collect(Collectors.joining(","));
+        return escapeGlob(baseUri) + "{" + joined + "}";
+    }
+
+    // Selected object keys are literals; only the surrounding braces and separators are glob syntax.
+    private static String escapeGlob(String value) {
+        StringBuilder escaped = new StringBuilder(value.length());
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if ("\\*?[]{},".indexOf(c) >= 0) {
+                escaped.append('\\');
+            }
+            escaped.append(c);
+        }
+        return escaped.toString();
+    }
+
+    static InsertIntoTableCommand rewriteS3Tvf(InsertIntoTableCommand originCommand,
+            List<TBrokerFileStatus> fileStatuses) {
+        Preconditions.checkNotNull(fileStatuses, "S3 task batch must contain exact file statuses");
+        String fileLists = buildFileListUri(fileStatuses);
+        return originCommand.rewriteQuery(plan -> {
             if (plan instanceof UnboundTVFRelation) {
-                UnboundTVFRelation originTvfRel = (UnboundTVFRelation) plan;
-                Map<String, String> oriMap = originTvfRel.getProperties().getMap();
-                props.putAll(oriMap);
-                props.put("uri", offset.getFileLists());
-                return new UnboundTVFRelation(
-                        originTvfRel.getRelationId(), originTvfRel.getFunctionName(), new Properties(props));
+                UnboundTVFRelation tvf = (UnboundTVFRelation) plan;
+                Map<String, String> props = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+                props.putAll(tvf.getProperties().getMap());
+                props.put("uri", fileLists);
+                return new LogicalTVFRelation(tvf.getRelationId(), S3.withFiles(new Properties(props), fileStatuses),
+                        ImmutableList.of());
             }
             return plan;
         });
-        InsertIntoTableCommand insertIntoTableCommand = new InsertIntoTableCommand((LogicalPlan) rewritePlan,
-                Optional.empty(), Optional.empty(), Optional.empty(), true, Optional.empty());
-        insertIntoTableCommand.setJobId(originCommand.getJobId());
-        return insertIntoTableCommand;
     }
 
     @Override
     public void updateOffset(Offset offset) {
         this.currentOffset = (S3Offset) offset;
-        this.currentOffset.setFileLists(null);
+        this.currentOffset.setFileStatuses(null);
     }
 
     @Override
@@ -159,7 +193,9 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
         Map<String, String> copiedProps = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         copiedProps.putAll(properties);
         StorageAdapter storageAdapter = StorageAdapter.of(copiedProps);
-        String startFile = currentOffset == null ? null : currentOffset.endFile;
+        updateFileKeyOrder(storageAdapter);
+        S3Offset offsetAtScan = currentOffset;
+        String startFile = offsetAtScan == null ? null : offsetAtScan.endFile;
         try (FileSystem fileSystem = FileSystemFactory.getFileSystem(storageAdapter)) {
             String uri = storageAdapter.validateAndGetUri(copiedProps);
             String filePath = storageAdapter.validateAndNormalizeUri(uri);
@@ -168,6 +204,9 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
                 throw new java.io.IOException("debug point: simulated S3 auth error");
             }
             GlobListing globListing = fileSystem.globListWithLimit(Location.of(filePath), startFile, 1, 1);
+            if (oneTimeMode) {
+                noMoreFilesAfterOffset = globListing.getFiles().isEmpty() ? offsetAtScan : null;
+            }
             if (!globListing.getFiles().isEmpty() && StringUtils.isNotEmpty(globListing.getMaxFile())) {
                 maxEndFile = globListing.getMaxFile();
             }
@@ -176,14 +215,29 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
 
     @Override
     public boolean hasMoreDataToConsume() {
+        if (hasReachedEnd()) {
+            return false;
+        }
         if (currentOffset == null || currentOffset.endFile == null) {
             return true;
         }
 
-        if (maxEndFile != null && currentOffset.endFile.compareTo(maxEndFile) < 0) {
+        if (maxEndFile != null
+                && fileKeyOrder.compare(currentOffset.endFile, maxEndFile) < 0) {
             return true;
         }
         return false;
+    }
+
+    private void updateFileKeyOrder(StorageAdapter storageAdapter) {
+        fileKeyOrder = storageAdapter.getType() == StorageTypeId.AZURE
+                ? Comparator.naturalOrder() : ObjectStorageGlob::compareUtf8Binary;
+    }
+
+    @Override
+    public boolean hasReachedEnd() {
+        S3Offset offset = currentOffset;
+        return oneTimeMode && offset != null && (offset.isLastBatch() || noMoreFilesAfterOffset == offset);
     }
 
     @Override

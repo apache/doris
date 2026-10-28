@@ -23,6 +23,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <utility>
 
 #include "common/exception.h"
 #include "core/assert_cast.h"
@@ -118,6 +119,35 @@ public:
         std::span<const uint32_t> value_offsets;
     };
 
+    // Scoped adapter for repeated encoded-row appends. It builds one hash index over destination
+    // metadata ids and reuses it across calls, while the destination column continues to own all
+    // copied bytes. Input rows must not borrow metadata or value bytes from the destination,
+    // including its shredded materialization; use insert_range_from() for that case. Do not mutate
+    // or destroy the destination while this adapter is alive.
+    class EncodedRowsAppender {
+    public:
+        ~EncodedRowsAppender();
+
+        EncodedRowsAppender(const EncodedRowsAppender&) = delete;
+        EncodedRowsAppender& operator=(const EncodedRowsAppender&) = delete;
+        EncodedRowsAppender(EncodedRowsAppender&&) noexcept;
+        EncodedRowsAppender& operator=(EncodedRowsAppender&&) = delete;
+
+        void append(std::span<const VariantRef> rows);
+
+#ifdef BE_TEST
+        size_t metadata_comparisons_for_test() const noexcept;
+        size_t validation_scratch_capacity_for_test() const noexcept;
+#endif
+
+    private:
+        friend class ColumnVariantV2;
+        explicit EncodedRowsAppender(ColumnVariantV2& column);
+
+        struct Impl;
+        std::unique_ptr<Impl> _impl;
+    };
+
     // Borrowed immutable adapter for whole-column E/T readers. The source column owns every
     // referenced column, type, and byte; any structural mutation invalidates this view. Encoded
     // bytes have already been validated at their insertion or deserialization boundary.
@@ -157,7 +187,21 @@ public:
 
     // The input must be an exact, non-Const ColumnNullable whose nested column matches the
     // non-nullable supported scalar type.
+    //
+    // Every row that is non-null in the typed column's own null map must be a value Variant can
+    // encode. That null map is the only mask every consumer honours: hashing, for one, maps a row
+    // to a scalar before it looks at an outer null map. Nothing is checked here, because validity
+    // is enforced where a row becomes a scalar (with_variant_typed_scalar() throws), which covers
+    // hashing, serialization, encoding and the canonical comparison. The native comparison paths
+    // do not go through that mapping and rely on the rule instead:
+    //   - producers that decode stored or transported Variant data build valid rows; an external
+    //     Parquet file is trusted to follow its specification, and a violation surfaces as an
+    //     error when the row is hashed or encoded;
+    //   - CAST from a scalar takes arbitrary values, so it folds its null map into the typed one
+    //     and calls validate_typed_rows().
     static MutablePtr create_typed(ColumnPtr column, DataTypePtr scalar_type);
+    // Throws unless every non-null typed row is a value Variant can encode.
+    void validate_typed_rows() const;
     static MutablePtr create_shredded(std::shared_ptr<VariantShreddedState> state);
 
     bool is_typed() const noexcept { return _typed != nullptr; }
@@ -189,6 +233,10 @@ public:
     // metadata blob. Input buffers must not alias this column; use insert_range_from for that case.
     void insert_encoded_rows(const EncodedDataView& data);
 
+    // Reuse one appender when encoded rows arrive in bounded batches so destination metadata is
+    // indexed once for the full import rather than scanned again for every batch.
+    EncodedRowsAppender create_encoded_rows_appender();
+
     // Direct trusted codec adapter. VariantBatchBuilder already produces canonical metadata,
     // validated values, and ColumnString-compatible uint32 offsets, so this path copies its buffers
     // without validating the encoded tree a second time.
@@ -197,6 +245,11 @@ public:
     // The returned view borrows this column's metadata and value buffers. Any structural mutation,
     // including insert, clear, COW mutation, or future row transformations, may invalidate it.
     VariantRef get_value_ref(size_t row) const;
+
+    int compare_at(size_t n, size_t m, const IColumn& rhs, int nan_direction_hint) const override;
+    void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
+                          int direction, std::vector<uint8_t>& cmp_res,
+                          uint8_t* __restrict filter) const override;
 
     Field operator[](size_t row) const override;
     void get(size_t row, Field& result) const override;
@@ -210,6 +263,8 @@ public:
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                              const uint32_t* indices_end) override;
     void pop_back(size_t length) override;
+    // The analytic sink erases the rows it has consumed from its partition and order key columns.
+    void erase(size_t start, size_t length) override;
 
     StringRef get_data_at(size_t row) const override;
     void insert_data(const char* pos, size_t length) override;
@@ -221,6 +276,8 @@ public:
     size_t deserialize_impl(const char* pos) override;
     size_t get_max_row_byte_size() const override;
     void serialize(StringRef* keys, size_t num_rows) const override;
+    void serialize_with_nullable(StringRef* keys, size_t num_rows, bool has_null,
+                                 const uint8_t* __restrict null_map) const override;
     void deserialize(StringRef* keys, size_t num_rows) override;
 
     void update_hash_with_value(size_t row, SipHash& hash) const override;
@@ -247,6 +304,8 @@ public:
 
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint, HybridSorter& sorter,
                          Permutation& result) const override;
+    void sort_column(const ColumnSorter* sorter, EqualFlags& flags, Permutation& perms,
+                     EqualRange& range, bool last_column) const override;
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override;
 
 private:
@@ -256,12 +315,19 @@ private:
     ColumnVariantV2();
     ColumnVariantV2(const ColumnVariantV2& other);
 
+    void _append_prevalidated_encoded_data(const EncodedDataView& data);
+    uint32_t _append_metadata(StringRef metadata);
     uint32_t _find_or_insert_metadata(StringRef metadata);
     void _replace_shredded_state_with(const ColumnVariantV2& replacement);
     void _ensure_serialized();
     void _adopt_state_from(ColumnVariantV2& replacement);
     void _detach_metadata_for_write();
     void _check_invariants() const;
+    // Typed columns of both sides when their shared typed type orders natively the same way the
+    // canonical Variant order does, {nullptr, nullptr} otherwise. allow_floating is false for
+    // callers that cannot apply Variant's canonical NaN ordering.
+    std::pair<const ColumnNullable*, const ColumnNullable*> _typed_ordering_operands(
+            const ColumnVariantV2& right, bool allow_floating) const;
     void mutate_subcolumns() override;
 
     // Encoded state: each row owns a value and references one deduplicated metadata blob. The

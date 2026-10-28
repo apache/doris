@@ -32,10 +32,19 @@ import java.io.Closeable;
  *
  * <p>Implementations MUST defer the heavy planning (e.g. iceberg {@code TableScan.planFiles()})
  * until ranges are actually consumed, and MUST release the underlying resources in {@link #close()}.
- * Instances are single-pass and not thread-safe; the engine drives one source from a single
- * background task.</p>
+ * Instances are single-pass and not thread-safe; the engine advances and closes each source
+ * serially. Successive batches may run on different background workers.</p>
  */
 public interface ConnectorSplitSource extends Closeable {
+
+    /**
+     * Nonblocking, idempotent hint that a backend has requested a batch beyond its first one.
+     * May run concurrently on an engine RPC thread. A connector may use this to expand speculative
+     * prefetch, but MUST keep producing without the hint: planning and fully filtered scans may
+     * need to enumerate metadata before any backend can request a batch.
+     */
+    default void onMoreSplitsRequested() {
+    }
 
     /**
      * Returns whether more ranges remain. May advance over internally-skipped tasks (e.g. files

@@ -68,6 +68,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.MockedStatic;
@@ -103,6 +105,10 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         connector = Mockito.mock(Connector.class);
         metadata = Mockito.mock(ConnectorMetadata.class);
         session = Mockito.mock(ConnectorSession.class);
+        Mockito.when(metadata.tableExists(Mockito.any(), Mockito.anyString(), Mockito.anyString()))
+                .thenCallRealMethod();
+        Mockito.when(metadata.getTableHandleForDdl(Mockito.any(), Mockito.anyString(), Mockito.anyString()))
+                .thenCallRealMethod();
         Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
         Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(metadata);
         Mockito.when(metadata.fromRemoteDatabaseName(Mockito.eq(session), Mockito.anyString()))
@@ -379,7 +385,7 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
 
         catalog.dropTable("DB1", "T1", false, false, false, false, false, false);
 
-        Mockito.verify(metadata).getTableHandle(session, "DB1", "TBL1");
+        Mockito.verify(metadata, Mockito.times(2)).getTableHandle(session, "DB1", "TBL1");
         Mockito.verify(metadata).dropTable(session, handle);
         ArgumentCaptor<org.apache.doris.persist.DropInfo> dropInfo =
                 ArgumentCaptor.forClass(org.apache.doris.persist.DropInfo.class);
@@ -426,6 +432,71 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         Assertions.assertThrows(DdlException.class,
                 () -> catalog.dropTable("db1", "missing", false, false, false, false, false, false));
         Mockito.verifyNoInteractions(metadata);
+    }
+
+    @Test
+    public void testDropTemporaryTableNeverDropsPermanentExternalTable() {
+        // An external catalog hosts no temporary tables, so the name resolves to the permanent table.
+        // DROP TEMPORARY TABLE must report the missing temporary table and leave the permanent one alone.
+        ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        Mockito.when(table.getName()).thenReturn("t1");
+        Mockito.when(table.getRemoteDbName()).thenReturn("DB1");
+        Mockito.when(table.getRemoteName()).thenReturn("TBL1");
+        Mockito.doReturn(table).when(db).getTableNullable("t1");
+        catalog.dbNullableResult = db;
+
+        DdlException ex = Assertions.assertThrows(DdlException.class,
+                () -> catalog.dropTable("db1", "t1", false, false, false, false, true, false));
+        Assertions.assertTrue(ex.getMessage().contains("Unknown table"), ex.getMessage());
+        Mockito.verifyNoInteractions(metadata);
+        Mockito.verify(mockEditLog, Mockito.never()).logDropTable(Mockito.any());
+        Mockito.verify(connector, Mockito.never()).invalidateTable(Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    public void testDropTemporaryTableIfExistsIsNoopAndKeepsPermanentExternalTable() throws Exception {
+        // With IF EXISTS the missing temporary table is a no-op; the permanent table must survive.
+        ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        Mockito.when(table.getName()).thenReturn("t1");
+        Mockito.doReturn(table).when(db).getTableNullable("t1");
+        catalog.dbNullableResult = db;
+
+        catalog.dropTable("db1", "t1", false, false, false, true, true, false);
+
+        Mockito.verifyNoInteractions(metadata);
+        Mockito.verify(mockEditLog, Mockito.never()).logDropTable(Mockito.any());
+        Mockito.verify(connector, Mockito.never()).invalidateTable(Mockito.any(), Mockito.any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    public void testDropTableIgnoresStaleReadHandleAfterRemoteDrop(boolean ifExists) throws Exception {
+        ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        Mockito.when(table.getName()).thenReturn("t1");
+        Mockito.when(table.getId()).thenReturn(TABLE_ID);
+        Mockito.when(table.getRemoteDbName()).thenReturn("DB1");
+        Mockito.when(table.getRemoteName()).thenReturn("TBL1");
+        Mockito.doReturn(table).when(db).getTableNullable("t1");
+        catalog.dbNullableResult = db;
+        Mockito.when(metadata.getTableHandle(session, "DB1", "TBL1"))
+                .thenReturn(Optional.of(Mockito.mock(ConnectorTableHandle.class)));
+        Mockito.doReturn(false).when(metadata).tableExists(session, "DB1", "TBL1");
+
+        if (ifExists) {
+            catalog.dropTable("db1", "t1", false, false, false, true, false, false);
+            Mockito.verify(connector).invalidateTable("DB1", "TBL1");
+            Mockito.verify(mockEditLog).logDropTable(Mockito.any());
+        } else {
+            Assertions.assertThrows(DdlException.class,
+                    () -> catalog.dropTable("db1", "t1", false, false, false, false, false, false));
+            Mockito.verify(connector, Mockito.never()).invalidateTable(Mockito.any(), Mockito.any());
+        }
+
+        Mockito.verify(metadata, Mockito.never()).getTableHandle(session, "DB1", "TBL1");
+        Mockito.verify(metadata, Mockito.never()).dropTable(Mockito.any(), Mockito.any());
     }
 
     @Test
@@ -797,6 +868,58 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
             Mockito.verify(mockEditLog, Mockito.never()).logCreateTable(Mockito.any());
             Mockito.verify(connector).invalidateTable("DB1", "t1");
             Assertions.assertEquals(200L, rowCountCache.getCachedRowCount(1L, DATABASE_ID, tableId, false));
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void testCreateTableAfterExternalDropIgnoresCachedReadHandle(boolean ifNotExists) throws Exception {
+        ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
+        Mockito.when(db.getRemoteName()).thenReturn("DB1");
+        catalog.dbNullableResult = db;
+        // The engine name cache has expired, but the connector still holds the previous read handle.
+        ConnectorTableHandle stale = Mockito.mock(ConnectorTableHandle.class);
+        Mockito.when(metadata.getTableHandle(session, "DB1", "t1")).thenReturn(Optional.of(stale));
+        Mockito.doReturn(false).when(metadata).tableExists(session, "DB1", "t1");
+        CreateTableInfo info = Mockito.mock(CreateTableInfo.class);
+        Mockito.when(info.getDbName()).thenReturn("db1");
+        Mockito.when(info.getTableName()).thenReturn("t1");
+        Mockito.when(info.isIfNotExists()).thenReturn(ifNotExists);
+        try (MockedStatic<CreateTableInfoToConnectorRequestConverter> converter =
+                Mockito.mockStatic(CreateTableInfoToConnectorRequestConverter.class)) {
+            ConnectorCreateTableRequest request = Mockito.mock(ConnectorCreateTableRequest.class);
+            converter.when(() -> CreateTableInfoToConnectorRequestConverter.convert(info, "DB1"))
+                    .thenReturn(request);
+            Assertions.assertFalse(catalog.createTable(info));
+            Mockito.verify(metadata).createTable(session, request);
+            Mockito.verify(metadata, Mockito.never()).getTableHandle(session, "DB1", "t1");
+            Mockito.verify(mockEditLog).logCreateTable(Mockito.any());
+        }
+    }
+
+    @Test
+    void testCreateFailureCannotUseCachedHandleAsConcurrentCreateProof() throws Exception {
+        ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
+        Mockito.when(db.getRemoteName()).thenReturn("DB1");
+        catalog.dbNullableResult = db;
+        ConnectorTableHandle stale = Mockito.mock(ConnectorTableHandle.class);
+        Mockito.when(metadata.getTableHandle(session, "DB1", "t1")).thenReturn(Optional.of(stale));
+        Mockito.doReturn(false).when(metadata).tableExists(session, "DB1", "t1");
+        CreateTableInfo info = Mockito.mock(CreateTableInfo.class);
+        Mockito.when(info.getDbName()).thenReturn("db1");
+        Mockito.when(info.getTableName()).thenReturn("t1");
+        Mockito.when(info.isIfNotExists()).thenReturn(true);
+        Mockito.doThrow(new DorisConnectorException("create rejected"))
+                .when(metadata).createTable(Mockito.any(), Mockito.any());
+        try (MockedStatic<CreateTableInfoToConnectorRequestConverter> converter =
+                Mockito.mockStatic(CreateTableInfoToConnectorRequestConverter.class)) {
+            converter.when(() -> CreateTableInfoToConnectorRequestConverter.convert(info, "DB1"))
+                    .thenReturn(Mockito.mock(ConnectorCreateTableRequest.class));
+            DdlException error = Assertions.assertThrows(DdlException.class, () -> catalog.createTable(info));
+            Assertions.assertTrue(error.getMessage().contains("create rejected"));
+            Mockito.verify(metadata, Mockito.times(2)).tableExists(session, "DB1", "t1");
+            Mockito.verify(metadata, Mockito.never()).getTableHandle(session, "DB1", "t1");
+            Mockito.verify(mockEditLog, Mockito.never()).logCreateTable(Mockito.any());
         }
     }
 
@@ -1303,9 +1426,9 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         Assertions.assertFalse(b.isReplace());
         Assertions.assertTrue(b.isIfNotExists());
         Assertions.assertEquals(42L, b.getSnapshotId().longValue());
-        Assertions.assertEquals(86400000L, b.getMaxSnapshotAgeMs().longValue());
+        Assertions.assertEquals(86400000L, b.getMaxRefAgeMs().longValue());
         Assertions.assertEquals(5, b.getMinSnapshotsToKeep().intValue());
-        Assertions.assertEquals(172800000L, b.getMaxRefAgeMs().longValue());
+        Assertions.assertEquals(172800000L, b.getMaxSnapshotAgeMs().longValue());
         ArgumentCaptor<ExternalObjectLog> logCap = ArgumentCaptor.forClass(ExternalObjectLog.class);
         Mockito.verify(mockEditLog).logRefreshExternalTable(logCap.capture());
         Assertions.assertEquals("db1", logCap.getValue().getDbName());
@@ -1476,6 +1599,55 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
                 () -> catalog.addPartitionField(table, new AddPartitionFieldOp(null, null, "id", null)));
         Mockito.verify(metadata, Mockito.never())
                 .addPartitionField(Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
+    // ==================== SET TABLE PROPERTIES ====================
+
+    @Test
+    public void testUpdateTablePropertiesRoutesWholeMapAndRefreshes() throws Exception {
+        ExternalTable table = mockAlterTable();
+        ConnectorTableHandle handle = stubAlterHandle();
+        Map<String, String> properties = new HashMap<>();
+        properties.put("snapshot.num-retained.min", "2");
+        properties.put("snapshot.num-retained.max", "5");
+
+        catalog.updateTableProperties(table, properties);
+
+        // One connector call carries every property, so the connector can commit them as one change.
+        Mockito.verify(metadata).setTableProperties(session, handle, properties);
+        ArgumentCaptor<ExternalObjectLog> logCap = ArgumentCaptor.forClass(ExternalObjectLog.class);
+        Mockito.verify(mockEditLog).logRefreshExternalTable(logCap.capture());
+        Assertions.assertEquals("db1", logCap.getValue().getDbName());
+        Assertions.assertEquals("t1", logCap.getValue().getTableName());
+        Mockito.verify(mockRefreshManager).refreshTableInternal(
+                Mockito.eq(table.getDb()), Mockito.eq(table), Mockito.anyLong());
+    }
+
+    @Test
+    public void testUpdateTablePropertiesFailureSkipsRefresh() {
+        ExternalTable table = mockAlterTable();
+        ConnectorTableHandle handle = stubAlterHandle();
+        Mockito.doThrow(new DorisConnectorException("Cannot downgrade v2 table to v1"))
+                .when(metadata).setTableProperties(Mockito.eq(session), Mockito.eq(handle), Mockito.any());
+
+        DdlException ex = Assertions.assertThrows(DdlException.class, () -> catalog.updateTableProperties(
+                table, Collections.singletonMap("format-version", "1")));
+        Assertions.assertTrue(ex.getMessage().contains("Cannot downgrade"));
+        // A rejected update changed nothing remotely: no refresh editlog, no cache refresh.
+        Mockito.verify(mockEditLog, Mockito.never()).logRefreshExternalTable(Mockito.any());
+        Mockito.verify(mockRefreshManager, Mockito.never())
+                .refreshTableInternal(Mockito.any(), Mockito.any(), Mockito.anyLong());
+    }
+
+    @Test
+    public void testUpdateTablePropertiesHandleAbsentThrows() {
+        ExternalTable table = mockAlterTable();
+        Mockito.when(metadata.getTableHandle(session, "DB1", "TBL1")).thenReturn(Optional.empty());
+
+        Assertions.assertThrows(DdlException.class, () -> catalog.updateTableProperties(
+                table, Collections.singletonMap("snapshot.num-retained.max", "5")));
+        Mockito.verify(metadata, Mockito.never())
+                .setTableProperties(Mockito.any(), Mockito.any(), Mockito.any());
     }
 
     // ==================== helpers ====================

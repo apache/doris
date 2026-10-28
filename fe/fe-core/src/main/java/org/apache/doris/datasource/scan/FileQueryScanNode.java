@@ -35,6 +35,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
+import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -190,6 +191,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
         // Set enable_mapping_varbinary from catalog or TVF
         params.setEnableMappingVarbinary(getEnableMappingVarbinary());
         params.setEnableMappingTimestampTz(getEnableMappingTimestampTz());
+        // Distinguish explicit wall-clock semantics from old FE plans during a BE-first upgrade.
+        params.setParquetTimestampSemanticsVersion(FileFormatUtils.PARQUET_TIMESTAMP_SEMANTICS_VERSION);
         String hiveParquetTimeZone = getHiveParquetTimeZone();
         if (!hiveParquetTimeZone.isEmpty()) {
             params.setHiveParquetTimeZone(hiveParquetTimeZone);
@@ -413,7 +416,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
             // File splits are generated lazily, and fetched by backends while scanning.
             // Only provide the unique ID of split source to backend.
             splitAssignment = new SplitAssignment(backendPolicy, this, this::splitToScanRange,
-                    locationProperties, pathPartitionKeys, admissionResult);
+                    locationProperties, pathPartitionKeys, admissionResult,
+                    sessionVariable.getSplitBatchSize(), sessionVariable.getSplitQueueCapacity());
             splitAssignment.init();
             if (executor != null) {
                 executor.getSummaryProfile().setGetSplitsFinishTime();
@@ -435,7 +439,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
             // and finally numSplitsPerBE is 0, resulting in no data being queried.
             int numSplitsPerBE = Math.max(selectedSplitNum / backendPolicy.numBackends(), 1);
             for (Backend backend : backendPolicy.getBackends()) {
-                SplitSource splitSource = new SplitSource(backend, splitAssignment, maxWaitTime);
+                SplitSource splitSource = new SplitSource(backend, splitAssignment, maxWaitTime,
+                        sessionVariable.getSplitInitialBatchSize());
                 splitSources.add(splitSource);
                 Env.getCurrentEnv().getSplitSourceManager().registerSplitSource(splitSource);
                 TScanRangeLocations curLocations = newLocations();
@@ -501,14 +506,11 @@ public abstract class FileQueryScanNode extends FileScanNode {
         FileSplit fileSplit = (FileSplit) split;
         TScanRangeLocations curLocations = newLocations();
         // If fileSplit has partition values, use the values collected from hive partitions.
-        // Otherwise, use the values in file path. Migrated tables emit PluginDrivenSplit (never a HiveSplit)
-        // and always carry connector-supplied partition values, so isACID stays false: the connector owns
-        // ACID delta-dir handling and rewrites columns-from-path in its ConnectorScanRange.populateRangeParams.
-        boolean isACID = false;
+        // Otherwise, parse partition values from the file path.
         FilePartitionUtils.ParsedColumnsFromPath partitionValuesFromPath =
                 fileSplit.getPartitionValues() == null
                         ? FilePartitionUtils.parseColumnsFromPathWithNullInfo(
-                                fileSplit.getPathString(), pathPartitionKeys, false, isACID)
+                                fileSplit.getPathString(), pathPartitionKeys, false)
                         : FilePartitionUtils.normalizeColumnsFromPath(fileSplit.getPartitionValues());
 
         TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath.getValues(),
@@ -745,10 +747,13 @@ public abstract class FileQueryScanNode extends FileScanNode {
     @Override
     public void stop() {
         if (splitAssignment != null) {
-            splitAssignment.stop();
-            SplitSourceManager manager = Env.getCurrentEnv().getSplitSourceManager();
-            for (Long sourceId : splitAssignment.getSources()) {
-                manager.removeSplitSource(sourceId);
+            try {
+                splitAssignment.stop();
+            } finally {
+                SplitSourceManager manager = Env.getCurrentEnv().getSplitSourceManager();
+                for (Long sourceId : splitAssignment.getSources()) {
+                    manager.removeSplitSource(sourceId);
+                }
             }
         }
     }

@@ -48,30 +48,30 @@ template <CastModeType CastMode, typename FromDataType, typename ToDataType>
     requires(IsStringType<FromDataType> && IsDatelikeTypes<ToDataType>)
 class CastToImpl<CastMode, FromDataType, ToDataType> : public CastToBase {
 public:
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t /*input_rows_count*/,
-                        const NullMap::value_type* null_map = nullptr) const override {
-        const auto* col_from = assert_cast<const DataTypeString::ColumnType*>(
-                block.get_by_position(arguments[0]).column.get());
+    Status execute_impl(RuntimeState* state, const ColumnWithTypeAndName& source_column,
+                        ColumnWithTypeAndName& target_column, size_t /*input_rows_count*/,
+                        const NullMap::value_type* parent_null_map = nullptr) const override {
+        const auto* col_from =
+                assert_cast<const DataTypeString::ColumnType*>(source_column.column.get());
 
-        auto to_type = block.get_by_position(result).type;
+        auto to_type = target_column.type;
         auto nested_to_type = remove_nullable(to_type);
         auto serde = nested_to_type->get_serde();
 
         DataTypeSerDe::FormatOptions options;
-        options.timezone = &context->state()->timezone_obj();
+        options.timezone = &state->timezone_obj();
 
         if constexpr (CastMode == CastModeType::StrictMode) {
             MutableColumnPtr column_to = nested_to_type->create_column();
             // WON'T write nulls to the result column, just raise errors. null_map is only used to skip invalid rows
-            RETURN_IF_ERROR(
-                    serde->from_string_strict_mode_batch(*col_from, *column_to, options, null_map));
-            block.get_by_position(result).column = std::move(column_to);
+            RETURN_IF_ERROR(serde->from_string_strict_mode_batch(*col_from, *column_to, options,
+                                                                 parent_null_map));
+            target_column.column = std::move(column_to);
         } else {
             auto nullable_col_to = create_empty_nullable_column(nested_to_type);
             // may write nulls to nullable_col_to
             RETURN_IF_ERROR(serde->from_string_batch(*col_from, *nullable_col_to, options));
-            block.get_by_position(result).column = std::move(nullable_col_to);
+            target_column.column = std::move(nullable_col_to);
         }
 
         return Status::OK();
@@ -82,12 +82,12 @@ template <CastModeType CastMode, typename FromDataType, typename ToDataType>
     requires(CastUtil::IsPureDigitType<FromDataType> && IsDatelikeTypes<ToDataType>)
 class CastToImpl<CastMode, FromDataType, ToDataType> : public CastToBase {
 public:
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t /*input_rows_count*/,
-                        const NullMap::value_type* null_map = nullptr) const override {
-        const auto* col_from = assert_cast<const typename FromDataType::ColumnType*>(
-                block.get_by_position(arguments[0]).column.get());
-        auto to_type = block.get_by_position(result).type;
+    Status execute_impl(RuntimeState* state, const ColumnWithTypeAndName& source_column,
+                        ColumnWithTypeAndName& target_column, size_t /*input_rows_count*/,
+                        const NullMap::value_type* parent_null_map = nullptr) const override {
+        const auto* col_from =
+                assert_cast<const typename FromDataType::ColumnType*>(source_column.column.get());
+        auto to_type = target_column.type;
         auto nested_to_type = remove_nullable(to_type);
         auto concrete_serde = std::dynamic_pointer_cast<typename ToDataType::SerDeType>(
                 nested_to_type->get_serde());
@@ -99,17 +99,17 @@ public:
             // WON'T write nulls to the result column, just raise errors. null_map is only used to skip invalid rows
             if constexpr (IsDataTypeInt<FromDataType>) {
                 RETURN_IF_ERROR(concrete_serde->template from_int_strict_mode_batch<FromDataType>(
-                        *col_from, *column_to));
+                        *col_from, *column_to, parent_null_map));
             } else if constexpr (IsDataTypeFloat<FromDataType>) {
                 RETURN_IF_ERROR(concrete_serde->template from_float_strict_mode_batch<FromDataType>(
-                        *col_from, *column_to));
+                        *col_from, *column_to, parent_null_map));
             } else {
                 static_assert(IsDataTypeDecimal<FromDataType>);
                 RETURN_IF_ERROR(
                         concrete_serde->template from_decimal_strict_mode_batch<FromDataType>(
-                                *col_from, *column_to));
+                                *col_from, *column_to, parent_null_map));
             }
-            block.get_by_position(result).column = std::move(column_to);
+            target_column.column = std::move(column_to);
         } else {
             auto nullable_col_to = create_empty_nullable_column(nested_to_type);
             // may write nulls to nullable_col_to
@@ -124,7 +124,7 @@ public:
                 RETURN_IF_ERROR(concrete_serde->template from_decimal_batch<FromDataType>(
                         *col_from, *nullable_col_to));
             }
-            block.get_by_position(result).column = std::move(nullable_col_to);
+            target_column.column = std::move(nullable_col_to);
         }
 
         return Status::OK();
@@ -135,15 +135,14 @@ template <CastModeType CastMode, typename FromDataType, typename ToDataType>
     requires(std::is_same_v<FromDataType, DataTypeTimeStampNs> && IsDatelikeTypes<ToDataType>)
 class CastToImpl<CastMode, FromDataType, ToDataType> : public CastToBase {
 public:
-    Status execute_impl(FunctionContext* /*context*/, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count,
-                        const NullMap::value_type* null_map = nullptr) const override {
-        const auto& col_from =
-                assert_cast<const ColumnTimeStampNs&>(*block.get_by_position(arguments[0]).column);
+    Status execute_impl(RuntimeState* state, const ColumnWithTypeAndName& source_column,
+                        ColumnWithTypeAndName& target_column, size_t input_rows_count,
+                        const NullMap::value_type* parent_null_map = nullptr) const override {
+        const auto& col_from = assert_cast<const ColumnTimeStampNs&>(*source_column.column);
         auto col_to = ToDataType::ColumnType::create(input_rows_count);
 
         for (size_t i = 0; i < input_rows_count; ++i) {
-            if (null_map && null_map[i]) {
+            if (parent_null_map && parent_null_map[i]) {
                 continue;
             }
 
@@ -157,14 +156,14 @@ public:
                 const auto civil = source.to_datetime();
                 DataTypeDateTimeV2::cast_to_date_time(civil, col_to->get_data()[i]);
             } else if constexpr (IsDateTimeV2Type<ToDataType>) {
-                const auto to_scale = block.get_by_position(result).type->get_scale();
+                const auto to_scale = target_column.type->get_scale();
                 const bool success =
                         transform_date_scale(to_scale, TimeStampNsValue::FRACTIONAL_DIGITS,
                                              col_to->get_data()[i], source);
                 DORIS_CHECK(success);
             } else {
                 static_assert(IsTimeV2Type<ToDataType>);
-                const auto to_scale = block.get_by_position(result).type->get_scale();
+                const auto to_scale = target_column.type->get_scale();
                 const int64_t seconds = source.time_part_to_seconds();
                 uint32_t hour = static_cast<uint32_t>(seconds / 3600);
                 uint32_t minute = static_cast<uint32_t>(seconds / 60 % 60);
@@ -193,7 +192,7 @@ public:
             }
         }
 
-        block.get_by_position(result).column = std::move(col_to);
+        target_column.column = std::move(col_to);
         return Status::OK();
     }
 };
@@ -202,14 +201,14 @@ template <CastModeType CastMode, typename FromDataType, typename ToDataType>
     requires(IsDatelikeTypes<FromDataType> && IsDatelikeTypes<ToDataType>)
 class CastToImpl<CastMode, FromDataType, ToDataType> : public CastToBase {
 public:
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count,
-                        const NullMap::value_type* null_map = nullptr) const override {
+    Status execute_impl(RuntimeState* state, const ColumnWithTypeAndName& source_column,
+                        ColumnWithTypeAndName& target_column, size_t input_rows_count,
+                        const NullMap::value_type* parent_null_map = nullptr) const override {
         constexpr bool Nullable = std::is_same_v<FromDataType, ToDataType> &&
                                   (IsTimeV2Type<FromDataType> || IsDateTimeV2Type<FromDataType>);
 
-        const auto* col_from = assert_cast<const typename FromDataType::ColumnType*>(
-                block.get_by_position(arguments[0]).column.get());
+        const auto* col_from =
+                assert_cast<const typename FromDataType::ColumnType*>(source_column.column.get());
         auto col_to = ToDataType::ColumnType::create(input_rows_count);
         ColumnUInt8::MutablePtr col_nullmap;
 
@@ -218,7 +217,7 @@ public:
         }
 
         for (size_t i = 0; i < input_rows_count; ++i) {
-            if (null_map && null_map[i]) {
+            if (parent_null_map && parent_null_map[i]) {
                 continue;
             }
             if constexpr (IsDateType<FromDataType> && IsDateV2Type<ToDataType>) {
@@ -245,8 +244,7 @@ public:
                 // from Time to Date
                 VecDateTimeValue dtv;
                 dtv.cast_to_date();
-                dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
-                                  context->state()->timezone_obj());
+                dtv.from_unixtime(state->timestamp_ms() / 1000, state->timezone_obj());
 
                 auto time_value = col_from->get_data()[i];
                 int32_t hour = TimeValue::hour(time_value);
@@ -261,8 +259,7 @@ public:
                 col_to->get_data()[i] = dtv;
             } else if constexpr (IsTimeV2Type<FromDataType> && IsDateV2Type<ToDataType>) {
                 DateV2Value<DateV2ValueType> dtv;
-                dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
-                                  context->state()->timezone_obj());
+                dtv.from_unixtime(state->timestamp_ms() / 1000, state->timezone_obj());
 
                 auto time_value = col_from->get_data()[i];
                 int32_t hour = TimeValue::hour(time_value);
@@ -291,8 +288,7 @@ public:
             } else if constexpr (IsTimeV2Type<FromDataType> && IsDateTimeType<ToDataType>) {
                 // from Time to Datetime
                 VecDateTimeValue dtv; // datetime by default
-                dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
-                                  context->state()->timezone_obj());
+                dtv.from_unixtime(state->timestamp_ms() / 1000, state->timezone_obj());
                 dtv.reset_time_part();
 
                 auto time_value = col_from->get_data()[i];
@@ -307,14 +303,12 @@ public:
 
                 col_to->get_data()[i] = dtv;
             } else if constexpr (IsTimeV2Type<FromDataType> && IsDateTimeV2Type<ToDataType>) {
-                const auto* type = assert_cast<const DataTypeTimeV2*>(
-                        block.get_by_position(arguments[0]).type.get());
+                const auto* type = assert_cast<const DataTypeTimeV2*>(source_column.type.get());
                 auto scale = type->get_scale();
 
                 DateV2Value<DateTimeV2ValueType> dtmv2;
-                dtmv2.from_unixtime(context->state()->timestamp_ms() / 1000,
-                                    context->state()->nano_seconds(),
-                                    context->state()->timezone_obj(), scale);
+                dtmv2.from_unixtime(state->timestamp_ms() / 1000, state->nano_seconds(),
+                                    state->timezone_obj(), scale);
                 dtmv2.reset_time_part();
 
                 auto time_value = col_from->get_data()[i];
@@ -340,12 +334,11 @@ public:
                 DataTypeDateTimeV2::cast_to_date_time(col_from->get_data()[i],
                                                       col_to->get_data()[i]);
             } else if constexpr (IsDateTimeV2Type<FromDataType> && IsDateTimeV2Type<ToDataType>) {
-                const auto* type = assert_cast<const DataTypeDateTimeV2*>(
-                        block.get_by_position(arguments[0]).type.get());
+                const auto* type = assert_cast<const DataTypeDateTimeV2*>(source_column.type.get());
                 auto scale = type->get_scale();
 
-                const auto* to_type = assert_cast<const DataTypeDateTimeV2*>(
-                        block.get_by_position(result).type.get());
+                const auto* to_type =
+                        assert_cast<const DataTypeDateTimeV2*>(target_column.type.get());
                 UInt32 to_scale = to_type->get_scale();
 
                 bool success = transform_date_scale(to_scale, scale, col_to->get_data()[i],
@@ -354,9 +347,8 @@ public:
                     if constexpr (CastMode == CastModeType::StrictMode) {
                         auto format_options = DataTypeSerDe::get_default_format_options();
                         auto time_zone = cctz::utc_time_zone();
-                        format_options.timezone = (context && context->state())
-                                                          ? &context->state()->timezone_obj()
-                                                          : &time_zone;
+                        format_options.timezone =
+                                state != nullptr ? &state->timezone_obj() : &time_zone;
                         return Status::InvalidArgument(
                                 "DatetimeV2 overflow when casting {} from {} to {}",
                                 type->to_string(*col_from, i, format_options), type->get_name(),
@@ -373,12 +365,10 @@ public:
                 }
 
             } else if constexpr (IsTimeV2Type<FromDataType> && IsTimeV2Type<ToDataType>) {
-                const auto* type = assert_cast<const DataTypeTimeV2*>(
-                        block.get_by_position(arguments[0]).type.get());
+                const auto* type = assert_cast<const DataTypeTimeV2*>(source_column.type.get());
                 auto scale = type->get_scale();
 
-                const auto* to_type = assert_cast<const DataTypeTimeV2*>(
-                        block.get_by_position(result).type.get());
+                const auto* to_type = assert_cast<const DataTypeTimeV2*>(target_column.type.get());
                 UInt32 to_scale = to_type->get_scale();
 
                 if (to_scale >= scale) {
@@ -419,11 +409,9 @@ public:
                 // from Datetime to Time
                 auto dtmv2 = col_from->get_data()[i];
 
-                const auto* type = assert_cast<const DataTypeDateTimeV2*>(
-                        block.get_by_position(arguments[0]).type.get());
+                const auto* type = assert_cast<const DataTypeDateTimeV2*>(source_column.type.get());
                 auto scale = type->get_scale();
-                const auto* to_type = assert_cast<const DataTypeTimeV2*>(
-                        block.get_by_position(result).type.get());
+                const auto* to_type = assert_cast<const DataTypeTimeV2*>(target_column.type.get());
                 UInt32 to_scale = to_type->get_scale();
 
                 uint32_t hour = dtmv2.hour();
@@ -470,10 +458,10 @@ public:
         }
 
         if constexpr (Nullable) {
-            block.get_by_position(result).column =
+            target_column.column =
                     ColumnNullable::create(std::move(col_to), std::move(col_nullmap));
         } else {
-            block.get_by_position(result).column = std::move(col_to);
+            target_column.column = std::move(col_to);
         }
         return Status::OK();
     }
@@ -483,35 +471,36 @@ template <>
 class CastToImpl<CastModeType::StrictMode, DataTypeTimeStampTz, DataTypeDateTimeV2>
         : public CastToBase {
 public:
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count,
-                        const NullMap::value_type* null_map = nullptr) const override {
+    Status execute_impl(RuntimeState* state, const ColumnWithTypeAndName& source_column,
+                        ColumnWithTypeAndName& target_column, size_t input_rows_count,
+                        const NullMap::value_type* parent_null_map = nullptr) const override {
         const auto& col_from =
-                assert_cast<const ColumnTimeStampTz&>(*block.get_by_position(arguments[0]).column)
-                        .get_data();
+                assert_cast<const ColumnTimeStampTz&>(*source_column.column).get_data();
 
         auto col_to = ColumnDateTimeV2::create(input_rows_count);
         auto& col_to_data = col_to->get_data();
-        const auto& local_time_zone = context->state()->timezone_obj();
+        const auto& local_time_zone = state->timezone_obj();
 
-        const auto tz_scale = block.get_by_position(arguments[0]).type->get_scale();
-        const auto dt_scale = block.get_by_position(result).type->get_scale();
+        const auto tz_scale = source_column.type->get_scale();
+        const auto dt_scale = target_column.type->get_scale();
 
         for (int i = 0; i < input_rows_count; ++i) {
-            if (null_map && null_map[i]) {
+            if (parent_null_map && parent_null_map[i]) {
                 continue;
             }
             TimestampTzValue from_tz {col_from[i]};
             DateV2Value<DateTimeV2ValueType> dt;
             if (!from_tz.to_datetime(dt, local_time_zone, dt_scale, tz_scale)) {
+                // The failed local conversion may also be unformattable. Render the stored
+                // UTC fields so reporting the cast error cannot throw a second exception.
                 return Status::InvalidArgument(
-                        "can not cast from  timestamptz : {} to datetime in timezone : {}",
-                        from_tz.to_string(local_time_zone), context->state()->timezone());
+                        "can not cast from  timestamptz : {} UTC to datetime in timezone : {}",
+                        from_tz.utc_dt().to_string(tz_scale), state->timezone());
             }
             col_to_data[i] = dt.to_date_int_val();
         }
 
-        block.get_by_position(result).column = std::move(col_to);
+        target_column.column = std::move(col_to);
         return Status::OK();
     }
 };
@@ -520,23 +509,25 @@ template <>
 class CastToImpl<CastModeType::NonStrictMode, DataTypeTimeStampTz, DataTypeDateTimeV2>
         : public CastToBase {
 public:
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count,
-                        const NullMap::value_type*) const override {
+    Status execute_impl(RuntimeState* state, const ColumnWithTypeAndName& source_column,
+                        ColumnWithTypeAndName& target_column, size_t input_rows_count,
+                        const NullMap::value_type* parent_null_map = nullptr) const override {
         const auto& col_from =
-                assert_cast<const ColumnTimeStampTz&>(*block.get_by_position(arguments[0]).column)
-                        .get_data();
+                assert_cast<const ColumnTimeStampTz&>(*source_column.column).get_data();
 
         auto col_to = ColumnDateTimeV2::create(input_rows_count);
         auto& col_to_data = col_to->get_data();
         auto col_null = ColumnBool::create(input_rows_count, 0);
         auto& col_null_map = col_null->get_data();
-        const auto& local_time_zone = context->state()->timezone_obj();
+        const auto& local_time_zone = state->timezone_obj();
 
-        const auto tz_scale = block.get_by_position(arguments[0]).type->get_scale();
-        const auto dt_scale = block.get_by_position(result).type->get_scale();
+        const auto tz_scale = source_column.type->get_scale();
+        const auto dt_scale = target_column.type->get_scale();
 
         for (int i = 0; i < input_rows_count; ++i) {
+            if (parent_null_map != nullptr && parent_null_map[i] != 0) {
+                continue;
+            }
             TimestampTzValue from_tz {col_from[i]};
             DateV2Value<DateTimeV2ValueType> dt;
             if (from_tz.to_datetime(dt, local_time_zone, dt_scale, tz_scale)) {
@@ -546,8 +537,7 @@ public:
                 col_to_data[i] = MIN_DATETIME_V2;
             }
         }
-        block.get_by_position(result).column =
-                ColumnNullable::create(std::move(col_to), std::move(col_null));
+        target_column.column = ColumnNullable::create(std::move(col_to), std::move(col_null));
         return Status::OK();
     }
 };

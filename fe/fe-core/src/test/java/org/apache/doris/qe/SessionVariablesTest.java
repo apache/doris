@@ -80,6 +80,23 @@ public class SessionVariablesTest extends TestWithFeService {
     }
 
     @Test
+    public void testForwardIndexDiskUsageLimits() {
+        // A forwarded index_disk_usage query is planned by the master, so the scan limits the
+        // client set must travel with the statement.
+        SessionVariable follower = new SessionVariable();
+        follower.indexDiskUsageMaxTablets = 7;
+        follower.indexDiskUsagePositionDetailMaxTablets = 3;
+        Map<String, String> vars = follower.getForwardVariables();
+        Assertions.assertEquals("7", vars.get(SessionVariable.INDEX_DISK_USAGE_MAX_TABLETS));
+        Assertions.assertEquals("3", vars.get(SessionVariable.INDEX_DISK_USAGE_POSITION_DETAIL_MAX_TABLETS));
+
+        SessionVariable master = new SessionVariable();
+        master.setForwardedSessionVariables(vars);
+        Assertions.assertEquals(7, master.indexDiskUsageMaxTablets);
+        Assertions.assertEquals(3, master.indexDiskUsagePositionDetailMaxTablets);
+    }
+
+    @Test
     public void testForwardQueryCacheVariables() {
         // A forwarded statement is planned by the master in a fresh
         // ConnectContext that only sees what getForwardVariables() sends, so
@@ -110,6 +127,24 @@ public class SessionVariablesTest extends TestWithFeService {
         Assertions.assertTrue(master.isQueryCacheForceRefresh());
         Assertions.assertEquals(4096, master.getQueryCacheEntryMaxBytes());
         Assertions.assertEquals(64, master.getQueryCacheEntryMaxRows());
+    }
+
+    @Test
+    public void testCloudGetVersionWaitForPendingTxn() throws Exception {
+        SessionVariable session = new SessionVariable();
+        SessionVariable forwarded = new SessionVariable();
+        Assertions.assertFalse(session.cloudGetVersionWaitForPendingTxn);
+        for (boolean waitForPendingTxn : new boolean[] {true, false}) {
+            VariableMgr.setVar(session, new SetVar(SetType.SESSION,
+                    SessionVariable.CLOUD_GET_VERSION_WAIT_FOR_PENDING_TXN,
+                    new StringLiteral(Boolean.toString(waitForPendingTxn))));
+            Assertions.assertEquals(waitForPendingTxn, session.cloudGetVersionWaitForPendingTxn);
+            Map<String, String> vars = session.getForwardVariables();
+            Assertions.assertEquals(Boolean.toString(waitForPendingTxn),
+                    vars.get(SessionVariable.CLOUD_GET_VERSION_WAIT_FOR_PENDING_TXN));
+            forwarded.setForwardedSessionVariables(vars);
+            Assertions.assertEquals(waitForPendingTxn, forwarded.cloudGetVersionWaitForPendingTxn);
+        }
     }
 
     @Test
@@ -189,6 +224,22 @@ public class SessionVariablesTest extends TestWithFeService {
     }
 
     @Test
+    public void testFlussUnionReadModeRejectsInvalidValuesAtSetTime() throws Exception {
+        SessionVariable sessionVar = new SessionVariable();
+        Field field = SessionVariable.class.getDeclaredField("flussUnionReadMode");
+        VarAttrDef.VarAttr varAttr = field.getAnnotation(VarAttrDef.VarAttr.class);
+        Assertions.assertEquals("checkFlussUnionReadMode", varAttr.checker());
+
+        VariableMgr.setVar(sessionVar, new SetVar(SetType.SESSION,
+                SessionVariable.FLUSS_UNION_READ_MODE, new StringLiteral("ReQuIrEd")));
+        Assertions.assertEquals("ReQuIrEd", sessionVar.flussUnionReadMode);
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "fluss_union_read_mode value is invalid",
+                () -> VariableMgr.setVar(sessionVar, new SetVar(SetType.SESSION,
+                        SessionVariable.FLUSS_UNION_READ_MODE, new StringLiteral("nonsense"))));
+    }
+
+    @Test
     public void testRuntimeFilterBroadcastJoinProducerNumDescription() throws Exception {
         SessionVariable sessionVar = new SessionVariable();
         Assertions.assertEquals(3, sessionVar.getRuntimeFilterBroadcastJoinProducerNum());
@@ -215,6 +266,7 @@ public class SessionVariablesTest extends TestWithFeService {
     @Test
     public void testFileScannerV2RemainsEnabledInFuzzyMode() throws Exception {
         SessionVariable sessionVar = new SessionVariable();
+        Assertions.assertTrue(sessionVar.enableFileScannerV2);
         sessionVar.enableFileScannerV2 = false;
         sessionVar.initFuzzyModeVariables();
         Assertions.assertTrue(sessionVar.enableFileScannerV2);
@@ -251,6 +303,33 @@ public class SessionVariablesTest extends TestWithFeService {
         String sql = "insert into test_t1 select /*+ set_var(enable_nereids_dml_with_pipeline=false)*/ * from test_t1 where enable_nereids_dml_with_pipeline=true";
         new NereidsParser().parseSQL(sql);
         Assertions.assertEquals(false, connectContext.getSessionVariable().enableNereidsDmlWithPipeline);
+    }
+
+    @Test
+    public void testHistoricalConcurrencyHintCleanup() throws Exception {
+        SessionVariable original = connectContext.getSessionVariable();
+        try {
+            for (String variable : new String[] {SessionVariable.PARALLEL_PIPELINE_TASK_NUM,
+                    SessionVariable.COLOCATE_MAX_PARALLEL_NUM, SessionVariable.MAX_SCANNERS_CONCURRENCY,
+                    SessionVariable.MAX_FILE_SCANNERS_CONCURRENCY, SessionVariable.MIN_SCANNERS_CONCURRENCY,
+                    SessionVariable.MIN_FILE_SCANNERS_CONCURRENCY, SessionVariable.PARALLEL_SCAN_MAX_SCANNERS_COUNT,
+                    SessionVariable.SEND_BATCH_PARALLELISM, SessionVariable.LOAD_STREAM_PER_NODE}) {
+                SessionVariable restored = new SessionVariable();
+                restored.readFromJson("{\"" + variable + "\":2000}");
+                connectContext.setSessionVariable(restored);
+
+                executeNereidsSql("SELECT /*+ SET_VAR(" + variable + "=8) */ 1");
+                Assertions.assertEquals(256, VariableMgr.getVarContext(variable).getField().getInt(restored), variable);
+                Assertions.assertFalse(restored.getIsSingleSetVar());
+                Assertions.assertTrue(restored.getSessionOriginValue().isEmpty());
+
+                executeNereidsSql("SELECT 1");
+                Assertions.assertEquals(256, VariableMgr.getVarContext(variable).getField().getInt(restored), variable);
+                Assertions.assertTrue(restored.getSessionOriginValue().isEmpty());
+            }
+        } finally {
+            connectContext.setSessionVariable(original);
+        }
     }
 
     @Test
@@ -400,6 +479,24 @@ public class SessionVariablesTest extends TestWithFeService {
     }
 
     @Test
+    public void testSplitBatchAndQueueLimitsUseTheirOwnVariableCheckers() throws Exception {
+        SessionVariable variable = new SessionVariable();
+        for (String name : new String[] {SessionVariable.SPLIT_BATCH_SIZE, SessionVariable.SPLIT_QUEUE_CAPACITY}) {
+            Field field = VariableMgr.getVarContext(name).getField();
+            for (int value : new int[] {1, 9}) {
+                VariableMgr.setVar(variable, new SetVar(SetType.SESSION, name, new IntLiteral(value)));
+                Assertions.assertEquals(value, field.getInt(variable));
+            }
+            for (int value : new int[] {0, -1}) {
+                DdlException failure = Assertions.assertThrows(DdlException.class,
+                        () -> VariableMgr.setVar(variable, new SetVar(SetType.SESSION, name, new IntLiteral(value))));
+                Assertions.assertTrue(failure.getMessage().contains(name + " value should greater than or equal 1"));
+                Assertions.assertEquals(9, field.getInt(variable));
+            }
+        }
+    }
+
+    @Test
     public void testFileCacheQueryLimitBytesToThrift() throws Exception {
         SessionVariable variable = new SessionVariable();
         VariableMgr.setVar(variable, new SetVar(SetType.SESSION,
@@ -430,5 +527,53 @@ public class SessionVariablesTest extends TestWithFeService {
                 SessionVariable.ENABLE_HYPERSCAN_FALLBACK, new StringLiteral("false")));
 
         Assertions.assertFalse(variable.toThrift().isEnableHyperscanFallback());
+    }
+
+    @Test
+    public void testForwardPlanAndExecutionKnobs() {
+        // A statement a non-master FE forwards (INSERT INTO ... SELECT, CTAS, ...) is
+        // planned by the master in a fresh ConnectContext that is seeded from the
+        // master's globals plus what getForwardVariables() sends. Every knob that
+        // changes the plan shape or the executor's behaviour must travel, otherwise a
+        // session-level SET is silently lost on the follower path and the master may
+        // run a different plan than the same statement run on the master directly.
+        String[] knobs = {
+                SessionVariable.AGG_PHASE, SessionVariable.BROADCAST_RIGHT_TABLE_SCALE_FACTOR,
+                SessionVariable.CTE_INLINE_MODE,
+                SessionVariable.DISABLE_COLOCATE_PLAN, SessionVariable.DISABLE_JOIN_REORDER,
+                SessionVariable.DISABLE_STREAMING_PREAGGREGATIONS, SessionVariable.DPHYPER_LIMIT,
+                SessionVariable.ENABLE_BROADCAST_JOIN_FORCE_PASSTHROUGH,
+                SessionVariable.ENABLE_BUCKET_SHUFFLE_JOIN, SessionVariable.ENABLE_COST_BASED_JOIN_REORDER,
+                SessionVariable.ENABLE_CTE_MATERIALIZE, SessionVariable.ENABLE_DECOUPLED_RUNTIME_FILTER,
+                SessionVariable.ENABLE_DISTINCT_STREAMING_AGGREGATION,
+                SessionVariable.ENABLE_DPHYP_OPTIMIZER, SessionVariable.ENABLE_LOCAL_EXCHANGE,
+                SessionVariable.ENABLE_LOCAL_EXCHANGE_BEFORE_AGG, SessionVariable.ENABLE_PARALLEL_OUTFILE,
+                SessionVariable.ENABLE_PARTITION_TOPN, SessionVariable.ENABLE_PUSH_DOWN_NO_GROUP_AGG,
+                SessionVariable.ENABLE_SHARED_EXCHANGE_SINK_BUFFER, SessionVariable.ENABLE_SQL_CACHE,
+                SessionVariable.EXCHANGE_MULTI_BLOCKS_BYTE_SIZE,
+                SessionVariable.EXPAND_RUNTIME_FILTER_BY_INNER_JION,
+                SessionVariable.GLOBAL_PARTITION_TOPN_THRESHOLD, SessionVariable.IGNORE_RUNTIME_FILTER_IDS,
+                SessionVariable.INLINE_CTE_REFERENCED_THRESHOLD,
+                SessionVariable.LOCAL_EXCHANGE_FREE_BLOCKS_LIMIT,
+                SessionVariable.LOW_MEMORY_MODE_BUFFER_LIMIT, SessionVariable.MAX_JOIN_NUMBER_BUSHY_TREE,
+                SessionVariable.MAX_JOIN_NUMBER_OF_REORDER, SessionVariable.PARALLEL_EXCHANGE_INSTANCE_NUM,
+                SessionVariable.PARALLEL_PREPARE_THRESHOLD,
+                SessionVariable.SKEW_REWRITE_JOIN_SALT_EXPLODE_FACTOR,
+                SessionVariable.SPILL_AGGREGATION_PARTITION_COUNT,
+                SessionVariable.SPILL_HASH_JOIN_PARTITION_COUNT, SessionVariable.SPILL_MIN_REVOCABLE_MEM,
+                SessionVariable.TOPN_FILTER_RATIO, SessionVariable.TOPN_OPT_LIMIT_THRESHOLD
+        };
+        SessionVariable follower = new SessionVariable();
+        follower.setDisableJoinReorder(true);
+        Map<String, String> vars = follower.getForwardVariables();
+        for (String knob : knobs) {
+            Assertions.assertTrue(vars.containsKey(knob), knob + " must be forwarded to the master");
+        }
+        Assertions.assertEquals("true", vars.get(SessionVariable.DISABLE_JOIN_REORDER));
+
+        SessionVariable master = new SessionVariable();
+        Assertions.assertFalse(master.isDisableJoinReorder());
+        master.setForwardedSessionVariables(vars);
+        Assertions.assertTrue(master.isDisableJoinReorder());
     }
 }

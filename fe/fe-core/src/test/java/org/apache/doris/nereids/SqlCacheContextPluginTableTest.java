@@ -17,17 +17,26 @@
 
 package org.apache.doris.nereids;
 
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.spi.mvcc.ConnectorSqlCacheVersion;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.mvcc.MvccReadSelector;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.PluginDrivenMvccExternalTable;
+import org.apache.doris.datasource.mvcc.PluginDrivenMvccSnapshot;
 import org.apache.doris.nereids.SqlCacheContext.TableVersion;
 
 import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
+
+import java.util.Collections;
+import java.util.Optional;
 
 /**
  * Unit tests for the connector-agnostic invalidation token the SQL-result-cache migration wired into
@@ -38,6 +47,75 @@ import org.mockito.Mockito;
  * data-change signal) fails safe: the table is marked unsupported rather than pinned at a bogus constant.
  */
 public class SqlCacheContextPluginTableTest {
+
+    @Test
+    public void nativeVersionUsesTheReadPinAndChangesTheCacheKey() {
+        PluginDrivenMvccExternalTable table = mockTable(42L, 999L);
+        MvccSnapshot pin = new PluginDrivenMvccSnapshot(ConnectorMvccSnapshot.builder().snapshotId(7L).build(),
+                Collections.emptyMap(), Collections.emptyMap());
+        ConnectorSqlCacheVersion first = new ConnectorSqlCacheVersion("table:snapshot7:schema1:metadata1", 1000L);
+        Mockito.when(table.getSqlCacheVersion(Optional.of(pin))).thenReturn(Optional.of(first));
+        SqlCacheContext context = new SqlCacheContext(UserIdentity.ROOT);
+        context.setOriginSql("select count(*) from t");
+        context.addUsedTable(table, Optional.of(pin));
+        Assertions.assertSame(first, context.getUsedTables().values().iterator().next().sqlCacheVersion);
+        Mockito.verify(table, Mockito.never()).getNewestUpdateVersionOrTime();
+        Mockito.verify(table, Mockito.never()).getNewestUpdateTimeMillisForCache();
+        // Metadata/schema changes can keep both the snapshot id and the wall-clock update time unchanged.
+        ConnectorSqlCacheVersion second = new ConnectorSqlCacheVersion("table:snapshot7:schema2:metadata2", 1000L);
+        Mockito.when(table.getSqlCacheVersion(Optional.of(pin))).thenReturn(Optional.of(second));
+        SqlCacheContext changed = new SqlCacheContext(UserIdentity.ROOT);
+        changed.setOriginSql("select count(*) from t");
+        changed.addUsedTable(table, Optional.of(pin));
+        Assertions.assertNotEquals(context.doComputeCacheKeyMd5(Collections.emptySet(), null),
+                changed.doComputeCacheKeyMd5(Collections.emptySet(), null));
+    }
+
+    @Test
+    public void nativeVersionFailureDisablesCachingWithoutLegacyEnumeration() {
+        PluginDrivenMvccExternalTable table = mockTable(42L, 999L);
+        Mockito.when(table.getSqlCacheVersion(Optional.empty()))
+                .thenThrow(new UnsupportedOperationException("no reliable metadata generation"));
+        SqlCacheContext context = new SqlCacheContext(UserIdentity.ROOT);
+        context.addUsedTable(table);
+        Assertions.assertFalse(context.supportSqlCache());
+        Mockito.verify(table, Mockito.never()).getNewestUpdateVersionOrTime();
+    }
+
+    @Test
+    public void sameTableReferencesKeepSeparatePinsAndAllAffectTheCacheKey() {
+        PluginDrivenMvccExternalTable table = mockTable(42L, 999L);
+        MvccSnapshot main = new PluginDrivenMvccSnapshot(ConnectorMvccSnapshot.builder().snapshotId(100L).build(),
+                Collections.emptyMap(), Collections.emptyMap());
+        MvccSnapshot dev = new PluginDrivenMvccSnapshot(ConnectorMvccSnapshot.builder().snapshotId(80L).build(),
+                Collections.emptyMap(), Collections.emptyMap());
+        Mockito.when(table.getSqlCacheVersion(Optional.of(main)))
+                .thenReturn(Optional.of(new ConnectorSqlCacheVersion("uuid:100:schema3:metadata", 1000L)));
+        Mockito.when(table.getSqlCacheVersion(Optional.of(dev)))
+                .thenReturn(Optional.of(new ConnectorSqlCacheVersion("uuid:80:schema3:metadata", 800L)));
+        MvccReadSelector selector = MvccReadSelector.of(Optional.of(TableSnapshot.versionOf("dev")), Optional.empty());
+        SqlCacheContext context = new SqlCacheContext(UserIdentity.ROOT);
+        context.setOriginSql("select * from t a join t for version as of 'dev' b on a.id=b.id");
+        context.addUsedTable(table, Optional.of(main));
+        context.addUsedTable(table, Optional.of(dev), selector);
+        Assertions.assertEquals(2, context.getUsedTables().size());
+        org.apache.doris.proto.Types.PUniqueId before = context.doComputeCacheKeyMd5(Collections.emptySet(), null);
+        Mockito.when(table.getSqlCacheVersion(Optional.of(dev)))
+                .thenReturn(Optional.of(new ConnectorSqlCacheVersion("uuid:90:schema3:metadata", 800L)));
+        context.addUsedTable(table, Optional.of(dev), selector);
+        Assertions.assertEquals(2, context.getUsedTables().size());
+        Assertions.assertNotEquals(before, context.doComputeCacheKeyMd5(Collections.emptySet(), null));
+        Mockito.verify(table, Mockito.never()).getNewestUpdateVersionOrTime();
+    }
+
+    @Test
+    public void historicalReferencesWithoutVersionAwareConnectorRemainUncacheable() {
+        SqlCacheContext context = new SqlCacheContext(UserIdentity.ROOT);
+        context.addUsedTable(mockTable(42L, 999L), Optional.empty(),
+                MvccReadSelector.of(Optional.of(TableSnapshot.versionOf("100")), Optional.empty()));
+        Assertions.assertFalse(context.supportSqlCache());
+        Assertions.assertTrue(context.getUsedTables().isEmpty());
+    }
 
     private PluginDrivenMvccExternalTable mockTable(long id, long token) {
         PluginDrivenMvccExternalTable table = Mockito.mock(PluginDrivenMvccExternalTable.class);

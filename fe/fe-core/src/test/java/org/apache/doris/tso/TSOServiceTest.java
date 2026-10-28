@@ -19,12 +19,19 @@ package org.apache.doris.tso;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.IncrWindowNotReadyException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.journal.Journal;
+import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.metric.LongCounterMetric;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.OperationType;
+import org.apache.doris.qe.TimeBasedChangeVisibleWaiter;
+import org.apache.doris.transaction.GlobalTransactionMgrIface;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -36,10 +43,22 @@ import org.mockito.Mockito;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Unit tests for TSOService class.
@@ -48,32 +67,37 @@ public class TSOServiceTest {
 
     private TSOService tsoService;
     private Env env;
+    private GlobalTransactionMgrIface globalTxnMgr;
     private MockedStatic<Env> mockedEnv;
 
     private int originalMaxGetTSORetryCount;
     private int originalMaxUpdateRetryCount;
     private int originalUpdateIntervalMs;
-    private boolean originalEnableFeatureBinlog;
+    private boolean originalEnableFeatureChangelog;
     private long originalClockBackwardThresholdMs;
 
     @BeforeEach
-    public void setUp() {
+    public void setUp() throws Exception {
         mockedEnv = Mockito.mockStatic(Env.class);
 
         originalMaxGetTSORetryCount = Config.tso_max_get_retry_count;
         originalMaxUpdateRetryCount = Config.tso_max_update_retry_count;
         originalUpdateIntervalMs = Config.tso_service_update_interval_ms;
-        originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        originalEnableFeatureChangelog = Config.enable_feature_changelog;
         originalClockBackwardThresholdMs = Config.tso_clock_backward_startup_threshold_ms;
 
         Config.tso_max_get_retry_count = 1;
         Config.tso_max_update_retry_count = 1;
         Config.tso_service_update_interval_ms = 1;
-        Config.enable_feature_binlog = true;
+        Config.enable_feature_changelog = true;
         Config.tso_clock_backward_startup_threshold_ms = 30L * 60 * 1000;
 
         env = Mockito.mock(Env.class);
+        globalTxnMgr = Mockito.mock(GlobalTransactionMgrIface.class);
         mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+        Mockito.when(env.getGlobalTransactionMgr()).thenReturn(globalTxnMgr);
+        Mockito.when(globalTxnMgr.advanceTsoFence(Mockito.anyLong()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
 
         tsoService = new TSOService();
     }
@@ -84,7 +108,7 @@ public class TSOServiceTest {
         Config.tso_max_get_retry_count = originalMaxGetTSORetryCount;
         Config.tso_max_update_retry_count = originalMaxUpdateRetryCount;
         Config.tso_service_update_interval_ms = originalUpdateIntervalMs;
-        Config.enable_feature_binlog = originalEnableFeatureBinlog;
+        Config.enable_feature_changelog = originalEnableFeatureChangelog;
         Config.tso_clock_backward_startup_threshold_ms = originalClockBackwardThresholdMs;
     }
 
@@ -104,9 +128,9 @@ public class TSOServiceTest {
 
     @Test
     public void testGetTSOThrowsWhenEnvNotReady() {
-        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        boolean originalEnableFeatureChangelog = Config.enable_feature_changelog;
         try {
-            Config.enable_feature_binlog = true;
+            Config.enable_feature_changelog = true;
             setInitializedFlag(tsoService, true);
             Mockito.when(env.isReady()).thenReturn(false);
             try {
@@ -116,15 +140,15 @@ public class TSOServiceTest {
                 Assertions.assertTrue(e.getMessage().contains("Failed to get TSO"));
             }
         } finally {
-            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+            Config.enable_feature_changelog = originalEnableFeatureChangelog;
         }
     }
 
     @Test
     public void testGetTSOThrowsWhenNotCalibrated() throws Exception {
-        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        boolean originalEnableFeatureChangelog = Config.enable_feature_changelog;
         try {
-            Config.enable_feature_binlog = true;
+            Config.enable_feature_changelog = true;
             Mockito.when(env.isReady()).thenReturn(true);
             Mockito.when(env.isMaster()).thenReturn(true);
             try {
@@ -134,15 +158,15 @@ public class TSOServiceTest {
                 Assertions.assertTrue(e.getMessage().contains("not calibrated"));
             }
         } finally {
-            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+            Config.enable_feature_changelog = originalEnableFeatureChangelog;
         }
     }
 
     @Test
     public void testGetTSOThrowsOnLogicalOverflow() throws Exception {
-        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        boolean originalEnableFeatureChangelog = Config.enable_feature_changelog;
         try {
-            Config.enable_feature_binlog = true;
+            Config.enable_feature_changelog = true;
             setInitializedFlag(tsoService, true);
             Mockito.when(env.isReady()).thenReturn(true);
             Mockito.when(env.isMaster()).thenReturn(true);
@@ -157,15 +181,15 @@ public class TSOServiceTest {
                 Assertions.assertEquals(TSOTimestamp.MAX_LOGICAL_COUNTER, getGlobalLogicalCounter(tsoService));
             }
         } finally {
-            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+            Config.enable_feature_changelog = originalEnableFeatureChangelog;
         }
     }
 
     @Test
     public void testGetTSOAcceptsLogicalCounterUpperBound() throws Exception {
-        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        boolean originalEnableFeatureChangelog = Config.enable_feature_changelog;
         try {
-            Config.enable_feature_binlog = true;
+            Config.enable_feature_changelog = true;
             setInitializedFlag(tsoService, true);
             Mockito.when(env.isReady()).thenReturn(true);
             Mockito.when(env.isMaster()).thenReturn(true);
@@ -173,16 +197,16 @@ public class TSOServiceTest {
             long tso = tsoService.getTSO();
             Assertions.assertEquals(TSOTimestamp.composeTimestamp(100L, TSOTimestamp.MAX_LOGICAL_COUNTER), tso);
         } finally {
-            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+            Config.enable_feature_changelog = originalEnableFeatureChangelog;
         }
     }
 
     @Test
     public void testRunAfterCatalogReadySetsIntervalTo50WhenDisabled() {
-        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        boolean originalEnableFeatureChangelog = Config.enable_feature_changelog;
         try {
             setInitializedFlag(tsoService, true);
-            Config.enable_feature_binlog = false;
+            Config.enable_feature_changelog = false;
             tsoService.runAfterCatalogReady();
             Assertions.assertEquals(1L, tsoService.getInterval());
             try {
@@ -192,30 +216,30 @@ public class TSOServiceTest {
                 Assertions.assertTrue(e.getMessage().contains("feature is disabled"));
             }
         } finally {
-            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+            Config.enable_feature_changelog = originalEnableFeatureChangelog;
         }
     }
 
     @Test
     public void testRunAfterCatalogReadyDoesNotResetFatalClockBackwardFlagWhenDisabled() {
-        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        boolean originalEnableFeatureChangelog = Config.enable_feature_changelog;
         try {
-            Config.enable_feature_binlog = false;
+            Config.enable_feature_changelog = false;
             setFatalClockBackwardReportedFlag(tsoService, true);
 
             tsoService.runAfterCatalogReady();
 
             Assertions.assertTrue(getFatalClockBackwardReportedFlag(tsoService));
         } finally {
-            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+            Config.enable_feature_changelog = originalEnableFeatureChangelog;
         }
     }
 
     @Test
     public void testRunAfterCatalogReadyUsesAtLeastOneRetryWhenConfigNonPositive() {
-        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        boolean originalEnableFeatureChangelog = Config.enable_feature_changelog;
         try {
-            Config.enable_feature_binlog = true;
+            Config.enable_feature_changelog = true;
             Config.tso_max_update_retry_count = 0;
             Mockito.when(env.isReady()).thenReturn(true);
             Mockito.when(env.isMaster()).thenReturn(true);
@@ -223,26 +247,27 @@ public class TSOServiceTest {
             tsoService.runAfterCatalogReady();
             Assertions.assertTrue(tsoService.getTSO() > 0);
         } finally {
-            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+            Config.enable_feature_changelog = originalEnableFeatureChangelog;
         }
     }
 
     @Test
     public void testRunAfterCatalogReadyUpdateFailureDoesNotTouchMetricWhenNotInit() throws Exception {
-        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        boolean originalEnableFeatureChangelog = Config.enable_feature_changelog;
         boolean originalMetricInit = MetricRepo.isInit;
         LongCounterMetric originalUpdateFailedMetric = MetricRepo.COUNTER_TSO_CLOCK_UPDATE_FAILED;
         try {
-            Config.enable_feature_binlog = true;
+            Config.enable_feature_changelog = true;
             setInitializedFlag(tsoService, true);
             setGlobalTimestamp(tsoService, 100L, 1L);
             MetricRepo.isInit = false;
             MetricRepo.COUNTER_TSO_CLOCK_UPDATE_FAILED = null;
             Mockito.when(env.isReady()).thenReturn(true);
-            Mockito.when(env.isMaster()).thenThrow(new RuntimeException("injected update failure"));
+            Mockito.when(env.isMaster()).thenReturn(true)
+                    .thenThrow(new RuntimeException("injected update failure"));
             tsoService.runAfterCatalogReady();
         } finally {
-            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+            Config.enable_feature_changelog = originalEnableFeatureChangelog;
             MetricRepo.isInit = originalMetricInit;
             MetricRepo.COUNTER_TSO_CLOCK_UPDATE_FAILED = originalUpdateFailedMetric;
         }
@@ -251,17 +276,17 @@ public class TSOServiceTest {
     @Test
     public void testReplayWindowEndTSOUpdatesServiceState() {
         long windowEnd = 12345L;
-        tsoService.replayWindowEndTSO(new TSOTimestamp(windowEnd, 0L));
+        tsoService.replayWindowEndTSO(new TSOServiceState(windowEnd, 0L));
         Assertions.assertEquals(windowEnd, tsoService.getWindowEndTSO());
     }
 
     @Test
     public void testSaveTSOPersistsWindowEndWhenBinlogEnabled() throws IOException {
-        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        boolean originalEnableFeatureChangelog = Config.enable_feature_changelog;
         try {
-            Config.enable_feature_binlog = true;
+            Config.enable_feature_changelog = true;
             long windowEnd = 12345L;
-            tsoService.replayWindowEndTSO(new TSOTimestamp(windowEnd, 0L));
+            tsoService.replayWindowEndTSO(new TSOServiceState(windowEnd, 0L));
 
             byte[] bytes = saveTSOBytes(tsoService);
             Assertions.assertTrue(bytes.length > 0);
@@ -271,15 +296,15 @@ public class TSOServiceTest {
             Assertions.assertEquals(windowEnd, checksum);
             Assertions.assertEquals(windowEnd, recoveredService.getWindowEndTSO());
         } finally {
-            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+            Config.enable_feature_changelog = originalEnableFeatureChangelog;
         }
     }
 
     @Test
     public void testSaveTSOSkipsWhenWindowEndIsZero() throws IOException {
-        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        boolean originalEnableFeatureChangelog = Config.enable_feature_changelog;
         try {
-            Config.enable_feature_binlog = true;
+            Config.enable_feature_changelog = true;
 
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             long checksum;
@@ -290,15 +315,15 @@ public class TSOServiceTest {
             Assertions.assertEquals(7L, checksum);
             Assertions.assertEquals(0, out.size());
         } finally {
-            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+            Config.enable_feature_changelog = originalEnableFeatureChangelog;
         }
     }
 
     @Test
     public void testWriteTimestampToBdbJeSkipsWhenBinlogDisabled() throws Exception {
-        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        boolean originalEnableFeatureChangelog = Config.enable_feature_changelog;
         try {
-            Config.enable_feature_binlog = false;
+            Config.enable_feature_changelog = false;
             EditLog editLog = Mockito.mock(EditLog.class);
             Mockito.when(env.isReady()).thenReturn(false);
             Mockito.when(env.getEditLog()).thenReturn(editLog);
@@ -306,7 +331,7 @@ public class TSOServiceTest {
             invokeWriteTimestampToBdbJe(tsoService, 123L);
             Mockito.verifyNoInteractions(editLog);
         } finally {
-            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+            Config.enable_feature_changelog = originalEnableFeatureChangelog;
         }
     }
 
@@ -320,7 +345,7 @@ public class TSOServiceTest {
         Mockito.when(editLog.getJournal()).thenReturn(journal);
 
         invokeWriteTimestampToBdbJe(tsoService, 123L);
-        Mockito.verify(editLog).logTSOTimestampWindowEnd(Mockito.any(TSOTimestamp.class));
+        Mockito.verify(editLog).logTSOTimestampWindowEnd(Mockito.any(TSOServiceState.class));
     }
 
     @Test
@@ -336,9 +361,9 @@ public class TSOServiceTest {
 
     @Test
     public void testCalibrateTimestampThrowsWhenPersistWriteFailsAndKeepNotInitialized() throws Exception {
-        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        boolean originalEnableFeatureChangelog = Config.enable_feature_changelog;
         try {
-            Config.enable_feature_binlog = true;
+            Config.enable_feature_changelog = true;
             Mockito.when(env.isReady()).thenReturn(true);
             Mockito.when(env.isMaster()).thenReturn(true);
             Mockito.when(env.getEditLog()).thenReturn(null);
@@ -352,8 +377,8 @@ public class TSOServiceTest {
 
             TSOService.TSOStatusSnapshot statusSnapshot = tsoService.getStatusSnapshot();
             Assertions.assertFalse(statusSnapshot.isInitialized());
-            Assertions.assertTrue(statusSnapshot.getCurrentTso() > 0L);
-            Assertions.assertEquals(0L, statusSnapshot.getWindowEndPhysicalTime());
+            Assertions.assertEquals(0L, statusSnapshot.getCurrentTso());
+            Assertions.assertEquals(0L, statusSnapshot.getWindowEndPhysicalTimeMs());
 
             try {
                 tsoService.getTSO();
@@ -362,7 +387,7 @@ public class TSOServiceTest {
                 Assertions.assertTrue(e.getMessage().contains("not calibrated"));
             }
         } finally {
-            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+            Config.enable_feature_changelog = originalEnableFeatureChangelog;
         }
     }
 
@@ -371,7 +396,7 @@ public class TSOServiceTest {
         Mockito.when(env.isReady()).thenReturn(true);
         Mockito.when(env.isMaster()).thenReturn(true);
         long now = System.currentTimeMillis() + Config.tso_time_offset_debug_mode;
-        tsoService.replayWindowEndTSO(new TSOTimestamp(
+        tsoService.replayWindowEndTSO(new TSOServiceState(
                 now + Config.tso_clock_backward_startup_threshold_ms + 60_000, 0L));
         try {
             invokeCalibrateTimestamp(tsoService);
@@ -394,8 +419,176 @@ public class TSOServiceTest {
     }
 
     @Test
+    public void testCloudCalibrationPersistsWindowBeforePublishingFenceAndCatchesUp() throws Exception {
+        Mockito.when(env.isReady()).thenReturn(true);
+        Mockito.when(env.isMaster()).thenReturn(true);
+        mockPersistReady();
+        AtomicBoolean firstRequest = new AtomicBoolean(true);
+        Mockito.when(globalTxnMgr.advanceTsoFence(Mockito.anyLong())).thenAnswer(invocation -> {
+            long proposed = invocation.getArgument(0);
+            Assertions.assertFalse(tsoService.getStatusSnapshot().isInitialized());
+            Assertions.assertTrue(tsoService.getWindowEndTSO()
+                    >= TSOTimestamp.extractPhysicalTime(proposed) + Config.tso_service_window_duration_ms);
+            if (firstRequest.getAndSet(false)) {
+                return TSOTimestamp.composePhysicalTimestamp(TSOTimestamp.extractPhysicalTime(proposed) + 10);
+            }
+            return proposed;
+        });
+
+        try (MockedStatic<Config> config = Mockito.mockStatic(Config.class)) {
+            config.when(Config::isCloudMode).thenReturn(true);
+            invokeCalibrateTimestamp(tsoService);
+        }
+
+        Mockito.verify(globalTxnMgr, Mockito.times(2)).advanceTsoFence(Mockito.anyLong());
+        Assertions.assertTrue(tsoService.getStatusSnapshot().isInitialized());
+    }
+
+    @Test
+    public void testCloudCalibrationRetriesThePersistedFenceAfterRpcFailure() throws Exception {
+        Mockito.when(env.isReady()).thenReturn(true);
+        Mockito.when(env.isMaster()).thenReturn(true);
+        mockPersistReady();
+        AtomicBoolean failFirstRequest = new AtomicBoolean(true);
+        long[] proposedFence = {-1};
+        Mockito.when(globalTxnMgr.advanceTsoFence(Mockito.anyLong())).thenAnswer(invocation -> {
+            long proposed = invocation.getArgument(0);
+            if (failFirstRequest.getAndSet(false)) {
+                proposedFence[0] = proposed;
+                throw new UserException("injected fence RPC failure");
+            }
+            Assertions.assertEquals(proposedFence[0], proposed);
+            return proposed;
+        });
+
+        try (MockedStatic<Config> config = Mockito.mockStatic(Config.class)) {
+            config.when(Config::isCloudMode).thenReturn(true);
+            Assertions.assertThrows(InvocationTargetException.class,
+                    () -> invokeCalibrateTimestamp(tsoService));
+            invokeCalibrateTimestamp(tsoService);
+        }
+
+        Mockito.verify(env.getEditLog(), Mockito.times(1))
+                .logTSOTimestampWindowEnd(Mockito.any());
+        Assertions.assertTrue(tsoService.getStatusSnapshot().isInitialized());
+    }
+
+    @Test
+    public void testFencedCommitRetryReplacesRegisteredTso() throws Exception {
+        Mockito.when(env.isReady()).thenReturn(true);
+        Mockito.when(env.isMaster()).thenReturn(true);
+        setInitializedFlag(tsoService, true);
+        setGlobalTimestamp(tsoService, 100, 0);
+        long rejectedTso = tsoService.getCommitTSO(1, 10, Collections.singleton(100L));
+        long fenceTso = TSOTimestamp.composePhysicalTimestamp(101);
+        setGlobalTimestamp(tsoService, 101, 0);
+
+        long replacementTso = tsoService.getCommitTSOAfterFence(
+                1, 10, Set.of(100L, 200L), rejectedTso, fenceTso);
+
+        Assertions.assertTrue(replacementTso > fenceTso);
+        Field trackerField = TSOService.class.getDeclaredField("transactionTracker");
+        trackerField.setAccessible(true);
+        TSOTransactionTracker tracker = (TSOTransactionTracker) trackerField.get(tsoService);
+        Assertions.assertEquals(replacementTso, tracker.getOldestPendingTso());
+        Assertions.assertEquals(1, tracker.getPendingCount());
+    }
+
+    @Test
+    public void testFencedCommitRetryRegistersTransactionOnNewMaster() throws Exception {
+        Mockito.when(env.isReady()).thenReturn(true);
+        Mockito.when(env.isMaster()).thenReturn(true);
+        setInitializedFlag(tsoService, true);
+        long fenceTso = TSOTimestamp.composePhysicalTimestamp(101);
+        setGlobalTimestamp(tsoService, 101, 0);
+
+        long replacementTso = tsoService.getCommitTSOAfterFence(
+                1, 10, Set.of(100L), TSOTimestamp.composePhysicalTimestamp(100), fenceTso);
+
+        Assertions.assertTrue(replacementTso > fenceTso);
+        Field trackerField = TSOService.class.getDeclaredField("transactionTracker");
+        trackerField.setAccessible(true);
+        TSOTransactionTracker tracker = (TSOTransactionTracker) trackerField.get(tsoService);
+        Assertions.assertEquals(replacementTso, tracker.getOldestPendingTso());
+        Assertions.assertEquals(1, tracker.getPendingCount());
+    }
+
+    @Test
+    public void testFencedCommitRetryDoesNotAdvanceStaleMasterClock() throws Exception {
+        Mockito.when(env.isReady()).thenReturn(true);
+        Mockito.when(env.isMaster()).thenReturn(true);
+        setInitializedFlag(tsoService, true);
+        setGlobalTimestamp(tsoService, 100, 0);
+        long fenceTso = TSOTimestamp.composePhysicalTimestamp(101);
+
+        RuntimeException failure = Assertions.assertThrows(RuntimeException.class,
+                () -> tsoService.getCommitTSOAfterFence(1, 10, Set.of(100L),
+                        TSOTimestamp.composePhysicalTimestamp(100), fenceTso));
+
+        Assertions.assertTrue(failure.getMessage().contains("TXN_COMMIT_TSO_EXPIRED"));
+        Field trackerField = TSOService.class.getDeclaredField("transactionTracker");
+        trackerField.setAccessible(true);
+        Assertions.assertEquals(0,
+                ((TSOTransactionTracker) trackerField.get(tsoService)).getPendingCount());
+    }
+
+    @Test
+    public void testUncertainCommitIsReleasedAfterFence() throws Exception {
+        Mockito.when(env.isReady()).thenReturn(true);
+        Mockito.when(env.isMaster()).thenReturn(true);
+        setInitializedFlag(tsoService, true);
+        setGlobalTimestamp(tsoService, 100, 0);
+        long commitTso = tsoService.getCommitTSO(1, 10, Collections.singleton(100L));
+
+        tsoService.fenceAndAbandonCommitTso(1, 10, commitTso);
+
+        Mockito.verify(globalTxnMgr).advanceTsoFence(commitTso);
+        Field trackerField = TSOService.class.getDeclaredField("transactionTracker");
+        trackerField.setAccessible(true);
+        Assertions.assertEquals(0,
+                ((TSOTransactionTracker) trackerField.get(tsoService)).getPendingCount());
+    }
+
+    @Test
+    public void testFenceFailureDeactivatesTsoService() throws Exception {
+        Mockito.when(env.isReady()).thenReturn(true);
+        Mockito.when(env.isMaster()).thenReturn(true);
+        setInitializedFlag(tsoService, true);
+        setGlobalTimestamp(tsoService, 100, 0);
+        long commitTso = tsoService.getCommitTSO(1, 10, Collections.singleton(100L));
+        Mockito.when(globalTxnMgr.advanceTsoFence(commitTso)).thenThrow(new UserException("injected failure"));
+
+        Assertions.assertThrows(UserException.class,
+                () -> tsoService.fenceAndAbandonCommitTso(1, 10, commitTso));
+
+        Assertions.assertFalse(tsoService.getStatusSnapshot().isInitialized());
+        Field trackerField = TSOService.class.getDeclaredField("transactionTracker");
+        trackerField.setAccessible(true);
+        Assertions.assertEquals(0,
+                ((TSOTransactionTracker) trackerField.get(tsoService)).getPendingCount());
+    }
+
+    @Test
+    public void testDemotionInvalidatesAllocationState() throws Exception {
+        Mockito.when(env.isReady()).thenReturn(true);
+        Mockito.when(env.isMaster()).thenReturn(true);
+        setInitializedFlag(tsoService, true);
+        setGlobalTimestamp(tsoService, 100, 0);
+        tsoService.getCommitTSO(1, 10, Collections.singleton(100L));
+        Mockito.when(env.isMaster()).thenReturn(false);
+
+        tsoService.runAfterCatalogReady();
+
+        Assertions.assertFalse(tsoService.getStatusSnapshot().isInitialized());
+        Field trackerField = TSOService.class.getDeclaredField("transactionTracker");
+        trackerField.setAccessible(true);
+        Assertions.assertEquals(0,
+                ((TSOTransactionTracker) trackerField.get(tsoService)).getPendingCount());
+    }
+
+    @Test
     public void testRunAfterCatalogReadySkipsWhenBinlogDisabled() throws Exception {
-        Config.enable_feature_binlog = false;
+        Config.enable_feature_changelog = false;
         setInitializedFlag(tsoService, true);
         tsoService.runAfterCatalogReady();
         Assertions.assertEquals(0L, tsoService.getCurrentTSO());
@@ -406,7 +599,7 @@ public class TSOServiceTest {
         Mockito.when(env.isReady()).thenReturn(true);
         Mockito.when(env.isMaster()).thenReturn(true);
         long initialWindowEnd = 12345L;
-        tsoService.replayWindowEndTSO(new TSOTimestamp(initialWindowEnd, 0L));
+        tsoService.replayWindowEndTSO(new TSOServiceState(initialWindowEnd, 0L));
 
         invokeUpdateTimestamp(tsoService);
 
@@ -416,23 +609,221 @@ public class TSOServiceTest {
 
     @Test
     public void testGenerateTSOReturnsZeroWhenDisabledOrNotInitialized() throws Exception {
-        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        boolean originalEnableFeatureChangelog = Config.enable_feature_changelog;
         try {
             setGlobalTimestamp(tsoService, 100L, 1L);
 
-            Config.enable_feature_binlog = true;
+            Config.enable_feature_changelog = true;
             setInitializedFlag(tsoService, false);
             Pair<Long, Long> pairWhenNotInitialized = invokeGenerateTSO(tsoService);
             Assertions.assertEquals(0L, (long) pairWhenNotInitialized.first);
             Assertions.assertEquals(0L, (long) pairWhenNotInitialized.second);
 
-            Config.enable_feature_binlog = false;
+            Config.enable_feature_changelog = false;
             setInitializedFlag(tsoService, true);
             Pair<Long, Long> pairWhenDisabled = invokeGenerateTSO(tsoService);
             Assertions.assertEquals(0L, (long) pairWhenDisabled.first);
             Assertions.assertEquals(0L, (long) pairWhenDisabled.second);
         } finally {
-            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+            Config.enable_feature_changelog = originalEnableFeatureChangelog;
+        }
+    }
+
+    @Test
+    public void testReadableWindowDoesNotRequireAnotherCommittedTsoFlush() throws Exception {
+        Mockito.when(env.isMaster()).thenReturn(true);
+        Mockito.when(env.getTSOService()).thenReturn(tsoService);
+        setInitializedFlag(tsoService, true);
+        setGlobalTimestamp(tsoService, 1000, 17);
+        long committed = TSOTimestamp.composeTimestamp(900, 1);
+        tsoService.replayWindowEndTSO(new TSOServiceState(2000, committed));
+        try (MockedStatic<Config> config = Mockito.mockStatic(Config.class)) {
+            config.when(Config::isCloudMode).thenReturn(true);
+            TimeBasedChangeVisibleWaiter.ChangeReadFence fence = TimeBasedChangeVisibleWaiter.acquireFenceOnMaster(
+                    Collections.singletonMap(1L, Collections.singletonList(2L)), 950L, 0, true, true);
+            Assertions.assertEquals(committed, fence.getCommittedTso());
+        }
+    }
+
+    private void prepareWindowRead() throws Exception {
+        Mockito.when(env.isReady()).thenReturn(true);
+        Mockito.when(env.isMaster()).thenReturn(true);
+        Mockito.when(env.getTSOService()).thenReturn(tsoService);
+        setInitializedFlag(tsoService, true);
+        setGlobalTimestamp(tsoService, 100, 0);
+        tsoService.replayWindowEndTSO(new TSOServiceState(2000, TSOTimestamp.composeTimestamp(80, 1)));
+    }
+
+    @Test
+    public void testSlowTableDoesNotBlockAnotherTableOrAnEarlierEnd() throws Exception {
+        prepareWindowRead();
+        long pending = tsoService.getCommitTSO(1, 10, Set.of(100L, 101L));
+        setGlobalTimestamp(tsoService, 150, 17);
+        TSOService.TSOStatusSnapshot unrelated = tsoService.waitForReadableWindow(
+                Map.of(1L, Collections.singletonList(200L)), 120, 0);
+        Assertions.assertTrue(unrelated.getCommittedTso() < pending);
+        tsoService.waitForReadableWindow(Map.of(1L, Collections.singletonList(100L)), 100, 0);
+        for (long table : new long[] {100, 101}) {
+            IncrWindowNotReadyException error = Assertions.assertThrows(IncrWindowNotReadyException.class,
+                    () -> tsoService.waitForReadableWindow(Map.of(1L, Collections.singletonList(table)), 120, 0));
+            Assertions.assertEquals(ErrorCode.ERR_INCR_VISIBLE_WAIT_TIMEOUT, error.getMysqlErrorCode());
+            Assertions.assertEquals("VISIBLE_WAIT_TIMEOUT", error.getReason());
+            Assertions.assertEquals(120, error.getRequestedEndTimestampMs());
+            Assertions.assertEquals(tsoService.getCurrentTSO(), error.getCurrentTso());
+            Assertions.assertEquals(unrelated.getCommittedTso(), error.getCommittedTso());
+        }
+        tsoService.markTxnFinished(1, 10);
+        TSOService.TSOStatusSnapshot finished = tsoService.waitForReadableWindow(
+                Map.of(1L, Collections.singletonList(100L)), 120, 0);
+        // A table-specific successful read does not advance the global durable prefix.
+        Assertions.assertEquals(unrelated.getCommittedTso(), finished.getCommittedTso());
+    }
+
+    @Test
+    public void testFutureWindowHasDifferentReasonFromWaitTimeout() throws Exception {
+        prepareWindowRead();
+        Map<Long, List<Long>> tables = Map.of(1L, Collections.singletonList(100L));
+        IncrWindowNotReadyException future = Assertions.assertThrows(IncrWindowNotReadyException.class,
+                () -> tsoService.waitForReadableWindow(tables, 101, 0));
+        Assertions.assertEquals(ErrorCode.ERR_INCR_WINDOW_NOT_READY, future.getMysqlErrorCode());
+        Assertions.assertEquals("END_AFTER_CURRENT_TSO", future.getReason());
+        tsoService.waitForReadableWindow(tables, 90, 0);
+        tsoService.waitForReadableWindow(tables, 80, 0);
+    }
+
+    @Test
+    public void testInterruptedReadWaitRestoresInterruptFlag() throws Exception {
+        prepareWindowRead();
+        tsoService.getCommitTSO(1, 10, Collections.singleton(100L));
+        setGlobalTimestamp(tsoService, 150, 17);
+        try {
+            Thread.currentThread().interrupt();
+            UserException error = Assertions.assertThrows(UserException.class, () -> tsoService.waitForReadableWindow(
+                    Map.of(1L, Collections.singletonList(100L)), 120, 1000));
+            Assertions.assertTrue(error.getDetailMessage().contains("interrupted"));
+            Assertions.assertTrue(Thread.currentThread().isInterrupted());
+        } finally {
+            Thread.interrupted();
+        }
+    }
+
+    @Test
+    public void testCommittedPrefixIsPublishedOnlyAfterJournalSuccess() throws Exception {
+        Mockito.when(env.isReady()).thenReturn(true);
+        Mockito.when(env.isMaster()).thenReturn(true);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        Mockito.when(editLog.getJournal()).thenReturn(Mockito.mock(Journal.class));
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
+        tsoService.replayWindowEndTSO(new TSOServiceState(200, 80));
+        setGlobalTimestamp(tsoService, 100, 10);
+        try (MockedStatic<Config> config = Mockito.mockStatic(Config.class)) {
+            config.when(Config::isCloudMode).thenReturn(true);
+            Mockito.doAnswer(invocation -> {
+                Assertions.assertEquals(80, tsoService.getStatusSnapshot().getCommittedTso());
+                Assertions.assertEquals(200, tsoService.getStatusSnapshot().getWindowEndPhysicalTimeMs());
+                throw new RuntimeException("injected journal failure");
+            }).when(editLog).logTSOTimestampWindowEnd(Mockito.any());
+            Assertions.assertThrows(RuntimeException.class, () -> invokeWriteTimestampToBdbJe(tsoService, 300));
+            Assertions.assertEquals(80, tsoService.getStatusSnapshot().getCommittedTso());
+            Assertions.assertEquals(200, tsoService.getStatusSnapshot().getWindowEndPhysicalTimeMs());
+            Mockito.doNothing().when(editLog).logTSOTimestampWindowEnd(Mockito.any());
+            invokeWriteTimestampToBdbJe(tsoService, 300);
+            Assertions.assertEquals(tsoService.getCurrentTSO(), tsoService.getStatusSnapshot().getCommittedTso());
+            Assertions.assertEquals(300, tsoService.getStatusSnapshot().getWindowEndPhysicalTimeMs());
+        }
+    }
+
+    @Test
+    public void testCalibrationKeepsPrefixAndPeriodicFlushWorksWithUnchangedWindow() throws Exception {
+        Mockito.when(env.isReady()).thenReturn(true);
+        Mockito.when(env.isMaster()).thenReturn(true);
+        mockPersistReady();
+        long oldWindow = System.currentTimeMillis() + 60_000;
+        long oldCommitted = TSOTimestamp.composeTimestamp(oldWindow - 1000, 7);
+        tsoService.replayWindowEndTSO(new TSOServiceState(oldWindow, oldCommitted));
+        try (MockedStatic<Config> config = Mockito.mockStatic(Config.class)) {
+            config.when(Config::isCloudMode).thenReturn(true);
+            invokeCalibrateTimestamp(tsoService);
+            Assertions.assertEquals(oldCommitted, tsoService.getStatusSnapshot().getCommittedTso());
+            long pendingTso = tsoService.getCommitTSO(1, 10, Collections.singleton(2L));
+            long reservedWindow = tsoService.getWindowEndTSO();
+            Field lastPersist = TSOService.class.getDeclaredField("lastPersistNanos");
+            lastPersist.setAccessible(true);
+            lastPersist.setLong(tsoService, System.nanoTime()
+                    - TimeUnit.MILLISECONDS.toNanos(Config.tso_service_window_duration_ms + 1L));
+            invokeUpdateTimestamp(tsoService);
+            Assertions.assertEquals(reservedWindow, tsoService.getWindowEndTSO());
+            Assertions.assertEquals(pendingTso - 1, tsoService.getStatusSnapshot().getCommittedTso());
+            tsoService.markTxnFinished(1, 10);
+            lastPersist.setLong(tsoService, System.nanoTime()
+                    - TimeUnit.MILLISECONDS.toNanos(Config.tso_service_window_duration_ms + 1L));
+            invokeUpdateTimestamp(tsoService);
+            Assertions.assertEquals(reservedWindow, tsoService.getWindowEndTSO());
+            Assertions.assertEquals(pendingTso, tsoService.getStatusSnapshot().getCommittedTso());
+        }
+    }
+
+    @Test
+    public void testStateImageAndJournal() throws Exception {
+        long committed = TSOTimestamp.composeTimestamp(100, 17);
+        tsoService.replayWindowEndTSO(new TSOServiceState(200, committed));
+        TSOService restored = new TSOService();
+        Assertions.assertEquals(200, restored.loadTSO(
+                new DataInputStream(new ByteArrayInputStream(saveTSOBytes(tsoService))), 0));
+        Assertions.assertEquals(committed, restored.getStatusSnapshot().getCommittedTso());
+        Assertions.assertFalse(restored.getStatusSnapshot().isInitialized());
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        DataOutputStream out = new DataOutputStream(bytes);
+        out.writeShort(OperationType.OP_TSO_TIMESTAMP_WINDOW_END);
+        new TSOServiceState(200, committed).write(out);
+        JournalEntity entity = new JournalEntity();
+        entity.readFields(new DataInputStream(new ByteArrayInputStream(bytes.toByteArray())));
+        TSOServiceState state = (TSOServiceState) entity.getData();
+        Assertions.assertEquals(200, state.getWindowEndPhysicalTimeMs());
+        Assertions.assertEquals(committed, state.getCommittedTso());
+    }
+
+    @Test
+    public void testAllocationAndRegistrationShareSnapshotLock() throws Exception {
+        setInitializedFlag(tsoService, true);
+        setGlobalTimestamp(tsoService, 100, 0);
+        Field lockField = TSOService.class.getDeclaredField("lock");
+        lockField.setAccessible(true);
+        ReentrantLock lock = (ReentrantLock) lockField.get(tsoService);
+        Field trackerField = TSOService.class.getDeclaredField("transactionTracker");
+        trackerField.setAccessible(true);
+        TSOTransactionTracker tracker = Mockito.spy((TSOTransactionTracker) trackerField.get(tsoService));
+        trackerField.set(tsoService, tracker);
+        CountDownLatch enteredRegistration = new CountDownLatch(1);
+        CountDownLatch releaseRegistration = new CountDownLatch(1);
+        Mockito.doAnswer(invocation -> {
+            enteredRegistration.countDown();
+            Assertions.assertTrue(releaseRegistration.await(30, TimeUnit.SECONDS));
+            return invocation.callRealMethod();
+        }).when(tracker).register(Mockito.any(), Mockito.anyLong(), Mockito.anyLong(), Mockito.anySet());
+        Method generate = TSOService.class.getDeclaredMethod("generateTSO", Pair.class, Set.class);
+        generate.setAccessible(true);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> allocation = executor.submit(() -> {
+                try {
+                    generate.invoke(tsoService, Pair.of(1L, 10L), Collections.singleton(2L));
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            });
+            Assertions.assertTrue(enteredRegistration.await(30, TimeUnit.SECONDS));
+            boolean snapshotLockAcquired = lock.tryLock();
+            if (snapshotLockAcquired) {
+                lock.unlock();
+            }
+            Assertions.assertFalse(snapshotLockAcquired, "snapshot must not pass an unregistered allocation");
+            releaseRegistration.countDown();
+            allocation.get(30, TimeUnit.SECONDS);
+            Assertions.assertEquals(TSOTimestamp.composeTimestamp(100, 1), tracker.getOldestPendingTso());
+        } finally {
+            releaseRegistration.countDown();
+            executor.shutdownNow();
         }
     }
 

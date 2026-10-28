@@ -30,12 +30,14 @@
 #include "absl/strings/substitute.h"
 #include "common/status.h"
 #include "core/data_type/primitive_type.h"
+#include "core/data_type/storage_field_type.h"
 #include "core/decimal12.h"
 #include "core/extended_types.h"
 #include "core/field.h"
 #include "core/types.h"
 #include "exec/common/endian.h"
 #include "storage/olap_common.h"
+#include "storage/storage_layout.h"
 #include "storage/types.h"
 #include "util/slice.h"
 
@@ -82,13 +84,14 @@ template <FieldType field_type, typename Enable = void>
 class KeyCoderTraits {};
 
 template <FieldType field_type>
-class KeyCoderTraits<field_type,
-                     typename std::enable_if<
-                             IsIntegral<typename CppTypeTraits<field_type>::CppType>::value ||
-                             IsDecimalNumber<typename CppTypeTraits<field_type>::CppType>>::type> {
+class KeyCoderTraits<
+        field_type,
+        typename std::enable_if<
+                IsIntegral<typename StorageTypeTraits<field_type>::StorageType>::value ||
+                IsDecimalNumber<typename StorageTypeTraits<field_type>::StorageType>>::type> {
 public:
-    using CppType = typename CppTypeTraits<field_type>::CppType;
-    using UnsignedCppType = typename CppTypeTraits<field_type>::UnsignedCppType;
+    using CppType = typename StorageTypeTraits<field_type>::StorageType;
+    using UnsignedCppType = typename StorageTypeTraits<field_type>::UnsignedStorageType;
 
     static void full_encode_ascending(const void* value, std::string* buf) {
         UnsignedCppType unsigned_val;
@@ -131,9 +134,9 @@ public:
 template <>
 class KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_DATE> {
 public:
-    using CppType = typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>::CppType;
+    using CppType = typename StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>::StorageType;
     using UnsignedCppType =
-            typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>::UnsignedCppType;
+            typename StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>::UnsignedStorageType;
 
 public:
     static void full_encode_ascending(const void* value, std::string* buf) {
@@ -165,9 +168,9 @@ public:
 template <>
 class KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_DATEV2> {
 public:
-    using CppType = typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATEV2>::CppType;
+    using CppType = typename StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_DATEV2>::StorageType;
     using UnsignedCppType =
-            typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATEV2>::UnsignedCppType;
+            typename StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_DATEV2>::UnsignedStorageType;
 
 public:
     static void full_encode_ascending(const void* value, std::string* buf) {
@@ -200,9 +203,9 @@ public:
 template <>
 class KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2> {
 public:
-    using CppType = typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>::CppType;
+    using CppType = typename StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>::StorageType;
     using UnsignedCppType =
-            typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>::UnsignedCppType;
+            typename StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>::UnsignedStorageType;
 
 public:
     static void full_encode_ascending(const void* value, std::string* buf) {
@@ -235,9 +238,9 @@ public:
 template <>
 class KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ> {
 public:
-    using CppType = typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ>::CppType;
+    using CppType = typename StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ>::StorageType;
     using UnsignedCppType =
-            typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ>::UnsignedCppType;
+            typename StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ>::UnsignedStorageType;
 
 public:
     static void full_encode_ascending(const void* value, std::string* buf) {
@@ -359,8 +362,8 @@ public:
 template <FieldType field_type>
 class KeyCoderTraitsForFloat {
 public:
-    using CppType = typename CppTypeTraits<field_type>::CppType;
-    using UnsignedCppType = typename CppTypeTraits<field_type>::UnsignedCppType;
+    using CppType = typename StorageTypeTraits<field_type>::StorageType;
+    using UnsignedCppType = typename StorageTypeTraits<field_type>::UnsignedStorageType;
 
     static UnsignedCppType encode_float(CppType value) {
         return sortable_float_bits(float_to_int_bits(value));
@@ -406,16 +409,9 @@ public:
 
 private:
     static UnsignedCppType float_to_int_bits(CppType value) {
-        if (std::isnan(value)) {
-            if constexpr (std::is_same_v<CppType, float>) {
-                return 0x7FC00000U;
-            } else {
-                return 0x7FF8000000000000ULL;
-            }
-        }
-
+        const CppType canonical = StorageLayout<field_type>::canonicalize_nan(value);
         UnsignedCppType result;
-        std::memcpy(&result, &value, sizeof(CppType));
+        std::memcpy(&result, &canonical, sizeof(CppType));
         return result;
     }
 
@@ -448,42 +444,43 @@ template <>
 class KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_DOUBLE>
         : public KeyCoderTraitsForFloat<FieldType::OLAP_FIELD_TYPE_DOUBLE> {};
 
-// X-macro listing every (FieldType, PrimitiveType) pair that goes through KeyCoder
-// as a non-string scalar key. Strings are handled separately because they need
-// length / padding logic outside KeyCoder. Each entry: M(FT_suffix, PT_suffix).
+// Every FieldType that goes through KeyCoder as a non-string scalar key.
+// Strings are handled separately because they need length / padding logic
+// outside KeyCoder.
 #define DORIS_APPLY_FOR_KEY_ENCODABLE_NON_STRING_TYPES(M) \
-    M(OLAP_FIELD_TYPE_BOOL, TYPE_BOOLEAN)                 \
-    M(OLAP_FIELD_TYPE_TINYINT, TYPE_TINYINT)              \
-    M(OLAP_FIELD_TYPE_SMALLINT, TYPE_SMALLINT)            \
-    M(OLAP_FIELD_TYPE_INT, TYPE_INT)                      \
-    M(OLAP_FIELD_TYPE_BIGINT, TYPE_BIGINT)                \
-    M(OLAP_FIELD_TYPE_LARGEINT, TYPE_LARGEINT)            \
-    M(OLAP_FIELD_TYPE_FLOAT, TYPE_FLOAT)                  \
-    M(OLAP_FIELD_TYPE_DOUBLE, TYPE_DOUBLE)                \
-    M(OLAP_FIELD_TYPE_DECIMAL, TYPE_DECIMALV2)            \
-    M(OLAP_FIELD_TYPE_DECIMAL32, TYPE_DECIMAL32)          \
-    M(OLAP_FIELD_TYPE_DECIMAL64, TYPE_DECIMAL64)          \
-    M(OLAP_FIELD_TYPE_DECIMAL128I, TYPE_DECIMAL128I)      \
-    M(OLAP_FIELD_TYPE_DECIMAL256, TYPE_DECIMAL256)        \
-    M(OLAP_FIELD_TYPE_DATE, TYPE_DATE)                    \
-    M(OLAP_FIELD_TYPE_DATETIME, TYPE_DATETIME)            \
-    M(OLAP_FIELD_TYPE_DATEV2, TYPE_DATEV2)                \
-    M(OLAP_FIELD_TYPE_DATETIMEV2, TYPE_DATETIMEV2)        \
-    M(OLAP_FIELD_TYPE_TIMESTAMP_NS, TYPE_TIMESTAMP_NS)    \
-    M(OLAP_FIELD_TYPE_TIMESTAMPTZ, TYPE_TIMESTAMPTZ)      \
-    M(OLAP_FIELD_TYPE_IPV4, TYPE_IPV4)                    \
-    M(OLAP_FIELD_TYPE_IPV6, TYPE_IPV6)
+    M(OLAP_FIELD_TYPE_BOOL)                               \
+    M(OLAP_FIELD_TYPE_TINYINT)                            \
+    M(OLAP_FIELD_TYPE_SMALLINT)                           \
+    M(OLAP_FIELD_TYPE_INT)                                \
+    M(OLAP_FIELD_TYPE_BIGINT)                             \
+    M(OLAP_FIELD_TYPE_LARGEINT)                           \
+    M(OLAP_FIELD_TYPE_FLOAT)                              \
+    M(OLAP_FIELD_TYPE_DOUBLE)                             \
+    M(OLAP_FIELD_TYPE_DECIMAL)                            \
+    M(OLAP_FIELD_TYPE_DECIMAL32)                          \
+    M(OLAP_FIELD_TYPE_DECIMAL64)                          \
+    M(OLAP_FIELD_TYPE_DECIMAL128I)                        \
+    M(OLAP_FIELD_TYPE_DECIMAL256)                         \
+    M(OLAP_FIELD_TYPE_DATE)                               \
+    M(OLAP_FIELD_TYPE_DATETIME)                           \
+    M(OLAP_FIELD_TYPE_DATEV2)                             \
+    M(OLAP_FIELD_TYPE_DATETIMEV2)                         \
+    M(OLAP_FIELD_TYPE_TIMESTAMP_NS)                       \
+    M(OLAP_FIELD_TYPE_TIMESTAMPTZ)                        \
+    M(OLAP_FIELD_TYPE_IPV4)                               \
+    M(OLAP_FIELD_TYPE_IPV6)                               \
+    M(OLAP_FIELD_TYPE_UUID)
 
-// True for exactly the PrimitiveTypes listed in
+// True for exactly the FieldTypes listed in
 // DORIS_APPLY_FOR_KEY_ENCODABLE_NON_STRING_TYPES. Strings (CHAR/VARCHAR/STRING/
 // VARBINARY) have their own short-key code path in row_cursor.cpp that calls
 // storage_field->full_encode_ascending directly, and nested/aggregate types
 // (ARRAY/MAP/STRUCT/VARIANT/HLL/BITMAP/JSONB/QUANTILE_STATE/AGG_STATE) are not
 // key-encodable at all -- both groups must never reach the helpers below.
-constexpr bool is_key_encodable_non_string_type(PrimitiveType pt) {
-    switch (pt) {
-#define DORIS_KEY_ENCODABLE_CASE(FT, PT) \
-    case PrimitiveType::PT:              \
+constexpr bool is_key_encodable_non_string_type(FieldType ft) {
+    switch (ft) {
+#define DORIS_KEY_ENCODABLE_CASE(FT) \
+    case FieldType::FT:              \
         return true;
         DORIS_APPLY_FOR_KEY_ENCODABLE_NON_STRING_TYPES(DORIS_KEY_ENCODABLE_CASE)
 #undef DORIS_KEY_ENCODABLE_CASE
@@ -492,16 +489,16 @@ constexpr bool is_key_encodable_non_string_type(PrimitiveType pt) {
     }
 }
 
-// Convert a Field value to its storage representation (via PrimitiveTypeConvertor)
+// Convert a Field value to its StorageValue (via StorageLayout)
 // and full-encode it as a byte-comparable ascending key via KeyCoder.
-template <PrimitiveType PT>
+template <FieldType FT>
 inline void full_encode_field_as_key(const Field& f, const KeyCoder* coder, std::string* buf) {
-    static_assert(is_key_encodable_non_string_type(PT),
+    static_assert(is_key_encodable_non_string_type(FT),
                   "full_encode_field_as_key is for non-string scalar keys only; "
                   "strings have their own path in RowCursor that calls "
                   "storage_field->full_encode_ascending directly, and nested / "
                   "aggregate types are not key-encodable");
-    auto v = PrimitiveTypeConvertor<PT>::to_storage_field_type(f.get<PT>());
+    const auto v = StorageLayout<FT>::to_storage(f.get<storage_field_type_to_primitive_type(FT)>());
     coder->full_encode_ascending(&v, buf);
 }
 

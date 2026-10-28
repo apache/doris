@@ -33,6 +33,7 @@ import org.apache.doris.connector.spi.handle.WriteOperation;
 import org.apache.doris.connector.spi.write.ConnectorSinkPlan;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 import org.apache.doris.filesystem.properties.StorageProperties;
+import org.apache.doris.foundation.format.ParquetTimestampUtils;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TFileFormatType;
@@ -294,6 +295,9 @@ public class HiveWritePlanProvider implements ConnectorWritePlanProvider {
 
         // Hadoop config (BE-canonical static creds; hive has no vended overlay).
         tSink.setHadoopConfig(buildHadoopConfig());
+        // Empty explicitly selects wall-clock INT96; absence identifies an old FE using the session zone.
+        tSink.setHiveParquetTimeZone(ParquetTimestampUtils.parseHiveTimeZone(
+                properties.getRaw().getOrDefault(ParquetTimestampUtils.HIVE_TIME_ZONE, "")));
 
         // New coordinators publish Azure's exact staged block IDs after BE writers finish.
         tSink.setSupportsDeferredAzureMultipart(true);

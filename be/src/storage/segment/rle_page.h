@@ -22,6 +22,7 @@
 #include "storage/segment/options.h"      // for PageBuilderOptions/PageDecoderOptions
 #include "storage/segment/page_builder.h" // for PageBuilder
 #include "storage/segment/page_decoder.h" // for PageDecoder
+#include "storage/types.h"                // for TypeTraits
 #include "util/coding.h"                  // for encode_fixed32_le/decode_fixed32_le
 #include "util/rle_encoding.h"            // for RleEncoder/RleDecoder
 #include "util/slice.h"                   // for OwnedSlice
@@ -29,7 +30,7 @@
 namespace doris {
 namespace segment_v2 {
 
-enum { RLE_PAGE_HEADER_SIZE = 4 };
+static constexpr size_t RLE_PAGE_HEADER_SIZE = 4;
 
 // RLE builder for generic integer and bool types. What is missing is some way
 // to enforce that this can only be instantiated for INT and BOOL types.
@@ -129,7 +130,7 @@ private:
               _rle_encoder(nullptr) {}
 
     typedef typename TypeTraits<Type>::CppType CppType;
-    enum { SIZE_OF_TYPE = TypeTraits<Type>::size };
+    static constexpr size_t SIZE_OF_TYPE = TypeTraits<Type>::size;
 
     PageBuilderOptions _options;
     size_t _count;
@@ -271,7 +272,7 @@ public:
 
 private:
     typedef typename TypeTraits<Type>::CppType CppType;
-    enum { SIZE_OF_TYPE = TypeTraits<Type>::size };
+    static constexpr size_t SIZE_OF_TYPE = TypeTraits<Type>::size;
 
     Slice _data;
     PageDecoderOptions _options;

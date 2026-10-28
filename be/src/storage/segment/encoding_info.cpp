@@ -151,8 +151,9 @@ struct TypeEncodingTraits<type, DICT_ENCODING, Slice> {
 };
 
 template <>
-struct TypeEncodingTraits<FieldType::OLAP_FIELD_TYPE_DATE, FOR_ENCODING,
-                          typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>::CppType> {
+struct TypeEncodingTraits<
+        FieldType::OLAP_FIELD_TYPE_DATE, FOR_ENCODING,
+        typename StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>::StorageType> {
     static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
         return FrameOfReferencePageBuilder<FieldType::OLAP_FIELD_TYPE_DATE>::create(builder, opts);
     }
@@ -164,8 +165,9 @@ struct TypeEncodingTraits<FieldType::OLAP_FIELD_TYPE_DATE, FOR_ENCODING,
 };
 
 template <>
-struct TypeEncodingTraits<FieldType::OLAP_FIELD_TYPE_DATEV2, FOR_ENCODING,
-                          typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATEV2>::CppType> {
+struct TypeEncodingTraits<
+        FieldType::OLAP_FIELD_TYPE_DATEV2, FOR_ENCODING,
+        typename StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_DATEV2>::StorageType> {
     static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
         return FrameOfReferencePageBuilder<FieldType::OLAP_FIELD_TYPE_DATEV2>::create(builder,
                                                                                       opts);
@@ -178,8 +180,9 @@ struct TypeEncodingTraits<FieldType::OLAP_FIELD_TYPE_DATEV2, FOR_ENCODING,
 };
 
 template <>
-struct TypeEncodingTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2, FOR_ENCODING,
-                          typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>::CppType> {
+struct TypeEncodingTraits<
+        FieldType::OLAP_FIELD_TYPE_DATETIMEV2, FOR_ENCODING,
+        typename StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>::StorageType> {
     static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
         return FrameOfReferencePageBuilder<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>::create(builder,
                                                                                           opts);
@@ -193,8 +196,9 @@ struct TypeEncodingTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2, FOR_ENCODING,
 };
 
 template <>
-struct TypeEncodingTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ, FOR_ENCODING,
-                          typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ>::CppType> {
+struct TypeEncodingTraits<
+        FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ, FOR_ENCODING,
+        typename StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ>::StorageType> {
     static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
         return FrameOfReferencePageBuilder<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ>::create(builder,
                                                                                            opts);
@@ -333,6 +337,8 @@ EncodingInfoResolver::EncodingInfoResolver() {
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_IPV4, PLAIN_ENCODING>();
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_IPV6, BIT_SHUFFLE>();
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_IPV6, PLAIN_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_UUID, BIT_SHUFFLE>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_UUID, PLAIN_ENCODING>();
 
     // aggregate / binary-flavored types
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_HLL, PLAIN_ENCODING>();
@@ -377,6 +383,7 @@ EncodingInfoResolver::EncodingInfoResolver() {
     _set_v2_default<FieldType::OLAP_FIELD_TYPE_DECIMAL256, BIT_SHUFFLE>();
     _set_v2_default<FieldType::OLAP_FIELD_TYPE_IPV4, BIT_SHUFFLE>();
     _set_v2_default<FieldType::OLAP_FIELD_TYPE_IPV6, BIT_SHUFFLE>();
+    _set_v2_default<FieldType::OLAP_FIELD_TYPE_UUID, BIT_SHUFFLE>();
     _set_v2_default<FieldType::OLAP_FIELD_TYPE_HLL, PLAIN_ENCODING>();
     _set_v2_default<FieldType::OLAP_FIELD_TYPE_BITMAP, PLAIN_ENCODING>();
     _set_v2_default<FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE, PLAIN_ENCODING>();
@@ -411,6 +418,7 @@ EncodingInfoResolver::EncodingInfoResolver() {
     _set_v3_default<FieldType::OLAP_FIELD_TYPE_DECIMAL256, BIT_SHUFFLE>();
     _set_v3_default<FieldType::OLAP_FIELD_TYPE_IPV4, BIT_SHUFFLE>();
     _set_v3_default<FieldType::OLAP_FIELD_TYPE_IPV6, BIT_SHUFFLE>();
+    _set_v3_default<FieldType::OLAP_FIELD_TYPE_UUID, BIT_SHUFFLE>();
     _set_v3_default<FieldType::OLAP_FIELD_TYPE_HLL, PLAIN_ENCODING_V3>();
     _set_v3_default<FieldType::OLAP_FIELD_TYPE_BITMAP, PLAIN_ENCODING_V3>();
     _set_v3_default<FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE, PLAIN_ENCODING_V3>();
@@ -478,7 +486,7 @@ EncodingInfo::EncodingInfo(TraitsClass traits)
     } else if (_encoding == PLAIN_ENCODING_V2) {
         // Only binary types (Slice) need the predecoder for PLAIN_ENCODING_V2 — it converts
         // varint-encoded lengths to an offset-array format that downstream Slice decoders expect.
-        // CHAR pages additionally strip trailing '\0' padding written by the convertor; other
+        // CHAR pages additionally strip trailing '\0' padding written by the column writer; other
         // Slice types use the non-CHAR specialization. All current (type, PLAIN_ENCODING_V2)
         // registrations are Slice (CHAR/VARCHAR/STRING/JSONB/VARIANT/HLL/BITMAP/QUANTILE_STATE/
         // AGG_STATE per storage/types.h). The else throws at construction time to fail loudly

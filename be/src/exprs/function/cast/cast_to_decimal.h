@@ -233,7 +233,7 @@ struct CastToDecimal {
     }
 
     template <typename FromCppT, typename ToCppT>
-        requires(IsDecimalNumber<ToCppT> && IsCppTypeFloat<FromCppT> && !IsDecimal128V2<ToCppT>)
+        requires(IsDecimalNumber<ToCppT> && IsCppTypeFloat<FromCppT>)
     static inline bool _from_float(const FromCppT& from, ToCppT& to, UInt32 to_precision,
                                    UInt32 to_scale,
                                    const typename ToCppT::NativeType& scale_multiplier,
@@ -246,45 +246,48 @@ struct CastToDecimal {
                                    "to decimal");
             return false;
         }
-        using DoubleType = std::conditional_t<IsDecimal256<ToCppT>, long double, double>;
-        DoubleType tmp = from * static_cast<DoubleType>(scale_multiplier);
-        if (tmp <= DoubleType(min_result) || tmp >= DoubleType(max_result)) {
+        auto overflow = [&]() {
             if (params.is_strict) {
                 params.status = DECIMAL_CONVERT_OVERFLOW_ERROR(from, "float/double", to_precision,
                                                                to_scale);
             }
             return false;
+        };
+        // Use binary64 arithmetic for every decimal backing type. This also matches FE constant
+        // folding for halfway cases such as +/-0.15 at scale 1.
+        // Round before checking the inclusive decimal bounds. Adding 0.5 would itself round
+        // exactly representable odd integers above 2^52 to the next even integer in double.
+        const double tmp =
+                std::round(static_cast<double>(from) * static_cast<double>(scale_multiplier));
+        if (tmp < static_cast<double>(min_result) || tmp > static_cast<double>(max_result)) {
+            return overflow();
         }
-        to.value = static_cast<typename ToCppT::NativeType>(static_cast<double>(
-                from * static_cast<DoubleType>(scale_multiplier) + ((from >= 0) ? 0.5 : -0.5)));
-        return true;
-    }
 
-    template <typename FromCppT, typename ToCppT>
-        requires(IsDecimal128V2<ToCppT> && IsCppTypeFloat<FromCppT>)
-    static inline bool _from_float(const FromCppT& from, ToCppT& to, UInt32 to_precision,
-                                   UInt32 to_scale,
-                                   const typename ToCppT::NativeType& scale_multiplier,
-                                   const typename ToCppT::NativeType& min_result,
-                                   const typename ToCppT::NativeType& max_result,
-                                   CastParameters& params) {
-        if (!std::isfinite(from)) {
-            params.status = Status(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
-                                   "Decimal convert overflow. Cannot convert infinity or NaN "
-                                   "to decimal");
-            return false;
-        }
-        using DoubleType = std::conditional_t<IsDecimal256<ToCppT>, long double, double>;
-        DoubleType tmp = from * static_cast<DoubleType>(scale_multiplier);
-        if (tmp <= DoubleType(min_result) || tmp >= DoubleType(max_result)) {
-            if (params.is_strict) {
-                params.status = DECIMAL_CONVERT_OVERFLOW_ERROR(from, "float/double", to_precision,
-                                                               to_scale);
+        using NativeType = typename ToCppT::NativeType;
+        if (to_scale > 0) {
+            // Scaling can round an out-of-range integer back inside the decimal bounds:
+            // double(10 * 10^37) is below 10^38. Check the original integer part exactly.
+            const NativeType integral_limit =
+                    DataTypeDecimal<ToCppT::PType>::get_scale_multiplier(to_precision - to_scale);
+            const auto integral = static_cast<NativeType>(from);
+            if (integral <= -integral_limit || integral >= integral_limit) {
+                return overflow();
             }
-            return false;
         }
-        to = DecimalV2Value(static_cast<typename ToCppT::NativeType>(static_cast<double>(
-                from * static_cast<DoubleType>(scale_multiplier) + ((from >= 0) ? 0.5 : -0.5))));
+        // Every supported decimal precision leaves room below the native integer limit, even when
+        // converting max_result to floating point rounds it up. Int256 reconstructs the binary64
+        // significand directly, so this also preserves every integer bit represented by tmp.
+        auto result = static_cast<NativeType>(tmp);
+        // Floating point cannot represent all decimal bounds exactly. Recheck in integer
+        // arithmetic to reject a rounded-up bound such as double(10^18 - 1) == 10^18.
+        if (result < min_result || result > max_result) {
+            return overflow();
+        }
+        if constexpr (IsDecimal128V2<ToCppT>) {
+            to = DecimalV2Value(result);
+        } else {
+            to.value = result;
+        }
         return true;
     }
 
@@ -683,13 +686,14 @@ struct CastToDecimal {
 template <CastModeType Mode, typename ToDataType>
     requires(IsDataTypeDecimal<ToDataType>)
 class CastToImpl<Mode, DataTypeString, ToDataType> : public CastToBase {
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t /*input_rows_count*/,
-                        const NullMap::value_type* null_map = nullptr) const override {
-        const auto* col_from = assert_cast<const DataTypeString::ColumnType*>(
-                block.get_by_position(arguments[0]).column.get());
+public:
+    Status execute_impl(RuntimeState* /*state*/, const ColumnWithTypeAndName& source_column,
+                        ColumnWithTypeAndName& target_column, size_t /*input_rows_count*/,
+                        const NullMap::value_type* parent_null_map = nullptr) const override {
+        const auto* col_from =
+                assert_cast<const DataTypeString::ColumnType*>(source_column.column.get());
 
-        auto to_type = block.get_by_position(result).type;
+        auto to_type = target_column.type;
         auto nested_to_type = remove_nullable(to_type);
         auto serde = nested_to_type->get_serde();
 
@@ -697,13 +701,13 @@ class CastToImpl<Mode, DataTypeString, ToDataType> : public CastToBase {
             auto nullable_col_to = create_empty_nullable_column(nested_to_type);
             // may write nulls to nullable_col_to
             RETURN_IF_ERROR(serde->from_string_batch(*col_from, *nullable_col_to, {}));
-            block.get_by_position(result).column = std::move(nullable_col_to);
+            target_column.column = std::move(nullable_col_to);
         } else if constexpr (Mode == CastModeType::StrictMode) {
             MutableColumnPtr column_to = nested_to_type->create_column();
             // WON'T write nulls to the result column, just raise errors. null_map is only used to skip invalid rows
-            RETURN_IF_ERROR(
-                    serde->from_string_strict_mode_batch(*col_from, *column_to, {}, null_map));
-            block.get_by_position(result).column = std::move(column_to);
+            RETURN_IF_ERROR(serde->from_string_strict_mode_batch(*col_from, *column_to, {},
+                                                                 parent_null_map));
+            target_column.column = std::move(column_to);
         } else {
             return Status::InternalError("Unsupported cast mode");
         }
@@ -718,12 +722,12 @@ template <CastModeType CastMode, typename FromDataType, typename ToDataType>
              (IsDataTypeInt<FromDataType> || IsDataTypeBool<FromDataType>))
 class CastToImpl<CastMode, FromDataType, ToDataType> : public CastToBase {
 public:
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count,
-                        const NullMap::value_type* null_map = nullptr) const override {
+    Status execute_impl(RuntimeState* /*state*/, const ColumnWithTypeAndName& source_column,
+                        ColumnWithTypeAndName& target_column, size_t input_rows_count,
+                        const NullMap::value_type* parent_null_map = nullptr) const override {
         using FromFieldType = typename FromDataType::FieldType;
         using ToFieldType = typename ToDataType::FieldType;
-        const ColumnWithTypeAndName& named_from = block.get_by_position(arguments[0]);
+        const ColumnWithTypeAndName& named_from = source_column;
         const auto* col_from =
                 check_and_get_column<typename FromDataType::ColumnType>(named_from.column.get());
         if (!col_from) {
@@ -734,7 +738,7 @@ public:
         UInt32 from_precision = NumberTraits::max_ascii_len<FromFieldType>();
         constexpr UInt32 from_scale = 0;
 
-        const ColumnWithTypeAndName& named_to = block.get_by_position(result);
+        const ColumnWithTypeAndName& named_to = target_column;
         const auto& to_decimal_type = assert_cast<const ToDataType&>(*named_to.type);
         UInt32 to_precision = to_decimal_type.get_precision();
         ToDataType::check_type_precision(to_precision);
@@ -786,7 +790,7 @@ public:
                     vec_to_data[i].value =
                             static_cast<typename ToFieldType::NativeType>(vec_from_data[i]);
                 }
-                block.get_by_position(result).column = std::move(col_to);
+                target_column.column = std::move(col_to);
                 return Status::OK();
             }
         }
@@ -794,6 +798,10 @@ public:
         RETURN_IF_ERROR(std::visit(
                 [&](auto multiply_may_overflow, auto narrow_integral) {
                     for (size_t i = 0; i < size; i++) {
+                        // Skip hidden payload of rows marked as null by the input null map.
+                        if (parent_null_map && parent_null_map[i]) {
+                            continue;
+                        }
                         if (!CastToDecimal::_from_int<typename FromDataType::FieldType,
                                                       typename ToDataType::FieldType,
                                                       multiply_may_overflow, narrow_integral>(
@@ -811,10 +819,10 @@ public:
                 make_bool_variant(multiply_may_overflow), make_bool_variant(narrow_integral)));
 
         if (narrow_integral) {
-            block.get_by_position(result).column =
+            target_column.column =
                     ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
         } else {
-            block.get_by_position(result).column = std::move(col_to);
+            target_column.column = std::move(col_to);
         }
         return Status::OK();
     }
@@ -825,12 +833,12 @@ template <CastModeType CastMode, typename FromDataType, typename ToDataType>
     requires(IsDataTypeDecimal<ToDataType> && IsDataTypeFloat<FromDataType>)
 class CastToImpl<CastMode, FromDataType, ToDataType> : public CastToBase {
 public:
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count,
-                        const NullMap::value_type* null_map = nullptr) const override {
+    Status execute_impl(RuntimeState* /*state*/, const ColumnWithTypeAndName& source_column,
+                        ColumnWithTypeAndName& target_column, size_t input_rows_count,
+                        const NullMap::value_type* parent_null_map = nullptr) const override {
         using FromFieldType = typename FromDataType::FieldType;
         using ToFieldType = typename ToDataType::FieldType;
-        const ColumnWithTypeAndName& named_from = block.get_by_position(arguments[0]);
+        const ColumnWithTypeAndName& named_from = source_column;
         const auto* col_from =
                 check_and_get_column<typename FromDataType::ColumnType>(named_from.column.get());
         if (!col_from) {
@@ -841,7 +849,7 @@ public:
         UInt32 from_precision = NumberTraits::max_ascii_len<FromFieldType>();
         UInt32 from_scale = 0;
 
-        const ColumnWithTypeAndName& named_to = block.get_by_position(result);
+        const ColumnWithTypeAndName& named_to = target_column;
         const auto& to_decimal_type = assert_cast<const ToDataType&>(*named_to.type);
         UInt32 to_precision = to_decimal_type.get_precision();
         ToDataType::check_type_precision(to_precision);
@@ -875,6 +883,10 @@ public:
                 DataTypeDecimal<ToFieldType::PType>::get_max_digits_number(to_precision);
         typename ToFieldType::NativeType min_result = -max_result;
         for (size_t i = 0; i < size; i++) {
+            // Skip hidden payload of rows marked as null by the input null map.
+            if (parent_null_map && parent_null_map[i]) {
+                continue;
+            }
             if (!CastToDecimal::_from_float<typename FromDataType::FieldType,
                                             typename ToDataType::FieldType>(
                         vec_from_data[i], vec_to_data[i], to_precision, to_scale, scale_multiplier,
@@ -887,7 +899,7 @@ public:
             }
         }
 
-        block.get_by_position(result).column =
+        target_column.column =
                 ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
         return Status::OK();
     }
@@ -898,13 +910,12 @@ template <CastModeType CastMode, typename FromDataType, typename ToDataType>
     requires(IsDataTypeDecimalV3<ToDataType> && IsDataTypeDecimalV2<ToDataType>)
 class CastToImpl<CastMode, FromDataType, ToDataType> : public CastToBase {
 public:
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count,
-                        const NullMap::value_type* null_map = nullptr) const override {
+    Status execute_impl(RuntimeState* /*state*/, const ColumnWithTypeAndName& source_column,
+                        ColumnWithTypeAndName& target_column, size_t /*input_rows_count*/,
+                        const NullMap::value_type* /*parent_null_map*/ = nullptr) const override {
         return Status::RuntimeError(
                 "not support {} ",
-                cast_mode_type_to_string(CastMode, block.get_by_position(arguments[0]).type,
-                                         block.get_by_position(result).type));
+                cast_mode_type_to_string(CastMode, source_column.type, target_column.type));
     }
 };
 
@@ -913,12 +924,12 @@ template <CastModeType CastMode, typename FromDataType, typename ToDataType>
     requires(IsDataTypeDecimalV2<FromDataType> && IsDataTypeDecimalV3<ToDataType>)
 class CastToImpl<CastMode, FromDataType, ToDataType> : public CastToBase {
 public:
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count,
-                        const NullMap::value_type* null_map = nullptr) const override {
+    Status execute_impl(RuntimeState* /*state*/, const ColumnWithTypeAndName& source_column,
+                        ColumnWithTypeAndName& target_column, size_t input_rows_count,
+                        const NullMap::value_type* parent_null_map = nullptr) const override {
         using FromFieldType = typename FromDataType::FieldType;
         using ToFieldType = typename ToDataType::FieldType;
-        const ColumnWithTypeAndName& named_from = block.get_by_position(arguments[0]);
+        const ColumnWithTypeAndName& named_from = source_column;
         const auto* col_from =
                 check_and_get_column<typename FromDataType::ColumnType>(named_from.column.get());
         if (!col_from) {
@@ -932,7 +943,7 @@ public:
         UInt32 from_original_precision = from_decimal_type.get_original_precision();
         UInt32 from_original_scale = from_decimal_type.get_original_scale();
 
-        const ColumnWithTypeAndName& named_to = block.get_by_position(result);
+        const ColumnWithTypeAndName& named_to = target_column;
         const auto& to_decimal_type = assert_cast<const ToDataType&>(*named_to.type);
         UInt32 to_precision = to_decimal_type.get_precision();
         ToDataType::check_type_precision(to_precision);
@@ -993,6 +1004,10 @@ public:
         RETURN_IF_ERROR(std::visit(
                 [&](auto multiply_may_overflow, auto narrow_integral) {
                     for (size_t i = 0; i < size; i++) {
+                        // Skip hidden payload of rows marked as null by the input null map.
+                        if (parent_null_map && parent_null_map[i]) {
+                            continue;
+                        }
                         if (!CastToDecimal::_from_decimal<FromFieldType, ToFieldType,
                                                           multiply_may_overflow, narrow_integral>(
                                     vec_from_data[i], from_precision, from_scale, vec_to_data[i],
@@ -1009,10 +1024,10 @@ public:
                 },
                 make_bool_variant(multiply_may_overflow), make_bool_variant(narrow_integral)));
         if (narrow_integral) {
-            block.get_by_position(result).column =
+            target_column.column =
                     ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
         } else {
-            block.get_by_position(result).column = std::move(col_to);
+            target_column.column = std::move(col_to);
         }
         return Status::OK();
     }
@@ -1023,12 +1038,12 @@ template <CastModeType CastMode, typename FromDataType, typename ToDataType>
     requires(IsDataTypeDecimalV3<ToDataType> && IsDataTypeDecimalV3<FromDataType>)
 class CastToImpl<CastMode, FromDataType, ToDataType> : public CastToBase {
 public:
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count,
-                        const NullMap::value_type* null_map = nullptr) const override {
+    Status execute_impl(RuntimeState* /*state*/, const ColumnWithTypeAndName& source_column,
+                        ColumnWithTypeAndName& target_column, size_t input_rows_count,
+                        const NullMap::value_type* parent_null_map = nullptr) const override {
         using FromFieldType = typename FromDataType::FieldType;
         using ToFieldType = typename ToDataType::FieldType;
-        const ColumnWithTypeAndName& named_from = block.get_by_position(arguments[0]);
+        const ColumnWithTypeAndName& named_from = source_column;
         const auto* col_from =
                 check_and_get_column<typename FromDataType::ColumnType>(named_from.column.get());
         if (!col_from) {
@@ -1040,7 +1055,7 @@ public:
         UInt32 from_precision = from_decimal_type.get_precision();
         UInt32 from_scale = from_decimal_type.get_scale();
 
-        const ColumnWithTypeAndName& named_to = block.get_by_position(result);
+        const ColumnWithTypeAndName& named_to = target_column;
         const auto& to_decimal_type = assert_cast<const ToDataType&>(*named_to.type);
         UInt32 to_precision = to_decimal_type.get_precision();
         ToDataType::check_type_precision(to_precision);
@@ -1100,6 +1115,10 @@ public:
         RETURN_IF_ERROR(std::visit(
                 [&](auto multiply_may_overflow, auto narrow_integral) {
                     for (size_t i = 0; i < size; i++) {
+                        // Skip hidden payload of rows marked as null by the input null map.
+                        if (parent_null_map && parent_null_map[i]) {
+                            continue;
+                        }
                         if (!CastToDecimal::_from_decimal<FromFieldType, ToFieldType,
                                                           multiply_may_overflow, narrow_integral>(
                                     vec_from_data[i], from_precision, from_scale, vec_to_data[i],
@@ -1116,10 +1135,10 @@ public:
                 },
                 make_bool_variant(multiply_may_overflow), make_bool_variant(narrow_integral)));
         if (narrow_integral) {
-            block.get_by_position(result).column =
+            target_column.column =
                     ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
         } else {
-            block.get_by_position(result).column = std::move(col_to);
+            target_column.column = std::move(col_to);
         }
         return Status::OK();
     }

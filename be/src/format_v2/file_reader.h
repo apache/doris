@@ -58,9 +58,9 @@ enum class FileFormat {
     JSON,
     TEXT,
     JNI,
-    NATIVE,
     ARROW,
     WAL,
+    ES_HTTP,
 };
 
 struct FileScanRequest {
@@ -142,6 +142,9 @@ struct FileScanRequest {
         }
         return count;
     }
+
+    // Ingestion rejects malformed records instead of aborting a whole file.
+    bool reject_invalid_rows = false;
 };
 
 // Helper for constructing the scan-column layout in FileScanRequest.
@@ -351,6 +354,12 @@ public:
               _profile(profile) {}
     virtual ~FileReader() = default;
 
+    // Per-batch presence metadata distinguishes absent fields from explicit NULLs. These are
+    // physical field identities; TableColumnMapper owns their translation to table positions.
+    const std::map<LocalColumnId, std::vector<uint8_t>>& missing_fields() const {
+        return _missing_fields;
+    }
+
     // Initialize file reader and parse file metadata.
     virtual Status init(RuntimeState* state);
 
@@ -467,6 +476,7 @@ protected:
     std::unique_ptr<io::FileDescription> _file_description;
     std::shared_ptr<io::IOContext> _io_ctx;
     RuntimeProfile* _profile = nullptr;
+    std::map<LocalColumnId, std::vector<uint8_t>> _missing_fields;
 };
 
 } // namespace doris::format

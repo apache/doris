@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.thrift.TExplainLevel;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -44,11 +45,20 @@ import org.mockito.Mockito;
 
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMatchSupported {
     @Override
     public void runBeforeAll() throws Exception {
         super.runBeforeAll();
+        createTable("CREATE TABLE topn_safety (id INT, k INT, d DATE, ts BIGINT) DUPLICATE KEY(id) "
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')");
+        createTable("CREATE TABLE uuid_topn (id INT, u UUID) DUPLICATE KEY(id) "
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')");
+        createTable("CREATE TABLE topn_nested_fields (id INT, "
+                + "ts STRUCT<a: TIMESTAMPTZ(0), b: TIMESTAMPTZ(0)>, "
+                + "si STRUCT<a: INT, b: INT>, sd STRUCT<a: DATE, b: DATE>) DUPLICATE KEY(id) "
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')");
     }
 
     @Test
@@ -64,6 +74,129 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
         PhysicalTopN<? extends Plan> localTopN
                 = (PhysicalTopN<? extends Plan>) rfSource;
         Assertions.assertTrue(checker.getCascadesContext().getTopnFilterContext().isTopnFilterSource(localTopN));
+    }
+
+    @Test
+    public void testTopNFilterDoesNotRequireTotalSecondaryExpressions() {
+        double previousRatio = connectContext.getSessionVariable().topnFilterRatio;
+        connectContext.getSessionVariable().topnFilterRatio = 1000000;
+        try {
+            for (String expression : List.of("weeks_add(d, 1)", "from_microsecond(ts)",
+                    "cast(ts AS TINYINT)", "assert_true(k < 3, 'out of range')")) {
+                // A row excluded by the leading key need not evaluate its secondary expression.
+                PlanChecker checker = PlanChecker.from(connectContext)
+                        .analyze("SELECT k, " + expression + " AS v FROM topn_safety "
+                                + "ORDER BY k, v LIMIT 3")
+                        .rewrite().implement();
+                PhysicalPlan plan = new PlanPostProcessors(checker.getCascadesContext())
+                        .process(checker.getPhysicalPlan());
+                Assertions.assertFalse(checker.getCascadesContext().getTopnFilterContext()
+                        .getTopnFilters().isEmpty(), plan.treeString());
+            }
+        } finally {
+            connectContext.getSessionVariable().topnFilterRatio = previousRatio;
+        }
+    }
+
+    @Test
+    public void testTopNFilterCrossesGroupedKeyAggregation() {
+        double previousRatio = connectContext.getSessionVariable().topnFilterRatio;
+        boolean previousPushTopn = connectContext.getSessionVariable().pushTopnToAgg;
+        boolean previousJoinReorder = connectContext.getSessionVariable().isDisableJoinReorder();
+        String previousDisabledRules = String.join(",",
+                connectContext.getSessionVariable().getDisableNereidsRuleNames());
+        connectContext.getSessionVariable().topnFilterRatio = 1000000;
+        connectContext.getSessionVariable().pushTopnToAgg = false;
+        connectContext.getSessionVariable().setDisableJoinReorder(true);
+        // Empty unit-test tables must retain scans to exercise the final translated plan.
+        connectContext.getSessionVariable().setDisableNereidsRules(previousDisabledRules + ",PRUNE_EMPTY_PARTITION");
+        try {
+            for (String sql : List.of(
+                    "SELECT k, count(1) FROM topn_safety GROUP BY k ORDER BY k LIMIT 1",
+                    "SELECT t.k, t.total FROM (SELECT k, count(1) AS total FROM topn_safety "
+                            + "GROUP BY k HAVING total > 10) t JOIN customer c ON t.k = c.c_custkey "
+                            + "ORDER BY t.k LIMIT 1",
+                    "SELECT k, sum(ts) FROM topn_safety GROUP BY GROUPING SETS((k)) ORDER BY k LIMIT 2")) {
+                // Exercise the runtime filter across aggregation, independently of TopN-to-agg pushdown.
+                PlanChecker.from(connectContext).checkPlannerResult(sql, planner -> {
+                    String explain = planner.getFragments().stream()
+                            .map(fragment -> fragment.getExplainString(TExplainLevel.NORMAL))
+                            .collect(Collectors.joining("\n"));
+                    Assertions.assertTrue(explain.contains("TOPN OPT:"), explain);
+                });
+            }
+        } finally {
+            connectContext.getSessionVariable().topnFilterRatio = previousRatio;
+            connectContext.getSessionVariable().pushTopnToAgg = previousPushTopn;
+            connectContext.getSessionVariable().setDisableJoinReorder(previousJoinReorder);
+            connectContext.getSessionVariable().setDisableNereidsRules(previousDisabledRules);
+        }
+    }
+
+    @Test
+    public void testTopNFilterSupportsNestedOrderKeyWithSiblingPredicate() {
+        double previousRatio = connectContext.getSessionVariable().topnFilterRatio;
+        boolean previousPrune = connectContext.getSessionVariable().enablePruneNestedColumns;
+        String previousDisabledRules = String.join(",",
+                connectContext.getSessionVariable().getDisableNereidsRuleNames());
+        connectContext.getSessionVariable().topnFilterRatio = 1000000;
+        connectContext.getSessionVariable().enablePruneNestedColumns = true;
+        // Empty unit-test tables must retain scans to exercise nested access-path translation.
+        connectContext.getSessionVariable().setDisableNereidsRules(previousDisabledRules + ",PRUNE_EMPTY_PARTITION");
+        try {
+            for (String column : List.of("ts", "si", "sd")) {
+                for (String direction : List.of("ASC", "DESC")) {
+                    String sql = "SELECT struct_element(" + column + ", 'a') FROM topn_nested_fields "
+                            + "WHERE struct_element(" + column + ", 'b') IS NOT NULL "
+                            + "ORDER BY 1 " + direction + " NULLS LAST LIMIT 1";
+                    PlanChecker.from(connectContext).checkPlannerResult(sql, planner -> {
+                        String explain = planner.getFragments().stream()
+                                .map(fragment -> fragment.getExplainString(TExplainLevel.NORMAL))
+                                .collect(Collectors.joining("\n"));
+                        // TopN must retain its order field when the predicate reads only a sibling's nulls.
+                        Assertions.assertTrue(explain.contains("TOPN OPT:"), explain);
+                        Assertions.assertTrue(explain.contains("all access paths: ["
+                                + column + ".a, " + column + ".b.NULL]"), explain);
+                        Assertions.assertTrue(explain.contains("predicate access paths: ["
+                                + column + ".b.NULL]"), explain);
+                    });
+                }
+            }
+        } finally {
+            connectContext.getSessionVariable().topnFilterRatio = previousRatio;
+            connectContext.getSessionVariable().enablePruneNestedColumns = previousPrune;
+            connectContext.getSessionVariable().setDisableNereidsRules(previousDisabledRules);
+        }
+    }
+
+    @Test
+    public void testUuidTopNFilterPreservesOrderingAndNullPlacement() {
+        double previousRatio = connectContext.getSessionVariable().topnFilterRatio;
+        connectContext.getSessionVariable().topnFilterRatio = 1000000;
+        try {
+            for (String direction : List.of("ASC", "DESC")) {
+                for (String nullPlacement : List.of("FIRST", "LAST")) {
+                    PlanChecker checker = PlanChecker.from(connectContext)
+                            .analyze("SELECT id,u FROM uuid_topn ORDER BY u " + direction
+                                    + " NULLS " + nullPlacement + ",id LIMIT 5")
+                            .rewrite().implement();
+                    new PlanPostProcessors(checker.getCascadesContext()).process(checker.getPhysicalPlan());
+                    List<TopnFilter> filters = checker.getCascadesContext().getTopnFilterContext().getTopnFilters();
+                    Assertions.assertFalse(filters.isEmpty());
+                    for (TopnFilter filter : filters) {
+                        Assertions.assertTrue(filter.topn.getOrderKeys().get(0).getExpr().getDataType().isUuidType());
+                        Assertions.assertEquals(direction.equals("ASC"), filter.topn.getOrderKeys().get(0).isAsc());
+                        Assertions.assertEquals(nullPlacement.equals("FIRST"),
+                                filter.topn.getOrderKeys().get(0).isNullFirst());
+                        Assertions.assertFalse(filter.targets.isEmpty());
+                        Assertions.assertTrue(filter.targets.values().stream()
+                                .allMatch(expr -> expr.getDataType().isUuidType()));
+                    }
+                }
+            }
+        } finally {
+            connectContext.getSessionVariable().topnFilterRatio = previousRatio;
+        }
     }
 
     @Test

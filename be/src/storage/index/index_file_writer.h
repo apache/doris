@@ -20,7 +20,7 @@
 // CLucene is third-party code and is not clean under -Wconversion (which
 // -Wshorten-64-to-32 belongs to). Whether its first expansion lands inside
 // someone else's suppressed region depends on include order, so suppress it
-// deliberately here (same pattern as inverted_index_common_impl.h).
+// deliberately here (same pattern as index_common_impl.h).
 #ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wconversion"
@@ -42,13 +42,14 @@
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
+#include "storage/index/index_common.h"
+#include "storage/index/index_compound_reader.h"
 #include "storage/index/index_storage_format.h"
-#include "storage/index/inverted/inverted_index_common.h"
-#include "storage/index/inverted/inverted_index_compound_reader.h"
-#include "storage/index/inverted/inverted_index_searcher.h"
-#include "storage/index/snii/format/format_constants.h"
-#include "storage/index/snii/snii_doris_adapter.h"
-#include "storage/index/snii/writer/snii_compound_writer.h"
+#include "storage/index/inverted/analysis/gram/gram_scheme.h"
+#include "storage/index/inverted/clucene/inverted_index_searcher.h"
+#include "storage/index/inverted/snii/format/format_constants.h"
+#include "storage/index/inverted/snii/snii_doris_adapter.h"
+#include "storage/index/inverted/snii/writer/snii_compound_writer.h"
 
 namespace doris::snii::writer {
 class MemoryReporter;
@@ -110,12 +111,14 @@ public:
         // the prx region compresses at snii_prx_zstd_level_direct_load;
         // compaction / schema change / ADD INDEX keep snii_prx_zstd_level.
         bool is_direct_load = false;
+        // The exact gram tokenizer scheme that produced this index's dictionary.
+        std::optional<gram::GramScheme> gram_scheme;
         // One byte of BM25 norms per document; empty for keyword or positionless indexes.
         // If nonempty, its size must equal doc_count, and postings retain frequencies for scoring.
         std::vector<uint8_t> encoded_norms;
     };
     Status add_snii_index(const TabletIndex* index_meta, uint32_t doc_count,
-                          std::vector<uint32_t> null_docids,
+                          doris::snii::writer::TrackedNullDocids null_docids,
                           doris::snii::writer::SpimiTermBuffer* const term_buffer,
                           doris::snii::format::IndexConfig index_config,
                           SniiAddIndexOptions options,

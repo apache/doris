@@ -25,11 +25,14 @@ import org.apache.paimon.data.InternalArray;
 import org.apache.paimon.data.InternalMap;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.data.Timestamp;
+import org.apache.paimon.data.variant.Variant;
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.DataType;
+import org.apache.paimon.types.DecimalType;
 import org.apache.paimon.types.LocalZonedTimestampType;
 import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
+import org.apache.paimon.types.TimestampType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -64,6 +67,8 @@ public class PaimonColumnValue implements ColumnValue {
     private ColumnType dorisType;
     private DataType dataType;
     private ZoneId timeZone;
+    private PaimonVariantProjection variantProjection;
+    private Variant materializedVariant;
     // Keep these caches lazy so scalar columns do not pay for complex-type reuse bookkeeping.
     private List<PaimonColumnValue> arrayValues;
     private List<PaimonColumnValue> mapKeys;
@@ -87,13 +92,21 @@ public class PaimonColumnValue implements ColumnValue {
     }
 
     public void setIdx(int idx, ColumnType dorisType, DataType dataType) {
+        setIdx(idx, dorisType, dataType, null);
+    }
+
+    public void setIdx(int idx, ColumnType dorisType, DataType dataType,
+            PaimonVariantProjection variantProjection) {
         this.idx = idx;
         this.dorisType = dorisType;
         this.dataType = dataType;
+        this.variantProjection = variantProjection;
+        this.materializedVariant = null;
     }
 
     public void setOffsetRow(InternalRow record) {
         this.record = record;
+        this.materializedVariant = null;
     }
 
     public void setTimeZone(String timeZone) {
@@ -147,7 +160,12 @@ public class PaimonColumnValue implements ColumnValue {
 
     @Override
     public BigDecimal getDecimal() {
-        return record.getDecimal(idx, dorisType.getPrecision(), dorisType.getScale()).toBigDecimal();
+        // Paimon decodes compact decimals from the physical unscaled value using the
+        // precision and scale supplied here. During schema evolution those values belong to
+        // the record's Paimon type, while dorisType is the destination type. Passing the
+        // destination scale interprets an old value such as 1.20 as 0.120.
+        DecimalType decimalType = (DecimalType) dataType;
+        return record.getDecimal(idx, decimalType.getPrecision(), decimalType.getScale()).toBigDecimal();
     }
 
     @Override
@@ -167,7 +185,8 @@ public class PaimonColumnValue implements ColumnValue {
 
     @Override
     public LocalDateTime getDateTime() {
-        Timestamp ts = record.getTimestamp(idx, dorisType.getPrecision());
+        Timestamp ts = truncateTimestampPrecision(
+                record.getTimestamp(idx, getPaimonTimestampPrecision()));
         if (dataType instanceof LocalZonedTimestampType) {
             // Paimon stores TIMESTAMP_LTZ as an epoch instant, so convert it directly in the cached session zone.
             return LocalDateTime.ofInstant(ts.toInstant(), timeZone);
@@ -178,9 +197,43 @@ public class PaimonColumnValue implements ColumnValue {
 
     @Override
     public LocalDateTime getTimeStampTz() {
-        Timestamp ts = record.getTimestamp(idx, dorisType.getPrecision());
+        Timestamp ts = truncateTimestampPrecision(
+                record.getTimestamp(idx, getPaimonTimestampPrecision()));
         // Timestamp's local representation is identical to converting its epoch instant in UTC.
         return ts.toLocalDateTime();
+    }
+
+    Timestamp truncateTimestampPrecision(Timestamp timestamp) {
+        if (!(dataType instanceof TimestampType) && !(dataType instanceof LocalZonedTimestampType)) {
+            return timestamp;
+        }
+        int precision = dorisType.getPrecision();
+        return truncateTimestampPrecision(timestamp, precision);
+    }
+
+    static Timestamp truncateTimestampPrecision(Timestamp timestamp, int precision) {
+        long divisor = 1;
+        for (int i = precision; i < 9; ++i) {
+            divisor *= 10;
+        }
+        long nano = Math.floorMod(timestamp.getMillisecond(), 1000L) * 1_000_000L
+                + timestamp.getNanoOfMillisecond();
+        if (nano % divisor == 0) {
+            return timestamp;
+        }
+        LocalDateTime value = timestamp.toLocalDateTime();
+        int truncatedNano = (int) (nano / divisor * divisor);
+        return Timestamp.fromLocalDateTime(value.withNano(truncatedNano));
+    }
+
+    private int getPaimonTimestampPrecision() {
+        if (dataType instanceof TimestampType) {
+            return ((TimestampType) dataType).getPrecision();
+        }
+        if (dataType instanceof LocalZonedTimestampType) {
+            return ((LocalZonedTimestampType) dataType).getPrecision();
+        }
+        return dorisType.getPrecision();
     }
 
     @Override
@@ -196,6 +249,26 @@ public class PaimonColumnValue implements ColumnValue {
     @Override
     public byte[] getBytes() {
         return record.getBinary(idx);
+    }
+
+    @Override
+    public byte[] getVariantMetadata() {
+        return getVariant().metadata();
+    }
+
+    @Override
+    public byte[] getVariantValue() {
+        return getVariant().value();
+    }
+
+    private Variant getVariant() {
+        if (variantProjection == null) {
+            return record.getVariant(idx);
+        }
+        if (materializedVariant == null) {
+            materializedVariant = variantProjection.materialize(record, idx);
+        }
+        return materializedVariant;
     }
 
     @Override
@@ -277,6 +350,8 @@ public class PaimonColumnValue implements ColumnValue {
         this.dorisType = dorisType;
         this.dataType = dataType;
         this.timeZone = timeZone;
+        this.variantProjection = null;
+        this.materializedVariant = null;
     }
 
     private static ZoneId resolveTimeZone(String timeZone) {

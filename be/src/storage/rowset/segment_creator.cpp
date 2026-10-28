@@ -49,7 +49,6 @@
 #include "storage/transform/block_transform.h"
 #include "storage/utils.h"
 #include "util/debug_points.h"
-#include "util/json/json_parser.h"
 #include "util/pretty_printer.h"
 #include "util/stopwatch.hpp"
 
@@ -163,9 +162,11 @@ Status SegmentFlusher::_create_segment_writer(
         writer_options.compression_type = NO_COMPRESSION;
     }
 
-    writer = std::make_unique<segment_v2::VerticalSegmentWriter>(
-            segment_file_writer.get(), segment_id, _context.tablet_schema, _context.tablet,
-            _context.data_dir, writer_options, index_file_writer.get());
+    RETURN_IF_CATCH_EXCEPTION({
+        writer = std::make_unique<segment_v2::VerticalSegmentWriter>(
+                segment_file_writer.get(), segment_id, _context.tablet_schema, _context.tablet,
+                _context.data_dir, writer_options, index_file_writer.get());
+    });
     RETURN_IF_ERROR(_seg_files.add(segment_id, std::move(segment_file_writer)));
     if (_context.tablet_schema->has_inverted_or_ann_index()) {
         RETURN_IF_ERROR(_idx_files.add(segment_id, std::move(index_file_writer)));
@@ -193,7 +194,7 @@ Status SegmentFlusher::_flush_segment_writer(
     uint64_t segment_file_size;
     uint64_t common_index_size;
     segment_v2::SegmentIndexFileCacheInfo index_file_cache_info;
-    RETURN_IF_ERROR(writer->finalize_columns(&common_index_size));
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(writer->finalize_columns(&common_index_size));
     RETURN_IF_ERROR(writer->finalize_footer(&segment_file_size, &index_file_cache_info));
     finalize_timer.stop();
 
@@ -273,7 +274,7 @@ SegmentFlusher::Writer::~Writer() = default;
 
 Status SegmentFlusher::Writer::add_rows(const Block* block, size_t row_offset,
                                         size_t input_row_num) {
-    RETURN_IF_ERROR(_writer->append_block(block, row_offset, input_row_num));
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_writer->append_block(block, row_offset, input_row_num));
     _flusher->_num_rows_written += input_row_num;
     return Status::OK();
 }

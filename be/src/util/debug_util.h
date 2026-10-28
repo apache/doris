@@ -26,6 +26,11 @@
 
 namespace doris {
 
+class TPipelineFragmentParams;
+
+// Only format fixed identifiers and counts. Scan properties and descriptors may contain credentials.
+std::string print_fragment_params_summary(const TPipelineFragmentParams& params);
+
 std::string print_plan_node_type(const TPlanNodeType::type& type);
 std::string print_query_state(const QueryState::type& type);
 std::string PrintTUnit(const TUnit::type& type);
@@ -49,6 +54,10 @@ std::string get_short_version();
 
 // Returns "<program short name> version <GetBuildVersion(compact)>"
 std::string get_version_string(bool compact);
+
+// Enables multi-dimensional bvar export and registers doris_be_version.
+// This must run before the brpc server starts.
+void init_be_version_metrics();
 
 std::string hexdump(const char* buf, int len);
 

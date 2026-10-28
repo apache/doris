@@ -35,9 +35,14 @@ import java.util.Map;
 public class PluginDrivenSplit extends FileSplit {
 
     private final ConnectorScanRange connectorScanRange;
+    private final String splitIdentity;
 
     public PluginDrivenSplit(ConnectorScanRange scanRange) {
-        super(buildPath(scanRange),
+        this(scanRange, buildPath(scanRange));
+    }
+
+    private PluginDrivenSplit(ConnectorScanRange scanRange, LocationPath path) {
+        super(path,
                 scanRange.getStart(),
                 scanRange.getLength(),
                 scanRange.getFileSize(),
@@ -45,6 +50,7 @@ public class PluginDrivenSplit extends FileSplit {
                 scanRange.getHosts().toArray(new String[0]),
                 buildPartitionValues(scanRange));
         this.connectorScanRange = scanRange;
+        this.splitIdentity = buildSplitIdentity(scanRange);
         // FIX-A1: thread the connector's proportional split weight into the FileSplit scheduling fields so
         // FederationBackendPolicy distributes by size (legacy parity) instead of uniform standard() weight.
         // Set ONLY when the connector provides BOTH a weight (>= 0; 0 is a real weight) and a positive
@@ -73,9 +79,34 @@ public class PluginDrivenSplit extends FileSplit {
         return connectorScanRange.getPath().orElse("connector://virtual");
     }
 
+    /**
+     * Returns a stable connector supplied identity for consistent-hash scheduling. JNI ranges often have no
+     * file path or byte range, so include their immutable connector metadata instead of collapsing all of them
+     * onto the same virtual path.
+     */
+    @Override
+    public String getSplitIdentity() {
+        return splitIdentity;
+    }
+
+    private static String buildSplitIdentity(ConnectorScanRange scanRange) {
+        String identity = scanRange.getSplitIdentity();
+        return identity.isEmpty() ? scanRange.getTableFormatType() : identity;
+    }
+
     private static LocationPath buildPath(ConnectorScanRange scanRange) {
         String pathStr = scanRange.getPath().orElse("connector://virtual");
         return LocationPath.of(pathStr);
+    }
+
+    /** Converts one producer stream while reusing filesystem identities across its files. */
+    public static class Factory {
+        private final LocationPath.Factory paths = new LocationPath.Factory();
+
+        public PluginDrivenSplit create(ConnectorScanRange scanRange) {
+            String location = scanRange.getPath().orElse("connector://virtual");
+            return new PluginDrivenSplit(scanRange, paths.create(location));
+        }
     }
 
     private static List<String> buildPartitionValues(ConnectorScanRange scanRange) {

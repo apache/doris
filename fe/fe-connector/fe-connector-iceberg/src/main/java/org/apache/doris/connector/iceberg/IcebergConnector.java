@@ -161,6 +161,8 @@ public class IcebergConnector implements Connector {
     static final String MANIFEST_CACHE_CAPACITY = "meta.cache.iceberg.manifest.capacity";
     static final long DEFAULT_TABLE_CACHE_TTL_SECOND = 86400L;
     static final int DEFAULT_TABLE_CACHE_CAPACITY = 1000;
+    // Entries whose meta.cache.iceberg.<entry>.max-weight this connector reads.
+    static final String[] WEIGHTED_CACHE_ENTRIES = {"table", "partition", "manifest", "partition_view"};
 
     // Doris storage property keys (mirror StorageProperties without a fe-core dependency).
     // Catalog property key gating the plugin-side Kerberos authenticator (value matches AuthType.KERBEROS).
@@ -171,6 +173,8 @@ public class IcebergConnector implements Connector {
 
     /** The key BE looks up (case-sensitively) to learn which location to probe. */
     private static final String BE_TEST_LOCATION = "test_location";
+    /** Prefix of iceberg-aws's HTTP client settings ({@code http-client.type}, proxy, timeouts). */
+    private static final String HTTP_CLIENT_PROPERTY_PREFIX = "http-client.";
 
     private final Map<String, String> properties;
     // The bound connector-level facts (flavor, type-mapping switches, namespace level), the single
@@ -203,6 +207,9 @@ public class IcebergConnector implements Connector {
     // per-user resolveTable). If you ADD a cross-query cache here or in IcebergConnectorMetadata, it MUST be
     // null under session=user and covered by IcebergConnectorCacheTest (which asserts exactly that at runtime).
     private final IcebergLatestSnapshotCache latestSnapshotCache; // null under session=user
+    // The enable / ttl-second / capacity of the table entry, shared by the latest-snapshot, format and comment
+    // caches (see the constructor). Also turns off the FE schema cache (schemaCacheTtlSecondOverride).
+    private final CacheSpec tableFactsCacheSpec;
     private final IcebergCatalogResourceTracker catalogResourceTracker = new IcebergCatalogResourceTracker();
     // PERF-01: cross-query cache of the RAW iceberg Table (restores the legacy IcebergExternalMetaCache table
     // cache that the SPI cutover dropped). null when the catalog's credentials are query-dependent
@@ -214,9 +221,6 @@ public class IcebergConnector implements Connector {
     // The value is pure metadata (no FileIO/credential), but under session=user it is an authorization-sensitive
     // projection (a shared hit would disclose one user's partitions), so it is disabled there (see constructor).
     private final IcebergPartitionCache partitionCache; // null under session=user
-    // PERF-03: cross-query inferred-file-format cache (the whole-table planFiles() fallback result, keyed by
-    // (table, snapshotId)). Same authorization-sensitive treatment as partitionCache: disabled under session=user.
-    private final IcebergFormatCache formatCache; // null under session=user
     // PERF-05: cross-query table-comment cache (value = the 'comment' property string). Built ONLY for a REST
     // vended-credentials catalog that is NOT session=user -- plain catalogs already reuse tableCache (PERF-01) for
     // the comment path, and session=user must stay live because the loadTable itself carries per-user
@@ -229,7 +233,7 @@ public class IcebergConnector implements Connector {
     // rebuild, not just the remote scan. Two typed fields because the two SPI hooks return structurally different
     // derived types and neither derives from the other; the shared raw PARTITIONS scan underneath is already
     // deduped by partitionCache, so two derived caches never double-scan remotely. Authorization-sensitive
-    // projection like partitionCache/formatCache: disabled (null) under iceberg.rest.session=user so a shared
+    // projection like partitionCache: disabled (null) under iceberg.rest.session=user so a shared
     // (no user dimension) hit cannot disclose one user's partition view; kept for every other flavor.
     private final ConnectorMetadataCache<ConnectorMvccPartitionView> // null under session=user
             mvccPartitionViewCache;
@@ -264,6 +268,14 @@ public class IcebergConnector implements Connector {
                 this::pluginAuthenticator);
         this.metaCache = CatalogMetaCache.managed(context.getCatalogId(), "iceberg", this.properties);
         this.manifestCache = new IcebergManifestCache(metaCache, this.properties);
+        // The latest-snapshot, format and comment caches have no meta.cache.iceberg.<entry> keys of their own; they
+        // take the table entry's enable / ttl-second / capacity (the legacy IcebergExternalMetaCache served the
+        // latest snapshot from its table entry), so table.enable=false or capacity=0 turns them off with the table
+        // cache, as ttl-second<=0 already did. The table's max-weight bounds only the table cache; the catalog and
+        // FE-global limits still bound these caches.
+        CacheSpec tableSpec = cacheSpec("table");
+        this.tableFactsCacheSpec = CacheSpec.of(
+                tableSpec.isEnable(), tableSpec.getTtlSecond(), tableSpec.getCapacity());
         // Authorization-sensitive projection (snapshotId/schemaId). Under iceberg.rest.session=user the value is
         // per-user AUTHORIZED metadata that a "can-list-cannot-load" principal must not see. beginQuerySnapshot
         // reads this cache WITHOUT a preceding per-user loadTable, so a shared (table-keyed, no user dimension)
@@ -273,8 +285,7 @@ public class IcebergConnector implements Connector {
         // tableCache/commentCache discipline: session=user => no LIVE cross-query metadata cache.
         this.latestSnapshotCache = isUserSessionEnabled()
                 ? null
-                : new IcebergLatestSnapshotCache(
-                        metaCache, resolveTableCacheTtlSecond(this.properties), DEFAULT_TABLE_CACHE_CAPACITY);
+                : new IcebergLatestSnapshotCache(metaCache, tableFactsCacheSpec);
         // PERF-01 cross-query RAW-table cache. Disabled (null) when the catalog's credentials are
         // query-dependent, because a cached raw Table carries its FileIO's credentials:
         //   - iceberg.rest.session=user: per-user delegated FileIO -> sharing across users leaks credentials.
@@ -282,12 +293,12 @@ public class IcebergConnector implements Connector {
         //     iceberg keeps it fresh by reloading the table each query, so a 24h-TTL hit would hand BE an
         //     expired token (403 mid-scan). Both gates are independent; either one disables this layer.
         // The query-scoped fat handle stays on in all cases (its token is fresh within the one query). Same
-        // TTL/capacity as the snapshot cache (the single meta.cache.iceberg.table.ttl-second knob).
+        // enable/TTL/capacity as the snapshot cache, plus the table entry's own max-weight.
         this.tableCache = (isUserSessionEnabled()
                 || IcebergScanPlanProvider.restVendedCredentialsEnabled(this.properties))
                 ? null
                 : new IcebergTableCache(
-                        metaCache, cacheSpec("table"),
+                        metaCache, tableSpec,
                         this::cachedTableCleanup, catalogResourceTracker);
         // PERF-02: partition-view cache. Authorization-sensitive projection: a shared (table+snapshot-keyed, no
         // user dimension) hit would disclose one user's partition list. Its readers are all downstream of a
@@ -299,21 +310,14 @@ public class IcebergConnector implements Connector {
                 ? null
                 : new IcebergPartitionCache(
                         metaCache, cacheSpec("partition"));
-        // PERF-03: inferred-file-format cache. Same authorization-sensitive treatment as partitionCache (disabled
-        // under session=user, kept otherwise); readers already tolerate a null cache (resolveFileFormatName).
-        this.formatCache = isUserSessionEnabled()
-                ? null
-                : new IcebergFormatCache(
-                        metaCache, resolveTableCacheTtlSecond(this.properties), DEFAULT_TABLE_CACHE_CAPACITY);
         // PERF-05: table-comment cache, built ONLY for a REST vended-credentials catalog that is NOT session=user.
         // Plain catalogs (tableCache on) already serve the comment path from tableCache; session=user is excluded
         // because a shared comment cache would bypass the per-user loadTable authorization (a metadata disclosure).
         // Comment is pure metadata (no credential) so no gate on the VALUE -- the flavor gate is an authorization
-        // decision, not a credential-leak one. Same TTL/capacity (ttl<=0 still disables internally).
+        // decision, not a credential-leak one. Same spec as the snapshot cache (a disabled one still reads live).
         this.commentCache = (IcebergScanPlanProvider.restVendedCredentialsEnabled(this.properties)
                 && !isUserSessionEnabled())
-                ? new IcebergCommentCache(
-                        metaCache, resolveTableCacheTtlSecond(this.properties), DEFAULT_TABLE_CACHE_CAPACITY)
+                ? new IcebergCommentCache(metaCache, tableFactsCacheSpec)
                 : null;
         // PERF-06: derived partition-view cache A (generic ConnectorMetadataCache). Same
         // authorization-sensitive treatment as partitionCache -- disabled (null) under iceberg.rest.session=user so
@@ -360,6 +364,24 @@ public class IcebergConnector implements Connector {
         Map<String, String> cacheProperties = new HashMap<>(this.properties);
         cacheProperties.put(TABLE_CACHE_TTL_SECOND, Long.toString(defaults.getTtlSecond()));
         return CacheSpec.fromProperties(cacheProperties, "iceberg", entryName, defaults);
+    }
+
+    /**
+     * Whether a metadata cache weight limit applies to this catalog: the FE-global limit, the catalog's
+     * {@code meta.cache.max-weight}, or the {@code max-weight} of one of {@link #WEIGHTED_CACHE_ENTRIES}. The
+     * catalog options then leave the Iceberg SDK manifest content cache off unless the user enables it, because
+     * that cache keeps manifests per FileIO outside every Doris limit.
+     */
+    boolean hasMetaCacheWeightLimit() {
+        if (metaCache.hasEnclosingWeightLimit()) {
+            return true;
+        }
+        for (String entry : WEIGHTED_CACHE_ENTRIES) {
+            if (cacheSpec(entry).isWeightBounded()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
@@ -441,12 +463,12 @@ public class IcebergConnector implements Connector {
 
         // Map Doris s3.* keys to Iceberg S3FileIO keys and force static credentials (disable
         // remote/vended signing) so the probe validates exactly what the user configured.
-        Map<String, String> ioProps = buildStorageProbeProperties(catalogType, chosenStorage.get());
+        Map<String, String> ioProps = buildStorageProbeProperties(catalogType, chosenStorage.get(), properties);
 
         // Load S3FileIO reflectively via CatalogUtil so this module needs no compile-time AWS SDK
         // dependency; the AWS SDK is resolved from the shared runtime classpath at execution time.
         // Pin the TCCL to the plugin loader for the probe: iceberg-aws builds its S3 client lazily and
-        // resolves org.apache.iceberg.aws.ApacheHttpClientConfigurations via DynMethods (default loader =
+        // resolves its org.apache.iceberg.aws.*HttpClientConfigurations class via DynMethods (default loader =
         // TCCL). This CREATE-CATALOG thread runs under the default 'app' TCCL, which would return the
         // fe-core copy of the class and ClassCast against the child-loaded plugin copy the rest of the
         // iceberg-aws stack uses — the SAME split-brain TcclPinningConnectorContext guards on the commit
@@ -482,8 +504,8 @@ public class IcebergConnector implements Connector {
         return probeStorageFromBackend(location);
     }
 
-    static Map<String, String> buildStorageProbeProperties(
-            String catalogType, S3CompatibleFileSystemProperties storageProperties) {
+    static Map<String, String> buildStorageProbeProperties(String catalogType,
+            S3CompatibleFileSystemProperties storageProperties, Map<String, String> catalogProperties) {
         String endpoint = storageProperties.getEndpoint();
         if (IcebergCatalogProperties.TYPE_DLF.equalsIgnoreCase(catalogType)
                 && "OSS".equals(storageProperties.providerName())) {
@@ -502,6 +524,14 @@ public class IcebergConnector implements Connector {
         if (!isBlank(storageProperties.getRegion())) {
             ioProps.put("client.region", storageProperties.getRegion());
         }
+        // The probe builds its own S3FileIO, so it must reach the store the way the catalog does: same HTTP client
+        // and proxy settings, and the same default client type as every other iceberg AWS client.
+        for (Map.Entry<String, String> e : catalogProperties.entrySet()) {
+            if (e.getKey().startsWith(HTTP_CLIENT_PROPERTY_PREFIX)) {
+                ioProps.put(e.getKey(), e.getValue());
+            }
+        }
+        IcebergCatalogFactory.applyDefaultAwsHttpClient(ioProps);
         return ioProps;
     }
 
@@ -733,10 +763,15 @@ public class IcebergConnector implements Connector {
      * {@code schema.cache.ttl-second}), so a no-cache catalog ({@code ttl-second=0}) serves FRESH schema after
      * external DDL (mirrors {@code PaimonConnector.schemaCacheTtlSecondOverride}). Absent -> no override (engine
      * default TTL). Do NOT reuse {@link #resolveTableCacheTtlSecond}, which substitutes the 24h default for a
-     * blank value and would defeat the engine default.
+     * blank value and would defeat the engine default. A table entry turned off by {@code enable=false} or
+     * {@code capacity=0} is a no-cache catalog too: its latest snapshot is read live, so the schema it names must
+     * not come from the name-keyed schema cache either.
      */
     @Override
     public OptionalLong schemaCacheTtlSecondOverride() {
+        if (!tableFactsCacheSpec.isEnable() || tableFactsCacheSpec.getCapacity() == 0) {
+            return OptionalLong.of(0L);
+        }
         String raw = properties.get(TABLE_CACHE_TTL_SECOND);
         if (raw == null || raw.trim().isEmpty()) {
             return OptionalLong.empty();
@@ -768,11 +803,6 @@ public class IcebergConnector implements Connector {
         return partitionCache;
     }
 
-    /** Test-only: the cross-query inferred-file-format cache (PERF-03), or {@code null} for a session=user catalog. */
-    IcebergFormatCache formatCacheForTest() {
-        return formatCache;
-    }
-
     /** Test-only: the table-comment cache (PERF-05), or {@code null} unless vended-credentials and non-session. */
     IcebergCommentCache commentCacheForTest() {
         return commentCache;
@@ -797,7 +827,7 @@ public class IcebergConnector implements Connector {
         // threaded for parity with the legacy single per-catalog IcebergMetadataOps.
         return new IcebergScanPlanProvider(catalogProps,
                 this::newCatalogBackedOps, context, manifestCache,
-                tableCache, formatCache, catalogResourceTracker);
+                tableCache, catalogResourceTracker);
     }
 
     @Override
@@ -852,6 +882,10 @@ public class IcebergConnector implements Connector {
         // avoidance). Correct only because the connector also carries per-field ids down its column tree
         // (parseSchema withUniqueId + IcebergTypeMapping withChildrenFieldIds), which the BE field-id scan
         // path matches nested leaves by; without them a nested leaf reads NULL. Inert pre-cutover (P6.6).
+        // SUPPORTS_FIELD_ID_ACCESS_PATH: those same per-field ids are what the access-path rewrite addresses by,
+        // so iceberg declares BOTH bits. They are separate because a connector without field ids (paimon, fluss)
+        // honours a pruned nested type while being addressed by name, and rewriting its paths to ids would emit
+        // "-1" segments BE matches against nothing.
         // SUPPORTS_STORAGE_PREDICATE_PRUNING: native Iceberg data scans use the Parquet/ORC readers that can
         // consume inferred bare-column ranges for min/max pruning. PluginDrivenSysExternalTable opts metadata
         // tables out separately, so this catalog-wide declaration applies only to normal data-table scans.
@@ -870,6 +904,7 @@ public class IcebergConnector implements Connector {
                 ConnectorCapability.SUPPORTS_SHOW_CREATE_DDL,
                 ConnectorCapability.SUPPORTS_VIEW,
                 ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE,
+                ConnectorCapability.SUPPORTS_FIELD_ID_ACCESS_PATH,
                 ConnectorCapability.SUPPORTS_STORAGE_PREDICATE_PRUNING,
                 ConnectorCapability.SUPPORTS_METADATA_PRELOAD,
                 ConnectorCapability.SUPPORTS_SORT_ORDER,
@@ -1014,7 +1049,7 @@ public class IcebergConnector implements Connector {
         }
 
         Map<String, String> catalogOptions =
-                IcebergCatalogFactory.buildCatalogProperties(catalogProps, chosenS3);
+                IcebergCatalogFactory.buildCatalogProperties(catalogProps, chosenS3, hasMetaCacheWeightLimit());
         Map<String, String> storageHadoopConfig = buildStorageHadoopConfig();
 
         Configuration conf;
@@ -1035,16 +1070,13 @@ public class IcebergConnector implements Connector {
                         catalogOptions.get("client-pool-cache-keys")));
                 break;
             }
-            case IcebergCatalogProperties.TYPE_GLUE:
-                // Legacy IcebergGlueMetaStoreProperties builds the catalog with conf=null.
-                conf = null;
-                break;
             case IcebergCatalogProperties.TYPE_JDBC:
                 maybeRegisterJdbcDriver();
                 conf = IcebergCatalogFactory.buildHadoopConfiguration(properties, storageHadoopConfig);
                 break;
             default:
-                // rest / hadoop: a storage Configuration from the fe-filesystem-bound storage + raw
+                // rest / hadoop / glue: FileIO needs the bound storage configuration, including
+                // native GCS credentials when ResolvingFileIO falls back to HadoopFileIO, plus raw
                 // fs./dfs./hadoop. passthrough.
                 conf = IcebergCatalogFactory.buildHadoopConfiguration(properties, storageHadoopConfig);
                 break;
@@ -1089,7 +1121,8 @@ public class IcebergConnector implements Connector {
         DlfMetaStoreProperties dlf = (DlfMetaStoreProperties) MetaStoreProviders.bindForType(
                 IcebergCatalogProperties.TYPE_DLF, properties, buildStorageHadoopConfig());
         Configuration conf = IcebergCatalogFactory.buildDlfConfiguration(dlf.toDlfCatalogConf());
-        Map<String, String> catalogOptions = IcebergCatalogFactory.buildBaseCatalogProperties(properties);
+        Map<String, String> catalogOptions =
+                IcebergCatalogFactory.buildBaseCatalogProperties(properties, hasMetaCacheWeightLimit());
         return buildCatalogAuthenticated(IcebergCatalogProperties.TYPE_DLF, () -> {
             DLFCatalog catalog = new DLFCatalog(chosenS3.get());
             catalog.setConf(conf);
@@ -1214,8 +1247,8 @@ public class IcebergConnector implements Connector {
      */
     private Catalog createS3TablesCatalog(String catalogName, Optional<S3CompatibleFileSystemProperties> chosenS3) {
         String region = resolveS3TablesRegion(chosenS3, properties);
-        Map<String, String> catalogOptions =
-                IcebergCatalogFactory.buildS3TablesCatalogProperties(catalogProps, chosenS3);
+        Map<String, String> catalogOptions = IcebergCatalogFactory.buildS3TablesCatalogProperties(
+                catalogProps, chosenS3, hasMetaCacheWeightLimit());
         LOG.info("Creating Iceberg s3tables catalog '{}' region='{}' boundStorage={}",
                 catalogName, region, chosenS3.isPresent());
         return buildCatalogAuthenticated(IcebergCatalogProperties.TYPE_S3_TABLES, () -> {

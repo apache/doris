@@ -102,7 +102,6 @@ struct DataValue {
 template <PrimitiveType T>
 struct WindowFunnelState {
     static constexpr PrimitiveType PType = T;
-    using NativeType = typename PrimitiveTypeTraits<T>::StorageFieldType;
     using DateValueType = typename PrimitiveTypeTraits<T>::CppType;
     int event_count = 0;
     int64_t window;
@@ -120,7 +119,11 @@ struct WindowFunnelState {
         events_list.event_columns_data.resize(event_count);
     }
 
-    void reset() { events_list.clear(); }
+    void reset() {
+        events_list.clear();
+        window = 0;
+        window_funnel_mode = WindowFunnelMode::INVALID;
+    }
 
     void add(const IColumn** arg_columns, ssize_t row_num, int64_t win, WindowFunnelMode mode) {
         window = win;
@@ -286,6 +289,15 @@ struct WindowFunnelState {
     void merge(const WindowFunnelState<T>& other) {
         if (other.events_list.empty()) {
             return;
+        }
+
+        if (events_list.empty()) {
+            window = other.window;
+            window_funnel_mode = other.window_funnel_mode;
+        } else if (UNLIKELY(window != other.window ||
+                            window_funnel_mode != other.window_funnel_mode)) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "window_funnel aggregate states have incompatible window or mode");
         }
         events_list.dt.insert(std::end(events_list.dt), std::begin(other.events_list.dt),
                               std::end(other.events_list.dt));

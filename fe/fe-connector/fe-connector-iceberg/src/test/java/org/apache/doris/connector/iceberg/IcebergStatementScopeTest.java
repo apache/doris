@@ -21,6 +21,9 @@ import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.thrift.TIcebergDeleteFileDesc;
 
+import org.apache.iceberg.BaseTable;
+import org.apache.iceberg.ImmutableLabels;
+import org.apache.iceberg.Labels;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
@@ -61,6 +64,19 @@ public class IcebergStatementScopeTest {
     }
 
     @Test
+    public void manifestReadBudgetIsSharedAcrossCatalogsButNotExecutions() {
+        TestStatementScope scope = new TestStatementScope();
+        java.util.concurrent.Semaphore first = IcebergStatementScope.manifestReadBudget(
+                new ScopeSession(1L, "q1", scope), 8);
+        Assertions.assertSame(first, IcebergStatementScope.manifestReadBudget(
+                new ScopeSession(2L, "q1", scope), 8));
+        Assertions.assertNotSame(first, IcebergStatementScope.manifestReadBudget(
+                new ScopeSession(1L, "q2", scope), 8));
+        Assertions.assertNotSame(IcebergStatementScope.manifestReadBudget(null, 8),
+                IcebergStatementScope.manifestReadBudget(null, 8));
+    }
+
+    @Test
     public void sameStatementSharesOneLoadedTable() {
         // Read metadata and scan planning resolve one frozen view through sharedTable; sharing one scope
         // collapses them onto one load and hands each the same statement instance.
@@ -77,6 +93,23 @@ public class IcebergStatementScopeTest {
         });
         Assertions.assertSame(t1, t2, "same statement + table -> one shared instance");
         Assertions.assertEquals(1, loads.get(), "loaded once per statement");
+    }
+
+    @Test
+    public void sharedTableKeepsCatalogLabels() {
+        // The statement-scoped read view is a rebuilt BaseTable; REST catalog labels must survive the rebuild
+        // because they are not part of the table metadata. MUTATION: dropping labels on rebuild -> EMPTY -> red.
+        BaseTable raw = (BaseTable) mutableTable("t");
+        Labels labels = ImmutableLabels.builder()
+                .objectLabels(Collections.singletonMap("owner", "team-a"))
+                .build();
+        Table labeled = new BaseTable(raw.operations(), raw.name(), raw.reporter(), labels);
+
+        Table shared = IcebergStatementScope.sharedTable(
+                new ScopeSession(7L, "q1", new TestStatementScope()), "db1", "t", () -> labeled);
+
+        Assertions.assertNotSame(labeled, shared);
+        Assertions.assertEquals(labels, ((BaseTable) shared).labels());
     }
 
     @Test
@@ -252,6 +285,28 @@ public class IcebergStatementScopeTest {
     }
 
     @Test
+    public void runningReadLeaseDefersStatementOwnedFileIoCleanup() throws Exception {
+        IcebergCatalogResourceTracker tracker = new IcebergCatalogResourceTracker();
+        TestStatementScope scope = new TestStatementScope();
+        ScopeSession session = new ScopeSession(7L, "q1", scope);
+        AtomicInteger tableCloses = new AtomicInteger();
+        AtomicInteger catalogCloses = new AtomicInteger();
+        IcebergStatementScope.sharedTrackedTable(session, "db1", "t", tracker, () -> table("t"),
+                ignored -> tableCloses::incrementAndGet);
+        Supplier<AutoCloseable> retain = IcebergStatementScope.readTableLeaseFactory(session, "db1", "t");
+        AutoCloseable release = retain.get();
+        scope.closeAll();
+        tracker.close(catalogCloses::incrementAndGet);
+        Assertions.assertEquals(0, tableCloses.get());
+        Assertions.assertEquals(0, catalogCloses.get());
+        release.close();
+        release.close();
+        Assertions.assertEquals(1, tableCloses.get());
+        Assertions.assertEquals(1, catalogCloses.get());
+        Assertions.assertThrows(IllegalStateException.class, retain::get);
+    }
+
+    @Test
     public void unscopedMetadataOperationReleasesExactGenerationBeforeReturning() {
         IcebergCatalogResourceTracker tracker = new IcebergCatalogResourceTracker();
         AtomicInteger tableCloses = new AtomicInteger();
@@ -314,7 +369,7 @@ public class IcebergStatementScopeTest {
     }
 
     /** Minimal {@link ConnectorSession} carrying a catalog id, queryId and scope for the key + memo assertions. */
-    private static final class ScopeSession implements ConnectorSession {
+    static final class ScopeSession implements ConnectorSession {
         private final long catalogId;
         private final String queryId;
         private final ConnectorStatementScope scope;
