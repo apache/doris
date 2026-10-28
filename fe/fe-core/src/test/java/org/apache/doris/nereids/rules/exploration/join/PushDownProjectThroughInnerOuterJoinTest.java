@@ -46,6 +46,28 @@ class PushDownProjectThroughInnerOuterJoinTest implements MemoPatternMatchSuppor
     private ConnectContext connectContext = MemoTestUtils.createConnectContext();
 
     @Test
+    public void rejectPushdownWhenProjectItemReadsNoSlotAndIsUsedByJoinCondition() {
+        // project '014' AS `id`#t1.id, t1.name, t2.id, t2.name
+        // the constant reads no slot and reuses the exprId of t1.id, and the join below refers to t1.id:
+        // pushing the project into the join would make both children of the join output t1.id
+        List<NamedExpression> projectExprs = ImmutableList.of(
+                new Alias(scan1.getOutput().get(0).getExprId(), Literal.of(14), scan1.getOutput().get(0).getName()),
+                scan1.getOutput().get(1),
+                scan2.getOutput().get(0),
+                scan2.getOutput().get(1)
+        );
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
+                .projectExprs(projectExprs)
+                .join(scan3, JoinType.INNER_JOIN, Pair.of(1, 1))
+                .build();
+
+        PlanChecker.from(connectContext, plan)
+                .applyExploration(PushDownProjectThroughInnerOuterJoin.INSTANCE.buildRules())
+                .checkMemo(memo -> Assertions.assertEquals(1, memo.getRoot().getLogicalExpressions().size()));
+    }
+
+    @Test
     public void pushBothSide() {
         pushBothSideHelper(JoinType.INNER_JOIN);
         pushBothSideHelper(JoinType.ASOF_LEFT_INNER_JOIN);

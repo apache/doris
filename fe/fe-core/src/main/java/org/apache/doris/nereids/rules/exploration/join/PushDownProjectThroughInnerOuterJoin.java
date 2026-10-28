@@ -92,7 +92,7 @@ public class PushDownProjectThroughInnerOuterJoin implements ExplorationRuleFact
     }
 
     private Plan pushdownProject(LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project) {
-        LogicalJoin<GroupPlan, GroupPlan> join = project.child();
+        LogicalJoin<? extends Plan, ? extends Plan> join = project.child();
         Set<ExprId> aOutputExprIdSet = join.left().getOutputExprIdSet();
         Set<ExprId> bOutputExprIdSet = join.right().getOutputExprIdSet();
 
@@ -124,7 +124,21 @@ public class PushDownProjectThroughInnerOuterJoin implements ExplorationRuleFact
                     e instanceof Slot ? childrenSlots.get((Slot) e) : e
             )).map(e -> (NamedExpression) e).collect(Collectors.toList());
         }
+        // A project item which reads no input, e.g. the constant materialized by constant propagation, now() or
+        // 1 + 1, must not be pushed into either side of the join. If the join condition refers to such an item,
+        // pushing it into one side would make both children of the join output the same exprId, because the
+        // condition keeps referring to it from the other side. Such an item is evaluated from nothing, so keeping
+        // it in the project above the join loses no optimization, but the condition can not be folded either: a
+        // constant join key makes one side contribute no key at all, which breaks the same property derivation.
+        // So the whole pushdown is rejected for this branch, the join keeps its columns and stays valid.
+        Set<ExprId> noInputProjectItemIds = CBOUtils.collectNoInputProjectItemIds(projects);
+        if (CBOUtils.joinConditionRefersTo(join, noInputProjectItemIds)) {
+            return null;
+        }
         for (NamedExpression namedExpression : projects) {
+            if (noInputProjectItemIds.contains(namedExpression.getExprId())) {
+                continue;
+            }
             Set<ExprId> usedExprIds = namedExpression.getInputSlotExprIds();
             if (aOutputExprIdSet.containsAll(usedExprIds)) {
                 aProjects.add(namedExpression);
@@ -156,7 +170,7 @@ public class PushDownProjectThroughInnerOuterJoin implements ExplorationRuleFact
 
         if (!rightContains) {
             Plan newJoin = join.withChildren(newLeft, join.right());
-            return new LogicalProject<>(ImmutableList.copyOf(project.getOutput()), newJoin);
+            return new LogicalProject<>(CBOUtils.projectAboveJoin(project, noInputProjectItemIds), newJoin);
         }
 
         Builder<NamedExpression> newBProject = ImmutableList.<NamedExpression>builder().addAll(bProjects);
@@ -167,7 +181,7 @@ public class PushDownProjectThroughInnerOuterJoin implements ExplorationRuleFact
         Plan newRight = new LogicalProject<>(newBProject.build(), join.right());
 
         Plan newJoin = join.withChildren(newLeft, newRight);
-        return new LogicalProject<>(ImmutableList.copyOf(project.getOutput()), newJoin);
+        return new LogicalProject<>(CBOUtils.projectAboveJoin(project, noInputProjectItemIds), newJoin);
     }
 
 }
