@@ -2235,6 +2235,10 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         request.getScanContext().setTotalPartitions(partitions.size());
         AtomicInteger nextPartition = new AtomicInteger();
         int sourceCount = Math.min(parallelism, (partitions.size() - 1) / partitionsPerBatch + 1);
+        int producerLimit = sessionVariable.getSplitProducerParallelism();
+        if (producerLimit > 0) {
+            sourceCount = Math.min(sourceCount, producerLimit);
+        }
         List<SplitProducer.BatchSource> sources = new ArrayList<>(sourceCount);
         // Bound active partition batches even when full queues make producers yield their workers.
         // Hive streams within each batch; the SPI adapter retains one list for older implementations.

@@ -226,6 +226,21 @@ hiveSplitPerfRepetitions = "3"
 hiveSplitPerfCacheTable = "hive_split_physical_cache.doris_split_physical.files_10000_partitions_100_files"
 ```
 
+To compare partition-batch producer limits on a version supporting
+`split_producer_parallelism`, set `hiveSplitPerfProducerParallelism = "4"` in a
+benchmark config, and use `"0"` for its control. The suite restores the session
+value afterward. Omit this entry when testing older versions.
+
+The session variable caps active partition-batch producers **per scan node**.
+Zero preserves the existing FE external metadata pool limit; a positive value
+cannot exceed that pool's parallelism or the number of partition batches. It
+does not change the global executor, the configured Split batch size, queue
+capacity or wait deadlines. Whole-scan connector streams still use one producer.
+Lower limits can reduce speculative LIST calls for LIMIT queries and contention
+on an overloaded object store, but can reduce full-scan throughput on a fast
+store. Compare both workloads with the default fetch deadline before selecting a
+value; four is an experimental setting, not a new default.
+
 The synchronous control explicitly disables `enable_external_table_batch_mode`;
 raising `num_partitions_in_batch_mode` alone can still select file-count streaming.
 If a connector's synchronous planner enumerates partitions outside the engine's

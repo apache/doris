@@ -172,6 +172,54 @@ class PluginDrivenScanNodePartitionBatchTest {
     }
 
     @Test
+    void producerLimitBoundsActiveSourcesWithoutLosingPartitions() throws Exception {
+        for (int limit : Arrays.asList(0, 2, 100)) {
+            Fixture fixture = new Fixture(1, Collections.emptySet());
+            Mockito.when(fixture.variables.getSplitProducerParallelism()).thenReturn(limit);
+            fixture.start(7, 1, 8);
+            fixture.executor.runUntilIdle();
+            int expectedProducers = limit == 2 ? 2 : 7;
+            Assertions.assertEquals(expectedProducers, fixture.loaded.size());
+            Assertions.assertEquals(0, fixture.finished.get());
+
+            List<Long> actual = fixture.drain();
+            Collections.sort(actual);
+            List<Long> expected = new ArrayList<>();
+            for (long partition = 0; partition < 7; partition++) {
+                for (long range = 0; range < 3; range++) {
+                    expected.add(partition * 10 + range);
+                }
+            }
+            Assertions.assertEquals(expected, actual);
+            Assertions.assertEquals(7, fixture.loaded.size());
+            Assertions.assertEquals(7, new HashSet<>(fixture.loaded).size());
+            Assertions.assertEquals(expectedProducers, fixture.finished.get());
+        }
+    }
+
+    @Test
+    void producerLimitCannotExceedExecutorParallelism() throws Exception {
+        Fixture fixture = new Fixture(1, Collections.emptySet());
+        Mockito.when(fixture.variables.getSplitProducerParallelism()).thenReturn(100);
+        List<SplitProducer.BatchSource> sources = fixture.sources(20, 1, 3);
+        Assertions.assertEquals(3, sources.size());
+        for (SplitProducer.BatchSource source : sources) {
+            source.close();
+        }
+    }
+
+    @Test
+    void producerLimitAcceptsZeroAndRejectsNegativeValues() throws Exception {
+        SessionVariable variables = new SessionVariable();
+        Assertions.assertEquals(0, variables.getSplitProducerParallelism());
+        variables.checkSplitProducerParallelism("0");
+        variables.checkSplitProducerParallelism("4");
+        Exception failure = Assertions.assertThrows(Exception.class,
+                () -> variables.checkSplitProducerParallelism("-1"));
+        Assertions.assertTrue(failure.getMessage().contains(SessionVariable.SPLIT_PRODUCER_PARALLELISM));
+    }
+
+    @Test
     void cancellationDuringEmptyPartitionLoadingStopsFurtherCalls() throws Exception {
         Fixture fixture = new Fixture(1, Collections.emptySet());
         Mockito.doAnswer(call -> {
@@ -193,6 +241,7 @@ class PluginDrivenScanNodePartitionBatchTest {
         final SplitAssignment assignment;
         final PluginDrivenScanNode node;
         final ConnectorScanPlanProvider provider;
+        final SessionVariable variables = Mockito.mock(SessionVariable.class);
 
         Fixture(int batchSize, Set<String> emptyPartitions) throws Exception {
             this(batchSize, emptyPartitions, 3);
@@ -211,6 +260,7 @@ class PluginDrivenScanNodePartitionBatchTest {
                     Collections.emptyMap(), Collections.emptyList(), true, batchSize, 1);
             node = Mockito.mock(PluginDrivenScanNode.class, Mockito.CALLS_REAL_METHODS);
             Deencapsulation.setField(node, "splitAssignment", assignment);
+            Deencapsulation.setField(node, "sessionVariable", variables);
             provider = Mockito.mock(ConnectorScanPlanProvider.class, Mockito.CALLS_REAL_METHODS);
             Mockito.when(provider.supportsBatchScan(Mockito.any(), Mockito.any())).thenReturn(true);
             Mockito.doAnswer(call -> {

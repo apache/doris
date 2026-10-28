@@ -32,6 +32,7 @@ suite("test_hive_split_early_stop_performance", "external") {
     String table = context.config.otherConfigs.get("hiveSplitEarlyStopTable")
     String cacheTable = context.config.otherConfigs.get("hiveSplitPerfCacheTable")
     String syncTable = context.config.otherConfigs.get("hiveSplitPerfSyncTable") ?: table
+    String producerParallelism = context.config.otherConfigs.get("hiveSplitPerfProducerParallelism")
     boolean planningOnly = context.config.otherConfigs.get("hiveSplitPerfPlanningCancelOnly")
             ?.toString()?.toBoolean() ?: false
     boolean steadyOnly = context.config.otherConfigs.get("hiveSplitPerfSteadyLimitOnly")
@@ -109,11 +110,18 @@ suite("test_hive_split_early_stop_performance", "external") {
         }
         return signalledAt.get()
     }
-    def saved = ["query_timeout", "num_partitions_in_batch_mode", "enable_file_cache", "enable_sql_cache",
-            "enable_external_table_batch_mode"].collectEntries {
+    def settings = ["query_timeout", "num_partitions_in_batch_mode", "enable_file_cache", "enable_sql_cache",
+            "enable_external_table_batch_mode"]
+    if (producerParallelism != null) {
+        settings.add("split_producer_parallelism")
+    }
+    def saved = settings.collectEntries {
         name -> [(name): sql("show variables like '${name}'")[0][1]]
     }
     try {
+        if (producerParallelism != null) {
+            sql "set split_producer_parallelism=${producerParallelism}"
+        }
         sql "set query_timeout=120"
         sql "set enable_file_cache=false"
         sql "set enable_sql_cache=false"
