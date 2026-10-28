@@ -2426,10 +2426,9 @@ TEST_F(CollectionStatisticsTest, CollectNotExtractedColumnSkipsFallback) {
     EXPECT_TRUE(collect_infos.empty());
 }
 
-// L1: Index whose properties do not request an analyzer
-// (should_analyzer returns false). The matching index_meta is iterated
-// but skipped before insertion.
-TEST_F(CollectionStatisticsTest, CollectSkipsIndexWithoutAnalyzer) {
+// L1: Index whose properties do not request an analyzer (should_analyzer returns false). A keyword
+// MATCH scores like SEARCH on the same field, so its whole value is collected as one term.
+TEST_F(CollectionStatisticsTest, CollectsKeywordIndexValueAsOneTerm) {
     auto tablet_schema = std::make_shared<TabletSchema>();
 
     constexpr int32_t kColUid = 1300;
@@ -2456,7 +2455,7 @@ TEST_F(CollectionStatisticsTest, CollectSkipsIndexWithoutAnalyzer) {
 
     auto match_expr = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
     auto slot_ref = std::make_shared<collection_statistics::MockVSlotRef>("kw", SlotId(kSlotId));
-    auto literal = std::make_shared<collection_statistics::MockVLiteral>("v");
+    auto literal = std::make_shared<collection_statistics::MockVLiteral>("Hello World");
     match_expr->_children.push_back(slot_ref);
     match_expr->_children.push_back(literal);
     auto analyzer_ctx = std::make_shared<InvertedIndexAnalyzerCtx>();
@@ -2464,12 +2463,22 @@ TEST_F(CollectionStatisticsTest, CollectSkipsIndexWithoutAnalyzer) {
     analyzer_ctx->parser_type = InvertedIndexParserType::PARSER_NONE;
     match_expr->set_analyzer_ctx(std::move(analyzer_ctx));
 
-    MatchPredicateCollector collector;
-    std::unordered_map<std::wstring, CollectInfo> collect_infos;
-    auto status =
-            collector.collect(runtime_state_.get(), tablet_schema, match_expr, &collect_infos);
-    ASSERT_TRUE(status.ok()) << status.msg();
-    EXPECT_TRUE(collect_infos.empty());
+    for (auto op : {TExprOpcode::MATCH_ANY, TExprOpcode::MATCH_ALL, TExprOpcode::MATCH_PHRASE}) {
+        SCOPED_TRACE(op);
+        match_expr->set_opcode(op);
+        MatchPredicateCollector collector;
+        std::unordered_map<std::wstring, CollectInfo> collect_infos;
+        auto status =
+                collector.collect(runtime_state_.get(), tablet_schema, match_expr, &collect_infos);
+        ASSERT_TRUE(status.ok()) << status.msg();
+        ASSERT_EQ(collect_infos.size(), 1U);
+        const auto& collect_info = collect_infos.begin()->second;
+        ASSERT_NE(collect_info.index_meta, nullptr);
+        EXPECT_EQ(collect_info.index_meta->index_id(), 2300);
+        EXPECT_EQ(collect_info.unique_terms, std::vector<std::string>({"Hello World"}));
+        ASSERT_EQ(collect_info.logical_scoring_leaves.size(), 1U);
+        EXPECT_EQ(collect_info.logical_scoring_leaves[0].clauses.size(), 1U);
+    }
 }
 
 TEST_F(CollectionStatisticsTest, ExplicitNoneDoesNotSelectNormalizerIndexForScoring) {
