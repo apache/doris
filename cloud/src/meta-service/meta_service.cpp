@@ -132,6 +132,13 @@ std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
                         << cloud_unique_id;
                 return "";
             }
+            if (code != TxnErrorCode::TXN_OK) {
+                // Reject rather than accept a cloud_unique_id whose node membership is unchecked.
+                LOG(WARNING) << "use degraded format cloud_unique_id, but failed to get instance, "
+                                "cloud_unique_id="
+                             << cloud_unique_id << " err=" << msg;
+                return "";
+            }
             if (instance.has_status() && instance.status() == InstanceInfoPB::DELETED) {
                 msg = "instance status has been set delete, plz check it, recycle_state=" +
                       InstanceRecycleState_Name(instance.recycle_state());

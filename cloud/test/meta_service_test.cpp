@@ -1491,6 +1491,35 @@ static void register_instance_node(MetaServiceProxy* meta_service, const std::st
     meta_service->resource_mgr()->refresh_instance(instance_id, instance);
 }
 
+TEST(MetaServiceTest, GetInstanceIdKvErrorTest) {
+    extern std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
+                                       const std::string& cloud_unique_id);
+    auto meta_service = get_meta_service(false);
+    bool enable_check_instance_id = config::enable_check_instance_id;
+    config::enable_check_instance_id = true;
+    auto sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        config::enable_check_instance_id = enable_check_instance_id;
+        sp->clear_all_call_backs();
+        sp->disable_processing();
+    };
+    const std::string instance_id = "kv_error_instance";
+    const std::string cloud_unique_id = "1:" + instance_id + ":be";
+    register_instance_node(meta_service.get(), instance_id, cloud_unique_id);
+    // Take the degraded path, as for a registered node not in the cache yet.
+    sp->set_call_back("get_instance_id_err", [](auto&& args) {
+        *try_any_cast<std::string*>(args[0]) = "can't find node from cache";
+    });
+    sp->enable_processing();
+    ASSERT_EQ(get_instance_id(meta_service->resource_mgr(), cloud_unique_id), instance_id);
+
+    // A failed instance read is rejected rather than trusted.
+    sp->set_call_back("is_instance_id_registered", [](auto&& args) {
+        *try_any_cast<TxnErrorCode*>(args[0]) = TxnErrorCode::TXN_TOO_OLD;
+    });
+    ASSERT_EQ(get_instance_id(meta_service->resource_mgr(), cloud_unique_id), "");
+}
+
 TEST(MetaServiceTest, GetClusterForgedCloudUniqueIdTest) {
     auto meta_service = get_meta_service(false);
     bool enable_check_instance_id = config::enable_check_instance_id;
