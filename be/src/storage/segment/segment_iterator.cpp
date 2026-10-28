@@ -578,10 +578,12 @@ Status SegmentIterator::_lazy_init(Block* block) {
         RETURN_IF_ERROR(_get_row_ranges_by_keys());
     }
     RETURN_IF_ERROR(_get_row_ranges_by_column_conditions());
-    // A wide VARIANT projection is unnecessary when index/delete/range pruning
-    // removes every row. Initialize surviving projections before materialization
-    // and prefetch; e.g. a trace lookup can reject all but two of 435 segments.
-    if (!_row_bitmap.isEmpty()) {
+    // A computed predicate can reject a segment only after vector evaluation.
+    // Keep its VARIANT projections unopened until the first actual column read.
+    // Compaction and cloud prefetch still initialize surviving columns up front.
+    if (!_row_bitmap.isEmpty() &&
+        (_opts.io_ctx.reader_type != ReaderType::READER_QUERY ||
+         (config::is_cloud_mode() && config::enable_query_segment_file_cache_prefetch))) {
         RETURN_IF_ERROR(_init_column_iterators(false));
     }
     RETURN_IF_ERROR(_vec_init_lazy_materialization());
@@ -1908,7 +1910,6 @@ bool SegmentIterator::_check_all_conditions_passed_inverted_index_for_column(Col
 }
 
 Status SegmentIterator::_init_column_iterators(bool defer_variant_columns) {
-    SCOPED_RAW_TIMER(&_opts.stats->segment_iterator_init_column_iterators_timer_ns);
     if (_cur_rowid >= num_rows()) {
         return Status::OK();
     }
@@ -1952,18 +1953,7 @@ Status SegmentIterator::_init_column_iterators(bool defer_variant_columns) {
             continue;
         }
 
-        RETURN_IF_ERROR(_segment->new_column_iterator(*_schema->column(cid),
-                                                      &_column_iterators[cid], &_opts,
-                                                      &_variant_sparse_column_cache));
-        ColumnIteratorOptions iter_opts {
-                .use_page_cache = _opts.use_page_cache,
-                // Predicate columns read the last page to check full dict encoding.
-                .is_predicate_column = _column_states[cid].has_predicate(),
-                .file_reader = _file_reader.get(),
-                .stats = _opts.stats,
-                .io_ctx = _opts.io_ctx,
-        };
-        RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
+        RETURN_IF_ERROR(_init_column_iterator(cid));
     }
 
 #ifndef NDEBUG
@@ -1977,6 +1967,23 @@ Status SegmentIterator::_init_column_iterators(bool defer_variant_columns) {
                 << " should be VirtualColumnIterator";
     }
 #endif
+    return Status::OK();
+}
+
+Status SegmentIterator::_init_column_iterator(ColumnId cid) {
+    DCHECK(_column_iterators[cid] == nullptr);
+    SCOPED_RAW_TIMER(&_opts.stats->segment_iterator_init_column_iterators_timer_ns);
+    RETURN_IF_ERROR(_segment->new_column_iterator(*_schema->column(cid), &_column_iterators[cid],
+                                                  &_opts, &_variant_sparse_column_cache));
+    ColumnIteratorOptions iter_opts {
+            .use_page_cache = _opts.use_page_cache,
+            // Predicate columns read the last page to check full dict encoding.
+            .is_predicate_column = _column_states[cid].has_predicate(),
+            .file_reader = _file_reader.get(),
+            .stats = _opts.stats,
+            .io_ctx = _opts.io_ctx,
+    };
+    RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
     return Status::OK();
 }
 
@@ -2613,6 +2620,11 @@ Status SegmentIterator::_read_columns_by_index(const std::vector<ColumnId>& read
             })
         }
 
+        // A surviving row now needs this deferred VARIANT projection. Segments
+        // rejected by vector predicates never reach this initialization point.
+        if (_column_iterators[cid] == nullptr) {
+            RETURN_IF_ERROR(_init_column_iterator(cid));
+        }
         auto* column_iter = _column_iterators[cid].get();
         ScopedColumnIteratorReadPhase scoped_read_phase {
                 column_iter, _has_lazy_pruned_children(cid) ? ColumnIterator::ReadPhase::PREDICATE
@@ -2866,6 +2878,11 @@ Status SegmentIterator::_read_columns_by_rowids(const std::vector<ColumnId>& rea
                     _current_columns.size(), cid);
         }
 
+        // A surviving row now needs this deferred VARIANT projection. Segments
+        // rejected by vector predicates never reach this initialization point.
+        if (_column_iterators[cid] == nullptr) {
+            RETURN_IF_ERROR(_init_column_iterator(cid));
+        }
         auto* column_iter = _column_iterators[cid].get();
         ScopedColumnIteratorReadPhase scoped_read_phase {
                 column_iter, read_for_predicate && _has_lazy_pruned_children(cid)
