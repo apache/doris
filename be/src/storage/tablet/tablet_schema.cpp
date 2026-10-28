@@ -572,6 +572,9 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     if (column.has_variant_enable_nested_group()) {
         _variant.enable_nested_group = column.variant_enable_nested_group();
     }
+    if (column.has_variant_serialize_type()) {
+        _variant.serialize_type = column.variant_serialize_type();
+    }
     if (column.has_pattern_type()) {
         _pattern_type = column.pattern_type();
     }
@@ -664,6 +667,7 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
     column->set_variant_doc_materialization_min_rows(_variant.doc_materialization_min_rows);
     column->set_variant_doc_hash_shard_count(_variant.doc_hash_shard_count);
     column->set_variant_enable_nested_group(_variant.enable_nested_group);
+    column->set_variant_serialize_type(_variant.serialize_type);
 }
 
 void TabletColumn::add_sub_column(TabletColumn& sub_column) {

@@ -23,6 +23,7 @@ import org.apache.doris.thrift.TScalarType;
 import org.apache.doris.thrift.TTypeDesc;
 import org.apache.doris.thrift.TTypeNode;
 import org.apache.doris.thrift.TTypeNodeType;
+import org.apache.doris.thrift.TVariantSerializeType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -1089,6 +1090,24 @@ public class ScalarType extends Type {
         }
         // Backward-compatible default bucket count used by BE doc snapshot writer/reader.
         return 128;
+    }
+
+    public TVariantSerializeType getVariantSerializeType() {
+        // In the past, variant metadata used the ScalarType type.
+        // Now, we use VariantType, which inherits from ScalarType, as the new metadata storage.
+        if (this instanceof VariantType) {
+            return ((VariantType) this).getVariantSerializeType();
+        }
+        return TVariantSerializeType.V1; // The old variant type predates the parameter.
+    }
+
+    /**
+     * Whether the serialize type decides how this variant column is shredded. It only changes what a max subcolumns
+     * count of 0 means, and the doc and nested-group layouts never consult the count, so two variant types that
+     * differ only in the serialize type store their data the same way unless this holds.
+     */
+    public boolean variantSerializeTypeMatters() {
+        return getVariantMaxSubcolumnsCount() == 0 && !getVariantEnableDocMode() && !getVariantEnableNestedGroup();
     }
 
     public boolean getVariantEnableNestedGroup() {

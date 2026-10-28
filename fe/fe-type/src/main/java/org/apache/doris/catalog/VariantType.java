@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.thrift.TScalarType;
 import org.apache.doris.thrift.TTypeDesc;
+import org.apache.doris.thrift.TVariantSerializeType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -65,6 +66,11 @@ public class VariantType extends ScalarType {
     @SerializedName(value = "enableNestedGroup")
     private final boolean enableNestedGroup;
 
+    // Absent from images written before the field existed; Gson reads them through the no-arg constructor,
+    // whose V1 default therefore keeps every existing column on its old layout.
+    @SerializedName(value = "variantSerializeType")
+    private final TVariantSerializeType variantSerializeType;
+
     private Map<String, String> properties = Maps.newHashMap();
 
     public VariantType() {
@@ -78,6 +84,7 @@ public class VariantType extends ScalarType {
         this.variantDocMaterializationMinRows = 0L;
         this.variantDocShardCount = 64;
         this.enableNestedGroup = false;
+        this.variantSerializeType = TVariantSerializeType.V1;
     }
 
     public VariantType(ArrayList<VariantField> fields) {
@@ -95,6 +102,7 @@ public class VariantType extends ScalarType {
         this.variantDocMaterializationMinRows = 0L;
         this.variantDocShardCount = 64;
         this.enableNestedGroup = false;
+        this.variantSerializeType = TVariantSerializeType.V1;
     }
 
     public VariantType(Map<String, String> properties) {
@@ -109,6 +117,7 @@ public class VariantType extends ScalarType {
         this.variantDocMaterializationMinRows = 0L;
         this.variantDocShardCount = 64;
         this.enableNestedGroup = false;
+        this.variantSerializeType = TVariantSerializeType.V1;
     }
 
     public VariantType(ArrayList<VariantField> fields, Map<String, String> properties) {
@@ -127,6 +136,7 @@ public class VariantType extends ScalarType {
         this.variantDocMaterializationMinRows = 0L;
         this.variantDocShardCount = 64;
         this.enableNestedGroup = false;
+        this.variantSerializeType = TVariantSerializeType.V1;
     }
 
     public VariantType(ArrayList<VariantField> fields, int variantMaxSubcolumnsCount,
@@ -136,7 +146,8 @@ public class VariantType extends ScalarType {
                                                         boolean enableVariantDocMode,
                                                         long variantDocMaterializationMinRows,
                                                         int variantDocShardCount,
-                                                        boolean enableNestedGroup) {
+                                                        boolean enableNestedGroup,
+                                                        TVariantSerializeType variantSerializeType) {
         super(PrimitiveType.VARIANT);
         Preconditions.checkNotNull(fields);
         this.predefinedFields = fields;
@@ -151,10 +162,24 @@ public class VariantType extends ScalarType {
         this.variantDocMaterializationMinRows = variantDocMaterializationMinRows;
         this.variantDocShardCount = variantDocShardCount;
         this.enableNestedGroup = enableNestedGroup;
+        this.variantSerializeType = variantSerializeType;
     }
 
     @Override
     public String toSql(int depth) {
+        return toSql(depth, false);
+    }
+
+    /**
+     * The type as CREATE TABLE states it. Unlike {@link #toSql(int)}, which DESC shows, it also states the
+     * serialize type, so the column replays with the layout it is stored with whatever the default for new
+     * columns is.
+     */
+    public String toDdlSql() {
+        return toSql(0, true);
+    }
+
+    private String toSql(int depth, boolean stateSerializeType) {
         StringBuilder sb = new StringBuilder();
         sb.append("variant");
         sb.append("<");
@@ -192,6 +217,11 @@ public class VariantType extends ScalarType {
             sb.append(",");
             sb.append("\"variant_enable_nested_group\" = \"")
                     .append(String.valueOf(enableNestedGroup)).append("\"");
+        }
+        if (stateSerializeType) {
+            sb.append(",");
+            sb.append("\"variant_serialize_type\" = \"")
+                    .append(variantSerializeType == TVariantSerializeType.V1 ? "v1" : "v2").append("\"");
         }
         sb.append(")>");
         return sb.toString();
@@ -237,7 +267,8 @@ public class VariantType extends ScalarType {
                 && enableTypedPathsToSparse == otherVariantType.enableTypedPathsToSparse
                 && enableVariantDocMode == otherVariantType.enableVariantDocMode
                 && variantDocMaterializationMinRows == otherVariantType.variantDocMaterializationMinRows
-                && enableNestedGroup == otherVariantType.enableNestedGroup;
+                && enableNestedGroup == otherVariantType.enableNestedGroup
+                && (!variantSerializeTypeMatters() || variantSerializeType == otherVariantType.variantSerializeType);
     }
 
     @Override
@@ -279,6 +310,10 @@ public class VariantType extends ScalarType {
 
     public boolean getEnableNestedGroup() {
         return enableNestedGroup;
+    }
+
+    public TVariantSerializeType getVariantSerializeType() {
+        return variantSerializeType;
     }
 
 }

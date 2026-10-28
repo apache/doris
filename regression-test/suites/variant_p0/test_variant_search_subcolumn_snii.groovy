@@ -47,7 +47,7 @@ suite("test_variant_search_subcolumn_snii") {
     sql """
         CREATE TABLE ${table_name} (
             id BIGINT,
-            overflowpropertiesfulltext VARIANT<PROPERTIES("variant_max_subcolumns_count"="0")>,
+            overflowpropertiesfulltext VARIANT<PROPERTIES("variant_max_subcolumns_count"="0", "variant_serialize_type" = "v1")>,
             INDEX idx_overflow (overflowpropertiesfulltext) USING INVERTED PROPERTIES (
                 "parser" = "unicode",
                 "lower_case" = "true",

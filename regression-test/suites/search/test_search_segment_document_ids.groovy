@@ -27,7 +27,7 @@ suite("test_search_segment_document_ids", "p0,nonConcurrent") {
                     id INT NOT NULL,
                     title STRING,
                     body STRING,
-                    props VARIANT<PROPERTIES("variant_max_subcolumns_count"="0")>,
+                    props VARIANT<PROPERTIES("variant_max_subcolumns_count"="0", "variant_serialize_type" = "v1")>,
                     INDEX idx_title(title) USING INVERTED PROPERTIES(
                         "parser"="unicode", "support_phrase"="true"),
                     INDEX idx_body(body) USING INVERTED PROPERTIES(

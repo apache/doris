@@ -50,7 +50,7 @@ suite("regression_test_variant_desc", "p0"){
         sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (
                 k bigint,
-                v variant
+                v variant<properties("variant_serialize_type" = "v1")>
             )
             DUPLICATE KEY(`k`)
             DISTRIBUTED BY HASH(k) BUCKETS ${buckets}
@@ -63,7 +63,7 @@ suite("regression_test_variant_desc", "p0"){
         sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (
                 k bigint,
-                v variant
+                v variant<properties("variant_serialize_type" = "v1")>
             )
             DUPLICATE KEY(`k`)
             PARTITION BY RANGE(k)
@@ -149,9 +149,9 @@ suite("regression_test_variant_desc", "p0"){
         sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (
                 k bigint,
-                v1 variant,
-                v2 variant,
-                v3 variant
+                v1 variant<properties("variant_serialize_type" = "v1")>,
+                v2 variant<properties("variant_serialize_type" = "v1")>,
+                v3 variant<properties("variant_serialize_type" = "v1")>
             )
             DUPLICATE KEY(`k`)
             DISTRIBUTED BY HASH(k) BUCKETS 5
@@ -168,7 +168,7 @@ suite("regression_test_variant_desc", "p0"){
         sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (
                 k bigint,
-                v variant
+                v variant<properties("variant_serialize_type" = "v1")>
             )
             DUPLICATE KEY(`k`)
             DISTRIBUTED BY HASH(k) BUCKETS 5
@@ -190,7 +190,7 @@ suite("regression_test_variant_desc", "p0"){
         sql """set describe_extend_variant_column = true"""
         qt_sql_10 """desc ${table_name}"""
         // add column
-        sql "alter table ${table_name} add column v2 variant default null"
+        sql """alter table ${table_name} add column v2 variant<properties("variant_serialize_type" = "v1")> default null"""
         sql """ insert into ${table_name} values (0, ${variantV2Function}('{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}'),
                  ${variantV2Function}('{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}'))"""
         sql "select * from ${table_name} limit 1"
@@ -199,7 +199,7 @@ suite("regression_test_variant_desc", "p0"){
         sql "alter table ${table_name} drop column v2"
         qt_sql_10_2 """desc ${table_name}"""
         // add column
-        sql "alter table ${table_name} add column v3 variant default null"
+        sql """alter table ${table_name} add column v3 variant<properties("variant_serialize_type" = "v1")> default null"""
         sql """ insert into ${table_name} values (0, ${variantV2Function}('{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}'),
                      ${variantV2Function}('{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}'))"""
         sql "select * from ${table_name} limit 1"
@@ -211,7 +211,7 @@ suite("regression_test_variant_desc", "p0"){
         sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (
                 k bigint,
-                v variant
+                v variant<properties("variant_serialize_type" = "v1")>
             )
             DUPLICATE KEY(`k`)
             DISTRIBUTED BY HASH(k) BUCKETS 5

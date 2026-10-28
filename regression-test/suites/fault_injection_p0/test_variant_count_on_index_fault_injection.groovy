@@ -35,8 +35,8 @@ suite("test_variant_count_on_index_fault_injection", "p0, nonConcurrent") {
     sql """
         CREATE TABLE ${tbl} (
             k INT,
-            v  VARIANT<'c':bigint, PROPERTIES("variant_max_subcolumns_count"="0")> NOT NULL,
-            v2 VARIANT<PROPERTIES("variant_max_subcolumns_count"="0")> NOT NULL,
+            v  VARIANT<'c':bigint, PROPERTIES("variant_max_subcolumns_count"="0", "variant_serialize_type" = "v1")> NOT NULL,
+            v2 VARIANT<PROPERTIES("variant_max_subcolumns_count"="0", "variant_serialize_type" = "v1")> NOT NULL,
             INDEX idx_v(v) USING INVERTED PROPERTIES("parser" = "english") COMMENT '',
             INDEX idx_v2(v2) USING INVERTED PROPERTIES("parser" = "english") COMMENT '',
             INDEX idx_v_c(v) USING INVERTED PROPERTIES("field_pattern" = "c")

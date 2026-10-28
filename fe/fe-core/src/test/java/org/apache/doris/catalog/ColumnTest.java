@@ -32,6 +32,7 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.proto.OlapFile;
 import org.apache.doris.thrift.TColumn;
+import org.apache.doris.thrift.TVariantSerializeType;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -42,6 +43,7 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 
 public class ColumnTest {
 
@@ -202,6 +204,32 @@ public class ColumnTest {
             oldColumn.checkSchemaChangeAllowed(newColumn);
             Assertions.fail("No exception throws.");
         });
+    }
+
+    @Test
+    public void testSchemaChangeVariantSerializeTypeRejected() throws DdlException {
+        // count 0: the serialize type decides the layout and cannot change
+        Column v1Zero = new Column("v", new VariantType(new ArrayList<>(), 0, false, 10000, 1, false, 0L, 64, false,
+                TVariantSerializeType.V1), false, null, true, null, "");
+        Column v2Zero = new Column("v", new VariantType(new ArrayList<>(), 0, false, 10000, 1, false, 0L, 64, false,
+                TVariantSerializeType.V2), false, null, true, null, "");
+        DdlException exception = Assertions.assertThrows(DdlException.class,
+                () -> v1Zero.checkSchemaChangeAllowed(v2Zero));
+        Assertions.assertTrue(exception.getMessage().contains("Can not change variant serialize type"),
+                exception.getMessage());
+        // any other count stores the same way under both
+        Column v1Counted = new Column("v", new VariantType(new ArrayList<>(), 2048, false, 10000, 1, false, 0L, 64,
+                false, TVariantSerializeType.V1), false, null, true, null, "");
+        Column v2Counted = new Column("v", new VariantType(new ArrayList<>(), 2048, false, 10000, 1, false, 0L, 64,
+                false, TVariantSerializeType.V2), false, null, true, null, "");
+        v1Counted.checkSchemaChangeAllowed(v2Counted);
+
+        Assertions.assertEquals(TVariantSerializeType.V2,
+                ColumnToThrift.toThrift(v2Zero).getColumnType().getVariantSerializeType());
+        Assertions.assertEquals(OlapFile.VariantSerializeTypePB.VARIANT_SERIALIZE_V2,
+                ColumnToProtobuf.toPb(v2Zero, null, null).getVariantSerializeType());
+        Assertions.assertEquals(OlapFile.VariantSerializeTypePB.VARIANT_SERIALIZE_V1,
+                ColumnToProtobuf.toPb(v1Zero, null, null).getVariantSerializeType());
     }
 
     @Test

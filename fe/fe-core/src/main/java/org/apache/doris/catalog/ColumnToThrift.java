@@ -49,6 +49,7 @@ public class ColumnToThrift {
         tColumnType.setPrecision(column.getPrecision());
         tColumnType.setScale(column.getScale());
         tColumnType.setVariantMaxSubcolumnsCount(column.getVariantMaxSubcolumnsCount());
+        tColumnType.setVariantSerializeType(column.getVariantSerializeType());
         tColumnType.setVariantEnableDocMode(column.getVariantEnableDocMode());
         tColumnType.setIndexLen(column.getOlapColumnIndexSize());
         tColumn.setColumnType(tColumnType);

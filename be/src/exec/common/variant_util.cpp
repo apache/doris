@@ -1233,8 +1233,25 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
                                                       output_schema, paths_set_info));
 
         // 3. get the subpaths
-        get_subpaths(column->variant_max_subcolumns_count(), extended_info.path_to_none_null_values,
-                     paths_set_info);
+        // A count of 0 means no limit under V1 and no dynamic subcolumn under V2, whose paths all
+        // stay in the sparse column(s).
+        if (column->variant_max_subcolumns_count() > 0 ||
+            column->variant_serialize_type() == VariantSerializeTypePB::VARIANT_SERIALIZE_V1) {
+            get_subpaths(column->variant_max_subcolumns_count(),
+                         extended_info.path_to_none_null_values, paths_set_info);
+        } else {
+            // Every input path of a V2 count-0 column is in the sparse column(s) or typed. Nothing
+            // would carry a materialized dynamic subcolumn into the output, so its data would be lost.
+            for (const auto& [path, _] : extended_info.path_to_none_null_values) {
+                if (!extended_info.sparse_paths.contains(path) &&
+                    !extended_info.typed_paths.contains(path)) {
+                    return Status::InternalError(
+                            "variant column {} uses serialize type V2 with max subcolumns count 0, "
+                            "but its compaction input materializes dynamic path {}",
+                            column->name(), path);
+                }
+            }
+        }
 
         // 4. append subcolumns
         if (column->variant_max_subcolumns_count() > 0 || !column->get_sub_columns().empty()) {
@@ -1243,8 +1260,8 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
                                                     extended_info.sparse_paths, output_schema);
         }
         // variant_max_subcolumns_count == 0 and no typed paths materialized
-        // it means that all subcolumns are materialized, may be from old data
-        else {
+        // under V1 it means that all subcolumns are materialized, may be from old data
+        else if (column->variant_serialize_type() == VariantSerializeTypePB::VARIANT_SERIALIZE_V1) {
             get_compaction_subcolumns_from_data_types(paths_set_info, column, target,
                                                       extended_info.path_to_data_types,
                                                       output_schema);

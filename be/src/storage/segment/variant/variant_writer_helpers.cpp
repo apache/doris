@@ -77,6 +77,7 @@ Status make_variant_shredder_options(const TabletSchema& tablet_schema,
             .physical_layout = physical_layout,
             .max_subcolumns_count = cast_set<size_t>(parent_column.variant_max_subcolumns_count()),
             .typed_paths_to_sparse = parent_column.variant_enable_typed_paths_to_sparse(),
+            .serialize_type = parent_column.variant_serialize_type(),
             .sparse_bucket_count = cast_set<uint32_t>(
                     std::max(1, parent_column.variant_sparse_hash_shard_count())),
             .max_sparse_column_statistics_size =

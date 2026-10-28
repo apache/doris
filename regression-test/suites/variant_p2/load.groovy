@@ -60,9 +60,9 @@ suite("load_p2", "variant_type,p2"){
             CREATE TABLE IF NOT EXISTS ${table_name} (
             id BIGINT NOT NULL,
             type VARCHAR(30) NULL,
-            actor VARIANT NULL,
-            repo VARIANT NULL,
-            payload VARIANT NULL,
+            actor VARIANT<PROPERTIES("variant_serialize_type" = "v1")> NULL,
+            repo VARIANT<PROPERTIES("variant_serialize_type" = "v1")> NULL,
+            payload VARIANT<PROPERTIES("variant_serialize_type" = "v1")> NULL,
             public BOOLEAN NULL,
             created_at DATETIME NULL,
             org JSON NULL

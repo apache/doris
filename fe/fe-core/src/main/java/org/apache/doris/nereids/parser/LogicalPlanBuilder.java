@@ -1113,6 +1113,7 @@ import org.apache.doris.resource.workloadschedpolicy.WorkloadActionMeta;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadConditionMeta;
 import org.apache.doris.statistics.analysis.AnalysisInfo;
 import org.apache.doris.system.NodeType;
+import org.apache.doris.thrift.TVariantSerializeType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -5453,6 +5454,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         boolean enableNestedGroup = ConnectContext.get() == null ? true :
                 ConnectContext.get().getSessionVariable().getDefaultVariantEnableNestedGroup();
 
+        TVariantSerializeType variantSerializeType = TVariantSerializeType.V2;
+
         try {
             // validate properties: variant_enable_doc_mode cannot be set together with other properties
             PropertyAnalyzer.validateVariantProperties(properties);
@@ -5473,6 +5476,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     .analyzeVariantDocHashShardCount(properties, variantDocHashShardCount);
             enableNestedGroup = PropertyAnalyzer
                     .analyzeEnableNestedGroup(properties, enableNestedGroup);
+            variantSerializeType = PropertyAnalyzer
+                    .analyzeVariantSerializeType(properties, variantSerializeType);
         } catch (org.apache.doris.common.AnalysisException e) {
             throw new NotSupportedException(e.getMessage());
         }
@@ -5523,13 +5528,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_DOC_MODE
                     + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_DOC_MATERIALIZATION_MIN_ROWS
                     + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_DOC_HASH_SHARD_COUNT
-                    + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_NESTED_GROUP);
+                    + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_NESTED_GROUP
+                    + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_SERIALIZE_TYPE);
         }
 
         return new VariantType(fields, variantMaxSubcolumnsCount, enableTypedPathsToSparse,
                     variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount,
                     enableVariantDocMode, variantDocMaterializationMinRows, variantDocHashShardCount,
-                    enableNestedGroup);
+                    enableNestedGroup, variantSerializeType);
     }
 
     private static boolean isSupportedVariantDocModeType(DataType type) {

@@ -24,6 +24,7 @@ import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.persist.gson.GsonPostProcessable;
+import org.apache.doris.thrift.TVariantSerializeType;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -826,6 +827,11 @@ public class Column implements GsonPostProcessable {
             if (this.getVariantEnableNestedGroup() != other.getVariantEnableNestedGroup()) {
                 throw new DdlException("Can not change variant enable nested group");
             }
+            // The count, doc mode and nested group are equal by now, so whether the serialize type matters is too.
+            if (((ScalarType) type).variantSerializeTypeMatters()
+                    && this.getVariantSerializeType() != other.getVariantSerializeType()) {
+                throw new DdlException("Can not change variant serialize type");
+            }
             if (CollectionUtils.isNotEmpty(this.getChildren()) || CollectionUtils.isNotEmpty(other.getChildren())) {
                 throw new DdlException("Can not change variant schema templates");
             }
@@ -912,13 +918,14 @@ public class Column implements GsonPostProcessable {
     public String toSql(boolean isUniqueTable, boolean isCompatible, boolean useGeneratedColumnPlaceholder) {
         StringBuilder sb = new StringBuilder();
         sb.append("`").append(name).append("` ");
-        String typeStr = type.toSql();
-
-        // show change datetimeV2/dateV2 to datetime/date
-        if (isCompatible) {
+        if (type instanceof VariantType) {
+            // DDL states what DESC leaves out: the serialize type, so the column replays with its layout.
+            sb.append(((VariantType) type).toDdlSql());
+        } else if (isCompatible) {
+            // show change datetimeV2/dateV2 to datetime/date
             sb.append(type.hideVersionForVersionColumn(true, true));
         } else {
-            sb.append(typeStr);
+            sb.append(type.toSql());
         }
         if (aggregationType != null && aggregationType != AggregateType.NONE && !isUniqueTable
                 && !isAggregationTypeImplicit) {
@@ -1197,6 +1204,10 @@ public class Column implements GsonPostProcessable {
 
     public boolean getVariantEnableNestedGroup() {
         return type.isVariantType() ? ((ScalarType) type).getVariantEnableNestedGroup() : false;
+    }
+
+    public TVariantSerializeType getVariantSerializeType() {
+        return type.isVariantType() ? ((ScalarType) type).getVariantSerializeType() : TVariantSerializeType.V1;
     }
 
     public void setFieldPatternType(PatternType type) {

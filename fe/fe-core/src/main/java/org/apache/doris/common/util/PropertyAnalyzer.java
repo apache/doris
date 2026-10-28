@@ -53,6 +53,7 @@ import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTabletType;
+import org.apache.doris.thrift.TVariantSerializeType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -337,6 +338,9 @@ public class PropertyAnalyzer {
 
     // number of buckets when using doc snapshot serialization
     public static final String PROPERTIES_VARIANT_DOC_HASH_SHARD_COUNT = "variant_doc_hash_shard_count";
+
+    // what variant_max_subcolumns_count == 0 means: v1 materializes every path, v2 none
+    public static final String PROPERTIES_VARIANT_SERIALIZE_TYPE = "variant_serialize_type";
 
     // stream properties
     public static final String PROPERTIES_STREAM_TYPE = "type";
@@ -2339,6 +2343,21 @@ public class PropertyAnalyzer {
             properties.remove(PROPERTIES_VARIANT_DOC_HASH_SHARD_COUNT);
         }
         return shardCount;
+    }
+
+    public static TVariantSerializeType analyzeVariantSerializeType(Map<String, String> properties,
+                                                                    TVariantSerializeType defaultValue)
+                                                                                throws AnalysisException {
+        if (properties == null || !properties.containsKey(PROPERTIES_VARIANT_SERIALIZE_TYPE)) {
+            return defaultValue;
+        }
+        String serializeType = properties.remove(PROPERTIES_VARIANT_SERIALIZE_TYPE);
+        if (serializeType.equalsIgnoreCase("v1")) {
+            return TVariantSerializeType.V1;
+        } else if (serializeType.equalsIgnoreCase("v2")) {
+            return TVariantSerializeType.V2;
+        }
+        throw new AnalysisException(PROPERTIES_VARIANT_SERIALIZE_TYPE + " must be `v1` or `v2`, got: " + serializeType);
     }
 
     public static void validateVariantProperties(Map<String, String> properties) throws AnalysisException {

@@ -21,6 +21,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.proto.OlapFile;
 import org.apache.doris.proto.OlapFile.PatternTypePB;
+import org.apache.doris.proto.OlapFile.VariantSerializeTypePB;
+import org.apache.doris.thrift.TVariantSerializeType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -127,6 +129,8 @@ public class ColumnToProtobuf {
             builder.setVariantDocMaterializationMinRows(column.getvariantDocMaterializationMinRows());
             builder.setVariantDocHashShardCount(column.getVariantDocShardCount());
             builder.setVariantEnableNestedGroup(column.getVariantEnableNestedGroup());
+            builder.setVariantSerializeType(column.getVariantSerializeType() == TVariantSerializeType.V2
+                    ? VariantSerializeTypePB.VARIANT_SERIALIZE_V2 : VariantSerializeTypePB.VARIANT_SERIALIZE_V1);
             // variant may contain predefined structured fields
             addChildren(column, builder);
         }

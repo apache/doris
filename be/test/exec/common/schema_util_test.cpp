@@ -1259,6 +1259,49 @@ TEST_F(SchemaUtilTest, TestGetCompactionSchema) {
     EXPECT_EQ(variant_col.get_sub_columns().size(), 0);
 }
 
+TEST_F(SchemaUtilTest, get_extended_compaction_schema_all_sparse_column) {
+    // A V2 column with count 0 gets its root and its sparse column(s) in the compaction schema.
+    struct Case {
+        int32_t sparse_hash_shard_count;
+        std::vector<std::string> expected_names;
+    };
+    const std::vector<Case> cases {
+            {.sparse_hash_shard_count = 0, .expected_names = {"v1", "v1." + SPARSE_COLUMN_PATH}},
+            {.sparse_hash_shard_count = 2,
+             .expected_names = {"v1", "v1." + SPARSE_COLUMN_PATH + ".b0",
+                                "v1." + SPARSE_COLUMN_PATH + ".b1"}},
+    };
+    for (const auto& test_case : cases) {
+        TabletSchemaPB schema_pb;
+        schema_pb.set_keys_type(KeysType::DUP_KEYS);
+        construct_column(schema_pb.add_column(), schema_pb.add_index(), 10000, "v1_index", 1,
+                         "VARIANT", "v1", IndexType::INVERTED);
+        schema_pb.mutable_column(0)->set_variant_max_subcolumns_count(0);
+        schema_pb.mutable_column(0)->set_variant_serialize_type(
+                VariantSerializeTypePB::VARIANT_SERIALIZE_V2);
+        schema_pb.mutable_column(0)->set_variant_sparse_hash_shard_count(
+                test_case.sparse_hash_shard_count);
+        auto schema = std::make_shared<TabletSchema>();
+        schema->init_from_pb(schema_pb);
+        RowsetMetaSharedPtr rowset_meta = std::make_shared<RowsetMeta>();
+        std::vector<RowsetSharedPtr> rowsets {
+                std::make_shared<BetaRowset>(schema, rowset_meta, "")};
+
+        auto target_schema = std::make_shared<TabletSchema>();
+        target_schema->init_from_pb(schema_pb);
+        VariantCompactionPathsMap compaction_paths;
+        auto status = variant_util::VariantCompactionUtil::get_extended_compaction_schema(
+                rowsets, target_schema, compaction_paths);
+        ASSERT_TRUE(status.ok()) << status.to_string();
+
+        std::vector<std::string> names;
+        for (const auto& column : target_schema->columns()) {
+            names.push_back(column->name());
+        }
+        EXPECT_EQ(names, test_case.expected_names);
+    }
+}
+
 TEST_F(SchemaUtilTest,
        get_extended_compaction_schema_nested_group_ignores_existing_extracted_subcolumns) {
     TabletColumn variant;

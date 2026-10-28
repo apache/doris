@@ -56,7 +56,7 @@ suite("test_search_score_cache", "p0") {
             status INT,
             title VARCHAR(200),
             content VARCHAR(500),
-            v VARIANT,
+            v VARIANT<PROPERTIES("variant_serialize_type" = "v1")>,
             INDEX idx_title(title) USING INVERTED PROPERTIES(
                 "parser" = "english",
                 "support_phrase" = "true"

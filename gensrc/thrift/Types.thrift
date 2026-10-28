@@ -282,6 +282,14 @@ enum TRuntimeFilterMode {
   GLOBAL = 3
 }
 
+// How a VARIANT column shreds its paths. It only changes what variant_max_subcolumns_count == 0
+// means: V1 materializes every path, V2 materializes none and stores every path in the
+// sparse column. Mirrors VariantSerializeTypePB in olap_file.proto.
+enum TVariantSerializeType {
+  V1 = 0,
+  V2 = 1
+}
+
 struct TColumnType {
   1: required TPrimitiveType type
   // Only set if type == CHAR_ARRAY
@@ -291,6 +299,7 @@ struct TColumnType {
   5: optional i32 scale
   6: optional i32 variant_max_subcolumns_count = 0;
   7: optional bool variant_enable_doc_mode = false;
+  8: optional TVariantSerializeType variant_serialize_type = TVariantSerializeType.V1;
 }
 
 // A TNetworkAddress is the standard host, port representation of a
