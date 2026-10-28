@@ -57,8 +57,8 @@ import java.util.concurrent.atomic.AtomicReference;
  * {@code getSplits} to commit it (releasing the lock) when the query finishes. Without the release the shared
  * read lock leaks for the metastore's lifetime.
  *
- * <p><b>Why this matters:</b> the callback runs on the StmtExecutor thread at query finish, whose TCCL is the
- * fe-core app loader. {@code releaseReadTransaction -> txn.commit -> hmsClient.commitTxn} resolves
+ * <p><b>Why this matters:</b> query-finish cleanup schedules the callback on the cleanup executor after split
+ * producers terminate. {@code releaseReadTransaction -> txn.commit -> hmsClient.commitTxn} resolves
  * metastore/thrift classes by name via the TCCL, so the callback MUST pin the provider's plugin classloader for
  * the duration of the release, else it split-brains against the app loader's duplicate copies (ClassCast /
  * NoClassDef at commit). Each test kills a mutation: (1) dropping the release call / wrong queryId, (2) dropping

@@ -986,9 +986,9 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * callback commits it (releasing the lock) when the query finishes. Registered UNCONDITIONALLY for every
      * plugin scan before synchronous or asynchronous split planning — connector-agnostic, since a connector that
      * opens no read transaction inherits the no-op {@link ConnectorScanPlanProvider#releaseReadTransaction}
-     * default and the callback is inert for it. The release runs on the StmtExecutor thread at query finish,
-     * whose TCCL is the fe-core app
-     * loader, so it MUST be pinned to the provider's plugin classloader ({@link #onPluginClassLoader}) or the
+     * default and the callback is inert for it. Query-finish cleanup schedules the release on the cleanup
+     * executor after the statement's split producers terminate. Its TCCL must be pinned to the provider's
+     * plugin classloader ({@link #onPluginClassLoader}) regardless of the calling thread, or the
      * commit's by-name class resolution (metastore/thrift) would split-brain against the app loader's copies.
      * Extracted as a pure function of {@code (scanProvider, queryId)} so the release + TCCL-pin behavior is
      * unit-testable without driving a full {@code getSplits}.
@@ -1690,8 +1690,8 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // its release callback in place. Unconditional and connector-agnostic: a connector that opens no read
         // transaction (every connector except transactional/ACID hive) inherits the no-op
         // releaseReadTransaction default, so this is inert for it (the callback only pins TCCL and calls the
-        // no-op). The callback runs on the StmtExecutor thread at query finish, whose TCCL is the fe-core app
-        // loader, so the release is pinned to the provider's plugin classloader (see the helper). One string:
+        // no-op). Cleanup runs the callback after all statement split producers terminate, with the TCCL
+        // pinned to the provider's plugin classloader (see the helper). One string:
         // connectorSession.getQueryId() == the query-finish registry key == the connector's txnMap key.
         queryFinishCleanup.bind(scanProvider);
 

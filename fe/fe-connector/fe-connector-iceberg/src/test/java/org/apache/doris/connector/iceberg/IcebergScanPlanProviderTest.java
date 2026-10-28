@@ -28,6 +28,7 @@ import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.spi.pushdown.ConnectorNot;
+import org.apache.doris.connector.spi.scan.ConnectorScanContext;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.connector.spi.scan.ConnectorSplitSource;
@@ -86,6 +87,8 @@ import org.apache.iceberg.types.Types.NestedField;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -107,8 +110,18 @@ import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 import java.util.function.UnaryOperator;
+import java.util.stream.Collectors;
 
 /**
  * Tests for {@link IcebergScanPlanProvider}. T01 pinned the capability constants + that {@code planScan}
@@ -4077,6 +4090,203 @@ public class IcebergScanPlanProviderTest {
                         ConnectorScanRequest.builder(handle, Collections.emptyList())
                                 .filter(Optional.empty()).limit(-1L).build()));
         Assertions.assertEquals(3, cached.size(), "the lazy iterator must flat-map across all data manifests");
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void cancelledManifestScanStopsWhenEveryFileIsFiltered(boolean rewriteFilter) throws Exception {
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned(),
+                ImmutableMap.of("format-version", "2", "write.format.default", "parquet"));
+        Map<Integer, ByteBuffer> bounds = Collections.singletonMap(1,
+                Conversions.toByteBuffer(Types.IntegerType.get(), 1));
+        for (int i = 0; i < 3; i++) {
+            table.newAppend().appendFile(DataFiles.builder(table.spec())
+                    .withPath("/d/f" + i + ".parquet").withFormat(FileFormat.PARQUET)
+                    .withFileSizeInBytes(100).withMetrics(new Metrics(1L, null, null, null, null, bounds, bounds))
+                    .build()).commit();
+        }
+        List<ManifestFile> manifests = table.currentSnapshot().dataManifests(table.io());
+        Assertions.assertEquals(3, manifests.size());
+        Set<String> manifestPaths = manifests.stream().map(ManifestFile::path).collect(Collectors.toSet());
+        CountDownLatch reading = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        List<String> reads = Collections.synchronizedList(new ArrayList<>());
+        FileIO fileIO = manifestReadObserver(table.io(), manifestPaths, path -> {
+            reads.add(path);
+            if (path.equals(manifests.get(0).path())) {
+                reading.countDown();
+                try {
+                    Assertions.assertTrue(release.await(10, TimeUnit.SECONDS));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException(e);
+                }
+            }
+        });
+        Table wrapped = tableWithIo(table, fileIO);
+        IcebergManifestCache cache = new IcebergManifestCache();
+        IcebergScanPlanProvider provider = manifestProvider(manifestCacheProps(), wrapped, cache);
+        ConnectorScanContext scanContext = new ConnectorScanContext();
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "t1");
+        IcebergTableHandle filteredHandle = rewriteFilter
+                ? handle.withRewriteFileScope(Collections.singleton("/d/not-in-snapshot.parquet")) : handle;
+        ConnectorScanRequest request = ConnectorScanRequest.builder(filteredHandle, Collections.emptyList())
+                .filter(rewriteFilter ? Optional.empty() : Optional.of(eqInt("id", 2)))
+                .scanContext(scanContext).build();
+        ExecutorService workers = Executors.newSingleThreadExecutor();
+        try (ConnectorSplitSource source = provider.streamSplits(emptySession(), request)) {
+            Future<Boolean> pending = workers.submit(source::hasNext);
+            try {
+                Assertions.assertTrue(reading.await(10, TimeUnit.SECONDS));
+                scanContext.cancel();
+                Assertions.assertFalse(pending.isDone(), "the already-entered manifest read is allowed to finish");
+                release.countDown();
+                ExecutionException stopped = Assertions.assertThrows(ExecutionException.class,
+                        () -> pending.get(10, TimeUnit.SECONDS));
+                Assertions.assertInstanceOf(CancellationException.class, stopped.getCause());
+                Assertions.assertEquals(Collections.singletonList(manifests.get(0).path()), reads,
+                        "a filtered scan must stop before opening another manifest");
+                Assertions.assertEquals(1, cache.size(), "the completed shared load remains reusable");
+
+                // A different query must consume the cancelled query's completed cache entry normally.
+                List<ConnectorScanRange> healthy = drain(provider.streamSplits(emptySession(),
+                        ConnectorScanRequest.builder(handle, Collections.emptyList()).build()));
+                Assertions.assertEquals(3, healthy.size());
+                Assertions.assertEquals(3, reads.size(), "the first manifest is reused without another read");
+            } finally {
+                release.countDown();
+                workers.shutdownNow();
+                Assertions.assertTrue(workers.awaitTermination(10, TimeUnit.SECONDS));
+            }
+        }
+    }
+
+    @Test
+    public void cancellingManifestOwnerDoesNotCancelConcurrentCacheConsumer() throws Exception {
+        Table table = threeFileTable(ImmutableMap.of("format-version", "2", "write.format.default", "parquet"));
+        ManifestFile manifest = table.currentSnapshot().dataManifests(table.io()).get(0);
+        CountDownLatch reading = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicInteger reads = new AtomicInteger();
+        FileIO fileIO = manifestReadObserver(table.io(), Collections.singleton(manifest.path()), path -> {
+            reads.incrementAndGet();
+            reading.countDown();
+            try {
+                Assertions.assertTrue(release.await(10, TimeUnit.SECONDS));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException(e);
+            }
+        });
+        Table wrapped = tableWithIo(table, fileIO);
+        IcebergManifestCache cache = new IcebergManifestCache();
+        IcebergScanPlanProvider provider = manifestProvider(manifestCacheProps(), wrapped, cache);
+        ConnectorScanContext scanContext = new ConnectorScanContext();
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "t1");
+        ExecutorService workers = Executors.newFixedThreadPool(2);
+        try (ConnectorSplitSource source = provider.streamSplits(emptySession(),
+                ConnectorScanRequest.builder(handle, Collections.emptyList()).scanContext(scanContext).build())) {
+            Future<Boolean> cancelled = workers.submit(source::hasNext);
+            try {
+                Assertions.assertTrue(reading.await(10, TimeUnit.SECONDS));
+                CountDownLatch consumerStarted = new CountDownLatch(1);
+                Future<List<ConnectorScanRange>> healthy = workers.submit(() -> {
+                    consumerStarted.countDown();
+                    return drain(provider.streamSplits(emptySession(),
+                            ConnectorScanRequest.builder(handle, Collections.emptyList()).build()));
+                });
+                Assertions.assertTrue(consumerStarted.await(10, TimeUnit.SECONDS));
+                scanContext.cancel();
+                release.countDown();
+                ExecutionException stopped = Assertions.assertThrows(ExecutionException.class,
+                        () -> cancelled.get(10, TimeUnit.SECONDS));
+                Assertions.assertInstanceOf(CancellationException.class, stopped.getCause());
+                Assertions.assertEquals(3, healthy.get(10, TimeUnit.SECONDS).size());
+                Assertions.assertEquals(1, reads.get(), "shared loading must remain single-flight and valid");
+            } finally {
+                release.countDown();
+                workers.shutdownNow();
+                Assertions.assertTrue(workers.awaitTermination(10, TimeUnit.SECONDS));
+            }
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void cancelledDeleteManifestReadNeverAdvancesOrFallsBack(boolean failRead) {
+        Table table = threeFileTable(ImmutableMap.of("format-version", "2", "write.format.default", "parquet"));
+        for (int i = 0; i < 2; i++) {
+            table.newRowDelta().addDeletes(positionDeleteFile("/d/delete" + i + ".parquet",
+                    FileFormat.PARQUET, null, null)).commit();
+        }
+        List<ManifestFile> manifests = table.currentSnapshot().deleteManifests(table.io());
+        Assertions.assertEquals(2, manifests.size());
+        Set<String> manifestPaths = manifests.stream().map(ManifestFile::path).collect(Collectors.toSet());
+        ConnectorScanContext scanContext = new ConnectorScanContext();
+        List<String> reads = new ArrayList<>();
+        FileIO fileIO = manifestReadObserver(table.io(), manifestPaths, path -> {
+            reads.add(path);
+            scanContext.cancel();
+            if (failRead) {
+                throw new RuntimeException("injected delete manifest read failure during cancellation");
+            }
+        });
+        AtomicBoolean sdkFallback = new AtomicBoolean();
+        Table wrapped = (Table) Proxy.newProxyInstance(Table.class.getClassLoader(), new Class<?>[] {Table.class},
+                (proxy, method, args) -> {
+                    if (method.getName().equals("io")) {
+                        return fileIO;
+                    }
+                    Object value = invoke(method, table, args);
+                    if (!(value instanceof TableScan)) {
+                        return value;
+                    }
+                    return Proxy.newProxyInstance(TableScan.class.getClassLoader(), new Class<?>[] {TableScan.class},
+                            (scanProxy, scanMethod, scanArgs) -> {
+                                if (scanMethod.getName().equals("planFiles")) {
+                                    sdkFallback.set(true);
+                                }
+                                return invoke(scanMethod, value, scanArgs);
+                            });
+                });
+        IcebergScanPlanProvider provider = manifestProvider(manifestCacheProps(), wrapped, new IcebergManifestCache());
+        Assertions.assertThrows(CancellationException.class, () -> {
+            try (ConnectorSplitSource source = provider.streamSplits(emptySession(),
+                    ConnectorScanRequest.builder(new IcebergTableHandle("db1", "t1"), Collections.emptyList())
+                            .scanContext(scanContext).build())) {
+                source.hasNext();
+            }
+        });
+        Assertions.assertEquals(Collections.singletonList(manifests.get(0).path()), reads);
+        Assertions.assertFalse(sdkFallback.get(), "cancellation must not start a new SDK scan");
+    }
+
+    private static FileIO manifestReadObserver(FileIO delegate, Set<String> manifestPaths, Consumer<String> onRead) {
+        // Implement the primitive method so FileIO's ManifestFile/length overloads also pass this observer.
+        return new FileIO() {
+            @Override
+            public Map<String, String> properties() {
+                return delegate.properties();
+            }
+
+            @Override
+            public InputFile newInputFile(String path) {
+                if (manifestPaths.contains(path)) {
+                    onRead.accept(path);
+                }
+                return delegate.newInputFile(path);
+            }
+
+            @Override
+            public OutputFile newOutputFile(String path) {
+                return delegate.newOutputFile(path);
+            }
+
+            @Override
+            public void deleteFile(String path) {
+                delegate.deleteFile(path);
+            }
+        };
     }
 
     @Test

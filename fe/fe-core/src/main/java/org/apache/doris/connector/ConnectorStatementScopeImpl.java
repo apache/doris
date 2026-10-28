@@ -123,8 +123,8 @@ public class ConnectorStatementScopeImpl implements ConnectorStatementScope {
      * Idempotent: guarded by {@code closed} so a second trigger (the query-finish callback vs. a reused prepared
      * statement's per-execution reset) is a harmless no-op and no value is double-closed. Best-effort per value —
      * a failure on one does not abort the rest — mirroring the isolation of the engine's query-finish callback
-     * registry. Runs after the scan off-thread pumps have quiesced, so it does not race a concurrent
-     * {@code computeIfAbsent}.
+     * registry. A reset may request closure while old split producers are running; disposal waits for their
+     * retained users (including cleanup) to release the scope, so it does not race their {@code computeIfAbsent}.
      */
     @Override
     public void closeAll() {
