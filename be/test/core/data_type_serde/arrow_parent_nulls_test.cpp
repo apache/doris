@@ -55,6 +55,14 @@ std::pair<int64_t, int64_t> pairs_of_two(int64_t row) {
     return {row * 2, row * 2 + 2};
 }
 
+// A LIST<INT32> array with the given offsets over `values` and no NULL row.
+std::shared_ptr<arrow::Array> int32_lists(const std::vector<int32_t>& offsets,
+                                          const std::shared_ptr<arrow::Array>& values) {
+    return arrow::MakeArray(arrow::ArrayData::Make(
+            arrow::list(arrow::int32()), static_cast<int64_t>(offsets.size()) - 1,
+            {nullptr, arrow::Buffer::FromVector(offsets)}, {values->data()}, 0));
+}
+
 std::shared_ptr<arrow::Buffer> bitmap_of(uint8_t bits) {
     return arrow::Buffer::FromVector(std::vector<uint8_t> {bits});
 }
@@ -341,6 +349,86 @@ TEST(ArrowParentNullsTest, RejectsSlotsOutsideTheChildAndUnknownParents) {
                 *parent, 0, arrow::default_memory_pool(), &masked);
         EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>()) << status.to_string();
     }
+}
+
+// LIST<LIST<INT32>> rows [[1, 2]], NULL over [[3]], [[4], [5]]: the NULL row hides the inner row
+// [3], and so its value 3 two levels down. MAP<STRING, LIST<INT32>> rows {a: [1]}, NULL over
+// {b: [2]}, {c: [3]} hide the item list [2] and its value, while the keys keep their data.
+// Masking only the direct children leaves 3 and 2 valid; masking the keys makes the masked map
+// abort in MapArray::SetData().
+TEST(ArrowParentNullsTest, MasksHiddenSlotsAtEveryNestingLevel) {
+    const auto inner = int32_lists({0, 2, 3, 4, 5}, int32_array({1, 2, 3, 4, 5}));
+    const auto lists = arrow::MakeArray(arrow::ArrayData::Make(
+            arrow::list(inner->type()), 3,
+            {bitmap_of(0x05), arrow::Buffer::FromVector(std::vector<int32_t> {0, 1, 2, 4})},
+            {inner->data()}, 1));
+    std::shared_ptr<arrow::Array> masked;
+    ASSERT_TRUE(
+            mask_arrow_descendants_not_visible(lists, arrow::default_memory_pool(), &masked).ok());
+    EXPECT_EQ((std::vector<bool> {false, true, false}), nulls_of(*masked));
+    const auto& masked_inner = masked->data()->child_data[0];
+    EXPECT_EQ((std::vector<bool> {false, true, false, false}),
+              nulls_of(*arrow::MakeArray(masked_inner)));
+    EXPECT_EQ((std::vector<bool> {false, false, true, false, false}),
+              nulls_of(*arrow::MakeArray(masked_inner->child_data[0])));
+
+    const auto items = int32_lists({0, 1, 2, 3}, int32_array({1, 2, 3}));
+    auto entries = arrow::StructArray::Make(
+            {string_array({"a", "b", "c"}), items},
+            {arrow::field("key", arrow::utf8(), false), arrow::field("value", items->type())});
+    ASSERT_TRUE(entries.ok()) << entries.status().ToString();
+    const auto map = arrow::MakeArray(arrow::ArrayData::Make(
+            arrow::map(arrow::utf8(), items->type()), 3,
+            {bitmap_of(0x05), arrow::Buffer::FromVector(std::vector<int32_t> {0, 1, 2, 3})},
+            {(*entries)->data()}, 1));
+    std::shared_ptr<arrow::Array> masked_map;
+    ASSERT_TRUE(mask_arrow_descendants_not_visible(map, arrow::default_memory_pool(), &masked_map)
+                        .ok());
+    const auto& masked_entries = masked_map->data()->child_data[0];
+    EXPECT_FALSE(masked_entries->MayHaveNulls());
+    EXPECT_EQ((*entries)->data()->child_data[0].get(), masked_entries->child_data[0].get());
+    const auto& masked_items = masked_entries->child_data[1];
+    EXPECT_EQ((std::vector<bool> {false, true, false}), nulls_of(*arrow::MakeArray(masked_items)));
+    EXPECT_EQ((std::vector<bool> {false, true, false}),
+              nulls_of(*arrow::MakeArray(masked_items->child_data[0])));
+    const auto status = masked_map->ValidateFull();
+    EXPECT_TRUE(status.ok()) << status.ToString();
+}
+
+// A nested array whose rows reach every slot comes back as the same array, and so does a sliced
+// array that was masked once already: neither pass allocates anything. Without the check for
+// slots that are NULL already, the second pass allocates a bitmap at each masked level.
+TEST(ArrowParentNullsTest, LeavesVisibleAndAlreadyMaskedArraysUnchanged) {
+    const auto inner = int32_lists({0, 2, 3, 4, 5}, int32_array({1, 2, 3, 4, 5}));
+    arrow::ProxyMemoryPool pool(arrow::default_memory_pool());
+    const auto all_visible = arrow::MakeArray(arrow::ArrayData::Make(
+            arrow::list(inner->type()), 2,
+            {nullptr, arrow::Buffer::FromVector(std::vector<int32_t> {0, 2, 4})}, {inner->data()},
+            0));
+    std::shared_ptr<arrow::Array> masked;
+    ASSERT_TRUE(mask_arrow_descendants_not_visible(all_visible, &pool, &masked).ok());
+    EXPECT_EQ(all_visible.get(), masked.get());
+    EXPECT_EQ(0, pool.num_allocations());
+
+    // Rows [[1, 2]], NULL over [[3]] and [[4], [5]], sliced to the last two.
+    const auto lists = arrow::MakeArray(arrow::ArrayData::Make(
+            arrow::list(inner->type()), 3,
+            {bitmap_of(0x05), arrow::Buffer::FromVector(std::vector<int32_t> {0, 1, 2, 4})},
+            {inner->data()}, 1));
+    const auto sliced = lists->Slice(1, 2);
+    std::shared_ptr<arrow::Array> once;
+    ASSERT_TRUE(
+            mask_arrow_descendants_not_visible(sliced, arrow::default_memory_pool(), &once).ok());
+    ASSERT_NE(sliced.get(), once.get());
+    const auto& masked_inner = once->data()->child_data[0];
+    EXPECT_EQ((std::vector<bool> {true, true, false, false}),
+              nulls_of(*arrow::MakeArray(masked_inner)));
+    EXPECT_EQ((std::vector<bool> {true, true, true, false, false}),
+              nulls_of(*arrow::MakeArray(masked_inner->child_data[0])));
+    std::shared_ptr<arrow::Array> twice;
+    ASSERT_TRUE(mask_arrow_descendants_not_visible(once, &pool, &twice).ok());
+    EXPECT_EQ(once.get(), twice.get());
+    EXPECT_EQ(0, pool.num_allocations());
 }
 
 } // namespace doris

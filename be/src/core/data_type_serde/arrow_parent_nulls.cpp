@@ -79,7 +79,7 @@ std::shared_ptr<arrow::ArrayData> with_validity(const arrow::ArrayData& data,
 // marks every other slot NULL. Row `row` references the slots [slot_begin(row),
 // slot_begin(row + 1)) counted from slot `base` of `target`, so the rows of `parent` reference
 // [base + slot_begin(0), base + slot_begin(parent.length())). `*masked` is `target` itself when
-// no slot is hidden.
+// every slot to hide is NULL already.
 template <typename SlotBegin>
 Status mask_unreferenced_slots(const arrow::Array& parent, const SlotBegin& slot_begin,
                                int64_t base, const std::shared_ptr<arrow::ArrayData>& target,
@@ -98,6 +98,18 @@ Status mask_unreferenced_slots(const arrow::Array& parent, const SlotBegin& slot
                 "Arrow {} references child slots [{}, {}) of a child with length {}",
                 parent.type()->ToString(), first, last, target->length);
     }
+    // Only a non-NULL slot needs hiding. A child that an earlier pass masked already, like the
+    // narrowed Decimal256 leaf that a compaction validates again, therefore costs no bitmap.
+    const auto has_valid_slot = [&target](int64_t begin, int64_t end) {
+        if (begin == end) {
+            return false;
+        }
+        if (target->buffers[0] == nullptr) {
+            return true;
+        }
+        return arrow::internal::CountSetBits(target->buffers[0]->data(), target->offset + begin,
+                                             end - begin) != 0;
+    };
     std::shared_ptr<arrow::Buffer> validity;
     const auto keep_referenced_slots = [&]() -> Status {
         RETURN_IF_ERROR(allocate_null_bitmap(target->offset + target->length, pool, &validity));
@@ -105,7 +117,7 @@ Status mask_unreferenced_slots(const arrow::Array& parent, const SlotBegin& slot
         return Status::OK();
     };
     // A sliced parent leaves the slots of the rows outside the slice unreferenced.
-    if (first != 0 || last != target->length) {
+    if (has_valid_slot(0, first) || has_valid_slot(last, target->length)) {
         RETURN_IF_ERROR(keep_referenced_slots());
     }
     for (int64_t row = 0; row < parent.length(); ++row) {
@@ -119,9 +131,9 @@ Status mask_unreferenced_slots(const arrow::Array& parent, const SlotBegin& slot
                     "Arrow {} row {} references child slots [{}, {}) outside [{}, {})",
                     parent.type()->ToString(), row, begin, end, first, last);
         }
-        // A NULL list or map row may own no slots. It hides nothing then, so a batch whose NULL
-        // rows are all empty allocates nothing.
-        if (begin == end) {
+        // A NULL list or map row may own no slots, and the slots of a NULL row may be NULL
+        // already. It hides nothing new then, so such NULL rows allocate nothing.
+        if (!has_valid_slot(begin, end)) {
             continue;
         }
         if (validity == nullptr) {
@@ -230,6 +242,58 @@ Status mask_arrow_child_slots_not_visible(const arrow::Array& parent, int child_
                                        parent.type()->ToString());
     }
     *masked = arrow::MakeArray(masked_child);
+    return Status::OK();
+}
+
+Status mask_arrow_descendants_not_visible(const std::shared_ptr<arrow::Array>& array,
+                                          arrow::MemoryPool* pool,
+                                          std::shared_ptr<arrow::Array>* masked) {
+    DORIS_CHECK(array != nullptr);
+    DORIS_CHECK(pool != nullptr);
+    DORIS_CHECK(masked != nullptr);
+    *masked = array;
+    const auto type_id = array->type_id();
+    // A leaf has no descendants to mask. Other nested layouts, such as list views, unions and
+    // run-end encoded arrays, are left as they are: the slot mask does not know them, and no
+    // reader that masks nested arrays maps them to a Doris type.
+    if (type_id != arrow::Type::LIST && type_id != arrow::Type::LARGE_LIST &&
+        type_id != arrow::Type::FIXED_SIZE_LIST && type_id != arrow::Type::MAP &&
+        type_id != arrow::Type::STRUCT) {
+        return Status::OK();
+    }
+    const auto& children = array->data()->child_data;
+    std::shared_ptr<arrow::ArrayData> masked_data;
+    for (int child_index = 0; child_index < array->num_fields(); ++child_index) {
+        std::shared_ptr<arrow::Array> child;
+        RETURN_IF_ERROR(mask_arrow_child_slots_not_visible(*array, child_index, pool, &child));
+        std::shared_ptr<arrow::Array> masked_child;
+        if (type_id == arrow::Type::MAP) {
+            // The child is the entries struct, whose keys stay unmasked, so only its items are
+            // masked further down.
+            const auto& entries = child->data();
+            std::shared_ptr<arrow::Array> items;
+            RETURN_IF_ERROR(mask_arrow_descendants_not_visible(
+                    arrow::MakeArray(entries->child_data[1]), pool, &items));
+            masked_child = child;
+            if (items->data() != entries->child_data[1]) {
+                auto masked_entries = entries->Copy();
+                masked_entries->child_data[1] = items->data();
+                masked_child = arrow::MakeArray(masked_entries);
+            }
+        } else {
+            RETURN_IF_ERROR(mask_arrow_descendants_not_visible(child, pool, &masked_child));
+        }
+        if (masked_child->data() == children[child_index]) {
+            continue;
+        }
+        if (masked_data == nullptr) {
+            masked_data = array->data()->Copy();
+        }
+        masked_data->child_data[child_index] = masked_child->data();
+    }
+    if (masked_data != nullptr) {
+        *masked = arrow::MakeArray(masked_data);
+    }
     return Status::OK();
 }
 
