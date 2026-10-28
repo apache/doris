@@ -598,6 +598,15 @@ private:
         assign_sorted(state, std::move(values), std::move(counts));
     }
 
+    /// Reclaims the dead slots or the evicted payload once it outnumbers the live one. Checked
+    /// right after an eviction as well, so the last eviction of a group does not keep a large
+    /// discarded payload until the next row arrives.
+    static void maybe_compact(State& state) {
+        if (state.dead > state.live || state.values.dead_bytes() > state.values.live_bytes()) {
+            compact(state);
+        }
+    }
+
     static void check_k(State& state, const IColumn& count_column, size_t row_num) {
         const IColumn* nested = &count_column;
         if (const auto* nullable = check_and_get_column<ColumnNullable>(&count_column)) {
@@ -655,11 +664,8 @@ private:
             return;
         }
 
-        // Dead slots are reclaimed before they can outnumber the live ones, and evicted string
-        // payload before it dwarfs the live one; see compact().
-        if (state.dead > state.live || state.values.dead_bytes() > state.values.live_bytes()) {
-            compact(state);
-        }
+        // Dead slots and evicted payload are reclaimed once they outnumber the live ones.
+        maybe_compact(state);
 
         if (state.live >= state.k) {
             // A full list rejects or absorbs most rows: comparing with the eviction candidate
@@ -698,6 +704,7 @@ private:
         --state.live;
         ++state.dead;
         refresh_worst(state);
+        maybe_compact(state);
     }
 
     /// k == 0: the state holds at most the extreme value and its count.
@@ -731,42 +738,54 @@ private:
             // The other partial state saw no non-NULL row.
             return;
         }
+        // `_state`/`_merge`/`_union` merges one serialized singleton per row, so a single-entry
+        // RHS is exactly one add, whether or not the list is full: a retained value (including an
+        // interior one) only bumps its count, and a new one is inserted, evicting the worst only
+        // when the list was already full. Neither copies the retained values nor rebuilds the
+        // tree.
+        if (other.live == 1) {
+            const int32_t other_only = other.root;
+            ValueRef value = other.values.at(other_only);
+            if (state.live >= state.k &&
+                is_worse(compare_values(value, state.values.at(state.worst)))) {
+                // A full list rejects a worse value without touching the tree.
+                return;
+            }
+            int32_t inserted = State::NO_SLOT;
+            state.root = add_or_increment(state, state.root, value, other.slots[other_only].count,
+                                          &inserted);
+            if (inserted == State::NO_SLOT) {
+                return;
+            }
+            if (state.live <= state.k) {
+                // There was room: the new entry competes with the cached worst for the eviction
+                // candidate role, exactly like the add path.
+                if (state.worst == State::NO_SLOT ||
+                    is_worse(compare_slots(state, inserted, state.worst))) {
+                    state.worst = inserted;
+                }
+                return;
+            }
+            // The list was full, so the new entry is one over capacity. It beat the cached worst
+            // above, so the old worst is still the last entry and leaves the list.
+            int32_t removed = State::NO_SLOT;
+            state.root = erase_worst(state, state.root, &removed);
+            DCHECK_EQ(removed, state.worst);
+            state.values.on_evict(static_cast<size_t>(removed));
+            state.slots[removed].count = State::DEAD_COUNT;
+            --state.live;
+            ++state.dead;
+            refresh_worst(state);
+            maybe_compact(state);
+            return;
+        }
         if (state.live >= state.k) {
             // A full state already holds the k best values. If every value of the other state is
             // worse than the worst one retained here, the merge cannot change the result, so skip
-            // the collect/rebuild. `_state`/`_merge`/`_union` merges one singleton per row, so the
-            // singleton path turns each of those into one O(log k) descent.
+            // the collect/rebuild.
             const int32_t other_best = best_slot(other);
             int cmp = compare_values(other.values.at(other_best), state.values.at(state.worst));
             if (is_worse(cmp)) {
-                return;
-            }
-            if (other.live == 1) {
-                // A single-entry partial state is exactly one add: a value already retained bumps
-                // its count, and a strictly better one takes the worst's place. Neither copies
-                // the retained values nor rebuilds the tree.
-                int32_t inserted = State::NO_SLOT;
-                state.root = add_or_increment(state, state.root, other.values.at(other_best),
-                                              other.slots[other_best].count, &inserted);
-                if (inserted == State::NO_SLOT) {
-                    return;
-                }
-                // The state was full, so the new entry is one over capacity. It beat the cached
-                // worst above, so the old worst is still the last entry and leaves the list.
-                int32_t removed = State::NO_SLOT;
-                state.root = erase_worst(state, state.root, &removed);
-                DCHECK_EQ(removed, state.worst);
-                state.values.on_evict(static_cast<size_t>(removed));
-                state.slots[removed].count = State::DEAD_COUNT;
-                --state.live;
-                ++state.dead;
-                refresh_worst(state);
-                // Merging can evict repeatedly without going through add_value, so the dead slots
-                // and payload are reclaimed here as well.
-                if (state.dead > state.live ||
-                    state.values.dead_bytes() > state.values.live_bytes()) {
-                    compact(state);
-                }
                 return;
             }
             if (cmp == 0) {

@@ -391,6 +391,41 @@ TEST(TopKTest, MergeStringStates) {
     auto interior = merge_string_states(factory, arena, "min_topk", {"a", "b", "c"}, {"b"}, 3);
     EXPECT_EQ(interior.values, (std::vector<std::string> {"a", "b", "c"}));
     EXPECT_EQ(interior.counts, (std::vector<int64_t> {1, 2, 1}));
+
+    // The same holds while the state is still below k.
+    auto partial = merge_string_states(factory, arena, "min_topk", {"a", "b", "c"}, {"b"}, 5);
+    EXPECT_EQ(partial.values, (std::vector<std::string> {"a", "b", "c"}));
+    EXPECT_EQ(partial.counts, (std::vector<int64_t> {1, 2, 1}));
+}
+
+TEST(TopKTest, MergeIntoAnUnfullStateKeepsTheWorstCache) {
+    AggregateFunctionSimpleFactory factory;
+    register_aggregate_function_topk(factory);
+    DataTypes argument_types = {std::make_shared<DataTypeString>(),
+                                std::make_shared<DataTypeInt64>()};
+    Arena arena;
+    auto function = create_function(factory, "min_topk", argument_types);
+    std::unique_ptr<char[]> memory(new char[function->size_of_data() * 2]);
+    AggregateDataPtr state = memory.get();
+    AggregateDataPtr other = memory.get() + function->size_of_data();
+    function->create(state);
+    function->create(other);
+
+    // The merge appends z into a state that was below k, so the cached worst must become z. If it
+    // stayed b, the next full-list comparison would reject c as "worse" and keep z.
+    add_string_rows(function, state, arena, {"a", "b"}, 3);
+    add_string_rows(function, other, arena, {"z"}, 3);
+    function->merge(state, other, arena);
+    add_string_rows(function, state, arena, {"c"}, 3);
+
+    auto result_column = function->get_return_type()->create_column();
+    function->insert_result_into(state, *result_column);
+    StringTopKResult result = read_string_result(*result_column);
+    EXPECT_EQ(result.values, (std::vector<std::string> {"a", "b", "c"}));
+    EXPECT_EQ(result.counts, (std::vector<int64_t> {1, 1, 1}));
+
+    function->destroy(state);
+    function->destroy(other);
 }
 
 TEST(TopKTest, StringStateSurvivesEvictionAndSerde) {
