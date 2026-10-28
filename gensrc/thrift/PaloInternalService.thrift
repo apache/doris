@@ -518,6 +518,7 @@ struct TQueryOptions {
 
   // Push LIMIT into SegmentIterator when safe.
   231: optional bool enable_segment_limit_pushdown = true
+
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.
@@ -539,6 +540,9 @@ struct TQueryOptions {
   // reads the data instead.
   // Defaults to false because an old FE never sends this field, and BE checked both cases before.
   1006: optional bool force_pushdown_zonemap_minmax = false
+  // Use the cache option range to avoid unrelated query-option IDs allocated on other branches.
+  // Explicitly sent by new FEs; an omitted field keeps older-FE queries on the local policy.
+  1007: optional bool enable_file_cache_io_adaptor = false;
 }
 
 

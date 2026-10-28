@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <map>
@@ -426,6 +427,13 @@ private:
                        const SourceReadBreakdown& source_read_breakdown, FileCacheStatistics* state,
                        FileCacheReadType read_type) const;
 
+    bool _io_adaptor_eligible(size_t bytes, const IOContext* io_ctx) const;
+    Status _try_read_with_io_adaptor(size_t offset, Slice result, size_t bytes_req,
+                                     size_t* bytes_read, const IOContext* io_ctx,
+                                     ReadStatistics& stats, SourceReadBreakdown& sources,
+                                     bool* handled);
+
+    std::atomic<bool> _io_adaptor_remote_failed {false};
     bool _is_doris_table = false;
     CacheAlignMode _cache_align_mode {CacheAlignMode::ALIGN_TO_BLOCK};
     CacheWriteMode _cache_write_mode {CacheWriteMode::DEFAULT};
