@@ -185,7 +185,14 @@ suite("test_max_compute_timestamp", "p2,external,maxcompute,external_remote,exte
         sql """ switch ${mc_catalog_name}_2 """
         sql """ use ${mc_db}"""
 
+        // Keep representative predicate coverage on the pushdown-enabled catalog.
+        sql """ set time_zone = "Asia/Shanghai" """
+        qt_8_2 """ select * from timestamp_tb2 where col1 > "2023-02-02 00:00:00.123456";"""
+        qt_8_4 """ select * from timestamp_tb2 where col1 = "2023-02-02 00:00:00.123456";"""
 
+        sql """ set time_zone = "UTC" """
+        qt_10_2 """ select * from timestamp_tb2 where col1 > "2023-02-01 16:00:00.123456";"""
+        qt_10_4 """ select * from timestamp_tb2 where col1 = "2023-02-01 16:00:00.123456";"""
 
     }
 }

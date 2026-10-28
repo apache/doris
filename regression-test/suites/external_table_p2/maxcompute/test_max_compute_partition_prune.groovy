@@ -118,8 +118,8 @@ suite("test_max_compute_partition_prune", "p2,external,maxcompute,external_remot
         explain {
             sql("${one_partition_1_1}")
             contains "partition=1/2"
-            // VPluginDrivenScanNode surfaces the backing connector/catalog type
-            contains "CONNECTOR: max_compute"
+            // branch-4.2 uses MaxComputeScanNode instead of the master-only plugin scan node.
+            contains "MCScanNode"
         }
 
         qt_one_partition_3_all one_partition_3_all
