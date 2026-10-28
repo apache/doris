@@ -651,6 +651,9 @@ TEST_F(PythonServerTest, EnsurePoolInitializedSuccess) {
 }
 
 TEST_F(PythonServerTest, EnsurePoolInitializedSucceedsWithOneStuckWorkerAndOneUsableWorker) {
+    if (CpuInfo::num_cores() < 2) {
+        GTEST_SKIP() << "A stuck worker and a usable worker require a pool of at least two";
+    }
     setup_doris_home();
     std::string python_path =
             create_fake_python_with_one_stuck_and_others_socket("python3.mixed", "3.9.16");
@@ -1068,9 +1071,11 @@ TEST_F(PythonServerTest, FunctionsWithSameRuntimeHaveIndependentFixedPools) {
     auto first_pool = mgr.process_pool_snapshot_for_test(101);
     auto second_pool = mgr.process_pool_snapshot_for_test(102);
     ASSERT_EQ(first_pool.size(), 1);
-    ASSERT_EQ(second_pool.size(), 2);
-    EXPECT_NE(first_pool[0]->get_child_pid(), second_pool[0]->get_child_pid());
-    EXPECT_NE(first_pool[0]->get_child_pid(), second_pool[1]->get_child_pid());
+    ASSERT_EQ(second_pool.size(), std::min(second.pool_size, CpuInfo::num_cores()));
+    for (const auto& process : second_pool) {
+        ASSERT_NE(process, nullptr);
+        EXPECT_NE(first_pool[0]->get_child_pid(), process->get_child_pid());
+    }
     ProcessPtr first_client, second_client;
     ASSERT_TRUE(mgr._get_process(version, first_result.value(), &first_client).ok());
     ASSERT_TRUE(mgr._get_process(version, second_result.value(), &second_client).ok());
@@ -1185,6 +1190,9 @@ TEST_F(PythonServerTest, RepairedDroppedClientProcessesRemainCountedUntilRelease
 }
 
 TEST_F(PythonServerTest, DropDuringInitializationKeepsPeriodicMemoryAccounting) {
+    if (CpuInfo::num_cores() < 2) {
+        GTEST_SKIP() << "A usable worker and an initializing worker require a pool of at least two";
+    }
     setup_doris_home();
     auto python_path = create_fake_python_with_socket_creation();
     PythonVersion version("3.9.16", test_dir_, python_path);
