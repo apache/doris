@@ -80,11 +80,15 @@ AutoPrxCodecChoice select_auto_prx_codec(size_t pfor_payload_size, size_t plain_
 // zstd saves depends on the data: a fixed share (zstd_min_saving_percent) of 30 spends about 8% more
 // bytes on the windows of agent logs, about 5% on those of service logs, and much more on data whose
 // windows zstd shrinks by just under the share. The budget instead spends at most
-// kPrxZstdBudgetPercent of the smallest frames, on the windows zstd shrinks least: a window is
-// traded when its saving is below the share whose trades, over the windows seen so far, fit the
-// budget, and when what has actually been spent still fits it, so no order of windows can make it
-// spend more. Until kPrxZstdBudgetWarmupWindows windows are seen the share is
-// kPrxZstdBudgetPriorPercent. Writer-only and deterministic for a given input.
+// kPrxZstdBudgetPercent of the smallest frames of the windows that get a zstd frame (a plain
+// payload of at least kPrxAutoZstdMinBytes), the only ones whose codec a share decides, on the
+// windows zstd shrinks least: a window is traded when its saving is below the share whose trades,
+// over the windows seen so far, fit the budget, and when what has actually been spent still fits
+// it, so no order of windows can make it spend more. Until kPrxZstdBudgetWarmupWindows windows are
+// seen the share is kPrxZstdBudgetPriorPercent. Windows written without a zstd frame (a singleton,
+// or too short to compress) are not counted: no share changes them, and counting their bytes would
+// let an index of many short posting lists grow its large windows by more than the budget.
+// Writer-only and deterministic for a given input.
 inline constexpr uint32_t kPrxZstdBudgetPercent = 8;
 inline constexpr uint32_t kPrxZstdBudgetPriorPercent = 30;
 inline constexpr uint32_t kPrxZstdBudgetWarmupWindows = 64;

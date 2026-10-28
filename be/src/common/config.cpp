@@ -1430,9 +1430,9 @@ DEFINE_mInt32(snii_prx_zstd_level, "3");
 // least this percentage; 0 picks the smaller frame. Every read of a zstd window pays a
 // decompression that PFOR does not, but how much zstd saves depends on the data, so no one
 // percentage fits all data. The default (negative) lets each index choose: it stores in their
-// faster frame the windows zstd shrinks least, spending at most 8% of their smallest size (see
-// format::PrxZstdBudget). Readers handle every codec, so changing this never affects existing
-// segments.
+// faster frame the windows zstd shrinks least, spending at most 8% of the smallest size of the
+// windows that get a zstd frame (see format::PrxZstdBudget). Readers handle every codec, so
+// changing this never affects existing segments.
 DEFINE_mInt32(snii_prx_zstd_min_saving_percent, "-1");
 // Zstd level for direct-load .prx regions. Compaction rewrites them using snii_prx_zstd_level.
 DEFINE_mInt32(snii_prx_zstd_level_direct_load, "3");
