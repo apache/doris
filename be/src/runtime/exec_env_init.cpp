@@ -849,6 +849,8 @@ void ExecEnv::clear_wal_mgr() {
 #endif
 // TODO(zhiqiang): Need refactor all thread pool. Each thread pool must have a Stop method.
 // We need to stop all threads before releasing resource.
+// Keep teardown order visible; SAFE_STOP/SAFE_DELETE macro checks dominate complexity.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 void ExecEnv::destroy() {
     //Only destroy once after init
     if (!ready()) {
@@ -910,6 +912,11 @@ void ExecEnv::destroy() {
 
     // StorageEngine must be destoried before _cache_manager destory.
     SAFE_STOP(_storage_engine);
+    // Storage producers have stopped. Join packed-file work while its engine
+    // and upload pools are still alive; it can still report uploads to MS.
+    if (_packed_file_manager) {
+        _packed_file_manager->stop_background_manager();
+    }
     _storage_engine.reset();
 
     if (_runtime_query_statistics_mgr) {
@@ -925,6 +932,13 @@ void ExecEnv::destroy() {
     SAFE_SHUTDOWN(_send_batch_thread_pool);
     SAFE_SHUTDOWN(_udf_close_workers_thread_pool);
     SAFE_SHUTDOWN(_send_table_stats_thread_pool);
+
+    // The singleton can predate S3ClientFactory when startup has no S3 vaults.
+    // Drop its clients explicitly after uploads drain, before SDK/cache teardown.
+    if (_packed_file_manager) {
+        _packed_file_manager->release_resources();
+        _packed_file_manager = nullptr;
+    }
 
     SAFE_DELETE(_load_channel_mgr);
 
@@ -1024,12 +1038,6 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_dns_cache);
     SAFE_DELETE(_kerberos_ticket_mgr);
     SAFE_DELETE(_hdfs_mgr);
-    // PackedFileManager is a singleton, just stop its background thread
-    if (_packed_file_manager) {
-        _packed_file_manager->stop_background_manager();
-        _packed_file_manager = nullptr;
-    }
-
     SAFE_DELETE(_process_profile);
     SAFE_DELETE(_heap_profiler);
 

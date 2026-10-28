@@ -32,6 +32,7 @@
 #include <utility>
 
 #include "core/custom_allocator.h"
+#include "cpp/sync_point.h"
 #include "runtime/memory/cache_manager.h"
 #include "runtime/memory/cache_policy.h"
 #include "runtime/memory/mem_tracker_limiter.h"
@@ -201,6 +202,7 @@ struct S3ClientCache::Impl {
             it->last_acquire = now;
             retained.splice(retained.begin(), retained, it);
         } else {
+            TEST_SYNC_POINT_CALLBACK("S3ClientCache::before_retention_allocation", nullptr);
             retained.push_front({&entry->first, client, now});
             entry->second.retained = retained.begin();
         }

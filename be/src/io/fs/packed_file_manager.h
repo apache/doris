@@ -128,6 +128,10 @@ public:
     // Stop the background management thread
     void stop_background_manager();
 
+    // Call after the background thread and all append/wait/upload producers have
+    // stopped. Release writer/filesystem owners before the object-storage SDK.
+    void release_resources();
+
     // Mark current packed file for upload and create new one
     Status mark_current_packed_file_for_upload(const std::string& resource_id);
 
