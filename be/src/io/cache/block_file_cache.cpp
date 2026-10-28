@@ -799,6 +799,22 @@ void BlockFileCache::add_need_update_lru_block(FileBlockSPtr block) {
     }
 }
 
+void BlockFileCache::record_query_cache_hit(const FileBlocks& blocks) {
+    // Adaptor hits skip get_or_set. Count only completed disk reads so remote bypasses and
+    // failed copies retried by the planner cannot inflate disk-cache hit ratios.
+    const size_t count = blocks.size();
+    size_t bytes = 0;
+    for (const auto& block : blocks) {
+        bytes += block->range().size();
+    }
+    *_num_read_blocks << count;
+    *_num_hit_blocks << count;
+    *_no_warmup_num_read_blocks << count;
+    *_no_warmup_num_hit_blocks << count;
+    *_total_read_size_metrics << bytes;
+    *_total_hit_size_metrics << bytes;
+}
+
 Status BlockFileCache::get_downloaded_blocks_if_fully_covered(const UInt128Wrapper& hash,
                                                               size_t offset, size_t size,
                                                               const CacheContext& context,
