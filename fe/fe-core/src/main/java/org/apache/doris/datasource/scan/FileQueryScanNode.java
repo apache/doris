@@ -33,6 +33,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.NotImplementedException;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.FileFormatUtils;
@@ -418,9 +419,18 @@ public abstract class FileQueryScanNode extends FileScanNode {
             splitAssignment = new SplitAssignment(backendPolicy, this, this::splitToScanRange,
                     locationProperties, pathPartitionKeys, admissionResult,
                     sessionVariable.getSplitBatchSize(), sessionVariable.getSplitQueueCapacity());
+            if (executor != null) {
+                // Cancellation can arrive before a coordinator exists, while the first producer is in
+                // remote IO. Closing the task group alone does not wake the first-split planning wait.
+                executor.registerQueryCancellationCallback(splitAssignment::stop);
+            }
             // The first split can require a remote read session (for example, MaxCompute). Keep
             // the planning wait bounded by the query's effective timeout instead of a fixed 30 seconds.
             splitAssignment.init(ConnectContext.get().getExecTimeoutS() * 1000L);
+            Status cancelReason = executor == null ? null : executor.getPendingCancelReason();
+            if (cancelReason != null) {
+                throw new UserException(cancelReason.getErrorMsg());
+            }
             if (executor != null) {
                 executor.getSummaryProfile().setGetSplitsFinishTime();
             }

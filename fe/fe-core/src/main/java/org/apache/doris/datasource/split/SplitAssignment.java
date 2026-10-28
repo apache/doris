@@ -195,6 +195,12 @@ public class SplitAssignment {
 
     public void init(long timeoutMillis) throws UserException {
         Preconditions.checkArgument(timeoutMillis > 0, "First split timeout must be positive");
+        if (!needMoreSplit()) {
+            if (exception != null) {
+                throw exception;
+            }
+            return;
+        }
         splitGenerator.startSplit(backendPolicy.numBackends());
         long deadlineNanos = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
         synchronized (readinessLock) {

@@ -232,6 +232,30 @@ public class SplitAssignmentTest {
     }
 
     @Test
+    void testStopWakesFirstSplitPlanningWait() throws Exception {
+        CountDownLatch producerStarted = new CountDownLatch(1);
+        Mockito.doAnswer(invocation -> {
+            producerStarted.countDown();
+            return null;
+        }).when(mockSplitGenerator).startSplit(Mockito.anyInt());
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> planning = worker.submit(() -> {
+                splitAssignment.init(10000);
+                return null;
+            });
+            Assertions.assertTrue(producerStarted.await(5, TimeUnit.SECONDS));
+            Assertions.assertThrows(TimeoutException.class, () -> planning.get(50, TimeUnit.MILLISECONDS));
+            splitAssignment.stop();
+            planning.get(1, TimeUnit.SECONDS);
+        } finally {
+            splitAssignment.stop();
+            worker.shutdownNow();
+            Assertions.assertTrue(worker.awaitTermination(5, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
     void testInitWithPreExistingException() throws Exception {
         UserException preException = new UserException("Pre-existing error");
         splitAssignment.setException(preException);
@@ -489,6 +513,7 @@ public class SplitAssignmentTest {
 
         // Init should complete immediately without waiting
         Assertions.assertDoesNotThrow(() -> splitAssignment.init(1000));
+        Mockito.verify(mockSplitGenerator, Mockito.never()).startSplit(Mockito.anyInt());
     }
 
     @Test
