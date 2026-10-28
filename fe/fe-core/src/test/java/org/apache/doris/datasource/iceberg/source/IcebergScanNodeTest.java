@@ -175,6 +175,36 @@ public class IcebergScanNodeTest {
         Assert.assertEquals("", node.getHiveParquetTimeZone());
     }
 
+    @Test
+    public void testPartitionMetadataUsesQuerySchemaFieldId() throws Exception {
+        Schema pinnedSchema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "City", Types.StringType.get()));
+        Schema currentSchema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "city_name", Types.StringType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(pinnedSchema)
+                .identity("City")
+                .build();
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(currentSchema);
+        Mockito.when(table.spec()).thenReturn(spec);
+        Mockito.when(table.specs()).thenReturn(Collections.singletonMap(spec.specId(), spec));
+
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.enableFileScannerV2 = true;
+        TestIcebergScanNode node = new TestIcebergScanNode(sessionVariable);
+        setIcebergTable(node, table);
+        setPrivateField(node, "querySchema", pinnedSchema);
+
+        Assert.assertEquals(ImmutableList.of("City"), orderedPathPartitionKeys(node));
+
+        setPrivateField(node, "querySchema", currentSchema);
+        setPrivateField(node, "orderedPathPartitionKeys", null);
+        setPrivateField(node, "orderedPartitionMetadataKeys", null);
+        Assert.assertEquals(ImmutableList.of("city_name"), orderedPathPartitionKeys(node));
+    }
+
     @SuppressWarnings("unchecked")
     private static Optional<Map<Integer, List<String>>> extractNameMapping(
             IcebergScanNode node) throws Exception {

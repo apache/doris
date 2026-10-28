@@ -59,8 +59,8 @@ public:
         return Status::OK();
     }
 
-    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
-                          size_t count, ColumnPtr& result_column) const override {
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
         DCHECK(_open_finished || block == nullptr);
         const int column_position = _get_column_position(context, block);
         if (column_position < 0 || column_position >= block->columns()) {

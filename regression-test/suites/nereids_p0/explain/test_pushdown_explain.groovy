@@ -44,6 +44,9 @@ suite("test_pushdown_explain") {
         "disable_auto_compaction" = "false"
     ); """
     sql """ insert into test_lineorder values(1,2,"asd"); """
+    // Disable REWRITE_SIMPLE_AGG_TO_CONSTANT to prevent the optimizer from folding
+    // count() into a constant using metadata row counts, which would skip pushAggOp
+    sql "SET disable_nereids_rules='REWRITE_SIMPLE_AGG_TO_CONSTANT'"
     explain {
         sql("select count(1) from test_lineorder;")
         contains "pushAggOp=COUNT"

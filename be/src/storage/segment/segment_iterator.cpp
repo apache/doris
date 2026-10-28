@@ -3723,6 +3723,12 @@ Status SegmentIterator::_apply_expr_zonemap_to_row_ranges(const VExprContextSPtr
             continue;
         }
         const auto cid = _schema->column_id(cast_set<size_t>(slot_index));
+        // Match the segment-level exclusion: the version is substituted after the storage read,
+        // while page zone maps still describe the placeholder stored on disk.
+        if (_opts.version.first == _opts.version.second &&
+            cast_set<int32_t>(cid) == _schema->version_col_idx()) {
+            continue;
+        }
         if (!_segment->can_apply_predicate_safely(cid, *_schema,
                                                   _opts.target_cast_type_for_variants, _opts)) {
             continue;

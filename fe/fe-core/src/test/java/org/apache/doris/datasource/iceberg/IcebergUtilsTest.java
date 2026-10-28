@@ -1148,6 +1148,31 @@ public class IcebergUtilsTest {
     }
 
     @Test
+    public void testIdentityPartitionColumnsUseAuthoritativeScanSchema() {
+        Schema pinnedSchema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "City", Types.StringType.get()));
+        Schema currentSchema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "city_name", Types.StringType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(pinnedSchema)
+                .identity("City")
+                .build();
+
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(currentSchema);
+        Mockito.when(table.spec()).thenReturn(spec);
+        Mockito.when(table.specs()).thenReturn(Collections.singletonMap(spec.specId(), spec));
+
+        Assert.assertEquals(Collections.singletonList("City"),
+                IcebergUtils.getIdentityPartitionColumns(table, pinnedSchema));
+        Assert.assertEquals(Collections.singletonList("city_name"),
+                IcebergUtils.getIdentityPartitionColumns(table, currentSchema));
+        Assert.assertEquals(Collections.singletonList("City"),
+                IcebergUtils.getCommonIdentityPartitionColumns(table, pinnedSchema));
+    }
+
+    @Test
     public void testGetCommonIdentityPartitionColumnsUsesSafeIntersection() {
         Schema schema = new Schema(
                 Types.NestedField.required(1, "id", Types.IntegerType.get()),
@@ -1195,6 +1220,28 @@ public class IcebergUtilsTest {
         Map<String, String> partitionInfoMap = IcebergUtils.getIdentityPartitionInfoMap(
                 partitionData, partitionSpec, table, "UTC");
         Assert.assertEquals(Collections.singletonMap("Dt", "2025-01-01"), partitionInfoMap);
+    }
+
+    @Test
+    public void testIdentityPartitionInfoMapUsesAuthoritativeScanSchema() {
+        Schema pinnedSchema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "City", Types.StringType.get()));
+        Schema currentSchema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "city_name", Types.StringType.get()));
+        PartitionSpec partitionSpec = PartitionSpec.builderFor(pinnedSchema)
+                .identity("City")
+                .build();
+        PartitionData partitionData = new PartitionData(partitionSpec.partitionType());
+        partitionData.set(0, "Beijing");
+
+        Assert.assertEquals(Collections.singletonMap("City", "Beijing"),
+                IcebergUtils.getIdentityPartitionInfoMap(
+                        partitionData, partitionSpec, pinnedSchema, "UTC"));
+        Assert.assertEquals(Collections.singletonMap("city_name", "Beijing"),
+                IcebergUtils.getIdentityPartitionInfoMap(
+                        partitionData, partitionSpec, currentSchema, "UTC"));
     }
 
     @Test
