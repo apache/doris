@@ -1478,4 +1478,93 @@ public class CreateIcebergSpatialV3Table {
     sql """refresh table spatial_dml_values"""
     order_qt_spatial_merge_typed_nulls """select id, geom is null, geog is null,
         ST_AsText(geom), ST_AsText(geog) from spatial_dml_values where id in (501,502,503)"""
+
+    // MERGE must retag nested NULL leaves before its eager target casts without changing container values.
+    sql """drop table if exists spatial_merge_nested_nulls"""
+    sql """create table spatial_merge_nested_nulls (
+        id int, g_array array<geometry>, gg_array array<geography>,
+        g_map map<string,geometry>, gg_map map<string,geography>,
+        g_struct struct<shape:geometry,label:string,n:bigint>,
+        gg_struct struct<shape:geography,label:string,n:bigint>,
+        g_deep map<string,array<struct<shape:geometry,label:string>>>,
+        gg_deep map<string,array<struct<shape:geography,label:string>>>,
+        ordinary bigint, note string)
+        engine=iceberg properties ('format-version'='3', 'write.merge.mode'='merge-on-read')"""
+    sql """insert into spatial_merge_nested_nulls select id, array(g), array(gg),
+        map('ordinary-key', g), map('ordinary-key', gg),
+        named_struct('shape', g, 'label', 'untouched', 'n', id + 300),
+        named_struct('shape', gg, 'label', 'untouched', 'n', id + 300),
+        map('ordinary-key', array(named_struct('shape', g, 'label', 'untouched'))),
+        map('ordinary-key', array(named_struct('shape', gg, 'label', 'untouched'))), id + 300, 'untouched'
+        from (select number + 1 id,
+            ST_GeometryFromWKBTyped('0101000000000000000000F03F0000000000000040') g,
+            ST_GeogFromWKB('0101000000000000000000F03F0000000000000040') gg
+            from numbers('number'='3') where number != 1) seed"""
+    sql """merge into spatial_merge_nested_nulls t using
+        (select 1 id, 'matched' label union all select 2 id, 'inserted' label) s on t.id = s.id
+        when matched then update set
+            g_array = array(cast(null as int)),
+            gg_array = array(cast(null as geometry('EPSG:3857'))),
+            g_map = map('ordinary-key', cast(null as geography('OGC:CRS84', 'vincenty'))),
+            gg_map = map('ordinary-key', cast(null as int)),
+            g_struct = struct(cast(null as int), s.label, cast(s.id as tinyint)),
+            gg_struct = named_struct('shape', cast(null as geometry('EPSG:3857')),
+                'label', s.label, 'n', cast(s.id as tinyint)),
+            g_deep = map('ordinary-key', array(named_struct('shape', cast(null as int), 'label', s.label))),
+            gg_deep = map('ordinary-key', array(named_struct('shape',
+                cast(null as geometry('EPSG:3857')), 'label', s.label))),
+            ordinary = cast(s.id as tinyint), note = s.label
+        when not matched then insert
+            (id, g_array, gg_array, g_map, gg_map, g_struct, gg_struct, g_deep, gg_deep, ordinary, note)
+            values (s.id, array(cast(null as geography('OGC:CRS84', 'vincenty'))), array(cast(null as int)),
+                map('ordinary-key', cast(null as int)), map('ordinary-key', cast(null as geometry('EPSG:3857'))),
+                named_struct('shape', cast(null as geography), 'label', s.label, 'n', cast(s.id as tinyint)),
+                struct(cast(null as int), s.label, cast(s.id as tinyint)),
+                map('ordinary-key', array(named_struct('shape', cast(null as geometry('EPSG:3857')),
+                    'label', s.label))),
+                map('ordinary-key', array(named_struct('shape', cast(null as int), 'label', s.label))),
+                cast(s.id as tinyint), s.label)"""
+    // A NULL sibling must not hide the identity of a non-NULL spatial value beneath an explicit cast.
+    test {
+        sql """merge into spatial_merge_nested_nulls t using projected_values s on t.id = s.id
+            when matched then update set g_array = array(cast(null as int), cast(s.geom as geometry))"""
+        exception "Spatial connector write CRS mismatch"
+    }
+    test {
+        sql """merge into spatial_merge_nested_nulls t using geometry_values s on t.id = s.id
+            when matched then update set g_map = map('ordinary-key', s.geog)"""
+        exception "can not cast"
+    }
+    test {
+        sql """merge into spatial_merge_nested_nulls t using projected_values s on t.id = s.id
+            when matched then update set gg_struct = named_struct('shape', cast(s.geog as geography),
+                'label', 'wrong', 'n', s.id)"""
+        exception "Spatial connector write algorithm mismatch"
+    }
+    test {
+        sql """merge into spatial_merge_nested_nulls t using projected_values s on t.id = s.id + 100
+            when not matched then insert (id, g_deep) values (s.id + 100,
+                map('ordinary-key', array(named_struct('shape', s.geom, 'label', 'wrong'))))"""
+        exception "can not cast"
+    }
+    sql """refresh table spatial_merge_nested_nulls"""
+    order_qt_spatial_merge_nested_null_shapes """select id,
+        g_array is null, size(g_array), ST_AsText(g_array[1]),
+        gg_array is null, size(gg_array), ST_AsText(gg_array[1]),
+        g_map is null, size(g_map), ST_AsText(g_map['ordinary-key']),
+        gg_map is null, size(gg_map), ST_AsText(gg_map['ordinary-key']),
+        g_struct is null, ST_AsText(struct_element(g_struct, 'shape')),
+        gg_struct is null, ST_AsText(struct_element(gg_struct, 'shape')),
+        g_deep is null, size(g_deep['ordinary-key']), g_deep['ordinary-key'][1] is null,
+        ST_AsText(struct_element(g_deep['ordinary-key'][1], 'shape')),
+        gg_deep is null, size(gg_deep['ordinary-key']), gg_deep['ordinary-key'][1] is null,
+        ST_AsText(struct_element(gg_deep['ordinary-key'][1], 'shape'))
+        from spatial_merge_nested_nulls order by id"""
+    order_qt_spatial_merge_nested_null_ordinary """select id, ordinary, note,
+        map_keys(g_map), map_keys(gg_map), map_keys(g_deep), map_keys(gg_deep),
+        struct_element(g_struct, 'label'), struct_element(g_struct, 'n'),
+        struct_element(gg_struct, 'label'), struct_element(gg_struct, 'n'),
+        struct_element(g_deep['ordinary-key'][1], 'label'),
+        struct_element(gg_deep['ordinary-key'][1], 'label')
+        from spatial_merge_nested_nulls order by id"""
 }

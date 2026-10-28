@@ -708,6 +708,15 @@ TEST(VGeoFunctionsTest, GeographyTouchesKeepsRoundedZeroLengthEdgesOpen) {
     }
 }
 
+TEST(VGeoFunctionsTest, GeographyTouchesKeepsRawInteriorCrossings) {
+    const std::string crossing = "LINESTRING (0 59,-1 58.5,0 58.00000000000001,1 58.5)";
+    for (const auto* line :
+         {"LINESTRING (0 58,0 59)", "LINESTRING (0 58,0 58.00000000000001,0 59)"}) {
+        expect_geography_relation("st_touches", line, crossing, false);
+        expect_geography_relation("st_touches", crossing, line, false);
+    }
+}
+
 TEST(VGeoFunctionsTest, GeographyEqualsPreservesUnequalRawLineExtents) {
     // Both first endpoints round to the same S2Point, but only the first line
     // contains POINT(0 58). Check meridian extents and distinct non-meridian arcs.
@@ -890,6 +899,30 @@ TEST(VGeoFunctionsTest, GeographyRejectsRoundedPointPolygonOwnership) {
     const std::string separated = "LINESTRING (58.00000000000001 0,58.00000000000001 -1)";
     expect_geography_relation("st_touches", polygon, separated, false);
     expect_geography_relation("st_touches", separated, polygon, false);
+}
+
+TEST(VGeoFunctionsTest, GeographyOverlapsRejectsRoundedPolygonVertex) {
+    const std::string a = "POLYGON ((58 58,59 58,58 59,58 58))";
+    const std::string b =
+            "POLYGON ((58.00000000000001 58.00000000000001,57 57,59 57,"
+            "58.00000000000001 58.00000000000001))";
+    expect_rounded_polygon_interior_error("st_overlaps", a, b);
+    expect_rounded_polygon_interior_error("st_overlaps", b, a);
+    const std::string boundary = "POLYGON ((58 58,57 57,59 57,58 58))";
+    expect_geography_relation("st_overlaps", a, boundary, false);
+    expect_geography_relation("st_overlaps", boundary, a, false);
+    const std::string overlap = "POLYGON ((58.1 58.1,57 57,59 57,58.1 58.1))";
+    expect_geography_relation("st_overlaps", a, overlap, true);
+    expect_geography_relation("st_overlaps", overlap, a, true);
+
+    // Shared noding retains both 58 and 58+ulp on each boundary, so these are not
+    // one-sided raw vertex collisions even though the two S2 positions coincide.
+    const std::string shared = "POLYGON ((0 58,1 58,1 59,0 59,0 58))";
+    const std::string subdivided = "POLYGON ((0 58,1 58,1 59,0 59,0 58.00000000000001,0 58))";
+    expect_geography_relation("st_overlaps", shared, subdivided, false);
+    expect_geography_relation("st_overlaps", subdivided, shared, false);
+    expect_geography_relation("st_touches", shared, subdivided, false);
+    expect_geography_relation("st_touches", subdivided, shared, false);
 }
 
 TEST(VGeoFunctionsTest, GeographyTouchesRejectsRoundedPolygonContact) {

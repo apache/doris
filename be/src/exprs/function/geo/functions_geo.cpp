@@ -1276,6 +1276,29 @@ static Status geography_relation(std::string_view name, const GeoShape& lhs, con
         }
         if (lhs.type() == GeoShapeType::GEO_SHAPE_POLYGON) {
             *result = S2BooleanOperation::Intersects(left, right, interior_options);
+            if (!*result) {
+                const auto a = left_edges.vertices(nodes.left);
+                const auto b = right_edges.vertices(nodes.right);
+                const auto rounded_vertex_collision = [](const auto& source, const auto& other) {
+                    std::set<S2Point, std::less<>, CustomStdAllocator<S2Point>> distinct;
+                    for (const auto& vertex : source) {
+                        if (!other.contains(vertex)) {
+                            distinct.insert(vertex.point);
+                        }
+                    }
+                    return std::ranges::any_of(other, [&](const auto& vertex) {
+                        return distinct.contains(vertex.point);
+                    });
+                };
+                // Polygon apex (58+ulp,58+ulp) can lie inside the other raw polygon but
+                // round onto (58,58), losing its overlap without a shared rounded arc.
+                // Shared raw subdivisions are not collisions, even when their S2 points coincide.
+                if (rounded_vertex_collision(a, b) || rounded_vertex_collision(b, a)) {
+                    return Status::NotSupported(
+                            "st_overlaps does not support ambiguous spherical Polygon boundary "
+                            "interiors");
+                }
+            }
             return geography_check_polygon_interiors(name, left, right, nodes, left_edges,
                                                      right_edges, *result);
         }
@@ -1293,7 +1316,24 @@ static Status geography_relation(std::string_view name, const GeoShape& lhs, con
         // endpoint contact. A shared raw edge has intersecting interiors, so cannot touch.
         if (*result && lhs.type() == GeoShapeType::GEO_SHAPE_LINE_STRING &&
             rhs.type() == GeoShapeType::GEO_SHAPE_LINE_STRING) {
-            *result = !shares_raw_line_edge() &&
+            const auto left_vertices = left_edges.vertices(nodes.left);
+            const auto right_vertices = right_edges.vertices(nodes.right);
+            const auto interior_node = [](const GeographyCoordinates& raw,
+                                          const GeographyVertex& vertex) {
+                const auto& line = raw.sequences.front();
+                return line.front() == line.back() ||
+                       (vertex != line.front() && vertex != line.back());
+            };
+            // In (0,58)->(0,59), raw node (0,58+ulp) is interior even when S2 maps it
+            // onto the first endpoint. A separate genuine endpoint contact at (0,59)
+            // must not hide that raw interior crossing. Reuse the existing noded vertices.
+            const bool shared_interior =
+                    std::ranges::any_of(left_vertices, [&](const auto& vertex) {
+                        return right_vertices.contains(vertex) &&
+                               interior_node(nodes.left, vertex) &&
+                               interior_node(nodes.right, vertex);
+                    });
+            *result = !shared_interior && !shares_raw_line_edge() &&
                       (nodes.line_boundary_touches(nodes.left, nodes.right) ||
                        nodes.line_boundary_touches(nodes.right, nodes.left));
         } else if (*result) {

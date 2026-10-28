@@ -529,3 +529,13 @@ POINT (1 2)	0101000000000000000000F03F0000000000000040
 502	true	true	\N	\N
 503	false	false	POINT (1 2)	POINT (1 2)
 
+-- !spatial_merge_nested_null_shapes --
+1	false	1	\N	false	1	\N	false	1	\N	false	1	\N	false	\N	false	\N	false	1	false	\N	false	1	false	\N
+2	false	1	\N	false	1	\N	false	1	\N	false	1	\N	false	\N	false	\N	false	1	false	\N	false	1	false	\N
+3	false	1	POINT (1 2)	false	1	POINT (1 2)	false	1	POINT (1 2)	false	1	POINT (1 2)	false	POINT (1 2)	false	POINT (1 2)	false	1	false	POINT (1 2)	false	1	false	POINT (1 2)
+
+-- !spatial_merge_nested_null_ordinary --
+1	1	matched	["ordinary-key"]	["ordinary-key"]	["ordinary-key"]	["ordinary-key"]	matched	1	matched	1	matched	matched
+2	2	inserted	["ordinary-key"]	["ordinary-key"]	["ordinary-key"]	["ordinary-key"]	inserted	2	inserted	2	inserted	inserted
+3	303	untouched	["ordinary-key"]	["ordinary-key"]	["ordinary-key"]	["ordinary-key"]	untouched	303	untouched	303	untouched	untouched
+

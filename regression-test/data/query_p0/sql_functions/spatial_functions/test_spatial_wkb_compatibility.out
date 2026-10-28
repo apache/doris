@@ -222,3 +222,9 @@ false	false	true	true	true	true	true
 -- !geography_boundary_interior_controls --
 true	false	true	true	false	false
 
+-- !geography_raw_line_interior_crossing --
+false	false	true	true
+
+-- !geography_polygon_vertex_overlap_controls --
+false	false	true	true
+

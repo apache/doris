@@ -22,11 +22,16 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.connector.converter.ConnectorSpatialWriteValidator;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
+import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -45,12 +50,20 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalExternalRowLevelMerge
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.ConnectorComputeVariantType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.GeographyType;
 import org.apache.doris.nereids.types.GeometryType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarBinaryType;
+import org.apache.doris.nereids.util.MoreFieldsThread;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -235,6 +248,135 @@ public class ExternalRowLevelMergePlanBuilderTest {
                             ImmutableList.of(ImmutableList.of(new Cast(new IntegerLiteral(1),
                                     IntegerType.INSTANCE)))));
         }
+    }
+
+    @Test
+    public void mergeBranchesBindNestedTypedNullConstructors() {
+        ExpressionAnalyzer analyzer = mergeExpressionAnalyzer();
+        NereidsParser parser = new NereidsParser();
+        for (DataType spatial : ImmutableList.of(new GeometryType("OGC:CRS84"),
+                new GeographyType("OGC:CRS84", "spherical"))) {
+            StructType struct = new StructType(ImmutableList.of(
+                    new StructField("shape", spatial, true, ""),
+                    new StructField("label", StringType.INSTANCE, true, ""),
+                    new StructField("n", BigIntType.INSTANCE, true, "")));
+            List<DataType> targets = ImmutableList.of(ArrayType.of(spatial),
+                    MapType.of(StringType.INSTANCE, spatial), struct, struct,
+                    MapType.of(StringType.INSTANCE, ArrayType.of(struct)));
+            List<String> constructors = ImmutableList.of("array(%s)", "map('ordinary-key', %s)",
+                    "struct(%s, 'kept', cast(7 as tinyint))",
+                    "named_struct('shape', %s, 'label', 'kept', 'n', cast(7 as tinyint))",
+                    "map('ordinary-key', array(named_struct('shape', %s, 'label', 'kept', 'n', cast(7 as tinyint))))");
+            for (int i = 0; i < targets.size(); i++) {
+                DataType target = targets.get(i);
+                for (String typedNull : ImmutableList.of("cast(null as int)",
+                        "cast(null as geometry('EPSG:3857'))")) {
+                    String sql = String.format(constructors.get(i), typedNull);
+                    Expression branch = mergeBranch(parser.parseExpression(sql), target);
+                    Expression analyzed = analyzer.analyze(branch);
+                    Assertions.assertEquals(target, analyzed.getDataType(), sql);
+                    Assertions.assertFalse(analyzed.isNullLiteral(), sql);
+                    Assertions.assertTrue(analyzed.anyMatch(expression -> expression instanceof NullLiteral
+                            && ((NullLiteral) expression).getDataType().equals(spatial)), sql);
+                    if (i == 1 || i == 4) {
+                        Assertions.assertTrue(
+                                branch.anyMatch(expression -> isLiteral(expression, "ordinary-key")), sql);
+                    }
+                    if (i >= 2) {
+                        Assertions.assertTrue(branch.anyMatch(expression -> isLiteral(expression, "kept")), sql);
+                        Assertions.assertTrue(branch.anyMatch(expression -> expression instanceof Cast
+                                && ((Cast) expression).getDataType().equals(TinyIntType.INSTANCE)), sql);
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    public void mergeNestedNullsKeepOrdinaryKeysAndNonNullSpatialIdentity() {
+        ExpressionAnalyzer analyzer = mergeExpressionAnalyzer();
+        for (DataType spatial : ImmutableList.of(new GeometryType("OGC:CRS84"),
+                new GeographyType("OGC:CRS84", "spherical"))) {
+            Expression typedNull = new Cast(NullLiteral.INSTANCE, IntegerType.INSTANCE);
+            SlotReference key = new SlotReference("ordinary_key", StringType.INSTANCE);
+            SlotReference value = new SlotReference("spatial_value", spatial);
+            DataType map = MapType.of(StringType.INSTANCE, spatial);
+            Expression matching = analyzer.analyze(mergeBranch(new UnboundFunction("map", ImmutableList.of(
+                    key, typedNull, new StringLiteral("kept"), value)), map));
+            Assertions.assertEquals(map, matching.getDataType());
+            Assertions.assertTrue(matching.anyMatch(expression -> expression == key));
+            Assertions.assertTrue(matching.anyMatch(expression -> expression == value));
+            Assertions.assertDoesNotThrow(() -> ConnectorSpatialWriteValidator.validate(
+                    new Column("payload", map.toCatalogDataType()), matching));
+
+            DataType array = ArrayType.of(spatial);
+            List<DataType> incompatible = spatial instanceof GeometryType
+                    ? ImmutableList.of(new GeometryType("EPSG:3857"),
+                            new GeographyType("OGC:CRS84", "spherical"))
+                    : ImmutableList.of(new GeographyType("EPSG:4326", "spherical"),
+                            new GeographyType("OGC:CRS84", "vincenty"), new GeometryType("OGC:CRS84"));
+            for (DataType wrongType : incompatible) {
+                SlotReference wrong = new SlotReference("original_spatial_value", wrongType);
+                // The NULL is safe to retag, but the adjacent explicit cast must not erase source identity.
+                Expression mixed = analyzer.analyze(mergeBranch(new UnboundFunction("array", ImmutableList.of(
+                        typedNull, new Cast(wrong, spatial))), array));
+                Assertions.assertTrue(mixed.anyMatch(expression -> expression == wrong));
+                Assertions.assertThrows(AnalysisException.class, () -> ConnectorSpatialWriteValidator.validate(
+                        new Column("payload", array.toCatalogDataType()), mixed));
+            }
+            Assertions.assertThrows(AnalysisException.class, () -> analyzer.analyze(mergeBranch(
+                    new NereidsParser().parseExpression("array(cast(null as int), cast(1 as int))"), array)));
+        }
+    }
+
+    @Test
+    public void mergeNestedNullsRecomputeCachedConstructorSignatures() {
+        ExpressionAnalyzer analyzer = mergeExpressionAnalyzer();
+        for (DataType spatial : ImmutableList.of(new GeometryType("OGC:CRS84"),
+                new GeographyType("OGC:CRS84", "spherical"))) {
+            Expression bound = analyzer.analyze(new NereidsParser().parseExpression("array(cast(null as int))"));
+            Assertions.assertEquals(ArrayType.of(IntegerType.INSTANCE), bound.getDataType());
+            DataType target = ArrayType.of(spatial);
+            Expression rewritten = MoreFieldsThread.keepFunctionSignature(
+                    () -> analyzer.analyze(mergeBranch(bound, target)));
+            Assertions.assertEquals(target, rewritten.getDataType());
+        }
+    }
+
+    @Test
+    public void mergeNestedNullsKeepRequiredFieldsAndMalformedConstructorRejections() {
+        ExpressionAnalyzer analyzer = mergeExpressionAnalyzer();
+        NereidsParser parser = new NereidsParser();
+        for (DataType spatial : ImmutableList.of(new GeometryType("OGC:CRS84"),
+                new GeographyType("OGC:CRS84", "spherical"))) {
+            StructType required = new StructType(ImmutableList.of(new StructField("shape", spatial, false, "")));
+            Assertions.assertThrows(AnalysisException.class, () -> analyzer.analyze(mergeBranch(
+                    parser.parseExpression("named_struct('shape', cast(null as int))"), required)));
+            StructType twoFields = new StructType(ImmutableList.of(
+                    new StructField("shape", spatial, true, ""),
+                    new StructField("label", StringType.INSTANCE, true, "")));
+            for (String malformed : ImmutableList.of("struct(cast(null as int))",
+                    "named_struct('shape', cast(null as int), 'label')")) {
+                Assertions.assertThrows(AnalysisException.class, () -> analyzer.analyze(mergeBranch(
+                        parser.parseExpression(malformed), twoFields)), malformed);
+            }
+            Assertions.assertThrows(AnalysisException.class, () -> analyzer.analyze(mergeBranch(
+                    parser.parseExpression("map('ordinary-key', cast(null as int), 'dangling')"),
+                    MapType.of(StringType.INSTANCE, spatial))));
+        }
+    }
+
+    private static Expression mergeBranch(Expression value, DataType target) {
+        return ExternalRowLevelMergePlanBuilder.generateFinalProjections(
+                ImmutableList.of("payload"), ImmutableList.of(target),
+                ImmutableList.of(ImmutableList.of(value))).get(0).child(0).child(1);
+    }
+
+    private static ExpressionAnalyzer mergeExpressionAnalyzer() {
+        ConnectContext ctx = new ConnectContext();
+        ctx.setStatementContext(new StatementContext());
+        ctx.setThreadLocalInfo();
+        return new ExpressionAnalyzer(null, new Scope(ImmutableList.of()), null, true, true);
     }
 
     @Test
