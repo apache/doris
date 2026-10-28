@@ -40,12 +40,10 @@ public class HashDistributionPrunerTest {
 
     @Test
     public void testEqualityWithInPredicate() {
-        List<Tablet> tablets = Lists.newArrayList();
+        List<Long> tabletIds = Lists.newArrayList();
         for (long i = 0; i < 32; i++) {
-            tablets.add(new LocalTablet(i));
+            tabletIds.add(i);
         }
-        MaterializedIndex index = new MaterializedIndex();
-        index.appendTablets(tablets);
         List<Column> columns = Lists.newArrayList(
                 new Column("warehouse_code", PrimitiveType.VARCHAR, false),
                 new Column("company_code", PrimitiveType.VARCHAR, false));
@@ -59,9 +57,9 @@ public class HashDistributionPrunerTest {
         filters.put("warehouse_code", warehouseFilter);
         filters.put("company_code", companyFilter);
         HashDistributionPruner pruner = new HashDistributionPruner(
-                null, index, columns, filters, tablets.size(), true);
+                null, tabletIds, columns, filters, tabletIds.size(), true);
         Set<Long> equalityTablets = Sets.newHashSet(pruner.prune());
-        Assertions.assertEquals(1, equalityTablets.size());
+        Assert.assertEquals(1, equalityTablets.size());
 
         List<Expr> values = Lists.newArrayList();
         for (String value : new String[] {"5744695112-6", "82330212MACFCLM3XD", "W0102990195",
@@ -71,25 +69,25 @@ public class HashDistributionPrunerTest {
             values.add(new StringLiteral(value));
         }
         companyFilter.setInPredicate(new InPredicate(new SlotRef(null, "company_code"), values, false));
-        Assertions.assertEquals(equalityTablets, Sets.newHashSet(pruner.prune()));
+        Assert.assertEquals(equalityTablets, Sets.newHashSet(pruner.prune()));
 
         // IN-only pruning must still enumerate all of its values.
         PartitionColumnFilter inOnlyFilter = new PartitionColumnFilter();
         inOnlyFilter.setInPredicate(companyFilter.getInPredicate());
         filters.put("company_code", inOnlyFilter);
-        Assertions.assertEquals(15, pruner.prune().size());
+        Assert.assertEquals(15, pruner.prune().size());
 
         // A non-inclusive bound must not be treated as an equality.
         filters.put("company_code", companyFilter);
         companyFilter.lowerBoundInclusive = false;
-        Assertions.assertEquals(15, pruner.prune().size());
+        Assert.assertEquals(15, pruner.prune().size());
         companyFilter.lowerBoundInclusive = true;
 
         // An equality outside the IN list still provides a safe candidate tablet.
         // The contradictory predicates are evaluated by the scan, not by this pruner.
         companyFilter.setInPredicate(new InPredicate(new SlotRef(null, "company_code"),
                 Lists.<Expr>newArrayList(new StringLiteral("W0200475371")), false));
-        Assertions.assertEquals(equalityTablets, Sets.newHashSet(pruner.prune()));
+        Assert.assertEquals(equalityTablets, Sets.newHashSet(pruner.prune()));
     }
 
     @Test
