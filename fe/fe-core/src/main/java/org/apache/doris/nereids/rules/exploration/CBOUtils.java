@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.Utils;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -40,6 +41,54 @@ public class CBOUtils {
         return join.getConditionSlot().stream()
                 .filter(childSlots::contains)
                 .collect(Collectors.toSet());
+    }
+
+    /**
+     * Collect the exprIds of the project items which read no input, e.g. the constant materialized by constant
+     * propagation, now() or 1 + 1.
+     *
+     * <p>Such an item can not be moved into a child of a join when the join condition refers to it: pushing the
+     * item into one side while the condition keeps referring to it from the other side makes both children of the
+     * join output the same exprId. PhysicalHashJoin#getHashConjunctsExprIds splits the join keys by exprId only, so
+     * both keys would be taken as the keys of one side and the required hash properties of the other side stay
+     * empty.
+     */
+    public static Set<ExprId> collectNoInputProjectItemIds(List<NamedExpression> projectItems) {
+        Set<ExprId> noInputProjectItemIds = new HashSet<>();
+        for (NamedExpression item : projectItems) {
+            if (item.getInputSlotExprIds().isEmpty()) {
+                noInputProjectItemIds.add(item.getExprId());
+            }
+        }
+        return noInputProjectItemIds;
+    }
+
+    /** whether the join condition refers to any of the given exprIds */
+    public static boolean joinConditionRefersTo(
+            LogicalJoin<? extends Plan, ? extends Plan> join, Set<ExprId> exprIds) {
+        if (exprIds.isEmpty()) {
+            return false;
+        }
+        for (Expression conjunct : join.getHashJoinConjuncts()) {
+            if (refersToAny(conjunct, exprIds)) {
+                return true;
+            }
+        }
+        for (Expression conjunct : join.getOtherJoinConjuncts()) {
+            if (refersToAny(conjunct, exprIds)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean refersToAny(Expression expression, Set<ExprId> exprIds) {
+        for (Slot slot : expression.getInputSlots()) {
+            if (exprIds.contains(slot.getExprId())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public static Plan newProjectIfNeeded(Set<ExprId> requiredExprIds, Plan plan) {
