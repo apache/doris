@@ -30,9 +30,12 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.FakeEditLog;
 import org.apache.doris.catalog.FakeEnv;
+import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.StorageVaultMgr;
 import org.apache.doris.catalog.TableProperty;
@@ -45,8 +48,10 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.proto.OlapFile;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TSortType;
 
 import com.google.common.collect.Lists;
@@ -55,11 +60,14 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class CloudRestoreJobTest {
 
@@ -254,6 +262,78 @@ public class CloudRestoreJobTest {
         Assertions.assertTrue(job.getStatus().ok());
         job.doCreateReplicas();
         Assertions.assertTrue(job.getStatus().ok());
+    }
+
+    // The tablets are created before the partition joins the table, with the format the backed-up files
+    // were written in. A partition the job did not record (a restored table) keeps the table's default.
+    @Test
+    public void testCreateReplicasUsesTheBackedUpPartitionFormat() throws UserException {
+        expectedRestoreTbl.setInvertedIndexFileStorageFormat(TInvertedIndexFileStorageFormat.V2);
+        Assertions.assertEquals(OlapFile.InvertedIndexStorageFormatPB.V2, createdTabletsFormat());
+
+        Map<Long, TInvertedIndexFileStorageFormat> formats = Deencapsulation.getField(job,
+                "restoredPartitionFormats");
+        for (Partition expectedRestorePart : expectedRestoreTbl.getPartitions()) {
+            formats.put(expectedRestorePart.getId(), TInvertedIndexFileStorageFormat.SNII);
+        }
+        Assertions.assertEquals(OlapFile.InvertedIndexStorageFormatPB.SNII, createdTabletsFormat());
+    }
+
+    // Resetting a remote partition gives it a new id; the format recorded for the restored partition has to
+    // be the one the backup holds under the OLD id.
+    @Test
+    public void testResetPartitionRecordsTheBackedUpFormat() {
+        long remotePartId = 123;
+        String partName = "p_restored";
+        Partition remotePart = new Partition(remotePartId, partName, new MaterializedIndex(),
+                new HashDistributionInfo());
+        remotePart.setVisibleVersionAndTime(5, 0);
+        OlapTable remoteTbl = new OlapTable();
+        remoteTbl.addPartition(remotePart);
+        remoteTbl.setPartitionInfo(new PartitionInfo(PartitionType.RANGE));
+        remoteTbl.setInvertedIndexFileStorageFormat(TInvertedIndexFileStorageFormat.V2);
+        remoteTbl.getPartitionInfo().setInvertedIndexFileStorageFormat(remotePartId,
+                TInvertedIndexFileStorageFormat.SNII);
+
+        OlapTable localTbl = new OlapTable();
+        localTbl.setPartitionInfo(new PartitionInfo(PartitionType.RANGE));
+        localTbl.setInvertedIndexFileStorageFormat(TInvertedIndexFileStorageFormat.V3);
+        localTbl.setQualifiedDbName(db.getFullName());
+
+        Partition restored = job.resetPartitionForRestore(localTbl, remoteTbl, partName,
+                new ReplicaAllocation());
+
+        Assertions.assertNotEquals(remotePartId, restored.getId());
+        Map<Long, TInvertedIndexFileStorageFormat> formats = Deencapsulation.getField(job,
+                "restoredPartitionFormats");
+        Assertions.assertEquals(TInvertedIndexFileStorageFormat.SNII, formats.get(restored.getId()));
+    }
+
+    // Creates the tablets of every partition of the restored table and returns the inverted index storage
+    // format all of their metas carry.
+    private OlapFile.InvertedIndexStorageFormatPB createdTabletsFormat() throws UserException {
+        Mockito.clearInvocations(mockMetaServiceProxyInstance);
+        for (Partition expectedRestorePart : expectedRestoreTbl.getPartitions()) {
+            job.createReplicas(db, expectedRestoreTbl, expectedRestorePart, null);
+        }
+        job.doCreateReplicas();
+        Assertions.assertTrue(job.getStatus().ok());
+
+        ArgumentCaptor<Cloud.CreateTabletsRequest> requests =
+                ArgumentCaptor.forClass(Cloud.CreateTabletsRequest.class);
+        try {
+            Mockito.verify(mockMetaServiceProxyInstance, Mockito.atLeastOnce()).createTablets(requests.capture());
+        } catch (Exception e) {
+            throw new AssertionError(e);
+        }
+        Set<OlapFile.InvertedIndexStorageFormatPB> formats = new HashSet<>();
+        for (Cloud.CreateTabletsRequest request : requests.getAllValues()) {
+            for (OlapFile.TabletMetaCloudPB tabletMeta : request.getTabletMetasList()) {
+                formats.add(tabletMeta.getSchema().getInvertedIndexStorageFormat());
+            }
+        }
+        Assertions.assertEquals(1, formats.size(), formats.toString());
+        return formats.iterator().next();
     }
 
 }

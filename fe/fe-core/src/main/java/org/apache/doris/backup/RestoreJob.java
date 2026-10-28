@@ -85,6 +85,7 @@ import org.apache.doris.task.DownloadTask;
 import org.apache.doris.task.ReleaseSnapshotTask;
 import org.apache.doris.task.SnapshotTask;
 import org.apache.doris.thrift.TFinishTaskRequest;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TRemoteTabletSnapshot;
 import org.apache.doris.thrift.TStatusCode;
@@ -1184,6 +1185,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             remoteDataProperty, restoreReplicaAlloc,
                             isInMemory,
                             remotePartitionInfo.getIsMutable(remotePartId));
+                    recordBackedUpInvertedIndexFileStorageFormat(localPartitionInfo, restoredPart.getId(),
+                            remoteTbl, remotePartId);
                 }
                 localTbl.addPartition(restoredPart);
             } finally {
@@ -1558,6 +1561,27 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         return resetTabletForRestore(localTbl, remoteTbl, remotePart, replicaAlloc);
     }
 
+    // The inverted index storage format the files of a backed-up partition were written in: the
+    // partition's own entry in the backed-up PartitionInfo, else the backed-up table's default.
+    protected static TInvertedIndexFileStorageFormat getBackedUpInvertedIndexFileStorageFormat(
+            OlapTable remoteTbl, long remotePartId) {
+        TInvertedIndexFileStorageFormat format =
+                remoteTbl.getPartitionInfo().getInvertedIndexFileStorageFormat(remotePartId);
+        return format != null ? format : remoteTbl.getInvertedIndexFileStorageFormat();
+    }
+
+    // The restored files keep the format they were written in, which can differ from the target table's
+    // default, and the tablets were created with it. Record it on the partition the way a partition created
+    // while the partition-level format rollout is on has it, and only then: without the rollout the
+    // format is per table and nothing reads a partition's entry.
+    protected static void recordBackedUpInvertedIndexFileStorageFormat(PartitionInfo localPartitionInfo,
+            long restoredPartId, OlapTable remoteTbl, long remotePartId) {
+        if (Config.isCloudMode() && Config.enable_partition_inverted_index_storage_format_rollout) {
+            localPartitionInfo.setInvertedIndexFileStorageFormat(restoredPartId,
+                    getBackedUpInvertedIndexFileStorageFormat(remoteTbl, remotePartId));
+        }
+    }
+
     protected Partition resetTabletForRestore(OlapTable localTbl, OlapTable remoteTbl, Partition remotePart,
                                          ReplicaAllocation replicaAlloc) {
         // tablets
@@ -1735,6 +1759,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     remoteDataProperty, restoreReplicaAlloc,
                     isInMemory,
                     remotePartitionInfo.getIsMutable(remotePartId));
+            recordBackedUpInvertedIndexFileStorageFormat(localPartitionInfo, restorePart.getId(), remoteTbl,
+                    remotePartId);
             localTbl.addPartition(restorePart);
 
             // modify tablet inverted index

@@ -35,6 +35,7 @@ import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.UserException;
@@ -43,6 +44,7 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.Lists;
@@ -273,6 +275,55 @@ public class RestoreJobTest {
         // 3. delete files
         in.close();
         Files.delete(path);
+    }
+
+    @Test
+    public void testBackedUpInvertedIndexFileStorageFormat() {
+        OlapTable remoteTbl = new OlapTable();
+        remoteTbl.setPartitionInfo(new PartitionInfo(PartitionType.RANGE));
+        remoteTbl.setInvertedIndexFileStorageFormat(TInvertedIndexFileStorageFormat.V3);
+        remoteTbl.getPartitionInfo().setInvertedIndexFileStorageFormat(100L, TInvertedIndexFileStorageFormat.SNII);
+
+        // A partition with an entry of its own keeps it; any other one was written in the table's format.
+        Assertions.assertEquals(TInvertedIndexFileStorageFormat.SNII,
+                RestoreJob.getBackedUpInvertedIndexFileStorageFormat(remoteTbl, 100L));
+        Assertions.assertEquals(TInvertedIndexFileStorageFormat.V3,
+                RestoreJob.getBackedUpInvertedIndexFileStorageFormat(remoteTbl, 101L));
+    }
+
+    // A partition entry is written only in cloud mode with the partition-level format rollout on, the same
+    // condition under which a partition created in the table has one.
+    @Test
+    public void testRecordBackedUpInvertedIndexFileStorageFormat() {
+        OlapTable remoteTbl = new OlapTable();
+        remoteTbl.setPartitionInfo(new PartitionInfo(PartitionType.RANGE));
+        remoteTbl.setInvertedIndexFileStorageFormat(TInvertedIndexFileStorageFormat.V3);
+        remoteTbl.getPartitionInfo().setInvertedIndexFileStorageFormat(100L, TInvertedIndexFileStorageFormat.SNII);
+        PartitionInfo localPartitionInfo = new PartitionInfo(PartitionType.RANGE);
+
+        String savedCloudUniqueId = Config.cloud_unique_id;
+        boolean savedRollout = Config.enable_partition_inverted_index_storage_format_rollout;
+        try {
+            Config.cloud_unique_id = "test_unique_id";
+            Config.enable_partition_inverted_index_storage_format_rollout = false;
+            RestoreJob.recordBackedUpInvertedIndexFileStorageFormat(localPartitionInfo, 200L, remoteTbl, 100L);
+            Assertions.assertNull(localPartitionInfo.getInvertedIndexFileStorageFormat(200L));
+
+            Config.enable_partition_inverted_index_storage_format_rollout = true;
+            RestoreJob.recordBackedUpInvertedIndexFileStorageFormat(localPartitionInfo, 200L, remoteTbl, 100L);
+            Assertions.assertEquals(TInvertedIndexFileStorageFormat.SNII,
+                    localPartitionInfo.getInvertedIndexFileStorageFormat(200L));
+            RestoreJob.recordBackedUpInvertedIndexFileStorageFormat(localPartitionInfo, 201L, remoteTbl, 101L);
+            Assertions.assertEquals(TInvertedIndexFileStorageFormat.V3,
+                    localPartitionInfo.getInvertedIndexFileStorageFormat(201L));
+
+            Config.cloud_unique_id = "";
+            RestoreJob.recordBackedUpInvertedIndexFileStorageFormat(localPartitionInfo, 202L, remoteTbl, 100L);
+            Assertions.assertNull(localPartitionInfo.getInvertedIndexFileStorageFormat(202L));
+        } finally {
+            Config.cloud_unique_id = savedCloudUniqueId;
+            Config.enable_partition_inverted_index_storage_format_rollout = savedRollout;
+        }
     }
 
     @Test

@@ -58,6 +58,7 @@ import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.task.DownloadTask;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.base.Preconditions;
@@ -91,6 +92,11 @@ public class CloudRestoreJob extends RestoreJob {
     private String cloudClusterId = null;
 
     private Map<Pair<OlapTable, Partition>, List<Cloud.CreateTabletsRequest.Builder>> tabletRequests = new HashMap<>();
+
+    // Restored partition id -> the inverted index storage format its backed-up files were written in.
+    // The tablets are created before the partition joins the table, with this format instead of the
+    // table's default, which can be a different one.
+    private final Map<Long, TInvertedIndexFileStorageFormat> restoredPartitionFormats = new HashMap<>();
 
     public enum MetaSeriviceOperation {
         PREPARE,
@@ -346,7 +352,11 @@ public class CloudRestoreJob extends RestoreJob {
     @Override
     public Partition resetPartitionForRestore(OlapTable localTbl, OlapTable remoteTbl, String partName,
                                                  ReplicaAllocation replicaAlloc) {
+        // The reset below replaces the remote partition id, which is what the backed-up format is keyed by.
+        TInvertedIndexFileStorageFormat backedUpFormat = getBackedUpInvertedIndexFileStorageFormat(
+                remoteTbl, remoteTbl.getPartition(partName).getId());
         Partition restoredPart = super.resetPartitionForRestore(localTbl, remoteTbl, partName, replicaAlloc);
+        restoredPartitionFormats.put(restoredPart.getId(), backedUpFormat);
         // convert partition to cloud partition
         CloudPartition cloudPartition = CopyUtil.copyToChild(restoredPart, CloudPartition.class);
         if (cloudPartition != null) {
@@ -438,7 +448,8 @@ public class CloudRestoreJob extends RestoreJob {
                                     localTbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
                                     localTbl.getTimeSeriesCompactionLevelThreshold(), localTbl.disableAutoCompaction(),
                                     localTbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
-                                    localTbl.getInvertedIndexFileStorageFormat(),
+                                    restoredPartitionFormats.getOrDefault(restorePart.getId(),
+                                            localTbl.getInvertedIndexFileStorageFormat()),
                                     localTbl.rowStorePageSize(),
                                     localTbl.variantEnableFlattenNested(), clusterKeyUids,
                                     localTbl.storagePageSize(), localTbl.getTDEAlgorithmPB(),
