@@ -184,12 +184,22 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
     @Override
     public Void visitPhysicalMaxComputeTableSink(
             PhysicalMaxComputeTableSink<? extends Plan> mcTableSink, PlanContext context) {
-        if (connectContext != null && !connectContext.getSessionVariable().isEnableStrictConsistencyDml()) {
-            addRequestPropertyToChildren(PhysicalProperties.ANY);
-        } else {
-            addRequestPropertyToChildren(mcTableSink.getRequirePhysicalProperties());
-        }
+        addRequestPropertyToChildren(getMaxComputeRequestProperties(
+                mcTableSink.getRequirePhysicalProperties(),
+                connectContext != null
+                        && connectContext.getSessionVariable().isEnableStrictConsistencyDml()));
         return null;
+    }
+
+    static PhysicalProperties getMaxComputeRequestProperties(
+            PhysicalProperties requiredProps, boolean enableStrictConsistencyDml) {
+        if (PhysicalProperties.EXTERNAL_TABLE_SINK_UNPARTITIONED.equals(requiredProps)
+                && !enableStrictConsistencyDml) {
+            // Strict-consistency mode may relax only the generic unpartitioned parallel-write
+            // preference. Dynamic-partition routing and local ordering are writer contracts.
+            return PhysicalProperties.ANY;
+        }
+        return requiredProps;
     }
 
     @Override
