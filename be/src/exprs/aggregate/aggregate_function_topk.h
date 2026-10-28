@@ -18,9 +18,11 @@
 #pragma once
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <random>
 #include <type_traits>
 #include <utility>
 
@@ -127,6 +129,22 @@ struct StringTopKValueStore {
     }
 };
 
+/// A per-state seed for the treap priorities. A fixed sequence is predictable from the input: an
+/// adversarial input can feed the n-th generated priority as the n-th smallest value, making the
+/// value order match the priority order and turning the treap into a chain of depth n. The
+/// process-random base and the counter keep the sequence independent of the data.
+inline uint64_t next_topk_priority_seed() {
+    static std::atomic<uint64_t> counter {0};
+    static const uint64_t base = [] {
+        std::random_device device;
+        return (static_cast<uint64_t>(device()) << 32) | static_cast<uint64_t>(device());
+    }();
+    uint64_t z = base + counter.fetch_add(1, std::memory_order_relaxed) * 0x9E3779B97F4A7C15ULL;
+    z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
+    z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
+    return z ^ (z >> 31);
+}
+
 /**
  * State shared by min_topk and max_topk, for one value type.
  *
@@ -180,7 +198,7 @@ struct AggregateTopKCountData {
     int64_t live = 0;
     // Slots evicted since the last compaction.
     int64_t dead = 0;
-    uint64_t rng = 0x243F6A8885A308D3ULL;
+    uint64_t rng = next_topk_priority_seed();
 
     AggregateTopKCountData() = default;
     AggregateTopKCountData(const AggregateTopKCountData&) = delete;
@@ -404,10 +422,25 @@ private:
         return compare_values(state.values.at(lhs), state.values.at(rhs));
     }
 
+    /// The treap links are int32_t, so a state can index at most INT32_MAX + 1 slots.
+    static constexpr size_t MAX_SLOTS =
+            static_cast<size_t>(std::numeric_limits<int32_t>::max()) + 1;
+
+    /// k has no upper bound and the FE cannot see the state size, so the representational limit is
+    /// enforced where a state actually grows. A merge can exceed it as well: two states each
+    /// within the limit can hold more distinct values together than one can index.
+    static void check_slot_capacity(size_t size) {
+        if (UNLIKELY(size > MAX_SLOTS)) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "min_topk/max_topk cannot keep more than {} distinct values",
+                            static_cast<int64_t>(MAX_SLOTS));
+        }
+    }
+
     /// Appends (value, count) as the next slot.
     static int32_t append_slot(State& state, ValueRef value, int64_t count) {
+        check_slot_capacity(state.slots.size() + 1);
         auto slot = static_cast<int32_t>(state.slots.size());
-        DCHECK_LT(slot, std::numeric_limits<int32_t>::max());
         state.values.append(value);
         state.slots.push_back(Slot {count, State::NO_SLOT, State::NO_SLOT, next_priority(state)});
         ++state.live;
@@ -699,12 +732,19 @@ private:
         if (state.live >= state.k) {
             // A full state already holds the k best values. If every value of the other state is
             // worse than the worst one retained here, the merge cannot change the result, so skip
-            // the collect/rebuild. An equal value would raise a count, hence the strict test.
-            // `_state`/`_merge`/`_union` merges one singleton per row, and this turns each one
-            // into a single comparison once the list is full.
-            int cmp =
-                    compare_values(other.values.at(best_slot(other)), state.values.at(state.worst));
+            // the collect/rebuild. `_state`/`_merge`/`_union` merges one singleton per row, and
+            // this turns each one into a single comparison once the list is full.
+            const int32_t other_best = best_slot(other);
+            int cmp = compare_values(other.values.at(other_best), state.values.at(state.worst));
             if (is_worse(cmp)) {
+                return;
+            }
+            if (cmp == 0) {
+                // The other state's best value is the worst retained one. Its remaining values are
+                // distinct and worse, so they cannot enter either: only that count changes, and
+                // the tree stays as it is.
+                state.slots[state.worst].count =
+                        checked_add(state.slots[state.worst].count, other.slots[other_best].count);
                 return;
             }
         }
@@ -753,6 +793,7 @@ private:
                 }
             }
         }
+        check_slot_capacity(merged_counts.size());
         assign_sorted(state, std::move(merged_values), std::move(merged_counts));
     }
 

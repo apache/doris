@@ -375,6 +375,17 @@ TEST(TopKTest, MergeStringStates) {
     auto rejected = merge_string_states(factory, arena, "min_topk", {"a", "b", "c"}, {"z"}, 2);
     EXPECT_EQ(rejected.values, (std::vector<std::string> {"a", "b"}));
     EXPECT_EQ(rejected.counts, (std::vector<int64_t> {1, 1}));
+
+    // The right best equals the left worst (b): only the count of b changes, and the right's c
+    // is worse and cannot enter.
+    auto counted = merge_string_states(factory, arena, "min_topk", {"a", "b"}, {"b", "c"}, 2);
+    EXPECT_EQ(counted.values, (std::vector<std::string> {"a", "b"}));
+    EXPECT_EQ(counted.counts, (std::vector<int64_t> {1, 2}));
+
+    // A right best better than the left worst goes through the ordinary merge.
+    auto replaced = merge_string_states(factory, arena, "min_topk", {"b", "c"}, {"a"}, 2);
+    EXPECT_EQ(replaced.values, (std::vector<std::string> {"a", "b"}));
+    EXPECT_EQ(replaced.counts, (std::vector<int64_t> {1, 1}));
 }
 
 TEST(TopKTest, StringStateSurvivesEvictionAndSerde) {
