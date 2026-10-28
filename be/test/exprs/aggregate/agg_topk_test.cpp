@@ -386,6 +386,11 @@ TEST(TopKTest, MergeStringStates) {
     auto replaced = merge_string_states(factory, arena, "min_topk", {"b", "c"}, {"a"}, 2);
     EXPECT_EQ(replaced.values, (std::vector<std::string> {"a", "b"}));
     EXPECT_EQ(replaced.counts, (std::vector<int64_t> {1, 1}));
+
+    // A singleton equal to an interior retained value only raises that count.
+    auto interior = merge_string_states(factory, arena, "min_topk", {"a", "b", "c"}, {"b"}, 3);
+    EXPECT_EQ(interior.values, (std::vector<std::string> {"a", "b", "c"}));
+    EXPECT_EQ(interior.counts, (std::vector<int64_t> {1, 2, 1}));
 }
 
 TEST(TopKTest, StringStateSurvivesEvictionAndSerde) {

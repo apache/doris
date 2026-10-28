@@ -470,27 +470,29 @@ private:
     /// One descent that performs the whole per-row update: an equal value bumps its count and
     /// reports no insertion; a missing value is linked as a new slot at the leaf and rotated up
     /// while the recursion unwinds. `inserted_slot` receives the new slot, NO_SLOT on a hit.
-    static int32_t add_or_increment(State& state, int32_t node, const IColumn& column,
-                                    size_t row_num, int32_t* inserted_slot) {
+    /// The count is the number of rows the caller adds (1 for add, the singleton's count for a
+    /// merge).
+    static int32_t add_or_increment(State& state, int32_t node, ValueRef value, int64_t count,
+                                    int32_t* inserted_slot) {
         if (node == State::NO_SLOT) {
-            *inserted_slot = append_slot(state, column, row_num, 1);
+            *inserted_slot = append_slot(state, value, count);
             return *inserted_slot;
         }
-        int cmp = compare_values(state.values.at(node), value_at(column, row_num));
+        int cmp = compare_values(state.values.at(node), value);
         if (cmp == 0) {
-            state.slots[node].count = checked_add(state.slots[node].count, 1);
+            state.slots[node].count = checked_add(state.slots[node].count, count);
             return node;
         }
         if (comes_before(cmp)) {
             // The stored value is the better one, so the input belongs in the right subtree.
-            state.slots[node].right = add_or_increment(state, state.slots[node].right, column,
-                                                       row_num, inserted_slot);
+            state.slots[node].right =
+                    add_or_increment(state, state.slots[node].right, value, count, inserted_slot);
             if (state.slots[state.slots[node].right].priority > state.slots[node].priority) {
                 return rotate_left(state, node);
             }
         } else {
             state.slots[node].left =
-                    add_or_increment(state, state.slots[node].left, column, row_num, inserted_slot);
+                    add_or_increment(state, state.slots[node].left, value, count, inserted_slot);
             if (state.slots[state.slots[node].left].priority > state.slots[node].priority) {
                 return rotate_right(state, node);
             }
@@ -673,7 +675,7 @@ private:
         }
 
         int32_t inserted = State::NO_SLOT;
-        state.root = add_or_increment(state, state.root, column, row_num, &inserted);
+        state.root = add_or_increment(state, state.root, value_at(column, row_num), 1, &inserted);
         if (inserted == State::NO_SLOT) {
             return;
         }
@@ -732,11 +734,39 @@ private:
         if (state.live >= state.k) {
             // A full state already holds the k best values. If every value of the other state is
             // worse than the worst one retained here, the merge cannot change the result, so skip
-            // the collect/rebuild. `_state`/`_merge`/`_union` merges one singleton per row, and
-            // this turns each one into a single comparison once the list is full.
+            // the collect/rebuild. `_state`/`_merge`/`_union` merges one singleton per row, so the
+            // singleton path turns each of those into one O(log k) descent.
             const int32_t other_best = best_slot(other);
             int cmp = compare_values(other.values.at(other_best), state.values.at(state.worst));
             if (is_worse(cmp)) {
+                return;
+            }
+            if (other.live == 1) {
+                // A single-entry partial state is exactly one add: a value already retained bumps
+                // its count, and a strictly better one takes the worst's place. Neither copies
+                // the retained values nor rebuilds the tree.
+                int32_t inserted = State::NO_SLOT;
+                state.root = add_or_increment(state, state.root, other.values.at(other_best),
+                                              other.slots[other_best].count, &inserted);
+                if (inserted == State::NO_SLOT) {
+                    return;
+                }
+                // The state was full, so the new entry is one over capacity. It beat the cached
+                // worst above, so the old worst is still the last entry and leaves the list.
+                int32_t removed = State::NO_SLOT;
+                state.root = erase_worst(state, state.root, &removed);
+                DCHECK_EQ(removed, state.worst);
+                state.values.on_evict(static_cast<size_t>(removed));
+                state.slots[removed].count = State::DEAD_COUNT;
+                --state.live;
+                ++state.dead;
+                refresh_worst(state);
+                // Merging can evict repeatedly without going through add_value, so the dead slots
+                // and payload are reclaimed here as well.
+                if (state.dead > state.live ||
+                    state.values.dead_bytes() > state.values.live_bytes()) {
+                    compact(state);
+                }
                 return;
             }
             if (cmp == 0) {
