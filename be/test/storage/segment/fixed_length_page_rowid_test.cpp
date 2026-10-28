@@ -55,7 +55,7 @@ struct RowidType {
     static std::vector<Storage> values() {
         // A non-multiple of eight exercises bitshuffle padding. Byte patterns also cover
         // wide values without narrowing their representation to a small integer.
-        std::vector<Storage> result(19);
+        std::vector<Storage> result(67);
         for (size_t i = 0; i < result.size(); ++i) {
             std::array<unsigned char, sizeof(Storage)> bytes;
             for (size_t j = 0; j < bytes.size(); ++j) {
@@ -63,9 +63,9 @@ struct RowidType {
             }
             memcpy(&result[i], bytes.data(), bytes.size());
             if constexpr (P == TYPE_DATE) {
-                result[i] = uint24_t((2024U << 9) | (2U << 5) | (i + 1));
+                result[i] = uint24_t((2024U << 9) | (2U << 5) | (i % 28 + 1));
             } else if constexpr (P == TYPE_DATETIME) {
-                result[i] = 20240201010203L + i * 1000000;
+                result[i] = 20240201010203L + (i % 28) * 1000000;
             } else if constexpr (P == TYPE_DECIMALV2) {
                 result[i] = decimal12_t {.integer = static_cast<int64_t>(i) - 9,
                                          .fraction = (static_cast<int32_t>(i) - 9) * 1234567};
@@ -132,8 +132,9 @@ protected:
     void check_append(Append&& append) {
         const auto values = T::values();
         const uint32_t base = 1000;
-        const uint32_t indices[] = {base,      base + 2,  base + 2, base + 8,
-                                    base + 18, base + 19, base + 23};
+        const uint32_t page_end = base + static_cast<uint32_t>(values.size());
+        const uint32_t indices[] = {base,      base + 2, base + 2,    base + 8,
+                                    base + 18, page_end, page_end + 4};
         auto all = T::column();
         StorageLayout<T::field>::storage_to_column(reinterpret_cast<const uint8_t*>(values.data()),
                                                    values.size(), *all);
@@ -168,6 +169,46 @@ protected:
         }
         EXPECT_EQ(3, append(indices, 3, base, actual));
         expect_equal(*expected, *actual);
+
+        // Check complete runs, page-end truncation, duplicates and descending rowids.
+        // The last two cases must stop at the first rowid below the page's base.
+        std::vector<std::vector<uint32_t>> selections = {
+                {base, base + 1, base + 2, base + 3, base + 4, base + 5},
+                {base + 1, base + 2, base + 3, base + 7, base + 8, base + 9, base + 9, base + 8,
+                 base + 15, base + 16, base + 17, base + 18, base + 19, base + 20},
+                {page_end - 2, page_end - 1, page_end},
+                {base + 4},
+                {base - 1, base},
+                {base, base - 1, base + 1}};
+        std::vector<uint32_t> complete;
+        for (uint32_t rowid = base; rowid < page_end; ++rowid) {
+            complete.push_back(rowid);
+        }
+        selections.push_back(complete);
+        // Equal endpoints can hide duplicate or reordered rowids inside a block.
+        auto duplicate = complete;
+        duplicate[14] = duplicate[13];
+        selections.push_back(duplicate);
+        auto descending = complete;
+        std::swap(descending[5], descending[6]);
+        selections.push_back(descending);
+        complete.insert(complete.end(), selections.back().begin(), selections.back().end());
+        selections.push_back(complete);
+        for (const auto& selection : selections) {
+            auto wanted = T::column();
+            auto result = T::column();
+            wanted->insert_default();
+            result->insert_default();
+            for (auto rowid : selection) {
+                const uint64_t index = static_cast<uint64_t>(rowid) - base;
+                if (index >= values.size()) {
+                    break;
+                }
+                wanted->insert_from(*all, index);
+            }
+            EXPECT_EQ(wanted->size() - 1, append(selection.data(), selection.size(), base, result));
+            expect_equal(*wanted, *result);
+        }
     }
 
     template <bool BitShuffle>
@@ -271,6 +312,15 @@ TEST(FixedLengthRowidConversionTest, FloatBitsAndLargeIndexBase) {
                          reinterpret_cast<const uint8_t*>(bits), 4, indices, 4, base, *column));
     for (size_t i = 0; i < 4; ++i) {
         EXPECT_EQ(bits[i], unaligned_load<uint64_t>(column->get_data_at(i).data));
+    }
+
+    // UINT32_MAX -> 0 is not a consecutive rowid within this page.
+    const uint32_t wrapped[] = {base + 1, base + 2, base + 3, 0};
+    column->clear();
+    ASSERT_EQ(3, storage_to_column_by_indices<FieldType::OLAP_FIELD_TYPE_DOUBLE>(
+                         reinterpret_cast<const uint8_t*>(bits), 4, wrapped, 4, base, *column));
+    for (size_t i = 0; i < 3; ++i) {
+        EXPECT_EQ(bits[i + 1], unaligned_load<uint64_t>(column->get_data_at(i).data));
     }
 }
 

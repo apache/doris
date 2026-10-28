@@ -107,6 +107,7 @@ void run(benchmark::State& state) {
     const bool direct = state.range(0) != 0;
     const size_t selected = rows * state.range(1) / 100;
     const bool nullable = state.range(2) != 0;
+    const size_t run_length = state.range(3);
     std::vector<Storage> values(rows);
     for (size_t i = 0; i < rows; ++i) {
         if constexpr (P == TYPE_DATE) {
@@ -121,10 +122,18 @@ void run(benchmark::State& state) {
     }
     std::vector<rowid_t> rowids(rows);
     std::iota(rowids.begin(), rowids.end(), base);
-    std::mt19937 random(42);
-    std::shuffle(rowids.begin(), rowids.end(), random);
-    rowids.resize(selected);
-    std::sort(rowids.begin(), rowids.end());
+    if (run_length == 0) {
+        std::mt19937 random(42);
+        std::shuffle(rowids.begin(), rowids.end(), random);
+        rowids.resize(selected);
+        std::sort(rowids.begin(), rowids.end());
+    } else {
+        // At 50% selectivity, alternate selected and skipped runs of the same size.
+        rowids.resize(selected);
+        for (size_t i = 0; i < selected; ++i) {
+            rowids[i] = base + i / run_length * (2 * run_length) + i % run_length;
+        }
+    }
 
     PageBuilderOptions options;
     options.data_page_size = rows * sizeof(Storage);
@@ -209,11 +218,16 @@ void run(benchmark::State& state) {
 }
 
 inline void arguments(benchmark::internal::Benchmark* bench) {
-    bench->ArgNames({"direct", "selectivity", "nullable"});
+    bench->ArgNames({"direct", "selectivity", "nullable", "run_length"});
     for (int nullable : {0, 1}) {
-        for (int selectivity : {1, 10, 50}) {
+        for (int selectivity : {1, 10, 50, 100}) {
             for (int direct : {0, 1}) {
-                bench->Args({direct, selectivity, nullable});
+                bench->Args({direct, selectivity, nullable, 0});
+            }
+        }
+        for (int run_length : {1, 16, 64, 4096}) {
+            for (int direct : {0, 1}) {
+                bench->Args({direct, 50, nullable, run_length});
             }
         }
     }
@@ -232,6 +246,8 @@ inline void arguments(benchmark::internal::Benchmark* bench) {
 ROWID_BENCHMARK(Int, TYPE_INT, OLAP_FIELD_TYPE_INT)
 ROWID_BENCHMARK(Bigint, TYPE_BIGINT, OLAP_FIELD_TYPE_BIGINT)
 ROWID_BENCHMARK(Double, TYPE_DOUBLE, OLAP_FIELD_TYPE_DOUBLE)
+ROWID_BENCHMARK(Largeint, TYPE_LARGEINT, OLAP_FIELD_TYPE_LARGEINT)
+ROWID_BENCHMARK(Decimal256, TYPE_DECIMAL256, OLAP_FIELD_TYPE_DECIMAL256)
 ROWID_BENCHMARK(Date, TYPE_DATE, OLAP_FIELD_TYPE_DATE)
 ROWID_BENCHMARK(Datetime, TYPE_DATETIME, OLAP_FIELD_TYPE_DATETIME)
 ROWID_BENCHMARK(Decimal, TYPE_DECIMALV2, OLAP_FIELD_TYPE_DECIMAL)
