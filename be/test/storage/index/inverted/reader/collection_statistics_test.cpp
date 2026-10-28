@@ -2678,7 +2678,7 @@ TEST_F(CollectionStatisticsTest, CollectConvertsAnalyzerFailureToStatus) {
     EXPECT_TRUE(collect_infos.empty());
 }
 
-TEST_F(CollectionStatisticsTest, CollectPhrasePrefixExcludesScoringTail) {
+TEST_F(CollectionStatisticsTest, CollectPhrasePrefixRegistersTheTailForExpansion) {
     auto tablet_schema = create_tablet_schema_with_inverted_index();
     auto match_expr = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
     match_expr->set_opcode(TExprOpcode::MATCH_PHRASE_PREFIX);
@@ -2700,6 +2700,60 @@ TEST_F(CollectionStatisticsTest, CollectPhrasePrefixExcludesScoringTail) {
     ASSERT_EQ(collect_info.logical_scoring_leaves[0].clauses.size(), 2u);
     EXPECT_EQ(collect_info.logical_scoring_leaves[0].clauses[0].position, 1);
     EXPECT_EQ(collect_info.logical_scoring_leaves[0].clauses[1].position, 2);
+    // The tail is no scoring term: segments expand it, and the terms it expands to are scored.
+    ASSERT_EQ(collect_info.scoring_prefixes.size(), 1u);
+    EXPECT_EQ(collect_info.scoring_prefixes[0].prefix, "gamma");
+    EXPECT_EQ(collect_info.scoring_prefixes[0].max_expansions, 50);
+}
+
+TEST_F(CollectionStatisticsTest,
+       CollectPhrasePrefixUnderNoSessionLimitScoresTheDefaultNumberOfTerms) {
+    TQueryOptions query_options;
+    query_options.inverted_index_max_expansions = 0;
+    runtime_state_->set_query_options(query_options);
+    auto tablet_schema = create_tablet_schema_with_inverted_index();
+    auto match_expr = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
+    match_expr->set_opcode(TExprOpcode::MATCH_PHRASE_PREFIX);
+    match_expr->_children.push_back(
+            std::make_shared<collection_statistics::MockVSlotRef>("content", SlotId(1)));
+    match_expr->_children.push_back(
+            std::make_shared<collection_statistics::MockVLiteral>("alpha gamma"));
+
+    MatchPredicateCollector collector;
+    CollectInfoMap collect_infos;
+    auto status =
+            collector.collect(runtime_state_.get(), tablet_schema, match_expr, &collect_infos);
+
+    ASSERT_TRUE(status.ok()) << status.msg();
+    const auto& collect_info = collect_infos.begin()->second;
+    // A limit of 0 expands the query's prefix to every term, but the statistics are kept for the
+    // whole scan and copied to each scanner, so they keep a bounded number.
+    ASSERT_EQ(collect_info.scoring_prefixes.size(), 1u);
+    EXPECT_EQ(collect_info.scoring_prefixes[0].max_expansions, kDefaultScoringExpansions);
+}
+
+TEST_F(CollectionStatisticsTest, CollectRepeatedPhrasePrefixRegistersTheTailOnce) {
+    auto tablet_schema = create_tablet_schema_with_inverted_index();
+    MatchPredicateCollector collector;
+    CollectInfoMap collect_infos;
+    for (const char* query : {"alpha gamma", "beta gamma", "alpha gamma"}) {
+        auto match_expr =
+                std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
+        match_expr->set_opcode(TExprOpcode::MATCH_PHRASE_PREFIX);
+        match_expr->_children.push_back(
+                std::make_shared<collection_statistics::MockVSlotRef>("content", SlotId(1)));
+        match_expr->_children.push_back(
+                std::make_shared<collection_statistics::MockVLiteral>(query));
+        auto status =
+                collector.collect(runtime_state_.get(), tablet_schema, match_expr, &collect_infos);
+        ASSERT_TRUE(status.ok()) << status.msg();
+    }
+
+    ASSERT_EQ(collect_infos.size(), 1u);
+    const auto& collect_info = collect_infos.begin()->second;
+    EXPECT_EQ(collect_info.unique_terms, std::vector<std::string>({"alpha", "beta"}));
+    ASSERT_EQ(collect_info.scoring_prefixes.size(), 1u);
+    EXPECT_EQ(collect_info.scoring_prefixes[0].prefix, "gamma");
 }
 
 TEST_F(CollectionStatisticsTest, CollectSingleTermPhrasePrefixHasEmptyScoringLeaf) {
@@ -2721,6 +2775,8 @@ TEST_F(CollectionStatisticsTest, CollectSingleTermPhrasePrefixHasEmptyScoringLea
     EXPECT_TRUE(collect_info.unique_terms.empty());
     ASSERT_EQ(collect_info.logical_scoring_leaves.size(), 1u);
     EXPECT_TRUE(collect_info.logical_scoring_leaves[0].clauses.empty());
+    // A prefix alone scores a constant and needs no statistics.
+    EXPECT_TRUE(collect_info.scoring_prefixes.empty());
 }
 
 TEST_F(CollectionStatisticsTest, SearchMatchCollectsRawExecutionTerm) {
@@ -3311,6 +3367,28 @@ TEST(SearchPredicateCollectorTest, LucenePureExclusionAllowsFieldlessMatchAll) {
     auto status = collector.collect_from_clause(root, nullptr, nullptr, {}, &infos);
     EXPECT_TRUE(status.ok()) << status;
     EXPECT_TRUE(infos.empty());
+}
+
+// With a limit of 1, segment A holding {rose} and segment B holding {red, rose} expand to rose and
+// to red. The tablet scores red alone, whichever segment is counted first: rose's document
+// frequency, which only segment A counted, would otherwise be too small.
+TEST(PrefixExpansionSetTest, KeepsTheSmallestTermsWhateverTheSegmentOrder) {
+    const std::wstring red = L"red";
+    const std::wstring rose = L"rose";
+    for (const bool a_first : {true, false}) {
+        PrefixExpansionSet merged(1);
+        for (const bool is_a : {a_first, !a_first}) {
+            merged.insert(is_a ? rose : red);
+        }
+        EXPECT_EQ(merged.terms(), std::set<std::wstring> {red}) << "a_first=" << a_first;
+    }
+
+    PrefixExpansionSet three(3);
+    for (const std::wstring term : {L"d", L"b", L"e", L"a", L"c", L"b"}) {
+        three.insert(term);
+    }
+    EXPECT_EQ(three.terms(), (std::set<std::wstring> {L"a", L"b", L"c"}));
+    EXPECT_EQ(three.limit(), 3);
 }
 
 } // namespace doris
