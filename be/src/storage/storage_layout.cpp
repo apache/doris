@@ -36,6 +36,39 @@
 #include "util/jsonb_document.h"
 
 namespace doris {
+template <FieldType FT>
+size_t storage_to_column_by_indices(const uint8_t* values, size_t src_rows, const uint32_t* indices,
+                                    size_t count, uint64_t index_base, IColumn& dst) {
+    if (count == 0) {
+        return 0;
+    }
+    using Layout = StorageLayout<FT>;
+    using StorageValue = typename Layout::StorageValue;
+    using Column =
+            typename PrimitiveTypeTraits<storage_field_type_to_primitive_type(FT)>::ColumnType;
+    auto& data = assert_cast<Column&>(dst).get_data();
+    const size_t old_size = data.size();
+    data.resize(old_size + count);
+    size_t appended = 0;
+    for (; appended < count; ++appended) {
+        const uint64_t index = indices[appended] - index_base;
+        if (UNLIKELY(index >= src_rows)) {
+            break;
+        }
+        StorageValue value;
+        memcpy(&value, values + index * sizeof(StorageValue), sizeof(StorageValue));
+        data[old_size + appended] = Layout::to_primitive(value);
+    }
+    data.resize_assume_reserved(old_size + appended);
+    return appended;
+}
+
+#define INSTANTIATE_SELECTED_STORAGE_LAYOUT(FT)                  \
+    template size_t storage_to_column_by_indices<FieldType::FT>( \
+            const uint8_t*, size_t, const uint32_t*, size_t, uint64_t, IColumn&);
+DORIS_APPLY_FOR_FIXED_WIDTH_STORAGE_LAYOUT_TYPES(INSTANTIATE_SELECTED_STORAGE_LAYOUT)
+#undef INSTANTIATE_SELECTED_STORAGE_LAYOUT
+
 namespace storage_layout_detail {
 
 template <FieldType FT>

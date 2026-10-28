@@ -35,6 +35,7 @@
 
 #include "agent/be_exec_version_manager.h"
 #include "common/config.h"
+#include "core/column/column_decimal.h"
 #include "core/column/column_map.h"
 #include "core/column/column_struct.h"
 #include "core/data_type/data_type_array.h"
@@ -42,6 +43,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/decimal12.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
@@ -52,6 +54,7 @@
 #include "storage/segment/mock/mock_segment.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/variant/variant_column_reader.h"
+#include "storage/storage_layout.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/types.h"
 #include "util/json/path_in_data.h"
@@ -1351,6 +1354,147 @@ TEST_F(ColumnReaderTest, ArrayReadByRowidsSchemaEvolutionFromNonNullSource) {
         EXPECT_THAT(null_only_nullable.get_null_map_data(), ::testing::Each(0));
         EXPECT_THAT(null_only_array.get_offsets(), ::testing::Each(0));
         EXPECT_TRUE(null_only_array.get_data().empty());
+    }
+}
+
+static void check_fixed_length_rowids(FieldType type, std::vector<char>& storage, size_t value_size,
+                                      const IColumn& column, EncodingTypePB encoding,
+                                      bool has_nulls) {
+    const size_t rows = storage.size() / value_size;
+    auto all = ColumnNullable::create(column.clone_empty(), ColumnUInt8::create());
+    ColumnMetaPB meta;
+    const std::string path = COLUMN_READER_FILE_TEST_DIR + "/fixed_length_rowids";
+    io::FileWriterPtr file_writer;
+    auto fs = io::global_local_filesystem();
+    ASSERT_TRUE(fs->create_file(path, &file_writer).ok());
+    ColumnWriterOptions options;
+    options.meta = &meta;
+    meta.set_column_id(0);
+    meta.set_unique_id(0);
+    meta.set_type(static_cast<int32_t>(type));
+    meta.set_length(value_size);
+    meta.set_encoding(encoding);
+    meta.set_compression(CompressionTypePB::LZ4F);
+    meta.set_is_nullable(true);
+    if (type == FieldType::OLAP_FIELD_TYPE_DECIMAL) {
+        meta.set_precision(27);
+        meta.set_frac(9);
+    }
+    options.data_page_size = value_size * 5;
+    options.need_zone_map = false;
+    TabletColumn tablet_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE, type);
+    if (type == FieldType::OLAP_FIELD_TYPE_DECIMAL) {
+        tablet_column.set_precision(27);
+        tablet_column.set_frac(9);
+    }
+    std::unique_ptr<ColumnWriter> writer;
+    ASSERT_TRUE(ColumnWriter::create(options, &tablet_column, file_writer.get(), &writer).ok());
+    ASSERT_TRUE(writer->init().ok());
+    for (size_t i = 0; i < rows; ++i) {
+        const bool is_null = has_nulls && (i % 5 == 1 || i % 5 == 2);
+        char* value = storage.data() + i * value_size;
+        if (is_null) {
+            all->insert_default();
+        } else {
+            auto& nested = all->get_nested_column();
+            switch (type) {
+            case FieldType::OLAP_FIELD_TYPE_INT:
+                StorageLayout<FieldType::OLAP_FIELD_TYPE_INT>::storage_to_column(
+                        reinterpret_cast<const uint8_t*>(value), 1, nested);
+                break;
+            case FieldType::OLAP_FIELD_TYPE_DATE:
+                StorageLayout<FieldType::OLAP_FIELD_TYPE_DATE>::storage_to_column(
+                        reinterpret_cast<const uint8_t*>(value), 1, nested);
+                break;
+            case FieldType::OLAP_FIELD_TYPE_DATETIME:
+                StorageLayout<FieldType::OLAP_FIELD_TYPE_DATETIME>::storage_to_column(
+                        reinterpret_cast<const uint8_t*>(value), 1, nested);
+                break;
+            case FieldType::OLAP_FIELD_TYPE_DECIMAL:
+                StorageLayout<FieldType::OLAP_FIELD_TYPE_DECIMAL>::storage_to_column(
+                        reinterpret_cast<const uint8_t*>(value), 1, nested);
+                break;
+            default:
+                FAIL() << "unexpected type";
+            }
+            all->push_false_to_nullmap(1);
+        }
+        ASSERT_TRUE(writer->append(*all, i, 1).ok());
+    }
+    ASSERT_TRUE(writer->finish().ok());
+    ASSERT_TRUE(writer->write_data().ok());
+    ASSERT_TRUE(writer->write_ordinal_index().ok());
+    ASSERT_TRUE(file_writer->close().ok());
+    io::FileReaderSPtr file_reader;
+    ASSERT_TRUE(fs->open_file(path, &file_reader).ok());
+    std::shared_ptr<ColumnReader> reader;
+    ASSERT_TRUE(ColumnReader::create({}, meta, rows, file_reader, &reader).ok());
+    FileColumnIterator iterator(reader);
+    ColumnIteratorOptions iterator_options;
+    OlapReaderStatistics stats;
+    iterator_options.stats = &stats;
+    iterator_options.file_reader = file_reader.get();
+    iterator_options.use_page_cache = false;
+    ASSERT_TRUE(iterator.init(iterator_options).ok());
+    MutableColumnPtr actual = all->clone_empty();
+    auto expected = all->clone_empty();
+    actual->insert_default();
+    expected->insert_default();
+    const rowid_t rowids[] = {0, 2, 3, 6, 9, 10, 16, 18, 25, 31, 36};
+    // Read twice to check seeking backward and appending to a populated column.
+    for (int pass = 0; pass < 2; ++pass) {
+        ASSERT_TRUE(iterator.read_by_rowids(rowids, std::size(rowids), actual).ok());
+        for (rowid_t rowid : rowids) {
+            expected->insert_from(*all, rowid);
+        }
+        ASSERT_EQ(expected->size(), actual->size());
+        for (size_t i = 0; i < expected->size(); ++i) {
+            EXPECT_EQ(0, expected->compare_at(i, i, *actual, 1)) << "row " << i;
+        }
+    }
+}
+
+// Exercise the real nullable ordinal mapping and page transitions, including legacy
+// storage values whose execution-column representation has a different layout.
+TEST_F(ColumnReaderTest, FixedLengthSelectedValuesAcrossNullablePages) {
+    struct Case {
+        FieldType type;
+        std::vector<char> storage;
+        MutableColumnPtr column;
+        size_t value_size;
+    };
+    constexpr size_t rows = 37;
+    std::vector<Case> cases;
+    auto add_case = [&](FieldType type, const auto& values, MutableColumnPtr column) {
+        const auto* begin = reinterpret_cast<const char*>(values.data());
+        const size_t value_size = sizeof(values[0]);
+        cases.push_back({type, std::vector<char>(begin, begin + values.size() * value_size),
+                         std::move(column), value_size});
+    };
+    std::vector<int32_t> ints(rows);
+    std::vector<uint24_t> dates(rows);
+    std::vector<uint64_t> datetimes(rows);
+    std::vector<decimal12_t> decimals(rows);
+    for (size_t i = 0; i < rows; ++i) {
+        ints[i] = static_cast<int32_t>(i) * 13 - 200;
+        dates[i] = uint24_t((2024U << 9) | (2U << 5) | (i % 28 + 1));
+        datetimes[i] = 20240201010203L + (i % 28) * 1000000;
+        decimals[i] = {static_cast<int64_t>(i) - 20, -123456789};
+    }
+    add_case(FieldType::OLAP_FIELD_TYPE_INT, ints, ColumnInt32::create());
+    add_case(FieldType::OLAP_FIELD_TYPE_DATE, dates, ColumnDate::create());
+    add_case(FieldType::OLAP_FIELD_TYPE_DATETIME, datetimes, ColumnDateTime::create());
+    add_case(FieldType::OLAP_FIELD_TYPE_DECIMAL, decimals, ColumnDecimal128V2::create(0, 9));
+
+    for (auto& test_case : cases) {
+        for (auto encoding : {PLAIN_ENCODING, BIT_SHUFFLE}) {
+            for (bool has_nulls : {false, true}) {
+                SCOPED_TRACE(fmt::format("type={} encoding={} has_nulls={}", test_case.type,
+                                         encoding, has_nulls));
+                check_fixed_length_rowids(test_case.type, test_case.storage, test_case.value_size,
+                                          *test_case.column, encoding, has_nulls);
+            }
+        }
     }
 }
 
