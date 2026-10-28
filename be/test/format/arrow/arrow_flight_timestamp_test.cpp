@@ -179,6 +179,31 @@ TEST_F(ArrowFlightTimestampTest, ChecksBothUtcAndZonedCalendarBounds) {
     }
 }
 
+// PyArrow converts with pytz when it is installed, and pytz rounds America/Chicago's local mean
+// time, -05:50:36, to -05:51. 0001-01-01 05:50:36Z, the local start with the exact offset, is
+// 0000-12-31 23:59:36 in pytz and fails to convert; the first accepted instant is 05:51:00Z.
+TEST_F(ArrowFlightTimestampTest, ZonedLowerBoundHoldsWithPytzRoundedOffsets) {
+    const std::string zone = "America/Chicago";
+    cctz::time_zone timezone;
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone(zone, timezone));
+    // Local 0001-01-01 00:00:00 with the exact offset is 05:50:36Z.
+    auto block = timestamp_block(6, {make_datetime(1, 1, 1, 0, 0, 0, 0)});
+    std::shared_ptr<arrow::Schema> schema;
+    ASSERT_TRUE(DorisArrowSchemaConvertor(block, zone).get_arrow_schema(&schema).ok());
+    ArrowFlightArrowBlockConvertor converter(schema, timezone);
+    ASSERT_TRUE(converter.init().ok());
+    std::shared_ptr<arrow::RecordBatch> batch;
+    const auto status = converter.convert_to_arrow(block, arrow::default_memory_pool(), &batch);
+    EXPECT_EQ(ErrorCode::INVALID_ARGUMENT, status.code()) << status;
+    EXPECT_EQ(nullptr, batch);
+
+    // Local 00:00:24 is 05:51:00Z, which is 0001-01-01 00:00:00 with pytz's offset.
+    auto valid = timestamp_block(6, {make_datetime(1, 1, 1, 0, 0, 24, 0)});
+    ASSERT_TRUE(converter.convert_to_arrow(valid, arrow::default_memory_pool(), &batch).ok());
+    const auto& values = static_cast<const arrow::TimestampArray&>(*batch->column(0));
+    EXPECT_EQ(-62135575740000000LL, values.Value(0));
+}
+
 TEST_F(ArrowFlightTimestampTest, NaiveBoundsDoNotDependOnSessionTimezone) {
     cctz::time_zone timezone;
     ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone("+08:00", timezone));

@@ -65,6 +65,16 @@ namespace doris {
 
 namespace {
 
+// PyArrow resolves an Arrow timezone name with pytz when pytz is installed, and pytz rounds every
+// UTC offset to whole minutes with Python's floor division, (offset + 30) // 60 * 60. Example:
+// America/Chicago's local mean time, -05:50:36 (-21036 s), becomes -05:51 (-21060 s).
+int64_t pytz_rounded_utc_offset(int64_t offset_seconds) {
+    const int64_t shifted = offset_seconds + 30;
+    // C++ division truncates toward zero; -21006 / 60 is -350, the floor is -351.
+    const int64_t minutes = shifted / 60 - (shifted % 60 < 0 ? 1 : 0);
+    return minutes * 60;
+}
+
 class FlightTimestampValidator {
 public:
     Status init(std::shared_ptr<arrow::Array> array, std::string path,
@@ -89,17 +99,29 @@ public:
                 units_per_second = 1000000000;
                 break;
             }
-            int64_t min_seconds = -62135596800LL;
-            int64_t end_seconds = 253402300800LL;
+            // 0001-01-01 00:00:00 and 10000-01-01 00:00:00 as seconds since the epoch.
+            constexpr int64_t civil_start_seconds = -62135596800LL;
+            constexpr int64_t civil_end_seconds = 253402300800LL;
+            int64_t min_seconds = civil_start_seconds;
+            int64_t end_seconds = civil_end_seconds;
             if (!type.timezone().empty()) {
                 // The ordinary Arrow writer has already checked the schema/timezone binding.
                 const auto local_start = cctz::convert(cctz::civil_second(1, 1, 1), timezone);
                 const auto local_end = cctz::convert(cctz::civil_second(10000, 1, 1), timezone);
                 // Python first constructs UTC and then applies the Arrow timezone. Both calendar
-                // representations must fit, including offsets at the first and last supported day.
-                min_seconds =
-                        std::max<int64_t>(min_seconds, local_start.time_since_epoch().count());
-                end_seconds = std::min<int64_t>(end_seconds, local_end.time_since_epoch().count());
+                // representations must fit, including offsets at the first and last supported day,
+                // with the exact offsets (zoneinfo) and with pytz's rounded ones. Example for
+                // America/Chicago: 0001-01-01 05:50:36Z is local 0001-01-01 00:00:00 with the
+                // exact -05:50:36, but 0000-12-31 23:59:36 with pytz's -05:51, so the lower bound
+                // is 05:51:00Z.
+                const int64_t start_offset = timezone.lookup(local_start).offset;
+                const int64_t end_offset = timezone.lookup(local_end).offset;
+                min_seconds = std::max<int64_t>(
+                        {min_seconds, local_start.time_since_epoch().count(),
+                         civil_start_seconds - pytz_rounded_utc_offset(start_offset)});
+                end_seconds = std::min<int64_t>(
+                        {end_seconds, local_end.time_since_epoch().count(),
+                         civil_end_seconds - pytz_rounded_utc_offset(end_offset)});
             }
             // Nanosecond bounds do not fit int64_t, even though every encoded value does.
             _min = static_cast<__int128>(min_seconds) * units_per_second;
