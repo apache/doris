@@ -310,6 +310,19 @@ private:
             return;
         }
 
+        // A full list already holds the k best values: only a value that is better than the
+        // worst retained one, or equal to it, can change the state. Compare with the tail (the
+        // largest retained value for MIN, the smallest for MAX) before the search, so a rejected
+        // value costs one comparison instead of log2(k); an equal tail still goes through the
+        // search to increment its count.
+        if (std::cmp_greater_equal(state.value_column->size(), state.k)) {
+            int tail_cmp = compare_at(column, row_num, *state.value_column,
+                                      state.value_column->size() - 1);
+            if (IsMin ? tail_cmp > 0 : tail_cmp < 0) {
+                return;
+            }
+        }
+
         // The list is ascending for MIN and descending for MAX, so the insertion point is where
         // the stored values stop being better than the new one.
         size_t left = 0;
@@ -326,15 +339,6 @@ private:
         if (left < state.value_column->size() &&
             compare_at(*state.value_column, left, column, row_num) == 0) {
             state.counts[left] = checked_add(state.counts[left], 1);
-            return;
-        }
-
-        // A full list already holds the k best values, so a value worse than the last entry would
-        // be inserted at the end and popped immediately: it can only flip the truncation flag.
-        // Rebating it early avoids cloning and copying the whole retained column for every
-        // rejected distinct value (ascending inputs at k = 65536 otherwise copy ~k values each).
-        if (left == state.value_column->size() &&
-            std::cmp_greater_equal(state.value_column->size(), state.k)) {
             return;
         }
 
