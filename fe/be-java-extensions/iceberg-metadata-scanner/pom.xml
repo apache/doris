@@ -68,6 +68,32 @@ under the License.
             <version>${iceberg.version}</version>
         </dependency>
         <!--
+          The GCS twin of the FileIO above: org.apache.iceberg.gcp.gcs.GCSFileIO is named by string
+          in the catalog property io-impl and rides inside every serialized $files/$manifests task
+          (BaseFilesTable.ManifestReadTask keeps table.io()). Without this artifact the BE side of a
+          GCS-backed system-table scan dies in IcebergSerializationCompat, which reports the
+          ClassNotFoundException as an Iceberg version mismatch and hides the cause.
+        -->
+        <dependency>
+            <groupId>org.apache.iceberg</groupId>
+            <artifactId>iceberg-gcp</artifactId>
+            <version>${iceberg.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <!--
+          Same hole as the AWS SDK block below: iceberg-gcp names no Google SDK dependency of its
+          own (google-cloud-storage is compileOnly upstream, and its pom does not list it at all),
+          while GCSFileIO lazily builds a Storage client out of the properties carried by the
+          deserialized task. Pinned to the version the FE connector plugin bundles so both sides of
+          one catalog run the same client.
+        -->
+        <dependency>
+            <groupId>com.google.cloud</groupId>
+            <artifactId>google-cloud-storage</artifactId>
+            <version>2.67.0</version>
+            <scope>runtime</scope>
+        </dependency>
+        <!--
           iceberg-aws declares no AWS SDK dependency of its own (they are compileOnly upstream), so
           every client a deserialized FileIO reaches has to be named here.
 
