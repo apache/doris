@@ -558,6 +558,9 @@ struct TQueryOptions {
   // reads the data instead.
   // Defaults to false because an old FE never sends this field, and BE checked both cases before.
   1006: optional bool force_pushdown_zonemap_minmax = false
+  // Use the cache option range to avoid unrelated query-option IDs allocated on other branches.
+  // Explicitly sent by new FEs; an omitted field keeps older-FE queries on the local policy.
+  1007: optional bool enable_file_cache_io_adaptor = false;
 }
 
 

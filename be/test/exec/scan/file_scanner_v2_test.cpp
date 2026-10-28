@@ -866,6 +866,32 @@ TEST(FileScannerV2Test, FileScanIoContextDoesNotMarkLoadAsQueryReader) {
     EXPECT_EQ(io_ctx->remote_scan_cache_write_limiter, nullptr);
 }
 
+// Both scanner generations use this helper, so query options must survive FE/BE version skew.
+TEST(FileScannerV2Test, FileScanIoContextUsesExplicitQueryAdaptorOption) {
+    MockRuntimeState state;
+    state._query_id = make_query_id();
+    state._query_ctx = nullptr;
+    TQueryOptions options;
+    options.__set_query_type(TQueryType::SELECT);
+    state.set_query_options(options);
+    EXPECT_FALSE(create_file_scan_io_context(&state)->enable_file_cache_io_adaptor);
+
+    options.__set_enable_file_cache_io_adaptor(true);
+    state.set_query_options(options);
+    auto enabled = create_file_scan_io_context(&state);
+    EXPECT_TRUE(enabled->enable_file_cache_io_adaptor);
+
+    options.__set_enable_file_cache_io_adaptor(false);
+    state.set_query_options(options);
+    EXPECT_FALSE(create_file_scan_io_context(&state)->enable_file_cache_io_adaptor);
+    EXPECT_TRUE(enabled->enable_file_cache_io_adaptor);
+
+    options.__set_query_type(TQueryType::LOAD);
+    options.__set_enable_file_cache_io_adaptor(true);
+    state.set_query_options(options);
+    EXPECT_FALSE(create_file_scan_io_context(&state)->enable_file_cache_io_adaptor);
+}
+
 // Scenario: FileScannerV2 converts only the file formats implemented by format_v2 readers and
 // rejects everything else before TableReader::init sees an unsupported FileFormat.
 TEST(FileScannerV2Test, FileFormatConversionMatrix) {

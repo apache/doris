@@ -1318,6 +1318,11 @@ DEFINE_mBool(file_cache_enable_only_warm_up_idx, "false");
 DEFINE_Int32(file_cache_downloader_thread_num_min, "32");
 DEFINE_Int32(file_cache_downloader_thread_num_max, "32");
 
+// Larger values favor remote reads when a query enables the file-cache IO adaptor.
+DEFINE_mDouble(file_cache_io_adaptor_skip_read_factor, "1.0");
+DEFINE_Validator(file_cache_io_adaptor_skip_read_factor,
+                 [](double v) { return std::isfinite(v) && v > 0; });
+
 // async file cache write
 DEFINE_mBool(enable_async_file_cache_write, "false");
 DEFINE_mInt32(async_file_cache_write_workers_per_disk, "16");
