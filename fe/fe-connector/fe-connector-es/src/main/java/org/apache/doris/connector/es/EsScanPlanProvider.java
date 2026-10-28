@@ -271,6 +271,9 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
             needCompatDateFields = state.getFieldContext().getNeedCompatDateFields();
             column2typeMap = state.getFieldContext().getColumn2typeMap();
             unsafeFields.addAll(state.getFieldContext().getSourceValueUnsafeFields());
+            if (docValuesMode == 0) {
+                unsafeFields.addAll(state.getFieldContext().getSourceModeUnsafeFields());
+            }
             if (!props.isKeywordSniff()) {
                 // Without keyword sniff a term targets analyzed text, even when a safe raw subfield
                 // exists. Do not apply the unused raw path's safety to the actual text query.

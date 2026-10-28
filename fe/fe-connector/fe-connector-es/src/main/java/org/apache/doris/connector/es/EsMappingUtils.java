@@ -212,6 +212,11 @@ public final class EsMappingUtils {
                             || "text".equals(queryField.path("type").asText()) || !isSearchable(queryField)) {
                         context.getSourceValueUnsafeFields().add(column);
                     }
+                    // These mappings round indexed numbers while _source retains the original value.
+                    // Keep docvalues eligible: only a final source read makes their predicates unsafe.
+                    if (roundsNumericSourceValue(field) || roundsNumericSourceValue(queryField)) {
+                        context.getSourceModeUnsafeFields().add(column);
+                    }
                     // Query and docvalue paths may select different multi-fields. An unused sibling's
                     // normalizer must not invalidate either path; only the chosen read value matters.
                     if (sourceChanged || changesSourceValue(field) || changesSourceValue(readField)
@@ -236,6 +241,11 @@ public final class EsMappingUtils {
     private static boolean changesSourceValue(JsonNode field) {
         return field.isMissingNode() || field.has("ignore_above") || field.hasNonNull("normalizer")
                 || field.hasNonNull("null_value") || field.path("ignore_malformed").asBoolean(false);
+    }
+
+    private static boolean roundsNumericSourceValue(JsonNode field) {
+        String type = field.path("type").asText();
+        return "scaled_float".equals(type) || "half_float".equals(type);
     }
 
     private static boolean isSearchable(JsonNode field) {

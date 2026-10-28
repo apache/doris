@@ -42,6 +42,7 @@ public class EsFieldContext {
     private final Map<String, String> docValueFieldsContext = new HashMap<>();
     private final List<String> needCompatDateFields = new ArrayList<>();
     private final Set<String> sourceValueUnsafeFields = new HashSet<>();
+    private final Set<String> sourceModeUnsafeFields = new HashSet<>();
 
     private final Map<String, String> column2typeMap = new HashMap<>();
 
@@ -67,6 +68,10 @@ public class EsFieldContext {
 
     public Set<String> getSourceValueUnsafeFields() {
         return sourceValueUnsafeFields;
+    }
+
+    public Set<String> getSourceModeUnsafeFields() {
+        return sourceModeUnsafeFields;
     }
 
     @Override

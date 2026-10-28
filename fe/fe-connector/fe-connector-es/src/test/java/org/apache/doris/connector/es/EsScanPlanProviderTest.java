@@ -1013,4 +1013,70 @@ class EsScanPlanProviderTest {
         Assertions.assertEquals("{\"term\":{\"_id\":\"doc-1\"}}", id.getProperties().get("query_dsl"));
     }
 
+    @Test
+    void roundedNumbersFollowTheFinalReadModeWithoutDisablingDocvalues() {
+        for (String numeric : Arrays.asList("{\"type\":\"scaled_float\",\"scaling_factor\":4}",
+                "{\"type\":\"half_float\"}")) {
+            String mapping = mappingWithField("{\"type\":\"keyword\",\"normalizer\":\"lowercase\"}")
+                    .replace("\"b\":{\"type\":\"keyword\"}", "\"b\":" + numeric);
+            ConnectorColumnRef column = new ConnectorColumnRef("b",
+                    ConnectorType.of(numeric.contains("half_float") ? "FLOAT" : "DOUBLE"));
+            ConnectorExpression equal = new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                    column, ConnectorLiteral.ofDouble(2.25));
+            ScanNodePropertiesResult docvalue = propertiesForMapping(mapping, equal,
+                    Collections.singletonList(new NamedColumnHandle("b")), minimalProps());
+            Assertions.assertEquals("1", docvalue.getProperties().get("doc_values_mode"));
+            Assertions.assertTrue(docvalue.getNotPushedConjunctIndices().isEmpty());
+            Assertions.assertEquals("{\"term\":{\"b\":2.25}}", docvalue.getProperties().get("query_dsl"));
+            List<ConnectorExpression> predicates = Arrays.asList(equal,
+                    new ConnectorComparison(ConnectorComparison.Operator.GT, column, ConnectorLiteral.ofDouble(2.25)),
+                    new ConnectorIn(column, Collections.singletonList(ConnectorLiteral.ofDouble(2.25)), false),
+                    new ConnectorIn(column, Collections.singletonList(ConnectorLiteral.ofDouble(2.25)), true),
+                    new ConnectorNot(equal), new ConnectorOr(Arrays.asList(equal, sourceEquals("a", "ok"))));
+            for (ConnectorExpression predicate : predicates) {
+                for (List<ConnectorColumnHandle> projection : Arrays.<List<ConnectorColumnHandle>>asList(
+                        Arrays.asList(new NamedColumnHandle("a"), new NamedColumnHandle("b")),
+                        Collections.singletonList(new NamedColumnHandle("a")))) {
+                    ScanNodePropertiesResult source = propertiesForMapping(mapping, predicate, projection, minimalProps());
+                    Assertions.assertEquals("0", source.getProperties().get("doc_values_mode"));
+                    Assertions.assertEquals(Collections.singleton(0), source.getNotPushedConjunctIndices());
+                    Assertions.assertEquals(EsQueryDslBuilder.matchAllQuery(), source.getProperties().get("query_dsl"));
+                }
+            }
+            ScanNodePropertiesResult and = propertiesForMapping(mapping,
+                    new ConnectorAnd(Arrays.asList(equal, nativeSourceQuery())));
+            Assertions.assertEquals(Collections.singleton(0), and.getNotPushedConjunctIndices());
+            Assertions.assertEquals("{\"term\":{\"b\":\"ok\"}}", and.getProperties().get("query_dsl"));
+            Assertions.assertThrows(DorisConnectorException.class, () -> propertiesForMapping(mapping,
+                    new ConnectorOr(Arrays.asList(equal, nativeSourceQuery()))));
+
+            String plain = mapping.replace(
+                    "{\"type\":\"keyword\",\"normalizer\":\"lowercase\"}", "{\"type\":\"keyword\"}");
+            for (String reason : Arrays.asList(EsCatalogProperties.DOC_VALUE_SCAN, EsCatalogProperties.MAX_DOCVALUE_FIELDS)) {
+                Map<String, String> properties = minimalPropertyMap();
+                properties.put(reason, EsCatalogProperties.DOC_VALUE_SCAN.equals(reason) ? "false" : "1");
+                ScanNodePropertiesResult source = propertiesForMapping(plain, equal,
+                        Arrays.asList(new NamedColumnHandle("a"), new NamedColumnHandle("b")),
+                        EsCatalogProperties.of(properties));
+                Assertions.assertEquals("0", source.getProperties().get("doc_values_mode"));
+                Assertions.assertEquals(Collections.singleton(0), source.getNotPushedConjunctIndices());
+                Assertions.assertEquals(EsQueryDslBuilder.matchAllQuery(), source.getProperties().get("query_dsl"));
+            }
+        }
+    }
+
+    @Test
+    void sourceNumericSafetyIncludesEveryAliasBackingAndUnprojectedColumns() {
+        String safe = mappingWithField("{\"type\":\"keyword\",\"normalizer\":\"lowercase\"}")
+                .replace("\"b\":{\"type\":\"keyword\"}", "\"b\":{\"type\":\"double\"}");
+        String mapping = safe.substring(0, safe.length() - 1) + ",\"second\":{\"mappings\":{\"properties\":"
+                + "{\"a\":{\"type\":\"keyword\"},\"b\":{\"type\":\"scaled_float\",\"scaling_factor\":4}}}}}";
+        ConnectorExpression equal = new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                new ConnectorColumnRef("b", ConnectorType.of("DOUBLE")), ConnectorLiteral.ofDouble(2.25));
+        ScanNodePropertiesResult source = propertiesForMapping(mapping, equal,
+                Collections.singletonList(new NamedColumnHandle("a")), minimalProps());
+        Assertions.assertEquals(Collections.singleton(0), source.getNotPushedConjunctIndices());
+        Assertions.assertEquals(EsQueryDslBuilder.matchAllQuery(), source.getProperties().get("query_dsl"));
+    }
+
 }
