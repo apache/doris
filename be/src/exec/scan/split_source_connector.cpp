@@ -26,7 +26,8 @@ namespace doris {
 
 using apache::thrift::transport::TTransportException;
 
-Status LocalSplitSourceConnector::get_next(bool* has_next, TFileRangeDesc* range) {
+Status LocalSplitSourceConnector::get_next(bool* has_next, TFileRangeDesc* range,
+                                           const std::atomic_bool* /*scanner_stop*/) {
     std::lock_guard<std::mutex> l(_range_lock);
     *has_next = false;
     if (_scan_index < _scan_ranges.size()) {
@@ -43,7 +44,8 @@ Status LocalSplitSourceConnector::get_next(bool* has_next, TFileRangeDesc* range
     return Status::OK();
 }
 
-Status RemoteSplitSourceConnector::get_next(bool* has_next, TFileRangeDesc* range) {
+Status RemoteSplitSourceConnector::get_next(bool* has_next, TFileRangeDesc* range,
+                                            const std::atomic_bool* scanner_stop) {
     std::lock_guard<std::mutex> l(_range_lock);
     *has_next = false;
     if (_scan_index == _scan_ranges.size() && !_last_batch) {
@@ -54,6 +56,11 @@ Status RemoteSplitSourceConnector::get_next(bool* has_next, TFileRangeDesc* rang
         TFetchSplitBatchResult result;
         do {
             RETURN_IF_CANCELLED(_state);
+            // A local LIMIT stops this scanner without cancelling the query. Do not keep a scan
+            // worker in the retry loop while another branch of the same query remains active.
+            if (scanner_stop->load(std::memory_order_acquire)) {
+                return Status::OK();
+            }
             Status coord_status;
             // Each FE call is bounded by the split-fetch wait interval. Release the client between
             // retries so a slow listing does not reserve a connection for the whole query.
