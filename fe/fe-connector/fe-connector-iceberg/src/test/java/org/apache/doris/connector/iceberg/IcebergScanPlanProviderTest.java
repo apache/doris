@@ -56,6 +56,7 @@ import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileMetadata;
 import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.Metrics;
@@ -66,6 +67,7 @@ import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.SupportsDistributedScanPlanning;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.catalog.Namespace;
@@ -84,6 +86,7 @@ import org.apache.iceberg.metrics.ScanReport;
 import org.apache.iceberg.types.Conversions;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.types.Types.NestedField;
+import org.apache.iceberg.util.ThreadPools;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -4259,6 +4262,206 @@ public class IcebergScanPlanProviderTest {
         });
         Assertions.assertEquals(Collections.singletonList(manifests.get(0).path()), reads);
         Assertions.assertFalse(sdkFallback.get(), "cancellation must not start a new SDK scan");
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void sdkCancellationStopsDataManifestsAndJoinsReaders(boolean fallback) throws Exception {
+        int workersInSdk = ThreadPools.WORKER_THREAD_POOL_SIZE;
+        int manifestCount = 2 * workersInSdk + 3;
+        Table table = createTable("sdk_cancel", SCHEMA, PartitionSpec.unpartitioned(),
+                ImmutableMap.of("format-version", "2", "write.format.default", "parquet"));
+        Map<Integer, ByteBuffer> bounds = Collections.singletonMap(1,
+                Conversions.toByteBuffer(Types.IntegerType.get(), 1));
+        for (int i = 0; i < manifestCount; i++) {
+            table.newAppend().appendFile(DataFiles.builder(table.spec())
+                    .withPath("/d/sdk" + i + ".parquet").withFormat(FileFormat.PARQUET)
+                    .withFileSizeInBytes(100).withMetrics(new Metrics(1L, null, null, null, null, bounds, bounds))
+                    .build()).commit();
+        }
+        table.newRowDelta().addDeletes(positionDeleteFile("/d/sdk-delete.parquet",
+                FileFormat.PARQUET, null, null)).commit();
+        List<ManifestFile> manifests = table.currentSnapshot().dataManifests(table.io());
+        Assertions.assertEquals(manifestCount, manifests.size());
+        Set<String> paths = manifests.stream().map(ManifestFile::path).collect(Collectors.toSet());
+        CountDownLatch entered = new CountDownLatch(workersInSdk);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicInteger reads = new AtomicInteger();
+        FileIO observed = manifestReadObserver(table.io(), paths, path -> {
+            reads.incrementAndGet();
+            entered.countDown();
+            awaitManifestReadRelease(release);
+        });
+        AtomicBoolean cacheFailure = new AtomicBoolean();
+        Table wrapped = tableWithScanIo(table, observed);
+        if (fallback) {
+            Table nativeTable = wrapped;
+            // Only the cache caller acquires this IO. The native scan keeps the actual observed SDK FileIO.
+            wrapped = (Table) Proxy.newProxyInstance(Table.class.getClassLoader(), new Class<?>[] {Table.class},
+                    (proxy, method, args) -> {
+                        if (method.getName().equals("io") && cacheFailure.compareAndSet(false, true)) {
+                            throw new RuntimeException("injected eager cache IO failure");
+                        }
+                        return invoke(method, nativeTable, args);
+                    });
+        }
+        IcebergManifestCache cache = new IcebergManifestCache();
+        IcebergScanPlanProvider provider = manifestProvider(fallback ? manifestCacheProps()
+                : Collections.emptyMap(), wrapped, cache);
+        ConnectorScanContext scanContext = new ConnectorScanContext();
+        ExecutorService owner = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> pending = owner.submit(() -> {
+                try (ConnectorSplitSource source = provider.streamSplits(emptySession(),
+                        ConnectorScanRequest.builder(new IcebergTableHandle("db1", "sdk_cancel"),
+                                Collections.emptyList()).filter(Optional.of(eqInt("id", 2)))
+                                .scanContext(scanContext).build())) {
+                    while (source.hasNext()) {
+                        source.next();
+                    }
+                }
+                return null;
+            });
+            awaitSdkReaders(entered, pending, reads, workersInSdk);
+            scanContext.cancel();
+            Assertions.assertFalse(pending.isDone(), "source close must join the readers still inside FileIO");
+            release.countDown();
+            ExecutionException stopped = Assertions.assertThrows(ExecutionException.class,
+                    () -> pending.get(10, TimeUnit.SECONDS));
+            Assertions.assertInstanceOf(CancellationException.class, stopped.getCause());
+            Assertions.assertEquals(workersInSdk, reads.get(), "queued and later manifests must not open");
+            Assertions.assertEquals(fallback, cacheFailure.get());
+            Assertions.assertEquals(fallback ? 1L : 0L, cache.takeStats("q")[2]);
+            Assertions.assertFalse(ThreadPools.getWorkerPool().isShutdown());
+
+            List<ConnectorScanRange> healthy = drain(provider.streamSplits(emptySession(),
+                    ConnectorScanRequest.builder(new IcebergTableHandle("db1", "sdk_cancel"),
+                            Collections.emptyList()).build()));
+            Assertions.assertEquals(manifestCount, healthy.size(), "a different scan must remain healthy");
+        } finally {
+            release.countDown();
+            owner.shutdownNow();
+            Assertions.assertTrue(owner.awaitTermination(10, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    public void sdkCancellationStopsDeleteManifestsAndJoinsReaders() throws Exception {
+        int workersInSdk = ThreadPools.WORKER_THREAD_POOL_SIZE;
+        int manifestCount = 2 * workersInSdk + 3;
+        Table table = threeFileTable(ImmutableMap.of("format-version", "2", "write.format.default", "parquet"));
+        for (int i = 0; i < manifestCount; i++) {
+            table.newRowDelta().addDeletes(positionDeleteFile("/d/sdk-delete" + i + ".parquet",
+                    FileFormat.PARQUET, null, null)).commit();
+        }
+        List<ManifestFile> manifests = table.currentSnapshot().deleteManifests(table.io());
+        Assertions.assertEquals(manifestCount, manifests.size());
+        Set<String> paths = manifests.stream().map(ManifestFile::path).collect(Collectors.toSet());
+        CountDownLatch entered = new CountDownLatch(workersInSdk);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicInteger reads = new AtomicInteger();
+        FileIO observed = manifestStreamObserver(table.io(), paths, path -> {
+            reads.incrementAndGet();
+            entered.countDown();
+            awaitManifestReadRelease(release);
+        });
+        IcebergScanPlanProvider provider = providerOver(tableWithScanIo(table, observed));
+        ConnectorScanContext scanContext = new ConnectorScanContext();
+        ExecutorService owner = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> pending = owner.submit(() -> {
+                try (ConnectorSplitSource source = provider.streamSplits(emptySession(),
+                        ConnectorScanRequest.builder(new IcebergTableHandle("db1", "t1"),
+                                Collections.emptyList()).scanContext(scanContext).build())) {
+                    while (source.hasNext()) {
+                        source.next();
+                    }
+                }
+                return null;
+            });
+            awaitSdkReaders(entered, pending, reads, workersInSdk);
+            scanContext.cancel();
+            Assertions.assertFalse(pending.isDone(), "eager planning must join readers that have actually started");
+            release.countDown();
+            ExecutionException stopped = Assertions.assertThrows(ExecutionException.class,
+                    () -> pending.get(10, TimeUnit.SECONDS));
+            Assertions.assertInstanceOf(CancellationException.class, stopped.getCause());
+            Assertions.assertEquals(workersInSdk, reads.get(), "queued delete readers must stop before FileIO");
+            Assertions.assertFalse(ThreadPools.getWorkerPool().isShutdown());
+        } finally {
+            release.countDown();
+            owner.shutdownNow();
+            Assertions.assertTrue(owner.awaitTermination(10, TimeUnit.SECONDS));
+        }
+    }
+
+    private static void awaitSdkReaders(CountDownLatch entered, Future<?> pending,
+            AtomicInteger reads, int expected) throws Exception {
+        if (!entered.await(10, TimeUnit.SECONDS)) {
+            pending.get(1, TimeUnit.SECONDS);
+            Assertions.fail("SDK scan finished before readers entered: " + reads.get() + "/" + expected);
+        }
+    }
+
+    private static void awaitManifestReadRelease(CountDownLatch release) {
+        try {
+            Assertions.assertTrue(release.await(10, TimeUnit.SECONDS));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException(e);
+        }
+    }
+
+    /** Bind the observer to the real SDK scan too, instead of overriding only the cache caller's Table.io. */
+    private static Table tableWithScanIo(Table table, FileIO fileIO) {
+        TableOperations original = ((HasTableOperations) table).operations();
+        TableOperations operations = (TableOperations) Proxy.newProxyInstance(TableOperations.class.getClassLoader(),
+                new Class<?>[] {TableOperations.class},
+                (proxy, method, args) -> method.getName().equals("io") ? fileIO : invoke(method, original, args));
+        return new BaseTable(operations, table.name());
+    }
+
+    private static FileIO manifestStreamObserver(FileIO delegate, Set<String> paths, Consumer<String> onRead) {
+        return new FileIO() {
+            @Override
+            public InputFile newInputFile(String path) {
+                InputFile input = delegate.newInputFile(path);
+                return new InputFile() {
+                    @Override
+                    public long getLength() {
+                        return input.getLength();
+                    }
+
+                    @Override
+                    public String location() {
+                        return input.location();
+                    }
+
+                    @Override
+                    public boolean exists() {
+                        return input.exists();
+                    }
+
+                    @Override
+                    public org.apache.iceberg.io.SeekableInputStream newStream() {
+                        if (paths.contains(path)) {
+                            onRead.accept(path);
+                        }
+                        return input.newStream();
+                    }
+                };
+            }
+
+            @Override
+            public OutputFile newOutputFile(String path) {
+                return delegate.newOutputFile(path);
+            }
+
+            @Override
+            public void deleteFile(String path) {
+                delegate.deleteFile(path);
+            }
+        };
     }
 
     private static FileIO manifestReadObserver(FileIO delegate, Set<String> manifestPaths, Consumer<String> onRead) {

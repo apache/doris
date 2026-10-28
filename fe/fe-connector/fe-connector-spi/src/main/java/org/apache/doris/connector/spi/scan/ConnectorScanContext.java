@@ -18,6 +18,8 @@
 package org.apache.doris.connector.spi.scan;
 
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -28,6 +30,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * The engine retains the query's original termination reason; the exception here only unwinds enumeration.
  */
 public final class ConnectorScanContext {
+    private final CompletableFuture<Void> cancellation = new CompletableFuture<>();
     private final AtomicBoolean cancelled = new AtomicBoolean();
     private final AtomicLong partitionsProcessed = new AtomicLong();
     private final AtomicLong filesEnumerated = new AtomicLong();
@@ -36,6 +39,16 @@ public final class ConnectorScanContext {
 
     public void cancel() {
         cancelled.set(true);
+        cancellation.complete(null);
+    }
+
+    /**
+     * Registers a once-only notification, including when cancellation has already occurred. The callback
+     * runs on the cancelling or registering thread and must only signal/schedule cleanup: never block, close
+     * a source, or join a worker here. Its failure is isolated in the returned stage.
+     */
+    public CompletionStage<Void> whenCancelled(Runnable action) {
+        return cancellation.thenRun(action);
     }
 
     public boolean isCancelled() {

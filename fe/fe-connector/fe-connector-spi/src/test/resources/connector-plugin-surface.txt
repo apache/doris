@@ -157,6 +157,7 @@ org.apache.doris.connector.spi.scan.ConnectorScanContext#isCancelled():boolean
 org.apache.doris.connector.spi.scan.ConnectorScanContext#partitionProcessed():void
 org.apache.doris.connector.spi.scan.ConnectorScanContext#setTotalPartitions(long):void
 org.apache.doris.connector.spi.scan.ConnectorScanContext#splitsGenerated(long):void
+org.apache.doris.connector.spi.scan.ConnectorScanContext#whenCancelled(java.lang.Runnable):java.util.concurrent.CompletionStage
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#adjustFileCompressType(org.apache.doris.thrift.TFileCompressType):org.apache.doris.thrift.TFileCompressType
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#appendExplainInfo(java.lang.StringBuilder,java.lang.String,java.util.Map):void
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#applyColumnDefaultsOnRead():boolean

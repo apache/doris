@@ -27,6 +27,7 @@ import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.scan.ConnectorColumnCategory;
+import org.apache.doris.connector.spi.scan.ConnectorScanContext;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.scan.ConnectorScanProfile;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
@@ -599,7 +600,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 : sessionLong(session, MAX_FILE_SPLIT_SIZE, DEFAULT_MAX_FILE_SPLIT_SIZE);
         try {
             CloseableIterable<FileScanTask> tasks = streamingFileScanTasks(
-                    scan, session, table, filter, sliceSize, checkCancelled);
+                    scan, session, table, filter, sliceSize, request.getScanContext());
             return new IcebergStreamingSplitSource(tasks, table, formatVersion, partitioned,
                     orderedPartitionKeys, zone, uriNormalizer, sliceSize,
                     iceHandle.getRewriteFileScope(), iceHandle, requiresRowId(columns), checkCancelled);
@@ -635,7 +636,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * streaming source's {@code hasNext}. With the cache disabled, enumeration uses the SDK path.
      */
     private CloseableIterable<FileScanTask> streamingFileScanTasks(TableScan scan, ConnectorSession session,
-            Table table, Optional<ConnectorExpression> filter, long sliceSize, Runnable checkCancelled) {
+            Table table, Optional<ConnectorExpression> filter, long sliceSize, ConnectorScanContext scanContext) {
+        Runnable checkCancelled = scanContext::checkCancelled;
         checkCancelled.run();
         if (isManifestCacheEnabled()) {
             try {
@@ -652,7 +654,73 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             }
         }
         checkCancelled.run();
-        return TableScanUtil.splitFiles(scan.planFiles(), sliceSize);
+        return TableScanUtil.splitFiles(sdkStreamingFileScanTasks(scan, scanContext), sliceSize);
+    }
+
+    private CloseableIterable<FileScanTask> sdkStreamingFileScanTasks(TableScan scan,
+            ConnectorScanContext scanContext) {
+        IcebergScanPlanningScope scope = new IcebergScanPlanningScope(scanContext);
+        try {
+            scope.checkCancelled();
+            Optional<TableScan> scoped = SchemaAwareDataTableScan.withFileIO(scan,
+                    io -> new IcebergScanFileIO(io, scope::checkCancelled), scope);
+            if (!scoped.isPresent()) {
+                // Custom Table/Scan implementations retain their SDK semantics. An opaque entered SDK call
+                // remains cooperative only at our outer source boundary.
+                scope.close();
+                scanContext.checkCancelled();
+                return scan.planFiles();
+            }
+            scope.checkCancelled();
+            CloseableIterable<FileScanTask> tasks = scoped.get().planFiles();
+            return new CloseableIterable<FileScanTask>() {
+                @Override
+                public CloseableIterator<FileScanTask> iterator() {
+                    CloseableIterator<FileScanTask> iterator = tasks.iterator();
+                    return new CloseableIterator<FileScanTask>() {
+                        @Override
+                        public boolean hasNext() {
+                            return iterator.hasNext();
+                        }
+
+                        @Override
+                        public FileScanTask next() {
+                            return iterator.next();
+                        }
+
+                        @Override
+                        public void close() throws IOException {
+                            try {
+                                scope.close();
+                            } finally {
+                                iterator.close();
+                            }
+                        }
+                    };
+                }
+
+                @Override
+                public void close() throws IOException {
+                    try {
+                        scope.close();
+                    } finally {
+                        tasks.close();
+                    }
+                }
+            };
+        } catch (RuntimeException | Error e) {
+            // Delete-file planning is eager: a partial submission failure can precede the source's creation.
+            // Its accepted SDK jobs still belong to this source and must actually exit before it unwinds.
+            try {
+                scope.close();
+            } catch (RuntimeException | Error closeFailure) {
+                e.addSuppressed(closeFailure);
+            }
+            if (e instanceof RuntimeException) {
+                scanContext.checkCancelled();
+            }
+            throw e;
+        }
     }
 
     /**
@@ -732,6 +800,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                     }
                 }
             } catch (RuntimeException e) {
+                // SDK I/O may wrap cancellation while unwinding its parallel tasks.
+                checkCancelled.run();
                 // Lazy manifest opening happens on the split-pump thread, after streamSplits has returned.
                 throw IcebergExceptionUtils.wrapMetadataReadFailure(handle, e);
             }
@@ -1254,9 +1324,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * Build the predicate-filtered {@link TableScan}, mirroring legacy {@code createTableScan}: translate the
      * engine-neutral predicate into iceberg {@code Expression}s (self-contained, mirrors legacy
      * {@code IcebergUtils.convertToIcebergExpr}; unpushable conjuncts are dropped → BE residual) and apply
-     * each as a separate filter (iceberg ANDs them internally). The fe-core-only {@code metricsReporter}
-     * (profile) and {@code planWith(threadPool)} are intentionally dropped — the iceberg SDK default worker
-     * pool plans, and the file set is identical (see design deviations). The MVCC / time-travel pin (T07) is
+     * each as a separate filter (iceberg ANDs them internally). Streaming later tracks SDK jobs on a source-owned
+     * executor view, retaining the SDK worker-pool policy and parallelism. The MVCC / time-travel pin (T07) is
      * applied here ({@code useRef} for a tag/branch, else {@code useSnapshot}), mirroring legacy
      * {@code createTableScan}; COUNT planning reads this pinned scan's manifest list, so the count follows.
      */
