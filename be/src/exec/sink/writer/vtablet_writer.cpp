@@ -46,6 +46,7 @@
 #include <vector>
 
 #include "cloud/config.h"
+#include "common/check.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
@@ -92,6 +93,8 @@
 namespace doris {
 class TExpr;
 
+static constexpr int64_t V1_DUMMY_TABLET_ID = 0;
+
 bvar::Adder<int64_t> g_sink_write_bytes;
 bvar::PerSecond<bvar::Adder<int64_t>> g_sink_write_bytes_per_second("sink_throughput_byte",
                                                                     &g_sink_write_bytes, 60);
@@ -136,6 +139,17 @@ Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPart
         if (tablet_locations == nullptr) {
             return Status::InternalError("unknown tablet, tablet_id={}", tablet.tablet_id);
         }
+        int selected_replicas_num = cast_set<int>(tablet_locations->node_ids.size());
+        int load_required_replicas_num = _load_required_replicas_num(tablet.tablet_id);
+        if (selected_replicas_num < load_required_replicas_num) {
+            // Returning OK here lets a tablet with no viable quorum produce no commit info,
+            // so a mixed-partition transaction may omit that partition from FE commit checks.
+            return Status::InternalError(
+                    "tablet {} in partition {} has {} selected replicas, fewer than required {}, "
+                    "load_id={}",
+                    tablet.tablet_id, tablet.partition_id, selected_replicas_num,
+                    load_required_replicas_num, print_id(_parent->_load_id));
+        }
         std::vector<std::shared_ptr<VNodeChannel>> channels;
         // For tablet, deal with its' all replica (in some node).
         for (auto& replica_node_id : tablet_locations->node_ids) {
@@ -174,7 +188,11 @@ Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPart
                 }
             }
             channels.push_back(channel);
-            _tablets_by_channel[replica_node_id].insert(tablet.tablet_id);
+            if (tablet.tablet_id != V1_DUMMY_TABLET_ID) [[likely]] {
+                // Tablet 0 only bootstraps an empty automatic table. It receives no rows and must
+                // not consume the real tablets' failure allowance before partitions are created.
+                _tablets_by_channel[replica_node_id].insert(tablet.tablet_id);
+            }
         }
         _channels_by_tablet.emplace(tablet.tablet_id, std::move(channels));
     }
@@ -195,50 +213,75 @@ void IndexChannel::mark_as_failed(const VNodeChannel* node_channel, const std::s
     LOG(INFO) << "mark node_id:" << node_channel->channel_info() << " tablet_id: " << tablet_id
               << " as failed, err: " << err;
     auto node_id = node_channel->node_id();
-    const auto& it = _tablets_by_channel.find(node_id);
-    if (it == _tablets_by_channel.end()) {
+    if (tablet_id != -1) {
+        std::lock_guard<std::mutex> l(_fail_lock);
+        if (!_parent->_tablet_replica_info.contains(tablet_id)) {
+            // A receiver closes the union of partitions touched by all senders, so its final
+            // closer can receive another sender's tablet error without that tablet's policy.
+            // Shared-nothing FE combines this error marker with commit infos from every sender
+            // and validates the tablet quorum globally. Cloud commit has no such aggregation.
+            _failed_channels[tablet_id].insert(node_id);
+            _failed_channels_msgs.emplace(tablet_id, err + ", host: " + node_channel->host());
+            if (config::is_cloud_mode()) {
+                _intolerable_failure_status = Status::InternalError(
+                        "received failure for nonlocal tablet {} from backend {}: {}", tablet_id,
+                        node_id, err);
+            }
+            return;
+        }
+        _failed_channels[tablet_id].insert(node_id);
+        _failed_channels_msgs.emplace(tablet_id, err + ", host: " + node_channel->host());
+        if (_failed_channels[tablet_id].size() > _max_failed_replicas(tablet_id)) {
+            _intolerable_failure_status = Status::Error<ErrorCode::INTERNAL_ERROR, false>(
+                    _failed_channels_msgs[tablet_id]);
+        }
         return;
     }
 
-    {
+    const auto& it = _tablets_by_channel.find(node_id);
+    if (it == _tablets_by_channel.end()) {
         std::lock_guard<std::mutex> l(_fail_lock);
-        if (tablet_id == -1) {
-            for (const auto the_tablet_id : it->second) {
-                _failed_channels[the_tablet_id].insert(node_id);
-                _failed_channels_msgs.emplace(the_tablet_id,
-                                              err + ", host: " + node_channel->host());
-                if (_failed_channels[the_tablet_id].size() > _max_failed_replicas(the_tablet_id)) {
-                    _intolerable_failure_status = Status::Error<ErrorCode::INTERNAL_ERROR, false>(
-                            _failed_channels_msgs[the_tablet_id]);
-                }
-            }
-        } else {
-            _failed_channels[tablet_id].insert(node_id);
-            _failed_channels_msgs.emplace(tablet_id, err + ", host: " + node_channel->host());
-            if (_failed_channels[tablet_id].size() > _max_failed_replicas(tablet_id)) {
-                _intolerable_failure_status = Status::Error<ErrorCode::INTERNAL_ERROR, false>(
-                        _failed_channels_msgs[tablet_id]);
-            }
+        // A bootstrap-only final sender has no real tablet bookkeeping for this backend. An
+        // overall RPC/transport failure can still belong to another sender's real tablet.
+        _intolerable_failure_status = Status::InternalError(
+                "channel failure from backend {} has no local real tablet: {}", node_id, err);
+        return;
+    }
+
+    std::lock_guard<std::mutex> l(_fail_lock);
+    for (const auto the_tablet_id : it->second) {
+        _failed_channels[the_tablet_id].insert(node_id);
+        _failed_channels_msgs.emplace(the_tablet_id, err + ", host: " + node_channel->host());
+        if (_failed_channels[the_tablet_id].size() > _max_failed_replicas(the_tablet_id)) {
+            _intolerable_failure_status = Status::Error<ErrorCode::INTERNAL_ERROR, false>(
+                    _failed_channels_msgs[the_tablet_id]);
         }
     }
 }
 
 int IndexChannel::_max_failed_replicas(int64_t tablet_id) {
-    auto [total_replicas_num, load_required_replicas_num] =
-            _parent->_tablet_replica_info[tablet_id];
-    int max_failed_replicas = total_replicas_num == 0
-                                      ? (_parent->_num_replicas - 1) / 2
-                                      : total_replicas_num - load_required_replicas_num;
-    return max_failed_replicas;
+    DORIS_CHECK(_parent->_tablet_replica_info.contains(tablet_id));
+    const auto& replica_info = _parent->_tablet_replica_info.at(tablet_id);
+    int configured_max_failed =
+            replica_info.total_replicas_num == 0
+                    ? (_parent->_num_replicas - 1) / 2
+                    : replica_info.total_replicas_num - replica_info.load_required_replicas_num;
+    DORIS_CHECK_GE(configured_max_failed, 0);
+    // A replica omitted from this load's locations cannot absorb a later channel failure.
+    // For total=3, required=1, selected=1, the selected target must tolerate zero failures.
+    int selected_max_failed =
+            replica_info.selected_replicas_num - replica_info.load_required_replicas_num;
+    DORIS_CHECK_GE(selected_max_failed, 0);
+    return std::min(configured_max_failed, selected_max_failed);
 }
 
 int IndexChannel::_load_required_replicas_num(int64_t tablet_id) {
-    auto [total_replicas_num, load_required_replicas_num] =
-            _parent->_tablet_replica_info[tablet_id];
-    if (total_replicas_num == 0) {
+    DORIS_CHECK(_parent->_tablet_replica_info.contains(tablet_id));
+    const auto& replica_info = _parent->_tablet_replica_info.at(tablet_id);
+    if (replica_info.total_replicas_num == 0) {
         return (_parent->_num_replicas + 1) / 2;
     }
-    return load_required_replicas_num;
+    return replica_info.load_required_replicas_num;
 }
 
 Status IndexChannel::check_intolerable_failure() {
@@ -1786,7 +1829,7 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
                 tablet_with_partition.partition_id = part->id;
                 tablet_with_partition.tablet_id = tablet;
                 tablets.emplace_back(std::move(tablet_with_partition));
-                _build_tablet_replica_info(tablet, part);
+                RETURN_IF_ERROR(_build_tablet_replica_info(tablet, part));
             }
         }
         if (tablets.empty() && !_vpartition->is_auto_partition()) {
@@ -1819,7 +1862,7 @@ Status VTabletWriter::_incremental_open_node_channel(
                 tablet_with_partition.partition_id = part->id;
                 tablet_with_partition.tablet_id = tablet;
                 tablets.emplace_back(std::move(tablet_with_partition));
-                _build_tablet_replica_info(tablet, part);
+                RETURN_IF_ERROR(_build_tablet_replica_info(tablet, part));
             }
             DCHECK(!tablets.empty()) << "incremental open got nothing!";
         }
@@ -1856,25 +1899,91 @@ Status VTabletWriter::_incremental_open_node_channel(
     return Status::OK();
 }
 
-void VTabletWriter::_build_tablet_replica_info(const int64_t tablet_id,
-                                               VOlapTablePartition* partition) {
+Status VTabletWriter::_build_tablet_replica_info(const int64_t tablet_id,
+                                                 VOlapTablePartition* partition) {
+    const auto* tablet_location = _location->find_tablet(tablet_id);
+    if (tablet_location == nullptr) {
+        return Status::InternalError("unknown tablet location, tablet_id={}", tablet_id);
+    }
+    int selected_replicas_num = cast_set<int>(tablet_location->node_ids.size());
+    if (selected_replicas_num == 0) {
+        return Status::InternalError("tablet {} has no selected replicas", tablet_id);
+    }
+    if (tablet_id == V1_DUMMY_TABLET_ID) [[unlikely]] {
+        if (selected_replicas_num != 1) {
+            return Status::InternalError(
+                    "bootstrap tablet {} must have exactly one selected replica, actual {}",
+                    tablet_id, selected_replicas_num);
+        }
+        _tablet_replica_info.emplace(tablet_id, TabletReplicaInfo {.total_replicas_num = 1,
+                                                                   .load_required_replicas_num = 1,
+                                                                   .selected_replicas_num = 1});
+        return Status::OK();
+    }
     if (partition != nullptr) {
         int total_replicas_num =
                 partition->total_replica_num == 0 ? _num_replicas : partition->total_replica_num;
-        int load_required_replicas_num = partition->load_required_replica_num == 0
-                                                 ? (_num_replicas + 1) / 2
-                                                 : partition->load_required_replica_num;
+        int default_required_replicas_num = (_num_replicas + 1) / 2;
+        // Older FE createPartition responses omit these optional fields. Clamp the fallback to
+        // the selected destinations instead of rejecting a valid min_load_replica_num load.
+        int load_required_replicas_num =
+                partition->load_required_replica_num == 0
+                        ? std::min(default_required_replicas_num, selected_replicas_num)
+                        : partition->load_required_replica_num;
         _tablet_replica_info.emplace(
-                tablet_id, std::make_pair(total_replicas_num, load_required_replicas_num));
+                tablet_id,
+                TabletReplicaInfo {.total_replicas_num = total_replicas_num,
+                                   .load_required_replicas_num = load_required_replicas_num,
+                                   .selected_replicas_num = selected_replicas_num});
         // Copy version gap backends info for this tablet
         if (auto it = partition->tablet_version_gap_backends.find(tablet_id);
             it != partition->tablet_version_gap_backends.end()) {
             _tablet_version_gap_backends[tablet_id] = it->second;
         }
     } else {
-        _tablet_replica_info.emplace(tablet_id,
-                                     std::make_pair(_num_replicas, (_num_replicas + 1) / 2));
+        int load_required_replicas_num = std::min((_num_replicas + 1) / 2, selected_replicas_num);
+        _tablet_replica_info.emplace(
+                tablet_id,
+                TabletReplicaInfo {.total_replicas_num = _num_replicas,
+                                   .load_required_replicas_num = load_required_replicas_num,
+                                   .selected_replicas_num = selected_replicas_num});
     }
+    return Status::OK();
+}
+
+void VTabletWriter::_add_partition_involvement_commit_infos() {
+    if (config::is_cloud_mode()) {
+        return;
+    }
+    constexpr int64_t PARTITION_INVOLVEMENT_BACKEND_ID = -1;
+    std::vector<TTabletCommitInfo> commit_infos;
+    const auto& partition_ids = _tablet_finder->partition_ids();
+    for (const auto* partition : _vpartition->get_partitions()) {
+        if (!partition_ids.contains(partition->id)) {
+            continue;
+        }
+        bool marker_added = false;
+        for (const auto& index : partition->indexes) {
+            for (int64_t tablet_id : index.tablets) {
+                if (tablet_id == V1_DUMMY_TABLET_ID) {
+                    continue;
+                }
+                TTabletCommitInfo commit_info;
+                commit_info.__set_tabletId(tablet_id);
+                commit_info.__set_backendId(PARTITION_INVOLVEMENT_BACKEND_ID);
+                commit_infos.emplace_back(std::move(commit_info));
+                marker_added = true;
+                break;
+            }
+            if (marker_added) {
+                break;
+            }
+        }
+        // A partition recorded by TabletFinder came from a routed row, so it must contain a real
+        // tablet. Tablet 0 belongs only to the synthetic empty-table bootstrap partition.
+        DORIS_CHECK(marker_added) << "no real tablet in touched partition " << partition->id;
+    }
+    _state->add_tablet_commit_infos(commit_infos);
 }
 
 void VTabletWriter::_cancel_all_channel(Status status) {
@@ -2032,6 +2141,7 @@ Status VTabletWriter::close(Status exec_status) {
 
     // If _close_status is not ok, all nodes have been canceled in try_close.
     if (_close_status.ok()) {
+        _add_partition_involvement_commit_infos();
         auto status = Status::OK();
         // BE id -> add_batch method counter
         std::unordered_map<int64_t, AddBatchCounter> node_add_batch_counter_map;

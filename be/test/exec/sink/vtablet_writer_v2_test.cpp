@@ -66,7 +66,9 @@ static void add_stream(std::shared_ptr<LoadStreamMap> load_stream_map, int64_t n
     }
 }
 
-static std::unique_ptr<VTabletWriterV2> create_vtablet_writer(int num_replicas = 3) {
+static std::unique_ptr<VTabletWriterV2> create_vtablet_writer(int num_replicas = 3,
+                                                              int required_replicas = -1,
+                                                              int selected_replicas = -1) {
     TDataSink t_sink;
     t_sink.__isset.olap_table_sink = true;
     t_sink.olap_table_sink.num_replicas = num_replicas;
@@ -74,10 +76,20 @@ static std::unique_ptr<VTabletWriterV2> create_vtablet_writer(int num_replicas =
     std::shared_ptr<Dependency> dep = nullptr;
     std::shared_ptr<Dependency> fin_dep = nullptr;
     auto writer = std::make_unique<VTabletWriterV2>(t_sink, output_exprs, dep, fin_dep);
+    writer->_num_replicas = num_replicas;
 
-    int required_replicas = num_replicas / 2 + 1;
-    writer->_tablet_replica_info[1] = std::make_pair(num_replicas, required_replicas);
-    writer->_tablet_replica_info[2] = std::make_pair(num_replicas, required_replicas);
+    if (required_replicas < 0) {
+        required_replicas = num_replicas / 2 + 1;
+    }
+    if (selected_replicas < 0) {
+        selected_replicas = num_replicas;
+    }
+    for (int64_t tablet_id : {1, 2}) {
+        writer->_tablet_replica_info[tablet_id] =
+                VTabletWriterV2::TabletReplicaInfo {.total_replicas_num = num_replicas,
+                                                    .load_required_replicas_num = required_replicas,
+                                                    .selected_replicas_num = selected_replicas};
+    }
 
     return writer;
 }
@@ -412,6 +424,176 @@ TEST_F(TestVTabletWriterV2, fail_one) {
     auto st = writer->_create_commit_info(tablet_commit_infos, load_stream_map);
     ASSERT_TRUE(st.ok());
     ASSERT_EQ(tablet_commit_infos.size(), 5);
+}
+
+TEST_F(TestVTabletWriterV2, selectedReplicaLateFailureRejectsMixedPartitions) {
+    UniqueId load_id;
+    auto load_stream_map = std::make_shared<LoadStreamMap>(load_id, src_id, 1, 1, nullptr);
+    add_stream(load_stream_map, 1001, {},
+               {{1, Status::InternalError("late close failed")},
+                {2, Status::InternalError("late close failed")}});
+    add_stream(load_stream_map, 1004, {2}, {});
+    add_stream(load_stream_map, 1005, {2}, {});
+
+    auto writer = create_vtablet_writer(3, 1, 1);
+    writer->_tablet_replica_info[2].selected_replicas_num = 3;
+    std::vector<TTabletCommitInfo> commit_infos;
+    auto status = writer->_create_commit_info(commit_infos, load_stream_map);
+
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("late close failed"), std::string::npos);
+    ASSERT_EQ(2, commit_infos.size());
+    EXPECT_TRUE(
+            std::ranges::all_of(commit_infos, [](const auto& info) { return info.tabletId == 2; }));
+}
+
+TEST_F(TestVTabletWriterV2, finalWriterUsesSharedIncrementalReplicaPolicy) {
+    UniqueId load_id;
+    auto load_stream_map = std::make_shared<LoadStreamMap>(load_id, src_id, 1, 1, nullptr);
+    add_stream(load_stream_map, 1001, {}, {{1, Status::InternalError("late close failed")}});
+    add_stream(load_stream_map, 1002, {1}, {});
+    add_stream(load_stream_map, 1003, {1}, {});
+    ASSERT_TRUE(
+            load_stream_map
+                    ->merge_tablet_replica_info(
+                            1, LoadStreamMap::TabletReplicaInfo {.total_replicas_num = 3,
+                                                                 .load_required_replicas_num = 2,
+                                                                 .selected_replicas_num = 3,
+                                                                 .version_gap_backends = {}})
+                    .ok());
+
+    auto final_writer = create_vtablet_writer();
+    final_writer->_tablet_replica_info.erase(1);
+    std::vector<TTabletCommitInfo> commit_infos;
+    auto status = final_writer->_create_commit_info(commit_infos, load_stream_map);
+
+    EXPECT_TRUE(status.ok()) << status;
+    ASSERT_EQ(2, commit_infos.size());
+}
+
+TEST_F(TestVTabletWriterV2, sharedReplicaPolicyKeepsStrictestRefreshedRequirement) {
+    UniqueId load_id;
+    auto load_stream_map = std::make_shared<LoadStreamMap>(load_id, src_id, 1, 1, nullptr);
+    auto policy = [](int required) {
+        return LoadStreamMap::TabletReplicaInfo {.total_replicas_num = 3,
+                                                 .load_required_replicas_num = required,
+                                                 .selected_replicas_num = 3,
+                                                 .version_gap_backends = {}};
+    };
+    ASSERT_TRUE(load_stream_map->merge_tablet_replica_info(1, policy(2)).ok());
+    ASSERT_TRUE(load_stream_map->merge_tablet_replica_info(1, policy(1)).ok());
+    LoadStreamMap::TabletReplicaInfo merged;
+    ASSERT_TRUE(load_stream_map->get_tablet_replica_info(1, &merged));
+    EXPECT_EQ(2, merged.load_required_replicas_num);
+
+    auto reverse_map = std::make_shared<LoadStreamMap>(load_id, src_id + 1, 1, 1, nullptr);
+    ASSERT_TRUE(reverse_map->merge_tablet_replica_info(1, policy(1)).ok());
+    ASSERT_TRUE(reverse_map->merge_tablet_replica_info(1, policy(2)).ok());
+    ASSERT_TRUE(reverse_map->get_tablet_replica_info(1, &merged));
+    EXPECT_EQ(2, merged.load_required_replicas_num);
+
+    auto writer = create_vtablet_writer(3, 1, 3);
+    writer->_load_stream_map = reverse_map;
+    EXPECT_EQ(2, writer->_load_required_replicas_num(1));
+}
+
+TEST_F(TestVTabletWriterV2, sharedReplicaPolicyKeepsStrictestTotalRefreshAllowance) {
+    UniqueId load_id;
+    auto total_refresh = std::make_shared<LoadStreamMap>(load_id, src_id, 1, 1, nullptr);
+    LoadStreamMap::TabletReplicaInfo policy {.total_replicas_num = 3,
+                                             .load_required_replicas_num = 2,
+                                             .selected_replicas_num = 3,
+                                             .version_gap_backends = {}};
+    auto refreshed_total = policy;
+    refreshed_total.total_replicas_num = 4;
+    ASSERT_TRUE(total_refresh->merge_tablet_replica_info(1, policy).ok());
+    ASSERT_TRUE(total_refresh->merge_tablet_replica_info(1, refreshed_total).ok());
+    LoadStreamMap::TabletReplicaInfo merged;
+    ASSERT_TRUE(total_refresh->get_tablet_replica_info(1, &merged));
+    // The stricter configured allowance is min(3-2, 4-2)=1.
+    EXPECT_EQ(3, merged.total_replicas_num);
+    EXPECT_EQ(2, merged.load_required_replicas_num);
+}
+
+TEST_F(TestVTabletWriterV2, toleratedLateFailureReportsTabletParticipation) {
+    UniqueId load_id;
+    auto load_stream_map = std::make_shared<LoadStreamMap>(load_id, src_id, 1, 1, nullptr);
+    add_stream(load_stream_map, 1001, {}, {{1, Status::InternalError("late close failed")}});
+    add_stream(load_stream_map, 1002, {1}, {});
+    add_stream(load_stream_map, 1003, {1}, {});
+
+    auto writer = create_vtablet_writer();
+    MockRuntimeState state;
+    writer->_state = &state;
+    std::vector<TTabletCommitInfo> commit_infos;
+    ASSERT_TRUE(writer->_create_commit_info(commit_infos, load_stream_map).ok());
+
+    auto error_infos = state.error_tablet_infos();
+    ASSERT_EQ(1, error_infos.size());
+    EXPECT_EQ(1, error_infos[0].tabletId);
+    EXPECT_NE(error_infos[0].msg.find("late close failed"), std::string::npos);
+}
+
+TEST_F(TestVTabletWriterV2, nonlocalDynamicTabletFailureIsReportedForGlobalValidation) {
+    UniqueId load_id;
+    auto load_stream_map = std::make_shared<LoadStreamMap>(load_id, src_id, 1, 1, nullptr);
+    add_stream(load_stream_map, 1001, {}, {{100, Status::InternalError("nonlocal failure")}});
+
+    auto writer = create_vtablet_writer();
+    MockRuntimeState state;
+    writer->_state = &state;
+    std::vector<TTabletCommitInfo> commit_infos;
+    ASSERT_TRUE(writer->_create_commit_info(commit_infos, load_stream_map).ok());
+
+    auto error_infos = state.error_tablet_infos();
+    ASSERT_EQ(1, error_infos.size());
+    EXPECT_EQ(100, error_infos[0].tabletId);
+}
+
+TEST_F(TestVTabletWriterV2, missingStreamResultStillReportsPartitionParticipation) {
+    UniqueId load_id;
+    auto load_stream_map = std::make_shared<LoadStreamMap>(load_id, src_id, 1, 1, nullptr);
+    PTabletID first_tablet;
+    first_tablet.set_tablet_id(100);
+    first_tablet.set_partition_id(10);
+    PTabletID second_tablet;
+    second_tablet.set_tablet_id(200);
+    second_tablet.set_partition_id(20);
+    load_stream_map->save_tablets_to_commit(1001, {first_tablet, second_tablet});
+
+    auto writer = create_vtablet_writer();
+    std::vector<TTabletCommitInfo> commit_infos;
+    ASSERT_TRUE(writer->_create_commit_info(commit_infos, load_stream_map).ok());
+
+    ASSERT_EQ(2, commit_infos.size());
+    EXPECT_TRUE(std::ranges::all_of(commit_infos,
+                                    [](const auto& info) { return info.backendId == -1; }));
+    std::unordered_set<int64_t> involved_tablets;
+    for (const auto& info : commit_infos) {
+        involved_tablets.insert(info.tabletId);
+    }
+    EXPECT_EQ((std::unordered_set<int64_t> {100, 200}), involved_tablets);
+}
+
+TEST_F(TestVTabletWriterV2, omittedReplicaPolicyUsesSelectedDestinations) {
+    auto writer = create_vtablet_writer();
+    TOlapTableLocationParam thrift_location;
+    TTabletLocation tablet_location;
+    tablet_location.tablet_id = 100;
+    tablet_location.node_ids = {1};
+    thrift_location.tablets = {tablet_location};
+    OlapTableLocationParam location(thrift_location);
+    writer->_location = &location;
+    UniqueId load_id;
+    writer->_load_stream_map = std::make_shared<LoadStreamMap>(load_id, src_id, 1, 1, nullptr);
+    ASSERT_TRUE(writer->_build_tablet_replica_info(100, nullptr).ok());
+    const auto& local_info = writer->_tablet_replica_info.at(100);
+    EXPECT_EQ(3, local_info.total_replicas_num);
+    EXPECT_EQ(1, local_info.load_required_replicas_num);
+    EXPECT_EQ(1, local_info.selected_replicas_num);
+    LoadStreamMap::TabletReplicaInfo shared_info;
+    ASSERT_TRUE(writer->_load_stream_map->get_tablet_replica_info(100, &shared_info));
+    EXPECT_EQ(1, shared_info.load_required_replicas_num);
 }
 
 TEST_F(TestVTabletWriterV2, commit_info_with_results_split_across_sources) {

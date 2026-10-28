@@ -685,7 +685,9 @@ private:
 
     void _do_try_close(RuntimeState* state, const Status& exec_status);
 
-    void _build_tablet_replica_info(const int64_t tablet_id, VOlapTablePartition* partition);
+    Status _build_tablet_replica_info(const int64_t tablet_id, VOlapTablePartition* partition);
+
+    void _add_partition_involvement_commit_infos();
 
     TDataSink _t_sink;
 
@@ -789,8 +791,14 @@ private:
     // reuse to avoid frequent memory allocation and release.
     std::vector<RowPartTabletIds> _row_part_tablet_ids;
 
-    // tablet_id -> <total replicas num, load required replicas num>
-    std::unordered_map<int64_t, std::pair<int, int>> _tablet_replica_info;
+    struct TabletReplicaInfo {
+        int total_replicas_num;
+        int load_required_replicas_num;
+        int selected_replicas_num;
+    };
+
+    // tablet_id -> configured and selected replica counts used by failure accounting
+    std::unordered_map<int64_t, TabletReplicaInfo> _tablet_replica_info;
 
     // tablet_id -> set of backend_ids that have version gaps
     // these backends' success should not be counted for majority write

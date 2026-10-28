@@ -235,6 +235,28 @@ public class DatabaseTransactionMgrTest {
     }
 
     @Test
+    public void testInvolvedTabletMarkerRequiresSuccessfulReplica() throws UserException {
+        FakeEnv.setEnv(masterEnv);
+        Database db = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1);
+        OlapTable failedTable = (OlapTable) db.getTableOrMetaException(CatalogTestUtil.testTableId1);
+        OlapTable healthyTable = (OlapTable) db.getTableOrMetaException(CatalogTestUtil.testTableId2);
+        long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                Lists.newArrayList(CatalogTestUtil.testTableId1, CatalogTestUtil.testTableId2),
+                "involved_tablet_marker", transactionSource, LoadJobSourceType.FRONTEND,
+                Config.stream_load_default_timeout_second);
+        List<TabletCommitInfo> commitInfos = Lists.newArrayList(
+                new TabletCommitInfo(CatalogTestUtil.testTabletId1,
+                        TabletCommitInfo.PARTITION_INVOLVEMENT_BACKEND_ID),
+                new TabletCommitInfo(CatalogTestUtil.testTabletId2, CatalogTestUtil.testBackendId1));
+
+        TabletQuorumFailedException exception = Assertions.assertThrows(TabletQuorumFailedException.class,
+                () -> masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1,
+                        Lists.newArrayList(failedTable, healthyTable), transactionId, commitInfos, null));
+        Assertions.assertTrue(exception.getMessage().contains("tablet " + CatalogTestUtil.testTabletId1
+                + " succ replica num 0"));
+    }
+
+    @Test
     public void testNormal() throws UserException {
         DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
         Assertions.assertEquals(4, masterDbTransMgr.getTransactionNum());

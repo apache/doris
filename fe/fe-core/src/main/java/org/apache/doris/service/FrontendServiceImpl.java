@@ -4938,20 +4938,21 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     if (tablet instanceof CloudTablet) {
                         CloudTablet cloudTablet = (CloudTablet) tablet;
                         if (hasBeEndpoint) {
-                            bePathsMap = cloudTablet.getNormalReplicaBackendPathMap(request.be_endpoint);
+                            bePathsMap = cloudTablet.getLoadReplicaBackendPathMap(request.be_endpoint);
                         } else {
                             if (cachedClusterId == null) {
                                 cachedClusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
                                         .getCurrentClusterId();
                             }
-                            bePathsMap = cloudTablet.getNormalReplicaBackendPathMapByClusterId(cachedClusterId);
+                            bePathsMap = cloudTablet.getLoadReplicaBackendPathMapByClusterId(cachedClusterId);
                         }
                     } else if (tabletSnapshot.isChangelog()) {
                         bePathsMap = OlapTableSink.getChangelogColocatedReplicaBackendPathMap(
                                 tabletSnapshot.changelogBaseTablet, tablet);
                     } else {
-                        bePathsMap = tablet.getNormalReplicaBackendPathMap();
+                        bePathsMap = tablet.getLoadReplicaBackendPathMap();
                     }
+                    checkLoadBackendPathNotEmpty(tableId, partitionId, tablet.getId(), bePathsMap);
                 } catch (UserException ex) {
                     errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
                     result.setStatus(errorStatus);
@@ -5271,21 +5272,22 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     if (tablet instanceof CloudTablet) {
                         CloudTablet cloudTablet = (CloudTablet) tablet;
                         if (replaceHasBeEndpoint) {
-                            bePathsMap = cloudTablet.getNormalReplicaBackendPathMap(request.be_endpoint);
+                            bePathsMap = cloudTablet.getLoadReplicaBackendPathMap(request.be_endpoint);
                         } else {
                             if (replaceCachedClusterId == null) {
                                 replaceCachedClusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
                                         .getCurrentClusterId();
                             }
                             bePathsMap = cloudTablet
-                                    .getNormalReplicaBackendPathMapByClusterId(replaceCachedClusterId);
+                                    .getLoadReplicaBackendPathMapByClusterId(replaceCachedClusterId);
                         }
                     } else if (tabletSnapshot.isChangelog()) {
                         bePathsMap = OlapTableSink.getChangelogColocatedReplicaBackendPathMap(
                                 tabletSnapshot.changelogBaseTablet, tablet);
                     } else {
-                        bePathsMap = tablet.getNormalReplicaBackendPathMap();
+                        bePathsMap = tablet.getLoadReplicaBackendPathMap();
                     }
+                    checkLoadBackendPathNotEmpty(tableId, partitionId, tablet.getId(), bePathsMap);
                 } catch (UserException ex) {
                     errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
                     result.setStatus(errorStatus);
@@ -5402,6 +5404,17 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
     }
 
+    private static void checkLoadBackendPathNotEmpty(long tableId, long partitionId, long tabletId,
+            Multimap<Long, Long> backendPathMap) throws UserException {
+        // The legacy writer accepts an empty location and can omit the entire partition from commit infos.
+        // Reject it before the location is cached or returned so the load fails instead of losing rows silently.
+        if (backendPathMap.isEmpty()) {
+            throw new UserException(InternalErrorCode.REPLICA_FEW_ERR,
+                    String.format("no load available backend for tablet %d in partition %d of table %d",
+                            tabletId, partitionId, tableId));
+        }
+    }
+
     private static List<PartitionResultSnapshot> snapshotPartitionResultsByName(OlapTable olapTable,
             Collection<String> partitionNames, boolean loadToSingleTablet, boolean enableAdaptiveRandomBucket,
             String resultName) throws UserException {
@@ -5415,7 +5428,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         "partition %s was dropped concurrently while building %s result, please retry",
                         partitionName, resultName));
             }
-            partitionSnapshots.add(snapshotPartitionResult(partitionInfo, partColNum, partition, partitionName,
+            partitionSnapshots.add(snapshotPartitionResult(olapTable, partColNum, partition, partitionName,
                     loadToSingleTablet, enableAdaptiveRandomBucket, resultName));
         }
         return partitionSnapshots;
@@ -5434,16 +5447,17 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         "partition %d was dropped concurrently while building %s result, please retry",
                         partitionId, resultName));
             }
-            partitionSnapshots.add(snapshotPartitionResult(partitionInfo, partColNum, partition,
+            partitionSnapshots.add(snapshotPartitionResult(olapTable, partColNum, partition,
                     String.valueOf(partitionId), loadToSingleTablet, enableAdaptiveRandomBucket, resultName));
         }
         return partitionSnapshots;
     }
 
-    private static PartitionResultSnapshot snapshotPartitionResult(PartitionInfo partitionInfo, int partColNum,
+    private static PartitionResultSnapshot snapshotPartitionResult(OlapTable olapTable, int partColNum,
             Partition partition, String partitionLabel, boolean loadToSingleTablet,
             boolean enableAdaptiveRandomBucket, String resultName) throws UserException {
         long partitionId = partition.getId();
+        PartitionInfo partitionInfo = olapTable.getPartitionInfo();
         PartitionItem partitionItem = partitionInfo.getItem(partitionId);
         if (partitionItem == null) {
             throw new UserException(String.format(
@@ -5479,7 +5493,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         boolean randomDistribution =
                 partition.getDistributionInfo().getType() == DistributionInfo.DistributionInfoType.RANDOM;
         boolean cacheLoadTabletIdx = (loadToSingleTablet || enableAdaptiveRandomBucket) && randomDistribution;
-        int quorum = partitionInfo.getReplicaAllocation(partitionId).getTotalReplicaNum() / 2 + 1;
+        int quorum = olapTable.getLoadRequiredReplicaNum(partitionId);
+        tPartition.setTotalReplicaNum(olapTable.getPartitionTotalReplicasNum(partitionId));
+        tPartition.setLoadRequiredReplicaNum(quorum);
         return new PartitionResultSnapshot(partition, partitionId, tPartition, partitionTabletSnapshot, quorum,
                 cacheLoadTabletIdx);
     }

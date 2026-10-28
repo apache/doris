@@ -17,6 +17,8 @@
 
 #include "exec/sink/load_stream_map_pool.h"
 
+#include <algorithm>
+
 #include "util/debug_points.h"
 
 namespace doris {
@@ -97,6 +99,64 @@ void LoadStreamMap::save_tablets_to_commit(int64_t dst_id,
     for (const auto& tablet : tablets_to_commit) {
         tablets.emplace(tablet.tablet_id(), tablet);
     }
+}
+
+void LoadStreamMap::append_partition_involvement_commit_infos(
+        std::vector<TTabletCommitInfo>& tablet_commit_infos) {
+    constexpr int64_t PARTITION_INVOLVEMENT_BACKEND_ID = -1;
+    constexpr int64_t DUMMY_TABLET_ID = 0;
+    std::unordered_map<int64_t, int64_t> partition_to_tablet;
+    {
+        std::lock_guard<std::mutex> lock(_tablets_to_commit_mutex);
+        for (const auto& [_, tablets] : _tablets_to_commit) {
+            for (const auto& [tablet_id, tablet] : tablets) {
+                if (tablet_id != DUMMY_TABLET_ID) {
+                    partition_to_tablet.try_emplace(tablet.partition_id(), tablet_id);
+                }
+            }
+        }
+    }
+    for (const auto& [_, tablet_id] : partition_to_tablet) {
+        TTabletCommitInfo commit_info;
+        commit_info.__set_tabletId(tablet_id);
+        commit_info.__set_backendId(PARTITION_INVOLVEMENT_BACKEND_ID);
+        tablet_commit_infos.emplace_back(std::move(commit_info));
+    }
+}
+
+Status LoadStreamMap::merge_tablet_replica_info(int64_t tablet_id,
+                                                const TabletReplicaInfo& replica_info) {
+    std::lock_guard<std::mutex> lock(_mutex);
+    auto [it, inserted] = _tablet_replica_infos.emplace(tablet_id, replica_info);
+    if (!inserted) {
+        auto& existing = it->second;
+        if (existing.selected_replicas_num != replica_info.selected_replicas_num) {
+            return Status::InternalError("conflicting replica information for tablet {} in load {}",
+                                         tablet_id, _load_id.to_string());
+        }
+        // Dynamic min_load_replica_num can change between concurrent createPartition replies.
+        // Replica allocation can also be refreshed while cached destinations stay unchanged.
+        // Keep the strictest required count and the smallest configured failure allowance.
+        int configured_max_failed =
+                std::min(existing.total_replicas_num - existing.load_required_replicas_num,
+                         replica_info.total_replicas_num - replica_info.load_required_replicas_num);
+        existing.load_required_replicas_num = std::max(existing.load_required_replicas_num,
+                                                       replica_info.load_required_replicas_num);
+        existing.total_replicas_num = existing.load_required_replicas_num + configured_max_failed;
+        existing.version_gap_backends.insert(replica_info.version_gap_backends.begin(),
+                                             replica_info.version_gap_backends.end());
+    }
+    return Status::OK();
+}
+
+bool LoadStreamMap::get_tablet_replica_info(int64_t tablet_id, TabletReplicaInfo* replica_info) {
+    std::lock_guard<std::mutex> lock(_mutex);
+    auto it = _tablet_replica_infos.find(tablet_id);
+    if (it == _tablet_replica_infos.end()) {
+        return false;
+    }
+    *replica_info = it->second;
+    return true;
 }
 
 bool LoadStreamMap::release() {

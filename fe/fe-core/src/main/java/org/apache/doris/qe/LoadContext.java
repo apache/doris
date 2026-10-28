@@ -24,6 +24,7 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.task.LoadEtlTask;
 import org.apache.doris.thrift.TErrorTabletInfo;
 import org.apache.doris.thrift.TTabletCommitInfo;
+import org.apache.doris.transaction.ErrorTabletInfo;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
@@ -151,6 +152,9 @@ public class LoadContext {
     }
 
     public synchronized void updateErrorTabletInfos(List<TErrorTabletInfo> errorTabletInfos) {
+        if (!Config.isCloudMode()) {
+            updateCommitInfos(ErrorTabletInfo.toInvolvedTabletCommitInfos(errorTabletInfos));
+        }
         if (this.errorTabletInfos.size() <= Config.max_error_tablet_of_broker_load) {
             this.errorTabletInfos.addAll(errorTabletInfos.stream().limit(Config.max_error_tablet_of_broker_load
                     - this.errorTabletInfos.size()).collect(Collectors.toList()));
