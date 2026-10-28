@@ -19,6 +19,9 @@
 // than the other terms of the phrase, the union of them led the phrase and the scorer read its
 // norm, which threw "UnionTermIterator does not support scoring".
 suite("test_match_phrase_prefix_score", "p0") {
+    // Scoring requires expression pushdown, which fuzzy sessions can disable.
+    sql "set enable_common_expr_pushdown = true"
+
     sql "DROP TABLE IF EXISTS test_match_phrase_prefix_score_v2"
     sql "DROP TABLE IF EXISTS test_match_phrase_prefix_score_v3"
 
@@ -50,22 +53,23 @@ suite("test_match_phrase_prefix_score", "p0") {
     sql "INSERT INTO test_match_phrase_prefix_score_v3 VALUES ${rows}"
     sql "sync"
 
+    // Compare scores as strings so numeric rounding cannot accept zero for scores below 0.5.
     // 'apple r': the reported query, 'red' is rarer than 'apple'.
-    order_qt_v2_apple_r """ SELECT id, round(score(), 4) s FROM test_match_phrase_prefix_score_v2
+    order_qt_v2_apple_r """ SELECT id, cast(round(score(), 4) as string) s FROM test_match_phrase_prefix_score_v2
                             WHERE c1 MATCH_PHRASE_PREFIX 'apple r' ORDER BY score() DESC LIMIT 10 """
-    order_qt_v3_apple_r """ SELECT id, round(score(), 4) s FROM test_match_phrase_prefix_score_v3
+    order_qt_v3_apple_r """ SELECT id, cast(round(score(), 4) as string) s FROM test_match_phrase_prefix_score_v3
                             WHERE c1 MATCH_PHRASE_PREFIX 'apple r' ORDER BY score() DESC LIMIT 10 """
 
     // 'apple gr' expands to green and gray, both rarer than apple.
-    order_qt_v2_apple_gr """ SELECT id, round(score(), 4) s FROM test_match_phrase_prefix_score_v2
+    order_qt_v2_apple_gr """ SELECT id, cast(round(score(), 4) as string) s FROM test_match_phrase_prefix_score_v2
                              WHERE c1 MATCH_PHRASE_PREFIX 'apple gr' ORDER BY score() DESC LIMIT 10 """
-    order_qt_v3_apple_gr """ SELECT id, round(score(), 4) s FROM test_match_phrase_prefix_score_v3
+    order_qt_v3_apple_gr """ SELECT id, cast(round(score(), 4) as string) s FROM test_match_phrase_prefix_score_v3
                              WHERE c1 MATCH_PHRASE_PREFIX 'apple gr' ORDER BY score() DESC LIMIT 10 """
 
     // Two phrase terms before the prefix.
-    order_qt_v2_apple_red_g """ SELECT id, round(score(), 4) s FROM test_match_phrase_prefix_score_v2
+    order_qt_v2_apple_red_g """ SELECT id, cast(round(score(), 4) as string) s FROM test_match_phrase_prefix_score_v2
                                 WHERE c1 MATCH_PHRASE_PREFIX 'apple red g' ORDER BY score() DESC LIMIT 10 """
-    order_qt_v3_apple_red_g """ SELECT id, round(score(), 4) s FROM test_match_phrase_prefix_score_v3
+    order_qt_v3_apple_red_g """ SELECT id, cast(round(score(), 4) as string) s FROM test_match_phrase_prefix_score_v3
                                 WHERE c1 MATCH_PHRASE_PREFIX 'apple red g' ORDER BY score() DESC LIMIT 10 """
 
     // The same rows without score().
