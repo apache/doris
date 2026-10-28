@@ -84,6 +84,15 @@ class ReportTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Missing, repeated"):
             analyze(*self.inputs())
 
+    def test_first_split_stop_must_happen_before_be_reads(self):
+        for phase in ("planning_cancel", "planning_timeout"):
+            with self.subTest(phase=phase):
+                log, samples, events = self.inputs(phase)
+                with self.assertRaisesRegex(ValueError, "BE already read"):
+                    analyze(log, samples, events, (phase,))
+                events = [event for event in events if event["action"] != "GET"]
+                self.assertEqual(0, analyze(log, samples, events, (phase,))["cases"][0]["file_reads_before_stop"])
+
     def test_resources_that_reactivate_after_ten_seconds_fail(self):
         log, samples, events = self.inputs()
         busy = dict(samples[1][-1], time_ms=11100, live_producers=1)

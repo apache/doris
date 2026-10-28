@@ -109,6 +109,15 @@ Split initialization. Report this distinction when sharing results.
    Use the shell entry point's `--conf`; its internal Java runner's `-cf` option
    does not override the configuration selected by the shell script.
 
+   To repeat resource acceptance with a producer cap, add
+   `hiveSplitEarlyStopProducerParallelism = "4"` to both the main and cache
+   regression configs; use `"0"` for the unchanged-concurrency control. Omit
+   this option for versions without the session variable. The main suite restores
+   the session value; the cache suite sets it on its two reader connections.
+   First-Split cancellation waits for at most four initial LIST calls in this
+   example, and both first-Split stop cases must have zero BE reads before their
+   signal. A query cancelled after reading files cannot satisfy that coverage.
+
 6. After the queries finish, snapshot the callback registry:
 
    ```bash

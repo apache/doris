@@ -101,6 +101,8 @@ def analyze(log, samples, events, expected_phases=PHASES):
         reads = sum(event["action"] == "GET" and event["time_ms"] <= signal for event in relevant)
         if phase in ("cancel", "timeout"):
             require(reads > 0, phase + ": BE never read a file before the stop signal")
+        if phase in ("planning_cancel", "planning_timeout"):
+            require(reads == 0, phase + ": BE already read a file before the first-Split stop signal")
         cases.append({"phase": phase, "query_id": rows[0]["query_id"], "signal_ms": signal,
                       "producer_exit_delay_ms": max(0, quiet["time_ms"] - signal),
                       "last_file_request_delay_ms": max(requests) - signal if requests else None,

@@ -32,6 +32,10 @@ suite("test_hive_split_early_stop", "p0,external") {
     logger.info("SPLIT_RUN_START " + System.currentTimeMillis())
     String catalog = context.config.otherConfigs.get("hiveSplitEarlyStopCatalog")
     String table = context.config.otherConfigs.get("hiveSplitEarlyStopTable")
+    String producerParallelism = context.config.otherConfigs.get("hiveSplitEarlyStopProducerParallelism")
+    int producerLimit = producerParallelism == null ? 0 : producerParallelism.toInteger()
+    // A capped scan can wait on fewer than ten LIST calls before its first batch is available.
+    int planningCancelListings = producerLimit > 0 ? Math.min(10, producerLimit) : 10
     boolean physicalFixture = context.config.otherConfigs.get("hiveSplitEarlyStopPhysicalFixture")
             ?.toString()?.toBoolean() ?: false
     def metrics = { -> new JsonSlurper().parse(new URL(fixtureUrl + "/__metrics")) }
@@ -60,8 +64,14 @@ suite("test_hive_split_early_stop", "p0,external") {
                 observed_ms: System.currentTimeMillis(), requests: requests]))
     }
     def settings = ["query_timeout", "first_split_wait_timeout_ms"]
+    if (producerParallelism != null) {
+        settings.add("split_producer_parallelism")
+    }
     def saved = settings.collectEntries { name -> [(name): sql("show variables like '${name}'")[0][1]] }
     try {
+        if (producerParallelism != null) {
+            sql "set split_producer_parallelism=${producerParallelism}"
+        }
         sql "set query_timeout=120"
         sql "set first_split_wait_timeout_ms=30000"
         control([phase: "limit", empty: false, delay_ms: 50])
@@ -79,10 +89,14 @@ suite("test_hive_split_early_stop", "p0,external") {
                 long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30)
                 def started = { ->
                     def counts = metrics().counts[phase]
-                    waitingForFirst ? (counts?.LIST ?: 0) >= 10 : (counts?.GET ?: 0) > 0
+                    waitingForFirst ? (counts?.LIST ?: 0) >= planningCancelListings : (counts?.GET ?: 0) > 0
                 }
                 while (!started() && System.nanoTime() < deadline) { Thread.sleep(25) }
                 if (!started()) { throw new IllegalStateException("No scan activity: " + phase) }
+                if (waitingForFirst) {
+                    assertEquals(0, (metrics().counts[phase]?.GET ?: 0) as int,
+                            "The first Split was already consumed before planning cancellation")
+                }
                 cancelledAt.set(System.currentTimeMillis())
                 sql "kill query ${connectionId}"
             }

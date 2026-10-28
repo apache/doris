@@ -28,6 +28,7 @@ suite("test_hive_split_cancel_cache_isolation", "p0,external") {
     }
     String catalog = context.config.otherConfigs.get("hiveSplitEarlyStopCatalog")
     String table = context.config.otherConfigs.get("hiveSplitEarlyStopTable")
+    String producerParallelism = context.config.otherConfigs.get("hiveSplitEarlyStopProducerParallelism")
     String ddl = sql("show create catalog ${catalog}")[0][1]
     assertTrue((ddl =~ /"meta.cache.hive.file.enable"\s*=\s*"true"/).find(),
             "Prepare this catalog with --file-cache")
@@ -49,6 +50,9 @@ suite("test_hive_split_cancel_cache_isolation", "p0,external") {
     def cancelledId = new AtomicLong(-1)
     def survivorId = new AtomicLong(-1)
     def prepareQuery = { AtomicLong id ->
+        if (producerParallelism != null) {
+            sql "set split_producer_parallelism=${producerParallelism}"
+        }
         // A single selected partition must still use the cancellable Split producer path.
         sql "set num_partitions_in_batch_mode=1"
         sql "set query_timeout=60"
