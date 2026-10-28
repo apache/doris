@@ -66,6 +66,10 @@ struct FixedTopKValueStore {
     void clear() { values.clear(); }
     const T& at(size_t slot) const { return values[slot]; }
     void append(const T& value) { values.push_back(value); }
+    // The payload is proportional to the slot count, which the caller already compares.
+    size_t live_bytes() const { return 0; }
+    size_t dead_bytes() const { return 0; }
+    void on_evict(size_t /*slot*/) {}
     void swap(FixedTopKValueStore& other) noexcept { values.swap(other.values); }
 };
 
@@ -73,35 +77,53 @@ struct FixedTopKValueStore {
 /// keeps an offset/length into the bytes instead and materializes a view on access.
 struct StringTopKValueStore {
     struct Span {
-        uint32_t offset = 0;
-        uint32_t length = 0;
+        size_t offset = 0;
+        size_t length = 0;
     };
 
     /// The initial allocation is small on purpose; see the comment on FixedTopKValueStore.
-    PODArray<char, 32> bytes;
+    /// PaddedPODArray, not PODArray: comparisons go through
+    /// memcmp_small_allow_overflow15, which loads a full 16-byte vector even for a one-byte
+    /// string, the same tail allowance ColumnString's chars buffer provides.
+    PaddedPODArray<char, 32> bytes;
     DorisVector<Span> spans;
+    // Sum of the live slots' payload and of the payload evicted since the last compaction. The
+    // slot counters alone cannot bound the memory: replacing 1024 1 MiB strings with short ones
+    // leaves dead == live by slot count while ~1 GiB of discarded bytes stay in the arena.
+    size_t live_payload_bytes = 0;
+    size_t dead_payload_bytes = 0;
 
     size_t size() const { return spans.size(); }
+    size_t live_bytes() const { return live_payload_bytes; }
+    size_t dead_bytes() const { return dead_payload_bytes; }
     void reserve(size_t n) { spans.reserve(n); }
     void clear() {
         bytes.clear();
         spans.clear();
+        live_payload_bytes = 0;
+        dead_payload_bytes = 0;
     }
     StringRef at(size_t slot) const {
         const Span& span = spans[slot];
         return StringRef(bytes.data() + span.offset, span.length);
     }
     void append(StringRef value) {
-        DCHECK_LE(bytes.size() + value.size, std::numeric_limits<uint32_t>::max());
-        DCHECK_LE(value.size, std::numeric_limits<uint32_t>::max());
-        spans.push_back({static_cast<uint32_t>(bytes.size()), static_cast<uint32_t>(value.size)});
+        spans.push_back({bytes.size(), value.size});
+        live_payload_bytes += value.size;
         if (value.size != 0) {
             bytes.insert(value.data, value.data + value.size);
         }
     }
+    /// Called when `slot` is evicted: its payload stays in the arena until the next compaction.
+    void on_evict(size_t slot) {
+        live_payload_bytes -= spans[slot].length;
+        dead_payload_bytes += spans[slot].length;
+    }
     void swap(StringTopKValueStore& other) noexcept {
         bytes.swap(other.bytes);
         spans.swap(other.spans);
+        std::swap(live_payload_bytes, other.live_payload_bytes);
+        std::swap(dead_payload_bytes, other.dead_payload_bytes);
     }
 };
 
@@ -463,6 +485,15 @@ private:
         state.worst = node;
     }
 
+    /// The first live slot in the aggregate's order, i.e. the best value the state holds.
+    static int32_t best_slot(const State& state) {
+        int32_t node = state.root;
+        while (node != State::NO_SLOT && state.slots[node].left != State::NO_SLOT) {
+            node = state.slots[node].left;
+        }
+        return node;
+    }
+
     /// Slots in the aggregate's order, i.e. the order of the result array.
     static void collect_in_order(const State& state, DorisVector<int32_t>& slots) {
         slots.reserve(static_cast<size_t>(state.live));
@@ -589,8 +620,9 @@ private:
             return;
         }
 
-        // Dead slots are reclaimed before they can outnumber the live ones; see compact().
-        if (state.dead > state.live) {
+        // Dead slots are reclaimed before they can outnumber the live ones, and evicted string
+        // payload before it dwarfs the live one; see compact().
+        if (state.dead > state.live || state.values.dead_bytes() > state.values.live_bytes()) {
             compact(state);
         }
 
@@ -626,6 +658,7 @@ private:
         int32_t removed = State::NO_SLOT;
         state.root = erase_worst(state, state.root, &removed);
         DCHECK_EQ(removed, state.worst);
+        state.values.on_evict(static_cast<size_t>(removed));
         state.slots[removed].count = State::DEAD_COUNT;
         --state.live;
         ++state.dead;
@@ -662,6 +695,18 @@ private:
         if (other.live == 0) {
             // The other partial state saw no non-NULL row.
             return;
+        }
+        if (state.live >= state.k) {
+            // A full state already holds the k best values. If every value of the other state is
+            // worse than the worst one retained here, the merge cannot change the result, so skip
+            // the collect/rebuild. An equal value would raise a count, hence the strict test.
+            // `_state`/`_merge`/`_union` merges one singleton per row, and this turns each one
+            // into a single comparison once the list is full.
+            int cmp =
+                    compare_values(other.values.at(best_slot(other)), state.values.at(state.worst));
+            if (is_worse(cmp)) {
+                return;
+            }
         }
         DorisVector<int32_t> lhs_slots;
         DorisVector<int32_t> rhs_slots;
