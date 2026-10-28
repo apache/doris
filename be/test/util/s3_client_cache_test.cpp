@@ -23,6 +23,7 @@
 #include <chrono>
 #include <future>
 #include <memory>
+#include <new>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -30,9 +31,14 @@
 
 #include "cpp/obj-client/rate_limited_obj_storage_client.h"
 #include "cpp/obj-client/s3_obj_storage_client.h"
+#include "cpp/sync_point.h"
+#include "io/fs/packed_file_manager.h"
+#include "io/fs/s3_file_system.h"
+#include "runtime/exec_env.h"
 #include "runtime/memory/cache_manager.h"
 #include "runtime/memory/cache_policy.h"
 #include "runtime/thread_context.h"
+#include "util/defer_op.h"
 #include "util/s3_util.h"
 
 namespace doris {
@@ -275,6 +281,102 @@ TEST(S3ClientCacheTest, FullConfigurationEqualitySurvivesHashCollisions) {
     b = a;
     b.token = "rotated-token";
     EXPECT_NE(cache.get_or_create(b, fake_creator()).value(), first);
+}
+
+TEST(S3ClientCacheTest, ConfigurationHashIsNothrowAndOrdersCredentials) {
+    auto conf = cache_conf(std::string(4096, 't'));
+    conf.ak = std::string(32, 'a');
+    conf.sk = std::string(40, 's');
+    conf.endpoint = std::string(256, 'e');
+    conf.region = std::string(64, 'r');
+    conf.bucket = std::string(128, 'b');
+    conf.role_arn = std::string(256, 'n');
+    conf.external_id = std::string(256, 'x');
+    static_assert(noexcept(conf.get_hash()));
+    static_assert(noexcept(S3ClientConfHash {}(conf)));
+    EXPECT_EQ(conf.get_hash(), S3ClientConfHash {}(conf));
+
+    auto swapped = conf;
+    std::swap(swapped.ak, swapped.sk);
+    EXPECT_NE(conf.get_hash(), swapped.get_hash());
+    auto native = conf;
+    native.credential =
+            GcpCredentialConfig {.impersonation_service_account = std::string(256, 'g')};
+    EXPECT_NE(conf.get_hash(), native.get_hash());
+}
+
+TEST(S3ClientCacheTest, RetentionAllocationFailurePreservesLruAndClearsPending) {
+    S3ClientCache cache(1, 600);
+    auto a = cache_conf(std::string(4096, 'a'));
+    a.ak = std::string(32, 'a');
+    a.sk = std::string(40, 's');
+    auto b = a;
+    b.token = std::string(4096, 'b');
+    auto first = cache.get_or_create(a, fake_creator()).value();
+    {
+        auto* sync_point = SyncPoint::get_instance();
+        sync_point->enable_processing();
+        Defer disable_sync_point([&] { sync_point->disable_processing(); });
+        SyncPoint::CallbackGuard guard;
+        sync_point->set_call_back(
+                "S3ClientCache::before_retention_allocation",
+                [](auto&&) { throw std::bad_alloc {}; }, &guard);
+        EXPECT_THROW(static_cast<void>(cache.get_or_create(b, fake_creator())), std::bad_alloc);
+    }
+    EXPECT_EQ(cache.stats().inflight, 0);
+    EXPECT_EQ(cache.stats().indexed, 1);
+    EXPECT_EQ(cache.stats().entries, 1);
+    EXPECT_EQ(cache.stats().live, 1);
+    EXPECT_EQ(cache.stats().failures, 1);
+    EXPECT_EQ(cache.get_or_create(a, fake_creator()).value(), first);
+    auto second = cache.get_or_create(b, fake_creator()).value();
+    EXPECT_NE(first, second);
+    EXPECT_EQ(cache.stats().entries, 1);
+    EXPECT_EQ(cache.stats().evictions, 1);
+    cache.close();
+    EXPECT_EQ(cache.stats().entries, 0);
+    first.reset();
+    second.reset();
+    EXPECT_EQ(cache.stats().live, 0);
+}
+
+TEST(S3ClientCacheTest, ExecEnvReleasesPackedFileOwnersBeforeSdkShutdown) {
+    // A manager initialized before the first S3 vault must release its owners
+    // explicitly; relying on reverse static destruction can shut down AWS first.
+    io::PackedFileManager manager;
+    S3ClientCache cache(0, 600);
+    auto client = cache.get_or_create(cache_conf(), fake_creator()).value();
+    std::weak_ptr<ObjStorageClient> weak = client;
+    auto fs = std::make_shared<io::S3FileSystem>(S3Conf {}, "packed-shutdown-test");
+    fs->_client->_client = std::move(client);
+    manager._default_file_system = fs;
+    manager._file_systems["vault"] = fs;
+    auto make_context = [&] {
+        auto context = std::make_unique<io::PackedFileManager::PackedFileContext>();
+        context->file_system = fs;
+        return context;
+    };
+    manager._current_packed_files["vault"] = make_context();
+    manager._uploading_packed_files["uploading"] = make_context();
+    manager._uploaded_packed_files["uploaded"] = make_context();
+    fs.reset();
+    EXPECT_EQ(cache.stats().live, 1);
+
+    const bool was_ready = ExecEnv::ready();
+    Defer restore_ready([was_ready] { ExecEnv::_s_ready = was_ready; });
+    ExecEnv env;
+    env._packed_file_manager = &manager;
+    env.set_ready();
+    env.destroy();
+
+    EXPECT_TRUE(weak.expired());
+    EXPECT_EQ(cache.stats().live, 0);
+    EXPECT_EQ(cache.stats().destroyed, 1);
+    EXPECT_TRUE(manager._current_packed_files.empty());
+    EXPECT_TRUE(manager._uploading_packed_files.empty());
+    EXPECT_TRUE(manager._uploaded_packed_files.empty());
+    EXPECT_TRUE(manager._file_systems.empty());
+    EXPECT_EQ(manager._default_file_system, nullptr);
 }
 
 TEST(S3ClientCacheTest, SingleFlightAndDifferentKeysCreateIndependently) {
