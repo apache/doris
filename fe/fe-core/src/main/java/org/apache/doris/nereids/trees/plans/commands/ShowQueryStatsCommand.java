@@ -87,7 +87,6 @@ public class ShowQueryStatsCommand extends ShowCommand {
     public void validate(ConnectContext ctx) throws UserException {
         if (StringUtils.isEmpty(dbName)) {
             dbName = ctx.getDatabase();
-            type = ShowQueryStatsType.DATABASE;
         }
         String catalog = Env.getCurrentEnv().getCurrentCatalog().getName();
         if (tableNameInfo == null && StringUtils.isEmpty(dbName)) {
@@ -111,6 +110,7 @@ public class ShowQueryStatsCommand extends ShowCommand {
             db.getTableOrDdlException(tableNameInfo.getTbl());
         }
         if (tableNameInfo == null) {
+            type = ShowQueryStatsType.DATABASE;
             Map<String, Long> stats = QueryStatsUtil.getMergedDatabaseStats(catalog, dbName);
             stats.forEach((tableName, queryHit) -> {
                 if (Env.getCurrentEnv().getAccessManager()

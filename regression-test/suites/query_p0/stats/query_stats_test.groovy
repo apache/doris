@@ -65,6 +65,35 @@ suite("query_stats_test") {
     // Counts may exceed 1 in multi-FE clusters; verify right columns hit, wrong ones stay 0.
     sql "select k1 from ${tbName} where k0 = 1"
     sql "select k4 from ${tbName} where k2 = 1991"
+    // Explicit database-level query stats should use the
+    // same result schema as implicit database-level stats.
+    def currentDb = sql("SELECT DATABASE()")[0][0].toString()
+
+    def implicitDbStats =
+            sql_return_maparray "SHOW QUERY STATS"
+
+    def explicitDbStats =
+            sql_return_maparray "SHOW QUERY STATS FOR ${currentDb}"
+
+    def implicitRow = implicitDbStats.find {
+        it.TableName == tbName
+    }
+    def explicitRow = explicitDbStats.find {
+        it.TableName == tbName
+    }
+
+    assertNotNull(implicitRow)
+    assertNotNull(explicitRow)
+
+    assertEquals(
+            ["TableName", "QueryCount"] as Set,
+            explicitRow.keySet() as Set
+    )
+
+    assertEquals(
+            implicitRow.keySet() as Set,
+            explicitRow.keySet() as Set
+    )
     def stats1 = sql "show query stats from ${tbName}"
     def s1k1 = stats1.find { it[0] == "k1" }
     def s1k0 = stats1.find { it[0] == "k0" }
