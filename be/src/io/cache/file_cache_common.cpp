@@ -23,6 +23,7 @@
 #include "common/config.h"
 #include "exec/common/hex.h"
 #include "io/cache/block_file_cache.h"
+#include "storage/olap_define.h"
 
 namespace doris::io {
 

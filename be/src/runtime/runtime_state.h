@@ -22,7 +22,6 @@
 
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/Types_types.h>
-#include <gen_cpp/segment_v2.pb.h>
 #include <stdint.h>
 
 #include <atomic>
@@ -50,6 +49,9 @@
 #include "util/timezone_utils.h"
 
 namespace doris {
+namespace segment_v2 {
+enum CompressionTypePB : int;
+}
 namespace io {
 class S3FileSystem;
 } // namespace io
@@ -473,18 +475,7 @@ public:
                _query_options.enable_fuzzy_blockable_task;
     }
 
-    segment_v2::CompressionTypePB fragement_transmission_compression_type() const {
-        if (_query_options.__isset.fragment_transmission_compression_codec) {
-            if (_query_options.fragment_transmission_compression_codec == "lz4") {
-                return segment_v2::CompressionTypePB::LZ4;
-            } else if (_query_options.fragment_transmission_compression_codec == "snappy") {
-                return segment_v2::CompressionTypePB::SNAPPY;
-            } else {
-                return segment_v2::CompressionTypePB::NO_COMPRESSION;
-            }
-        }
-        return segment_v2::CompressionTypePB::NO_COMPRESSION;
-    }
+    segment_v2::CompressionTypePB fragement_transmission_compression_type() const;
 
     bool skip_storage_engine_merge() const {
         return _query_options.__isset.skip_storage_engine_merge &&

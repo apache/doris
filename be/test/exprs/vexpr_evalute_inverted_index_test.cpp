@@ -29,6 +29,7 @@
 #include "gtest/gtest.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
+#include "storage/index/index_iterator.h"
 #include "storage/schema.h"
 
 // test expr is: v not in (ipv4_literal, casttoipv4(varchar))

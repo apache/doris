@@ -20,8 +20,6 @@
 
 #pragma once
 
-#include <gen_cpp/internal_service.pb.h>
-
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -33,9 +31,10 @@
 #include "common/status.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/file_cache_common.h"
-#include "storage/options.h"
 namespace doris {
+class CacheBlockPB;
 class TUniqueId;
+struct CachePath;
 
 class Block;
 
