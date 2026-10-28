@@ -21,15 +21,19 @@
 #include <gen_cpp/segment_v2.pb.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
+#include <algorithm>
 #include <memory>
 #include <ostream>
+#include <shared_mutex>
 
+#include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "core/block/block.h"
+#include "core/column/column_vector.h"
 #include "exprs/bloom_filter_func.h"
 #include "exprs/hybrid_set.h"
 #include "runtime/query_context.h"
@@ -470,6 +474,17 @@ Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
                               read_params.reader_type == ReaderType::READER_COLD_DATA_COMPACTION ||
                               read_params.reader_type == ReaderType::READER_CHECKSUM);
 
+    // Keep a sequence=100 delete long enough to reject a concurrently delayed sequence=90
+    // write. Checksums must still exclude this invisible row regardless of physical retention.
+    const int64_t retention_gap = config::sequence_delete_sign_retention_version_gap;
+    if (_delete_sign_available && read_params.reader_type != ReaderType::READER_CHECKSUM &&
+        !config::is_cloud_mode() && _tablet->enable_unique_key_merge_on_write() &&
+        _tablet_schema->has_sequence_col() && retention_gap > 0) {
+        _retain_sequence_delete_sign = true;
+        std::shared_lock lock(_tablet->get_header_lock());
+        _delete_sign_version_cutoff = _tablet->max_version_unlocked() - retention_gap;
+    }
+
     // `_filter_delete` indicates the condition where we should execlude deleted tuples when reading data.
     // However, queries will not use this condition but generate special where predicates to filter data.
     // (Though a lille bit confused, it is how the current logic working...)
@@ -479,6 +494,36 @@ Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
                                          _read_schema, &dropped_columns));
     _read_schema->append_dropped_columns(std::move(dropped_columns));
     return Status::OK();
+}
+
+void TabletReader::_fill_delete_sign_filter(const MutableColumns& columns, size_t rows,
+                                            uint8_t* filter) const {
+    const int delete_sign_ordinal = _read_schema->delete_sign_ordinal();
+    DORIS_CHECK_GT(delete_sign_ordinal, 0);
+    DORIS_CHECK_LT(delete_sign_ordinal, columns.size());
+    const auto& delete_signs =
+            assert_cast<const ColumnInt8&>(*columns[delete_sign_ordinal]).get_data();
+    if (!_retain_sequence_delete_sign) {
+        for (size_t i = 0; i < rows; ++i) {
+            filter[i] = delete_signs[i] == 0;
+        }
+        return;
+    }
+
+    const int version_ordinal = _read_schema->version_ordinal();
+    if (version_ordinal < 0) {
+        // Legacy tables without VERSION cannot establish the age of a delete sign. Pruning
+        // it here could immediately admit sequence=90 after a recent sequence=100 delete.
+        std::fill_n(filter, rows, uint8_t {1});
+        return;
+    }
+    const auto& versions = assert_cast<const ColumnInt64&>(*columns[version_ordinal]).get_data();
+    for (size_t i = 0; i < rows; ++i) {
+        // Older linked rowsets can contain an unmaterialized version placeholder (0).
+        // Keep those delete signs rather than treating an unknown publish version as expired.
+        filter[i] = delete_signs[i] == 0 || versions[i] <= 0 ||
+                    versions[i] > _delete_sign_version_cutoff;
+    }
 }
 
 } // namespace doris

@@ -520,10 +520,7 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
             delete_filter_data_column->resize(block_rows);
 
             auto* __restrict filter_data = delete_filter_data_column->get_data().data();
-            auto* __restrict delete_data =
-                    reinterpret_cast<ColumnInt8*>(target_columns[delete_sign_idx].get())
-                            ->get_data()
-                            .data();
+            _fill_delete_sign_filter(target_columns, block_rows, filter_data);
 
             int cur_row = 0;
             while (cur_row < block_rows) {
@@ -531,8 +528,7 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
                     row_source_idx++;
                     continue;
                 }
-                bool sign = (delete_data[cur_row] == 0);
-                filter_data[cur_row] = sign;
+                bool sign = filter_data[cur_row] != 0;
                 if (UNLIKELY(!sign)) {
                     _row_sources_buffer->set_agg_flag(row_source_idx, true);
                 }

@@ -282,6 +282,12 @@ void Merger::vertical_split_columns(const TabletSchema& tablet_schema,
         if (tablet_schema.has_sequence_col()) {
             sequence_col_idx = tablet_schema.sequence_col_idx();
             key_columns.emplace_back(sequence_col_idx);
+            // Delete-sign retention is decided in the key group. Without VERSION here a
+            // vertical base compaction cannot distinguish recent deletes from expired ones.
+            const auto version_col_idx = tablet_schema.field_index(VERSION_COL);
+            if (version_col_idx >= 0) {
+                key_columns.emplace_back(version_col_idx);
+            }
         }
         delete_sign_idx = tablet_schema.field_index(DELETE_SIGN);
         if (delete_sign_idx != -1) {
