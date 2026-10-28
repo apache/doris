@@ -1428,10 +1428,12 @@ DEFINE_mInt32(snii_dict_block_zstd_level, "3");
 DEFINE_mInt32(snii_prx_zstd_level, "3");
 // A .prx window is stored zstd-compressed only if that frame is smaller than the PFOR one by at
 // least this percentage; 0 picks the smaller frame. Every read of a zstd window pays a
-// decompression that PFOR does not, and on text positions zstd beats PFOR by 20-30% only on the
-// large windows of frequent terms, which are the ones phrase queries read most: 30 costs about 2%
-// of the index size. Readers handle every codec, so changing this never affects existing segments.
-DEFINE_mInt32(snii_prx_zstd_min_saving_percent, "30");
+// decompression that PFOR does not, but how much zstd saves depends on the data, so no one
+// percentage fits all data. The default (negative) lets each index choose: it stores in their
+// faster frame the windows zstd shrinks least, spending at most 8% of their smallest size (see
+// format::PrxZstdBudget). Readers handle every codec, so changing this never affects existing
+// segments.
+DEFINE_mInt32(snii_prx_zstd_min_saving_percent, "-1");
 // Zstd level for direct-load .prx regions. Compaction rewrites them using snii_prx_zstd_level.
 DEFINE_mInt32(snii_prx_zstd_level_direct_load, "3");
 // G16-d: target SNII dict block size in bytes; 0 uses the format default

@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -73,12 +74,52 @@ AutoPrxCodecChoice select_auto_prx_codec(size_t pfor_payload_size, size_t plain_
                                          uint32_t max_uncomp_bytes,
                                          uint32_t zstd_min_saving_percent = 0);
 
+// Decides which .prx windows of one index of one segment are stored in a larger frame that reads
+// faster. Every read of a zstd window pays a decompression that PFOR does not, so storing a window
+// whose smallest frame is zstd in its PFOR (or smaller raw) frame trades bytes for reads. How much
+// zstd saves depends on the data: a fixed share (zstd_min_saving_percent) of 30 spends about 8% more
+// bytes on the windows of agent logs, about 5% on those of service logs, and much more on data whose
+// windows zstd shrinks by just under the share. The budget instead spends at most
+// kPrxZstdBudgetPercent of the smallest frames, on the windows zstd shrinks least: a window is
+// traded when its saving is below the share whose trades, over the windows seen so far, fit the
+// budget, and when what has actually been spent still fits it, so no order of windows can make it
+// spend more. Until kPrxZstdBudgetWarmupWindows windows are seen the share is
+// kPrxZstdBudgetPriorPercent. Writer-only and deterministic for a given input.
+inline constexpr uint32_t kPrxZstdBudgetPercent = 8;
+inline constexpr uint32_t kPrxZstdBudgetPriorPercent = 30;
+inline constexpr uint32_t kPrxZstdBudgetWarmupWindows = 64;
+
+class PrxZstdBudget {
+public:
+    // Records a window that has nothing to trade: zstd is not its smallest frame, or PFOR is not
+    // readable.
+    void add(uint64_t smallest_frame_bytes);
+    // Records a window whose smallest frame is zstd. `faster_extra_bytes` is what its faster frame
+    // costs on top of the zstd one, `saving_percent` how much smaller the zstd frame is than the PFOR
+    // one, in whole percent of the PFOR frame. Returns whether to store the faster frame.
+    bool trade(uint64_t zstd_frame_bytes, uint64_t faster_extra_bytes, uint32_t saving_percent);
+    // A window saving less than this share is traded if the budget allows.
+    uint32_t min_saving_percent() const { return _min_saving_percent; }
+
+private:
+    void count_window();
+
+    // The extra bytes of trading each window seen, by its saving_percent.
+    std::array<uint64_t, 101> _extra_by_saving {};
+    uint64_t _smallest_bytes = 0;
+    uint64_t _spent_bytes = 0;
+    uint32_t _windows = 0;
+    uint32_t _min_saving_percent = kPrxZstdBudgetPriorPercent;
+};
+
 struct PrxWindowLimits {
     uint32_t max_docs;
     uint32_t max_positions;
     uint32_t max_uncomp_bytes;
     // Writer-only choice, ignored by readers: see select_auto_prx_codec.
     uint32_t zstd_min_saving_percent = 0;
+    // Writer-only: when set, the segment's budget chooses the share instead.
+    PrxZstdBudget* zstd_budget = nullptr;
 };
 
 enum class PrxWindowBuildOutcome : uint8_t {
@@ -91,6 +132,12 @@ inline constexpr PrxWindowLimits kReaderPrxWindowLimits {
         .max_positions = 1U << 26,
         .max_uncomp_bytes = 256U * 1024 * 1024,
 };
+
+// The codec of a window under the writer's limits: select_auto_prx_codec with the fixed share, or,
+// when the limits carry a budget, the smallest frame unless the budget trades it for a faster one.
+AutoPrxCodecChoice choose_auto_prx_codec(const PrxWindowLimits& limits, size_t pfor_payload_size,
+                                         size_t plain_payload_size, size_t compressed_payload_size,
+                                         bool has_compressed);
 
 // Writer policies may tighten, but never exceed, the reader's allocation
 // guards. Keeping this validation in the format layer makes it impossible for
