@@ -21,6 +21,7 @@ import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.FileType;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
@@ -336,6 +337,8 @@ public class PaimonUtil {
                 // Paimon VarBinaryType length is in [1, 2147483647]
                 int varbinaryLen = ((VarBinaryType) dataType).getLength();
                 return ScalarType.createVarbinaryType(varbinaryLen);
+            case BLOB:
+                return FileType.create();
             case DECIMAL:
                 DecimalType decimal = (DecimalType) dataType;
                 return ScalarType.createDecimalV3Type(decimal.getPrecision(), decimal.getScale());

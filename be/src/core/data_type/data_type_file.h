@@ -31,6 +31,11 @@ class DataTypeFile final : public IDataType {
 public:
     static constexpr PrimitiveType PType = TYPE_FILE;
     static constexpr size_t FIELD_COUNT = 6;
+    static constexpr size_t URI_FIELD_INDEX = 0;
+    static constexpr size_t OFFSET_FIELD_INDEX = 1;
+    static constexpr size_t SIZE_FIELD_INDEX = 2;
+    static constexpr size_t CONTENT_TYPE_FIELD_INDEX = 3;
+    static constexpr size_t CHECKSUM_FIELD_INDEX = 4;
     static constexpr size_t INLINE_FIELD_INDEX = 5;
 
     DataTypeFile();

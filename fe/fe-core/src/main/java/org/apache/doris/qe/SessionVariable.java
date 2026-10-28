@@ -820,6 +820,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PAIMON_RUST_READER = "enable_paimon_rust_reader";
 
+    public static final String PAIMON_BLOB_MAX_SIZE = "paimon_blob_max_size";
+
     public static final String ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE = "enable_count_push_down_for_external_table";
 
     public static final String FETCH_ALL_FE_FOR_SYSTEM_TABLE = "fetch_all_fe_for_system_table";
@@ -3132,6 +3134,13 @@ public class SessionVariable implements Serializable, Writable {
             description = {"Paimon 非原生文件读取使用 paimon-rust,优先级高于 paimon-cpp",
                     "Use paimon-rust for non-native Paimon reads, higher priority than paimon-cpp"})
     private boolean enablePaimonRustReader = false;
+
+    @VariableMgr.VarAttr(name = PAIMON_BLOB_MAX_SIZE, needForward = true,
+            checker = "checkPaimonBlobMaxSize",
+            description = {"读取单个 Paimon BLOB inline 内容的最大字节数，超过限制时报错；descriptor 模式不受限制",
+                    "Maximum inline payload size in bytes for one Paimon BLOB value. "
+                            + "Larger values fail the query. Descriptor output is exempt."})
+    private long paimonBlobMaxSize = 10L * 1024 * 1024;
 
     @VariableMgr.VarAttr(name = ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE,
             fuzzy = true,
@@ -5852,6 +5861,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableExprZonemapFilter(enableExprZonemapFilter);
         tResult.setFilePresignedUrlTtlSeconds(filePresignedUrlTtlSeconds);
         tResult.setEnablePaimonRustReader(enablePaimonRustReader);
+        tResult.setPaimonBlobMaxSize(paimonBlobMaxSize);
         tResult.setCheckOrcInitSargsSuccess(checkOrcInitSargsSuccess);
 
         tResult.setTruncateCharOrVarcharColumns(truncateCharOrVarcharColumns);
@@ -6470,6 +6480,14 @@ public class SessionVariable implements Serializable, Writable {
         Long batchSizeValue = Long.valueOf(batchSize);
         if (batchSizeValue < 1 || batchSizeValue > 65535) {
             throw new InvalidParameterException("batch_size should be between 1 and 65535)");
+        }
+    }
+
+    public void checkPaimonBlobMaxSize(String value) {
+        long size = Long.parseLong(value);
+        if (size < 1 || size > Integer.MAX_VALUE) {
+            throw new InvalidParameterException(PAIMON_BLOB_MAX_SIZE
+                    + " must be between 1 and " + Integer.MAX_VALUE + " bytes");
         }
     }
 

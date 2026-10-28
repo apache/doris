@@ -85,6 +85,10 @@ public interface ColumnValue {
         throw new UnsupportedOperationException("Variant value is not available");
     }
 
+    default FileValue getFile() {
+        throw new UnsupportedOperationException("FILE is not available");
+    }
+
     void unpackArray(List<ColumnValue> values);
 
     void unpackMap(List<ColumnValue> keys, List<ColumnValue> values);
