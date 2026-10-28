@@ -16,3 +16,9 @@
 
 -- !q3 --
 
+-- !q4_plan --
+PhysicalConnectorTableSink
+--PhysicalEmptyRelation
+
+-- !q4 --
+
