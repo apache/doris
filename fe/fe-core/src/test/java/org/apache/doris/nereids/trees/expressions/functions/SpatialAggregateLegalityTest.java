@@ -720,6 +720,34 @@ public class SpatialAggregateLegalityTest {
     }
 
     @Test
+    public void collectSetRejectsNestedSpatialInputsAndStates() {
+        for (DataType spatial : List.of(new GeometryType("EPSG:3857"),
+                new GeographyType("OGC:CRS84", "spherical"))) {
+            for (DataType type : List.of(ArrayType.of(spatial), MapType.of(IntegerType.INSTANCE, spatial),
+                    new StructType(List.of(new StructField("shape", spatial, true, ""))))) {
+                Expression value = new SlotReference("value", type);
+                for (CollectSet aggregate : List.of(new CollectSet(value),
+                        new CollectSet(value, new IntegerLiteral(2)))) {
+                    for (BoundFunction entry : List.of(aggregate, StateCombinator.create(aggregate),
+                            new CombineCombinator(aggregate.getArguments(), aggregate))) {
+                        AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                                entry::checkLegalityBeforeTypeCoercion);
+                        Assertions.assertEquals("collect_set does not support spatial arguments", error.getMessage());
+                    }
+                }
+            }
+            String source = " from (select cast(null as " + spatial.toSql() + ") shape) shapes";
+            for (String function : List.of("collect_set", "collect_set_state")) {
+                Exception error = Assertions.assertThrows(Exception.class,
+                        () -> PlanChecker.from(MemoTestUtils.createConnectContext())
+                                .analyze("select " + function + "(array(shape))" + source).rewrite());
+                Assertions.assertTrue(error.getMessage().contains("collect_set does not support spatial arguments"),
+                        error.getMessage());
+            }
+        }
+    }
+
+    @Test
     public void unsupportedSpatialAggregateKernelsAreRejectedBeforeCoercion() {
         for (DataType type : List.of(new GeometryType("OGC:CRS84"),
                 new GeographyType("OGC:CRS84", "spherical"))) {

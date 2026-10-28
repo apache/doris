@@ -1567,4 +1567,44 @@ public class CreateIcebergSpatialV3Table {
         struct_element(g_deep['ordinary-key'][1], 'label'),
         struct_element(gg_deep['ordinary-key'][1], 'label')
         from spatial_merge_nested_nulls order by id"""
+
+    // Distinct collection is unsupported even when spatial values are nested under ordinary keys.
+    for (String column : ["geom", "geog"]) {
+        for (String value : ["array(${column})", "map('ordinary-key', ${column})",
+                "named_struct('shape', ${column})"]) {
+            for (String aggregate : ["collect_set", "collect_set_state"]) {
+                test {
+                    sql "select ${aggregate}(${value}) from geometry_values"
+                    exception "collect_set does not support spatial arguments"
+                }
+            }
+        }
+    }
+
+    sql "drop table if exists spatial_merge_cast_null_arrays"
+    sql """create table spatial_merge_cast_null_arrays (
+        id int, g_array array<geometry>, gg_array array<geography>, ordinary bigint
+    ) properties ('format-version'='3', 'write.format.default'='parquet')"""
+    sql """insert into spatial_merge_cast_null_arrays select 1,
+        array(ST_GeometryFromWKBTyped('0101000000000000000000F03F0000000000000040')),
+        array(ST_GeogFromWKB('0101000000000000000000F03F0000000000000040')), 7"""
+    sql """merge into spatial_merge_cast_null_arrays t using
+        (select 1 id union all select 2 id) s on t.id = s.id
+        when matched then update set
+            g_array = cast(array(cast(null as int)) as array<int>),
+            gg_array = cast(cast(array(cast(null as int)) as array<int>) as array<bigint>),
+            ordinary = s.id + 10
+        when not matched then insert (id, g_array, gg_array, ordinary) values (s.id,
+            cast(array(cast(null as int)) as array<int>),
+            cast(cast(array(cast(null as int)) as array<int>) as array<bigint>), cast(s.id as tinyint))"""
+    test {
+        sql """merge into spatial_merge_cast_null_arrays t using (select 1 id) s on t.id = s.id
+            when matched then update set g_array = cast(array(cast(null as int), 1) as array<int>)"""
+        exception "can not cast"
+    }
+    sql "refresh table spatial_merge_cast_null_arrays"
+    order_qt_spatial_merge_cast_null_arrays """select id,
+        g_array is null, size(g_array), g_array[1] is null,
+        gg_array is null, size(gg_array), gg_array[1] is null, ordinary
+        from spatial_merge_cast_null_arrays order by id"""
 }

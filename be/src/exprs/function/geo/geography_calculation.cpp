@@ -940,6 +940,14 @@ static void geography_shape_index(const GeoShape& shape, const GeographyCoordina
                     }
                 }
             }
+            // Noding (0,58)->(0,59) at raw 58+ulp can repeat its rounded endpoint,
+            // including across the ring seam. Lax zero-length edges change OPEN boundary
+            // ownership; retain the raw edges above but compact this calculation-only ring.
+            vertices.erase(std::ranges::unique(vertices).begin(), vertices.end());
+            if (vertices.front() == vertices.back()) {
+                vertices.pop_back();
+            }
+            DCHECK_GE(vertices.size(), 3);
             // A thin near-antipodal ring may have been reversed by normalization
             // of the rounded edge. Restore the smaller-region shell orientation
             // after stabilization while preserving the admitted hole depths.
@@ -1027,6 +1035,25 @@ static bool geography_rounded_boundary_contact(const GeographyEdgeNodes::RawEdge
     options.set_polyline_model(S2BooleanOperation::PolylineModel::OPEN);
     options.set_polyline_loops_have_boundaries(true);
     return S2BooleanOperation::Intersects(distinct, boundary, options);
+}
+
+static bool geography_rounded_vertex_collision(const GeographyEdgeNodes::RawEdges& left_edges,
+                                               const GeographyCoordinates& left_raw,
+                                               const GeographyEdgeNodes::RawEdges& right_edges,
+                                               const GeographyCoordinates& right_raw) {
+    const auto a = left_edges.vertices(left_raw);
+    const auto b = right_edges.vertices(right_raw);
+    const auto collision = [](const auto& source, const auto& other) {
+        std::set<S2Point, std::less<>, CustomStdAllocator<S2Point>> distinct;
+        for (const auto& vertex : source) {
+            if (!other.contains(vertex)) {
+                distinct.insert(vertex.point);
+            }
+        }
+        return std::ranges::any_of(
+                other, [&](const auto& vertex) { return distinct.contains(vertex.point); });
+    };
+    return collision(a, b) || collision(b, a);
 }
 
 static Status geography_check_polygon_interiors(std::string_view name, const S2ShapeIndex& left,
@@ -1173,6 +1200,15 @@ Status geography_relation(std::string_view name, const GeoShape& lhs, const GeoS
                 "representation",
                 name);
     }
+    // An exterior raw apex at 58+ulp can round onto 58 while its other vertices
+    // remain strictly inside. Check before either coverage exit accepts that region.
+    if (raw_polygon_coverage &&
+        geography_rounded_vertex_collision(
+                left_edges, name == "st_within" ? nodes.right : nodes.left, right_edges,
+                name == "st_within" ? nodes.left : nodes.right)) {
+        return Status::NotSupported(
+                "{} does not support ambiguous spherical Polygon boundary interiors", name);
+    }
     if (containment && container.type() == GeoShapeType::GEO_SHAPE_LINE_STRING &&
         value.type() == GeoShapeType::GEO_SHAPE_POLYGON) {
         *result = false;
@@ -1207,29 +1243,6 @@ Status geography_relation(std::string_view name, const GeoShape& lhs, const GeoS
         }
         if (lhs.type() == GeoShapeType::GEO_SHAPE_POLYGON) {
             *result = S2BooleanOperation::Intersects(left, right, interior_options);
-            if (!*result) {
-                const auto a = left_edges.vertices(nodes.left);
-                const auto b = right_edges.vertices(nodes.right);
-                const auto rounded_vertex_collision = [](const auto& source, const auto& other) {
-                    std::set<S2Point, std::less<>, CustomStdAllocator<S2Point>> distinct;
-                    for (const auto& vertex : source) {
-                        if (!other.contains(vertex)) {
-                            distinct.insert(vertex.point);
-                        }
-                    }
-                    return std::ranges::any_of(other, [&](const auto& vertex) {
-                        return distinct.contains(vertex.point);
-                    });
-                };
-                // Polygon apex (58+ulp,58+ulp) can lie inside the other raw polygon but
-                // round onto (58,58), losing its overlap without a shared rounded arc.
-                // Shared raw subdivisions are not collisions, even when their S2 points coincide.
-                if (rounded_vertex_collision(a, b) || rounded_vertex_collision(b, a)) {
-                    return Status::NotSupported(
-                            "st_overlaps does not support ambiguous spherical Polygon boundary "
-                            "interiors");
-                }
-            }
             return geography_check_polygon_interiors(name, left, right, nodes, left_edges,
                                                      right_edges, *result);
         }

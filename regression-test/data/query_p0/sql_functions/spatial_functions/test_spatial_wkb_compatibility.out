@@ -228,3 +228,11 @@ false	false	true	true
 -- !geography_polygon_vertex_overlap_controls --
 false	false	true	true
 
+-- !geography_adjacent_polygon_subdivision --
+0	false	false	true	true	true	false
+1	false	false	true	true	true	false
+2	false	false	true	true	true	false
+
+-- !geography_strict_polygon_coverage_controls --
+true	true	false	false
+

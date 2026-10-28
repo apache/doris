@@ -902,6 +902,35 @@ TEST(VGeoFunctionsTest, GeographyRejectsRoundedPointPolygonOwnership) {
     expect_geography_relation("st_touches", separated, polygon, false);
 }
 
+TEST(VGeoFunctionsTest, GeographyAdjacentPolygonSubdivisionKeepsBoundaryContact) {
+    const std::string a = "POLYGON ((0 58,1 58,1 59,0 59,0 58))";
+    const std::vector<std::string> neighbours {
+            "POLYGON ((0 58,0 58.00000000000001,0 59,-1 59,-1 58,0 58))",
+            "POLYGON ((0 59,-1 59,-1 58,0 58,0 58.00000000000001,0 59))",
+            "POLYGON ((0 58,-1 58,-1 59,0 59,0 58.00000000000001,0 58))"};
+    for (const auto& b : neighbours) {
+        expect_geography_relation("st_overlaps", a, b, false);
+        expect_geography_relation("st_overlaps", b, a, false);
+        expect_geography_relation("st_touches", a, b, true);
+        expect_geography_relation("st_touches", b, a, true);
+    }
+}
+
+TEST(VGeoFunctionsTest, GeographyRejectsRoundedStrictPolygonCoverage) {
+    const std::string a = "POLYGON ((58 0,57 -1,58 -1,58 0))";
+    const std::string b =
+            "POLYGON ((58.00000000000001 0,57.75 -0.5,57.9 -0.5,58.00000000000001 0))";
+    for (const auto* name : {"st_contains", "st_within", "st_overlaps"}) {
+        expect_rounded_polygon_interior_error(name, a, b);
+        expect_rounded_polygon_interior_error(name, b, a);
+    }
+    const std::string exact = "POLYGON ((58 0,57.75 -0.5,57.9 -0.5,58 0))";
+    expect_geography_relation("st_contains", a, exact, true);
+    expect_geography_relation("st_within", exact, a, true);
+    expect_geography_relation("st_overlaps", a, exact, false);
+    expect_geography_relation("st_overlaps", exact, a, false);
+}
+
 TEST(VGeoFunctionsTest, GeographyOverlapsRejectsRoundedPolygonVertex) {
     const std::string a = "POLYGON ((58 58,59 58,58 59,58 58))";
     const std::string b =

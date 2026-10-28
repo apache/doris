@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateNamedStruct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateStruct;
+import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -221,6 +222,25 @@ public final class ConnectorSpatialWriteNormalizer {
         if (origin.isNullLiteral()) {
             return new NullLiteral(target);
         }
+        // A previously bound ARRAY(NULL) can already be an ArrayLiteral. Retain the
+        // non-NULL container while retagging only its proven NULL-only construction.
+        if (input instanceof ArrayLiteral && target instanceof ArrayType && nullArrayDepth(input) >= 0) {
+            return normalizeSpatialNulls(input, target);
+        }
+        // MERGE eagerly casts each branch to its sink type. An explicit ARRAY<INT>
+        // cast around ARRAY(NULL) must not hide those NULL leaves from retagging.
+        // Only NULL-only arrays are value-independent; keep casts of actual values intact.
+        if (input.getClass() == Cast.class && input.getDataType() instanceof ArrayType
+                && target instanceof ArrayType) {
+            Cast cast = (Cast) input;
+            int depth = nullArrayDepth(cast.child());
+            // CAST(ARRAY(ARRAY(NULL)) AS ARRAY<INT>) must still fail: replacing its
+            // source target must not erase a non-NULL inner array or a text conversion.
+            if (depth >= 0 && depth <= arrayDepth(cast.getDataType()) && depth <= arrayDepth(target)) {
+                return new Cast(normalizeSpatialNullsBeforeBinding(cast.child(), target), target,
+                        cast.isExplicitType(), cast.isStrict());
+            }
+        }
         String constructor = "";
         if (input instanceof UnboundFunction) {
             UnboundFunction function = (UnboundFunction) input;
@@ -274,6 +294,55 @@ public final class ConnectorSpatialWriteNormalizer {
             return new CreateStruct(children.toArray(new Expression[0]));
         }
         return input.withChildren(children);
+    }
+
+    /** Minimum array depth of a proven NULL-only value; -1 means the proof failed. */
+    private static int nullArrayDepth(Expression value) {
+        Expression origin = value;
+        while (origin instanceof Cast) {
+            origin = origin.child(0);
+        }
+        if (origin.isNullLiteral()) {
+            return 0;
+        }
+        if (value.getClass() == Cast.class) {
+            // Do not cross ARRAY -> STRING -> ARRAY: text parsing is not NULL provenance.
+            int depth = nullArrayDepth(value.child(0));
+            return depth >= 0 && depth <= arrayDepth(value.getDataType()) ? depth : -1;
+        }
+        List<? extends Expression> children;
+        if (value instanceof ArrayLiteral) {
+            children = ((ArrayLiteral) value).getValue();
+        } else if (value instanceof Array) {
+            children = value.children();
+        } else if (value instanceof UnboundFunction) {
+            UnboundFunction function = (UnboundFunction) value;
+            if (function.getDbName() != null || function.isDistinct() || function.isSkew()
+                    || !function.getName().equalsIgnoreCase("array")) {
+                return -1;
+            }
+            children = function.children();
+        } else {
+            return -1;
+        }
+        int depth = 0;
+        for (Expression child : children) {
+            int childDepth = nullArrayDepth(child);
+            if (childDepth < 0) {
+                return -1;
+            }
+            depth = Math.max(depth, childDepth);
+        }
+        return depth + 1;
+    }
+
+    private static int arrayDepth(DataType type) {
+        int depth = 0;
+        while (type instanceof ArrayType) {
+            depth++;
+            type = ((ArrayType) type).getItemType();
+        }
+        return depth;
     }
 
     public static Expression normalizeSpatialNulls(Expression input, DataType target) {

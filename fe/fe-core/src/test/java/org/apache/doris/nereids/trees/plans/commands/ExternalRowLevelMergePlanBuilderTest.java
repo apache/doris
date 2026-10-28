@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ShortCircuitIf;
+import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -289,6 +290,47 @@ public class ExternalRowLevelMergePlanBuilderTest {
                     }
                 }
             }
+        }
+    }
+
+    @Test
+    public void mergeBranchesBindCastWrappedNullArrays() {
+        ExpressionAnalyzer analyzer = mergeExpressionAnalyzer();
+        NereidsParser parser = new NereidsParser();
+        for (DataType spatial : ImmutableList.of(new GeometryType("OGC:CRS84"),
+                new GeographyType("OGC:CRS84", "spherical"))) {
+            for (String sql : ImmutableList.of("cast(array(cast(null as int)) as array<int>)",
+                    "cast(cast(array(cast(null as int)) as array<int>) as array<bigint>)")) {
+                DataType target = ArrayType.of(spatial);
+                Expression analyzed = Assertions.assertDoesNotThrow(
+                        () -> analyzer.analyze(mergeBranch(parser.parseExpression(sql), target)), sql);
+                Assertions.assertEquals(target, analyzed.getDataType(), sql);
+                Assertions.assertFalse(analyzed.isNullLiteral(), sql);
+            }
+            DataType nested = ArrayType.of(ArrayType.of(spatial));
+            Assertions.assertEquals(nested, analyzer.analyze(mergeBranch(parser.parseExpression(
+                    "cast(array(array(cast(null as int))) as array<array<int>>)"), nested)).getDataType());
+            Expression literal = new Cast(new ArrayLiteral(ImmutableList.of(new NullLiteral(IntegerType.INSTANCE))),
+                    ArrayType.of(IntegerType.INSTANCE), true, true);
+            Expression branch = mergeBranch(literal, ArrayType.of(spatial));
+            Assertions.assertTrue(branch.anyMatch(expression -> expression instanceof Cast
+                    && ((Cast) expression).isExplicitType() && ((Cast) expression).isStrict()));
+            Assertions.assertEquals(ArrayType.of(spatial), analyzer.analyze(branch).getDataType());
+            Expression wrongDepth = new Cast(new ArrayLiteral(ImmutableList.of(
+                    new ArrayLiteral(ImmutableList.of(new NullLiteral(IntegerType.INSTANCE))))),
+                    ArrayType.of(ArrayType.of(IntegerType.INSTANCE)));
+            Assertions.assertThrows(AnalysisException.class,
+                    () -> analyzer.analyze(mergeBranch(wrongDepth, ArrayType.of(spatial))));
+            for (String invalid : ImmutableList.of(
+                    "cast(array(array(cast(null as int))) as array<int>)",
+                    "cast(cast(array(array(cast(null as int))) as array<array<int>>) as array<int>)",
+                    "cast(cast(array(array(cast(null as int))) as array<int>) as array<array<int>>)")) {
+                Assertions.assertThrows(AnalysisException.class,
+                        () -> analyzer.analyze(mergeBranch(parser.parseExpression(invalid), nested)), invalid);
+            }
+            Assertions.assertThrows(AnalysisException.class, () -> analyzer.analyze(mergeBranch(
+                    parser.parseExpression("cast(array(cast(null as int), 1) as array<int>)"),
+                    ArrayType.of(spatial))));
         }
     }
 
