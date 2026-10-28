@@ -43,6 +43,7 @@ public class EsFieldContext {
     private final List<String> needCompatDateFields = new ArrayList<>();
     private final Set<String> sourceValueUnsafeFields = new HashSet<>();
     private final Set<String> sourceModeUnsafeFields = new HashSet<>();
+    private boolean requiresFullSourceRead;
 
     private final Map<String, String> column2typeMap = new HashMap<>();
 
@@ -72,6 +73,14 @@ public class EsFieldContext {
 
     public Set<String> getSourceModeUnsafeFields() {
         return sourceModeUnsafeFields;
+    }
+
+    public boolean requiresFullSourceRead() {
+        return requiresFullSourceRead;
+    }
+
+    public void requireFullSourceRead() {
+        requiresFullSourceRead = true;
     }
 
     @Override

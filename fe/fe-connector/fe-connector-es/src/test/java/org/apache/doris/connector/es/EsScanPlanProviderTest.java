@@ -1116,4 +1116,78 @@ class EsScanPlanProviderTest {
         Assertions.assertEquals(EsQueryDslBuilder.matchAllQuery(), source.getProperties().get("query_dsl"));
     }
 
+    @Test
+    void generatedAndDefaultDateValuesRequireSourcePredicatesWithoutDisablingDocvalues() {
+        for (String field : Arrays.asList("{\"type\":\"alias\",\"path\":\"n\"}",
+                "{\"type\":\"long\",\"script\":{\"source\":\"emit(5)\"}}", "{\"type\":\"date\"}")) {
+            String mapping = mappingWithField("{\"type\":\"keyword\",\"normalizer\":\"lowercase\"}")
+                    .replace("\"b\":{\"type\":\"keyword\"}", "\"n\":{\"type\":\"long\"},\"b\":" + field);
+            ConnectorType type = field.contains("date") ? ConnectorType.of("DATETIMEV2") : ConnectorType.of("BIGINT");
+            ConnectorLiteral value = field.contains("date")
+                    ? ConnectorLiteral.ofDatetime(java.time.LocalDateTime.of(2024, 1, 1, 8, 0)) : ConnectorLiteral.ofLong(5);
+            ConnectorExpression equal = new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                    new ConnectorColumnRef("b", type), value);
+            ScanNodePropertiesResult docvalue = propertiesForMapping(mapping, equal,
+                    Collections.singletonList(new NamedColumnHandle("b")), minimalProps());
+            Assertions.assertEquals("1", docvalue.getProperties().get("doc_values_mode"), field);
+            Assertions.assertTrue(docvalue.getNotPushedConjunctIndices().isEmpty(), field);
+            ScanNodePropertiesResult source = propertiesForMapping(mapping, equal);
+            Assertions.assertEquals("0", source.getProperties().get("doc_values_mode"), field);
+            Assertions.assertEquals(Collections.singleton(0), source.getNotPushedConjunctIndices(), field);
+            Assertions.assertEquals(EsQueryDslBuilder.matchAllQuery(), source.getProperties().get("query_dsl"), field);
+        }
+    }
+
+    @Test
+    void declaredArrayNullnessUsesTheFinalReadMode() {
+        String mapping = mappingWithField("{\"type\":\"keyword\",\"normalizer\":\"lowercase\"}")
+                .replace("\"properties\":", "\"_meta\":{\"doris\":{\"array_fields\":[\"b\"]}},\"properties\":")
+                .replace("\"b\":{\"type\":\"keyword\"}", "\"b\":{\"type\":\"long\"}");
+        for (boolean negated : new boolean[]{false, true}) {
+            ConnectorExpression predicate = new ConnectorIsNull(new ConnectorColumnRef("b",
+                    new ConnectorType("ARRAY", -1, -1, Collections.singletonList(ConnectorType.of("BIGINT")))), negated);
+            ScanNodePropertiesResult result = propertiesForMapping(mapping, predicate);
+            Assertions.assertEquals(Collections.singleton(0), result.getNotPushedConjunctIndices());
+            Assertions.assertEquals(EsQueryDslBuilder.matchAllQuery(), result.getProperties().get("query_dsl"));
+            ScanNodePropertiesResult docvalue = propertiesForMapping(mapping, predicate,
+                    Collections.singletonList(new NamedColumnHandle("b")), minimalProps());
+            Assertions.assertEquals("1", docvalue.getProperties().get("doc_values_mode"));
+            Assertions.assertTrue(docvalue.getNotPushedConjunctIndices().isEmpty());
+        }
+    }
+
+    @Test
+    void disabledSourceModeHasTheSameSafetyAsDisabledSourceFlag() {
+        String mapping = mappingWithField("{\"type\":\"keyword\",\"normalizer\":\"lowercase\"}")
+                .replace("\"b\":{\"type\":\"keyword\"}", "\"b\":{\"type\":\"long\"}");
+        ConnectorExpression equal = new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                new ConnectorColumnRef("b", ConnectorType.of("BIGINT")), ConnectorLiteral.ofLong(1));
+        for (String source : Arrays.asList("{\"enabled\":false}", "{\"mode\":\"disabled\"}")) {
+            String disabled = mapping.replace("\"properties\":", "\"_source\":" + source + ",\"properties\":");
+            ScanNodePropertiesResult result = propertiesForMapping(disabled, equal);
+            Assertions.assertEquals("0", result.getProperties().get("doc_values_mode"));
+            Assertions.assertEquals(Collections.singleton(0), result.getNotPushedConjunctIndices());
+            Assertions.assertEquals(EsQueryDslBuilder.matchAllQuery(), result.getProperties().get("query_dsl"));
+            Assertions.assertEquals("true", result.getProperties().get("read_full_source"));
+            TFileScanRangeParams params = new TFileScanRangeParams();
+            new EsScanPlanProvider(null, minimalProps()).populateScanLevelParams(params, result.getProperties());
+            Assertions.assertEquals("true", params.getEsProperties().get("read_full_source"));
+        }
+    }
+
+    @Test
+    void disabledRootWithPropertiesRetainsSourcePredicates() {
+        String mapping = mappingWithField("{\"type\":\"keyword\",\"normalizer\":\"lowercase\"}")
+                .replace("\"b\":{\"type\":\"keyword\"}", "\"b\":{\"type\":\"long\"}")
+                .replace("\"properties\":", "\"enabled\":false,\"properties\":");
+        for (boolean negated : new boolean[]{false, true}) {
+            ScanNodePropertiesResult result = propertiesForMapping(mapping,
+                    new ConnectorIsNull(new ConnectorColumnRef("b", ConnectorType.of("BIGINT")), negated));
+            Assertions.assertEquals("0", result.getProperties().get("doc_values_mode"));
+            Assertions.assertEquals(Collections.singleton(0), result.getNotPushedConjunctIndices());
+            Assertions.assertEquals(EsQueryDslBuilder.matchAllQuery(), result.getProperties().get("query_dsl"));
+            Assertions.assertFalse(result.getProperties().containsKey("read_full_source"));
+        }
+    }
+
 }

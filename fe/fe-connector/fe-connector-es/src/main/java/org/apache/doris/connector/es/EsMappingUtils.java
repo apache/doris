@@ -97,7 +97,12 @@ public final class EsMappingUtils {
             Iterator<String> keys = mappings.fieldNames();
             while (keys.hasNext()) {
                 String key = keys.next();
-                if (!mappings.get(key).isObject() || ROOT_MAPPING_OBJECT_PARAMETERS.contains(key)) {
+                JsonNode value = mappings.get(key);
+                // ES6 permits a type named runtime. Its properties contain field descriptors,
+                // whereas a runtime field named properties has scalar parameters such as type.
+                boolean legacyRuntime = "runtime".equals(key) && value.path("properties").isObject()
+                        && allValuesAreObjects(value.path("properties"));
+                if (!value.isObject() || (ROOT_MAPPING_OBJECT_PARAMETERS.contains(key) && !legacyRuntime)) {
                     return mappings;
                 }
             }
@@ -112,6 +117,15 @@ public final class EsMappingUtils {
             }
             return getRootSchema(mappings, null, arrayFields, allowEmpty);
         }
+    }
+
+    private static boolean allValuesAreObjects(JsonNode node) {
+        for (JsonNode value : node) {
+            if (!value.isObject()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -205,13 +219,21 @@ public final class EsMappingUtils {
             Set<String> unsafeDocValues = new HashSet<>();
             for (ObjectNode root : roots) {
                 JsonNode properties = root.path("properties");
+                if (isSourceDisabled(root.path("_source"))) {
+                    // A source projection fails on disabled backings; full source preserves the
+                    // enabled backings of a mixed alias while disabled hits remain NULL.
+                    context.requireFullSourceRead();
+                }
                 Set<String> copyTargets = new HashSet<>();
                 collectCopyTargets(properties, copyTargets);
                 for (String column : columns) {
                     JsonNode field = properties.path(column);
                     JsonNode queryField = fieldAtPath(field, column, context.getFetchFieldsContext().get(column));
                     JsonNode readField = fieldAtPath(field, column, context.getDocValueFieldsContext().get(column));
-                    boolean sourceChanged = filtersSourceColumn(root.path("_source"), column)
+                    // Disabled root parsing leaves source fields but produces no index/docvalues,
+                    // even if an explicit properties section still describes those fields.
+                    boolean sourceChanged = !root.path("enabled").asBoolean(true)
+                            || filtersSourceColumn(root.path("_source"), column)
                             || root.path("runtime").has(column) || copyTargets.contains(column);
                     // ES mappings do not distinguish arrays from scalars. Even a short equality can
                     // match one indexed array element while Doris reads the entire source JSON string.
@@ -219,9 +241,9 @@ public final class EsMappingUtils {
                             || "text".equals(queryField.path("type").asText()) || !isSearchable(queryField)) {
                         context.getSourceValueUnsafeFields().add(column);
                     }
-                    // These mappings round indexed numbers while _source retains the original value.
-                    // Keep docvalues eligible: only a final source read makes their predicates unsafe.
-                    if (roundsNumericSourceValue(field) || roundsNumericSourceValue(queryField)) {
+                    // Source can omit generated/aliased values, retain unrounded numbers or decode
+                    // default dates in local time. Docvalues remain eligible for these mappings.
+                    if (requiresSourcePredicateEvaluation(field) || requiresSourcePredicateEvaluation(queryField)) {
                         context.getSourceModeUnsafeFields().add(column);
                     }
                     // Query and docvalue paths may select different multi-fields. An unused sibling's
@@ -250,9 +272,11 @@ public final class EsMappingUtils {
                 || field.hasNonNull("null_value") || field.path("ignore_malformed").asBoolean(false);
     }
 
-    private static boolean roundsNumericSourceValue(JsonNode field) {
+    private static boolean requiresSourcePredicateEvaluation(JsonNode field) {
         String type = field.path("type").asText();
-        return "scaled_float".equals(type) || "half_float".equals(type);
+        // A default date may be a date-only source string read as local midnight, unlike its UTC index value.
+        return "scaled_float".equals(type) || "half_float".equals(type) || "alias".equals(type)
+                || field.hasNonNull("script") || ("date".equals(type) && !field.has("format"));
     }
 
     private static boolean isSearchable(JsonNode field) {
@@ -265,9 +289,14 @@ public final class EsMappingUtils {
 
     private static boolean filtersSourceColumn(JsonNode source, String column) {
         JsonNode includes = source.path("includes");
-        return !source.path("enabled").asBoolean(true)
+        return isSourceDisabled(source)
                 || (includes.size() > 0 && !matchesSourcePattern(includes, column))
                 || matchesSourcePattern(source.path("excludes"), column);
+    }
+
+    private static boolean isSourceDisabled(JsonNode source) {
+        // ES can serialize disabled source as mode=disabled without an enabled flag.
+        return !source.path("enabled").asBoolean(true) || "disabled".equals(source.path("mode").asText());
     }
 
     private static boolean matchesSourcePattern(JsonNode patterns, String column) {

@@ -70,6 +70,7 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
     public static final String PROP_PASSWORD = "password";
     public static final String PROP_HTTP_SSL_ENABLED = "http_ssl_enabled";
     public static final String PROP_DOC_VALUES_MODE = "doc_values_mode";
+    private static final String PROP_READ_FULL_SOURCE = "read_full_source";
     public static final String PROP_ES_INDEX = "_es_index";
 
     public static final String PROP_DOCVALUE_CONTEXT_JSON = "docvalue_context_json";
@@ -215,6 +216,10 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
         // from scalar docvalues to source JSON (e.g. ["cat"]). Decide it before pruning b's predicate.
         int docValuesMode = useDocValueScan(columns, state);
         nodeProps.put(PROP_DOC_VALUES_MODE, String.valueOf(docValuesMode));
+        if (docValuesMode == 0 && state.getFieldContext() != null
+                && state.getFieldContext().requiresFullSourceRead()) {
+            nodeProps.put(PROP_READ_FULL_SOURCE, "true");
+        }
 
         EsQueryDslResult dslResult = buildQueryDsl(filter, state, docValuesMode);
         nodeProps.put(PROP_QUERY_DSL, dslResult.getQueryDsl());
@@ -282,7 +287,7 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
         }
 
         if (docValuesMode == 0) {
-            collectSourceStringFields(filter.get(), unsafeFields);
+            collectSourceUnsafeFields(filter.get(), unsafeFields);
         }
 
         return EsQueryDslBuilder.buildQueryDslWithResult(
@@ -290,20 +295,21 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
                 props.isLikePushDown(), needCompatDateFields, unsafeFields);
     }
 
-    private static void collectSourceStringFields(ConnectorExpression expression, Set<String> fields) {
+    private static void collectSourceUnsafeFields(ConnectorExpression expression, Set<String> fields) {
         if (expression instanceof ConnectorColumnRef) {
             ConnectorColumnRef column = (ConnectorColumnRef) expression;
             String type = column.getType().getTypeName();
-            // Source arrays are serialized as STRING, whereas ES predicates match their elements.
+            // Source arrays preserve their container (or JSON STRING), whereas ES matches elements
+            // and treats an empty array as missing. Source nullness must retain the local predicate.
             // _id comes from hit metadata and cannot acquire an array representation in source mode.
             if (!"_id".equals(column.getColumnName())
                     && ("STRING".equalsIgnoreCase(type) || "VARCHAR".equalsIgnoreCase(type)
-                            || "CHAR".equalsIgnoreCase(type))) {
+                            || "CHAR".equalsIgnoreCase(type) || "ARRAY".equalsIgnoreCase(type))) {
                 fields.add(column.getColumnName());
             }
         }
         for (ConnectorExpression child : expression.getChildren()) {
-            collectSourceStringFields(child, fields);
+            collectSourceUnsafeFields(child, fields);
         }
     }
 
@@ -382,6 +388,7 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
         copyIfPresent(properties, PROP_PASSWORD, esProperties);
         copyIfPresent(properties, PROP_HTTP_SSL_ENABLED, esProperties);
         copyIfPresent(properties, PROP_DOC_VALUES_MODE, esProperties);
+        copyIfPresent(properties, PROP_READ_FULL_SOURCE, esProperties);
         // Ask ES to stop after N hits instead of scrolling everything. Only correct when the engine has NO
         // filtering left to do after the scan (otherwise rows ES returns could still be filtered out, and
         // stopping early would lose rows), and only worth it when the limit fits in one BE batch. The engine

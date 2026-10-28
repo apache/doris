@@ -356,6 +356,32 @@ public final class EsQueryDslBuilder {
             boolean likePushDown,
             List<String> needCompatDateFields,
             Map<String, String> column2typeMap) {
+        // Optimizer NOT simplification is optional. Inverting a comparison keeps NULL as
+        // UNKNOWN; complementing its ES true-set would instead make missing values match.
+        ConnectorExpression operand = not.getOperand();
+        ConnectorExpression normalized = null;
+        if (operand instanceof ConnectorNot) {
+            normalized = ((ConnectorNot) operand).getOperand();
+        } else if (operand instanceof ConnectorComparison) {
+            ConnectorComparison comparison = (ConnectorComparison) operand;
+            ConnectorComparison.Operator inverse = negateOperator(comparison.getOperator());
+            if (inverse != null) {
+                normalized = new ConnectorComparison(inverse, comparison.getLeft(), comparison.getRight());
+            }
+        } else if (operand instanceof ConnectorIsNull) {
+            ConnectorIsNull isNull = (ConnectorIsNull) operand;
+            normalized = new ConnectorIsNull(isNull.getOperand(), !isNull.isNegated());
+        } else if (operand instanceof ConnectorAnd || operand instanceof ConnectorOr) {
+            List<ConnectorExpression> negated = new ArrayList<>();
+            for (ConnectorExpression child : operand.getChildren()) {
+                negated.add(new ConnectorNot(child));
+            }
+            normalized = operand instanceof ConnectorAnd ? new ConnectorOr(negated) : new ConnectorAnd(negated);
+        }
+        if (normalized != null) {
+            return toEsDsl(normalized, notPushDownList, fieldsContext,
+                    likePushDown, needCompatDateFields, column2typeMap);
+        }
         String child = toEsDsl(not.getOperand(), notPushDownList, fieldsContext,
                 likePushDown, needCompatDateFields, column2typeMap);
         if (child == null) {
@@ -366,6 +392,25 @@ public final class EsQueryDslBuilder {
         ObjectNode boolNode = root.putObject("bool");
         boolNode.set("must_not", parseJsonNode(child));
         return root.toString();
+    }
+
+    private static ConnectorComparison.Operator negateOperator(ConnectorComparison.Operator op) {
+        switch (op) {
+            case EQ:
+                return ConnectorComparison.Operator.NE;
+            case NE:
+                return ConnectorComparison.Operator.EQ;
+            case LT:
+                return ConnectorComparison.Operator.GE;
+            case LE:
+                return ConnectorComparison.Operator.GT;
+            case GT:
+                return ConnectorComparison.Operator.LE;
+            case GE:
+                return ConnectorComparison.Operator.LT;
+            default:
+                return null;
+        }
     }
 
     // -----------------------------------------------------------------------

@@ -86,6 +86,31 @@ public class EsQueryDslBuilderTest {
     }
 
     @Test
+    void retainedNotComparisonsPreserveNullRejection() {
+        ConnectorColumnRef column = new ConnectorColumnRef("value", ConnectorType.of("BIGINT"));
+        ConnectorComparison.Operator[] operators = {ConnectorComparison.Operator.EQ, ConnectorComparison.Operator.NE,
+                ConnectorComparison.Operator.LT, ConnectorComparison.Operator.LE,
+                ConnectorComparison.Operator.GT, ConnectorComparison.Operator.GE};
+        ConnectorComparison.Operator[] inverses = {ConnectorComparison.Operator.NE, ConnectorComparison.Operator.EQ,
+                ConnectorComparison.Operator.GE, ConnectorComparison.Operator.GT,
+                ConnectorComparison.Operator.LE, ConnectorComparison.Operator.LT};
+        for (int i = 0; i < operators.length; i++) {
+            ConnectorExpression expression = new ConnectorComparison(operators[i], column, ConnectorLiteral.ofLong(1));
+            ConnectorExpression inverse = new ConnectorComparison(inverses[i], column, ConnectorLiteral.ofLong(1));
+            Assertions.assertEquals(buildWithTracking(inverse).getQueryDsl(),
+                    buildWithTracking(new ConnectorNot(expression)).getQueryDsl());
+            Assertions.assertEquals(buildWithTracking(expression).getQueryDsl(),
+                    buildWithTracking(new ConnectorNot(new ConnectorNot(expression))).getQueryDsl());
+        }
+        ConnectorExpression eq = new ConnectorComparison(ConnectorComparison.Operator.EQ, column,
+                ConnectorLiteral.ofLong(1));
+        ConnectorExpression ne = new ConnectorComparison(ConnectorComparison.Operator.NE, column,
+                ConnectorLiteral.ofLong(1));
+        Assertions.assertEquals(buildWithTracking(new ConnectorAnd(Arrays.asList(ne, eq))).getQueryDsl(),
+                buildWithTracking(new ConnectorNot(new ConnectorOr(Arrays.asList(eq, ne)))).getQueryDsl());
+    }
+
+    @Test
     void notEqualExcludesMissingValuesForEveryNonNullLiteral() {
         for (ConnectorLiteral literal : Arrays.asList(ConnectorLiteral.ofLong(1),
                 ConnectorLiteral.ofString("one"), ConnectorLiteral.ofString(""), ConnectorLiteral.ofBoolean(true))) {
