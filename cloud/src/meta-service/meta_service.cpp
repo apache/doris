@@ -138,6 +138,20 @@ std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
                 LOG(WARNING) << msg << ", cloud_unique_id=" << cloud_unique_id;
                 return "";
             }
+            // Anyone knowing the instance_id can build a degraded format cloud_unique_id, so it
+            // is only trusted when it is a registered node of that instance.
+            bool registered = false;
+            for (const auto& cluster : instance.clusters()) {
+                for (const auto& node : cluster.nodes()) {
+                    registered |= node.cloud_unique_id() == cloud_unique_id;
+                }
+            }
+            if (!registered) {
+                LOG(WARNING) << "use degraded format cloud_unique_id, but node is not registered, "
+                                "cloud_unique_id="
+                             << cloud_unique_id << " instance_id=" << id;
+                return "";
+            }
         }
         return id;
     }
@@ -168,6 +182,29 @@ std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
     }
 
     return instance_id;
+}
+
+bool MetaServiceProxy::check_request_instance_id(const ::google::protobuf::Message& req,
+                                                 MetaServiceResponseStatus* status) {
+    const auto* descriptor = req.GetDescriptor();
+    const auto* reflection = req.GetReflection();
+    std::string instance_id =
+            reflection->GetString(req, descriptor->FindFieldByName("instance_id"));
+    const auto* cloud_unique_id_field = descriptor->FindFieldByName("cloud_unique_id");
+    if (instance_id.empty() || cloud_unique_id_field == nullptr) {
+        return true;
+    }
+    std::string cloud_unique_id = reflection->GetString(req, cloud_unique_id_field);
+    // Requests carrying only instance_id are kept for compatibility, e.g. FE alter_cluster.
+    if (cloud_unique_id.empty() ||
+        get_instance_id(resource_mgr(), cloud_unique_id) == instance_id) {
+        return true;
+    }
+    status->set_code(MetaServiceCode::INVALID_ARGUMENT);
+    status->set_msg("instance_id does not belong to cloud_unique_id");
+    LOG(WARNING) << status->msg() << ", request=" << descriptor->name()
+                 << " instance_id=" << instance_id << " cloud_unique_id=" << cloud_unique_id;
+    return false;
 }
 
 // Return `true` if tablet has been dropped; otherwise or it may not determine when meeting errors, return false
