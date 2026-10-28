@@ -37,6 +37,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+#include <chrono>
 #include <cstring>
 #include <functional>
 #include <memory>
@@ -82,6 +83,7 @@
 #include "service/backend_service.h"
 #include "service/http_service.h"
 #include "service/server/be_server_starter_factory.h"
+#include "storage/disk_health_check_watchdog.h"
 #include "storage/options.h"
 #include "storage/storage_engine.h"
 #include "udf/python/python_env.h"
@@ -491,8 +493,16 @@ int main(int argc, char** argv) {
     std::set<std::string> broken_paths;
     doris::parse_conf_broken_store_paths(doris::config::broken_storage_path, &broken_paths);
 
+    doris::DiskHealthCheckWatchdog startup_disk_watchdog;
+    auto watchdog_status = startup_disk_watchdog.start(
+            std::chrono::seconds(doris::config::disk_health_check_timeout_seconds));
+    if (!watchdog_status.ok()) {
+        LOG(ERROR) << "Cannot supervise startup disk checks: " << watchdog_status;
+        return -1;
+    }
     auto it = paths.begin();
     for (; it != paths.end();) {
+        doris::DiskHealthCheckWatchdog::ScopedCheck check(startup_disk_watchdog);
         if (broken_paths.count(it->path) > 0) {
             if (doris::config::ignore_broken_disk) {
                 LOG(WARNING) << "ignore broken disk, path = " << it->path;
@@ -516,12 +526,15 @@ int main(int argc, char** argv) {
     }
 
     if (paths.empty()) {
+        // exit() does not unwind the scope: supervise logging and teardown as well.
+        doris::DiskHealthCheckWatchdog::ScopedCheck check(startup_disk_watchdog);
         LOG(ERROR) << "All disks are broken, exit.";
         exit(-1);
     }
 
     it = spill_paths.begin();
     for (; it != spill_paths.end();) {
+        doris::DiskHealthCheckWatchdog::ScopedCheck check(startup_disk_watchdog);
         if (!doris::check_datapath_rw(it->path)) {
             if (doris::config::ignore_broken_disk) {
                 LOG(WARNING) << "read write test file failed, path=" << it->path;
@@ -537,9 +550,12 @@ int main(int argc, char** argv) {
     // With spill_storage_type=s3 query spill goes to object storage (validated by
     // SpillFileManager::init()), so local spill paths are optional.
     if (doris::config::spill_storage_type != "s3" && spill_paths.empty()) {
+        // Keep the deadline armed through logging, atexit handlers and teardown.
+        doris::DiskHealthCheckWatchdog::ScopedCheck check(startup_disk_watchdog);
         LOG(ERROR) << "All spill disks are broken, exit.";
         exit(-1);
     }
+    startup_disk_watchdog.stop();
 
     // initialize libcurl here to avoid concurrent initialization
     auto curl_ret = curl_global_init(CURL_GLOBAL_ALL);
