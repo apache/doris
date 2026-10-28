@@ -20,6 +20,7 @@ package org.apache.doris.datasource.split;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.FairTaskExecutor;
 import org.apache.doris.common.util.LocationPath;
+import org.apache.doris.connector.ConnectorStatementScopeImpl;
 import org.apache.doris.connector.spi.ConnectorTaskScheduler;
 import org.apache.doris.datasource.scan.FederationBackendPolicy;
 import org.apache.doris.spi.Split;
@@ -349,6 +350,53 @@ class SplitProducerTest {
             Assertions.assertEquals(0, source.closeCalls.get());
             release.countDown();
             Assertions.assertTrue(source.closed.await(5, TimeUnit.SECONDS));
+            Assertions.assertEquals(1, source.closeCalls.get());
+            Assertions.assertEquals(1, fixture.completions.get());
+            Mockito.verify(fixture.policy, Mockito.never()).computeScanRangeAssignment(Mockito.any());
+        } finally {
+            release.countDown();
+            executor.shutdownNow();
+            Assertions.assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    void readThatOutlivesItsStatementLoadsNothingIntoTheClosedScope() throws Exception {
+        // Stopping the scan only flags a producer that is already inside getNextBatch, and the statement then
+        // closes its connector scope. When that read goes on to resolve its table (Iceberg's streamSplits borrows
+        // one through the scope), the closed scope refuses it, so it borrows nothing that would never be returned.
+        // MUTATION: a scope that still loads after closeAll -> loads==1 -> red.
+        Fixture fixture = new Fixture(1, 1);
+        ConnectorStatementScopeImpl scope = new ConnectorStatementScopeImpl();
+        AtomicInteger loads = new AtomicInteger();
+        CountDownLatch reading = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        RecordingSource source = new RecordingSource(1, 0) {
+            @Override
+            public List<Split> getNextBatch() throws IOException {
+                reading.countDown();
+                try {
+                    Assertions.assertTrue(release.await(5, TimeUnit.SECONDS));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IOException(e);
+                }
+                scope.computeIfAbsent("iceberg:table:1:db:tbl", () -> {
+                    loads.incrementAndGet();
+                    return (AutoCloseable) () -> { };
+                });
+                return super.getNextBatch();
+            }
+        };
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            fixture.start(executor, source);
+            Assertions.assertTrue(reading.await(5, TimeUnit.SECONDS));
+            fixture.assignment.stop();
+            scope.closeAll();
+            release.countDown();
+            Assertions.assertTrue(source.closed.await(5, TimeUnit.SECONDS));
+            Assertions.assertEquals(0, loads.get(), "the closed scope refuses the late read's load");
             Assertions.assertEquals(1, source.closeCalls.get());
             Assertions.assertEquals(1, fixture.completions.get());
             Mockito.verify(fixture.policy, Mockito.never()).computeScanRangeAssignment(Mockito.any());
