@@ -439,6 +439,33 @@ TEST_F(IndexReaderHelperTest, NormalizerOnlyPhraseAndScoringNeedNoPositions) {
             InvertedIndexQueryType::MATCH_ANY_QUERY, &custom_meta));
 }
 
+TEST_F(IndexReaderHelperTest, MatchScoringAcceptsKeywordIndexes) {
+    // Keyword indexes score with unit frequency and length, so phrase support does not matter.
+    for (const auto& properties : std::vector<std::map<std::string, std::string>> {
+                 {}, {{"parser", "none"}}, {{"parser", "none"}, {"support_phrase", "true"}}}) {
+        SCOPED_TRACE(::testing::PrintToString(properties));
+        TabletIndexPB pb;
+        pb.set_index_id(1);
+        pb.set_index_name("keyword_index");
+        pb.set_index_type(IndexType::INVERTED);
+        pb.add_col_unique_id(1);
+        for (const auto& [key, value] : properties) {
+            (*pb.mutable_properties())[key] = value;
+        }
+        TabletIndex index;
+        index.init_from_pb(pb);
+        for (auto op : {TExprOpcode::MATCH_ANY, TExprOpcode::MATCH_ALL, TExprOpcode::MATCH_PHRASE,
+                        TExprOpcode::MATCH_PHRASE_PREFIX}) {
+            EXPECT_TRUE(IndexReaderHelper::is_need_similarity_score(op, &index));
+        }
+        EXPECT_TRUE(IndexReaderHelper::is_need_similarity_score(
+                InvertedIndexQueryType::MATCH_ANY_QUERY, &index));
+        EXPECT_FALSE(IndexReaderHelper::is_need_similarity_score(TExprOpcode::EQ, &index));
+        EXPECT_FALSE(IndexReaderHelper::is_need_similarity_score(
+                InvertedIndexQueryType::EQUAL_QUERY, &index));
+    }
+}
+
 TEST_F(IndexReaderHelperTest, IsNeedSimilarityScoreWithTExprOpcodeTest) {
     TabletIndex index_meta;
     auto index_meta_pb = std::make_unique<TabletIndexPB>();

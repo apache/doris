@@ -1333,10 +1333,9 @@ TEST_F(CollectionStatisticsTest, CollectNotExtractedColumnSkipsFallback) {
     EXPECT_TRUE(collect_infos.empty());
 }
 
-// L1: Index whose properties do not request an analyzer
-// (should_analyzer returns false). The matching index_meta is iterated
-// but skipped before insertion.
-TEST_F(CollectionStatisticsTest, CollectSkipsIndexWithoutAnalyzer) {
+// L1: Index whose properties do not request an analyzer (should_analyzer returns false). A keyword
+// MATCH scores like SEARCH on the same field, so its whole value is collected as one term.
+TEST_F(CollectionStatisticsTest, CollectsKeywordIndexValueAsOneTerm) {
     auto tablet_schema = std::make_shared<TabletSchema>();
 
     constexpr int32_t kColUid = 1300;
@@ -1361,7 +1360,7 @@ TEST_F(CollectionStatisticsTest, CollectSkipsIndexWithoutAnalyzer) {
 
     auto match_expr = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
     auto slot_ref = std::make_shared<collection_statistics::MockVSlotRef>("kw", SlotId(kSlotId));
-    auto literal = std::make_shared<collection_statistics::MockVLiteral>("v");
+    auto literal = std::make_shared<collection_statistics::MockVLiteral>("Hello World");
     match_expr->_children.push_back(slot_ref);
     match_expr->_children.push_back(literal);
 
@@ -1370,7 +1369,12 @@ TEST_F(CollectionStatisticsTest, CollectSkipsIndexWithoutAnalyzer) {
     auto status =
             collector.collect(runtime_state_.get(), tablet_schema, match_expr, &collect_infos);
     ASSERT_TRUE(status.ok()) << status.msg();
-    EXPECT_TRUE(collect_infos.empty());
+    ASSERT_EQ(collect_infos.size(), 1U);
+    const auto& collect_info = collect_infos.begin()->second;
+    ASSERT_NE(collect_info.index_meta, nullptr);
+    EXPECT_EQ(collect_info.index_meta->index_id(), 2300);
+    ASSERT_EQ(collect_info.term_infos.size(), 1U);
+    EXPECT_EQ(collect_info.term_infos.begin()->get_single_term(), "Hello World");
 }
 
 // L2: Index whose analyzer is set (should_analyzer returns true) but does
