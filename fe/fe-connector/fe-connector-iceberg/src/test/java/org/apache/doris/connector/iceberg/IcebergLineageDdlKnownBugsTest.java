@@ -28,8 +28,10 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableProperties;
+import org.apache.iceberg.UpdateRequirement;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
+import org.apache.iceberg.catalog.TableCommit;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.encryption.EncryptionManager;
 import org.apache.iceberg.exceptions.CommitFailedException;
@@ -45,6 +47,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public class IcebergLineageDdlKnownBugsTest {
     private static final TableIdentifier IDENTIFIER = TableIdentifier.of("db", "events");
@@ -129,6 +132,44 @@ public class IcebergLineageDdlKnownBugsTest {
     @Test
     public void revalidatesSchemaAddedBeforeCommitRetry() throws Exception {
         assertConcurrentSchemaChangeRejected(RaceMode.COMMIT_CONFLICT);
+    }
+
+    @Test
+    public void restUpgradeFencesValidatedSchemaGeneration() throws Exception {
+        try (InMemoryCatalog catalog = catalog()) {
+            catalog.createTable(IDENTIFIER, new Schema(
+                            Types.NestedField.optional(1, "id", Types.LongType.get())),
+                    PartitionSpec.unpartitioned(), Collections.singletonMap("format-version", "2"));
+            Table underlying = catalog.loadTable(IDENTIFIER);
+            TableOperations operations = ((HasTableOperations) underlying).operations();
+            int validatedSchemaId = operations.current().currentSchemaId();
+            RestServerMergingCommit restCommit = new RestServerMergingCommit(operations);
+            Catalog catalogApi = new SingleTableCatalog(
+                    new BaseTable(operations, IDENTIFIER.toString()));
+
+            Map<String, String> properties = new LinkedHashMap<>();
+            properties.put(TableProperties.WRITE_TARGET_FILE_SIZE_BYTES, "134217728");
+            properties.put(TableProperties.FORMAT_VERSION, "3");
+            DorisConnectorException exception = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> new CatalogBackedIcebergCatalogOps(catalogApi, null, true, false, true, Optional.empty(),
+                            table -> () -> { }, restCommit)
+                            .setTableProperties("db", "events", properties));
+
+            Assertions.assertTrue(exception.getMessage().contains("_ROW_ID"), exception.getMessage());
+            TableCommit attempted = restCommit.attemptedCommit();
+            Assertions.assertNotNull(attempted);
+            Assertions.assertTrue(attempted.requirements().stream()
+                            .anyMatch(requirement -> requirement instanceof UpdateRequirement.AssertCurrentSchemaID
+                                    && ((UpdateRequirement.AssertCurrentSchemaID) requirement).schemaId()
+                                    == validatedSchemaId),
+                    "REST upgrade must assert the exact schema generation that Doris validated");
+
+            Table after = catalog.loadTable(IDENTIFIER);
+            Assertions.assertEquals(2,
+                    ((HasTableOperations) after).operations().current().formatVersion());
+            Assertions.assertFalse(after.properties().containsKey(TableProperties.WRITE_TARGET_FILE_SIZE_BYTES));
+            Assertions.assertNotNull(after.schema().findField("_ROW_ID"));
+        }
     }
 
     private void assertConcurrentSchemaChangeRejected(RaceMode raceMode) throws Exception {
@@ -237,6 +278,29 @@ public class IcebergLineageDdlKnownBugsTest {
         @Override
         public void renameTable(TableIdentifier from, TableIdentifier to) {
             throw new UnsupportedOperationException();
+        }
+    }
+
+    private static final class RestServerMergingCommit implements IcebergCatalogOps.RestTableCommit {
+        private final TableOperations operations;
+        private TableCommit attemptedCommit;
+
+        private RestServerMergingCommit(TableOperations operations) {
+            this.operations = operations;
+        }
+
+        private TableCommit attemptedCommit() {
+            return attemptedCommit;
+        }
+
+        @Override
+        public void commit(List<TableCommit> commits) {
+            attemptedCommit = commits.get(0);
+            new BaseTable(operations, IDENTIFIER.toString())
+                    .updateSchema().addColumn("_ROW_ID", Types.LongType.get()).commit();
+            TableMetadata serverBase = operations.refresh();
+            attemptedCommit.requirements().forEach(requirement -> requirement.validate(serverBase));
+            throw new AssertionError("REST schema fence did not reject a server-side schema merge");
         }
     }
 

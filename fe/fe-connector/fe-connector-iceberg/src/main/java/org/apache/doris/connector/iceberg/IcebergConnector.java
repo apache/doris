@@ -685,7 +685,9 @@ public class IcebergConnector implements Connector {
         if (sc != null && !isUserSessionEnabled()) {
             ViewCatalog sharedViewCatalog = sc.asViewCatalog(SessionCatalog.SessionContext.createEmpty());
             return new IcebergCatalogOps.CatalogBackedIcebergCatalogOps(sharedCatalog, sharedViewCatalog,
-                    restFlavor, nestedNamespaceEnabled, viewEnabled, externalCatalogName, this::cachedTableCleanup);
+                    restFlavor, nestedNamespaceEnabled, viewEnabled, externalCatalogName, this::cachedTableCleanup,
+                    commits -> IcebergSessionCatalogAdapter.commitTransaction(
+                            sc, SessionCatalog.SessionContext.createEmpty(), commits));
         }
         return new IcebergCatalogOps.CatalogBackedIcebergCatalogOps(sharedCatalog,
                 restFlavor, nestedNamespaceEnabled, viewEnabled, externalCatalogName, this::cachedTableCleanup);
@@ -713,7 +715,8 @@ public class IcebergConnector implements Connector {
                 catalogProps.getExternalCatalogName();
         // restFlavor is unconditionally true here (isUserSessionEnabled() ⇒ a REST catalog).
         return new IcebergCatalogOps.CatalogBackedIcebergCatalogOps(perUserCatalog, perUserViewCatalog,
-                true, nestedNamespaceEnabled, viewEnabled, externalCatalogName, this::cachedTableCleanup);
+                true, nestedNamespaceEnabled, viewEnabled, externalCatalogName, this::cachedTableCleanup,
+                commits -> adapter.commitTransaction(session, commits));
     }
 
     /**

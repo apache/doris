@@ -39,10 +39,13 @@ import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.UpdatePartitionSpec;
+import org.apache.iceberg.UpdateRequirement;
 import org.apache.iceberg.UpdateSchema;
 import org.apache.iceberg.catalog.Catalog;
+import org.apache.iceberg.catalog.ImmutableTableCommit;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.SupportsNamespaces;
+import org.apache.iceberg.catalog.TableCommit;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.catalog.ViewCatalog;
 import org.apache.iceberg.exceptions.CommitFailedException;
@@ -89,6 +92,12 @@ import java.util.stream.Stream;
  * metadata layer) is kept INTERNAL to the default impl.
  */
 public interface IcebergCatalogOps {
+
+    /** Commits REST table changes through the session catalog that produced the current table/catalog adapter. */
+    @FunctionalInterface
+    interface RestTableCommit {
+        void commit(List<TableCommit> commits);
+    }
 
     /**
      * Lists the top-level database (namespace) names, or an empty list when the catalog does not
@@ -295,6 +304,7 @@ public interface IcebergCatalogOps {
         private final boolean viewEnabled;
         private final Optional<String> externalCatalogName;
         private final Function<Table, Runnable> tableCleanup;
+        private final RestTableCommit restTableCommit;
 
         public CatalogBackedIcebergCatalogOps(Catalog catalog) {
             this(catalog, false, false, true, Optional.empty(), table -> () -> { });
@@ -321,6 +331,13 @@ public interface IcebergCatalogOps {
         public CatalogBackedIcebergCatalogOps(Catalog catalog, ViewCatalog viewCatalog, boolean restFlavor,
                 boolean nestedNamespaceEnabled, boolean viewEnabled, Optional<String> externalCatalogName,
                 Function<Table, Runnable> tableCleanup) {
+            this(catalog, viewCatalog, restFlavor, nestedNamespaceEnabled, viewEnabled, externalCatalogName,
+                    tableCleanup, null);
+        }
+
+        public CatalogBackedIcebergCatalogOps(Catalog catalog, ViewCatalog viewCatalog, boolean restFlavor,
+                boolean nestedNamespaceEnabled, boolean viewEnabled, Optional<String> externalCatalogName,
+                Function<Table, Runnable> tableCleanup, RestTableCommit restTableCommit) {
             this.catalog = catalog;
             this.viewCatalog = viewCatalog;
             this.restFlavor = restFlavor;
@@ -328,6 +345,7 @@ public interface IcebergCatalogOps {
             this.viewEnabled = viewEnabled;
             this.externalCatalogName = externalCatalogName;
             this.tableCleanup = tableCleanup;
+            this.restTableCommit = restTableCommit;
         }
 
         @Override
@@ -517,8 +535,9 @@ public interface IcebergCatalogOps {
 
         @Override
         public void setTableProperties(String dbName, String tableName, Map<String, String> properties) {
+            TableIdentifier identifier = toTableIdentifier(dbName, tableName);
             withTable(dbName, tableName, table -> {
-                commitTableProperties(table, properties);
+                commitTableProperties(identifier, table, properties);
                 return null;
             });
         }
@@ -528,7 +547,7 @@ public interface IcebergCatalogOps {
          * that can actually be committed. {@link Table#updateProperties()} refreshes inside its retry loop, so a
          * one-time precheck can validate a different schema from the one eventually upgraded.
          */
-        private static void commitTableProperties(Table table, Map<String, String> properties) {
+        private void commitTableProperties(TableIdentifier identifier, Table table, Map<String, String> properties) {
             if (!(table instanceof HasTableOperations)) {
                 throw new DorisConnectorException(
                         "Cannot update properties for an Iceberg table without metadata operations: " + table.name());
@@ -554,8 +573,32 @@ public interface IcebergCatalogOps {
                         updatedProperties.putAll(properties);
                         MetricsConfig.validate(updatedProperties, base.schema());
                         IcebergSchemaUtils.validateRowLineageFormatVersionUpgrade(base, properties);
-                        taskOps.commit(base, base.replaceProperties(updatedProperties));
+                        TableMetadata updated = base.replaceProperties(updatedProperties);
+                        boolean requiresSchemaFence =
+                                IcebergSchemaUtils.requiresRowLineageFormatVersionUpgrade(base, properties);
+                        if (requiresSchemaFence && restTableCommit != null) {
+                            commitSchemaFencedRestUpgrade(identifier, base, updated);
+                        } else if (requiresSchemaFence && restFlavor) {
+                            throw new DorisConnectorException(
+                                    "Cannot safely upgrade a wrapped Iceberg REST catalog to v3");
+                        } else {
+                            taskOps.commit(base, updated);
+                        }
                     });
+        }
+
+        /**
+         * REST servers can rebase property updates onto a newer metadata version without returning a conflict.
+         * Bind a row-lineage format upgrade to the exact schema generation that was validated on the client.
+         */
+        private void commitSchemaFencedRestUpgrade(
+                TableIdentifier identifier, TableMetadata base, TableMetadata updated) {
+            TableCommit tableCommit = TableCommit.create(identifier, base, updated);
+            TableCommit fencedCommit = ImmutableTableCommit.builder()
+                    .from(tableCommit)
+                    .addRequirements(new UpdateRequirement.AssertCurrentSchemaID(base.currentSchemaId()))
+                    .build();
+            restTableCommit.commit(Collections.singletonList(fencedCommit));
         }
 
         @Override

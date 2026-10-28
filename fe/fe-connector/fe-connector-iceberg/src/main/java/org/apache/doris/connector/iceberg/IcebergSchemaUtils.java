@@ -121,26 +121,26 @@ public final class IcebergSchemaUtils {
      * Iceberg instead of maintaining a second reserved-name rule here.</p>
      */
     static void validateRowLineageFormatVersionUpgrade(TableMetadata metadata, Map<String, String> properties) {
-        int currentFormatVersion = metadata.formatVersion();
-        if (currentFormatVersion >= ICEBERG_ROW_LINEAGE_MIN_VERSION) {
-            return;
+        if (requiresRowLineageFormatVersionUpgrade(metadata, properties)) {
+            validateRowLineageSchema(metadata.schema());
+        }
+    }
+
+    static boolean requiresRowLineageFormatVersionUpgrade(TableMetadata metadata, Map<String, String> properties) {
+        if (metadata.formatVersion() >= ICEBERG_ROW_LINEAGE_MIN_VERSION) {
+            return false;
         }
 
         String requestedFormatVersion = properties.get(TableProperties.FORMAT_VERSION);
         if (requestedFormatVersion == null) {
-            return;
+            return false;
         }
 
-        int targetFormatVersion;
         try {
-            targetFormatVersion = Integer.parseInt(requestedFormatVersion);
+            return Integer.parseInt(requestedFormatVersion) >= ICEBERG_ROW_LINEAGE_MIN_VERSION;
         } catch (NumberFormatException ignored) {
             // Leave invalid values to Iceberg's UpdateProperties validation.
-            return;
-        }
-
-        if (targetFormatVersion >= ICEBERG_ROW_LINEAGE_MIN_VERSION) {
-            validateRowLineageSchema(metadata.schema());
+            return false;
         }
     }
 
