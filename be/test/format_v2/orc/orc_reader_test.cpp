@@ -10130,6 +10130,7 @@ TEST_F(NewOrcReaderTest, SargConjunctReadsNonAdjacentStripeRangesAfterPruning) {
     auto reader = create_reader_for_path(multi_stripe_file_path);
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     ASSERT_TRUE(reader->init(&state).ok());
+    reader->set_batch_size(32);
 
     std::vector<format::ColumnDefinition> schema;
     ASSERT_TRUE(reader->get_schema(&schema).ok());
@@ -10137,6 +10138,7 @@ TEST_F(NewOrcReaderTest, SargConjunctReadsNonAdjacentStripeRangesAfterPruning) {
 
     auto request = std::make_shared<format::FileScanRequest>();
     request->predicate_columns = {field_projection(0)};
+    request->non_predicate_columns = {field_projection(1)};
     request->conjuncts.push_back(
             VExprContext::create_shared(std::make_shared<NullableInt32LessThanExpr>(0, 500)));
     ASSERT_TRUE(reader->open(request).ok());
@@ -10147,6 +10149,8 @@ TEST_F(NewOrcReaderTest, SargConjunctReadsNonAdjacentStripeRangesAfterPruning) {
         Block block = build_file_block(schema);
         size_t rows = 0;
         ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        EXPECT_LE(rows, 32);
+        EXPECT_LE(block.bytes(), 32 * 2048 + 4096);
         if (eof || rows == 0) {
             continue;
         }
@@ -10304,10 +10308,73 @@ TEST_F(NewOrcReaderTest, CloseClearsFileLocalState) {
     EXPECT_FALSE(reader->open(request).ok());
 }
 
+TEST_F(NewOrcReaderTest, SessionBatchSizeLimitsPhysicalReads) {
+    auto reader = create_reader();
+    TQueryOptions options;
+    options.__set_batch_size(2);
+    RuntimeState state {options, TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(0)};
+    ASSERT_TRUE(reader->open(request).ok());
+
+    bool eof = false;
+    std::vector<int32_t> ids;
+    while (!eof) {
+        Block block = build_file_block({schema[0]});
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        EXPECT_LE(rows, 2);
+        const auto& column = assert_cast<const ColumnInt32&>(
+                assert_cast<const ColumnNullable&>(*block.get_by_position(0).column)
+                        .get_nested_column());
+        for (size_t row = 0; row < rows; ++row) {
+            ids.push_back(column.get_element(row));
+        }
+    }
+    EXPECT_EQ(ids, std::vector<int32_t>({1, 2, 3, 4, 5}));
+}
+
+TEST_F(NewOrcReaderTest, BatchSizeChangesPreserveReadPosition) {
+    auto reader = create_reader();
+    const std::array<size_t, 3> batch_sizes {2, 1, 4};
+    // TableReader supplies its first adaptive cap before FileReader::init().
+    reader->set_batch_size(batch_sizes[0]);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(0)};
+    ASSERT_TRUE(reader->open(request).ok());
+
+    std::vector<int32_t> ids;
+    bool eof = false;
+    for (size_t batch = 0; batch < batch_sizes.size(); ++batch) {
+        if (batch > 0) {
+            reader->set_batch_size(batch_sizes[batch]);
+        }
+        Block block = build_file_block({schema[0]});
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        ASSERT_LE(rows, batch_sizes[batch]);
+        const auto& column = assert_cast<const ColumnInt32&>(
+                assert_cast<const ColumnNullable&>(*block.get_by_position(0).column)
+                        .get_nested_column());
+        for (size_t row = 0; row < rows; ++row) {
+            ids.push_back(column.get_element(row));
+        }
+    }
+    EXPECT_EQ(ids, std::vector<int32_t>({1, 2, 3, 4, 5}));
+}
+
 TEST_F(NewOrcReaderTest, ReadsOnlyRequestedAbsoluteFileRows) {
     auto reader = create_reader();
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     ASSERT_TRUE(reader->init(&state).ok());
+    reader->set_batch_size(128);
 
     std::vector<format::ColumnDefinition> schema;
     ASSERT_TRUE(reader->get_schema(&schema).ok());
@@ -10322,6 +10389,7 @@ TEST_F(NewOrcReaderTest, ReadsOnlyRequestedAbsoluteFileRows) {
         Block block = build_file_block({schema[0]});
         size_t rows = 0;
         ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        EXPECT_LE(rows, 1);
         if (rows == 0) {
             continue;
         }

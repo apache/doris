@@ -109,7 +109,8 @@ bool detail::valid_statistics_bounds(const Field& min_value, const Field& max_va
 
 namespace {
 
-constexpr uint64_t DEFAULT_ORC_READ_BATCH_SIZE = 4096;
+// Keep the existing lazy-callback ceiling while honoring smaller session/adaptive caps.
+constexpr uint64_t MAX_ORC_READ_BATCH_SIZE = 4096;
 constexpr int DECIMAL_PRECISION_FOR_HIVE11 = BeConsts::MAX_DECIMAL128_PRECISION;
 constexpr int DECIMAL_SCALE_FOR_HIVE11 = 10;
 constexpr const char* ORC_LIST_ELEMENT_NAME = "element";
@@ -895,6 +896,17 @@ OrcReader::OrcReader(std::shared_ptr<io::FileSystemProperties>& system_propertie
 
 OrcReader::~OrcReader() = default;
 
+void OrcReader::set_batch_size(size_t batch_size) {
+    _batch_size = std::max<size_t>(1, batch_size);
+}
+
+size_t OrcReader::_read_batch_size() const {
+    // RowID fetch must not decode sequential rows following the requested position.
+    return _request != nullptr && _request->row_ids.has_value()
+                   ? 1
+                   : std::min<uint64_t>(_batch_size, MAX_ORC_READ_BATCH_SIZE);
+}
+
 // Expose ORC pruning and lazy-read statistics in RuntimeProfile. These counters
 // are the quickest way to confirm whether SARG/stripe pruning actually fired.
 void OrcReader::_init_profile() {
@@ -1010,6 +1022,10 @@ Status OrcReader::init(RuntimeState* state) {
     _init_profile();
     SCOPED_TIMER(_orc_profile.total_time);
     RETURN_IF_ERROR(format::FileReader::init(state));
+    if (_batch_size == 0) {
+        // Session limits still apply when no adaptive cap was supplied before init().
+        _batch_size = std::max(1, state->batch_size());
+    }
     _state = std::make_unique<OrcReaderScanState>();
     TimezoneUtils::find_cctz_time_zone(_state->timezone, _state->timezone_obj);
     if (state != nullptr) {
@@ -1892,12 +1908,7 @@ Status OrcReader::_create_row_reader() {
         }
         _state->selected_type = &_state->row_reader->getSelectedType();
         DORIS_CHECK(_state->selected_type->getKind() == ::orc::TypeKind::STRUCT);
-        // Row-id fetch seeks before every read; a one-row batch preserves exact selection instead
-        // of also returning the sequential rows that follow the requested position.
-        const uint64_t batch_size = _request != nullptr && _request->row_ids.has_value()
-                                            ? 1
-                                            : DEFAULT_ORC_READ_BATCH_SIZE;
-        _state->batch = _state->row_reader->createRowBatch(batch_size);
+        _state->batch = _state->row_reader->createRowBatch(_read_batch_size());
         _state->orc_lazy_selection_valid = false;
         _state->orc_lazy_selected_rows.clear();
         _state->orc_lazy_input_rows = 0;
@@ -2073,9 +2084,9 @@ Status OrcReader::_filter_orc_batch(::orc::ColumnVectorBatch& data, uint16_t* se
         data.numElements = size;
         return Status::OK();
     }
-    if (size > DEFAULT_ORC_READ_BATCH_SIZE) {
+    if (size > MAX_ORC_READ_BATCH_SIZE) {
         return Status::InvalidArgument("ORC lazy filter batch size {} exceeds {}", size,
-                                       DEFAULT_ORC_READ_BATCH_SIZE);
+                                       MAX_ORC_READ_BATCH_SIZE);
     }
 
     auto* struct_batch = dynamic_cast<::orc::StructVectorBatch*>(&data);
@@ -2197,6 +2208,12 @@ Status OrcReader::get_block(Block* file_block, size_t* rows, bool* eof) {
     std::optional<uint64_t> fetched_row_id;
     while (true) {
         try {
+            const auto batch_size = _read_batch_size();
+            if (_state->batch->capacity != batch_size) {
+                // ORC uses the batch capacity as its decode limit. Resize before next(), without
+                // recreating the RowReader or losing its position when the adaptive cap changes.
+                _state->batch = _state->row_reader->createRowBatch(batch_size);
+            }
             if (_request->row_ids.has_value()) {
                 if (_state->next_row_id >= _request->row_ids->size()) {
                     _eof = true;
@@ -2816,6 +2833,8 @@ void OrcReader::_filter_requested_columns(Block* file_block, const IColumn::Filt
 Status OrcReader::close() {
     SCOPED_TIMER(_orc_profile.total_time);
     _collect_profile();
+    // A later init() must take its default cap from that session, not the previous scan.
+    _batch_size = 0;
     if (_state != nullptr) {
         _state = std::make_unique<OrcReaderScanState>();
     }

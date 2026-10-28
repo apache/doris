@@ -55,6 +55,7 @@ public:
     static format::ColumnDefinition row_position_column_definition();
 
     Status init(RuntimeState* state) override;
+    void set_batch_size(size_t batch_size) override;
     Status get_schema(std::vector<format::ColumnDefinition>* const file_schema) const override;
     std::unique_ptr<format::TableColumnMapper> create_column_mapper(
             format::TableColumnMapperOptions options) const override;
@@ -135,6 +136,7 @@ private:
     Status _apply_current_stripe_range();
     Status _advance_to_next_stripe_range(bool* advanced);
     Status _create_row_reader();
+    size_t _read_batch_size() const;
 
     Status _filter_orc_batch(::orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t size,
                              void* arg);
@@ -185,6 +187,7 @@ private:
     std::optional<format::GlobalRowIdContext> _global_rowid_context;
     bool _enable_mapping_timestamp_tz = false;
     bool _enable_mapping_varbinary = false;
+    size_t _batch_size = 0;
 };
 
 } // namespace doris::format::orc
