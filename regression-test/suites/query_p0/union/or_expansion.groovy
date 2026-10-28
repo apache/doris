@@ -199,6 +199,80 @@ suite("or_expansion") {
             order by oe2.k0, oe1.k0
         """
 
+    // RIGHT OUTER JOIN is commuted to LEFT OUTER JOIN by SemiJoinCommute unless join reorder is disabled,
+    // so disable join reorder to make RIGHT OUTER JOIN reach OrExpansion
+    sql "set disable_join_reorder=true"
+
+    explain {
+        sql """
+            select oe1.k0, oe2.k0
+            from oe1 right outer join oe2
+            on oe1.k0 = oe2.k0 or oe1.k1 + 1 = oe2.k1 * 2
+        """
+        contains "VUNION"
+        notContains "NESTED LOOP JOIN"
+    }
+
+    qt_order_roj """
+            select oe1.k0, oe2.k0
+            from oe1 right outer join oe2
+            on oe1.k0 = oe2.k0 or oe1.k1 + 1 = oe2.k1 * 2
+            order by oe1.k0, oe2.k0
+        """
+
+    qt_order_roj_multi_cond """
+            select oe1.k0, oe2.k0
+            from oe1 right outer join oe2
+            on (oe1.k0 = oe2.k0 or oe1.k1 + 1 = oe2.k1 * 2) and oe1.k2 = oe2.k2
+            order by oe1.k0, oe2.k0
+        """
+
+    qt_order_roj_unary_cond """
+            select oe1.k0, oe2.k0
+            from oe1 right outer join oe2
+            on (oe1.k0 = oe2.k0 or oe1.k1 + 1 = oe2.k1 * 2) and oe2.k2 = 1
+            order by oe1.k0, oe2.k0
+        """
+
+    // RIGHT / FULL OUTER JOIN with distribute hint is still expanded. The right-unmatched branch is built
+    // as an anti join with swapped children, so the hint must not change the result.
+    for (String joinType : ["right outer join", "full outer join"]) {
+        for (String hint : ["[broadcast]", "[shuffle]"]) {
+            explain {
+                sql """
+                    select oe1.k0, oe2.k0
+                    from oe1 ${joinType} ${hint} oe2
+                    on oe1.k0 = oe2.k0 or oe1.k1 + 1 = oe2.k1 * 2
+                """
+                contains "VUNION"
+                notContains "NESTED LOOP JOIN"
+            }
+        }
+    }
+
+    qt_order_roj_hint_broadcast """
+            select oe1.k0, oe2.k0
+            from oe1 right outer join [broadcast] oe2
+            on oe1.k0 = oe2.k0 or oe1.k1 + 1 = oe2.k1 * 2
+            order by oe1.k0, oe2.k0
+        """
+
+    qt_order_roj_hint_shuffle """
+            select oe1.k0, oe2.k0
+            from oe1 right outer join [shuffle] oe2
+            on oe1.k0 = oe2.k0 or oe1.k1 + 1 = oe2.k1 * 2
+            order by oe1.k0, oe2.k0
+        """
+
+    qt_order_foj_hint_broadcast """
+            select oe1.k0, oe2.k0
+            from oe1 full outer join [broadcast] oe2
+            on oe1.k0 = oe2.k0 or oe1.k1 + 1 = oe2.k1 * 2
+            order by oe1.k0, oe2.k0
+        """
+
+    sql "set disable_join_reorder=false"
+
     // test all plan node to be deep copied, include
     // - LogicalOneRowRelation
     // - LogicalEmptyRelation
