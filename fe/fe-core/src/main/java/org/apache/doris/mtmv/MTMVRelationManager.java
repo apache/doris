@@ -156,14 +156,19 @@ public class MTMVRelationManager implements MTMVHookService {
     public Set<MTMV> getAvailableMTMVs(Set<MTMV> candidateMTMVs, ConnectContext ctx,
             boolean forceConsistent, BiPredicate<ConnectContext, MTMV> predicate) {
         Set<MTMV> res = Sets.newLinkedHashSet();
-        Map<List<String>, Set<String>> queryUsedPartitions = PartitionCompensator.getQueryUsedPartitions(
-                ctx.getStatementContext(), new BitSet());
+        Map<List<String>, Set<String>> queryUsedPartitions = null;
         for (MTMV mtmv : candidateMTMVs) {
             if (predicate.test(ctx, mtmv)) {
                 continue;
             }
             if (!mtmv.isUseForRewrite()) {
                 continue;
+            }
+            // Collect potentially large partition sets only when a candidate needs validation, once
+            // for all such candidates. Empty or filtered candidate sets need no partition union.
+            if (queryUsedPartitions == null) {
+                queryUsedPartitions = PartitionCompensator.getQueryUsedPartitions(
+                        ctx.getStatementContext(), new BitSet());
             }
             if (isMVPartitionValid(mtmv, ctx, forceConsistent, queryUsedPartitions)) {
                 res.add(mtmv);
@@ -595,7 +600,7 @@ public class MTMVRelationManager implements MTMVHookService {
      * dropping or renaming a column the MV uses makes the query unanalyzable, and a column re-added with
      * the same name is a different column, so pre-existing rows read its default value instead.
      *
-     * <p>Such a change is metadata-only for light schema changes and emits no binlog, so an
+     * <p>Such a change is metadata-only for light schema changes and emits no changelog, so an
      * incremental refresh would consume an empty delta and report SUCCESS while silently keeping the
      * rows computed under the old column epoch. Invalidating the MV is what keeps that from being
      * reported as current.

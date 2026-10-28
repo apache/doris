@@ -61,7 +61,10 @@ import org.apache.doris.statistics.analysis.AnalysisManager;
 import org.apache.doris.statistics.cache.StatisticsCache;
 import org.apache.doris.statistics.model.ColumnStatistic;
 import org.apache.doris.statistics.model.ColumnStatisticBuilder;
+import org.apache.doris.statistics.model.PartitionColumnStatistic;
+import org.apache.doris.statistics.model.PartitionColumnStatisticBuilder;
 import org.apache.doris.statistics.model.Statistics;
+import org.apache.doris.statistics.util.Hll128;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -214,9 +217,98 @@ public class StatsCalculatorTest {
 
     @Test
     public void testComputeOlapScanScalesNumNullsForSelectedPartitions() {
+        // table level statistics: the whole table has 12 rows and 3 nulls, the selected partition has 4 rows
+        try (MockPartitionPrunedScan fixture = mockPartitionPrunedScan(false, newTableStatistic(1), null)) {
+            Statistics statistics = fixture.computeOlapScan();
+            ColumnStatistic result = statistics.findColumnStatistics(fixture.slot);
+
+            Assertions.assertEquals(4, statistics.getRowCount(), 0.001);
+            Assertions.assertNotNull(result);
+            Assertions.assertEquals(1, result.ndv, 0.001);
+            Assertions.assertEquals(2, result.minValue, 0.001);
+            Assertions.assertEquals(2, result.maxValue, 0.001);
+            Assertions.assertEquals(4, result.count, 0.001);
+            Assertions.assertEquals(1, result.numNulls, 0.001);
+            Assertions.assertEquals("2", result.minExpr.getStringValue());
+            Assertions.assertEquals("2", result.maxExpr.getStringValue());
+        }
+    }
+
+    @Test
+    public void testComputeOlapScanDoesNotScaleNumNullsOfPartitionStatistics() {
+        // partition level statistics of the selected partition: 4 rows and 1 of them is null
+        PartitionColumnStatistic partitionStatistic = new PartitionColumnStatisticBuilder(4)
+                .setNdv(newHll128(2))
+                .setNumNulls(1)
+                .setMinValue(2)
+                .setMaxValue(2)
+                .setMinExpr(new IntLiteral(2))
+                .setMaxExpr(new IntLiteral(2))
+                .build();
+        try (MockPartitionPrunedScan fixture = mockPartitionPrunedScan(true,
+                newTableStatistic(2), partitionStatistic)) {
+            Statistics statistics = fixture.computeOlapScan();
+            ColumnStatistic result = statistics.findColumnStatistics(fixture.slot);
+
+            Assertions.assertEquals(4, statistics.getRowCount(), 0.001);
+            Assertions.assertNotNull(result);
+            // ndv comes from the partition level statistics, the table level ones have ndv=2
+            Assertions.assertEquals(1, result.ndv, 0.001);
+            Assertions.assertEquals(4, result.count, 0.001);
+            // numNulls of the partition level statistics already covers the selected partition only,
+            // it must not be scaled by selectedPartitionsRowCount / tableRowCount (1 * 4 / 12) again
+            Assertions.assertEquals(1, result.numNulls, 0.001);
+        }
+    }
+
+    @Test
+    public void testComputeOlapScanFallsBackToTableStatisticsWhenPartitionStatisticIsUnknown() {
+        try (MockPartitionPrunedScan fixture = mockPartitionPrunedScan(true,
+                newTableStatistic(2), PartitionColumnStatistic.UNKNOWN)) {
+            Statistics statistics = fixture.computeOlapScan();
+            ColumnStatistic result = statistics.findColumnStatistics(fixture.slot);
+
+            Assertions.assertEquals(4, statistics.getRowCount(), 0.001);
+            Assertions.assertNotNull(result);
+            // ndv comes from the table level statistics, i.e. it fell back to them
+            Assertions.assertEquals(2, result.ndv, 0.001);
+            Assertions.assertEquals(4, result.count, 0.001);
+            // the table level statistic covers the whole table, so numNulls is scaled: 3 * 4 / 12
+            Assertions.assertEquals(1, result.numNulls, 0.001);
+        }
+    }
+
+    private static ColumnStatistic newTableStatistic(double ndv) {
+        return new ColumnStatisticBuilder(12)
+                .setNdv(ndv)
+                .setMinValue(2)
+                .setMaxValue(2)
+                .setMinExpr(new IntLiteral(2))
+                .setMaxExpr(new IntLiteral(2))
+                .setNumNulls(3)
+                .build();
+    }
+
+    private static Hll128 newHll128(long value) {
+        Hll128 hll128 = new Hll128();
+        hll128.update(value);
+        return hll128;
+    }
+
+    /**
+     * Mock an OLAP scan over a table with 3 partitions and 12 rows, whose partition pruning selects
+     * exactly one partition with 4 rows.
+     *
+     * @param enablePartitionStatics value of the session variable enable_partition_analyze
+     * @param tableStatistic statistics of the whole table
+     * @param partitionStatistic statistics of the selected partition, null if not stubbed
+     */
+    private static MockPartitionPrunedScan mockPartitionPrunedScan(boolean enablePartitionStatics,
+            ColumnStatistic tableStatistic, PartitionColumnStatistic partitionStatistic) {
         ConnectContext previousContext = ConnectContext.get();
         ConnectContext connectContext = new ConnectContext();
         connectContext.setThreadLocalInfo();
+        connectContext.getSessionVariable().enablePartitionAnalyze = enablePartitionStatics;
 
         Env env = Mockito.mock(Env.class);
         AnalysisManager analysisManager = Mockito.mock(AnalysisManager.class);
@@ -232,19 +324,15 @@ public class StatsCalculatorTest {
         Column column = new Column("val", PrimitiveType.INT);
         SlotReference slot = new SlotReference(new ExprId(1), "val", IntegerType.INSTANCE, true,
                 ImmutableList.of("test", "tbl"), table, column, table, column);
-        ColumnStatistic tableStatistic = new ColumnStatisticBuilder(12)
-                .setNdv(1)
-                .setMinValue(2)
-                .setMaxValue(2)
-                .setMinExpr(new IntLiteral(2))
-                .setMaxExpr(new IntLiteral(2))
-                .setNumNulls(3)
-                .build();
 
         Mockito.when(env.getAnalysisManager()).thenReturn(analysisManager);
         Mockito.when(env.getStatisticsCache()).thenReturn(statisticsCache);
         Mockito.when(statisticsCache.getOlapTableStats(scan)).thenReturn(olapTableStatistics);
         Mockito.when(olapTableStatistics.getColumnStatistics("val", connectContext)).thenReturn(tableStatistic);
+        if (partitionStatistic != null) {
+            Mockito.when(olapTableStatistics.getPartitionColumnStatistics("p1", "val", connectContext))
+                    .thenReturn(partitionStatistic);
+        }
         Mockito.when(scan.getTable()).thenReturn(table);
         Mockito.when(scan.getSelectedIndexId()).thenReturn(baseIndexId);
         Mockito.when(scan.getSelectedPartitionIds()).thenReturn(ImmutableList.of(selectedPartitionId));
@@ -258,22 +346,35 @@ public class StatsCalculatorTest {
         Mockito.when(table.getQualifiedDbName()).thenReturn("test");
         Mockito.when(selectedPartition.getName()).thenReturn("p1");
 
-        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
-            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+        MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class);
+        mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+        return new MockPartitionPrunedScan(previousContext, scan, slot, mockedEnv);
+    }
 
-            Statistics statistics = new StatsCalculator((CascadesContext) null).computeOlapScan(scan);
-            ColumnStatistic result = statistics.findColumnStatistics(slot);
+    /**
+     * Mocks of {@link #mockPartitionPrunedScan}, they have to be closed after computing the statistics.
+     */
+    private static final class MockPartitionPrunedScan implements AutoCloseable {
+        private final ConnectContext previousContext;
+        private final LogicalOlapScan scan;
+        private final SlotReference slot;
+        private final MockedStatic<Env> mockedEnv;
 
-            Assertions.assertEquals(4, statistics.getRowCount(), 0.001);
-            Assertions.assertNotNull(result);
-            Assertions.assertEquals(1, result.ndv, 0.001);
-            Assertions.assertEquals(2, result.minValue, 0.001);
-            Assertions.assertEquals(2, result.maxValue, 0.001);
-            Assertions.assertEquals(4, result.count, 0.001);
-            Assertions.assertEquals(1, result.numNulls, 0.001);
-            Assertions.assertEquals("2", result.minExpr.getStringValue());
-            Assertions.assertEquals("2", result.maxExpr.getStringValue());
-        } finally {
+        private MockPartitionPrunedScan(ConnectContext previousContext, LogicalOlapScan scan, SlotReference slot,
+                MockedStatic<Env> mockedEnv) {
+            this.previousContext = previousContext;
+            this.scan = scan;
+            this.slot = slot;
+            this.mockedEnv = mockedEnv;
+        }
+
+        private Statistics computeOlapScan() {
+            return new StatsCalculator((CascadesContext) null).computeOlapScan(scan);
+        }
+
+        @Override
+        public void close() {
+            mockedEnv.close();
             ConnectContext.remove();
             if (previousContext != null) {
                 previousContext.setThreadLocalInfo();

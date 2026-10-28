@@ -45,7 +45,7 @@ public:
 
 template <FieldType type>
 void test_integer_encode() {
-    using CppType = typename CppTypeTraits<type>::CppType;
+    using CppType = typename StorageTypeTraits<type>::StorageType;
 
     auto key_coder = get_key_coder(type);
 
@@ -111,9 +111,9 @@ void test_integer_encode() {
 }
 
 template <FieldType field_type>
-typename CppTypeTraits<field_type>::CppType decode_float(const std::string& encoded) {
+typename StorageTypeTraits<field_type>::StorageType decode_float(const std::string& encoded) {
     Slice encoded_key(encoded);
-    typename CppTypeTraits<field_type>::CppType result;
+    typename StorageTypeTraits<field_type>::StorageType result;
     uint8_t* ptr = reinterpret_cast<uint8_t*>(&result);
     Status status = KeyCoderTraits<field_type>::decode_ascending(&encoded_key, sizeof(result), ptr);
     EXPECT_TRUE(status.ok());
@@ -121,22 +121,23 @@ typename CppTypeTraits<field_type>::CppType decode_float(const std::string& enco
 }
 
 template <FieldType field_type>
-std::string encode_float(typename CppTypeTraits<field_type>::CppType value) {
+std::string encode_float(typename StorageTypeTraits<field_type>::StorageType value) {
     std::string buf;
     KeyCoderTraits<field_type>::full_encode_ascending(&value, &buf);
     return buf;
 }
 
 template <FieldType field_type>
-void test_encode_decode(typename CppTypeTraits<field_type>::CppType value) {
+void test_encode_decode(typename StorageTypeTraits<field_type>::StorageType value) {
     std::string encoded = encode_float<field_type>(value);
-    typename CppTypeTraits<field_type>::CppType decoded = decode_float<field_type>(encoded);
+    typename StorageTypeTraits<field_type>::StorageType decoded = decode_float<field_type>(encoded);
     EXPECT_EQ(value, decoded);
 }
 
 template <FieldType field_type>
-void test_ordering(typename CppTypeTraits<field_type>::CppType a,
-                   typename CppTypeTraits<field_type>::CppType b) {
+// NOLINTNEXTLINE(readability-function-cognitive-complexity) -- GTest assertion macros inflate it.
+void test_ordering(typename StorageTypeTraits<field_type>::StorageType a,
+                   typename StorageTypeTraits<field_type>::StorageType b) {
     std::string encoded_a = encode_float<field_type>(a);
     std::string encoded_b = encode_float<field_type>(b);
 
@@ -907,7 +908,7 @@ void WriteStringToFile(std::ofstream& out, const std::string& value, FieldType f
 // Helper function to read from file and decode
 template <FieldType field_type>
 void ReadAndDecodeNumber(std::ifstream& in) {
-    using T = typename CppTypeTraits<field_type>::CppType;
+    using T = typename StorageTypeTraits<field_type>::StorageType;
 
     // 2. read original_value
     size_t value_size = 0;
@@ -974,7 +975,7 @@ void ReadAndDecodeString(std::ifstream& in) {
 
 template <FieldType field_type>
 void WriteAllBoundaryValues(std::ofstream& out) {
-    using T = typename CppTypeTraits<field_type>::CppType;
+    using T = typename StorageTypeTraits<field_type>::StorageType;
     WriteNumberToFile<T>(out, std::numeric_limits<T>::min(), field_type);
     WriteNumberToFile<T>(out, T(0), field_type);
     WriteNumberToFile<T>(out, std::numeric_limits<T>::max(), field_type);
@@ -994,7 +995,7 @@ void WriteStringsValues(std::ofstream& out, const std::string& str) {
 
 template <FieldType field_type>
 void WriteFloatValues(std::ofstream& out) {
-    using T = typename CppTypeTraits<field_type>::CppType;
+    using T = typename StorageTypeTraits<field_type>::StorageType;
     WriteNumberToFile<T>(out, +0.0, field_type);
     WriteNumberToFile<T>(out, -0.0, field_type);
     WriteNumberToFile<T>(out, 1.0, field_type);
@@ -1209,7 +1210,7 @@ void WriteSingleValueToComplexFile(std::ofstream& out) {
         out.write(reinterpret_cast<const char*>(&value), value_size);
     } else if constexpr (field_is_numeric_type(field_type) ||
                          field_type == FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT) {
-        using T = typename CppTypeTraits<field_type>::CppType;
+        using T = typename StorageTypeTraits<field_type>::StorageType;
         T value = std::numeric_limits<T>::min();
         size_t value_size = sizeof(value);
         out.write(reinterpret_cast<const char*>(&value_size), sizeof(value_size));
@@ -1248,7 +1249,7 @@ void WriteSingleEncodedValueToComplexFile(std::ofstream& out) {
         coder->full_encode_ascending(&value, &encoded_buf);
     } else if constexpr (field_is_numeric_type(field_type) ||
                          field_type == FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT) {
-        using T = typename CppTypeTraits<field_type>::CppType;
+        using T = typename StorageTypeTraits<field_type>::StorageType;
         T value = std::numeric_limits<T>::min();
         coder->full_encode_ascending(&value, &encoded_buf);
     } else if constexpr (field_is_slice_type(field_type)) {
@@ -1392,7 +1393,7 @@ void ReadAndDecodeFromComplexFile(std::ifstream& in) {
         std::string value_i(value_size_i, '\0');
         in.read(value_i.data(), value_size_i);
 
-        using T = typename CppTypeTraits<field_type_j>::CppType;
+        using T = typename StorageTypeTraits<field_type_j>::StorageType;
         size_t value_size = 0;
         in.read(reinterpret_cast<char*>(&value_size), sizeof(value_size));
 
@@ -1420,7 +1421,7 @@ void ReadAndDecodeFromComplexFile(std::ifstream& in) {
         EXPECT_TRUE(status.ok());
         EXPECT_EQ(decoded_value, original_value);
     } else if constexpr (!field_is_slice_type(field_type_i) && field_is_slice_type(field_type_j)) {
-        using T = typename CppTypeTraits<field_type_i>::CppType;
+        using T = typename StorageTypeTraits<field_type_i>::StorageType;
         size_t value_size = 0;
         in.read(reinterpret_cast<char*>(&value_size), sizeof(value_size));
 
@@ -1456,8 +1457,8 @@ void ReadAndDecodeFromComplexFile(std::ifstream& in) {
         EXPECT_TRUE(status.ok());
         EXPECT_EQ(decoded_value, original_value);
     } else {
-        using T = typename CppTypeTraits<field_type_i>::CppType;
-        using U = typename CppTypeTraits<field_type_j>::CppType;
+        using T = typename StorageTypeTraits<field_type_i>::StorageType;
+        using U = typename StorageTypeTraits<field_type_j>::StorageType;
         size_t value_size_i;
         in.read(reinterpret_cast<char*>(&value_size_i), sizeof(value_size_i));
         T original_value_i;

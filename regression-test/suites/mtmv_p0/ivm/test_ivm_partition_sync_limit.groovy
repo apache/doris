@@ -57,9 +57,8 @@ suite("test_ivm_partition_sync_limit") {
         PROPERTIES (
             "replication_num" = "1",
             "enable_unique_key_merge_on_write" = "true",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "true"
+            "changelog.enable" = "true",
+            "changelog.need_historical_value" = "true"
         )
     """
     // Empty PARTITION BY range plus manual ADD PARTITION: the partition layout does not depend
@@ -77,9 +76,8 @@ suite("test_ivm_partition_sync_limit") {
         PROPERTIES (
             "replication_num" = "1",
             "enable_unique_key_merge_on_write" = "true",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "true"
+            "changelog.enable" = "true",
+            "changelog.need_historical_value" = "true"
         )
     """
 
@@ -130,7 +128,7 @@ suite("test_ivm_partition_sync_limit") {
             SELECT Status,
                    CASE WHEN RefreshMode IN ('COMPLETE', 'PARTIAL', 'NOT_REFRESH')
                         THEN RefreshMode ELSE 'NONE' END,
-                   CASE WHEN IvmFallbackReason = 'BINLOG_BROKEN'
+                   CASE WHEN IvmFallbackReason = 'CHANGELOG_BROKEN'
                         THEN IvmFallbackReason ELSE 'NONE' END
             FROM tasks('type'='mv')
             WHERE TaskId = '${taskId}'

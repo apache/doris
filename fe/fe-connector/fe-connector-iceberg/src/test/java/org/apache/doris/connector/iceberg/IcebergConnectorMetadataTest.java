@@ -48,6 +48,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.io.FileNotFoundException;
+import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -56,6 +57,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * Characterization tests for {@link IcebergConnectorMetadata}, pinning the read-path behavior after
@@ -905,6 +907,39 @@ public class IcebergConnectorMetadataTest {
         ConnectorColumn name = schema.getColumns().get(1);
         Assertions.assertTrue(name.isNullable());
         Assertions.assertTrue(name.isSourceNullable());
+    }
+
+    @Test
+    public void getTableSchemaLeavesIcebergDefaultsOutOfCatalogColumns() {
+        // Initial defaults reach BE through the scan dictionary and write defaults are pinned per write, so the
+        // cached catalog column carries neither: DESCRIBE and SHOW CREATE must not expose a possibly stale value.
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        Schema defaultsSchema = new Schema(
+                Types.NestedField.optional("added_column").withId(1).ofType(Types.IntegerType.get())
+                        .withInitialDefault(7).withWriteDefault(9).build(),
+                Types.NestedField.optional("added_timestamp").withId(2)
+                        .ofType(Types.TimestampType.withoutZone())
+                        .withInitialDefault(1_704_067_200_123_456L).build(),
+                Types.NestedField.optional("added_timestamptz").withId(3)
+                        .ofType(Types.TimestampType.withZone())
+                        .withInitialDefault(1_704_067_200_123_456L).build(),
+                Types.NestedField.optional("added_uuid").withId(4).ofType(Types.UUIDType.get())
+                        .withInitialDefault(UUID.fromString("00000000-0000-0000-0000-000000000000")).build(),
+                Types.NestedField.optional("added_binary").withId(5).ofType(Types.BinaryType.get())
+                        .withInitialDefault(ByteBuffer.wrap(new byte[] {0, 1, 2, (byte) 0xFF})).build(),
+                Types.NestedField.optional("added_fixed").withId(6).ofType(Types.FixedType.ofLength(4))
+                        .withInitialDefault(ByteBuffer.wrap(new byte[] {3, 2, 1, 0})).build());
+        ops.table = new FakeIcebergTable(
+                "t1", defaultsSchema, PartitionSpec.unpartitioned(),
+                "s3://bucket/db1/t1", Collections.singletonMap("format-version", "3"));
+
+        List<ConnectorColumn> columns =
+                metadataWith(ops).getTableSchema(null, new IcebergTableHandle("db1", "t1")).getColumns();
+
+        for (ConnectorColumn column : columns.subList(0, defaultsSchema.columns().size())) {
+            Assertions.assertNull(column.getDefaultValue(), column.getName());
+            Assertions.assertNull(column.getDefaultValueSql(), column.getName());
+        }
     }
 
     @Test

@@ -230,8 +230,10 @@ under the License.
         <module>fe-kerberos</module>
         <module>fe-common</module>
         <module>fe-trino-connector-common</module>
+        <module>fe-iceberg-common</module>
         <module>fe-catalog</module>
         <module>fe-filesystem</module>
+        <module>fe-storage-protocol</module>
         <module>fe-extension-spi</module>
         <module>fe-connector</module>
         <module>fe-extension-loader</module>
@@ -250,14 +252,15 @@ under the License.
              from instantiating classes outside org.apache.avro.SERIALIZABLE_PACKAGES (AVRO-4189), which breaks Hudi's
              commit metadata readers. Every avro API iceberg 1.12.0 references exists in 1.12.1. -->
         <avro.version>1.12.1</avro.version>
-        <parquet.version>1.18.0</parquet.version>
+        <!-- Disable file-controlled KMS URLs by default (CVE-2026-73334). -->
+        <parquet.version>1.18.1</parquet.version>
         <spark.version>3.4.3</spark.version>
         <hudi.version>1.0.2</hudi.version>
         <obs.dependency.scope>compile</obs.dependency.scope>
         <cos.dependency.scope>compile</cos.dependency.scope>
         <qcloud-java-sdk.version>2.0.1</qcloud-java-sdk.version>
         <tencentcos.version>8.2.7</tencentcos.version>
-        <cos-api.version>5.6.211</cos-api.version>
+        <cos-api.version>5.6.269</cos-api.version>
         <tencentcloud-sdk-java-sts.version>3.1.678</tencentcloud-sdk-java-sts.version>
         <huaweicloud-sdk-iam.version>3.1.20</huaweicloud-sdk-iam.version>
         <esdk-obs.version>3.21.11</esdk-obs.version>
@@ -288,9 +291,8 @@ under the License.
         <commons-validator.version>1.9.0</commons-validator.version>
         <gson.version>2.10.1</gson.version>
         <guava.version>33.2.1-jre</guava.version>
-        <!-- Jackson 2.16.0 is affected by multiple 2026 parser and polymorphic-deserialization
-             vulnerabilities, including CVE-2026-54512. Version 2.21.5 contains the complete fixes. -->
-        <jackson.version>2.21.5</jackson.version>
+        <!-- Keep Jackson 2 aligned on the LTS maintenance release fixing CVE-2026-110879. -->
+        <jackson.version>2.21.8</jackson.version>
         <javassist.version>3.18.2-GA</javassist.version>
         <javax.servlet-api.version>3.1.0</javax.servlet-api.version>
         <!-- Spring Framework 7 and Jetty EE11 require Jakarta Servlet 6.1. -->
@@ -309,7 +311,7 @@ under the License.
         <metrics-core.version>4.0.2</metrics-core.version>
         <resilience4j.version>2.4.0</resilience4j.version>
         <!-- Keep Netty compatible with Arrow Flight SQL 19 and other transitive Netty users. -->
-        <netty-all.version>4.2.17.Final</netty-all.version>
+        <netty-all.version>4.2.18.Final</netty-all.version>
         <!-- OpenTelemetry versions before 1.62.0 allow unbounded allocation while parsing W3C
              baggage (CVE-2026-45292); align the complete OpenTelemetry graph on the fixed BOM. -->
         <opentelemetry.version>1.62.0</opentelemetry.version>
@@ -339,6 +341,7 @@ under the License.
         <jetty-servlet.version>11.0.26</jetty-servlet.version>
         <jetty-websocket.version>9.4.58.v20250814</jetty-websocket.version>
         <okhttp.version>5.3.2</okhttp.version>
+        <okio.version>3.16.4</okio.version>
         <snakeyaml.version>2.6</snakeyaml.version>
         <zjsonpatch.version>0.2.3</zjsonpatch.version>
         <kafka-clients.version>3.4.0</kafka-clients.version>
@@ -386,6 +389,7 @@ under the License.
         <mariadb-java-client.version>3.0.9</mariadb-java-client.version>
         <postgresql.version>42.7.13</postgresql.version>
         <hadoop.version>3.4.2</hadoop.version>
+        <gcs-connector.version>3.1.18</gcs-connector.version>
         <re2j.version>1.8</re2j.version>
         <hadoop.thirdparty.guava.version>1.2.0</hadoop.thirdparty.guava.version>
         <hadoop.thirdparty.protobuf_3_25.version>1.5.0</hadoop.thirdparty.protobuf_3_25.version>
@@ -423,7 +427,10 @@ under the License.
         <lz4-java-relocation.version>1.8.1</lz4-java-relocation.version>
         <lz4-java.version>1.11.1</lz4-java.version>
         <immutables.version>2.9.3</immutables.version> 
-        <ivy.version>2.5.2</ivy.version>
+        <!-- Fix PackagerResolver path traversal (CVE-2026-26032). -->
+        <ivy.version>2.6.0</ivy.version>
+        <ant.version>1.10.18</ant.version>
+        <groovy-all.version>2.4.21</groovy-all.version>
         <icu4j.version>78.1</icu4j.version>
         <ini4j.version>0.5.4</ini4j.version>
         <!--todo waiting release-->
@@ -437,7 +444,7 @@ under the License.
              with the SAME paimon jar; a version mismatch silently breaks that FE->BE
              deserialization at runtime. These two MUST stay equal — do NOT override
              paimon.version per-module. -->
-        <paimon.version>1.4.2</paimon.version>
+        <paimon.version>2.1.0</paimon.version>
         <!-- fluss -->
         <!-- INVARIANT: this single property pins org.apache.fluss:* for BOTH fluss consumers — the FE
              connector (fe-connector-fluss) and the BE-java-extension fluss-scanner. The FE plans
@@ -609,6 +616,14 @@ under the License.
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
+            <!-- Align legacy cloud clients with the Okio version used by OkHttp 5. -->
+            <dependency>
+                <groupId>com.squareup.okio</groupId>
+                <artifactId>okio-bom</artifactId>
+                <version>${okio.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
             <dependency>
                 <groupId>io.grpc</groupId>
                 <artifactId>grpc-bom</artifactId>
@@ -662,6 +677,22 @@ under the License.
                 <groupId>org.apache.ivy</groupId>
                 <artifactId>ivy</artifactId>
                 <version>${ivy.version}</version>
+            </dependency>
+            <!-- Hive's provided dependencies also need the Ant and Groovy security fixes. -->
+            <dependency>
+                <groupId>org.apache.ant</groupId>
+                <artifactId>ant</artifactId>
+                <version>${ant.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.ant</groupId>
+                <artifactId>ant-launcher</artifactId>
+                <version>${ant.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.codehaus.groovy</groupId>
+                <artifactId>groovy-all</artifactId>
+                <version>${groovy-all.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.eclipse.jetty.websocket</groupId>
@@ -1461,6 +1492,19 @@ under the License.
                     </exclusion>
                 </exclusions>
             </dependency>
+            <!-- Keep the connector's Google SDK dependencies isolated from FE's SDK versions. -->
+            <dependency>
+                <groupId>com.google.cloud.bigdataoss</groupId>
+                <artifactId>gcs-connector</artifactId>
+                <version>${gcs-connector.version}</version>
+                <classifier>shaded</classifier>
+                <exclusions>
+                    <exclusion>
+                        <groupId>*</groupId>
+                        <artifactId>*</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
             <dependency>
                 <groupId>org.apache.hadoop</groupId>
                 <artifactId>hadoop-azure</artifactId>
@@ -1681,6 +1725,13 @@ under the License.
                 <groupId>org.apache.avro</groupId>
                 <artifactId>avro-mapred</artifactId>
                 <version>${avro.version}</version>
+                <exclusions>
+                    <!-- File readers do not start Avro's Jetty RPC server. -->
+                    <exclusion>
+                        <groupId>org.apache.avro</groupId>
+                        <artifactId>avro-ipc-jetty</artifactId>
+                    </exclusion>
+                </exclusions>
             </dependency>
             <!-- https://mvnrepository.com/artifact/org.apache.hudi/hudi-common -->
             <dependency>
@@ -1787,6 +1838,11 @@ under the License.
             </dependency>
             <dependency>
                 <groupId>org.apache.parquet</groupId>
+                <artifactId>parquet-hadoop-bundle</artifactId>
+                <version>${parquet.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.parquet</groupId>
                 <artifactId>parquet-common</artifactId>
                 <version>${parquet.version}</version>
             </dependency>
@@ -1869,6 +1925,11 @@ under the License.
                 <artifactId>hadoop-mapreduce-client-core</artifactId>
                 <version>${hadoop.version}</version>
                 <exclusions>
+                    <!-- File readers do not submit YARN jobs; this client brings EOL Jetty 9 WebSockets. -->
+                    <exclusion>
+                        <groupId>org.apache.hadoop</groupId>
+                        <artifactId>hadoop-yarn-client</artifactId>
+                    </exclusion>
                     <exclusion>
                         <groupId>javax.servlet</groupId>
                         <artifactId>servlet-api</artifactId>
@@ -2129,6 +2190,12 @@ under the License.
                         <artifactId>bcprov-jdk15on</artifactId>
                     </exclusion>
                 </exclusions>
+            </dependency>
+            <!-- hadoop-cos uses classes inside this shaded bundle; keep both COS SDK artifacts aligned. -->
+            <dependency>
+                <groupId>com.qcloud</groupId>
+                <artifactId>cos_api-bundle</artifactId>
+                <version>${cos-api.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.qcloud</groupId>

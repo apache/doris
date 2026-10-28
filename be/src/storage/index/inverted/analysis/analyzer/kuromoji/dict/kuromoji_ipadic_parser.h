@@ -30,7 +30,7 @@ namespace doris::segment_v2::inverted_index::kuromoji {
 
 // Maps an IPADIC char.def category name (e.g. "KANJI") to our canonical
 // CharCategory ordinal. Returns CAT_CLASS_COUNT for an unknown name.
-uint8_t ipadic_category_ordinal(std::string_view name);
+CharCategory ipadic_category_ordinal(std::string_view name);
 
 // Parse one IPADIC lexicon CSV row: surface,left,right,cost,<feature columns...>.
 // `feature` keeps columns 5.. verbatim (already comma-separated).

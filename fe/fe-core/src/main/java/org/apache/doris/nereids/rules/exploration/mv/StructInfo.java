@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.exploration.mv;
 
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.BaseColInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
@@ -65,8 +66,10 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.collect.HashMultimap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 
@@ -336,6 +339,44 @@ public class StructInfo {
                 relationList, relationIdStructInfoNodeMap, predicates, planSplitContext.getGroupingId(),
                 shuttledHashConjunctsToConjunctsMap, expressionToShuttledExpressionToMap,
                 relationBitSet, null, null, planOutputShuttledExpressions);
+    }
+
+    /**
+     * Simplify a materialization definition using its inputs' current guarantees.
+     * Query predicates must remain available for compensation when a candidate supplies stale data.
+     * The result belongs to the current query, not the definition cache: an input MV can refresh
+     * independently and invalidate the reason why a definition filter was redundant.
+     */
+    public StructInfo withoutRedundantMvFilters(CascadesContext cascadesContext) {
+        Plan normalized = removeRedundantMvFilters(topPlan, cascadesContext);
+        return normalized == topPlan ? this : of(normalized, originalPlan, cascadesContext);
+    }
+
+    private static Plan removeRedundantMvFilters(Plan plan, CascadesContext cascadesContext) {
+        if (!plan.anyMatch(node -> node instanceof LogicalOlapScan
+                && ((LogicalOlapScan) node).getTable() instanceof MTMV)) {
+            return plan;
+        }
+        MaterializedViewPredicateCollector collector = new MaterializedViewPredicateCollector(cascadesContext);
+        Plan normalized = plan.accept(new DefaultPlanRewriter<Void>() {
+            @Override
+            public Plan visitLogicalFilter(LogicalFilter<? extends Plan> filter, Void context) {
+                filter = visitChildren(this, filter, context);
+                // Prove redundancy at the filter's own input, before a parent Project can discard
+                // the predicate column. Facts from the filter itself must not participate in this proof.
+                Set<Expression> guaranteed = collector.collect(filter.child());
+                Set<Expression> remaining = filter.getConjuncts().stream()
+                        .filter(predicate -> !Predicates.isImpliedByOutput(guaranteed, predicate))
+                        .collect(ImmutableSet.toImmutableSet());
+                if (remaining.size() == filter.getConjuncts().size()) {
+                    return filter;
+                }
+                return PlanUtils.filterOrSelf(remaining, filter.child());
+            }
+        }, null);
+        // This equivalent tree is only used to build the matching graph; the memo is not modified.
+        // Removing a root Filter must not assign its child's group to the matched expression.
+        return normalized == plan ? plan : normalized.withGroupExpression(plan.getGroupExpression());
     }
 
     public List<CatalogRelation> getRelations() {

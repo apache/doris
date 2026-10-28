@@ -262,7 +262,7 @@ public class MTMVPartitionUtil {
      * <p>Read without pinned snapshots, like {@link #alignMvPartition}. A base partition that
      * partition sync adds or drops at the same moment can therefore sit outside the returned set
      * for one refresh; the same refresh either recovers the partition by syncing again or leaves
-     * its binlog pending for the next one.
+     * its changelog pending for the next one.
      *
      * @return baseTableInfo ==> base partition ids, empty when no restriction applies
      */

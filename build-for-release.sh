@@ -147,7 +147,7 @@ echo "CLOUD: ${OUTPUT_CLOUD}"
 
 sh build.sh --clean &&
     USE_AVX2="${_USE_AVX2}" sh build.sh &&
-    USE_AVX2="${_USE_AVX2}" sh build.sh --be --meta-tool --be-extension-ignore avro-scanner
+    USE_AVX2="${_USE_AVX2}" sh build.sh --be --meta-tool
 
 echo "Begin to pack"
 rm -rf "${OUTPUT}"

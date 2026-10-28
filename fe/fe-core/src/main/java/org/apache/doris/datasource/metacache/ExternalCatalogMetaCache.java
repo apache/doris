@@ -22,7 +22,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.MetaCache;
 import org.apache.doris.connector.cache.MetaCacheDefinition;
-import org.apache.doris.connector.cache.MetaCacheSizeEstimators;
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -290,7 +289,7 @@ public abstract class ExternalCatalogMetaCache implements ExternalMetaCache {
         Function<K, V> loader = wrapSchemaValidator(entryDef.getLoader(), entryDef.getValueType());
         MetaCacheDefinition.Builder<K, V> builder = MetaCacheDefinition.<K, V>builder(
                 entryDef.getName(), cacheSpec, entryDef.getInvalidation()::scope)
-                .sizeEstimator(MetaCacheSizeEstimators.reflective());
+                .sizeEstimator(entryDef.getSizeEstimator());
         if (loader != null) {
             builder.loader(loader);
         }

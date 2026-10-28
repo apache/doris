@@ -104,6 +104,7 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.AutoCloseSessionVariable;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.tablefunction.LocalTableValuedFunction;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -483,7 +484,7 @@ public class BindSink implements AnalysisRuleFactory {
                 } else if (isIncrementalIvmTable(table) && IvmUtil.isCommonHiddenSlot(column.getName())) {
                     // Which default applies follows from the table model: the unique-key model's row lsn
                     // is the row identity its deletes reply on, while an append-only detail MV's is its own
-                    // binlog's bookkeeping. See IvmUtil#getAppendOnlyDupHiddenSlotDefault.
+                    // changelog's bookkeeping. See IvmUtil#getAppendOnlyDupHiddenSlotDefault.
                     Expression hiddenDefault = ((MTMV) table).isIvmAppendOnlyDupTable()
                             ? IvmUtil.getAppendOnlyDupHiddenSlotDefault(column.getName(),
                                     DataType.fromCatalogType(column.getType()))
@@ -699,6 +700,10 @@ public class BindSink implements AnalysisRuleFactory {
         if (!tvfName.equals("local") && !tvfName.equals("s3") && !tvfName.equals("hdfs")) {
             throw new AnalysisException(
                     "INSERT INTO TVF only supports local/s3/hdfs, but got: " + tvfName);
+        }
+
+        if (tvfName.equals(LocalTableValuedFunction.NAME)) {
+            LocalTableValuedFunction.checkAccess();
         }
 
         // Validate required properties

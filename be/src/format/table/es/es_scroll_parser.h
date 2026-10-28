@@ -20,6 +20,7 @@
 #include <rapidjson/rapidjson.h>
 
 #include <map>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -30,6 +31,7 @@ namespace doris {
 
 class Status;
 class TupleDescriptor;
+class SlotDescriptor;
 
 class ScrollParser {
 public:
@@ -41,6 +43,13 @@ public:
     Status fill_columns(const TupleDescriptor* _tuple_desc, std::vector<MutableColumnPtr>& columns,
                         bool* line_eof, const std::map<std::string, std::string>& docvalue_context,
                         const cctz::time_zone& time_zone);
+
+    // Empty positions preserve tuple order; explicit positions address a projected file-local block.
+    Status fill_columns(const std::vector<SlotDescriptor*>& slots,
+                        std::vector<MutableColumnPtr>& columns, bool* line_eof,
+                        const std::map<std::string, std::string>& docvalue_context,
+                        const cctz::time_zone& time_zone,
+                        std::span<const size_t> column_positions = {});
 
     const std::string& get_scroll_id();
     int get_size() const;

@@ -18,6 +18,7 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
+#include <functional>
 #include <list>
 #include <memory>
 #include <string>
@@ -25,6 +26,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "common/exception.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/column/column_nullable.h"
@@ -39,11 +41,13 @@
 #include "format/orc/orc_memory_pool.h"
 #include "format/orc/vorc_reader.h"
 #include "io/fs/file_meta_cache.h"
+#include "orc/Exceptions.hh"
 #include "orc/sargs/SearchArgument.hh"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "testutil/desc_tbl_builder.h"
+#include "util/debug_points.h"
 namespace doris {
 class OrcReaderTest : public testing::Test {
 public:
@@ -437,4 +441,154 @@ TEST_F(OrcReaderTest, deletion_vector_filters_rows_without_query_conjuncts) {
     EXPECT_EQ(filtered_order_keys, expected);
 }
 
+namespace {
+
+class OrcRowIdSeekTest : public testing::TestWithParam<bool> {
+protected:
+    void SetUp() override {
+        debug_points_enabled = config::enable_debug_points;
+        range.path = "./be/test/exec/test_data/orc_scanner/orders.orc";
+        reader = std::make_unique<OrcReader>(&profile, nullptr, params, range, 1, "UTC", &io_ctx,
+                                             nullptr, GetParam());
+        reader->_reader = orc::createReader(orc::readLocalFile(range.path), orc::ReaderOptions());
+        reader->_row_reader = reader->_reader->createRowReader(orc::RowReaderOptions());
+        reader->_batch = reader->_row_reader->createRowBatch(1);
+        reader->_read_by_rows = true;
+        reader->_row_ids = {1, 2};
+        reader->_lazy_read_ctx.can_lazy_read = GetParam();
+    }
+
+    void TearDown() override {
+        DebugPoints::instance()->remove("OrcReader::rowid_seek.inject_error");
+        config::enable_debug_points = debug_points_enabled;
+    }
+
+    void fail_seek(std::function<void()> failure) {
+        config::enable_debug_points = true;
+        DebugPoints::instance()->add_with_callback("OrcReader::rowid_seek.inject_error",
+                                                   std::function<void()>([this, failure] {
+                                                       ++failed_seeks;
+                                                       failure();
+                                                   }));
+    }
+
+    TFileScanRangeParams params;
+    TFileRangeDesc range;
+    io::IOContext io_ctx;
+    RuntimeProfile profile {"OrcRowIdSeekTest"};
+    bool debug_points_enabled = false;
+    size_t failed_seeks = 0;
+    std::unique_ptr<OrcReader> reader;
+};
+
+TEST_P(OrcRowIdSeekTest, SeekIoFailureReturnsError) {
+    const std::string message = "[NOT_FOUND] missing ORC file";
+    fail_seek([message] { throw orc::ParseError(message); });
+    Block block;
+    size_t read_rows = 0;
+    bool eof = false;
+    Status status;
+    ASSERT_NO_THROW(status = reader->get_next_block(&block, &read_rows, &eof));
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("Orc row reader seek failed"), std::string::npos);
+    EXPECT_NE(status.to_string().find(range.path), std::string::npos);
+    EXPECT_NE(status.to_string().find(message), std::string::npos);
+    EXPECT_FALSE(eof);
+    EXPECT_EQ(reader->_row_ids, (std::list<int64_t> {1, 2}));
+    EXPECT_EQ(failed_seeks, 1);
+}
+
+TEST_P(OrcRowIdSeekTest, CancellationDuringSeekReturnsEof) {
+    fail_seek([this] {
+        io_ctx.should_stop = true;
+        throw orc::ParseError("stop");
+    });
+    Block block;
+    size_t read_rows = 99;
+    bool eof = false;
+    Status status;
+    ASSERT_NO_THROW(status = reader->get_next_block(&block, &read_rows, &eof));
+    EXPECT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(io_ctx.should_stop);
+    EXPECT_TRUE(eof);
+    EXPECT_EQ(read_rows, 0);
+    EXPECT_EQ(failed_seeks, 1);
+}
+
+TEST_P(OrcRowIdSeekTest, DorisExceptionsKeepTheirErrorCode) {
+    fail_seek([] { throw Exception(ErrorCode::MEM_ALLOC_FAILED, "injected memory limit"); });
+    Block block;
+    size_t read_rows = 0;
+    bool eof = false;
+    try {
+        const auto status = reader->get_next_block(&block, &read_rows, &eof);
+        FAIL() << "Expected a Doris exception, got " << status;
+    } catch (const Exception& e) {
+        EXPECT_EQ(e.code(), ErrorCode::MEM_ALLOC_FAILED);
+    }
+    EXPECT_EQ(failed_seeks, 1);
+}
+
+TEST_P(OrcRowIdSeekTest, StopWithoutCancellationReturnsError) {
+    fail_seek([] { throw orc::ParseError("stop"); });
+    Block block;
+    size_t read_rows = 0;
+    bool eof = false;
+    const auto status = reader->get_next_block(&block, &read_rows, &eof);
+    EXPECT_FALSE(status.ok());
+    EXPECT_FALSE(eof);
+    EXPECT_EQ(failed_seeks, 1);
+}
+
+TEST_P(OrcRowIdSeekTest, CancellationDoesNotHideAnIoFailure) {
+    fail_seek([this] {
+        io_ctx.should_stop = true;
+        throw orc::ParseError("ORC read I/O failure");
+    });
+    Block block;
+    size_t read_rows = 0;
+    bool eof = false;
+    const auto status = reader->get_next_block(&block, &read_rows, &eof);
+    EXPECT_FALSE(status.ok());
+    EXPECT_FALSE(eof);
+    EXPECT_EQ(failed_seeks, 1);
+}
+
+TEST_P(OrcRowIdSeekTest, EmptyRowIdsReturnZeroRowsAndEof) {
+    reader->_row_ids.clear();
+    fail_seek([] { throw orc::ParseError("must not seek"); });
+    Block block;
+    size_t read_rows = 99;
+    bool eof = false;
+    const auto status = reader->get_next_block(&block, &read_rows, &eof);
+    EXPECT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(eof);
+    EXPECT_EQ(read_rows, 0);
+    EXPECT_EQ(failed_seeks, 0);
+}
+
+TEST_P(OrcRowIdSeekTest, NormalSeekConsumesOnlyTheRequestedRowId) {
+    EXPECT_TRUE(reader->_seek_to_read_one_line());
+    EXPECT_EQ(reader->_row_ids, (std::list<int64_t> {2}));
+    EXPECT_TRUE(reader->_seek_to_read_one_line());
+    EXPECT_TRUE(reader->_row_ids.empty());
+    EXPECT_FALSE(reader->_seek_to_read_one_line());
+}
+
+TEST_P(OrcRowIdSeekTest, AlreadyCancelledDoesNotSeek) {
+    io_ctx.should_stop = true;
+    fail_seek([] { throw orc::ParseError("must not seek"); });
+    Block block;
+    size_t read_rows = 99;
+    bool eof = false;
+    const auto status = reader->get_next_block(&block, &read_rows, &eof);
+    EXPECT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(eof);
+    EXPECT_EQ(read_rows, 0);
+    EXPECT_EQ(failed_seeks, 0);
+}
+
+INSTANTIATE_TEST_SUITE_P(LazyAndNonLazy, OrcRowIdSeekTest, testing::Bool());
+
+} // namespace
 } // namespace doris

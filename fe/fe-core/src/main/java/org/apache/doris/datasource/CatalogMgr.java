@@ -291,6 +291,8 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         if (catalog instanceof ExternalCatalog) {
             try {
                 ((ExternalCatalog) catalog).checkProperties();
+                ((ExternalCatalog) catalog).checkSubmittedMetaCacheProperties(
+                        catalog.getProperties(), cmd.getProperties());
             } catch (DdlException | RuntimeException e) {
                 catalog.onCreateFailure();
                 throw e;
@@ -445,6 +447,12 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                         updates.put(marker, "true");
                     }
                 }
+            }
+
+            if (catalog instanceof ExternalCatalog) {
+                Map<String, String> effectiveProperties = Maps.newHashMap(oldProperties);
+                effectiveProperties.putAll(updates);
+                ((ExternalCatalog) catalog).checkSubmittedMetaCacheProperties(effectiveProperties, updates);
             }
 
             // Filesystem binding may read Hadoop XML files. Validate the detached snapshot before

@@ -18,6 +18,9 @@ import org.junit.Assert
 // under the License.
 
 suite("test_local_tvf_enclose", "p0,external") {
+    logger.info("Skip: this suite requires LOCAL TVF, which is disabled.")
+    return
+
     List<List<Object>> backends =  sql """ show backends """
     assertTrue(backends.size() > 0)
     def be_id = backends[0][0]

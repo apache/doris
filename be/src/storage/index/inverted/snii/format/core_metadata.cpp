@@ -127,9 +127,7 @@ Status decode_core_pb(const doris::snii::SniiCoreMetadataPB& input, CoreMetadata
         !stats.has_null_count()) {
         return corrupted("core metadata: missing statistics field");
     }
-    // sum_total_term_freq (stats field 5) and norms (section_refs field 5) are optional additions
-    // absent from the deployed 3.1-series writer. Missing fields mean no scoring statistics or
-    // norms, affecting BM25 availability but not filtering queries.
+    // Missing optional fields default to zero or empty; filtering remains available.
     out->stats = {.doc_count = stats.doc_count(),
                   .indexed_doc_count = stats.indexed_doc_count(),
                   .term_count = stats.term_count(),

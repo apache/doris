@@ -18,11 +18,17 @@
 #include <gen_cpp/FrontendService_types.h>
 
 #include "cloud/cloud_tablet_mgr.h"
+#include "common/status.h"
 #include "runtime/exec_env.h"
 #include "service/http/http_handler_with_auth.h"
 #include "service/http/http_request.h"
+#include "storage/tablet/tablet_fwd.h"
 #include "storage/tablet/tablet_manager.h"
 namespace doris {
+
+// Returns whether every non-empty rowset of `tablet` ends with the encryption magic code, or an
+// error if any file could not be checked.
+Result<bool> is_tablet_encrypted(const BaseTabletSPtr& tablet);
 
 class CheckEncryptionAction : public HttpHandlerWithAuth {
 public:

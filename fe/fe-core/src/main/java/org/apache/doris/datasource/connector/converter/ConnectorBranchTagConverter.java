@@ -40,7 +40,11 @@ public final class ConnectorBranchTagConverter {
     private ConnectorBranchTagConverter() {
     }
 
-    /** Maps {@code BranchOptions.retain/numSnapshots/retention} to the snapshot-management knobs they drive. */
+    /**
+     * Maps {@code BranchOptions} to the snapshot-management knobs they drive. SQL
+     * {@code RETAIN} controls the branch reference age, while the time after
+     * {@code WITH SNAPSHOT RETENTION} controls the snapshot age.
+     */
     public static BranchChange toBranchChange(CreateOrReplaceBranchInfo info) {
         BranchOptions options = info.getBranchOptions();
         return new BranchChange(
@@ -49,9 +53,9 @@ public final class ConnectorBranchTagConverter {
                 info.getReplace(),
                 info.getIfNotExists(),
                 options.getSnapshotId().orElse(null),
-                options.getRetain().orElse(null),
+                options.getRetention().orElse(null), // WITH SNAPSHOT RETENTION <time>
                 options.getNumSnapshots().orElse(null),
-                options.getRetention().orElse(null));
+                options.getRetain().orElse(null)); // RETAIN <time>
     }
 
     public static TagChange toTagChange(CreateOrReplaceTagInfo info) {

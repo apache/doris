@@ -26,6 +26,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <chrono>
 #include <cmath>
 #include <cstring>
@@ -71,9 +72,11 @@
 #include "exprs/vexpr.h"
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
+#include "exprs/vtopn_pred.h"
 #include "format/format_common.h"
 #include "format/orc/orc_memory_stream_test.h"
 #include "format/table/deletion_vector_reader.h"
+#include "format_v2/parquet/parquet_reader.h"
 #include "format_v2/table_reader.h"
 #include "gen_cpp/Exprs_types.h"
 #include "gen_cpp/ExternalTableSchema_types.h"
@@ -83,7 +86,9 @@
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "storage/segment/condition_cache.h"
+#include "testutil/mock/mock_query_context.h"
 #include "util/debug_points.h"
+#include "util/defer_op.h"
 #include "util/hash_util.hpp"
 #include "util/url_coding.h"
 
@@ -1724,6 +1729,272 @@ void apply_final_conjuncts(Block* block, const VExprContextSPtrs& conjuncts) {
     ASSERT_TRUE(status.ok()) << status;
 }
 
+struct EvolutionTopNFilter {
+    std::shared_ptr<MockQueryContext> query_context;
+    VExprContextSPtr conjunct;
+};
+
+EvolutionTopNFilter make_evolution_topn_filter(RuntimeState* state, bool ascending) {
+    const auto type = make_nullable(std::make_shared<DataTypeInt32>());
+    TExpr target;
+    TExprNode slot;
+    slot.__set_node_type(TExprNodeType::SLOT_REF);
+    slot.__set_type(type->to_thrift());
+    slot.__set_num_children(0);
+    TSlotRef slot_ref;
+    slot_ref.__set_slot_id(0);
+    slot_ref.__set_tuple_id(0);
+    slot.__set_slot_ref(slot_ref);
+    target.nodes.push_back(slot);
+    TTopnFilterDesc desc;
+    desc.__set_source_node_id(10);
+    desc.__set_is_asc(ascending);
+    desc.__set_null_first(false);
+    desc.__set_target_node_id_to_target_expr({{20, target}});
+    auto query = MockQueryContext::create();
+    state->_query_ctx = query.get();
+    query->init_runtime_predicates({desc});
+    auto& predicate = query->get_runtime_predicate(10);
+    predicate.set_detected_source();
+    DORIS_CHECK(predicate.init_target(20, {}, -1).ok());
+    TExprNode topn_node;
+    topn_node.__set_type(std::make_shared<DataTypeUInt8>()->to_thrift());
+    topn_node.__set_is_nullable(true);
+    auto topn = VTopNPred::create_shared(topn_node, 10, nullptr);
+    topn->add_child(VSlotRef::create_shared(0, 0, -1, type, "k"));
+    return {.query_context = std::move(query), .conjunct = prepared_conjunct(state, topn)};
+}
+
+void write_topn_evolution_file(const std::string& path, bool ascending, bool nested,
+                               int32_t bad_date = -354285) {
+    constexpr int GROUP_ROWS = 4096;
+    arrow::Int32Builder keys;
+    arrow::Date32Builder dates;
+    for (int row = 0; row < GROUP_ROWS * 4; ++row) {
+        const bool bad = row < GROUP_ROWS;
+        const int key = (bad == ascending) ? 100 : 0;
+        DORIS_CHECK(keys.Append(key).ok());
+        DORIS_CHECK(dates.Append(bad ? bad_date : 19724).ok());
+    }
+    auto key_field = arrow::field("k", arrow::int32(), true,
+                                  arrow::key_value_metadata({"PARQUET:field_id"}, {"1"}));
+    auto date_field = arrow::field("ts", arrow::date32(), true,
+                                   arrow::key_value_metadata({"PARQUET:field_id"}, {"2"}));
+    std::shared_ptr<arrow::Array> date_values = dates.Finish().ValueOrDie();
+    if (nested) {
+        date_values = arrow::StructArray::Make({date_values}, {date_field}).ValueOrDie();
+        date_field = arrow::field("outer", date_values->type(), true,
+                                  arrow::key_value_metadata({"PARQUET:field_id"}, {"3"}));
+    }
+    auto table = arrow::Table::Make(arrow::schema({key_field, date_field}),
+                                    {keys.Finish().ValueOrDie(), date_values});
+    auto out = arrow::io::FileOutputStream::Open(path).ValueOrDie();
+    ::parquet::WriterProperties::Builder properties;
+    properties.disable_dictionary();
+    properties.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    DORIS_CHECK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, GROUP_ROWS,
+                                             properties.build())
+                        .ok());
+    DORIS_CHECK(out->Close().ok());
+}
+
+std::vector<ColumnDefinition> topn_evolution_columns(bool promote, bool nested) {
+    DataTypePtr date_type = promote ? DataTypePtr(std::make_shared<DataTypeTimeStampNs>())
+                                    : DataTypePtr(std::make_shared<DataTypeDateV2>());
+    auto date = make_table_column(2, "ts", date_type);
+    if (nested) {
+        auto outer = make_table_column(
+                3, "outer",
+                std::make_shared<DataTypeStruct>(DataTypes {date.type}, Strings {"ts"}));
+        outer.children = {date};
+        date = outer;
+    }
+    return {make_table_column(1, "k", std::make_shared<DataTypeInt32>()), date};
+}
+
+TEST(IcebergV2ReaderTest, TopNPrunesRowsBeforeUnneededEvolutionConversion) {
+    const auto dir = std::filesystem::temp_directory_path() / "topn_evolution_projection";
+    std::filesystem::create_directories(dir);
+    Defer cleanup([&] { std::filesystem::remove_all(dir); });
+    for (const bool ascending : {false, true}) {
+        for (const bool nested : {false, true}) {
+            const auto path = (dir / (std::string(ascending ? "asc" : "desc") +
+                                      (nested ? "_nested.parquet" : ".parquet")))
+                                      .string();
+            // RG0 cannot beat any later group on k. Its DATE -> TIMESTAMP_NS conversion is not
+            // needed for TopN, while the same conversion must still fail in an unfiltered scan.
+            write_topn_evolution_file(path, ascending, nested);
+            for (const bool promote : {false, true}) {
+                for (const bool strict : {false, true}) {
+                    SCOPED_TRACE(testing::Message()
+                                 << "ascending=" << ascending << " nested=" << nested
+                                 << " promote=" << promote << " strict=" << strict);
+                    TQueryOptions options;
+                    options.__set_enable_strict_cast(strict);
+                    options.__set_batch_size(4096);
+                    RuntimeState state {options, TQueryGlobals()};
+                    auto filter = make_evolution_topn_filter(&state, ascending);
+                    const auto columns = topn_evolution_columns(promote, nested);
+                    auto scan_params = make_local_parquet_scan_params();
+                    RuntimeProfile profile("topn_evolution");
+                    iceberg::IcebergTableReader reader;
+                    ASSERT_TRUE(reader.init({.projected_columns = columns,
+                                             .conjuncts = {filter.conjunct},
+                                             .format = FileFormat::PARQUET,
+                                             .scan_params = &scan_params,
+                                             .io_ctx = nullptr,
+                                             .runtime_state = &state,
+                                             .scanner_profile = &profile})
+                                        .ok());
+                    ASSERT_TRUE(reader.prepare_split(build_split_options(path)).ok());
+                    bool eos = false;
+                    size_t rows = 0;
+                    Status status;
+                    while (!eos) {
+                        Block block = build_table_block(columns);
+                        status = reader.get_block(&block, &eos);
+                        if (!status.ok()) {
+                            break;
+                        }
+                        rows += block.rows();
+                        if (block.rows() > 0) {
+                            const auto& values = assert_cast<const ColumnNullable&>(
+                                                         *block.get_by_position(0).column)
+                                                         .get_nested_column();
+                            EXPECT_EQ(assert_cast<const ColumnInt32&>(values).get_element(0),
+                                      ascending ? 0 : 100);
+                            const IColumn* dates = block.get_by_position(1).column.get();
+                            if (nested) {
+                                dates = &assert_cast<const ColumnStruct&>(
+                                                 expect_not_null_table_column(block, 1))
+                                                 .get_column(0);
+                            }
+                            const auto type =
+                                    promote ? DataTypePtr(std::make_shared<DataTypeTimeStampNs>())
+                                            : DataTypePtr(std::make_shared<DataTypeDateV2>());
+                            const auto& materialized =
+                                    expect_not_null_nullable_nested_column(*dates);
+                            for (size_t row = 0; row < block.rows(); ++row) {
+                                EXPECT_EQ(type->to_string(materialized, row),
+                                          promote ? "2024-01-02 00:00:00.000000000" : "2024-01-02");
+                            }
+                            ASSERT_TRUE(filter.query_context->get_runtime_predicate(10)
+                                                .update(Field::create_field<TYPE_INT>(
+                                                        ascending ? 0 : 100))
+                                                .ok());
+                        }
+                    }
+                    EXPECT_TRUE(status.ok()) << status;
+                    EXPECT_EQ(rows, 3 * 4096);
+                    ASSERT_TRUE(reader.close().ok());
+                    filter.conjunct->close();
+                }
+            }
+        }
+    }
+}
+
+TEST(IcebergV2ReaderTest, TopNPruningSkipsNativeAndHiddenDeleteConversionsOnlyForExcludedRows) {
+    const auto dir = std::filesystem::temp_directory_path() / "topn_conversion_pruning";
+    std::filesystem::create_directories(dir);
+    Defer cleanup([&] { std::filesystem::remove_all(dir); });
+    for (const bool hidden_delete : {false, true}) {
+        for (const bool ascending : {false, true}) {
+            const auto suffix = std::string(hidden_delete ? "delete_" : "native_") +
+                                (ascending ? "asc" : "desc");
+            const auto path = (dir / (suffix + ".parquet")).string();
+            // DATE's INT32 domain includes year 10000, which Doris DATE cannot materialize.
+            // Year 1000 is valid as DATE but overflows the hidden equality key's TIMESTAMP_NS.
+            write_topn_evolution_file(path, ascending, false, hidden_delete ? -354285 : 2932897);
+            const auto delete_path = (dir / (suffix + "_delete.parquet")).string();
+            if (hidden_delete) {
+                const auto type = arrow::timestamp(arrow::TimeUnit::NANO);
+                arrow::TimestampBuilder builder(type, arrow::default_memory_pool());
+                ASSERT_TRUE(builder.Append(1'704'067'200'000'000'000L).ok());
+                const auto field = arrow::field(
+                        "ts", type, true, arrow::key_value_metadata({"PARQUET:field_id"}, {"2"}));
+                const auto table =
+                        arrow::Table::Make(arrow::schema({field}), {builder.Finish().ValueOrDie()});
+                auto out = arrow::io::FileOutputStream::Open(delete_path).ValueOrDie();
+                ASSERT_TRUE(
+                        ::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, 1)
+                                .ok());
+                ASSERT_TRUE(out->Close().ok());
+            }
+            for (const int scenario : {0, 1, 2}) {
+                SCOPED_TRACE(testing::Message()
+                             << "hidden_delete=" << hidden_delete << " ascending=" << ascending
+                             << " scenario=" << scenario);
+                TQueryOptions options;
+                options.__set_enable_strict_cast(true);
+                options.__set_batch_size(4096);
+                RuntimeState state {options, TQueryGlobals()};
+                // No filter and a reversed TopN both need RG0; only scenario 1 excludes it.
+                auto filter =
+                        make_evolution_topn_filter(&state, scenario == 2 ? !ascending : ascending);
+                auto columns = topn_evolution_columns(false, false);
+                if (hidden_delete) {
+                    columns.resize(1);
+                }
+                auto scan_params = make_local_parquet_scan_params();
+                scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+                RuntimeProfile profile("topn_conversion");
+                ShardedKVCache cache(1);
+                iceberg::IcebergTableReader reader;
+                ASSERT_TRUE(reader.init({.projected_columns = columns,
+                                         .conjuncts = scenario == 0
+                                                              ? VExprContextSPtrs {}
+                                                              : VExprContextSPtrs {filter.conjunct},
+                                         .format = FileFormat::PARQUET,
+                                         .scan_params = &scan_params,
+                                         .io_ctx = nullptr,
+                                         .runtime_state = &state,
+                                         .scanner_profile = &profile})
+                                    .ok());
+                auto split = build_split_options(path);
+                split.cache = &cache;
+                if (hidden_delete) {
+                    split.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+                            path, {make_iceberg_equality_delete_file(delete_path, {2})}, 3));
+                }
+                ASSERT_TRUE(reader.prepare_split(split).ok());
+                bool eos = false;
+                size_t rows = 0;
+                Status status;
+                while (!eos) {
+                    Block block = build_table_block(columns);
+                    status = reader.get_block(&block, &eos);
+                    if (!status.ok()) {
+                        break;
+                    }
+                    rows += block.rows();
+                    if (block.rows() > 0) {
+                        expect_int32_column_values(
+                                *block.get_by_position(0).column,
+                                std::vector<int32_t>(block.rows(), ascending ? 0 : 100));
+                        ASSERT_TRUE(
+                                filter.query_context->get_runtime_predicate(10)
+                                        .update(Field::create_field<TYPE_INT>(ascending ? 0 : 100))
+                                        .ok());
+                    }
+                }
+                EXPECT_EQ(status.ok(), scenario == 1) << status;
+                if (scenario == 1) {
+                    EXPECT_EQ(rows, 3 * 4096);
+                } else {
+                    EXPECT_NE(status.to_string().find(
+                                      hidden_delete ? "TIMESTAMP_NS overflow"
+                                                    : "Parquet DATE value is out of range"),
+                              std::string::npos)
+                            << status;
+                }
+                ASSERT_TRUE(reader.close().ok());
+                filter.conjunct->close();
+            }
+        }
+    }
+}
+
 TEST(IcebergV2ReaderTest, DatePromotionToNanosecondsChecksOverflow) {
     const auto test_dir = std::filesystem::temp_directory_path() / "iceberg_date_promotion";
     std::filesystem::create_directories(test_dir);
@@ -2127,6 +2398,44 @@ TEST(IcebergV2ReaderTest, AnnotateBuildsComplexInitialDefaults) {
             "\x00\x11\x22\x33\x44\x55\x66\x77\x88\x99\xaa\xbb\xcc\xdd\xee\xff\x00\x11", 18);
     EXPECT_EQ(keys[0].get<TYPE_STRING>(), expected_binary_key);
     EXPECT_EQ(values[0].get<TYPE_INT>(), 9);
+}
+
+TEST(IcebergV2ReaderTest, AnnotateBuildsComplexDoubleDefaultAtFullPrecision) {
+    const auto double_type = std::make_shared<DataTypeFloat64>();
+    const auto list_type = make_nullable(std::make_shared<DataTypeArray>(double_type));
+    auto list_element =
+            external_schema_field("element", 2, {}, std::nullopt,
+                                  external_primitive_type(TPrimitiveType::DOUBLE), false, false);
+    auto list_field = external_schema_field("values", 1, {}, "[0.18172760479972437302]",
+                                            std::nullopt, false, true);
+    schema::external::TArrayField array_metadata;
+    array_metadata.__set_item_field(std::move(list_element));
+    list_field.field_ptr->nestedField.__set_array_field(std::move(array_metadata));
+    list_field.field_ptr->__isset.nestedField = true;
+    TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+    scan_params.__set_current_schema_id(100);
+    scan_params.__set_history_schema_info({external_schema(100, {std::move(list_field)})});
+
+    ColumnDefinition column;
+    column.name = "values";
+    column.type = list_type;
+    ProjectedColumnBuildContext context {.scan_params = &scan_params};
+    doris::format::iceberg::IcebergTableReader reader;
+    const auto status = reader.annotate_projected_column(TFileScanSlotInfo(), &context, &column);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_NE(column.default_expr, nullptr);
+    const auto* literal = dynamic_cast<const VLiteral*>(column.default_expr->root().get());
+    ASSERT_NE(literal, nullptr);
+    const auto literal_column = literal->get_column_ptr()->convert_to_full_column_if_const();
+    const auto& nullable = assert_cast<const ColumnNullable&>(*literal_column);
+    ASSERT_FALSE(nullable.is_null_at(0));
+    const auto& array = assert_cast<const ColumnArray&>(nullable.get_nested_column());
+    const auto& nullable_doubles = assert_cast<const ColumnNullable&>(array.get_data());
+    ASSERT_FALSE(nullable_doubles.is_null_at(0));
+    const auto& doubles = assert_cast<const ColumnFloat64&>(nullable_doubles.get_nested_column());
+    ASSERT_EQ(doubles.size(), 1);
+    EXPECT_EQ(std::bit_cast<uint64_t>(doubles.get_data()[0]), 0x3fc742d9a3b296dcULL);
 }
 
 TEST(IcebergV2ReaderTest, ComplexInitialDefaultPrefersExactChildNameOverAlias) {
@@ -4400,6 +4709,78 @@ TEST(IcebergV2ReaderTest, IcebergMissingWholeStructEqualityKeyMaterializesDefaul
     }
 }
 
+TEST(IcebergV2ReaderTest, IcebergProjectedStructDoesNotReuseReaddedEqualityKeyByName) {
+    const auto run_case = [](FileFormat file_format) {
+        const bool is_parquet = file_format == FileFormat::PARQUET;
+        const std::string format_name = is_parquet ? "parquet" : "orc";
+        const auto test_dir = std::filesystem::temp_directory_path() /
+                              ("doris_v2_missing_reused_equality_key_" + format_name);
+        std::filesystem::remove_all(test_dir);
+        std::filesystem::create_directories(test_dir);
+        const auto file_path = (test_dir / ("split." + format_name)).string();
+        const auto delete_file_path = (test_dir / ("equality-delete." + format_name)).string();
+        if (is_parquet) {
+            write_nested_equality_parquet_file(file_path, {1, 2, 3}, {7, 8, 9},
+                                               {false, false, false}, true, "k", 4);
+            write_nested_equality_parquet_file(delete_file_path, {}, {7}, {false}, true, "k", 3);
+        } else {
+            write_nested_equality_orc_file(file_path, {1, 2, 3}, {7, 8, 9}, {false, false, false},
+                                           "k", 4);
+            write_nested_equality_orc_file(delete_file_path, {}, {7}, {false}, "k", 3);
+        }
+
+        auto payload = external_struct_schema_field(
+                "payload", 1,
+                {external_schema_field("k", 4, {}, std::nullopt,
+                                       external_primitive_type(TPrimitiveType::INT), false, true),
+                 external_schema_field("k", 3, {}, std::nullopt,
+                                       external_primitive_type(TPrimitiveType::INT), false, true)},
+                true);
+        std::vector<schema::external::TSchema> history = {
+                external_schema(-1, {external_schema_field("id", 0), std::move(payload)})};
+
+        const auto int_type = std::make_shared<DataTypeInt32>();
+        std::vector<ColumnDefinition> projected_columns;
+        projected_columns.push_back(make_table_column(0, "id", int_type));
+        auto current_key = make_table_column(4, "k", int_type);
+        auto payload_type = std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"k"});
+        auto projected_payload = make_table_column(1, "payload", payload_type);
+        projected_payload.children = {std::move(current_key)};
+        projected_columns.push_back(std::move(projected_payload));
+        auto scan_params = make_local_scan_params(file_format);
+        scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+        scan_params.__set_current_schema_id(-1);
+        scan_params.__set_history_schema_info(std::move(history));
+
+        RuntimeProfile profile("test_profile");
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        io::FileReaderStats file_reader_stats;
+        io::FileCacheStatistics file_cache_stats;
+        auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+        ShardedKVCache cache(1);
+        doris::format::iceberg::IcebergTableReader reader;
+        init_iceberg_reader(&reader, projected_columns, &scan_params, io_ctx, &state, &profile,
+                            file_format);
+
+        auto split_options = build_split_options(file_path);
+        split_options.cache = &cache;
+        split_options.current_split_format = file_format;
+        const auto thrift_file_format =
+                is_parquet ? TFileFormatType::FORMAT_PARQUET : TFileFormatType::FORMAT_ORC;
+        split_options.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+                file_path,
+                {make_iceberg_equality_delete_file(delete_file_path, {3}, thrift_file_format)}, 3));
+        ASSERT_TRUE(reader.prepare_split(split_options).ok());
+        EXPECT_EQ(read_iceberg_ids(&reader, projected_columns), std::vector<int32_t>({1, 2, 3}));
+        ASSERT_TRUE(reader.close().ok());
+        std::filesystem::remove_all(test_dir);
+    };
+
+    for (const auto file_format : {FileFormat::PARQUET, FileFormat::ORC}) {
+        run_case(file_format);
+    }
+}
+
 // A schema carrier may contain a dropped and a re-added child with the same name. Keep the
 // Parquet/ORC setup identical so both readers prove that equality-key reconstruction follows the
 // exact field-id path instead of attaching both same-name children to one synthetic struct slot.
@@ -6501,6 +6882,42 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteFileSizeUnknownFallsBackToStat) {
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);
+}
+
+TEST(IcebergTableReaderTest, DeleteParquetFactoryReusesScannerCounters) {
+    RuntimeProfile profile("iceberg");
+    doris::format::parquet::ParquetProfileCache cache(&profile);
+    doris::format::iceberg::IcebergTableReader reader;
+    reader._scanner_profile = &profile;
+    reader._parquet_profile_cache = &cache;
+    TFileScanRangeParams params;
+    TQueryOptions options;
+    TQueryGlobals globals;
+    RuntimeState state(options, globals);
+    reader._runtime_state = &state;
+    IcebergDeleteFileIOContext io_context(&state);
+    const auto file_path =
+            (std::filesystem::temp_directory_path() /
+             ("iceberg_profile_" +
+              std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
+              ".parquet"))
+                    .string();
+    write_single_int_parquet_file(file_path, "id", {1}, 1);
+    for (int i = 0; i < 2; ++i) {
+        TIcebergDeleteFileDesc desc;
+        desc.__set_file_format(TFileFormatType::FORMAT_PARQUET);
+        desc.__set_path(file_path);
+        desc.__set_file_size(std::filesystem::file_size(file_path));
+        std::unique_ptr<doris::format::FileReader> file;
+        const auto status = reader._create_delete_file_reader(desc, params, &io_context, &file);
+        ASSERT_TRUE(status.ok()) << status.to_string();
+        auto* parquet = dynamic_cast<doris::format::parquet::ParquetReader*>(file.get());
+        ASSERT_NE(parquet, nullptr);
+        EXPECT_EQ(parquet->_profile_cache, &cache);
+        parquet->_init_profile();
+        EXPECT_EQ(parquet->_parquet_profile.total_time, cache.get().total_time);
+    }
+    std::filesystem::remove(file_path);
 }
 
 } // namespace

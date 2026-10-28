@@ -138,8 +138,8 @@ public class AddColumnsOp extends AlterTableOp {
     }
 
     @Override
-    public boolean allowOpRowBinlog() {
-        // Add columns is considered safe for row binlog tables.
+    public boolean allowOnChangelogTable() {
+        // Add columns is considered safe for changelog tables.
         return true;
     }
 

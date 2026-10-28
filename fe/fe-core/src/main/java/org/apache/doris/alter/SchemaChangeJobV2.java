@@ -23,7 +23,6 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -39,6 +38,7 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TabletBinlogConfig;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.Config;
@@ -273,7 +273,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
         tbl.readLock();
         try {
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
-            BinlogConfig binlogConfig = new BinlogConfig(tbl.getBinlogConfig());
+            TabletBinlogConfig binlogConfig = tbl.getTabletBinlogConfig();
             Map<Object, Object> objectPool = new HashMap<Object, Object>();
             for (long partitionId : partitionIndexMap.rowKeySet()) {
                 Partition partition = tbl.getPartition(partitionId);
@@ -935,10 +935,10 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
                 TStorageMedium medium = olapTable.getPartitionInfo().getDataProperty(partitionId).getStorageMedium();
 
                 for (Tablet shadownTablet : shadowIndex.getTablets()) {
-                    // Full schema-change jobs cannot originate from a row-binlog table.
+                    // Full schema-change jobs cannot originate from a changelog table.
                     TabletMeta shadowTabletMeta = new TabletMeta(dbId, tableId, partitionId, shadowIndexId,
                             indexSchemaVersionAndHashMap.get(shadowIndexId).schemaHash, medium,
-                            false /* isRowBinlog */);
+                            false /* isChangelog */);
                     invertedIndex.addTablet(shadownTablet.getId(), shadowTabletMeta);
                     for (Replica shadowReplica : shadownTablet.getReplicas()) {
                         invertedIndex.addReplica(shadownTablet.getId(), shadowReplica);

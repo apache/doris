@@ -181,14 +181,14 @@ TEST_F(PackedFileWriterTest, SwitchToDirectWriteReleasesBufferedMemory) {
     std::string small_data(80, 'a');
     Slice small_slice(small_data);
     ASSERT_TRUE(writer.appendv(&small_slice, 1).ok());
-    EXPECT_GT(writer.buffer_capacity_for_test(), default_capacity);
+    EXPECT_GT(writer._buffer.capacity(), default_capacity);
 
     std::string large_data(30, 'b');
     Slice large_slice(large_data);
     ASSERT_TRUE(writer.appendv(&large_slice, 1).ok());
 
     EXPECT_GT(inner_writer_ptr->append_calls(), 0);
-    EXPECT_LE(writer.buffer_capacity_for_test(), default_capacity);
+    EXPECT_LE(writer._buffer.capacity(), default_capacity);
 }
 
 TEST_F(PackedFileWriterTest, CloseAsync) {

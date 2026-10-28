@@ -2333,7 +2333,8 @@ TEST_F(FunctionCastToIntTest, test_strict_cast_skips_null_covered_payload) {
                 {std::move(from_column), from_type, "from"},
                 {nullptr, to_type, "to"},
         };
-        ASSERT_TRUE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr));
+        ASSERT_TRUE(fn(ctx.get(), block.get_by_position(0), block.get_by_position(1), block.rows(),
+                       nullptr));
 
         const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
         const auto& null_map = result.get_null_map_data();
@@ -2368,7 +2369,8 @@ TEST_F(FunctionCastToIntTest, test_strict_cast_nullable_without_null) {
              "from"},
             {nullptr, to_type, "to"},
     };
-    ASSERT_TRUE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr));
+    ASSERT_TRUE(fn(ctx.get(), block.get_by_position(0), block.get_by_position(1), block.rows(),
+                   nullptr));
 
     const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
     EXPECT_EQ(result.get_null_map_data()[0], 0);

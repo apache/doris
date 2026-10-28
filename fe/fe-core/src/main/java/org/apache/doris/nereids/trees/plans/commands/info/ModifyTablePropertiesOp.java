@@ -70,12 +70,12 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
     }
 
     @Override
-    public boolean allowOpRowBinlog() {
-        // Row-binlog tables forbid bloom-filter changes and storage relocation.
+    public boolean allowOnChangelogTable() {
+        // Changelog tables forbid bloom-filter changes and storage relocation.
         if (properties == null || properties.isEmpty()) {
             return true;
         }
-        // BF related properties are forbidden on row binlog tables.
+        // BF related properties are forbidden on changelog tables.
         if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BF_COLUMNS)
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_BF_FPP)) {
             return false;
@@ -103,7 +103,8 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
         if (properties.size() != 1
                 && !TableProperty.isSamePrefixProperties(
                         properties, DynamicPartitionProperty.DYNAMIC_PARTITION_PROPERTY_PREFIX)
-                && !TableProperty.isSamePrefixProperties(properties, PropertyAnalyzer.PROPERTIES_BINLOG_PREFIX)) {
+                && !TableProperty.isSamePrefixProperties(properties, PropertyAnalyzer.PROPERTIES_BINLOG_PREFIX)
+                && !TableProperty.isSamePrefixProperties(properties, PropertyAnalyzer.PROPERTIES_CHANGELOG_PREFIX)) {
             throw new AnalysisException(
                     "Can only set one table property(without dynamic partition && binlog) at a time");
         }
@@ -174,6 +175,10 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
             // validate binlog.* properties
             PropertyAnalyzer.analyzeBinlogConfig(new java.util.HashMap<>(properties));
             // will be altered in SchemaChangeHandler.updateBinlogConfig
+        } else if (TableProperty.isSamePrefixProperties(properties, PropertyAnalyzer.PROPERTIES_CHANGELOG_PREFIX)) {
+            // validate changelog.* properties
+            PropertyAnalyzer.analyzeChangelogConfig(new java.util.HashMap<>(properties));
+            // will be altered in SchemaChangeHandler.updateChangelogConfig
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY)) {
             String compactionPolicy = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY, "");
             if (compactionPolicy != null
