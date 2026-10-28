@@ -28,6 +28,7 @@
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Woverloaded-virtual"
 #endif
+#include <CLucene.h>
 #include <CLucene/index/MultiReader.h>
 #include <CLucene/index/_MultiSegmentReader.h>
 #ifdef __clang__
