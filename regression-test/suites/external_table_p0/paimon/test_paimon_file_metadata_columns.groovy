@@ -155,11 +155,10 @@ suite("test_paimon_file_metadata_columns", "p0,external") {
         }
 
         sql """set force_jni_scanner=false"""
+        def metadataQuery = "select `__paimon_row_index` from deletion_vector_orc order by 1"
+        def metadataRows = sql(metadataQuery)
         sql """set enable_file_scanner_v2=false"""
-        test {
-            sql """select `__paimon_row_index` from deletion_vector_orc"""
-            exception "Paimon metadata columns require FileScannerV2 native Parquet/ORC reader"
-        }
+        assertEquals(metadataRows, sql(metadataQuery))
     } finally {
         sql """unset variable file_split_size"""
         sql """set force_jni_scanner=false"""

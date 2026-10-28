@@ -66,12 +66,9 @@ public:
 
     enum class UncachedReaderBytesStorage { LOCAL, REMOTE, NONE };
 
-    static bool is_supported(const TFileScanRangeParams& params, const TFileRangeDesc& range);
 #ifdef BE_TEST
     FileScannerV2(RuntimeState* state, RuntimeProfile* profile,
                   std::unique_ptr<format::TableReader> table_reader);
-    static Status TEST_validate_scan_range(const TFileScanRangeParams& params,
-                                           const TFileRangeDesc& range);
     static Status TEST_to_file_format(TFileFormatType::type format_type,
                                       format::FileFormat* file_format);
     static bool TEST_is_partition_slot(const TFileScanSlotInfo& slot_info,
@@ -91,11 +88,7 @@ public:
             RuntimeProfile* profile, const io::FileCacheStatistics& file_cache_statistics);
     static bool TEST_should_skip_not_found(const Status& status, bool ignore_not_found);
     static bool TEST_should_skip_empty(const Status& status, bool stopped);
-    static Status TEST_validate_variant_projection(TFileFormatType::type format_type,
-                                                   bool has_variant_projection,
-                                                   const std::string& table_format) {
-        return _validate_variant_projection(format_type, has_variant_projection, table_format);
-    }
+
     static Status TEST_contextualize_output_filter_status(Status status,
                                                           TFileFormatType::type format_type) {
         return _contextualize_output_filter_status(std::move(status), format_type);
@@ -140,11 +133,6 @@ protected:
     bool _should_update_load_counters() const override;
 
 private:
-    static Status _validate_scan_range(const TFileScanRangeParams& params,
-                                       const TFileRangeDesc& range);
-    static Status _validate_variant_projection(TFileFormatType::type format_type,
-                                               bool has_variant_projection,
-                                               const std::string& table_format);
     Status _get_next_scan_range(bool* has_next);
     TFileFormatType::type _get_current_format_type() const;
     Status _init_io_ctx();
@@ -209,7 +197,7 @@ private:
     std::vector<format::ColumnDefinition> _projected_columns;
     bool _has_variant_projection = false;
     // File formats without embedded schema, such as CSV, still need the FE slot descriptors in
-    // file-column order. This mirrors old FileScanner::_file_slot_descs and is passed only to
+    // file-column order. These descriptors are passed only to
     // readers that cannot derive their schema from file metadata.
     std::vector<SlotDescriptor*> _file_slot_descs;
     bool _need_global_rowid_column = false;

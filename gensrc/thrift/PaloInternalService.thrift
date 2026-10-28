@@ -542,6 +542,7 @@ struct TQueryOptions {
   // In read path, read from file cache or remote storage when execute query.
   1000: optional bool disable_file_cache = false
   1001: optional i32 file_cache_query_limit_percent = -1
+  // Deprecated: file scans always use V2. Retain the field id for wire compatibility.
   1002: optional bool enable_file_scanner_v2 = false
   1003: optional bool enable_topn_lazy_mat_phase2_no_write_file_cache = false
   1004: optional i64 file_cache_query_limit_bytes = -1

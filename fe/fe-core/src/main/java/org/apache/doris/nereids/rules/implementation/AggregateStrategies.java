@@ -756,13 +756,10 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     // COUNT(nullable_col); synthetic rows would make one upper aggregate wrong.
                     return canNotPush;
                 }
-                // Nullable file COUNT is exact only when this query is routed to FileScannerV2,
-                // which carries the semantic argument and counts definition levels. Gating on the
-                // session switch keeps V1 on its original full-column evaluation path.
+                // File scans preserve the COUNT argument and count its definition levels,
+                // so nullable COUNT can use exact storage-layer aggregation.
                 boolean supportsNullableFileCount = logicalScan instanceof LogicalFileScan
-                        && mergeOp == PushDownAggOp.COUNT
-                        && cascadesContext.getConnectContext() != null
-                        && cascadesContext.getConnectContext().getSessionVariable().enableFileScannerV2;
+                        && mergeOp == PushDownAggOp.COUNT;
                 if (column.isAllowNull() && checkNullSlots.contains(slot)
                         && !supportsNullableFileCount) {
                     return canNotPush;

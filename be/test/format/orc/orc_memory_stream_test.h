@@ -34,8 +34,9 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/types.h"
-#include "format/orc/vorc_reader.h"
 #include "orc/ColumnPrinter.hh"
+#include "orc/OrcFile.hh"
+#include "orc/Vector.hh"
 
 namespace doris {
 

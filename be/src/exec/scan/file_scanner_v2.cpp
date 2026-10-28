@@ -124,104 +124,6 @@ bool contains_variant_type(const DataTypePtr& input) {
     }
 }
 
-bool is_supported_table_format(const TFileRangeDesc& range) {
-    const auto table_format = table_format_name(range);
-    if (table_format == "hudi" && range.__isset.table_format_params &&
-        range.table_format_params.__isset.hudi_params &&
-        range.table_format_params.hudi_params.__isset.delta_logs &&
-        !range.table_format_params.hudi_params.delta_logs.empty()) {
-        // Hudi MOR splits need log-file merge semantics and must stay on the existing JNI path.
-        // FileScannerV2 currently supports native Parquet data files only.
-        return false;
-    }
-    return table_format == "NotSet" || table_format == "tvf" || table_format == "hive" ||
-           table_format == "iceberg" || table_format == "paimon" || table_format == "hudi";
-}
-
-bool is_supported_arrow_table_format(const TFileRangeDesc& range) {
-    const auto table_format = table_format_name(range);
-    return table_format == "remote_doris" || table_format == "adbc";
-}
-
-bool is_supported_paimon_jni_payload(const TFileRangeDesc& range) {
-    if (!range.__isset.table_format_params || !range.table_format_params.__isset.paimon_params) {
-        return false;
-    }
-    const auto& params = range.table_format_params.paimon_params;
-    if (params.__isset.reader_type) {
-        if (params.reader_type == TPaimonReaderType::PAIMON_JNI) {
-            return params.__isset.paimon_split;
-        }
-        if (params.reader_type == TPaimonReaderType::PAIMON_RUST) {
-            return params.__isset.paimon_split && params.__isset.paimon_table_schema_json &&
-                   !params.paimon_table_schema_json.empty();
-        }
-        return false;
-    }
-    if (params.__isset.paimon_split) {
-        // Before reader_type was added, an encoded split unambiguously selected the Java
-        // reader; native scans carried only their physical Parquet or ORC range.
-        return true;
-    }
-    return params.__isset.file_format &&
-           (params.file_format == "parquet" || params.file_format == "orc");
-}
-
-bool is_supported_jni_table_format(const TFileRangeDesc& range) {
-    const auto table_format = table_format_name(range);
-    if (table_format == "paimon") {
-        return is_supported_paimon_jni_payload(range);
-    }
-    return table_format == "jdbc" || table_format == "iceberg" || table_format == "hudi" ||
-           table_format == "max_compute" || table_format == "trino_connector";
-}
-
-bool is_supported_fluss_range(const TFileScanRangeParams& params, const TFileRangeDesc& range) {
-    const auto format_type = get_range_format_type(params, range);
-    if (format::fluss::FlussHybridReader::is_lake_range(range)) {
-        // A lake split is the paimon sibling's own split, wrapped, so it arrives in whichever form
-        // the sibling planned it and whether it can be read here is the paimon answer, asked of the
-        // paimon payload it carries.
-        if (format_type == TFileFormatType::FORMAT_PARQUET ||
-            format_type == TFileFormatType::FORMAT_ORC) {
-            return true;
-        }
-        return format_type == TFileFormatType::FORMAT_JNI && is_supported_paimon_jni_payload(range);
-    }
-    // A range of fluss's own log - a log slice, a primary-key bucket, a primary-key log tail - is
-    // read through the JNI scanner alone.
-    return format_type == TFileFormatType::FORMAT_JNI;
-}
-
-bool is_csv_format(TFileFormatType::type format_type) {
-    switch (format_type) {
-    case TFileFormatType::FORMAT_CSV_PLAIN:
-    case TFileFormatType::FORMAT_CSV_GZ:
-    case TFileFormatType::FORMAT_CSV_BZ2:
-    case TFileFormatType::FORMAT_CSV_LZ4FRAME:
-    case TFileFormatType::FORMAT_CSV_LZ4BLOCK:
-    case TFileFormatType::FORMAT_CSV_LZOP:
-    case TFileFormatType::FORMAT_CSV_DEFLATE:
-    case TFileFormatType::FORMAT_CSV_SNAPPYBLOCK:
-    case TFileFormatType::FORMAT_PROTO:
-        return true;
-    default:
-        return false;
-    }
-}
-
-bool is_text_format(TFileFormatType::type format_type) {
-    return format_type == TFileFormatType::FORMAT_TEXT;
-}
-
-bool is_json_format(TFileFormatType::type format_type) {
-    return format_type == TFileFormatType::FORMAT_JSON;
-}
-
-bool is_wal_format(TFileFormatType::type format_type) {
-    return format_type == TFileFormatType::FORMAT_WAL;
-}
-
 bool is_legacy_virtual_slot(const std::string& column_name) {
     return column_name.starts_with(BeConsts::GLOBAL_ROWID_COL) ||
            iequal(column_name, BeConsts::ICEBERG_ROWID_COL);
@@ -294,11 +196,6 @@ FileScannerV2::FileScannerV2(RuntimeState* state, RuntimeProfile* profile,
                              std::unique_ptr<format::TableReader> table_reader)
         : Scanner(state, profile), _table_reader(std::move(table_reader)) {}
 
-Status FileScannerV2::TEST_validate_scan_range(const TFileScanRangeParams& params,
-                                               const TFileRangeDesc& range) {
-    return _validate_scan_range(params, range);
-}
-
 Status FileScannerV2::TEST_to_file_format(TFileFormatType::type format_type,
                                           format::FileFormat* file_format) {
     return _to_file_format(format_type, file_format);
@@ -345,63 +242,6 @@ bool FileScannerV2::TEST_should_skip_empty(const Status& status, bool stopped) {
     return _should_skip_empty(status, stopped);
 }
 #endif
-
-bool FileScannerV2::is_supported(const TFileScanRangeParams& params, const TFileRangeDesc& range) {
-    if (table_format_name(range) == "fluss") {
-        // Every range of a fluss scan carries the one format "fluss" and is dispatched inside
-        // FlussHybridReader, so its support is answered by the same per-range key the reader
-        // dispatches on rather than by the file-format buckets below.
-        return is_supported_fluss_range(params, range);
-    }
-    const auto format_type = get_range_format_type(params, range);
-    if (format_type == TFileFormatType::FORMAT_PARQUET ||
-        format_type == TFileFormatType::FORMAT_ORC) {
-        return is_supported_table_format(range);
-    } else if (format_type == TFileFormatType::FORMAT_ES_HTTP) {
-        return table_format_name(range) == "es";
-    } else if (format_type == TFileFormatType::FORMAT_ARROW) {
-        // A plain Arrow range is an IPC load pipe; query Arrow ranges retain their connector.
-        return is_supported_arrow_table_format(range) ||
-               (table_format_name(range) == "NotSet" && params.__isset.src_tuple_id &&
-                params.__isset.file_type && params.file_type == TFileType::FILE_STREAM);
-    } else if (format_type == TFileFormatType::FORMAT_JNI) {
-        return is_supported_jni_table_format(range);
-    } else if (is_wal_format(format_type)) {
-        return table_format_name(range) == "NotSet";
-    } else if (is_csv_format(format_type) || is_text_format(format_type) ||
-               is_json_format(format_type)) {
-        return is_supported_table_format(range);
-    } else {
-        LOG(WARNING) << "Unsupported file format type " << format_type << " for file scanner v2";
-        return false;
-    }
-}
-
-Status FileScannerV2::_validate_scan_range(const TFileScanRangeParams& params,
-                                           const TFileRangeDesc& range) {
-    RETURN_IF_ERROR(validate_file_scan_support(params, &range));
-    if (!is_supported(params, range)) {
-        return Status::NotSupported(
-                "FileScannerV2 does not support table format {} with file format {}",
-                table_format_name(range), to_string(get_range_format_type(params, range)));
-    }
-    return Status::OK();
-}
-
-Status FileScannerV2::_validate_variant_projection(TFileFormatType::type format_type,
-                                                   bool has_variant_projection,
-                                                   const std::string& table_format) {
-    // ADBC validates native Variant storage before decoding; other Arrow readers do not.
-    if (!has_variant_projection || format_type != TFileFormatType::FORMAT_ARROW ||
-        table_format == "adbc") {
-        return Status::OK();
-    }
-    // Keep the capability guard for readers without a native Variant carrier contract.
-    return Status::NotSupported(
-            "External Variant Arrow reads require an ADBC native Variant carrier; "
-            "table format {} is not supported",
-            table_format);
-}
 
 FileScannerV2::FileScannerV2(RuntimeState* state, FileScanLocalState* local_state, int64_t limit,
                              std::shared_ptr<SplitSourceConnector> split_source,
@@ -494,7 +334,7 @@ Status FileScannerV2::_get_next_scan_range(bool* has_next) {
     DORIS_CHECK(has_next != nullptr);
     RETURN_IF_ERROR(_split_source->get_next(has_next, &_current_range, &_should_stop));
     if (*has_next) {
-        RETURN_IF_ERROR(_validate_scan_range(*_params, _current_range));
+        RETURN_IF_ERROR(validate_file_scan_support(*_params, &_current_range));
     }
     return Status::OK();
 }
@@ -699,7 +539,7 @@ Status FileScannerV2::read_by_rows(const TFileRangeDesc& range, const std::list<
     DORIS_CHECK(init_reader_ms != nullptr);
     DORIS_CHECK(get_block_ms != nullptr);
     _current_range = range;
-    RETURN_IF_ERROR(_validate_scan_range(*_params, range));
+    RETURN_IF_ERROR(validate_file_scan_support(*_params, &range));
     const auto format_type = get_range_format_type(*_params, range);
     if (format_type != TFileFormatType::FORMAT_PARQUET &&
         format_type != TFileFormatType::FORMAT_ORC) {
@@ -1016,9 +856,6 @@ Status FileScannerV2::_build_projected_columns(const format::TableReader& table_
         _projected_columns.push_back(std::move(column));
     }
     RETURN_IF_ERROR(table_reader.validate_projected_columns(build_context));
-    RETURN_IF_ERROR(_validate_variant_projection(get_range_format_type(*_params, _current_range),
-                                                 _has_variant_projection,
-                                                 table_format_name(_current_range)));
     return Status::OK();
 }
 

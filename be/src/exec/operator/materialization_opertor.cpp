@@ -32,7 +32,7 @@
 #include "core/column/column.h"
 #include "exec/operator/operator.h"
 #include "exec/rowid_fetcher.h"
-#include "exec/scan/file_scanner.h"
+#include "exec/scan/file_scanner_v2.h"
 #include "runtime/workload_group/workload_group.h"
 #include "util/brpc_client_cache.h"
 #include "util/brpc_closure.h"
@@ -425,8 +425,8 @@ void MaterializationSharedState::_update_profile_info(int64_t backend_id,
     update_profile_info_key(RowIdStorageReader::InitReaderAvgTimeProfile);
     update_profile_info_key(RowIdStorageReader::GetBlockAvgTimeProfile);
     update_profile_info_key(RowIdStorageReader::FileReadLinesProfile);
-    update_profile_info_key(FileScanner::FileReadBytesProfile);
-    update_profile_info_key(FileScanner::FileReadTimeProfile);
+    update_profile_info_key(FileScannerV2::FileReadBytesProfile);
+    update_profile_info_key(FileScannerV2::FileReadTimeProfile);
 }
 
 Status MaterializationSharedState::create_muiltget_result(const Columns& columns, bool child_eos) {

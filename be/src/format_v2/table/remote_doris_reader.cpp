@@ -34,7 +34,10 @@
 #include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/data_type/data_type.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_struct.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "format/arrow/arrow_utils.h"
 #include "format_v2/materialized_reader_util.h"
@@ -47,6 +50,26 @@
 
 namespace doris::format::remote_doris {
 namespace {
+
+bool contains_variant_type(const DataTypePtr& input) {
+    const auto type = remove_nullable(input);
+    switch (type->get_primitive_type()) {
+    case TYPE_VARIANT:
+        return true;
+    case TYPE_ARRAY:
+        return contains_variant_type(assert_cast<const DataTypeArray&>(*type).get_nested_type());
+    case TYPE_MAP: {
+        const auto& map = assert_cast<const DataTypeMap&>(*type);
+        return contains_variant_type(map.get_key_type()) ||
+               contains_variant_type(map.get_value_type());
+    }
+    case TYPE_STRUCT:
+        return std::ranges::any_of(assert_cast<const DataTypeStruct&>(*type).get_elements(),
+                                   contains_variant_type);
+    default:
+        return false;
+    }
+}
 
 Status validate_remote_doris_range(const TFileRangeDesc& range) {
     if (!range.__isset.table_format_params ||
@@ -313,6 +336,12 @@ Status RemoteDorisFileReader::init(RuntimeState* state) {
     }
     _runtime_state = state;
     RETURN_IF_ERROR(validate_remote_doris_range(_range));
+    for (const auto* slot : _file_slot_descs) {
+        // Flight's string materialization cannot reconstruct the native Variant storage contract.
+        if (contains_variant_type(slot->type())) {
+            return Status::NotSupported("Remote Doris Arrow reads do not support Variant columns");
+        }
+    }
     RETURN_IF_ERROR(_build_col_name_to_file_id());
     _eof = false;
     return Status::OK();

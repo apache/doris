@@ -1201,8 +1201,9 @@ public class SessionVariable implements Serializable, Writable {
             + "read data of FileScanNode, default 16")
     public int maxFileScannersConcurrency = 16;
 
-    @VarAttrDef.VarAttr(name = ENABLE_FILE_SCANNER_V2, needForward = true, description = "When enabled, "
-            + "FileScanNode uses FileScannerV2 for supported query scans. Enabled by default.")
+    @VarAttrDef.VarAttr(name = ENABLE_FILE_SCANNER_V2, needForward = true,
+            varType = VariableAnnotation.DEPRECATED,
+            description = "Deprecated compatibility variable. File scans always use FileScannerV2.")
     public boolean enableFileScannerV2 = true;
 
     @VarAttrDef.VarAttr(name = LOCAL_EXCHANGE_FREE_BLOCKS_LIMIT, needForward = true)
@@ -3833,9 +3834,6 @@ public class SessionVariable implements Serializable, Writable {
         this.enableLocalExchange = random.nextBoolean();
         this.enableSharedExchangeSinkBuffer = random.nextBoolean();
         this.useSerialExchange = random.nextBoolean();
-        // Fuzzy sessions must exercise the production-default V2 path consistently. Dedicated
-        // compatibility cases can still select the legacy scanner explicitly after initialization.
-        this.enableFileScannerV2 = true;
         this.disableStreamPreaggregations = random.nextBoolean();
         this.enableStreamingAggHashJoinForcePassthrough = random.nextBoolean();
         this.enableLocalExchangeBeforeAgg = random.nextBoolean();
@@ -5757,7 +5755,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setScanQueueMemLimit(maxScanQueueMemByte);
         tResult.setMaxScannersConcurrency(maxScannersConcurrency);
         tResult.setMaxFileScannersConcurrency(maxFileScannersConcurrency);
-        tResult.setEnableFileScannerV2(enableFileScannerV2);
+        // Older backends still inspect this field; the deprecated session value must not select V1.
+        tResult.setEnableFileScannerV2(true);
         tResult.setMaxColumnReaderNum(maxColumnReaderNum);
         tResult.setParallelPrepareThreshold(parallelPrepareThreshold);
         tResult.setMinScannersConcurrency(minScannersConcurrency);

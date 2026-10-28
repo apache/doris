@@ -42,11 +42,7 @@
 #include "core/column/column.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type_serde/data_type_serde.h"
-#include "exec/operator/file_scan_operator.h"
-#include "exec/scan/file_scanner.h"
 #include "exec/scan/file_scanner_v2.h"
-#include "format/orc/vorc_reader.h"
-#include "format/parquet/vparquet_reader.h"
 #include "io/io_common.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"      // ExecEnv
@@ -445,19 +441,6 @@ const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseRowsRead
 const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseSegmentsRead =
         "TopNLazyMaterializationSecondPhaseSegmentsRead";
 
-bool RowIdStorageReader::should_use_file_scanner_v2(const TQueryOptions& query_options,
-                                                    const TFileScanRangeParams& scan_params,
-                                                    const TFileRangeDesc& range) {
-    const auto format_type =
-            range.__isset.format_type ? range.format_type : scan_params.format_type;
-    // Phase two inherits the query options, including the Thrift presence bit. Reuse phase one's
-    // policy so disabling V2 (or an older payload omitting the option) also keeps row fetches on V1.
-    return FileScanLocalState::should_use_file_scanner_v2(query_options, false, scan_params) &&
-           (format_type == TFileFormatType::FORMAT_PARQUET ||
-            format_type == TFileFormatType::FORMAT_ORC) &&
-           FileScannerV2::is_supported(scan_params, range);
-}
-
 TFileRangeDesc RowIdStorageReader::build_external_fetch_range(const TFileRangeDesc& source_range) {
     // Rows were selected after delete filtering. Preserve the original path and row lineage
     // needed by virtual columns, and do not mutate the FileMapping shared by other fetches.
@@ -500,27 +483,12 @@ Status RowIdStorageReader::read_external_row_from_file_mapping(
 
     std::unique_ptr<RuntimeProfile> sub_runtime_profile =
             std::make_unique<RuntimeProfile>("ExternalRowIDFetcher");
-    {
-        if (should_use_file_scanner_v2(runtime_state->query_options(), rpc_scan_params,
-                                       scan_range_desc)) {
-            auto file_scanner = FileScannerV2::create_unique(
-                    runtime_state.get(), sub_runtime_profile.get(), &rpc_scan_params,
-                    &colname_to_slot_id, &tuple_desc);
-            RETURN_IF_ERROR(file_scanner->read_by_rows(scan_range_desc, read_ids, &scan_blocks[idx],
-                                                       &fetch_statistics[idx].init_reader_ms,
-                                                       &fetch_statistics[idx].get_block_ms));
-        } else {
-            // Phase one can still use V1 for table-format variants unsupported by V2, so keep the
-            // matching phase-two path instead of turning a previously valid query into an error.
-            auto file_scanner =
-                    FileScanner::create_unique(runtime_state.get(), sub_runtime_profile.get(),
-                                               &rpc_scan_params, &colname_to_slot_id, &tuple_desc);
-            RETURN_IF_ERROR(file_scanner->prepare_for_read_lines(scan_range_desc));
-            RETURN_IF_ERROR(file_scanner->read_lines_from_range(
-                    scan_range_desc, read_ids, &scan_blocks[idx], external_info,
-                    &fetch_statistics[idx].init_reader_ms, &fetch_statistics[idx].get_block_ms));
-        }
-    }
+    auto file_scanner =
+            FileScannerV2::create_unique(runtime_state.get(), sub_runtime_profile.get(),
+                                         &rpc_scan_params, &colname_to_slot_id, &tuple_desc);
+    RETURN_IF_ERROR(file_scanner->read_by_rows(scan_range_desc, read_ids, &scan_blocks[idx],
+                                               &fetch_statistics[idx].init_reader_ms,
+                                               &fetch_statistics[idx].get_block_ms));
 
     if (scan_blocks[idx].rows() != read_ids.size()) {
         return Status::InternalError(

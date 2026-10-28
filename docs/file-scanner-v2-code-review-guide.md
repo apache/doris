@@ -118,12 +118,13 @@ format-specific checklist when reviewing Parquet or ORC.
 
 ## Parquet Native Decode Boundary
 
-- V2 must instantiate only readers and decoders under `be/src/format_v2/parquet/`; calls into the
-  v1 `ParquetColumnReader` or edits under `be/src/format/parquet/` are review blockers.
+- File scans must instantiate only readers and decoders under `be/src/format_v2/parquet/`.
+  Shared writer/statistics helpers under `be/src/format/parquet/` must not introduce a second
+  scan reader or decoder implementation.
 - Footer parsing, schema-ID assignment, and the cached native metadata tree must also be v2-owned.
   Reusing a stable base file identity is allowed, but require a v2 cache type discriminator so
-  v1/v2 metadata objects can never be cross-cast. Production planning must not retain or rebuild an
-  Arrow `FileMetaData` tree from the serialized footer.
+  metadata objects from shared writer/metadata utilities can never be cross-cast. Production planning
+  must not retain or rebuild an Arrow `FileMetaData` tree from the serialized footer.
 - Trace the hot path as `ColumnReader -> Decoder span/cursor API -> DataTypeSerDe -> Doris Column`.
   Decoder must not accept a Doris column or target type, and the path must not create Arrow arrays,
   builders, `DecodedColumnView`, or another decoded leaf batch.
@@ -218,8 +219,7 @@ format-specific checklist when reviewing Parquet or ORC.
   precision, and overflow checks succeed. Scale-down with a non-zero remainder is a conversion
   failure; plain and dictionary integer/binary paths must narrow only afterward.
 - For cold small-file tests, separate footer I/O/Thrift parse from native schema and index planning.
-  V2 must not retain serialized footer bytes after the native metadata tree is initialized; v1 opens
-  remain independent.
+  V2 must not retain serialized footer bytes after the native metadata tree is initialized.
 - For HTTP Parquet objects at or below `in_memory_file_size`, v2 stages the complete object from
   byte zero before native page access. Verify both cold and footer-cache-hit scans: some Range
   servers accept the capability probe but return HTTP 200 for a near-EOF overlong range, so warm

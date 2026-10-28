@@ -365,12 +365,14 @@ corresponding skip-bitmap marks. A fully rejected batch is not EOF.
 Non-line JSON pipes read successive messages until pipe EOF; chunked HTTP buffers are still
 combined into one document. File ranges in non-line mode remain single-document inputs.
 
-Supported traditional file loads select V2 even when their planner omits query session options.
-`enable_file_scanner_v2` continues to control query scans; Thrift does not distinguish an omitted
-option from its default false value for load plans. Formats outside the load adapter's selection
-remain on their existing path, including Avro and Arrow IPC loads. V2 Arrow support is currently
-limited to the remote-Doris table reader. Load ranges retain FE split boundaries rather than
-publishing additional physical children.
+All file scans, schema inference, file loads, and external row-ID fetches use V2.
+`enable_file_scanner_v2` is a deprecated compatibility variable: setting it to false has no effect.
+The FE keeps sending true in the existing optional Thrift field for compatibility with older BEs.
+Unsupported table formats or reader operations return an error from the concrete reader rather
+than selecting another scanner. Arrow IPC stream loads use `LoadTableReader` and the V2 Arrow
+stream reader. Historical Push ingestion also uses `LoadTableReader`, and Iceberg position-delete
+files are read through a standalone V2 `TableReader`. Load ranges retain FE split boundaries
+rather than publishing additional physical children.
 
 ## Further Reading
 
