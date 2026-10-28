@@ -249,6 +249,12 @@ public final class PaimonScanParams {
         TableSchema bound = table.schemaManager().schema(schemaId);
         Map<String, String> persisted = persistedSchema.options();
         Map<String, String> merged = new HashMap<>(bound.options());
+        if (bound.primaryKeys().isEmpty() && bound.bucketKeys().isEmpty() && bound.numBuckets() > 0) {
+            // Legacy append schemas have implicit full-row bucket keys, which the current SDK rejects.
+            // Read every bucket rather than inventing a hash key and pruning valid historical files.
+            merged.put(CoreOptions.BUCKET.key(), "-1");
+            merged.remove(CoreOptions.BUCKET_KEY.key());
+        }
         // Field-referencing options evolve with the schema (e.g. bucket-key and sequence.field
         // on rename). Only replay the catalog/runtime delta, never another generation's options.
         table.options().forEach((key, value) -> {

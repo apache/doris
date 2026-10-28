@@ -17,15 +17,22 @@
 
 package org.apache.doris.datasource.paimon;
 
+import org.apache.doris.datasource.NameMapping;
+import org.apache.doris.datasource.metacache.paimon.PaimonLatestSnapshotProjectionLoader;
+import org.apache.doris.datasource.metacache.paimon.PaimonPartitionInfoLoader;
+
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.FileSystemCatalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.fs.local.LocalFileIO;
+import org.apache.paimon.privilege.PrivilegeChecker;
+import org.apache.paimon.privilege.PrivilegedFileStoreTable;
 import org.apache.paimon.reader.RecordReader;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.SchemaChange;
+import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
@@ -39,6 +46,7 @@ import org.apache.paimon.utils.InstantiationUtil;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.mockito.Mockito;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -49,6 +57,102 @@ import java.util.List;
 import java.util.Map;
 
 public class PaimonHistoricalSchemaOptionsTest {
+    @Test
+    public void historicalOptionsProjectionKeepsSelectedSchemaAndSnapshot(@TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "projection_history");
+            catalog.createTable(id, Schema.newBuilder().column("id", DataTypes.INT().notNull())
+                    .column("value", DataTypes.INT()).primaryKey("id")
+                    .option("bucket", "1").option("sequence.field", "value")
+                    .option("file.format", "parquet").build(), false);
+            FileStoreTable original = (FileStoreTable) catalog.getTable(id);
+            append(original, GenericRow.of(1, 10));
+            original.createTag("before_rename", 1L);
+            catalog.alterTable(id, Collections.singletonList(
+                    SchemaChange.renameColumn("value", "renamed_value")), false);
+            FileStoreTable latest = (FileStoreTable) catalog.getTable(id);
+            append(latest, GenericRow.of(1, 20));
+            PaimonLatestSnapshotProjectionLoader loader = new PaimonLatestSnapshotProjectionLoader(
+                    new PaimonPartitionInfoLoader(),
+                    (mapping, schemaId, generation, retainedTable) -> {
+                        Assertions.assertEquals(original.schema().id(), schemaId);
+                        Assertions.assertEquals(Arrays.asList("id", "value"),
+                                retainedTable.rowType().getFieldNames());
+                        return new PaimonSchemaCacheValue(Collections.emptyList(), Collections.emptyList(), null);
+                    });
+            for (Map<String, String> selector : Arrays.asList(
+                    Collections.singletonMap("scan.snapshot-id", "1"),
+                    Collections.singletonMap("scan.tag-name", "before_rename"))) {
+                FileStoreTable selected = (FileStoreTable) PaimonScanParams.applyOptions(latest, selector);
+                PrivilegeChecker checker = Mockito.mock(PrivilegeChecker.class);
+                Mockito.doThrow(new SecurityException("read-only principal")).when(checker)
+                        .assertCanInsert(Mockito.any());
+                selected = PrivilegedFileStoreTable.wrap(selected, checker, id);
+                PaimonSnapshotCacheValue projection = loader.load(
+                        NameMapping.createForTest("db", "projection_history"), selected);
+                Assertions.assertEquals(1L, projection.getSnapshot().getSnapshotId());
+                Assertions.assertEquals(original.schema().id(), projection.getSnapshot().getSchemaId());
+                Assertions.assertEquals(Collections.singletonList("1:10"),
+                        readRows(projection.getSnapshot().getTable()));
+            }
+        }
+    }
+
+    @Test
+    public void historicalAppendReadKeepsCompatibleBucketMode(@TempDir Path warehouse) throws Exception {
+        for (int bucket : new int[] {-1, 2}) {
+            try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                    new org.apache.paimon.fs.Path(warehouse.resolve("buckets_" + bucket).toUri()))) {
+                catalog.createDatabase("db", false);
+                Identifier id = Identifier.create("db", "append_history");
+                Schema.Builder schema = Schema.newBuilder().column("id", DataTypes.INT())
+                        .column("value", DataTypes.INT()).option("bucket", Integer.toString(bucket))
+                        .option("file.format", "parquet");
+                if (bucket > 0) {
+                    schema.option("bucket-key", "id");
+                }
+                catalog.createTable(id, schema.build(), false);
+                FileStoreTable original = (FileStoreTable) catalog.getTable(id);
+                List<String> expected = new ArrayList<>();
+                BatchWriteBuilder builder = original.newBatchWriteBuilder();
+                try (BatchTableWrite write = builder.newWrite(); BatchTableCommit commit = builder.newCommit()) {
+                    for (int value = 1; value <= 16; value++) {
+                        write.write(GenericRow.of(value, value * 10));
+                        expected.add(value + ":" + value * 10);
+                    }
+                    commit.commit(write.prepareCommit());
+                }
+                Collections.sort(expected);
+                if (bucket > 0) {
+                    Assertions.assertTrue(original.newReadBuilder().newScan().plan().splits().stream()
+                            .map(split -> ((org.apache.paimon.table.source.DataSplit) split).bucket())
+                            .distinct().count() > 1);
+                }
+                catalog.alterTable(id, Collections.singletonList(
+                        SchemaChange.addColumn("extra", DataTypes.INT())), false);
+                FileStoreTable latest = (FileStoreTable) catalog.getTable(id);
+                TableSchema historical = original.schemaManager().schema(original.schema().id());
+                Map<String, String> legacyOptions = new HashMap<>(historical.options());
+                // Older append schemas can advertise fixed buckets without an explicit bucket key.
+                legacyOptions.put("bucket", Integer.toString(bucket > 0 ? bucket : 1));
+                legacyOptions.remove("bucket-key");
+                if (bucket > 0) {
+                    legacyOptions.put("bucket-key", "");
+                }
+                original.fileIO().overwriteFileUtf8(original.schemaManager().toSchemaPath(historical.id()),
+                        historical.copy(legacyOptions).toString());
+
+                Table selected = PaimonScanParams.applyOptions(latest,
+                        Collections.singletonMap("scan.snapshot-id", "1"));
+                Assertions.assertEquals(Arrays.asList("id", "value"), selected.rowType().getFieldNames());
+                Assertions.assertEquals("-1", selected.options().get("bucket"));
+                Assertions.assertEquals(expected, readRows(selected));
+            }
+        }
+    }
+
     @Test
     public void snapshotReadDoesNotRestoreRemovedStartupMode(@TempDir Path warehouse) throws Exception {
         try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),

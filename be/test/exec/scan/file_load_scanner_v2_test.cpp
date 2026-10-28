@@ -27,6 +27,10 @@ TEST(FileLoadScannerV2Test, LoadUsesV2WithoutQueryOption) {
     params.__set_format_type(TFileFormatType::FORMAT_CSV_PLAIN);
     // Stream and routine load plans need not carry the external-query session option.
     EXPECT_TRUE(FileScanLocalState::should_use_file_scanner_v2(options, true, params));
+    EXPECT_TRUE(FileScanLocalState::should_use_file_scanner_v2(options, false, params));
+    // An explicit query override must still select the legacy scanner.
+    options.__set_enable_file_scanner_v2(false);
+    EXPECT_TRUE(FileScanLocalState::should_use_file_scanner_v2(options, true, params));
     EXPECT_FALSE(FileScanLocalState::should_use_file_scanner_v2(options, false, params));
 }
 
