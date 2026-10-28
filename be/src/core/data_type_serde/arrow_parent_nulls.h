@@ -26,6 +26,7 @@
 
 namespace arrow {
 class Array;
+class MemoryPool;
 } // namespace arrow
 
 namespace doris {
@@ -37,11 +38,27 @@ namespace doris {
 // FIXED_SIZE_LIST<DATE32, 1> with validity [1, 0, 1] may hold the days [0, 2932897, 1]: its rows
 // are [1970-01-01], NULL, [1970-01-02], yet 2932897 (10000-01-01) is outside the Doris DATE range
 // and would fail the whole batch. `child` itself is returned when no parent row in the range is
-// NULL, so batches without NULL parents allocate nothing.
+// NULL, so batches without NULL parents allocate nothing. The new validity bitmap comes from
+// ExecEnv's Arrow memory pool, so it is charged to the query like the column it is read into.
 Status mask_arrow_children_hidden_by_null_parents(
         const arrow::Array& parent, int64_t start, int64_t end,
         const std::shared_ptr<arrow::Array>& child,
         const std::function<std::pair<int64_t, int64_t>(int64_t)>& child_slots,
         std::shared_ptr<arrow::Array>* masked);
+
+// Returns child `child_index` of `parent`, whole, with every slot that no non-NULL row of `parent`
+// references marked NULL, for code that hands a child array to a step that checks each non-NULL
+// value, such as a safe cast. Besides the slots of NULL rows, these are the slots of the rows
+// that a sliced `parent` leaves out. For example, the slice [1, 3) of LIST rows with offsets
+// [0, 1, 3, 4] and validity [1, 1, 0] keeps only child slots 1 and 2: slot 0 belongs to row 0,
+// outside the slice, and slot 3 to the NULL row 2. A map's entries struct and its keys must stay
+// NULL-free, as MapArray::SetData() aborts otherwise, so for a map the hidden entries are marked
+// NULL in the items of the returned entries struct and the keys are left as they are. The bitmap
+// comes from `pool`; when no slot is hidden, `*masked` wraps the child's own data and nothing is
+// allocated. A parent other than a list, large list, fixed-size list, map or struct, and offsets
+// that reach outside the child, are rejected.
+Status mask_arrow_child_slots_not_visible(const arrow::Array& parent, int child_index,
+                                          arrow::MemoryPool* pool,
+                                          std::shared_ptr<arrow::Array>* masked);
 
 } // namespace doris

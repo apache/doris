@@ -40,6 +40,7 @@
 #include "core/data_type/data_type_nothing.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type_serde/arrow_parent_nulls.h"
 #include "core/data_type_serde/arrow_validation.h"
 #include "exec/common/endian.h"
 
@@ -579,13 +580,14 @@ Status LanceArrowArrayNormalizer::create(const std::shared_ptr<arrow::Field>& fi
             result._decimal128_type = arrow::decimal128(decimal.precision(), decimal.scale());
         }
     }
+    result._narrows_decimal = result._decimal128_type != nullptr;
     result._requires_special_handling = result._unwrap_registered_extension ||
-                                        result._convert_bfloat16 ||
-                                        result._decimal128_type != nullptr;
+                                        result._convert_bfloat16 || result._narrows_decimal;
     result._child_normalizers.reserve(result._storage_type->num_fields());
     for (const auto& child_field : result._storage_type->fields()) {
         LanceArrowArrayNormalizer child_normalizer;
         RETURN_IF_ERROR(create(child_field, &child_normalizer));
+        result._narrows_decimal |= child_normalizer._narrows_decimal;
         result._requires_special_handling |= child_normalizer._requires_special_handling;
         result._child_normalizers.emplace_back(std::move(child_normalizer));
     }
@@ -649,7 +651,9 @@ Status LanceArrowArrayNormalizer::normalize_for_doris(
         if (!child_normalizer._requires_special_handling) {
             continue;
         }
-        auto child_array = arrow::MakeArray(child_data[child_idx]);
+        std::shared_ptr<arrow::Array> child_array;
+        RETURN_IF_ERROR(child_normalizer._child_array_to_normalize(*storage_array, child_idx,
+                                                                   memory_pool, &child_array));
         std::shared_ptr<arrow::Array> normalized_child;
         RETURN_IF_ERROR(
                 child_normalizer.normalize_for_doris(child_array, memory_pool, &normalized_child));
@@ -673,6 +677,27 @@ Status LanceArrowArrayNormalizer::normalize_for_doris(
     // Compact only after child types are physical, so MakeBuilder never sees a nested
     // ExtensionType. This also preserves the existing zero-copy path when no slice is present.
     return compact_lance_array_if_needed(storage_array, memory_pool, normalized);
+}
+
+Status LanceArrowArrayNormalizer::_child_array_to_normalize(
+        const arrow::Array& parent, size_t child_idx, arrow::MemoryPool* memory_pool,
+        std::shared_ptr<arrow::Array>* child) const {
+    // The narrowing cast checks every non-NULL slot of the array it gets, and a child array holds
+    // the slots of every parent row: those under a NULL row, whose values Arrow leaves
+    // unspecified, and for a sliced parent those of the rows outside the slice. For example,
+    // FIXED_SIZE_LIST<decimal256(18, 2), 1> with validity [1, 0, 1] may hold the unscaled
+    // children [1, 10^18, 2]: its rows are [0.01], NULL, [0.02], yet the hidden 10^18 does not fit
+    // precision 18 and failed the whole batch. The mask marks NULL only the slots that no visible
+    // row references, so a visible value outside the precision still fails. Every level down to
+    // the leaf is masked this way, so the children of a slot that an ancestor hides are hidden
+    // too. A map key cannot be NULL and stays unmasked: a Decimal256 key under a NULL map row is
+    // still checked. Children that narrow nothing skip the mask and its bitmap.
+    if (_narrows_decimal) {
+        return mask_arrow_child_slots_not_visible(parent, static_cast<int>(child_idx), memory_pool,
+                                                  child);
+    }
+    *child = arrow::MakeArray(parent.data()->child_data[child_idx]);
+    return Status::OK();
 }
 
 #ifdef BE_TEST
