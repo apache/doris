@@ -28,7 +28,7 @@ namespace doris::CastWrapper {
 
 template <typename IpType>
     requires(std::is_same_v<IpType, DataTypeIPv4> || std::is_same_v<IpType, DataTypeIPv6>)
-WrapperType create_ip_wrapper(FunctionContext* context, const DataTypePtr& from_type) {
+WrapperType create_ip_wrapper(const CastOptions& options, const DataTypePtr& from_type) {
     std::shared_ptr<CastToBase> cast_to_ip;
 
     auto make_ip_wrapper = [&](const auto& types) -> bool {
@@ -36,7 +36,7 @@ WrapperType create_ip_wrapper(FunctionContext* context, const DataTypePtr& from_
         using FromDataType = typename Types::LeftType;
         if constexpr (IsDataTypeNumber<FromDataType> || IsStringType<FromDataType> ||
                       IsIPType<FromDataType>) {
-            if (context->enable_strict_mode()) {
+            if (options.strict_mode) {
                 cast_to_ip = std::make_shared<
                         CastToImpl<CastModeType::StrictMode, FromDataType, IpType>>();
             } else {
@@ -54,21 +54,21 @@ WrapperType create_ip_wrapper(FunctionContext* context, const DataTypePtr& from_
                 fmt::format("CAST AS ip not supported {}", from_type->get_name()));
     }
 
-    return [cast_to_ip](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count,
+    return [cast_to_ip](RuntimeState* state, const ColumnWithTypeAndName& source_column,
+                        ColumnWithTypeAndName& target_column, size_t input_rows_count,
                         const NullMap::value_type* null_map = nullptr) {
-        return cast_to_ip->execute_impl(context, block, arguments, result, input_rows_count,
+        return cast_to_ip->execute_impl(state, source_column, target_column, input_rows_count,
                                         null_map);
     };
 }
 
-WrapperType create_ip_wrapper(FunctionContext* context, const DataTypePtr& from_type,
+WrapperType create_ip_wrapper(const CastOptions& options, const DataTypePtr& from_type,
                               PrimitiveType to_type) {
     switch (to_type) {
     case TYPE_IPV4:
-        return create_ip_wrapper<DataTypeIPv4>(context, from_type);
+        return create_ip_wrapper<DataTypeIPv4>(options, from_type);
     case TYPE_IPV6:
-        return create_ip_wrapper<DataTypeIPv6>(context, from_type);
+        return create_ip_wrapper<DataTypeIPv6>(options, from_type);
     default:
         return create_unsupport_wrapper(
                 fmt::format("CAST AS ip: unsupported to_type {}", type_to_string(to_type)));
