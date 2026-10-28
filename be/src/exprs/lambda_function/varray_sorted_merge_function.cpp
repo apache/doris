@@ -16,6 +16,7 @@
 // under the License.
 
 #include <algorithm>
+#include <limits>
 #include <map>
 #include <memory>
 #include <set>
@@ -305,6 +306,14 @@ public:
             }
         };
 
+        // The one-row candidate columns are refreshed only when their element index advances. A
+        // NULL merge result advances one input only, so refreshing both candidates every time
+        // would re-copy the other one: comparing one 1 MiB right-hand string against 65,536 left
+        // elements copies that string 65,536 times. The indices are positions in the whole block's
+        // element column, so a cached candidate also stays valid across rows.
+        size_t cached_left = std::numeric_limits<size_t>::max();
+        size_t cached_right = std::numeric_limits<size_t>::max();
+
         for (size_t row = 0; row < rows; ++row) {
             // The ascending flag is an argument contract, not data: it is validated on every row,
             // including a row whose input array is NULL, so a backend-evaluated NULL flag reports
@@ -347,10 +356,16 @@ public:
                     continue;
                 }
 
-                argument_columns[0]->clear();
-                argument_columns[0]->insert_from(*data[0], left);
-                argument_columns[1]->clear();
-                argument_columns[1]->insert_from(*data[1], right);
+                if (cached_left != left) {
+                    argument_columns[0]->clear();
+                    argument_columns[0]->insert_from(*data[0], left);
+                    cached_left = left;
+                }
+                if (cached_right != right) {
+                    argument_columns[1]->clear();
+                    argument_columns[1]->insert_from(*data[1], right);
+                    cached_right = right;
+                }
 
                 int lambda_res_id = lambda_result_base;
                 RETURN_IF_ERROR(children[0]->execute(context, &lambda_block, &lambda_res_id));
