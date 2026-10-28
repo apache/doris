@@ -198,6 +198,13 @@ public class LoadBalanceScanWorkerSelector implements ScanWorkerSelector {
             Function<ScanNode, Map<Integer, Long>> bucketBytesSupplier,
             boolean orderedScanRangeLocations) {
         Map<DistributedPlanWorker, UninstancedScanSource> assignment = Maps.newLinkedHashMap();
+        boolean allOlapScanNodes = !scanNodes.isEmpty();
+        for (ScanNode scanNode : scanNodes) {
+            if (!(scanNode instanceof OlapScanNode)) {
+                allOlapScanNodes = false;
+                break;
+            }
+        }
 
         Map<Integer, Long> bucketIndexToBytes = computeEachBucketScanBytes(scanNodes, bucketBytesSupplier);
 
@@ -206,20 +213,30 @@ public class LoadBalanceScanWorkerSelector implements ScanWorkerSelector {
             long allScanNodeScanBytesInOneBucket = kv.getValue();
 
             DistributedPlanWorker selectedWorker = null;
-            for (ScanNode scanNode : scanNodes) {
-                List<TScanRangeLocations> allPartitionTabletsInOneBucketInOneTable
-                        = bucketScanRangeSupplier.apply(scanNode, bucketIndex);
-                if (!allPartitionTabletsInOneBucketInOneTable.isEmpty()) {
-                    WorkerScanRanges replicaAndWorker = selectScanReplicaAndMinWorkloadWorker(
-                            allPartitionTabletsInOneBucketInOneTable.get(0),
-                            allScanNodeScanBytesInOneBucket,
-                            orderedScanRangeLocations,
-                            scanNode.getCatalogId()
-                    );
-                    selectedWorker = replicaAndWorker.worker;
-                    break;
+            if (allOlapScanNodes) {
+                selectedWorker = selectCommonScanReplicaAndMinWorkloadWorkerForBucket(
+                        scanNodes, bucketScanRangeSupplier, bucketIndex, allScanNodeScanBytesInOneBucket,
+                        orderedScanRangeLocations);
+                if (selectedWorker == null) {
+                    throw new AnalysisException(
+                            "Can not find common queryable backend for bucket: " + bucketIndex);
                 }
-                // else: the bucket is pruned, we should use another ScanNode to select worker for this bucket
+            } else {
+                for (ScanNode scanNode : scanNodes) {
+                    List<TScanRangeLocations> allPartitionTabletsInOneBucket
+                            = bucketScanRangeSupplier.apply(scanNode, bucketIndex);
+                    if (!allPartitionTabletsInOneBucket.isEmpty()) {
+                        WorkerScanRanges replicaAndWorker = selectScanReplicaAndMinWorkloadWorker(
+                                allPartitionTabletsInOneBucket.get(0),
+                                allScanNodeScanBytesInOneBucket,
+                                orderedScanRangeLocations,
+                                scanNode.getCatalogId()
+                        );
+                        selectedWorker = replicaAndWorker.worker;
+                        break;
+                    }
+                    // else: the bucket is pruned, use another ScanNode to select worker for this bucket
+                }
             }
             if (selectedWorker == null) {
                 throw new IllegalStateException("Can not assign worker for bucket: " + bucketIndex);
@@ -253,7 +270,20 @@ public class LoadBalanceScanWorkerSelector implements ScanWorkerSelector {
 
     private WorkerScanRanges selectScanReplicaAndMinWorkloadWorker(
             TScanRangeLocations tabletLocation, long tabletBytes, boolean orderedScanRangeLocations, long catalogId) {
-        List<TScanRangeLocation> replicaLocations = tabletLocation.getLocations();
+        TScanRangeLocation selectedReplicaLocation = selectMinWorkloadReplica(
+                tabletLocation.getLocations(), tabletBytes, orderedScanRangeLocations, catalogId);
+        DistributedPlanWorker selectedWorker = workerManager.getWorker(
+                catalogId, selectedReplicaLocation.getBackendId());
+        ScanRanges scanRanges = new ScanRanges();
+        TScanRangeParams scanReplicaParams =
+                ScanWorkerSelector.buildScanReplicaParams(tabletLocation, selectedReplicaLocation);
+        scanRanges.addScanRange(scanReplicaParams, tabletBytes);
+        return new WorkerScanRanges(selectedWorker, scanRanges);
+    }
+
+    private TScanRangeLocation selectMinWorkloadReplica(
+            List<TScanRangeLocation> replicaLocations, long scanBytes,
+            boolean orderedScanRangeLocations, long catalogId) {
         if (orderedScanRangeLocations) {
             replicaLocations = Lists.newArrayList(replicaLocations);
             Collections.sort(replicaLocations);
@@ -266,30 +296,26 @@ public class LoadBalanceScanWorkerSelector implements ScanWorkerSelector {
             if (!((BackendWorker) worker).getBackend().isQueryAvailable()) {
                 throw new AnalysisException("No available workers");
             }
-            ScanRanges scanRanges = new ScanRanges();
-            TScanRangeParams scanReplicaParams =
-                    ScanWorkerSelector.buildScanReplicaParams(tabletLocation, replicaLocation);
-            scanRanges.addScanRange(scanReplicaParams, tabletBytes);
-            getWorkload(worker).recordOneScanTask(tabletBytes);
-            return new WorkerScanRanges(worker, scanRanges);
+            getWorkload(worker).recordOneScanTask(scanBytes);
+            return replicaLocation;
         }
 
         BackendSelection.CandidateSelection<TScanRangeLocation> selection =
                 partitionPreferredReplicas(replicaLocations, catalogId);
         if (selection != null && !selection.getPreferredCandidates().isEmpty()) {
-            WorkerScanRanges selected = selectMinWorkloadWorkerInTier(
-                    tabletLocation, tabletBytes, selection.getPreferredCandidates(), catalogId);
+            TScanRangeLocation selected = selectMinWorkloadReplicaInTier(
+                    scanBytes, selection.getPreferredCandidates(), catalogId);
             if (selected != null) {
                 return selected;
             }
-            selected = selectMinWorkloadWorkerInTier(
-                    tabletLocation, tabletBytes, selection.getFallbackCandidates(), catalogId);
+            selected = selectMinWorkloadReplicaInTier(
+                    scanBytes, selection.getFallbackCandidates(), catalogId);
             if (selected != null) {
                 return selected;
             }
         } else {
-            WorkerScanRanges selected = selectMinWorkloadWorkerInTier(
-                    tabletLocation, tabletBytes, replicaLocations, catalogId);
+            TScanRangeLocation selected = selectMinWorkloadReplicaInTier(
+                    scanBytes, replicaLocations, catalogId);
             if (selected != null) {
                 return selected;
             }
@@ -297,8 +323,82 @@ public class LoadBalanceScanWorkerSelector implements ScanWorkerSelector {
         throw new AnalysisException("No available workers");
     }
 
-    private WorkerScanRanges selectMinWorkloadWorkerInTier(TScanRangeLocations tabletLocation, long tabletBytes,
-            List<TScanRangeLocation> replicaLocations, long catalogId) {
+    private DistributedPlanWorker selectCommonScanReplicaAndMinWorkloadWorkerForBucket(
+            List<? extends ScanNode> scanNodes,
+            BiFunction<ScanNode, Integer, List<TScanRangeLocations>> bucketScanRangeSupplier,
+            int bucketIndex, long bucketBytes, boolean orderedScanRangeLocations) {
+        List<TScanRangeLocation> candidateLocations = null;
+        Long catalogId = null;
+        for (ScanNode scanNode : scanNodes) {
+            List<TScanRangeLocations> tabletLocations = bucketScanRangeSupplier.apply(scanNode, bucketIndex);
+            if (tabletLocations.isEmpty()) {
+                continue;
+            }
+            if (catalogId == null) {
+                catalogId = scanNode.getCatalogId();
+            } else if (catalogId != scanNode.getCatalogId()) {
+                throw new AnalysisException("Colocate bucket scan nodes use different catalogs");
+            }
+            if (candidateLocations == null) {
+                candidateLocations = collectCommonReplicaLocations(tabletLocations, catalogId);
+            } else {
+                retainCommonReplicaLocations(candidateLocations, tabletLocations, 0);
+            }
+            if (candidateLocations.isEmpty()) {
+                return null;
+            }
+        }
+        if (candidateLocations == null) {
+            return null;
+        }
+        TScanRangeLocation selectedReplica = selectMinWorkloadReplica(
+                candidateLocations, bucketBytes, orderedScanRangeLocations, catalogId);
+        return workerManager.getWorker(catalogId, selectedReplica.getBackendId());
+    }
+
+    private List<TScanRangeLocation> collectCommonReplicaLocations(
+            List<TScanRangeLocations> tabletLocations, long catalogId) {
+        if (tabletLocations.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<TScanRangeLocation> candidateLocations = Lists.newArrayList(
+                tabletLocations.get(0).getLocations());
+        for (int i = candidateLocations.size() - 1; i >= 0; i--) {
+            TScanRangeLocation location = candidateLocations.get(i);
+            DistributedPlanWorker worker = workerManager.getWorker(catalogId, location.getBackendId());
+            if (!((BackendWorker) worker).getBackend().isQueryAvailable()) {
+                candidateLocations.remove(i);
+            }
+        }
+        retainCommonReplicaLocations(candidateLocations, tabletLocations, 1);
+        return candidateLocations;
+    }
+
+    private void retainCommonReplicaLocations(
+            List<TScanRangeLocation> candidateLocations, List<TScanRangeLocations> tabletLocations, int startIndex) {
+        for (int tabletIndex = startIndex; tabletIndex < tabletLocations.size(); tabletIndex++) {
+            List<TScanRangeLocation> replicaLocations = tabletLocations.get(tabletIndex).getLocations();
+            for (int i = candidateLocations.size() - 1; i >= 0; i--) {
+                long candidateBackendId = candidateLocations.get(i).getBackendId();
+                boolean found = false;
+                for (TScanRangeLocation replicaLocation : replicaLocations) {
+                    if (replicaLocation.getBackendId() == candidateBackendId) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    candidateLocations.remove(i);
+                }
+            }
+            if (candidateLocations.isEmpty()) {
+                return;
+            }
+        }
+    }
+
+    private TScanRangeLocation selectMinWorkloadReplicaInTier(
+            long scanBytes, List<TScanRangeLocation> replicaLocations, long catalogId) {
         WorkerWorkload minWorkload = new WorkerWorkload(Integer.MAX_VALUE, Long.MAX_VALUE);
         DistributedPlanWorker minWorkLoadWorker = null;
         TScanRangeLocation selectedReplicaLocation = null;
@@ -319,12 +419,8 @@ public class LoadBalanceScanWorkerSelector implements ScanWorkerSelector {
         if (minWorkLoadWorker == null) {
             return null;
         }
-        minWorkload.recordOneScanTask(tabletBytes);
-        ScanRanges scanRanges = new ScanRanges();
-        TScanRangeParams scanReplicaParams =
-                ScanWorkerSelector.buildScanReplicaParams(tabletLocation, selectedReplicaLocation);
-        scanRanges.addScanRange(scanReplicaParams, tabletBytes);
-        return new WorkerScanRanges(minWorkLoadWorker, scanRanges);
+        minWorkload.recordOneScanTask(scanBytes);
+        return selectedReplicaLocation;
     }
 
     private BackendSelection.CandidateSelection<TScanRangeLocation> partitionPreferredReplicas(

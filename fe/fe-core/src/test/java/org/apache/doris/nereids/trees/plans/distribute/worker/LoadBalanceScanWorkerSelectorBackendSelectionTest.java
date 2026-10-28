@@ -23,6 +23,13 @@ import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.plans.distribute.worker.job.BucketScanSource;
+import org.apache.doris.nereids.trees.plans.distribute.worker.job.ScanRanges;
+import org.apache.doris.nereids.trees.plans.distribute.worker.job.UnassignedScanBucketOlapTableJob;
+import org.apache.doris.nereids.trees.plans.distribute.worker.job.UninstancedScanSource;
+import org.apache.doris.planner.OlapScanNode;
+import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.BackendSelection;
 import org.apache.doris.resource.BackendSelectionManager;
@@ -31,9 +38,15 @@ import org.apache.doris.resource.spi.BackendSelectionProvider;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TPaloScanRange;
+import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
+import org.apache.doris.thrift.TScanRangeParams;
 
+import com.google.common.collect.ArrayListMultimap;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Maps;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -45,6 +58,7 @@ import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 class LoadBalanceScanWorkerSelectorBackendSelectionTest {
 
@@ -215,6 +229,86 @@ class LoadBalanceScanWorkerSelectorBackendSelectionTest {
     }
 
     @Test
+    void testColocateJoinSelectsBackendCommonToAllScanNodes() {
+        Backend first = backend(1L);
+        Backend common = backend(2L);
+        Backend second = backend(3L);
+        DistributedPlanWorkerManager workerManager = workerManager(first, common, second);
+        ConnectContext context = new ConnectContext();
+        LoadBalanceScanWorkerSelector selector =
+                new LoadBalanceScanWorkerSelector(workerManager, context, false);
+
+        OlapScanNode firstScanNode = mockOlapScanNode();
+        firstScanNode.bucketSeq2locations.putAll(
+                0, ImmutableList.of(tabletLocation(10L, 1L, 2L)));
+        firstScanNode.bucketSeq2Bytes.put(0, 1L);
+        OlapScanNode secondScanNode = mockOlapScanNode();
+        secondScanNode.bucketSeq2locations.putAll(
+                0, ImmutableList.of(tabletLocation(20L, 2L, 3L)));
+        secondScanNode.bucketSeq2Bytes.put(0, 1L);
+
+        Map<DistributedPlanWorker, UninstancedScanSource> assignment =
+                selector.selectReplicaAndWorkerWithBucket(
+                        mockColocateBucketJob(ImmutableList.of(firstScanNode, secondScanNode)), context);
+
+        Assertions.assertEquals(1, assignment.size());
+        Assertions.assertEquals(2L, collectBucketTabletToWorker(assignment, firstScanNode).get(10L).id());
+        Assertions.assertEquals(2L, collectBucketTabletToWorker(assignment, secondScanNode).get(20L).id());
+    }
+
+    @Test
+    void testColocateJoinRejectsBucketWithoutCommonQueryableBackend() {
+        Backend first = backend(1L);
+        Backend second = backend(2L);
+        DistributedPlanWorkerManager workerManager = workerManager(first, second);
+        ConnectContext context = new ConnectContext();
+        LoadBalanceScanWorkerSelector selector =
+                new LoadBalanceScanWorkerSelector(workerManager, context, false);
+
+        OlapScanNode firstScanNode = mockOlapScanNode();
+        firstScanNode.bucketSeq2locations.putAll(0, ImmutableList.of(tabletLocation(10L, 1L)));
+        firstScanNode.bucketSeq2Bytes.put(0, 1L);
+        OlapScanNode secondScanNode = mockOlapScanNode();
+        secondScanNode.bucketSeq2locations.putAll(0, ImmutableList.of(tabletLocation(20L, 2L)));
+        secondScanNode.bucketSeq2Bytes.put(0, 1L);
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> selector.selectReplicaAndWorkerWithBucket(
+                        mockColocateBucketJob(ImmutableList.of(firstScanNode, secondScanNode)), context));
+
+        Assertions.assertTrue(exception.getMessage().contains(
+                "Can not find common queryable backend for bucket: 0"));
+    }
+
+    @Test
+    void testColocateJoinSkipsQueryDisabledCommonBackend() {
+        Backend queryDisabled = backend(1L);
+        queryDisabled.setQueryDisabled(true);
+        Backend available = backend(2L);
+        DistributedPlanWorkerManager workerManager = workerManager(queryDisabled, available);
+        ConnectContext context = new ConnectContext();
+        LoadBalanceScanWorkerSelector selector =
+                new LoadBalanceScanWorkerSelector(workerManager, context, false);
+
+        OlapScanNode firstScanNode = mockOlapScanNode();
+        firstScanNode.bucketSeq2locations.putAll(
+                0, ImmutableList.of(tabletLocation(10L, 1L, 2L)));
+        firstScanNode.bucketSeq2Bytes.put(0, 1L);
+        OlapScanNode secondScanNode = mockOlapScanNode();
+        secondScanNode.bucketSeq2locations.putAll(
+                0, ImmutableList.of(tabletLocation(20L, 1L, 2L)));
+        secondScanNode.bucketSeq2Bytes.put(0, 1L);
+
+        Map<DistributedPlanWorker, UninstancedScanSource> assignment =
+                selector.selectReplicaAndWorkerWithBucket(
+                        mockColocateBucketJob(ImmutableList.of(firstScanNode, secondScanNode)), context);
+
+        Assertions.assertEquals(1, assignment.size());
+        Assertions.assertEquals(2L, collectBucketTabletToWorker(assignment, firstScanNode).get(10L).id());
+        Assertions.assertEquals(2L, collectBucketTabletToWorker(assignment, secondScanNode).get(20L).id());
+    }
+
+    @Test
     void testLoadCoordinatorSelectionHonorsPreferenceAndRequire() throws Exception {
         Backend fallback = backend(1L, "fallback");
         Backend preferred = backend(2L, "preferred");
@@ -281,6 +375,60 @@ class LoadBalanceScanWorkerSelectorBackendSelectionTest {
             Assertions.assertThrows(NereidsException.class,
                     () -> workerManager.randomAvailableWorker(InternalCatalog.INTERNAL_CATALOG_ID));
         }
+    }
+
+    private UnassignedScanBucketOlapTableJob mockColocateBucketJob(List<OlapScanNode> olapScanNodes) {
+        UnassignedScanBucketOlapTableJob job = Mockito.mock(UnassignedScanBucketOlapTableJob.class);
+        PlanFragment fragment = Mockito.mock(PlanFragment.class);
+        List<ScanNode> scanNodes = ImmutableList.<ScanNode>builder().addAll(olapScanNodes).build();
+        Mockito.when(job.getFragment()).thenReturn(fragment);
+        Mockito.when(job.getScanNodes()).thenReturn(scanNodes);
+        Mockito.when(job.getOlapScanNodes()).thenReturn(olapScanNodes);
+        Mockito.when(fragment.hasColocatePlanNode()).thenReturn(true);
+        return job;
+    }
+
+    private OlapScanNode mockOlapScanNode() {
+        OlapScanNode scanNode = Mockito.mock(OlapScanNode.class);
+        Mockito.when(scanNode.getCatalogId()).thenReturn(InternalCatalog.INTERNAL_CATALOG_ID);
+        Mockito.when(scanNode.getTabletSingleReplicaSize(Mockito.anyLong())).thenReturn(1L);
+        scanNode.bucketSeq2locations = ArrayListMultimap.create();
+        scanNode.bucketSeq2Bytes = Maps.newLinkedHashMap();
+        return scanNode;
+    }
+
+    private TScanRangeLocations tabletLocation(long tabletId, long... backendIds) {
+        TPaloScanRange paloScanRange = new TPaloScanRange();
+        paloScanRange.setTabletId(tabletId);
+        TScanRange scanRange = new TScanRange();
+        scanRange.setPaloScanRange(paloScanRange);
+
+        TScanRangeLocations locations = new TScanRangeLocations();
+        locations.setScanRange(scanRange);
+        for (long backendId : backendIds) {
+            locations.addToLocations(location(backendId));
+        }
+        return locations;
+    }
+
+    private Map<Long, DistributedPlanWorker> collectBucketTabletToWorker(
+            Map<DistributedPlanWorker, UninstancedScanSource> assignment, OlapScanNode scanNode) {
+        Map<Long, DistributedPlanWorker> tabletToWorker = Maps.newHashMap();
+        for (Map.Entry<DistributedPlanWorker, UninstancedScanSource> entry : assignment.entrySet()) {
+            BucketScanSource scanSource = (BucketScanSource) entry.getValue().scanSource;
+            for (Map<ScanNode, ScanRanges> scanNodeToRanges
+                    : scanSource.bucketIndexToScanNodeToTablets.values()) {
+                ScanRanges scanRanges = scanNodeToRanges.get(scanNode);
+                if (scanRanges == null) {
+                    continue;
+                }
+                for (TScanRangeParams scanRangeParam : scanRanges.params) {
+                    tabletToWorker.put(
+                            scanRangeParam.getScanRange().getPaloScanRange().getTabletId(), entry.getKey());
+                }
+            }
+        }
+        return tabletToWorker;
     }
 
     private DistributedPlanWorkerManager workerManager(Backend... backends) {
