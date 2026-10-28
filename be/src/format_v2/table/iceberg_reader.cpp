@@ -1231,13 +1231,13 @@ static Status equality_delete_comparison_type(int field_id, const DataTypePtr& d
             remove_nullable(data_type)->get_name(), data_file_path);
 }
 
-// The comparison type of a missing key whose non-NULL initial default sits behind a STRING
-// placeholder, an Iceberg TIME or timestamptz_ns (see equality_delete_comparison_type), or nullptr
-// for any other table or tombstone type. The default is Iceberg's text of the value, `00:00` for a
-// TIME midnight or `1970-01-01 00:00:00+00:00` for a timestamptz_ns epoch, so it is parsed into the
-// tombstones' type by the strict comparison cast, and text that does not parse fails the scan; an
-// ORC TIME tombstone, BIGINT, compares in TIMEV2(6) as a present key does. Compared as text, the
-// default `00:00` never matched a tombstone printing 00:00:00.000000.
+// The comparison type of a missing key whose non-NULL initial default sits behind the STRING
+// placeholder of an Iceberg TIME (see equality_delete_comparison_type), or nullptr for any other
+// table or tombstone type. The default is Iceberg's text of the value, `00:00` for midnight, with at
+// most six fractional digits, so the strict comparison cast parses it into the tombstones' type
+// exactly, and text that does not parse fails the scan; an ORC TIME tombstone, BIGINT, compares in
+// TIMEV2(6) as a present key does. Compared as text, the default `00:00` never matched a tombstone
+// printing 00:00:00.000000. A timestamptz_ns default is rejected by the caller instead.
 static DataTypePtr equality_delete_placeholder_default_type(const DataTypePtr& table_type,
                                                             const DataTypePtr& delete_type) {
     if (remove_nullable(table_type)->get_primitive_type() != TYPE_STRING) {
@@ -1245,7 +1245,6 @@ static DataTypePtr equality_delete_placeholder_default_type(const DataTypePtr& t
     }
     switch (remove_nullable(delete_type)->get_primitive_type()) {
     case TYPE_TIMEV2:
-    case TYPE_TIMESTAMPTZ:
         return remove_nullable(delete_type);
     case TYPE_BIGINT:
         return std::make_shared<DataTypeTimeV2>(TimeValue::MICROS_SCALE);
@@ -1886,6 +1885,20 @@ Status IcebergTableReader::_build_missing_equality_delete_key_expr(
         // key whose retained schemas only typed it Iceberg `unknown` arrives as STRING, while its
         // tombstones are, for example, DATE.
         *comparison_type = remove_nullable(filter.delete_key_types[key_idx]);
+    } else if (remove_nullable(table_leaf->type)->get_primitive_type() == TYPE_STRING &&
+               remove_nullable(filter.delete_key_types[key_idx])->get_primitive_type() ==
+                       TYPE_TIMESTAMPTZ) {
+        // An Iceberg timestamptz_ns key behind the STRING placeholder. Its tombstones are read as
+        // TIMESTAMPTZ(6), Parquet flooring and ORC rounding the nanoseconds, so no parse of the
+        // nanosecond text default compares exactly: the default `1970-01-01 00:00:00.0000001+00:00`
+        // would match an epoch tombstone and delete every row of this file, and the default epoch
+        // a tombstone 100 ns after it.
+        return Status::NotSupported(
+                "Iceberg equality delete field id {} is a timestamptz_ns key that data file {} "
+                "does not store, with a non-NULL initial default; the delete file's values are "
+                "read as {} without their nanoseconds, so the default cannot be compared exactly",
+                filter.field_ids[key_idx], _data_file_path(),
+                remove_nullable(filter.delete_key_types[key_idx])->get_name());
     } else if (auto placeholder_type = equality_delete_placeholder_default_type(
                        table_leaf->type, filter.delete_key_types[key_idx]);
                placeholder_type != nullptr) {

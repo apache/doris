@@ -5556,12 +5556,12 @@ void write_nested_time_key_delete_orc_file(const std::string& file_path,
     out.write(stream.getData(), static_cast<std::streamsize>(stream.getLength()));
 }
 
-// Iceberg TIME and timestamptz_ns have no Doris type, so the FE sends `payload.k` as a STRING
-// placeholder whose initial default is Iceberg's text of the value. That text is parsed in the
-// tombstones' type (an ORC TIME tombstone, BIGINT, compares as TIMEV2(6)). Rows under the data
-// file's NULL `payload` keep a NULL key and the others take the default, so a NULL tombstone
-// deletes only row 1, the default's tombstone rows 2 and 3, and another value none. Comparing the
-// STRING default with the TIMEV2 or TIMESTAMPTZ tombstones failed the split with NotSupported.
+// Iceberg TIME has no Doris type, so the FE sends `payload.k` as a STRING placeholder whose initial
+// default is Iceberg's text of the value. That text is parsed in the tombstones' type (an ORC TIME
+// tombstone, BIGINT, compares as TIMEV2(6)). Rows under the data file's NULL `payload` keep a NULL
+// key and the others take the default, so a NULL tombstone deletes only row 1, the default's
+// tombstone rows 2 and 3, and another value none. Comparing the STRING default with the TIMEV2
+// tombstones failed the split with NotSupported.
 TEST(IcebergV2ReaderTest, IcebergMissingNestedPlaceholderKeyParsesTextDefaultInTombstoneType) {
     struct PlaceholderDefault {
         std::string name;
@@ -5585,17 +5585,7 @@ TEST(IcebergV2ReaderTest, IcebergMissingNestedPlaceholderKeyParsesTextDefaultInT
                  write_nested_time_key_delete_orc_file(path, {key});
                  return TFileFormatType::FORMAT_ORC;
              },
-             0, TIME_01_00_00_000001_MICROS, false},
-            {"Parquet timestamptz_ns", "1970-01-01 00:00:00+00:00",
-             [](const std::string& path, std::optional<int64_t> key) {
-                 write_nested_int64_key_delete_parquet_file(
-                         path,
-                         ::parquet::LogicalType::Timestamp(true,
-                                                           ::parquet::LogicalType::TimeUnit::NANOS),
-                         {key});
-                 return TFileFormatType::FORMAT_PARQUET;
-             },
-             0, 1000, true}};
+             0, TIME_01_00_00_000001_MICROS, false}};
     // A directory per run, as in IcebergEqualityDeleteComparesTimeKeysAcrossOrcAndParquet: the
     // 1-row INT64 delete files of one kind have the same size whatever the tombstone.
     int run = 0;
@@ -5628,6 +5618,73 @@ TEST(IcebergV2ReaderTest, IcebergMissingNestedPlaceholderKeyParsesTextDefaultInT
             ASSERT_TRUE(status.ok()) << status;
             EXPECT_EQ(ids, (std::vector<std::vector<int32_t>> {expected_ids}));
         }
+    }
+}
+
+// A timestamptz_ns `payload.k` behind the STRING placeholder: its Parquet tombstones are read as
+// TIMESTAMPTZ(6), the nanoseconds floored, so a non-NULL default cannot be compared exactly and the
+// scan fails. Parsing the default instead deleted the rows for the default `...0000001` against an
+// epoch tombstone and for the default epoch against a tombstone 100 ns later, and kept them for the
+// default `...0000005` against its own tombstone. Without a default the key is NULL: a NULL
+// tombstone deletes every row, an epoch tombstone none.
+TEST(IcebergV2ReaderTest, IcebergMissingPlaceholderTimestampTzNsDefaultFailsTheScan) {
+    const auto write_tombstone = [](std::optional<int64_t> nanos) {
+        return [nanos](const std::string& path) {
+            write_nested_int64_key_delete_parquet_file(
+                    path,
+                    ::parquet::LogicalType::Timestamp(true,
+                                                      ::parquet::LogicalType::TimeUnit::NANOS),
+                    {nanos});
+            return TFileFormatType::FORMAT_PARQUET;
+        };
+    };
+    const auto read_ids = [](const std::string& test_name,
+                             const std::optional<std::string>& text_default,
+                             const EqualityDeleteFileWriter& write_delete_file,
+                             std::vector<std::vector<int32_t>>* ids) {
+        return read_ids_after_key_equality_delete(
+                test_name,
+                {{.ids = {1, 2, 3}, .keys = build_payload_without_key({std::nullopt, 1, 2})}},
+                nullptr,
+                external_struct_schema_field(
+                        "payload", 1,
+                        {external_schema_field("a", 2, {}, std::nullopt,
+                                               external_primitive_type(TPrimitiveType::INT), false,
+                                               true),
+                         external_schema_field("k", 3, {}, text_default,
+                                               external_primitive_type(TPrimitiveType::STRING),
+                                               false, true)},
+                        true),
+                ids, 3, true, write_delete_file);
+    };
+    const std::vector<std::pair<std::string, int64_t>> rejected {
+            {"1970-01-01 00:00:00.0000001+00:00", 0},
+            {"1970-01-01 00:00:00+00:00", 100},
+            {"1970-01-01 00:00:00.0000005+00:00", 500}};
+    int run = 0;
+    for (const auto& [text_default, tombstone] : rejected) {
+        SCOPED_TRACE(::testing::Message() << text_default << " tombstone=" << tombstone);
+        std::vector<std::vector<int32_t>> ids;
+        const auto status = read_ids(
+                "doris_iceberg_equality_delete_timestamptz_ns_default_" + std::to_string(run++),
+                text_default, write_tombstone(tombstone), &ids);
+        ASSERT_FALSE(status.ok()) << "ids=" << ::testing::PrintToString(ids);
+        EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
+        EXPECT_NE(status.to_string().find("timestamptz_ns key"), std::string::npos) << status;
+    }
+
+    const std::vector<std::pair<std::optional<int64_t>, std::vector<int32_t>>> without_default {
+            {std::nullopt, {}}, {0, {1, 2, 3}}};
+    for (const auto& [tombstone, expected_ids] : without_default) {
+        SCOPED_TRACE(::testing::Message()
+                     << "no default, tombstone="
+                     << (tombstone.has_value() ? std::to_string(*tombstone) : "NULL"));
+        std::vector<std::vector<int32_t>> ids;
+        const auto status = read_ids(
+                "doris_iceberg_equality_delete_timestamptz_ns_default_" + std::to_string(run++),
+                std::nullopt, write_tombstone(tombstone), &ids);
+        ASSERT_TRUE(status.ok()) << status;
+        EXPECT_EQ(ids, (std::vector<std::vector<int32_t>> {expected_ids}));
     }
 }
 
