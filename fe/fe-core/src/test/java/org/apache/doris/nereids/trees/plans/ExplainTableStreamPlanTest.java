@@ -23,10 +23,12 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapChangelogTableWrapper;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.OlapTableWrapper;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
@@ -38,6 +40,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -45,6 +48,7 @@ import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.rewrite.NormalizeOlapTableStreamScan;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.LessThan;
@@ -75,12 +79,15 @@ import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.tso.TSOTimestamp;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -136,6 +143,21 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
         createTable(createIncrementalStream);
         bumpPartitionsAndReplicas(baseTable, 2002L);
 
+        // A stream with a partition that has no consumption baseline: p2 is still empty when the stream is
+        // created, so it is recorded with the sentinel offset, and only gets data afterwards. p1 has data
+        // before and after, so it has a real offset and data after it.
+        createTable("create table test_stream.tbl_stream_unconsumed (k1 int, k2 int not null) unique key(k1)\n"
+                + "partition by range(k1) (partition p1 values less than (\"100\"),"
+                + " partition p2 values less than (\"200\"))\n"
+                + "distributed by hash(k1) buckets 1 properties(\"replication_num\"=\"1\","
+                + "\"enable_unique_key_merge_on_write\"=\"true\",\"changelog.enable\"=\"true\","
+                + "\"changelog.ttl_seconds\"=\"9223372036854775807\",\"changelog.need_historical_value\"=\"true\")");
+        OlapTable unconsumedBaseTable = (OlapTable) db.getTableOrMetaException("tbl_stream_unconsumed");
+        bumpPartitionAndReplicas(unconsumedBaseTable.getPartition("p1"), 1001L);
+        createTable("create stream if not exists test_stream.s_unconsumed on table test_stream.tbl_stream_unconsumed"
+                + " properties('show_initial_rows' = 'false')");
+        bumpPartitionsAndReplicas(unconsumedBaseTable, 2002L);
+
         String createDuplicateBaseTable = "create table test_stream.tbl_dup_stream_base (\n"
                 + "  k1 int,\n"
                 + "  k2 int not null\n"
@@ -164,18 +186,22 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
 
     private static void bumpPartitionsAndReplicas(OlapTable table, long newVersion) {
         for (Partition partition : table.getPartitions()) {
-            // Use the same timestamp value as both visibleVersionTime and tso to simulate a
-            // transactional commit advancing partition.tso (the dedicated commit-tso field).
-            // Without populating tso explicitly, non-transactional setters leave it as -1
-            // which would make the stream consider the partition fully consumed.
-            long ts = System.currentTimeMillis();
-            partition.setVisibleVersionAndTime(newVersion, ts, ts);
-            partition.setNextVersion(newVersion + 1);
-            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE, true)) {
-                for (Tablet tablet : index.getTablets()) {
-                    for (Replica replica : tablet.getReplicas()) {
-                        replica.updateVersion(newVersion);
-                    }
+            bumpPartitionAndReplicas(partition, newVersion);
+        }
+    }
+
+    private static void bumpPartitionAndReplicas(Partition partition, long newVersion) {
+        // Use the same timestamp value as both visibleVersionTime and tso to simulate a
+        // transactional commit advancing partition.tso (the dedicated commit-tso field).
+        // Without populating tso explicitly, non-transactional setters leave it as -1
+        // which would make the stream consider the partition fully consumed.
+        long ts = System.currentTimeMillis();
+        partition.setVisibleVersionAndTime(newVersion, ts, ts);
+        partition.setNextVersion(newVersion + 1);
+        for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE, true)) {
+            for (Tablet tablet : index.getTablets()) {
+                for (Replica replica : tablet.getReplicas()) {
+                    replica.updateVersion(newVersion);
                 }
             }
         }
@@ -309,6 +335,59 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
             String version = loc.getScanRange().getPaloScanRange().getVersion();
             Assertions.assertEquals(expectedVersion, version);
         }
+    }
+
+    @Test
+    public void testUserStreamReadsPartitionWithoutBaselineFromChangelog() throws Exception {
+        // A user stream reads every partition with data after its offset from the changelog, the one without a
+        // consumption baseline included: from the first retained TSO, which is what the stream retains.
+        OlapTable baseTable = (OlapTable) ((Database) Env.getCurrentInternalCatalog()
+                .getDbOrMetaException("test_stream")).getTableOrMetaException("tbl_stream_unconsumed");
+        Plan plan = normalizeStreamRead("select * from test_stream.s_unconsumed",
+                TSOTimestamp.composePhysicalTimestamp(System.currentTimeMillis()), Optional.empty());
+
+        Assertions.assertEquals(ImmutableSet.of(baseTable.getPartition("p1").getId(),
+                baseTable.getPartition("p2").getId()), scannedPartitionIds(plan, true));
+        Assertions.assertEquals(ImmutableSet.of(), scannedPartitionIds(plan, false));
+    }
+
+    @Test
+    public void testIvmReadsPartitionWithoutBaselineFromBaseTable() throws Exception {
+        // The same read inside an IVM refresh takes the partition without a consumption baseline from the base
+        // table: none of its rows are in the MV yet, and its changelog may no longer reach back to its first row.
+        // The partition with an offset is still read from the changelog.
+        OlapTable baseTable = (OlapTable) ((Database) Env.getCurrentInternalCatalog()
+                .getDbOrMetaException("test_stream")).getTableOrMetaException("tbl_stream_unconsumed");
+        Plan plan = normalizeStreamRead("select * from test_stream.s_unconsumed",
+                TSOTimestamp.composePhysicalTimestamp(System.currentTimeMillis()),
+                Optional.of(IvmRewriteContext.incremental(Mockito.mock(MTMV.class))));
+
+        Assertions.assertEquals(ImmutableSet.of(baseTable.getPartition("p1").getId()),
+                scannedPartitionIds(plan, true));
+        Assertions.assertEquals(ImmutableSet.of(baseTable.getPartition("p2").getId()),
+                scannedPartitionIds(plan, false));
+    }
+
+    // The partitions the plan reads from the changelog, or from the base table itself.
+    private static Set<Long> scannedPartitionIds(Plan plan, boolean changelog) {
+        Set<LogicalOlapScan> scans = plan.collect(node -> node instanceof LogicalOlapScan
+                && (changelog ? ((LogicalOlapScan) node).getTable() instanceof OlapChangelogTableWrapper
+                        : !(((LogicalOlapScan) node).getTable() instanceof OlapTableWrapper)));
+        ImmutableSet.Builder<Long> partitionIds = ImmutableSet.builder();
+        scans.forEach(scan -> partitionIds.addAll(scan.getSelectedPartitionIds()));
+        return partitionIds.build();
+    }
+
+    private Plan normalizeStreamRead(String sql, long referenceTso, Optional<IvmRewriteContext> ivmRewriteContext) {
+        PlanChecker checker = PlanChecker.from(connectContext).parse(sql);
+        StatementContext statementContext = checker.getCascadesContext().getStatementContext();
+        // Direct rewrite tests bypass the planner's statement reference initialization.
+        statementContext.getOrRegisterChangelogReferenceTso(() -> referenceTso);
+        checker.analyze();
+        // Installed after the analysis, whose IVM rules would rewrite the query as an MV's: only how the stream
+        // read treats its offset inside an IVM statement is under test.
+        statementContext.setIvmRewriteContext(ivmRewriteContext);
+        return checker.applyTopDown(new NormalizeOlapTableStreamScan()).getCascadesContext().getRewritePlan();
     }
 
     @Test
