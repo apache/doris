@@ -20,9 +20,11 @@ suite("adjust_virtual_slot_nullable") {
     def tbl1 = "tbl_adjust_virtual_slot_nullable_1"
     def tbl2 = "tbl_adjust_virtual_slot_nullable_2"
 
+    // Cost-based join commutation changes the recorded shape when cloud statistics arrive.
+    // Keep the nullable-slot assertion independent of statistics collection timing.
     multi_sql """
         set runtime_filter_mode='OFF';
-        set disable_join_reorder=false;
+        set disable_join_reorder=true;
         SET ignore_shape_nodes='PhysicalDistribute';
         drop table if exists tbl_adjust_virtual_slot_nullable_1 force;
         drop table if exists tbl_adjust_virtual_slot_nullable_2 force;

@@ -266,6 +266,9 @@ public:
                                                   size_t size, const CacheContext& context,
                                                   FileBlocks* blocks, bool* fully_covered);
 
+    /// Account a completed query disk hit that bypassed get_or_set, using complete block sizes.
+    void record_query_cache_hit(const FileBlocks& blocks);
+
     /// Diagnostic snapshot of resident DOWNLOADED intervals, clipped to the requested range.
     /// Handles irregular block boundaries; never loads metadata, reserves space or touches LRU.
     std::vector<FileBlock::Range> downloaded_ranges(const UInt128Wrapper& hash, size_t offset,

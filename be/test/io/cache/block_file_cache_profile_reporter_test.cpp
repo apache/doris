@@ -54,6 +54,18 @@ io::FileCacheStatistics make_file_cache_stats(int64_t multiplier) {
     stats.inverted_index_io_timer = multiplier * 28;
     stats.remote_only_on_miss_triggered = multiplier * 29;
     stats.remote_only_on_miss_threshold_bytes = multiplier * 30;
+    stats.io_adaptor_lookup_count = multiplier * 60;
+    stats.io_adaptor_lookup_time_ns = multiplier * 61;
+    stats.io_adaptor_local_reads = multiplier * 62;
+    stats.io_adaptor_local_time_ns = multiplier * 63;
+    stats.io_adaptor_bypass_count = multiplier * 64;
+    stats.io_adaptor_bypass_bytes = multiplier * 65;
+    stats.io_adaptor_remote_bytes = multiplier * 66;
+    stats.io_adaptor_remote_time_ns = multiplier * 67;
+    stats.io_adaptor_local_feedbacks = multiplier * 68;
+    stats.io_adaptor_remote_feedbacks = multiplier * 69;
+    stats.io_adaptor_remote_failures = multiplier * 70;
+    stats.io_adaptor_fallback_local = multiplier * 71;
     stats.num_cross_cg_peer_io_total = multiplier * 31;
     stats.bytes_read_from_cross_cg_peer = multiplier * 32;
     stats.cross_cg_peer_io_timer = multiplier * 33;
@@ -84,6 +96,18 @@ io::FileCacheStatistics make_file_cache_stats(int64_t multiplier) {
 
 void expect_file_cache_stats_eq(const io::FileCacheStatistics& actual,
                                 const io::FileCacheStatistics& expected) {
+    EXPECT_EQ(actual.io_adaptor_lookup_count, expected.io_adaptor_lookup_count);
+    EXPECT_EQ(actual.io_adaptor_lookup_time_ns, expected.io_adaptor_lookup_time_ns);
+    EXPECT_EQ(actual.io_adaptor_local_reads, expected.io_adaptor_local_reads);
+    EXPECT_EQ(actual.io_adaptor_local_time_ns, expected.io_adaptor_local_time_ns);
+    EXPECT_EQ(actual.io_adaptor_bypass_count, expected.io_adaptor_bypass_count);
+    EXPECT_EQ(actual.io_adaptor_bypass_bytes, expected.io_adaptor_bypass_bytes);
+    EXPECT_EQ(actual.io_adaptor_remote_bytes, expected.io_adaptor_remote_bytes);
+    EXPECT_EQ(actual.io_adaptor_remote_time_ns, expected.io_adaptor_remote_time_ns);
+    EXPECT_EQ(actual.io_adaptor_local_feedbacks, expected.io_adaptor_local_feedbacks);
+    EXPECT_EQ(actual.io_adaptor_remote_feedbacks, expected.io_adaptor_remote_feedbacks);
+    EXPECT_EQ(actual.io_adaptor_remote_failures, expected.io_adaptor_remote_failures);
+    EXPECT_EQ(actual.io_adaptor_fallback_local, expected.io_adaptor_fallback_local);
     EXPECT_EQ(actual.num_local_io_total, expected.num_local_io_total);
     EXPECT_EQ(actual.num_remote_io_total, expected.num_remote_io_total);
     EXPECT_EQ(actual.num_peer_io_total, expected.num_peer_io_total);
@@ -193,6 +217,30 @@ TEST(FileCacheProfileReporterTest, ReporterAggregatesDeltaReportsToExactFinalTot
             io::diff_file_cache_statistics(after_second_report, after_first_report);
     reporter.update(&second_delta);
 
+    EXPECT_EQ(profile->get_counter("IOAdaptorLookupCount")->value(),
+              after_second_report.io_adaptor_lookup_count);
+    EXPECT_EQ(profile->get_counter("IOAdaptorLookupTime")->value(),
+              after_second_report.io_adaptor_lookup_time_ns);
+    EXPECT_EQ(profile->get_counter("IOAdaptorLocalReadCount")->value(),
+              after_second_report.io_adaptor_local_reads);
+    EXPECT_EQ(profile->get_counter("IOAdaptorLocalReadTime")->value(),
+              after_second_report.io_adaptor_local_time_ns);
+    EXPECT_EQ(profile->get_counter("IOAdaptorBypassCount")->value(),
+              after_second_report.io_adaptor_bypass_count);
+    EXPECT_EQ(profile->get_counter("IOAdaptorBypassBytes")->value(),
+              after_second_report.io_adaptor_bypass_bytes);
+    EXPECT_EQ(profile->get_counter("IOAdaptorRemoteReadBytes")->value(),
+              after_second_report.io_adaptor_remote_bytes);
+    EXPECT_EQ(profile->get_counter("IOAdaptorRemoteReadTime")->value(),
+              after_second_report.io_adaptor_remote_time_ns);
+    EXPECT_EQ(profile->get_counter("IOAdaptorLocalFeedbackCount")->value(),
+              after_second_report.io_adaptor_local_feedbacks);
+    EXPECT_EQ(profile->get_counter("IOAdaptorRemoteFeedbackCount")->value(),
+              after_second_report.io_adaptor_remote_feedbacks);
+    EXPECT_EQ(profile->get_counter("IOAdaptorRemoteFailureCount")->value(),
+              after_second_report.io_adaptor_remote_failures);
+    EXPECT_EQ(profile->get_counter("IOAdaptorFallbackLocalCount")->value(),
+              after_second_report.io_adaptor_fallback_local);
     EXPECT_EQ(profile->get_counter("BytesScannedFromCache")->value(),
               after_second_report.bytes_read_from_local);
     EXPECT_EQ(profile->get_counter("BytesScannedFromRemote")->value(),
