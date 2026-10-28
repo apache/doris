@@ -75,7 +75,9 @@
 #include "cpp/sync_point.h"
 #include "io/fs/err_utils.h"
 #include "io/fs/s3_file_system.h"
+#include "runtime/exec_env.h"
 #include "testutil/container_credentials_endpoint.h"
+#include "util/defer_op.h"
 #include "util/s3_rate_limiter_manager.h"
 #include "util/s3_uri.h"
 #include "util/s3_util.h"
@@ -327,6 +329,25 @@ TEST_F(S3ClientFactoryTest, FailedHolderUpdatePreservesClientAndConfiguration) {
     EXPECT_FALSE(holder.reset(invalid).ok());
     EXPECT_EQ(holder.get(), client);
     EXPECT_EQ(holder.s3_client_conf(), original);
+}
+
+TEST_F(S3ClientFactoryTest, PartialExecEnvTeardownPreservesFactoryCache) {
+    auto& factory = S3ClientFactory::instance();
+    auto conf = make_factory_conf("partial-exec-env.example.com", false);
+    auto before = factory.create(conf);
+    ASSERT_TRUE(before.has_value()) << before.error();
+
+    const bool was_ready = ExecEnv::ready();
+    Defer restore_ready([was_ready] { ExecEnv::_s_ready = was_ready; });
+    ExecEnv partial_env;
+    partial_env.set_ready();
+    // ExternalScanContextMgrTest also tears down a partial environment. It never
+    // initializes the factory's cache policy, so later S3 users must still work.
+    partial_env.destroy();
+
+    auto after = factory.create(conf);
+    ASSERT_TRUE(after.has_value()) << after.error();
+    EXPECT_EQ(before.value(), after.value());
 }
 
 TEST_F(S3ClientFactoryTest, SelectsRateLimiterByDeploymentAndBucketType) {

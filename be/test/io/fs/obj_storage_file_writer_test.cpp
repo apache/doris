@@ -318,6 +318,7 @@ public:
         // Release the suite's S3 client before exit-time destruction of AWS logging globals.
         // The upload pool has stopped, so no upload can still use this filesystem.
         obj_fs.reset();
+        mock_client.reset();
     }
 };
 
