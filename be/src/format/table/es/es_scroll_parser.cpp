@@ -27,6 +27,7 @@
 
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
+#include <cmath>
 #include <cstdlib>
 #include <ostream>
 #include <string>
@@ -225,6 +226,37 @@ static T parse_es_integer(const char* text, size_t length, StringParser::ParseRe
 }
 
 template <typename T>
+static T parse_es_narrow_integer(const std::string& text, StringParser::ParseResult* result) {
+    // Unlike long's BigDecimal conversion, ES parses byte/short/integer strings through double:
+    // "0.99999999999999999" rounds to 1 before truncation. Keep long's exact path separate.
+    auto number = StringParser::string_to_float<double>(text.data(), text.size(), result);
+    if (*result != StringParser::PARSE_SUCCESS) {
+        return 0;
+    }
+    // Java converts NaN to zero; casting it directly in C++ would be undefined.
+    if (std::isnan(number)) {
+        return 0;
+    }
+    using ParsedType = std::conditional_t<sizeof(T) == 1, int32_t, T>;
+    if (number < StringParser::numeric_limits<ParsedType>(true) ||
+        number > StringParser::numeric_limits<ParsedType>(false)) {
+        *result = StringParser::PARSE_OVERFLOW;
+        return 0;
+    }
+    auto parsed = static_cast<ParsedType>(number);
+    // ES byte uses intValue() then checks the byte range, so "127.9" is valid. Short and
+    // integer instead check their own double bounds before casting (e.g. short "32767.9" fails).
+    if constexpr (sizeof(T) == 1) {
+        if (parsed < StringParser::numeric_limits<T>(true) ||
+            parsed > StringParser::numeric_limits<T>(false)) {
+            *result = StringParser::PARSE_OVERFLOW;
+            return 0;
+        }
+    }
+    return static_cast<T>(parsed);
+}
+
+template <typename T>
 Status get_int_value(const rapidjson::Value& col, PrimitiveType type, void* slot,
                      bool pure_doc_value) {
     const rapidjson::Value* value = &col;
@@ -252,7 +284,12 @@ Status get_int_value(const rapidjson::Value& col, PrimitiveType type, void* slot
                                    ? std::string(value->GetString(), value->GetStringLength())
                                    : json_value_to_string(*value);
         StringParser::ParseResult result;
-        parsed = parse_es_integer<T>(text.data(), text.size(), &result);
+        if constexpr (sizeof(T) < 8) {
+            parsed = value->IsString() ? parse_es_narrow_integer<T>(text, &result)
+                                       : parse_es_integer<T>(text.data(), text.size(), &result);
+        } else {
+            parsed = parse_es_integer<T>(text.data(), text.size(), &result);
+        }
         RETURN_ERROR_IF_PARSING_FAILED(result, (*value), type);
     }
     memcpy(slot, &parsed, sizeof(parsed));
@@ -764,15 +801,20 @@ Status ScrollParser::fill_columns(const std::vector<SlotDescriptor*>& slots,
             }
         }
 
-        const rapidjson::Value& col = (*line)[col_name];
-
         auto type = slot_desc->type()->get_primitive_type();
-
-        // when the column value is null, the subsequent type casting will report an error
-        if (col.IsNull() && slot_desc->is_nullable()) {
+        const rapidjson::Value& source_value = (*line)[col_name];
+        // Source fallback changes every sibling's decoder. A scalar numeric/Boolean/date field
+        // may hold [value], [] or [null]; preserve its single value or missing-value semantics.
+        // STRING keeps its JSON representation, and declared ARRAY keeps its container.
+        bool scalar_source_array = !pure_doc_value && source_value.IsArray() &&
+                                   type != TYPE_ARRAY && !is_string_type(type);
+        const rapidjson::Value& col =
+                scalar_source_array && source_value.Size() == 1 ? source_value[0] : source_value;
+        bool is_null = col.IsNull() || (scalar_source_array && source_value.Empty());
+        if (is_null && slot_desc->is_nullable()) {
             col_ptr->insert_data(nullptr, 0);
             continue;
-        } else if (col.IsNull() && !slot_desc->is_nullable()) {
+        } else if (is_null && !slot_desc->is_nullable()) {
             std::string details = absl::Substitute(INVALID_NULL_VALUE, col_name);
             return Status::RuntimeError(details);
         }

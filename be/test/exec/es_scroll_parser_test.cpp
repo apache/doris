@@ -21,6 +21,7 @@
 #include <rapidjson/document.h>
 #include <re2/re2.h>
 
+#include <cstring>
 #include <string>
 
 #include "core/assert_cast.h"
@@ -56,10 +57,106 @@ public:
         return slot;
     }
 
+    static Status read_scalar(TPrimitiveType::type type, const std::string& json,
+                              MutableColumnPtr* column) {
+        auto descriptor = value_slot(type);
+        descriptor.nullIndicatorBit = 0;
+        SlotDescriptor slot(descriptor);
+        ScrollParser parser(false);
+        RETURN_IF_ERROR(
+                parser.parse(R"({"hits":{"hits":[{"_source":{"value":)" + json + "}}]}}", true));
+        std::vector<SlotDescriptor*> slots {&slot};
+        std::vector<MutableColumnPtr> columns;
+        columns.push_back(slot.type()->create_column());
+        bool eof = false;
+        RETURN_IF_ERROR(parser.fill_columns(slots, columns, &eof, {}, cctz::utc_time_zone()));
+        *column = std::move(columns[0]);
+        return Status::OK();
+    }
+
     static TSlotDescriptor boolean_slot(bool array) {
         return value_slot(TPrimitiveType::BOOLEAN, array);
     }
 };
+
+TEST_F(EsScrollParserTest, EmptyAndNullScalarSourceArrays) {
+    for (auto type : {TPrimitiveType::FLOAT, TPrimitiveType::DOUBLE, TPrimitiveType::BOOLEAN,
+                      TPrimitiveType::BIGINT}) {
+        for (const std::string value : {"[]", "[null]", "null"}) {
+            MutableColumnPtr column;
+            auto status = read_scalar(type, value, &column);
+            ASSERT_TRUE(status.ok()) << type << ": " << value << ": " << status.to_string();
+            ASSERT_EQ(column->size(), 1);
+            EXPECT_TRUE(column->is_null_at(0));
+        }
+    }
+}
+
+TEST_F(EsScrollParserTest, FloatingPointSourceSingletonArrays) {
+    for (auto type : {TPrimitiveType::FLOAT, TPrimitiveType::DOUBLE}) {
+        MutableColumnPtr column;
+        auto status = read_scalar(type, "[1.5]", &column);
+        ASSERT_TRUE(status.ok()) << status.to_string();
+        ASSERT_FALSE(column->is_null_at(0));
+        auto data = assert_cast<const ColumnNullable&>(*column).get_nested_column().get_data_at(0);
+        if (type == TPrimitiveType::FLOAT) {
+            float actual;
+            memcpy(&actual, data.data, sizeof(actual));
+            EXPECT_FLOAT_EQ(actual, 1.5F);
+        } else {
+            double actual;
+            memcpy(&actual, data.data, sizeof(actual));
+            EXPECT_DOUBLE_EQ(actual, 1.5);
+        }
+    }
+}
+
+TEST_F(EsScrollParserTest, BooleanAndIntegerSourceSingletonArrays) {
+    MutableColumnPtr column;
+    auto status = read_scalar(TPrimitiveType::BOOLEAN, R"([""])", &column);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_FALSE(column->is_null_at(0));
+    EXPECT_FALSE(column->get_bool(0));
+    status = read_scalar(TPrimitiveType::BIGINT, "[1]", &column);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_FALSE(column->is_null_at(0));
+    EXPECT_EQ(assert_cast<const ColumnNullable&>(*column).get_nested_column().get_int(0), 1);
+}
+
+TEST_F(EsScrollParserTest, NarrowIntegerNaNAndInfinity) {
+    for (auto type : {TPrimitiveType::TINYINT, TPrimitiveType::SMALLINT, TPrimitiveType::INT}) {
+        MutableColumnPtr column;
+        auto status = read_scalar(type, R"("NaN")", &column);
+        ASSERT_TRUE(status.ok()) << status.to_string();
+        EXPECT_EQ(assert_cast<const ColumnNullable&>(*column).get_nested_column().get_int(0), 0);
+        EXPECT_FALSE(read_scalar(type, R"("Infinity")", &column).ok());
+    }
+}
+
+TEST_F(EsScrollParserTest, NarrowIntegerStringRounding) {
+    for (auto type : {TPrimitiveType::TINYINT, TPrimitiveType::SMALLINT, TPrimitiveType::INT,
+                      TPrimitiveType::BIGINT}) {
+        SlotDescriptor slot(value_slot(type));
+        std::vector<SlotDescriptor*> slots {&slot};
+        for (const auto& [value, expected] : std::vector<std::pair<std::string, int64_t>> {
+                     {"0.99999999999999999", type == TPrimitiveType::BIGINT ? 0 : 1},
+                     {"-0.99999999999999999", type == TPrimitiveType::BIGINT ? 0 : -1},
+                     {"1.2e1", 12},
+                     {"127.9", 127}}) {
+            ScrollParser parser(false);
+            ASSERT_TRUE(
+                    parser.parse(R"({"hits":{"hits":[{"_source":{"value":")" + value + R"("}}]}})",
+                                 true)
+                            .ok());
+            std::vector<MutableColumnPtr> columns;
+            columns.push_back(slot.type()->create_column());
+            bool eof = false;
+            auto status = parser.fill_columns(slots, columns, &eof, {}, cctz::utc_time_zone());
+            ASSERT_TRUE(status.ok()) << status.to_string();
+            EXPECT_EQ(columns[0]->get_int(0), expected) << type << ": " << value;
+        }
+    }
+}
 
 TEST_F(EsScrollParserTest, IntegerSourceCoercion) {
     SlotDescriptor slot(value_slot(TPrimitiveType::BIGINT));

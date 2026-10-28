@@ -86,14 +86,24 @@ public class EsQueryDslBuilderTest {
     }
 
     @Test
+    void retainedRangeNotComplementsTheOriginalExistentialQuery() {
+        ConnectorColumnRef column = new ConnectorColumnRef("value", ConnectorType.of("BIGINT"));
+        for (ConnectorComparison.Operator op : Arrays.asList(ConnectorComparison.Operator.LT,
+                ConnectorComparison.Operator.LE, ConnectorComparison.Operator.GT, ConnectorComparison.Operator.GE)) {
+            ConnectorExpression comparison = new ConnectorComparison(op, column, ConnectorLiteral.ofLong(2));
+            EsQueryDslResult result = buildWithTracking(new ConnectorNot(comparison));
+            Assertions.assertTrue(result.getNotPushedIndices().isEmpty());
+            Assertions.assertTrue(result.getQueryDsl().contains("\"must_not\":"
+                    + buildWithTracking(comparison).getQueryDsl()), result.getQueryDsl());
+            Assertions.assertTrue(result.getQueryDsl().contains("\"must\":{\"exists\":{\"field\":\"value\"}}"));
+        }
+    }
+
+    @Test
     void retainedNotComparisonsPreserveNullRejection() {
         ConnectorColumnRef column = new ConnectorColumnRef("value", ConnectorType.of("BIGINT"));
-        ConnectorComparison.Operator[] operators = {ConnectorComparison.Operator.EQ, ConnectorComparison.Operator.NE,
-                ConnectorComparison.Operator.LT, ConnectorComparison.Operator.LE,
-                ConnectorComparison.Operator.GT, ConnectorComparison.Operator.GE};
-        ConnectorComparison.Operator[] inverses = {ConnectorComparison.Operator.NE, ConnectorComparison.Operator.EQ,
-                ConnectorComparison.Operator.GE, ConnectorComparison.Operator.GT,
-                ConnectorComparison.Operator.LE, ConnectorComparison.Operator.LT};
+        ConnectorComparison.Operator[] operators = {ConnectorComparison.Operator.EQ, ConnectorComparison.Operator.NE};
+        ConnectorComparison.Operator[] inverses = {ConnectorComparison.Operator.NE, ConnectorComparison.Operator.EQ};
         for (int i = 0; i < operators.length; i++) {
             ConnectorExpression expression = new ConnectorComparison(operators[i], column, ConnectorLiteral.ofLong(1));
             ConnectorExpression inverse = new ConnectorComparison(inverses[i], column, ConnectorLiteral.ofLong(1));

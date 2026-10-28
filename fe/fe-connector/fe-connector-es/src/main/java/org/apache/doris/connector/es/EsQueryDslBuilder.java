@@ -356,8 +356,8 @@ public final class EsQueryDslBuilder {
             boolean likePushDown,
             List<String> needCompatDateFields,
             Map<String, String> column2typeMap) {
-        // Optimizer NOT simplification is optional. Inverting a comparison keeps NULL as
-        // UNKNOWN; complementing its ES true-set would instead make missing values match.
+        // Optimizer NOT simplification is optional. Equality negation can be normalized, but
+        // ranges are existential on multi-value fields: NOT(a<2) is not a>=2 for a=[1,2].
         ConnectorExpression operand = not.getOperand();
         ConnectorExpression normalized = null;
         if (operand instanceof ConnectorNot) {
@@ -391,6 +391,18 @@ public final class EsQueryDslBuilder {
         ObjectNode root = MAPPER.createObjectNode();
         ObjectNode boolNode = root.putObject("bool");
         boolNode.set("must_not", parseJsonNode(child));
+        if (operand instanceof ConnectorComparison) {
+            ConnectorComparison comparison = (ConnectorComparison) operand;
+            if (comparison.getOperator() != ConnectorComparison.Operator.EQ_FOR_NULL) {
+                // Complement the original range for arrays, but reject missing values so scalar
+                // NULL still yields UNKNOWN. Null-safe equality deliberately includes NULLs here.
+                String column = extractColumnName(comparison.getLeft());
+                if (column == null) {
+                    column = extractColumnName(comparison.getRight());
+                }
+                boolNode.set("must", parseJsonNode(existsQuery(fieldsContext.getOrDefault(column, column))));
+            }
+        }
         return root.toString();
     }
 
@@ -400,14 +412,6 @@ public final class EsQueryDslBuilder {
                 return ConnectorComparison.Operator.NE;
             case NE:
                 return ConnectorComparison.Operator.EQ;
-            case LT:
-                return ConnectorComparison.Operator.GE;
-            case LE:
-                return ConnectorComparison.Operator.GT;
-            case GT:
-                return ConnectorComparison.Operator.LE;
-            case GE:
-                return ConnectorComparison.Operator.LT;
             default:
                 return null;
         }
