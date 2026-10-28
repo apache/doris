@@ -113,6 +113,11 @@ final class IcebergTableCache {
         return entry.isEnabled();
     }
 
+    /** Only a retained, unexpired table proves existence; never loads or caches a boolean answer. */
+    boolean contains(TableIdentifier identifier) {
+        return entry.getIfPresent(identifier) != null;
+    }
+
     /**
      * Returns the cached table for {@code identifier} if present and unexpired, else runs {@code loader} (the
      * live remote {@code loadTable}), caches and returns it. When caching is disabled ({@link #isEnabled()} is
@@ -244,6 +249,14 @@ final class IcebergTableCache {
             return owner.snapshotReadTable();
         }
 
+        TableLease retainLease() {
+            TableLease retained = owner.tryBorrow();
+            if (retained == null) {
+                throw new IllegalStateException("Iceberg table owner is already closed");
+            }
+            return retained;
+        }
+
         @Override
         public void close() {
             if (closed.compareAndSet(false, true)) {
@@ -309,7 +322,7 @@ final class IcebergTableCache {
                     ? operations.current()
                     : TableMetadataParser.fromJson(snapshotMetadataLocation, snapshotMetadataJson);
             return new BaseTable(new IcebergSnapshotTableOperations(operations, metadata),
-                    table.name(), baseTable.reporter());
+                    table.name(), baseTable.reporter(), baseTable.labels());
         }
 
         private TableLease tryBorrow() {

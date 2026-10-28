@@ -18,13 +18,17 @@
 package org.apache.doris.datasource.storage;
 
 import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
+import org.apache.doris.filesystem.auth.ObjectStorageAuthentication;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.thrift.TCredProviderType;
+import org.apache.doris.thrift.TObjStorageType;
 import org.apache.doris.thrift.TS3StorageParam;
 
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * fe-core-only Thrift glue: builds {@link TS3StorageParam} from the persisted user-facing
@@ -66,7 +70,25 @@ public final class S3ThriftAdapter {
 
     /** Direct move of legacy {@code S3Properties.getS3TStorageParam}. */
     public static TS3StorageParam getS3TStorageParam(Map<String, String> properties) {
+        Optional<ObjectStorageAuthentication> authentication = StorageAdapter.resolveAuthentication(properties);
         TS3StorageParam s3Info = new TS3StorageParam();
+        if (StringUtils.isNotBlank(properties.get("provider"))) {
+            String provider = properties.get("provider").trim().toUpperCase(Locale.ROOT);
+            // Filesystem dialect names such as MINIO have no Thrift enum value.
+            // They use the same AWS-compatible backend as S3 and must not abort a policy batch.
+            switch (provider) {
+                case "S3":
+                case "MINIO":
+                case "OZONE":
+                    s3Info.setProvider(TObjStorageType.AWS);
+                    break;
+                case "GCS":
+                    s3Info.setProvider(TObjStorageType.GCP);
+                    break;
+                default:
+                    s3Info.setProvider(TObjStorageType.valueOf(provider));
+            }
+        }
 
         if (properties.containsKey(ROLE_ARN)) {
             s3Info.setRoleArn(properties.get(ROLE_ARN));
@@ -95,6 +117,13 @@ public final class S3ThriftAdapter {
                 ? DEFAULT_CONNECTION_TIMEOUT_MS : connTimeoutMs));
         String usePathStyle = properties.getOrDefault(USE_PATH_STYLE, "false");
         s3Info.setUsePathStyle(Boolean.parseBoolean(usePathStyle));
+        ObjectStorageCredentialAdapter.fromAuthentication(authentication)
+                .ifPresent(credential -> credential.applyTo(s3Info));
+        if (authentication.filter(ObjectStorageAuthentication::isAnonymous).isPresent()
+                || (authentication.isEmpty() && getCredentialsProviderMode(properties,
+                        AwsCredentialsProviderMode.INSTANCE_PROFILE) == AwsCredentialsProviderMode.ANONYMOUS)) {
+            s3Info.setCredProviderType(TCredProviderType.ANONYMOUS);
+        }
         return s3Info;
     }
 

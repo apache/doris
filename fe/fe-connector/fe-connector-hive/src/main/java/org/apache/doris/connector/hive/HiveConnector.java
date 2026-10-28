@@ -96,12 +96,8 @@ public class HiveConnector implements Connector {
     private volatile HadoopAuthenticator pluginAuth;
     private volatile boolean pluginAuthComputed;
 
-    // Read-transaction manager for transactional (ACID) Hive scans. One per connector, keyed by query.
-    // Plugin-owned; live since the read cutover wired its query-finish commit (see the manager).
-    private final HiveReadTransactionManager readTxnManager = new HiveReadTransactionManager();
-
     // Connector-owned directory-listing cache, shared by the (per-call) scan provider and metadata. One per
-    // connector (like readTxnManager above) — the scan provider / metadata are rebuilt per query, so the cache
+    // connector — the scan provider / metadata are rebuilt per query, so the cache
     // must live on the long-lived connector to survive across scans. Built from catalog props. Its
     // metastore-metadata sibling is the CachingHmsClient wrapping the HmsClient.
     private final HiveFileListingCache fileListingCache;
@@ -256,7 +252,7 @@ public class HiveConnector implements Connector {
 
     @Override
     public ConnectorScanPlanProvider getScanPlanProvider() {
-        return new HiveScanPlanProvider(getOrCreateClient(), props, context, readTxnManager, fileListingCache);
+        return new HiveScanPlanProvider(getOrCreateClient(), props, context, fileListingCache);
     }
 
     /**

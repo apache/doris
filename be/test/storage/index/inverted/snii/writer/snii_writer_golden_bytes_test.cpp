@@ -15,33 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// GOLDEN BYTE pins for the ordinary SNII writer path. Each test
-// writes ONE segment from a FIXED corpus through the production writer stack
-// and asserts the output file's FNV-1a-64 digest against a recorded constant
-// harvested after B2 stopped feeding hidden bigrams. Any change to tokenization
-// semantics, position accounting, ignore_above / empty-value handling, or
-// ordinary on-disk encoding flips the digest.
-//
-// The corpus deliberately hits the edge lanes: empty value (analyzed: skipped;
-// keyword: a VALID empty token), punctuation-only row (zero analyzed tokens),
-// >ignore_above value (keyword: skipped row), long token, repeated terms
-// (position increments), unicode/mixed text, multiple add
-// batches, and interleaved add_nulls runs.
-//
-// If a digest changes INTENTIONALLY (format or analyzer change), re-harvest by
-// running the test and copying the "actual=" value from the failure message --
-// and say so loudly in the commit message.
-//
-// RE-HARVESTED (A2, CommonGrams removal) for the two ANALYZED lanes only: an analyzed
-// index with positions now always carries a BM25 norms section, so EnglishPhrase and
-// UnicodePhrase moved while KeywordDocsOnly (no analyzer, no norms) and the posting-shape
-// matrix (explicit inputs) stayed byte-identical -- which is what tells you the change
-// is confined to "analyzed + positions" segments.
-//
-// RE-HARVESTED when SniiStatsPB and SniiSectionRefsPB were renumbered back to the
-// field numbers the format shipped with. Protobuf tags are part of the image, so
-// EVERY digest moved -- including kGoldenKeywordDocsOnly, which is what tells you
-// the change reaches all SNII segments and not just one lane.
+// Pins ordinary SNII writer bytes for fixed analyzed and keyword corpora.
+// A changed digest requires checking format and analyzer compatibility before updating it.
 
 #include <gtest/gtest.h>
 
@@ -278,6 +253,25 @@ uint64_t golden_digest(const std::string& name, const TabletIndex& meta) {
     return fnv1a64(bytes);
 }
 
+// Writes `rows` through the production stack and returns the size of the segment file.
+size_t written_size(const std::string& name, const TabletIndex& meta,
+                    const std::vector<std::string>& rows) {
+    const std::string path = std::string(kTestDir) + "/" + name + ".idx";
+    io::FileWriterPtr file_writer;
+    EXPECT_TRUE(io::global_local_filesystem()->create_file(path, &file_writer).ok());
+    IndexFileWriter index_file_writer(io::global_local_filesystem(), path, "size_rowset",
+                                      /*seg_id=*/0, InvertedIndexStorageFormatPB::SNII,
+                                      std::move(file_writer), /*can_use_ram_dir=*/true,
+                                      /*tablet_id=*/901);
+    SniiIndexColumnWriter writer(&index_file_writer, &meta, FieldType::OLAP_FIELD_TYPE_VARCHAR);
+    EXPECT_TRUE(writer.init().ok());
+    add_batch(&writer, rows);
+    EXPECT_TRUE(writer.finish().ok());
+    EXPECT_TRUE(index_file_writer.begin_close().ok());
+    EXPECT_TRUE(index_file_writer.finish_close().ok());
+    return read_file_bytes(path).size();
+}
+
 class SniiWriterGoldenBytes : public testing::Test {
 protected:
     void SetUp() override {
@@ -286,17 +280,20 @@ protected:
         _saved_dict_lvl = config::snii_dict_block_zstd_level;
         _saved_prx_lvl = config::snii_prx_zstd_level;
         _saved_prx_load_lvl = config::snii_prx_zstd_level_direct_load;
+        _saved_prx_saving = config::snii_prx_zstd_min_saving_percent;
         assert_ok(io::global_local_filesystem()->delete_directory(kTestDir));
         assert_ok(io::global_local_filesystem()->create_directory(kTestDir));
         config::snii_dict_block_zstd_level = 3;
         config::snii_prx_zstd_level = 3;
         config::snii_prx_zstd_level_direct_load = 3;
+        config::snii_prx_zstd_min_saving_percent = 0;
     }
 
     void TearDown() override {
         config::snii_dict_block_zstd_level = _saved_dict_lvl;
         config::snii_prx_zstd_level = _saved_prx_lvl;
         config::snii_prx_zstd_level_direct_load = _saved_prx_load_lvl;
+        config::snii_prx_zstd_min_saving_percent = _saved_prx_saving;
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());
     }
 
@@ -304,6 +301,7 @@ private:
     int32_t _saved_dict_lvl = 3;
     int32_t _saved_prx_lvl = 3;
     int32_t _saved_prx_load_lvl = 3;
+    int32_t _saved_prx_saving = 0;
 };
 
 // Whole-image digests re-harvested after core metadata stopped writing an empty
@@ -319,6 +317,37 @@ private:
 constexpr uint64_t kGoldenEnglishPhrase = 0x8157f9dd81c5397cULL;
 constexpr uint64_t kGoldenUnicodePhrase = 0x9e2a4ba4abedaef9ULL;
 constexpr uint64_t kGoldenKeywordDocsOnly = 0x27cec04c70573201ULL;
+
+// The default of the knob is part of the written format's behavior: the fixture above pins it to 0
+// for the digests, so this reads the value a fresh process starts with.
+TEST(SniiWriterPrxZstdSaving, DefaultIsThirtyPercent) {
+    EXPECT_EQ(config::snii_prx_zstd_min_saving_percent, 30);
+}
+
+// Every document repeats the same positions, so a window is far smaller as zstd than as PFOR.
+// 0 and 30 keep zstd; 100 never picks it, so the segment is larger.
+TEST_F(SniiWriterGoldenBytes, PrxZstdMinSavingConfigReachesTheWriter) {
+    std::vector<std::string> rows;
+    for (int doc = 0; doc < 2000; ++doc) {
+        std::string row;
+        for (int token = 0; token < 31; ++token) {
+            row += (token == 1 || token == 5 || token == 6 || token == 17 || token == 30)
+                           ? "x "
+                           : "t" + std::to_string(token) + " ";
+        }
+        rows.push_back(row);
+    }
+    const TabletIndex meta =
+            make_meta({{"parser", "unicode"}, {"lower_case", "true"}, {"support_phrase", "true"}});
+    config::snii_prx_zstd_min_saving_percent = 0;
+    const size_t smallest = written_size("saving_0", meta, rows);
+    config::snii_prx_zstd_min_saving_percent = 30;
+    const size_t thirty = written_size("saving_30", meta, rows);
+    config::snii_prx_zstd_min_saving_percent = 100;
+    const size_t never_zstd = written_size("saving_100", meta, rows);
+    EXPECT_EQ(thirty, smallest);
+    EXPECT_GT(never_zstd, smallest + 1000) << "smallest=" << smallest;
+}
 
 TEST_F(SniiWriterGoldenBytes, EnglishPhrase) {
     const TabletIndex meta =

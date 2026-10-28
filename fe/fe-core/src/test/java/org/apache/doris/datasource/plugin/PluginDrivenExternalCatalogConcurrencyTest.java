@@ -20,6 +20,8 @@ package org.apache.doris.datasource.plugin;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.FileFormatConstants;
+import org.apache.doris.connector.ConnectorFactory;
+import org.apache.doris.connector.ConnectorPluginManager;
 import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.cache.MetaCache;
@@ -27,6 +29,7 @@ import org.apache.doris.connector.cache.MetaCacheBudgetManager;
 import org.apache.doris.connector.cache.MetaCacheDefinition;
 import org.apache.doris.connector.cache.MetaCacheSizeEstimate;
 import org.apache.doris.connector.cache.ScopePath;
+import org.apache.doris.connector.hive.HiveConnectorProvider;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorSession;
@@ -70,6 +73,9 @@ public class PluginDrivenExternalCatalogConcurrencyTest {
 
     @BeforeEach
     public void setUp() {
+        ConnectorPluginManager manager = new ConnectorPluginManager();
+        manager.registerProvider(new HiveConnectorProvider());
+        ConnectorFactory.initPluginManager(manager);
         Env env = Mockito.mock(Env.class);
         cacheMgr = Mockito.mock(ExternalMetaCacheMgr.class);
         AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
@@ -84,6 +90,7 @@ public class PluginDrivenExternalCatalogConcurrencyTest {
     @AfterEach
     public void tearDown() {
         mockedEnv.close();
+        ConnectorFactory.initPluginManager(new ConnectorPluginManager());
     }
 
     @Test

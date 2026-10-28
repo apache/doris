@@ -161,23 +161,11 @@ Status SniiIndexColumnWriter::init() {
                     ::doris::snii::writer::BuildMemoryPopulation::kRegistered),
             spill_threshold, ::doris::snii::writer::MemoryReporter::CapPolicy::kSpillThreshold,
             static_cast<uint64_t>(config::snii_postings_workspace_bytes));
+    _null_docids_reservation = _memory_reporter->make_reservation();
     _term_buffer = std::make_unique<::doris::snii::writer::SpimiTermBuffer>(
             _has_positions, spill_threshold, _memory_reporter.get());
-    // G09: join the PROCESS-WIDE build-RAM limiter. The per-writer spill threshold above
-    // bounds one writer; a load keeps (tablets x concurrency) writers alive at
-    // once, none of which may ever reach it -- the global registry bounds their
-    // SUM by asking the largest buffers to spill early (advisory flags honored
-    // on each writer's own thread; byte-identical output). Registration is
-    // UNCONDITIONAL: the limiter re-reads its trigger (SNII's share of the
-    // process limit, plus the process-level backstops) at every decision, so an
-    // admin enabling or disabling the share mid-load takes effect for writers
-    // that are already running -- it is not latched here.
-    // G09 anti-storm knobs (see the config comments): the forced-spill floor
-    // gates both the owner-side honor (a request is a pending no-op until the
-    // reclaimable arena regrows past it) and the limiter's victim eligibility,
-    // and the run-file knob additionally caps merge fan-in. Spill ranges share
-    // one append-only spool, avoiding repeated prefix rewrites. Both the workspace
-    // and fd limits still apply when this optional fan-in cap is disabled.
+    // Register with the process-wide memory limiter so writers can honor advisory spill requests.
+    // The arena floor and optional fan-in cap limit spill costs while workspace and fd limits still apply.
     _term_buffer->set_forced_spill_min_arena_bytes(
             static_cast<uint64_t>(std::max<int64_t>(config::snii_forced_spill_min_arena_bytes, 0)));
     _term_buffer->set_max_run_files(
@@ -365,16 +353,24 @@ Status SniiIndexColumnWriter::add_array_values(size_t field_size, const uint8_t*
     return Status::OK();
 }
 
-void SniiIndexColumnWriter::_report_null_docids_capacity(bool release_all) {
+Status SniiIndexColumnWriter::_reserve_null_docids_for_append(size_t count) {
+    const size_t need = _null_docids.size() + count;
+    // Repeated NULL runs reuse capacity until geometric growth is needed.
+    if (need <= _null_docids.capacity()) {
+        return Status::OK();
+    }
+    const size_t target_capacity = std::max(need, _null_docids.capacity() * 2);
+    // Uninitialized writers in unit tests have no reporter.
     if (_memory_reporter == nullptr) {
-        return;
+        _null_docids.reserve(target_capacity);
+        return Status::OK();
     }
-    const int64_t now =
-            release_all ? 0 : static_cast<int64_t>(_null_docids.capacity() * sizeof(uint32_t));
-    if (now != _null_docids_charged_bytes) {
-        _memory_reporter->report(now - _null_docids_charged_bytes);
-        _null_docids_charged_bytes = now;
-    }
+    ::doris::snii::writer::MemoryReporter::Reservation replacement;
+    RETURN_IF_ERROR(_null_docids_reservation.prepare_replacement(
+            static_cast<uint64_t>(target_capacity) * sizeof(uint32_t), &replacement));
+    _null_docids.reserve(target_capacity);
+    _null_docids_reservation = std::move(replacement);
+    return Status::OK();
 }
 
 // Hand back the token stream for one row. The two ways to get one differ in ownership AND in
@@ -553,10 +549,7 @@ Status SniiIndexColumnWriter::add_nulls(uint32_t count) {
     // the compaction ran 8+x slower than V3 (whose add_nulls is a roaring
     // addRange). Doubling on overflow keeps the O(count) amortization AND makes
     // one large run pay at most one reallocation.
-    const size_t need = _null_docids.size() + count;
-    if (need > _null_docids.capacity()) {
-        _null_docids.reserve(std::max(need, _null_docids.capacity() * 2));
-    }
+    RETURN_IF_ERROR(_reserve_null_docids_for_append(count));
     for (uint32_t i = 0; i < count; ++i) {
         _null_docids.push_back(_rid + i);
     }
@@ -565,7 +558,6 @@ Status SniiIndexColumnWriter::add_nulls(uint32_t count) {
         _encoded_norms.insert(_encoded_norms.end(), count, ::doris::snii::query::encode_norm(0));
         _report_encoded_norms_capacity();
     }
-    _report_null_docids_capacity();
     return Status::OK();
 }
 
@@ -577,13 +569,14 @@ Status SniiIndexColumnWriter::add_array_nulls(const uint8_t* null_map, size_t nu
     if (num_rows == 0 || null_map == nullptr) {
         return Status::OK();
     }
+    const size_t null_count = std::count(null_map, null_map + num_rows, static_cast<uint8_t>(1));
+    RETURN_IF_ERROR(_reserve_null_docids_for_append(null_count));
     const auto first_row = _rid - num_rows;
     for (size_t i = 0; i < num_rows; ++i) {
         if (null_map[i] == 1) {
             _null_docids.push_back(cast_set<uint32_t>(first_row + i));
         }
     }
-    _report_null_docids_capacity();
     return Status::OK();
 }
 
@@ -596,10 +589,6 @@ Status SniiIndexColumnWriter::finish() {
     if (!status.ok()) {
         return Status::InternalError("SNII term buffer error: {}", status.to_string());
     }
-    // Ownership of _null_docids hands off to the flush below (transient,
-    // flush-scoped); release the accumulation-phase charge so the retained
-    // reporter (and the observation tracker behind it) balances to zero.
-    _report_null_docids_capacity(/*release_all=*/true);
     // A segment smaller than the sample budget reaches here still holding its rows back. Solve
     // on what there is and tokenize them, so a short segment is indexed like any other -- and
     // so `options.gram_scheme` below carries the rate its rows were actually cut at.
@@ -612,8 +601,10 @@ Status SniiIndexColumnWriter::finish() {
         options.encoded_norms = std::move(_encoded_norms);
     }
     status = _index_file_writer->add_snii_index(
-            _index_meta, cast_set<uint32_t>(_rid), std::move(_null_docids), _term_buffer.get(),
-            _config, std::move(options), _memory_reporter.get());
+            _index_meta, cast_set<uint32_t>(_rid),
+            ::doris::snii::writer::TrackedNullDocids(std::move(_null_docids_reservation),
+                                                     std::move(_null_docids)),
+            _term_buffer.get(), _config, std::move(options), _memory_reporter.get());
     _report_encoded_norms_capacity(/*release_all=*/true);
     // The tokenizer's buffers outlive this call (they die with _analyzer), but the reporter is
     // about to be handed to the index file writer and become a long-lived process-wide counter,
@@ -635,12 +626,11 @@ Status SniiIndexColumnWriter::_latch_analysis_failure(Status status) {
 
 void SniiIndexColumnWriter::close_on_error() {
     _term_buffer.reset();
-    // Balance the observation-tracker mirror before dropping the reporter.
-    _report_null_docids_capacity(/*release_all=*/true);
+    std::vector<uint32_t>().swap(_null_docids);
+    _null_docids_reservation.reset();
     _report_encoded_norms_capacity(/*release_all=*/true);
     _report_gram_buffers_capacity(/*release_all=*/true);
     _memory_reporter.reset();
-    _null_docids.clear();
     std::vector<uint8_t>().swap(_encoded_norms);
 }
 

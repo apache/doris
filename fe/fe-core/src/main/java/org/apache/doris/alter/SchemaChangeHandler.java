@@ -2325,6 +2325,9 @@ public class SchemaChangeHandler extends AlterHandler {
             //alterClauses can or cannot light schema change
             boolean lightSchemaChange = true;
             boolean lightIndexChange = false;
+            // A clause needs a heavy schema change job (a column or property change that can not be light, or
+            // an index that has to be built for the existing data). The light index change path can not run it.
+            boolean requiresHeavyChange = false;
             boolean buildIndexChange = false;
 
             // index id -> index schema
@@ -2392,6 +2395,14 @@ public class SchemaChangeHandler extends AlterHandler {
             // that can reject those jobs before any clause below touches table metadata (processDropColumn
             // updates the bloom filter columns in place), so a rejected statement leaves the table unchanged.
             checkLightDropIndexPreconditions(db, olapTable, alterOps, enableAddIndexForNewData);
+            // DROP INDEX ... PARTITION only submits partition scoped index jobs: that path ignores every other
+            // clause, and both the light index path and other partition scoped drops would apply its index to
+            // the wrong partitions. So it has to be the only clause of its statement.
+            if (alterOps.size() > 1 && alterOps.stream().anyMatch(
+                    alterOp -> alterOp instanceof DropIndexOp && ((DropIndexOp) alterOp).hasPartitionSpec())) {
+                throw new DdlException("DROP INDEX on partitions can not be combined with other clauses in one"
+                        + " ALTER statement, please run them in separate statements.");
+            }
 
             for (AlterOp alterOp : alterOps) {
                 Map<String, String> properties = alterOp.getProperties();
@@ -2500,10 +2511,12 @@ public class SchemaChangeHandler extends AlterHandler {
                             indexSchemaMap, colUniqueIdSupplierMap);
                     if (!clauseCanLightSchemaChange) {
                         lightSchemaChange = false;
+                        requiresHeavyChange = true;
                     }
                     // TODO sequence mapping do not support light schema yet
                     if (olapTable.hasColumnSeqMapping() || !sequenceMapping.isEmpty()) {
                         lightSchemaChange = false;
+                        requiresHeavyChange = true;
                     }
                 } else if (alterOp instanceof AddColumnsOp) {
                     // add columns
@@ -2513,10 +2526,12 @@ public class SchemaChangeHandler extends AlterHandler {
                             indexSchemaMap, false, colUniqueIdSupplierMap);
                     if (!clauseCanLightSchemaChange) {
                         lightSchemaChange = false;
+                        requiresHeavyChange = true;
                     }
                     // TODO sequence mapping do not support light schema yet
                     if (olapTable.hasColumnSeqMapping() || !sequenceMapping.isEmpty()) {
                         lightSchemaChange = false;
+                        requiresHeavyChange = true;
                     }
                 } else if (alterOp instanceof DropColumnOp) {
                     // drop column and drop indexes on this column
@@ -2525,10 +2540,12 @@ public class SchemaChangeHandler extends AlterHandler {
                             indexSchemaMap, newIndexes);
                     if (!clauseCanLightSchemaChange) {
                         lightSchemaChange = false;
+                        requiresHeavyChange = true;
                     }
                     // TODO sequence mapping do not support light schema yet
                     if (olapTable.hasColumnSeqMapping() || !sequenceMapping.isEmpty()) {
                         lightSchemaChange = false;
+                        requiresHeavyChange = true;
                     }
                 } else if (alterOp instanceof ModifyColumnOp) {
                     // modify column
@@ -2536,15 +2553,18 @@ public class SchemaChangeHandler extends AlterHandler {
                             olapTable, indexSchemaMap);
                     if (!clauseCanLightSchemaChange) {
                         lightSchemaChange = false;
+                        requiresHeavyChange = true;
                     }
                 } else if (alterOp instanceof ReorderColumnsOp) {
                     // reorder column
                     processReorderColumn((ReorderColumnsOp) alterOp, olapTable, indexSchemaMap);
                     lightSchemaChange = false;
+                    requiresHeavyChange = true;
                 } else if (alterOp instanceof ModifyTablePropertiesOp) {
                     // modify table properties
                     // do nothing, properties are already in propertyMap
                     lightSchemaChange = false;
+                    requiresHeavyChange = true;
                 } else if (alterOp instanceof CreateIndexOp) {
                     CreateIndexOp createIndexOp = (CreateIndexOp) alterOp;
                     Index index = createIndexOp.getIndex();
@@ -2559,6 +2579,9 @@ public class SchemaChangeHandler extends AlterHandler {
                         alterIndexes.add(index);
                         isDropIndex = false;
                         lightIndexChange = true;
+                    } else {
+                        // The index has to be built for the existing data as well.
+                        requiresHeavyChange = true;
                     }
                 } else if (alterOp instanceof BuildIndexOp) {
                     BuildIndexOp buildIndexOp = (BuildIndexOp) alterOp;
@@ -2664,7 +2687,12 @@ public class SchemaChangeHandler extends AlterHandler {
                         lightIndexChange, buildIndexChange, indexSchemaMap);
             }
 
-            if (olapTable.hasChangelog() && !(lightSchemaChange || lightIndexChange)) {
+            // The light index change path only publishes the new schema and submits index delete jobs. When a
+            // clause also needs a heavy schema change, the whole statement runs as a heavy schema change job,
+            // which applies the index changes as well.
+            boolean useLightIndexChange = Config.enable_light_index_change && lightIndexChange
+                    && !requiresHeavyChange;
+            if (olapTable.hasChangelog() && !(lightSchemaChange || useLightIndexChange)) {
                 throw new DdlException("only support light schema change operator when use table with changelog");
             }
 
@@ -2673,7 +2701,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 //for schema change add/drop value column optimize, direct modify table meta.
                 modifyTableLightSchemaChange(rawSql, db, olapTable, indexSchemaMap, newIndexes,
                         null, isDropIndex, jobId, false, propertyMap);
-            } else if (Config.enable_light_index_change && lightIndexChange) {
+            } else if (useLightIndexChange) {
                 Index.checkConflict(newIndexes, olapTable.getCopiedBfColumns());
                 long jobId = Env.getCurrentEnv().getNextId();
                 // For light index changes, directly modify table metadata first.

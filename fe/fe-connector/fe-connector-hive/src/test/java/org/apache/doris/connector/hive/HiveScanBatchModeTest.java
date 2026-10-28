@@ -26,6 +26,7 @@ import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.ConnectorTaskScheduler;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
@@ -37,7 +38,6 @@ import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.foundation.format.FileCompression;
 import org.apache.doris.thrift.TFileCompressType;
-import org.apache.doris.thrift.TFileScanRangeParams;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -53,7 +53,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 /**
@@ -64,9 +66,8 @@ import java.util.function.Supplier;
  *
  * <p>WHY (Rule 9): the two overrides encode two correctness-critical decisions.</p>
  * <ul>
- *   <li>{@code supportsBatchScan}: batch iff PARTITIONED and NOT transactional. ACID tables are excluded so the
- *       per-batch resolution does not open (and leak) a metastore read transaction per batch — they keep the
- *       synchronous path.</li>
+ *   <li>{@code supportsBatchScan}: partitioned tables can use batch planning; transactional tables
+ *       are rejected because their read visibility is no longer supported.</li>
  *   <li>{@code planScanForPartitionBatch}: hive's {@code planScan} resolves partitions from the handle's pruned
  *       set and IGNORES the passed partition set, so hive MUST override the batch hook to scope resolution to the
  *       batch. If it inherited the SPI default (which re-runs the whole-pruned-set {@code planScan} per batch),
@@ -106,7 +107,7 @@ public class HiveScanBatchModeTest {
             }
         };
         HiveScanPlanProvider provider = new HiveScanPlanProvider(null, HiveTestProperties.minimal(), context,
-                new HiveReadTransactionManager(), cache);
+                cache);
         HiveTableHandle handle = parquetHandle(Collections.emptyList());
         try (ConnectorSplitSource source = provider.streamSplits(new FakeSession(),
                 ConnectorScanRequest.builder(handle, Collections.emptyList())
@@ -181,6 +182,46 @@ public class HiveScanBatchModeTest {
                     Assertions.assertEquals(partitionValues, range.getPartitionValues());
                 }
             }
+        }
+    }
+
+    @Test
+    public void cancellationBetweenEmptyPartitionsDoesNotListRemainingPartitions() throws Exception {
+        AtomicBoolean cancelled = new AtomicBoolean();
+        AtomicInteger listings = new AtomicInteger();
+        ConnectorTaskScheduler scheduler = new ConnectorTaskScheduler() {
+            @Override
+            public boolean isClosed() {
+                return cancelled.get();
+            }
+
+            @Override
+            public boolean tryExecute(Runnable task, Consumer<Throwable> failure, Runnable onSpace) {
+                throw new UnsupportedOperationException("This source only observes the query lifetime");
+            }
+
+            @Override
+            public void removeSpaceListener(Runnable onSpace) {
+            }
+
+            @Override
+            public void execute(Runnable task) {
+                throw new UnsupportedOperationException("This source only observes the query lifetime");
+            }
+        };
+        HiveScanPlanProvider provider = provider(new FakeHmsClient(), (location, fs) -> {
+            listings.incrementAndGet();
+            cancelled.set(true);
+            return Collections.emptyList();
+        });
+        HiveTableHandle handle = parquetHandle(PART_KEYS).toBuilder().prunedPartitions(Arrays.asList(
+                part("year=2024/month=01"), part("year=2024/month=02"))).build();
+        FakeSession session = new FakeSession(Collections.singletonMap("num_partitions_in_batch_mode", "1"),
+                scheduler);
+        try (ConnectorSplitSource source = provider.streamSplits(session,
+                ConnectorScanRequest.builder(handle, Collections.emptyList()).build())) {
+            Assertions.assertFalse(source.hasNext());
+            Assertions.assertEquals(1, listings.get(), "cancellation must stop listing the next empty partition");
         }
     }
 
@@ -361,7 +402,7 @@ public class HiveScanBatchModeTest {
             return Collections.nCopies(3, new HiveFileStatus(location + "/data.parquet", 10, 1));
         });
         HiveScanPlanProvider provider = new HiveScanPlanProvider(null, HiveTestProperties.minimal(),
-                new FakeConnectorContext(), new HiveReadTransactionManager(), cache);
+                new FakeConnectorContext(), cache);
         HiveTableHandle handle = parquetHandle(Collections.emptyList());
         FakeSession session = new FakeSession(Collections.singletonMap("num_files_in_batch_mode", "2"));
         Assertions.assertTrue(provider.streamingSplitEstimate(session, handle, Optional.empty(), false) >= 0);
@@ -408,7 +449,7 @@ public class HiveScanBatchModeTest {
     }
 
     @Test
-    public void supportsBatchScanIsFalseForTransactionalPartitionedTable() {
+    public void supportsBatchScanRejectsTransactionalPartitionedTable() {
         HiveScanPlanProvider provider = provider(null, new CountingLister());
         Map<String, String> txnParams = new HashMap<>();
         txnParams.put("transactional", "true");
@@ -416,10 +457,8 @@ public class HiveScanBatchModeTest {
                 .partitionKeyNames(PART_KEYS)
                 .tableParameters(txnParams)
                 .build();
-        // WHY (Rule 9): ACID tables are excluded DELIBERATELY — running planScanForPartitionBatch per batch on
-        // background threads would open (and leak) a metastore read transaction per batch. They keep the
-        // synchronous path even though they are partitioned.
-        Assertions.assertFalse(provider.supportsBatchScan(new FakeSession(), handle));
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> provider.supportsBatchScan(new FakeSession(), handle));
     }
 
     // ==================== planScanForPartitionBatch: scoped to the batch, no duplication ====================
@@ -863,41 +902,6 @@ public class HiveScanBatchModeTest {
                 "partition batches must not be planned through the statement reuse memo");
     }
 
-    @Test
-    public void transactionalScanNeverUsesStatementReuse() {
-        // Each transactional scan opens its own read transaction pinning a write-id snapshot; a reused plan would
-        // skip it. The fake metastore refuses the transaction, so planning stops right after asking for it.
-        // MUTATION: dropping the transactional bypass in planScan -> the scan installs the statement reuse memo
-        // before planning -> red.
-        int[] requestedTransactions = new int[1];
-        HmsClient hmsClient = new FakeHmsClient() {
-            @Override
-            public long openTxn(String user) {
-                requestedTransactions[0]++;
-                throw new UnsupportedOperationException("no read transactions in this test");
-            }
-        };
-        HiveScanPlanProvider provider = provider(hmsClient, new CountingLister());
-        Map<String, String> insertOnly = new HashMap<>();
-        insertOnly.put("transactional", "true");
-        insertOnly.put("transactional_properties", "insert_only");
-        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
-                .inputFormat(PARQUET_INPUT_FORMAT)
-                .serializationLib(PARQUET_SERDE)
-                .partitionKeyNames(PART_KEYS)
-                .tableParameters(insertOnly)
-                .prunedPartitions(Collections.singletonList(part("year=2024/month=01")))
-                .build();
-        TestStatementScope scope = new TestStatementScope();
-        ConnectorSession session = new ScopeSession(7L, "same-statement", scope);
-
-        Assertions.assertThrows(DorisConnectorException.class, () -> provider.planScan(session, scanOf(handle)));
-
-        Assertions.assertEquals(1, requestedTransactions[0], "a transactional scan asks for its read transaction");
-        Assertions.assertFalse(scope.contains(HiveScanPlanProvider.SCAN_REUSE_NAMESPACE + ":7:same-statement"),
-                "a transactional scan must not be planned through the statement reuse memo");
-    }
-
     private static HiveTableHandle textHandle(String tableName, String serde, HmsPartitionInfo partition) {
         return new HiveTableHandle.Builder("db", tableName, HiveTableType.HIVE)
                 .inputFormat(TEXT_INPUT_FORMAT)
@@ -928,7 +932,7 @@ public class HiveScanBatchModeTest {
             }
         };
         HiveScanPlanProvider provider = new HiveScanPlanProvider(new FakeHmsClient(),
-                HiveTestProperties.minimal(), normCtx, new HiveReadTransactionManager(),
+                HiveTestProperties.minimal(), normCtx,
                 new HiveFileListingCache(HiveTestProperties.minimal(), s3aLister));
         HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
                 .inputFormat(PARQUET_INPUT_FORMAT)
@@ -961,8 +965,7 @@ public class HiveScanBatchModeTest {
         };
         HiveScanPlanProvider provider = new HiveScanPlanProvider(new FakeHmsClient(),
                 HiveTestProperties.with("s3.access_key", "aliasAK"), credCtx,
-                new HiveReadTransactionManager(),
-                new HiveFileListingCache(HiveTestProperties.minimal(), new CountingLister()));
+                                new HiveFileListingCache(HiveTestProperties.minimal(), new CountingLister()));
         HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
                 .inputFormat(PARQUET_INPUT_FORMAT)
                 .serializationLib(PARQUET_SERDE)
@@ -1001,74 +1004,6 @@ public class HiveScanBatchModeTest {
         }
     }
 
-    // ============ #65437: scan-level transactional_hive marker (FileScannerV2 exclusion) ============
-    // Sibling to supportsBatchScan's ACID exclusion above. BE picks FileScannerV2 from SCAN-LEVEL params before the
-    // per-range splits arrive, and V2 does not apply ACID delete deltas. A full-ACID hive scan must therefore carry
-    // the "transactional_hive" marker at scan level (not only per-range) so BE keeps it on FileScanner V1 —
-    // otherwise deleted rows reappear.
-
-    @Test
-    public void getScanNodePropertiesEmitsTransactionalHiveForFullAcid() {
-        HiveScanPlanProvider provider = provider(new FakeHmsClient(), new CountingLister());
-        Map<String, String> txnParams = new HashMap<>();
-        txnParams.put("transactional", "true"); // full-ACID: transactional AND not insert_only
-        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
-                .inputFormat(PARQUET_INPUT_FORMAT)
-                .serializationLib(PARQUET_SERDE)
-                .tableParameters(txnParams)
-                .build();
-        Map<String, String> props = provider.getScanNodeProperties(
-                new FakeSession(), handle, Collections.<ConnectorColumnHandle>emptyList(), Optional.empty());
-        // WHY (Rule 9): drives the scan-level stamp so BE excludes the full-ACID read from FileScannerV2.
-        Assertions.assertEquals("true", props.get(HiveScanPlanProvider.PROP_TRANSACTIONAL_HIVE));
-    }
-
-    @Test
-    public void getScanNodePropertiesOmitsTransactionalHiveForInsertOnly() {
-        HiveScanPlanProvider provider = provider(new FakeHmsClient(), new CountingLister());
-        Map<String, String> params = new HashMap<>();
-        params.put("transactional", "true");
-        params.put("transactional_properties", "insert_only");
-        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
-                .inputFormat(PARQUET_INPUT_FORMAT)
-                .serializationLib(PARQUET_SERDE)
-                .tableParameters(params)
-                .build();
-        Map<String, String> props = provider.getScanNodeProperties(
-                new FakeSession(), handle, Collections.<ConnectorColumnHandle>emptyList(), Optional.empty());
-        // Insert-only ACID reads have no delete deltas, so FileScannerV2 is correct for them: the marker gates on
-        // isFullAcid() (NOT isTransactional()), so it must be ABSENT here to keep the V2 fast path.
-        Assertions.assertNull(props.get(HiveScanPlanProvider.PROP_TRANSACTIONAL_HIVE));
-    }
-
-    @Test
-    public void getScanNodePropertiesOmitsTransactionalHiveForNonTransactional() {
-        HiveScanPlanProvider provider = provider(new FakeHmsClient(), new CountingLister());
-        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
-                .inputFormat(PARQUET_INPUT_FORMAT)
-                .serializationLib(PARQUET_SERDE)
-                .build();
-        Map<String, String> props = provider.getScanNodeProperties(
-                new FakeSession(), handle, Collections.<ConnectorColumnHandle>emptyList(), Optional.empty());
-        Assertions.assertNull(props.get(HiveScanPlanProvider.PROP_TRANSACTIONAL_HIVE));
-    }
-
-    @Test
-    public void populateScanLevelParamsStampsTransactionalHiveOnlyWhenSignalled() {
-        HiveScanPlanProvider provider = provider(new FakeHmsClient(), new CountingLister());
-        // With the signal -> scan-level table_format_type = "transactional_hive" (the exact string BE matches on,
-        // identical to the per-range HiveScanRange marker).
-        TFileScanRangeParams marked = new TFileScanRangeParams();
-        provider.populateScanLevelParams(marked,
-                Collections.singletonMap(HiveScanPlanProvider.PROP_TRANSACTIONAL_HIVE, "true"));
-        Assertions.assertTrue(marked.isSetTableFormatParams());
-        Assertions.assertEquals("transactional_hive", marked.getTableFormatParams().getTableFormatType());
-        // Without the signal -> untouched, so non-ACID hive keeps the FileScannerV2 fast path.
-        TFileScanRangeParams unmarked = new TFileScanRangeParams();
-        provider.populateScanLevelParams(unmarked, Collections.<String, String>emptyMap());
-        Assertions.assertFalse(unmarked.isSetTableFormatParams());
-    }
-
     // ===== helpers =====
 
     @Test
@@ -1101,7 +1036,7 @@ public class HiveScanBatchModeTest {
     private static HiveScanPlanProvider provider(
             HmsClient hmsClient, HiveFileListingCache.DirectoryLister lister) {
         return new HiveScanPlanProvider(hmsClient, HiveTestProperties.minimal(), new FakeConnectorContext(),
-                new HiveReadTransactionManager(), new HiveFileListingCache(HiveTestProperties.minimal(), lister));
+                new HiveFileListingCache(HiveTestProperties.minimal(), lister));
     }
 
     private static HmsPartitionInfo part(String name) {
@@ -1263,13 +1198,24 @@ public class HiveScanBatchModeTest {
     /** Minimal {@link ConnectorSession} (no split-size override, empty session properties). */
     private static final class FakeSession implements ConnectorSession {
         private final Map<String, String> properties;
+        private final ConnectorTaskScheduler scheduler;
 
         FakeSession() {
             this(Collections.emptyMap());
         }
 
         FakeSession(Map<String, String> properties) {
+            this(properties, ConnectorTaskScheduler.DIRECT);
+        }
+
+        FakeSession(Map<String, String> properties, ConnectorTaskScheduler scheduler) {
             this.properties = properties;
+            this.scheduler = scheduler;
+        }
+
+        @Override
+        public ConnectorTaskScheduler getTaskScheduler(ConnectorTaskScheduler.Stage stage) {
+            return scheduler;
         }
 
         private final Map<String, Object> statementMemos = new HashMap<>();

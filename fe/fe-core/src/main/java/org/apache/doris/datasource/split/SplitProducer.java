@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.split;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.connector.spi.ConnectorTaskScheduler;
 import org.apache.doris.spi.Split;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TScanRangeLocations;
@@ -33,14 +34,20 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
+import java.util.function.LongSupplier;
 
 /**
- * Serially advances one producer batch per task, yielding the shared executor when a BE queue is
+ * Serially advances a bounded number of producer batches per task, yielding when a BE queue is
  * full. Each producer retains at most one assigned batch and resumes when a consumer frees space.
  */
 public class SplitProducer implements Runnable, Closeable {
     private static final Logger LOG = LogManager.getLogger(SplitProducer.class);
+
+    // Bound both cheap cached batches and slow listing work so another query gets a turn.
+    static final int MAX_BATCHES_PER_TASK = 16;
+    static final long MAX_TASK_NANOS = TimeUnit.MILLISECONDS.toNanos(1);
 
     public interface BatchSource extends Closeable {
         List<Split> getNextBatch() throws Exception;
@@ -54,7 +61,9 @@ public class SplitProducer implements Runnable, Closeable {
     private final Executor executor;
     private final BatchSource source;
     private final Consumer<Exception> completion;
+    private final LongSupplier nanoTime;
     private final Runnable resume = this::schedule;
+    private final Runnable retryAdmission = this::submit;
     private final Object scheduleLock = new Object();
     private boolean scheduled;
     private boolean wakeupRequested;
@@ -66,6 +75,12 @@ public class SplitProducer implements Runnable, Closeable {
 
     public SplitProducer(SplitAssignment assignment, Executor executor, BatchSource source,
             Consumer<Exception> completion) {
+        this(assignment, executor, source, completion, System::nanoTime);
+    }
+
+    SplitProducer(SplitAssignment assignment, Executor executor, BatchSource source,
+            Consumer<Exception> completion, LongSupplier nanoTime) {
+        this.nanoTime = nanoTime;
         this.assignment = assignment;
         this.executor = executor;
         this.source = source;
@@ -92,8 +107,23 @@ public class SplitProducer implements Runnable, Closeable {
     }
 
     private void submit() {
+        submit(false);
+    }
+
+    private void submit(boolean continuation) {
         try {
-            executor.execute(this);
+            if (executor instanceof ConnectorTaskScheduler) {
+                ConnectorTaskScheduler scheduler = (ConnectorTaskScheduler) executor;
+                Consumer<Throwable> onFailure = failure -> complete(
+                        cancelled || !assignment.needMoreSplit() ? null : new Exception(failure));
+                if (continuation) {
+                    scheduler.tryExecuteContinuation(this, onFailure, retryAdmission);
+                } else {
+                    scheduler.tryExecute(this, onFailure, retryAdmission);
+                }
+            } else {
+                executor.execute(this);
+            }
         } catch (RuntimeException e) {
             complete(cancelled || !assignment.needMoreSplit() ? null : e);
         }
@@ -102,11 +132,20 @@ public class SplitProducer implements Runnable, Closeable {
     @Override
     public void run() {
         synchronized (scheduleLock) {
+            if (completed) {
+                return;
+            }
             wakeupRequested = false;
         }
         boolean more = false;
         try {
-            more = produceBatch();
+            long start = nanoTime.getAsLong();
+            for (int batches = 0; batches < MAX_BATCHES_PER_TASK; batches++) {
+                more = produceBatch();
+                if (!more || nanoTime.getAsLong() - start >= MAX_TASK_NANOS) {
+                    break;
+                }
+            }
         } catch (Exception e) {
             complete(e);
         }
@@ -116,7 +155,7 @@ public class SplitProducer implements Runnable, Closeable {
                 return;
             }
         }
-        submit();
+        submit(true);
     }
 
     private boolean produceBatch() throws Exception {
@@ -126,7 +165,8 @@ public class SplitProducer implements Runnable, Closeable {
         }
         if (pendingRanges == null && !pending.hasNext()) {
             List<Split> batch = source.getNextBatch();
-            if (batch.isEmpty()) {
+            // Cancellation may arrive while the source is listing files. Do not assign that batch.
+            if (batch.isEmpty() || cancelled || !assignment.needMoreSplit()) {
                 complete(null);
                 return false;
             }
@@ -160,7 +200,13 @@ public class SplitProducer implements Runnable, Closeable {
             }
             completed = true;
         }
-        assignment.removeQueueSpaceListener(pendingBackend, resume);
+        if (executor instanceof ConnectorTaskScheduler) {
+            ((ConnectorTaskScheduler) executor).removeSpaceListener(retryAdmission);
+        }
+        // Cancellation may complete before this producer has assigned its first backend.
+        if (pendingBackend != null) {
+            assignment.removeQueueSpaceListener(pendingBackend, resume);
+        }
         assignment.removeCloseable(this);
         try {
             completion.accept(failure);

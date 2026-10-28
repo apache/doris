@@ -28,7 +28,6 @@ import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
@@ -42,6 +41,7 @@ import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.ConnectorTaskScheduler;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.PassthroughQueryTableHandle;
@@ -111,7 +111,6 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Random;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -395,6 +394,13 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      */
     public void setSelectedPartitions(SelectedPartitions selectedPartitions) {
         this.selectedPartitions = selectedPartitions;
+        // Streaming starts before getSplits(); publish both exact and unknown counts at this common
+        // injection boundary, including the eager fallback used by partition-aware SQL block rules.
+        long[] partitionCounts = displayPartitionCounts(selectedPartitions);
+        if (partitionCounts != null) {
+            this.selectedPartitionNum = partitionCounts[0];
+            this.totalPartitionNum = partitionCounts[1];
+        }
     }
 
     /**
@@ -488,6 +494,9 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     static long[] displayPartitionCounts(SelectedPartitions selectedPartitions) {
         if (selectedPartitions == null || selectedPartitions == SelectedPartitions.NOT_PRUNED) {
             return null;
+        }
+        if (selectedPartitions.isNativePlanning()) {
+            return new long[] {-1, -1};
         }
         return new long[] {
                 selectedPartitions.selectedPartitions.size(), selectedPartitions.totalPartitionNum};
@@ -687,8 +696,12 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             // parent's body wholesale (custom TABLE/QUERY/PREDICATES format), so it must re-emit the
             // line itself; the counts are populated from the Nereids pruning result in
             // getSplits()/startSplit() (see setSelectedPartitions).
-            output.append(prefix).append("partition=").append(selectedPartitionNum)
-                    .append("/").append(totalPartitionNum).append("\n");
+            if (totalPartitionNum < 0) {
+                output.append(prefix).append("partition=unknown (native planning)\n");
+            } else {
+                output.append(prefix).append("partition=").append(selectedPartitionNum)
+                        .append("/").append(totalPartitionNum).append("\n");
+            }
             // FIX-E / FIX-R3-RESIDUAL (explain gap): the VERBOSE per-backend block (the backends: list,
             // per-file "path start/length" lines, and dataFileNum/deleteFileNum/deleteSplitNum) lives in
             // the parent FileScanNode but this override does not call super, so re-emit it under the SAME
@@ -995,6 +1008,13 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             ConnectorScanPlanProvider scanProvider, String queryId) {
         return () -> onPluginClassLoader(scanProvider, () -> {
             scanProvider.releaseReadTransaction(queryId);
+            return null;
+        });
+    }
+
+    static Runnable buildSplitSourceDemandCallback(ConnectorScanPlanProvider provider, ConnectorSplitSource source) {
+        return () -> onPluginClassLoader(provider, () -> {
+            source.onMoreSplitsRequested();
             return null;
         });
     }
@@ -1755,8 +1775,9 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         }
 
         List<Split> splits = new ArrayList<>(ranges.size());
+        PluginDrivenSplit.Factory splitFactory = new PluginDrivenSplit.Factory();
         for (ConnectorScanRange range : ranges) {
-            splits.add(toSplit(range));
+            splits.add(toSplit(range, splitFactory));
         }
         // FIX-E (explain gap): accumulate the native/total scan-range counts (for the connector
         // EXPLAIN line paimonNativeReadSplits) and, under COUNT(*) pushdown, the precomputed merged row
@@ -1847,11 +1868,11 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
     // Every range the connector plans becomes a split here, on the planning thread or on the batch-mode
     // split generation threads, so that the plan's single-use ranges are known (cannotBeRedispatched).
-    private Split toSplit(ConnectorScanRange range) {
+    private Split toSplit(ConnectorScanRange range, PluginDrivenSplit.Factory splitFactory) {
         if (range.isSingleUse()) {
             plannedSingleUseRange = true;
         }
-        return new PluginDrivenSplit(range);
+        return splitFactory.create(range);
     }
 
     /**
@@ -1955,6 +1976,11 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     }
 
     private boolean computeBatchMode() {
+        // The query-level switch governs both partition batching and connector streaming. Check it
+        // before probing the provider, which may access remote metadata to estimate file counts.
+        if (!sessionVariable.getEnableExternalTableBatchMode()) {
+            return false;
+        }
         // getScanPlanProvider() may be null for connectors without scan capability; mirror the
         // null-guard in getSplits() so isBatchMode (run on the dispatch + explain paths) never NPEs.
         ConnectorScanPlanProvider scanProvider = resolveScanProvider();
@@ -1991,6 +2017,11 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             long estimate = onPluginClassLoader(scanProvider, () -> scanProvider.streamingSplitEstimate(
                     connectorSession, currentHandle, buildRemainingFilter(), countPushdown));
             if (estimate >= 0) {
+                // Streaming does not know the final scanned-partition count before dispatch. Partition
+                // rules need that count now; use synchronous planning, which publishes the connector count.
+                if (org.apache.doris.catalog.Env.getCurrentEnv().getSqlBlockRuleMgr().hasPartitionMetadataRules()) {
+                    return false;
+                }
                 streamingSplitEstimate = estimate;
                 streamingBatch = true;
                 return true;
@@ -2113,7 +2144,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         } else {
             sources = createPartitionBatchSources(scanProvider, request,
                     new ArrayList<>(selectedPartitions.selectedPartitions.keySet()),
-                    sessionVariable.getNumPartitionsInBatchMode(), Config.max_external_cache_loader_thread_pool_size);
+                    sessionVariable.getNumPartitionsInBatchMode(), Config.external_scan_split_threads);
         }
         startSplitProducers(scanProvider, sources,
                 summaryProfile == null ? null : summaryProfile.getExecutionSummary());
@@ -2134,7 +2165,6 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
     private void startSplitProducers(ConnectorScanPlanProvider scanProvider, List<SplitProducer.BatchSource> sources,
             RuntimeProfile executionSummary) {
-        Executor scheduleExecutor = Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor();
         AtomicReference<UserException> batchException = new AtomicReference<>(null);
         SubmittedTaskFinalizer profileFinalizer = new SubmittedTaskFinalizer(() -> {
             try {
@@ -2158,43 +2188,30 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             }
         });
 
-        Runnable dispatch = () -> {
-            try {
-                for (SplitProducer.BatchSource source : sources) {
-                    if (batchException.get() != null || splitAssignment.isStop()) {
-                        break;
-                    }
-                    profileFinalizer.taskSubmitted();
-                    new SplitProducer(splitAssignment, scheduleExecutor, source, failure -> {
-                        try {
-                            if (failure != null) {
-                                publishBatchFailure(batchException, splitAssignment,
-                                        new UserException(failure.getMessage(), failure));
-                            }
-                        } finally {
-                            profileFinalizer.taskFinished();
-                        }
-                    }).start();
-                }
-            } finally {
-                profileFinalizer.closeDispatch();
-            }
-        };
+        // Admitting the bounded number of lanes does no listing or planning. Each producer
+        // independently suspends on task-queue capacity without occupying a worker.
         try {
-            // Keep the single-source path's direct submission; partition dispatch still runs on the
-            // scheduler so admitting its lanes does not hold the planning thread.
-            if (streamingBatch) {
-                dispatch.run();
-            } else {
-                CompletableFuture.runAsync(dispatch, scheduleExecutor);
+            Executor scheduleExecutor = connectorSession.getTaskScheduler(ConnectorTaskScheduler.Stage.SPLIT);
+            for (SplitProducer.BatchSource source : sources) {
+                if (batchException.get() != null || splitAssignment.isStop()) {
+                    break;
+                }
+                profileFinalizer.taskSubmitted();
+                new SplitProducer(splitAssignment, scheduleExecutor, source, failure -> {
+                    try {
+                        if (failure != null) {
+                            publishBatchFailure(batchException, splitAssignment,
+                                    new UserException(failure.getMessage(), failure));
+                        }
+                    } finally {
+                        profileFinalizer.taskFinished();
+                    }
+                }).start();
             }
         } catch (Exception e) {
-            try {
-                publishBatchFailure(batchException, splitAssignment,
-                        new UserException(e.getMessage(), e));
-            } finally {
-                profileFinalizer.closeDispatch();
-            }
+            publishBatchFailure(batchException, splitAssignment, new UserException(e.getMessage(), e));
+        } finally {
+            profileFinalizer.closeDispatch();
         }
     }
 
@@ -2208,6 +2225,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         for (int sourceIndex = 0; sourceIndex < sourceCount; sourceIndex++) {
             sources.add(new SplitProducer.BatchSource() {
                 private ConnectorSplitSource source;
+                private final PluginDrivenSplit.Factory splitFactory = new PluginDrivenSplit.Factory();
 
                 @Override
                 public List<Split> getNextBatch() {
@@ -2216,7 +2234,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                         while (splits.size() < splitAssignment.getSplitBatchSize()
                                 && splitAssignment.needMoreSplit()) {
                             if (source != null && source.hasNext()) {
-                                splits.add(toSplit(source.next()));
+                                splits.add(toSplit(source.next(), splitFactory));
                                 continue;
                             }
                             closeSource();
@@ -2269,17 +2287,20 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         }
         return new SplitProducer.BatchSource() {
             private ConnectorSplitSource source;
+            private final PluginDrivenSplit.Factory splitFactory = new PluginDrivenSplit.Factory();
 
             @Override
             public List<Split> getNextBatch() {
                 return onPluginClassLoader(scanProvider, () -> {
                     if (source == null) {
                         source = scanProvider.streamSplits(connectorSession, request);
+                        splitAssignment.setMoreSplitsRequestedCallback(
+                                buildSplitSourceDemandCallback(scanProvider, source));
                     }
                     List<Split> splits = new ArrayList<>(splitAssignment.getSplitBatchSize());
                     while (splits.size() < splitAssignment.getSplitBatchSize()
                             && splitAssignment.needMoreSplit() && source.hasNext()) {
-                        splits.add(toSplit(source.next()));
+                        splits.add(toSplit(source.next(), splitFactory));
                     }
                     generatedSplits.setValue(generatedSplits.getValue() + splits.size());
                     return splits;
