@@ -427,9 +427,13 @@ public class BindSink implements AnalysisRuleFactory {
         List<Column> generatedColumns = Lists.newArrayList();
         List<Column> materializedViewColumn = Lists.newArrayList();
         List<Column> shadowColumns = Lists.newArrayList();
+        boolean isGroupCommit = ctx.root.getDMLCommandType() == DMLCommandType.GROUP_COMMIT;
         // generate slots not mentioned in sql, mv slots and shaded slots.
         for (Column column : targetSchema) {
-            if (column.isGeneratedColumn()) {
+            // The internal group commit consumer receives generated base columns from the producer.
+            // Recomputing them can change values such as now() and leave unused slots in the scan tuple.
+            // Treat them as supplied columns, also making them available to MV expressions below.
+            if (column.isGeneratedColumn() && !isGroupCommit) {
                 generatedColumns.add(column);
                 continue;
             } else if (column.isMaterializedViewColumn()) {
