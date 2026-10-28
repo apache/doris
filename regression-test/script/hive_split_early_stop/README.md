@@ -226,6 +226,15 @@ hiveSplitPerfRepetitions = "3"
 hiveSplitPerfCacheTable = "hive_split_physical_cache.doris_split_physical.files_10000_partitions_100_files"
 ```
 
+The synchronous control explicitly disables `enable_external_table_batch_mode`;
+raising `num_partitions_in_batch_mode` alone can still select file-count streaming.
+If a connector's synchronous planner enumerates partitions outside the engine's
+pruned set, prepare a separate HMS table registering only `p=0` through `p=99`,
+with each partition pointing to the same existing object directory. Set
+`hiveSplitPerfSyncTable` to that table's fully qualified name in both versions'
+configs. It defaults to the main table. Verify that the control lists only the
+100 intended partitions and returns count=10000,sum=10000 before comparing times.
+
 Copy the prepared physical benchmark's `hms-fixture.json` and verified
 `physical-manifest.json` into the performance output directory. The report binds
 these to the running proxy's `fixture.json` before publishing a comparison.

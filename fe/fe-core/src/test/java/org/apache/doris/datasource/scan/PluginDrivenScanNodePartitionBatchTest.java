@@ -19,14 +19,17 @@ package org.apache.doris.datasource.scan;
 
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
+import org.apache.doris.connector.spi.scan.ConnectorSplitSource;
 import org.apache.doris.datasource.split.SplitAssignment;
 import org.apache.doris.datasource.split.SplitGenerator;
 import org.apache.doris.datasource.split.SplitProducer;
 import org.apache.doris.datasource.split.SplitSource;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TScanRangeLocation;
@@ -43,6 +46,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
@@ -51,6 +55,84 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicInteger;
 
 class PluginDrivenScanNodePartitionBatchTest {
+    @Test
+    void initialBatchRetainsConfiguredSizeAcrossPartitions() throws Exception {
+        Fixture fixture = new Fixture(128, Collections.emptySet(), 100);
+        try (SplitProducer.BatchSource source = fixture.sources(3, 1, 1).get(0)) {
+            List<Split> first = source.getNextBatch();
+            Assertions.assertEquals(128, first.size());
+            Assertions.assertEquals(Arrays.asList(Collections.singletonList("0"), Collections.singletonList("1")),
+                    fixture.loaded);
+
+            List<Split> second = source.getNextBatch();
+            Assertions.assertEquals(128, second.size(), "Subsequent batches retain the configured size");
+            List<Split> last = source.getNextBatch();
+            Assertions.assertEquals(44, last.size());
+            Assertions.assertTrue(source.getNextBatch().isEmpty());
+
+            List<Long> actual = new ArrayList<>();
+            for (List<Split> batch : Arrays.asList(first, second, last)) {
+                for (Split split : batch) {
+                    actual.add(split.getStart());
+                }
+            }
+            List<Long> expected = new ArrayList<>();
+            for (long identity = 0; identity < 300; identity++) {
+                expected.add(identity);
+            }
+            Assertions.assertEquals(expected, actual, "Batch boundaries must not lose or duplicate splits");
+        }
+    }
+
+    @Test
+    void firstBatchRetainsConfiguredSizeWithinALargePartitionBatch() throws Exception {
+        Fixture fixture = new Fixture(128, Collections.emptySet(), 100);
+        try (SplitProducer.BatchSource source = fixture.sources(3, 1024, 1).get(0)) {
+            Assertions.assertEquals(128, source.getNextBatch().size());
+            Assertions.assertEquals(128, source.getNextBatch().size());
+            Assertions.assertEquals(44, source.getNextBatch().size());
+            Assertions.assertTrue(source.getNextBatch().isEmpty());
+        }
+    }
+
+    @Test
+    void wholeScanStreamingRetainsConfiguredBatchSize() throws Exception {
+        Fixture fixture = new Fixture(128, Collections.emptySet(), 200);
+        ConnectorScanRequest request = ConnectorScanRequest.builder(new ConnectorTableHandle() {
+        }, Collections.emptyList()).build();
+        Iterator<ConnectorScanRange> ranges = fixture.provider.planScanForPartitionBatch(
+                null, request, Collections.singletonList("0")).iterator();
+        AtomicInteger closed = new AtomicInteger();
+        ConnectorSplitSource connectorSource = new ConnectorSplitSource() {
+            @Override
+            public boolean hasNext() {
+                return ranges.hasNext();
+            }
+
+            @Override
+            public ConnectorScanRange next() {
+                return ranges.next();
+            }
+
+            @Override
+            public void close() {
+                closed.incrementAndGet();
+            }
+        };
+        Mockito.doReturn(connectorSource).when(fixture.provider).streamSplits(Mockito.any(), Mockito.any());
+        SessionVariable variables = Mockito.mock(SessionVariable.class);
+        Mockito.when(variables.getSplitBatchSize()).thenReturn(128);
+        Mockito.when(variables.getSplitQueueCapacity()).thenReturn(1);
+        Deencapsulation.setField(fixture.node, "sessionVariable", variables);
+        try (SplitProducer.BatchSource source = Deencapsulation.invoke(
+                fixture.node, "createStreamingBatchSource", fixture.provider, request, SummaryProfile.class)) {
+            Assertions.assertEquals(128, source.getNextBatch().size());
+            Assertions.assertEquals(72, source.getNextBatch().size());
+            Assertions.assertTrue(source.getNextBatch().isEmpty());
+        }
+        Assertions.assertEquals(1, closed.get());
+    }
+
     @Test
     void fullQueueDoesNotLoadEveryPartitionBatch() throws Exception {
         Fixture fixture = new Fixture(1, Collections.emptySet());
@@ -113,6 +195,10 @@ class PluginDrivenScanNodePartitionBatchTest {
         final ConnectorScanPlanProvider provider;
 
         Fixture(int batchSize, Set<String> emptyPartitions) throws Exception {
+            this(batchSize, emptyPartitions, 3);
+        }
+
+        Fixture(int batchSize, Set<String> emptyPartitions, int splitsPerPartition) throws Exception {
             FederationBackendPolicy policy = Mockito.mock(FederationBackendPolicy.class);
             Mockito.when(policy.computeScanRangeAssignment(Mockito.any())).thenAnswer(call -> {
                 Multimap<Backend, Split> result = ArrayListMultimap.create();
@@ -135,8 +221,8 @@ class PluginDrivenScanNodePartitionBatchTest {
                     if (emptyPartitions.contains(partition)) {
                         continue;
                     }
-                    for (int offset = 0; offset < 3; offset++) {
-                        long identity = Long.parseLong(partition) * 10 + offset;
+                    for (int offset = 0; offset < splitsPerPartition; offset++) {
+                        long identity = Long.parseLong(partition) * Math.max(10, splitsPerPartition) + offset;
                         ranges.add(new ConnectorScanRange() {
                             @Override
                             public long getStart() {
@@ -155,16 +241,9 @@ class PluginDrivenScanNodePartitionBatchTest {
         }
 
         void start(int partitionCount, int partitionsPerBatch, int parallelism) {
-            List<String> partitions = new ArrayList<>();
-            for (int partition = 0; partition < partitionCount; partition++) {
-                partitions.add(String.valueOf(partition));
-            }
             PluginDrivenScanNode.SubmittedTaskFinalizer finalizer =
                     new PluginDrivenScanNode.SubmittedTaskFinalizer(assignment::finishSchedule);
-            ConnectorScanRequest request = ConnectorScanRequest.builder(new ConnectorTableHandle() {
-            }, Collections.emptyList()).build();
-            for (SplitProducer.BatchSource source : node.createPartitionBatchSources(
-                    provider, request, partitions, partitionsPerBatch, parallelism)) {
+            for (SplitProducer.BatchSource source : sources(partitionCount, partitionsPerBatch, parallelism)) {
                 finalizer.taskSubmitted();
                 new SplitProducer(assignment, executor, source, failure -> {
                     if (failure != null) {
@@ -175,6 +254,16 @@ class PluginDrivenScanNodePartitionBatchTest {
                 }).start();
             }
             finalizer.closeDispatch();
+        }
+
+        List<SplitProducer.BatchSource> sources(int partitionCount, int partitionsPerBatch, int parallelism) {
+            List<String> partitions = new ArrayList<>();
+            for (int partition = 0; partition < partitionCount; partition++) {
+                partitions.add(String.valueOf(partition));
+            }
+            ConnectorScanRequest request = ConnectorScanRequest.builder(new ConnectorTableHandle() {
+            }, Collections.emptyList()).build();
+            return node.createPartitionBatchSources(provider, request, partitions, partitionsPerBatch, parallelism);
         }
 
         List<Long> drain() throws Exception {

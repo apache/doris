@@ -31,6 +31,7 @@ suite("test_hive_split_early_stop_performance", "external") {
     String catalog = context.config.otherConfigs.get("hiveSplitEarlyStopCatalog")
     String table = context.config.otherConfigs.get("hiveSplitEarlyStopTable")
     String cacheTable = context.config.otherConfigs.get("hiveSplitPerfCacheTable")
+    String syncTable = context.config.otherConfigs.get("hiveSplitPerfSyncTable") ?: table
     boolean planningOnly = context.config.otherConfigs.get("hiveSplitPerfPlanningCancelOnly")
             ?.toString()?.toBoolean() ?: false
     boolean steadyOnly = context.config.otherConfigs.get("hiveSplitPerfSteadyLimitOnly")
@@ -108,13 +109,15 @@ suite("test_hive_split_early_stop_performance", "external") {
         }
         return signalledAt.get()
     }
-    def saved = ["query_timeout", "num_partitions_in_batch_mode", "enable_file_cache", "enable_sql_cache"].collectEntries {
+    def saved = ["query_timeout", "num_partitions_in_batch_mode", "enable_file_cache", "enable_sql_cache",
+            "enable_external_table_batch_mode"].collectEntries {
         name -> [(name): sql("show variables like '${name}'")[0][1]]
     }
     try {
         sql "set query_timeout=120"
         sql "set enable_file_cache=false"
         sql "set enable_sql_cache=false"
+        sql "set enable_external_table_batch_mode=true"
         sql "set num_partitions_in_batch_mode=1"
         control([phase: "${run}_warmup", empty: false, delay_ms: 0, hold_listings: false])
         order_qt_warmup "select count(*), sum(id) from ${table} where p=0"
@@ -164,10 +167,13 @@ suite("test_hive_split_early_stop_performance", "external") {
                 return null
             }
             sql "set num_partitions_in_batch_mode=1024"
+            // The partition threshold alone can still select file-count streaming.
+            sql "set enable_external_table_batch_mode=false"
             measure("full_sum_10000_sync", repetition, 1000L) {
-                benchmarkSuite."order_qt_full_sync_${repetition}"("select count(*), sum(id) from ${table} where p<100")
+                benchmarkSuite."order_qt_full_sync_${repetition}"("select count(*), sum(id) from ${syncTable} where p<100")
                 return null
             }
+            sql "set enable_external_table_batch_mode=true"
             sql "set num_partitions_in_batch_mode=1"
             // Warm the completed listing before timing the cache-hit path.
             benchmarkSuite."order_qt_cache_warmup_${repetition}"("select count(*), sum(id) from ${cacheTable} where p<100")
