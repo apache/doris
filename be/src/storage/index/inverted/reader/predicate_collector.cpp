@@ -399,7 +399,13 @@ Status MatchPredicateCollector::collect(RuntimeState* state, const TabletSchemaS
         RETURN_IF_ERROR(append_scoring_leaf(&iter->second, term_infos));
     }
     if (scoring_prefix.has_value()) {
-        append_scoring_prefix(&iter->second, *scoring_prefix, index_query::max_expansions(state));
+        // The terms of a prefix are kept for the whole scan and copied to every scanner, so their
+        // number is bounded. Under a session limit of 0, which expands a prefix to every term,
+        // "quick b" would keep the whole vocabulary starting with b, and a sum of thousands of
+        // idfs ranks nothing; the default limit scores it instead.
+        const int32_t session_limit = index_query::max_expansions(state);
+        append_scoring_prefix(&iter->second, *scoring_prefix,
+                              session_limit > 0 ? session_limit : kDefaultScoringExpansions);
     }
 
     return Status::OK();

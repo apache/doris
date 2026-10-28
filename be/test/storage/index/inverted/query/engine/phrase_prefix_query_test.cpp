@@ -405,10 +405,14 @@ TEST_F(PhrasePrefixQueryV2Test, prefix_expansions_add_their_idf_to_the_score) {
     stats._term_doc_freqs[field][StringHelper::to_wstring("quick")] = 100;
     stats._term_doc_freqs[field][StringHelper::to_wstring("brother")] = 3;
     stats._term_doc_freqs[field][StringHelper::to_wstring("brown")] = 400;
-    stats._prefix_expansions[field][StringHelper::to_wstring("bro")] = {
-            StringHelper::to_wstring("brother"), StringHelper::to_wstring("brown")};
-    stats._prefix_expansions[field][StringHelper::to_wstring("brot")] = {
-            StringHelper::to_wstring("brother")};
+    auto& bro = stats._prefix_expansions[field]
+                        .try_emplace(StringHelper::to_wstring("bro"), 50)
+                        .first->second;
+    bro.insert(StringHelper::to_wstring("brother"));
+    bro.insert(StringHelper::to_wstring("brown"));
+    stats._prefix_expansions[field]
+            .try_emplace(StringHelper::to_wstring("brot"), 50)
+            .first->second.insert(StringHelper::to_wstring("brother"));
 
     const auto score_of_brother = [&](const std::string& prefix) {
         PhrasePrefixQuery q(ctx, field, make_term_infos({"quick", prefix}));
@@ -486,17 +490,17 @@ TEST_F(PhrasePrefixQueryV2Test, segment_statistics_count_the_terms_a_prefix_expa
     quic.term = std::string("quic");
     scoring_collection_detail::append_scoring_prefix(&collect_info, quic, 50);
 
-    std::unordered_map<std::wstring, std::set<std::wstring>> expansions;
+    FieldPrefixExpansions expansions;
     std::vector<std::string> terms;
     ASSERT_TRUE(collection_statistics_detail::segment_scoring_terms(*source, collect_info,
                                                                     &expansions, &terms)
                         .ok());
     // quick is held twice, as a scoring term and as an expansion of quic, and listed once.
     EXPECT_EQ(terms, (std::vector<std::string> {"quick", "brother", "brown", "quickly"}));
-    EXPECT_EQ(expansions[StringHelper::to_wstring("bro")],
+    EXPECT_EQ(expansions.at(StringHelper::to_wstring("bro")).terms(),
               (std::set<std::wstring> {StringHelper::to_wstring("brother"),
                                        StringHelper::to_wstring("brown")}));
-    EXPECT_EQ(expansions[StringHelper::to_wstring("quic")],
+    EXPECT_EQ(expansions.at(StringHelper::to_wstring("quic")).terms(),
               (std::set<std::wstring> {StringHelper::to_wstring("quick"),
                                        StringHelper::to_wstring("quickly")}));
 

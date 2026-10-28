@@ -19,6 +19,7 @@
 #include <condition_variable>
 #include <cstdint>
 #include <functional>
+#include <iterator>
 #include <mutex>
 #include <optional>
 #include <set>
@@ -82,6 +83,37 @@ struct MowHiddenRows {
     bool use_page_cache = true;
 };
 
+// The `limit` smallest terms, in dictionary order, that a prefix expanded to in the segments seen
+// so far: the terms an index-wide expansion of Lucene would take. A term only enters or stays
+// while fewer than `limit` smaller terms are known, and one dropped never returns, whatever
+// order the segments come in.
+//
+// That is what keeps the document frequencies whole. A term of the final set has fewer than
+// `limit` smaller terms in every segment holding it, so each of those segments expanded to it
+// and counted its documents. With a limit of 1, segment A holding {rose} and segment B holding
+// {red, rose} leave {red}: B's expansion is red alone, but rose is not scored, so its document
+// frequency, which only A counted, is not used.
+class PrefixExpansionSet {
+public:
+    explicit PrefixExpansionSet(int32_t limit) : _limit(limit) { DORIS_CHECK_GT(limit, 0); }
+
+    void insert(const std::wstring& term) {
+        _terms.insert(term);
+        if (_terms.size() > static_cast<size_t>(_limit)) {
+            _terms.erase(std::prev(_terms.end()));
+        }
+    }
+
+    int32_t limit() const { return _limit; }
+    const std::set<std::wstring>& terms() const { return _terms; }
+
+private:
+    int32_t _limit;
+    std::set<std::wstring> _terms;
+};
+// The terms each prefix expanded to, by prefix.
+using FieldPrefixExpansions = std::unordered_map<std::wstring, PrefixExpansionSet>;
+
 class CollectionStatistics {
 public:
     explicit CollectionStatistics(PredicateCollectorPtr search_collector = nullptr)
@@ -119,9 +151,7 @@ public:
 
 private:
     // The terms each collected prefix expanded to, by field and prefix.
-    using PrefixExpansions =
-            std::unordered_map<std::wstring,
-                               std::unordered_map<std::wstring, std::set<std::wstring>>>;
+    using PrefixExpansions = std::unordered_map<std::wstring, FieldPrefixExpansions>;
 
     struct SniiScoringSegmentAccumulator {
         uint64_t doc_count = 0;
@@ -247,13 +277,13 @@ Status exclude_hidden_docs(std::span<const uint32_t> hidden_docs, const roaring:
 // The terms whose document frequencies a segment adds for `collect_info`: its scoring terms, then
 // each term its prefixes expand to in `source`, so that a phrase prefix is scored on the same
 // tablet statistics as the other terms. A term met twice is listed once, as its documents count
-// once. The expansions of each prefix, of this segment alone, are added to `expansions`.
+// once. The terms each prefix expands to in this segment are added to `expansions`, which keeps
+// the smallest ones of the segments seen (PrefixExpansionSet).
 //
 // Example: "red r" collects red and, in a segment holding red, rose and run, the terms red (already
 // listed), rose and run, and records {red, rose, run} for the prefix "r".
 Status segment_scoring_terms(index_query::IndexSource& source, const CollectInfo& collect_info,
-                             std::unordered_map<std::wstring, std::set<std::wstring>>* expansions,
-                             std::vector<std::string>* terms);
+                             FieldPrefixExpansions* expansions, std::vector<std::string>* terms);
 
 // Takes from a term's document frequency the documents of `hidden_docs` that hold it.
 Status exclude_hidden_term_docs(index_query::IndexSource& source, std::string_view term,

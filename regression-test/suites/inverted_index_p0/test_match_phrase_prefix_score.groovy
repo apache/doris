@@ -100,4 +100,30 @@ suite("test_match_phrase_prefix_score", "p0") {
     // The same rows without score().
     order_qt_v3_rows """ SELECT id FROM test_match_phrase_prefix_score_v3
                          WHERE c1 MATCH_PHRASE_PREFIX 'apple gr' """
+
+    // A limit of one expansion over two segments. Segment A holds "apple rose", segment B holds
+    // "apple red" and "apple rose"; each segment expands "r" to its smallest term, rose in A and
+    // red in B. The tablet scores the prefix on red alone, the smallest term of the tablet, and
+    // counts red in every segment that holds it. Counting rose from segment A only would give it
+    // a document frequency of 1 instead of 2.
+    sql "DROP TABLE IF EXISTS test_match_phrase_prefix_score_capped"
+    sql """
+        CREATE TABLE test_match_phrase_prefix_score_capped (
+            id INT NULL,
+            c1 TEXT NULL,
+            INDEX idx_c1 (c1) USING INVERTED PROPERTIES("lower_case" = "true", "parser" = "english", "support_phrase" = "true")
+        ) ENGINE=OLAP
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1", "inverted_index_storage_format" = "V3");
+    """
+    sql "INSERT INTO test_match_phrase_prefix_score_capped VALUES (1, 'apple rose')"
+    sql "INSERT INTO test_match_phrase_prefix_score_capped VALUES (2, 'apple red'), (3, 'apple rose')"
+    sql "sync"
+    sql "set inverted_index_max_expansions = 1"
+    order_qt_capped_apple_r """ SELECT id, round(score(), 4) s FROM test_match_phrase_prefix_score_capped
+                                WHERE c1 MATCH_PHRASE_PREFIX 'apple r' ORDER BY score() DESC LIMIT 10 """
+    sql "set inverted_index_max_expansions = 50"
+    order_qt_uncapped_apple_r """ SELECT id, round(score(), 4) s FROM test_match_phrase_prefix_score_capped
+                                  WHERE c1 MATCH_PHRASE_PREFIX 'apple r' ORDER BY score() DESC LIMIT 10 """
 }

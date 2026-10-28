@@ -120,8 +120,7 @@ void add_term_doc_frequency(
 }
 
 Status segment_scoring_terms(index_query::IndexSource& source, const CollectInfo& collect_info,
-                             std::unordered_map<std::wstring, std::set<std::wstring>>* expansions,
-                             std::vector<std::string>* terms) {
+                             FieldPrefixExpansions* expansions, std::vector<std::string>* terms) {
     DORIS_CHECK(expansions != nullptr);
     DORIS_CHECK(terms != nullptr);
     *terms = collect_info.unique_terms;
@@ -136,8 +135,12 @@ Status segment_scoring_terms(index_query::IndexSource& source, const CollectInfo
                 index_query::expansion_limit(index_query::TermPatternKind::kPrefix,
                                              scoring_prefix.max_expansions),
                 &expanded));
-        auto& prefix_terms = (*expansions)[segment_v2::inverted_index::StringHelper::to_wstring(
-                scoring_prefix.prefix)];
+        auto& prefix_terms =
+                expansions
+                        ->try_emplace(segment_v2::inverted_index::StringHelper::to_wstring(
+                                              scoring_prefix.prefix),
+                                      scoring_prefix.max_expansions)
+                        .first->second;
         for (auto& term : expanded) {
             prefix_terms.insert(segment_v2::inverted_index::StringHelper::to_wstring(term));
             if (listed.insert(term).second) {
@@ -742,8 +745,13 @@ void CollectionStatistics::commit_snii_scoring_segment(
         }
     }
     for (const auto& [field_name, prefixes] : segment_accumulator.prefix_expansions) {
-        for (const auto& [prefix, terms] : prefixes) {
-            _prefix_expansions[field_name][prefix].insert(terms.begin(), terms.end());
+        for (const auto& [prefix, expansion] : prefixes) {
+            auto& merged = _prefix_expansions[field_name]
+                                   .try_emplace(prefix, expansion.limit())
+                                   .first->second;
+            for (const auto& term : expansion.terms()) {
+                merged.insert(term);
+            }
         }
     }
     _total_num_docs += segment_accumulator.doc_count;
@@ -859,7 +867,7 @@ std::vector<std::wstring> CollectionStatistics::get_prefix_expansions(
     // A merge-on-write scan hides rows: a term whose documents are all hidden was expanded in
     // its segment but has no document frequency left, and its idf would be that of an absent term.
     std::vector<std::wstring> terms;
-    for (const auto& term : expansions->second) {
+    for (const auto& term : expansions->second.terms()) {
         if (get_term_doc_freq_by_col(lucene_col_name, term) > 0) {
             terms.push_back(term);
         }

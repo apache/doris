@@ -56,11 +56,14 @@ struct LogicalScoringLeaf {
     std::vector<LogicalScoringClause> clauses;
 };
 
-// The last term of a scored phrase prefix, whose idf is the sum of the idfs of the terms it
-// expands to, as many as `max_expansions` in each segment.
+// The number of terms a scored phrase prefix expands to when the session sets no limit.
+inline constexpr int32_t kDefaultScoringExpansions = 50;
+
+// The last term of a scored phrase prefix, whose idf is the sum of the idfs of the smallest
+// `max_expansions` terms it expands to over the tablet, which is positive.
 struct LogicalScoringPrefix {
     std::string prefix;
-    int32_t max_expansions = 0;
+    int32_t max_expansions = kDefaultScoringExpansions;
 };
 
 struct CollectInfo {
