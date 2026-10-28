@@ -361,6 +361,15 @@ void AggregatingMemTable::_finalize_one_row(RowInBlock* row, MutableBlock& mutab
     }
 }
 
+// _finalize_one_row is called from memtable_unique_keys.cpp. Explicitly instantiate both
+// specializations here to guarantee cross-TU symbols in optimized builds.
+template void AggregatingMemTable::_finalize_one_row<true>(RowInBlock* row,
+                                                           MutableBlock& mutable_block,
+                                                           int row_pos);
+template void AggregatingMemTable::_finalize_one_row<false>(RowInBlock* row,
+                                                            MutableBlock& mutable_block,
+                                                            int row_pos);
+
 void AggregatingMemTable::_init_row_for_agg(RowInBlock* row, MutableBlock& mutable_block) {
     auto* agg_mem = _arena.aligned_alloc(_total_size_of_aggregate_states, 16);
     auto first_value_column = _tablet_schema->num_key_columns();

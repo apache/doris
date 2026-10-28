@@ -128,4 +128,12 @@ protected:
 extern template void AggregatingMemTable::_aggregate_two_row_in_block<true>(
         MutableBlock& mutable_block, RowInBlock* src_row, RowInBlock* dst_row);
 
+// Definitions are provided in memtable_aggregating.cpp.
+extern template void AggregatingMemTable::_finalize_one_row<true>(RowInBlock* row,
+                                                                  MutableBlock& mutable_block,
+                                                                  int row_pos);
+extern template void AggregatingMemTable::_finalize_one_row<false>(RowInBlock* row,
+                                                                   MutableBlock& mutable_block,
+                                                                   int row_pos);
+
 } // namespace doris
