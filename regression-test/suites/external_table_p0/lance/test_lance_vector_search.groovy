@@ -202,6 +202,14 @@ suite("test_lance_vector_search", "p0,external") {
             ORDER BY _distance, row_id
         """
 
+        // The EXPLAIN plan must surface the TVF filter pushed down to Lance for the external
+        // search, so operators can confirm the pre-filter without running the query.
+        explain {
+            sql("SELECT row_id, category, _distance FROM ${indexedPrefilter} ORDER BY _distance, row_id")
+            contains "externalSearchType=VECTOR"
+            contains "lanceSearchPushdownFilter=category = 'odd'"
+        }
+
         // With use_index=true, one physical index segment covers both fragments and returns the
         // snapshot's two nearest candidates, rows 1 and 2. The Doris postfilter keeps only row 2;
         // it does not ask Lance for a replacement candidate.

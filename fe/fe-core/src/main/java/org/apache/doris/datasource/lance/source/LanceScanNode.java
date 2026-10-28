@@ -56,6 +56,7 @@ import com.google.common.annotations.VisibleForTesting;
 import org.apache.arrow.vector.types.pojo.Field;
 
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -391,6 +392,13 @@ public class LanceScanNode extends FileQueryScanNode {
                 } else {
                     result.append(prefix).append("lanceFtsPhraseSlop=")
                             .append(fullText.getPhraseSlop()).append("\n");
+                }
+            }
+            if (externalSearchRequest.isSetSearchFilter()) {
+                byte[] searchFilterPayload = externalSearchRequest.getSearchFilter().getPayload();
+                if (searchFilterPayload != null && searchFilterPayload.length > 0) {
+                    result.append(prefix).append("lanceSearchPushdownFilter=")
+                            .append(new String(searchFilterPayload, StandardCharsets.UTF_8)).append("\n");
                 }
             }
             appendSnapshotExplain(result, prefix);
