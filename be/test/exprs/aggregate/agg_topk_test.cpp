@@ -98,6 +98,36 @@ TopKResult aggregate(const AggregateFunctionPtr& function, Arena& arena,
     return result;
 }
 
+// Builds a state directly from the serialized format, for counts that no number of input rows
+// can reach in a test.
+void deserialize_state(const AggregateFunctionPtr& function, AggregateDataPtr place, Arena& arena,
+                       const std::vector<std::pair<int32_t, int64_t>>& entries, int64_t k) {
+    auto values = ColumnInt32::create();
+    for (const auto& [value, count] : entries) {
+        values->insert_value(value);
+    }
+    auto value_type = std::make_shared<DataTypeInt32>();
+    auto serialized = ColumnString::create();
+    BufferWritable writer(*serialized);
+    writer.write_binary(true); // has_k
+    writer.write_binary(k);    // k
+    writer.write_binary(static_cast<int64_t>(entries.size()));
+    int64_t size_bytes = value_type->get_uncompressed_serialized_bytes(*values, 0);
+    writer.write_binary(size_bytes);
+    writer.resize(size_bytes);
+    auto* pos = value_type->serialize(*values, writer.data(), 0);
+    EXPECT_EQ(pos, writer.data() + size_bytes);
+    writer.add_offset(size_bytes);
+    for (const auto& [value, count] : entries) {
+        writer.write(reinterpret_cast<const char*>(&count), sizeof(count));
+    }
+    writer.commit();
+
+    StringRef ref = serialized->get_data_at(0);
+    BufferReadable reader(ref);
+    function->deserialize(place, reader, arena);
+}
+
 } // namespace
 
 TEST(TopKTest, MinAndMaxWithTruncation) {
@@ -358,6 +388,84 @@ TEST(TopKTest, MergeOverflowIsReported) {
 
     function->destroy(max_state);
     function->destroy(one_state);
+}
+
+TEST(TopKTest, MergeDoesNotCountTheDiscardedTail) {
+    AggregateFunctionSimpleFactory factory;
+    register_aggregate_function_topk(factory);
+    DataTypes argument_types = {std::make_shared<DataTypeInt32>(),
+                                std::make_shared<DataTypeInt64>()};
+    Arena arena;
+
+    auto function = create_function(factory, "min_topk", argument_types);
+    std::unique_ptr<char[]> memory(new char[function->size_of_data() * 2]);
+    AggregateDataPtr state = memory.get();
+    AggregateDataPtr other = memory.get() + function->size_of_data();
+    function->create(state);
+    function->create(other);
+
+    // A = [(0,1),(2,INT64_MAX)], B = [(1,1),(2,1)] with k = 2. The retained prefix is
+    // [(0,1),(1,1)]; value 2 never enters the result, so its INT64_MAX + 1 must not be computed.
+    const auto int64_max = std::numeric_limits<int64_t>::max();
+    deserialize_state(function, state, arena, {{0, 1}, {2, int64_max}}, 2);
+    auto values = ColumnInt32::create();
+    values->insert_value(1);
+    values->insert_value(2);
+    auto k_column = ColumnInt64::create(2, 2);
+    const IColumn* columns[2] = {values.get(), k_column.get()};
+    for (size_t row = 0; row != 2; ++row) {
+        function->add(other, columns, row, arena);
+    }
+
+    EXPECT_NO_THROW(function->merge(state, other, arena));
+
+    auto result = function->get_return_type()->create_column();
+    function->insert_result_into(state, *result);
+    TopKResult merged = read_result(*result);
+    EXPECT_EQ(merged.values, (std::vector<int32_t> {0, 1}));
+    EXPECT_EQ(merged.counts, (std::vector<int64_t> {1, 1}));
+
+    function->destroy(state);
+    function->destroy(other);
+}
+
+TEST(TopKTest, MergeDoesNotCountTheDiscardedTailMax) {
+    AggregateFunctionSimpleFactory factory;
+    register_aggregate_function_topk(factory);
+    DataTypes argument_types = {std::make_shared<DataTypeInt32>(),
+                                std::make_shared<DataTypeInt64>()};
+    Arena arena;
+
+    auto function = create_function(factory, "max_topk", argument_types);
+    std::unique_ptr<char[]> memory(new char[function->size_of_data() * 2]);
+    AggregateDataPtr state = memory.get();
+    AggregateDataPtr other = memory.get() + function->size_of_data();
+    function->create(state);
+    function->create(other);
+
+    // MAX is the symmetric case: A = [(2,1),(0,INT64_MAX)], B = [(1,1),(0,1)], k = 2. The result
+    // is [(2,1),(1,1)] and value 0 is discarded without its counts being combined.
+    const auto int64_max = std::numeric_limits<int64_t>::max();
+    deserialize_state(function, state, arena, {{2, 1}, {0, int64_max}}, 2);
+    auto values = ColumnInt32::create();
+    values->insert_value(1);
+    values->insert_value(0);
+    auto k_column = ColumnInt64::create(2, 2);
+    const IColumn* columns[2] = {values.get(), k_column.get()};
+    for (size_t row = 0; row != 2; ++row) {
+        function->add(other, columns, row, arena);
+    }
+
+    EXPECT_NO_THROW(function->merge(state, other, arena));
+
+    auto result = function->get_return_type()->create_column();
+    function->insert_result_into(state, *result);
+    TopKResult merged = read_result(*result);
+    EXPECT_EQ(merged.values, (std::vector<int32_t> {2, 1}));
+    EXPECT_EQ(merged.counts, (std::vector<int64_t> {1, 1}));
+
+    function->destroy(state);
+    function->destroy(other);
 }
 
 TEST(TopKTest, NullEvaluatedCountIsRejected) {

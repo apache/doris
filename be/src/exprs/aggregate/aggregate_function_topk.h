@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
 #include <memory>
 #include <utility>
@@ -365,18 +366,25 @@ private:
         }
     }
 
-    /// Merges two sorted lists, summing the counts of equal values and truncating to k.
+    /// Merges two sorted lists, summing the counts of equal values and keeping the k best.
+    ///
+    /// The merge stops as soon as k entries are produced. Both inputs are best-first and hold
+    /// distinct values, and equal values have already been combined, so every remaining value is
+    /// worse than all retained ones: it can neither enter the result nor overflow it. Stopping
+    /// here also avoids materializing a tail that would be truncated away.
     static void merge_values(AggregateTopKCountData& state, const AggregateTopKCountData& other) {
         if (other.counts.empty()) {
             // The other partial state saw no non-NULL row.
             return;
         }
+        const auto limit = static_cast<size_t>(state.k);
         auto merged = state.value_column->clone_empty();
         DorisVector<int64_t> merged_counts;
-        merged_counts.reserve(state.counts.size() + other.counts.size());
+        merged_counts.reserve(std::min(limit, state.counts.size() + other.counts.size()));
         size_t lhs_index = 0;
         size_t rhs_index = 0;
-        while (lhs_index < state.counts.size() || rhs_index < other.counts.size()) {
+        while (merged_counts.size() < limit &&
+               (lhs_index < state.counts.size() || rhs_index < other.counts.size())) {
             if (rhs_index == other.counts.size()) {
                 merged->insert_from(*state.value_column, lhs_index);
                 merged_counts.push_back(state.counts[lhs_index]);
@@ -409,11 +417,6 @@ private:
             }
         }
 
-        auto merged_size = static_cast<int64_t>(merged->size());
-        if (merged_size > state.k) {
-            merged->pop_back(merged_size - state.k);
-            merged_counts.resize(static_cast<size_t>(state.k));
-        }
         state.value_column = std::move(merged);
         state.counts = std::move(merged_counts);
     }
