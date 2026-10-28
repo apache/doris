@@ -280,9 +280,19 @@ Status exclude_hidden_docs(std::span<const uint32_t> hidden_docs, const roaring:
 // once. The terms each prefix expands to in this segment are added to `expansions`, which keeps
 // the smallest ones of the segments seen (PrefixExpansionSet).
 //
+// Only terms that a returned row holds are expanded to, as `visible_doc_freq` tells: the document
+// frequency of a term in this segment without its hidden rows. A term held by hidden rows alone
+// must not take one of the `max_expansions` places, or the scores of the same visible rows would
+// change when a compaction drops the hidden rows. With a limit of 1, and `ra` held by hidden rows
+// and `rb` by visible ones, the prefix "r" expands to rb before and after the compaction.
+// The dictionary is therefore read again, with twice the limit, while it still has terms and the
+// terms found hold fewer than `max_expansions` visible ones.
+//
 // Example: "red r" collects red and, in a segment holding red, rose and run, the terms red (already
 // listed), rose and run, and records {red, rose, run} for the prefix "r".
+using VisibleDocFreq = std::function<Status(const std::string& term, uint64_t* doc_freq)>;
 Status segment_scoring_terms(index_query::IndexSource& source, const CollectInfo& collect_info,
+                             const VisibleDocFreq& visible_doc_freq,
                              FieldPrefixExpansions* expansions, std::vector<std::string>* terms);
 
 // Takes from a term's document frequency the documents of `hidden_docs` that hold it.

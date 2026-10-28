@@ -120,6 +120,7 @@ void add_term_doc_frequency(
 }
 
 Status segment_scoring_terms(index_query::IndexSource& source, const CollectInfo& collect_info,
+                             const VisibleDocFreq& visible_doc_freq,
                              FieldPrefixExpansions* expansions, std::vector<std::string>* terms) {
     DORIS_CHECK(expansions != nullptr);
     DORIS_CHECK(terms != nullptr);
@@ -129,19 +130,36 @@ Status segment_scoring_terms(index_query::IndexSource& source, const CollectInfo
         index_query::TermPattern pattern;
         RETURN_IF_ERROR(index_query::TermPattern::create(index_query::TermPatternKind::kPrefix,
                                                          scoring_prefix.prefix, &pattern));
-        std::vector<std::string> expanded;
-        RETURN_IF_ERROR(source.expand_terms(
-                pattern,
-                index_query::expansion_limit(index_query::TermPatternKind::kPrefix,
-                                             scoring_prefix.max_expansions),
-                &expanded));
+        const auto wanted = static_cast<size_t>(scoring_prefix.max_expansions);
+        std::vector<std::string> visible;
+        for (int32_t limit = scoring_prefix.max_expansions;; limit *= 2) {
+            std::vector<std::string> expanded;
+            RETURN_IF_ERROR(source.expand_terms(pattern, limit, &expanded));
+            visible.clear();
+            for (auto& term : expanded) {
+                uint64_t doc_freq = 0;
+                RETURN_IF_ERROR(visible_doc_freq(term, &doc_freq));
+                if (doc_freq > 0) {
+                    visible.push_back(std::move(term));
+                }
+            }
+            // The dictionary ran out of terms, or the first `wanted` visible ones are found.
+            if (expanded.size() < static_cast<size_t>(limit) || visible.size() >= wanted) {
+                break;
+            }
+        }
+        // A read with doubled limit can find more visible terms than the prefix keeps; the
+        // dictionary order puts the ones to keep first.
+        if (visible.size() > wanted) {
+            visible.resize(wanted);
+        }
         auto& prefix_terms =
                 expansions
                         ->try_emplace(segment_v2::inverted_index::StringHelper::to_wstring(
                                               scoring_prefix.prefix),
                                       scoring_prefix.max_expansions)
                         .first->second;
-        for (auto& term : expanded) {
+        for (auto& term : visible) {
             prefix_terms.insert(segment_v2::inverted_index::StringHelper::to_wstring(term));
             if (listed.insert(term).second) {
                 terms->push_back(std::move(term));
@@ -547,19 +565,25 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
                     segment_v2::IndexReaderHelper::is_normalizer_only(
                             collect_info.index_meta->properties())));
 
+            // The document frequency of a term in this segment, without its hidden rows.
+            const auto visible_doc_freq = [&](const std::string& term,
+                                              uint64_t* doc_frequency) -> Status {
+                RETURN_IF_ERROR(source.scoring_doc_freq(term, doc_frequency));
+                if (!hidden_docs.empty()) {
+                    RETURN_IF_ERROR(collection_statistics_detail::exclude_hidden_term_docs(
+                            source, term, hidden_docs, doc_frequency));
+                }
+                return Status::OK();
+            };
             std::vector<std::string> segment_terms;
             RETURN_IF_ERROR(collection_statistics_detail::segment_scoring_terms(
-                    source, collect_info, &segment_accumulator.prefix_expansions[ws_field_name],
-                    &segment_terms));
+                    source, collect_info, visible_doc_freq,
+                    &segment_accumulator.prefix_expansions[ws_field_name], &segment_terms));
             for (const auto& logical_term_bytes : segment_terms) {
                 const auto logical_term =
                         segment_v2::inverted_index::StringHelper::to_wstring(logical_term_bytes);
                 uint64_t doc_frequency = 0;
-                RETURN_IF_ERROR(source.scoring_doc_freq(logical_term_bytes, &doc_frequency));
-                if (!hidden_docs.empty()) {
-                    RETURN_IF_ERROR(collection_statistics_detail::exclude_hidden_term_docs(
-                            source, logical_term_bytes, hidden_docs, &doc_frequency));
-                }
+                RETURN_IF_ERROR(visible_doc_freq(logical_term_bytes, &doc_frequency));
                 if (doc_frequency > segment_doc_count) {
                     return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>(
                             "SNII term document frequency {} exceeds segment document count {}",
@@ -685,18 +709,25 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
         _total_num_tokens[ws_field_name] +=
                 scoring_stats.has_norms ? scoring_stats.token_count : scoring_stats.doc_count;
 
+        // The document frequency of a term in this segment, without its hidden rows.
+        const auto visible_doc_freq = [&](const std::string& term,
+                                          uint64_t* doc_frequency) -> Status {
+            RETURN_IF_ERROR(source->scoring_doc_freq(term, doc_frequency));
+            if (!hidden_docs.empty()) {
+                RETURN_IF_ERROR(collection_statistics_detail::exclude_hidden_term_docs(
+                        *source, term, hidden_docs, doc_frequency));
+            }
+            return Status::OK();
+        };
         std::vector<std::string> segment_terms;
         RETURN_IF_ERROR(collection_statistics_detail::segment_scoring_terms(
-                *source, collect_info, &_prefix_expansions[ws_field_name], &segment_terms));
+                *source, collect_info, visible_doc_freq, &_prefix_expansions[ws_field_name],
+                &segment_terms));
         for (const auto& logical_term_bytes : segment_terms) {
             const auto logical_term =
                     segment_v2::inverted_index::StringHelper::to_wstring(logical_term_bytes);
             uint64_t doc_frequency = 0;
-            RETURN_IF_ERROR(source->scoring_doc_freq(logical_term_bytes, &doc_frequency));
-            if (!hidden_docs.empty()) {
-                RETURN_IF_ERROR(collection_statistics_detail::exclude_hidden_term_docs(
-                        *source, logical_term_bytes, hidden_docs, &doc_frequency));
-            }
+            RETURN_IF_ERROR(visible_doc_freq(logical_term_bytes, &doc_frequency));
             collection_statistics_detail::add_term_doc_frequency(&_term_doc_freqs, ws_field_name,
                                                                  logical_term, doc_frequency);
         }
@@ -864,15 +895,10 @@ std::vector<std::wstring> CollectionStatistics::get_prefix_expansions(
     if (expansions == field->second.end()) {
         return {};
     }
-    // A merge-on-write scan hides rows: a term whose documents are all hidden was expanded in
-    // its segment but has no document frequency left, and its idf would be that of an absent term.
-    std::vector<std::wstring> terms;
-    for (const auto& term : expansions->second.terms()) {
-        if (get_term_doc_freq_by_col(lucene_col_name, term) > 0) {
-            terms.push_back(term);
-        }
-    }
-    return terms;
+    // Only terms that a returned row holds were expanded to (segment_scoring_terms), so each has
+    // a document frequency.
+    const auto& terms = expansions->second.terms();
+    return std::vector<std::wstring>(terms.begin(), terms.end());
 }
 
 float CollectionStatistics::get_or_calculate_idf(const std::wstring& lucene_col_name,

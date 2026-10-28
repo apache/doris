@@ -492,7 +492,11 @@ TEST_F(PhrasePrefixQueryV2Test, segment_statistics_count_the_terms_a_prefix_expa
 
     FieldPrefixExpansions expansions;
     std::vector<std::string> terms;
-    ASSERT_TRUE(collection_statistics_detail::segment_scoring_terms(*source, collect_info,
+    const collection_statistics_detail::VisibleDocFreq doc_freq = [&source](const std::string& term,
+                                                                            uint64_t* out) {
+        return source->doc_freq(term, out);
+    };
+    ASSERT_TRUE(collection_statistics_detail::segment_scoring_terms(*source, collect_info, doc_freq,
                                                                     &expansions, &terms)
                         .ok());
     // quick is held twice, as a scoring term and as an expansion of quic, and listed once.
@@ -508,10 +512,39 @@ TEST_F(PhrasePrefixQueryV2Test, segment_statistics_count_the_terms_a_prefix_expa
     CollectInfo limited;
     scoring_collection_detail::append_scoring_prefix(&limited, bro, 1);
     expansions.clear();
-    ASSERT_TRUE(collection_statistics_detail::segment_scoring_terms(*source, limited, &expansions,
-                                                                    &terms)
+    ASSERT_TRUE(collection_statistics_detail::segment_scoring_terms(*source, limited, doc_freq,
+                                                                    &expansions, &terms)
                         .ok());
     EXPECT_EQ(terms, (std::vector<std::string> {"brother"}));
+
+    // A term held by hidden rows alone has no visible document and takes no place: with a limit
+    // of 1 the prefix expands to brown, the next term, and the same after the hidden rows are
+    // compacted away. All terms hidden leaves nothing, however far the dictionary is read.
+    const auto brother_hidden = [&source](const std::string& term, uint64_t* out) {
+        RETURN_IF_ERROR(source->doc_freq(term, out));
+        if (term == "brother") {
+            *out = 0;
+        }
+        return Status::OK();
+    };
+    expansions.clear();
+    ASSERT_TRUE(collection_statistics_detail::segment_scoring_terms(
+                        *source, limited, brother_hidden, &expansions, &terms)
+                        .ok());
+    EXPECT_EQ(terms, (std::vector<std::string> {"brown"}));
+    EXPECT_EQ(expansions.at(StringHelper::to_wstring("bro")).terms(),
+              std::set<std::wstring> {StringHelper::to_wstring("brown")});
+
+    const auto all_hidden = [](const std::string&, uint64_t* out) {
+        *out = 0;
+        return Status::OK();
+    };
+    expansions.clear();
+    ASSERT_TRUE(collection_statistics_detail::segment_scoring_terms(*source, limited, all_hidden,
+                                                                    &expansions, &terms)
+                        .ok());
+    EXPECT_TRUE(terms.empty());
+    EXPECT_TRUE(expansions.at(StringHelper::to_wstring("bro")).terms().empty());
 
     _CLDECDELETE(dir);
 }
