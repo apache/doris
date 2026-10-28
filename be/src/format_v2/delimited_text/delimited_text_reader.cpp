@@ -37,6 +37,7 @@
 #include "format_v2/column_mapper.h"
 #include "format_v2/materialized_reader_util.h"
 #include "io/file_factory.h"
+#include "io/fs/buffered_reader.h"
 #include "io/fs/tracing_file_reader.h"
 #include "runtime/descriptors.h"
 #include "runtime/file_scan_profile.h"
@@ -561,8 +562,14 @@ Status DelimitedTextReader::_open_file() {
     } else {
         auto reader_options = FileFactory::get_reader_options(_runtime_state->query_options(),
                                                               *_file_description);
-        auto file_reader = DORIS_TRY(FileFactory::create_file_reader(
-                *_system_properties, *_file_description, reader_options, _profile));
+        // Include the prefix used to align non-first splits. Unknown-size first splits read to
+        // EOF; PrefetchBufferedReader bounds this range by the opened file's physical size.
+        const auto prefetch_end = _size < 0 ? std::numeric_limits<size_t>::max()
+                                            : cast_set<size_t>(_start_offset + _size);
+        auto file_reader = DORIS_TRY(io::DelegateReader::create_file_reader(
+                _profile, *_system_properties, *_file_description, reader_options,
+                io::DelegateReader::AccessMode::SEQUENTIAL, _io_ctx,
+                io::PrefetchRange(_start_offset, prefetch_end)));
         _file_reader = _io_ctx && _io_ctx->file_reader_stats
                                ? std::make_shared<io::TracingFileReader>(std::move(file_reader),
                                                                          _io_ctx->file_reader_stats)
