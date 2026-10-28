@@ -751,7 +751,10 @@ class EsScanPlanProviderTest {
     @Test
     void emptyBackingMappingsRemainReadableDuringAliasSafetyAnalysis() {
         String populated = mappingWithField("{\"type\":\"keyword\"}");
-        for (String empty : Arrays.asList("{}", "{\"doc\":{}}", "{\"_meta\":{\"description\":\"empty\"}}")) {
+        for (String empty : Arrays.asList("{}", "{\"doc\":{}}", "{\"_meta\":{\"description\":\"empty\"}}",
+                "{\"enabled\":false}", "{\"date_detection\":false}", "{\"numeric_detection\":true}",
+                "{\"dynamic_date_formats\":[\"yyyy-MM-dd\"]}", "{\"_source\":{\"enabled\":false}}",
+                "{\"runtime\":{\"b\":{\"type\":\"keyword\"}}}", "{\"doc\":{\"enabled\":false}}")) {
             String mapping = populated.substring(0, populated.length() - 1)
                     + ",\"empty\":{\"mappings\":" + empty + "}}";
             ScanNodePropertiesResult result = propertiesForMapping(mapping, sourceEquals("a", "cat"));
@@ -765,7 +768,10 @@ class EsScanPlanProviderTest {
     void aliasSchemaAndScanDoNotDependOnAnEmptyBackingIndexOrder() {
         String populated = "\"populated\":{\"mappings\":{\"_meta\":{\"doris\":{\"array_fields\":[\"a\"]}},"
                 + "\"properties\":{\"a\":{\"type\":\"keyword\"},\"b\":{\"type\":\"keyword\"}}}}";
-        for (String empty : Arrays.asList("{}", "{\"doc\":{}}", "{\"_meta\":{\"description\":\"empty\"}}")) {
+        for (String empty : Arrays.asList("{}", "{\"doc\":{}}", "{\"_meta\":{\"description\":\"empty\"}}",
+                "{\"enabled\":false}", "{\"date_detection\":false}", "{\"numeric_detection\":true}",
+                "{\"dynamic_date_formats\":[\"yyyy-MM-dd\"]}", "{\"_source\":{\"enabled\":false}}",
+                "{\"runtime\":{\"b\":{\"type\":\"keyword\"}}}", "{\"doc\":{\"enabled\":false}}")) {
             String emptyIndex = "\"empty\":{\"mappings\":" + empty + "}";
             for (String mapping : Arrays.asList("{" + emptyIndex + "," + populated + "}",
                     "{" + populated + "," + emptyIndex + "}")) {
@@ -875,6 +881,37 @@ class EsScanPlanProviderTest {
         String unsearchable = mappingWithField("{\"type\":\"keyword\",\"index\":false,\"doc_values\":false}");
         Assertions.assertEquals(Collections.singleton(0), propertiesForMapping(unsearchable,
                 sourceEquals("a", "cat")).getNotPushedConjunctIndices());
+    }
+
+    @Test
+    void docvalueOnlyNumbersDatesAndBooleansSupportNativeBooleanQueries() {
+        for (String type : Arrays.asList("byte", "short", "integer", "long", "unsigned_long", "float",
+                "double", "half_float", "scaled_float", "date", "boolean", "ip")) {
+            String field = "{\"type\":\"" + type + "\",\"index\":false"
+                    + ("scaled_float".equals(type) ? ",\"scaling_factor\":4" : "")
+                    + ("date".equals(type) ? ",\"format\":\"epoch_millis\"" : "") + "}";
+            ConnectorLiteral literal = "boolean".equals(type) ? ConnectorLiteral.ofBoolean(true)
+                    : "ip".equals(type) ? ConnectorLiteral.ofString("192.0.2.1") : ConnectorLiteral.ofLong(1);
+            ConnectorType columnType = EsTypeMapping.parseMapping("test", mappingWithField(field), false)
+                    .get(0).getType();
+            ConnectorExpression equal = new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                    new ConnectorColumnRef("a", columnType), literal);
+            ConnectorExpression or = new ConnectorOr(Arrays.asList(equal, nativeSourceQuery()));
+            for (String mappingField : Arrays.asList(field, field.replace("\"index\":false",
+                    "\"index\":false,\"doc_values\":true"))) {
+                for (ConnectorExpression predicate : Arrays.asList(or, new ConnectorNot(or))) {
+                    ScanNodePropertiesResult result = propertiesForMapping(mappingWithField(mappingField), predicate);
+                    Assertions.assertEquals("1", result.getProperties().get("doc_values_mode"), type);
+                    Assertions.assertTrue(result.getNotPushedConjunctIndices().isEmpty(), type);
+                    Assertions.assertTrue(result.getProperties().get("query_dsl").contains("\"a\""), type);
+                }
+            }
+            String unsearchable = field.replace("\"index\":false", "\"index\":false,\"doc_values\":false");
+            Assertions.assertEquals(Collections.singleton(0), propertiesForMapping(
+                    mappingWithField(unsearchable), equal).getNotPushedConjunctIndices(), type);
+            Assertions.assertThrows(DorisConnectorException.class, () -> propertiesForMapping(
+                    mappingWithField(unsearchable), or), type);
+        }
     }
 
     @Test

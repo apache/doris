@@ -455,17 +455,11 @@ public final class EsQueryDslBuilder {
                 // col <=> non-null is equivalent to EQ (term queries exclude nulls)
                 return termQuery(column, value);
             case NE:
-                // col != '' means col.length() > 0, NULL should not appear in results
-                if (value instanceof String && ((String) value).isEmpty()) {
-                    ObjectNode root = MAPPER.createObjectNode();
-                    ObjectNode boolNode = root.putObject("bool");
-                    boolNode.set("must_not", parseJsonNode(termQuery(column, value)));
-                    boolNode.set("must", parseJsonNode(existsQuery(column)));
-                    return root.toString();
-                }
+                // SQL <> is UNKNOWN for missing values, while ES must_not alone matches them.
                 ObjectNode neRoot = MAPPER.createObjectNode();
                 ObjectNode neBool = neRoot.putObject("bool");
                 neBool.set("must_not", parseJsonNode(termQuery(column, value)));
+                neBool.set("must", parseJsonNode(existsQuery(column)));
                 return neRoot.toString();
             case LT:
                 return rangeQuery(column, "lt", value, needDateCompat);

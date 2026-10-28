@@ -178,4 +178,17 @@ public class EsMappingUtilsTest {
         Assertions.assertFalse(typeMap.containsKey("_id"));
         Assertions.assertEquals("long", typeMap.get("k1"));
     }
+
+    @Test
+    public void legacyTypeNamesCanResembleRootParameters() {
+        for (String type : Arrays.asList("doc", "_doc", "enabled", "date_detection", "numeric_detection",
+                "dynamic_date_formats", "custom_properties")) {
+            String mapping = "{\"test\":{\"mappings\":{\"" + type
+                    + "\":{\"properties\":{\"a\":{\"type\":\"long\"}}}}}}";
+            Assertions.assertEquals("BIGINT", EsTypeMapping.parseMapping("test", mapping, false)
+                    .get(0).getType().getTypeName(), type);
+            Assertions.assertEquals("long", EsMappingUtils.resolveFieldContext(
+                    Collections.singletonList("a"), "test", mapping, type).getColumn2typeMap().get("a"), type);
+        }
+    }
 }

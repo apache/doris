@@ -30,9 +30,6 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
-import java.util.Spliterator;
-import java.util.Spliterators;
-import java.util.stream.StreamSupport;
 
 /**
  * ES mapping parsing and field resolution utilities.
@@ -45,6 +42,13 @@ public final class EsMappingUtils {
 
     public static final Set<String> DEFAULT_DOCVALUE_DISABLED_FIELDS =
             new HashSet<>(Arrays.asList("text", "annotated_text", "match_only_text"));
+
+    private static final Set<String> ROOT_MAPPING_OBJECT_PARAMETERS = new HashSet<>(Arrays.asList(
+            "properties", "runtime", "_source", "_routing", "_field_names", "_size", "_data_stream_timestamp"));
+
+    private static final Set<String> DOCVALUE_QUERY_TYPES = new HashSet<>(Arrays.asList(
+            "keyword", "byte", "short", "integer", "long", "unsigned_long", "float", "double",
+            "half_float", "scaled_float", "date", "date_nanos", "boolean", "ip", "geo_point"));
 
     private EsMappingUtils() {
     }
@@ -88,15 +92,18 @@ public final class EsMappingUtils {
                 return mappings;
             }
             String firstType = mappings.fieldNames().next();
-            if (StreamSupport.stream(Spliterators.spliteratorUnknownSize(
-                    mappings.fieldNames(), Spliterator.ORDERED), false)
-                    .anyMatch(s -> s.contains("properties"))) {
-                return mappings;
-            } else {
-                ObjectNode firstData = (ObjectNode) mappings.get(firstType);
-                checkNonPropertiesFields(firstData, arrayFields, allowEmpty);
-                return firstData;
+            // A typeless mapping may contain only flags or root objects such as _source.
+            // Type wrappers are objects; legacy type names may also be names of scalar settings.
+            Iterator<String> keys = mappings.fieldNames();
+            while (keys.hasNext()) {
+                String key = keys.next();
+                if (!mappings.get(key).isObject() || ROOT_MAPPING_OBJECT_PARAMETERS.contains(key)) {
+                    return mappings;
+                }
             }
+            ObjectNode firstData = (ObjectNode) mappings.get(firstType);
+            checkNonPropertiesFields(firstData, arrayFields, allowEmpty);
+            return firstData;
         } else {
             if (mappings.has(mappingType)) {
                 ObjectNode jsonData = (ObjectNode) mappings.get(mappingType);
@@ -249,10 +256,11 @@ public final class EsMappingUtils {
     }
 
     private static boolean isSearchable(JsonNode field) {
-        // Disabling the inverted index does not change the value. ES can still search keyword
-        // docvalues; only a field with neither representation needs a local predicate.
+        // Numeric, date, boolean, IP and keyword docvalues remain queryable without an inverted
+        // index. Searchability is independent of the source/read-value equivalence checks above.
         return field.path("index").asBoolean(true)
-                || ("keyword".equals(field.path("type").asText()) && field.path("doc_values").asBoolean(true));
+                || (DOCVALUE_QUERY_TYPES.contains(field.path("type").asText())
+                        && field.path("doc_values").asBoolean(true));
     }
 
     private static boolean filtersSourceColumn(JsonNode source, String column) {

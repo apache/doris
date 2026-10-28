@@ -86,6 +86,19 @@ public class EsQueryDslBuilderTest {
     }
 
     @Test
+    void notEqualExcludesMissingValuesForEveryNonNullLiteral() {
+        for (ConnectorLiteral literal : Arrays.asList(ConnectorLiteral.ofLong(1),
+                ConnectorLiteral.ofString("one"), ConnectorLiteral.ofString(""), ConnectorLiteral.ofBoolean(true))) {
+            ConnectorExpression comparison = new ConnectorComparison(ConnectorComparison.Operator.NE,
+                    new ConnectorColumnRef("value", literal.getType()), literal);
+            EsQueryDslResult result = EsQueryDslBuilder.buildQueryDslWithResult(comparison,
+                    Collections.emptyMap(), Collections.emptyMap(), true, Collections.emptyList());
+            Assertions.assertTrue(result.getNotPushedIndices().isEmpty());
+            Assertions.assertTrue(result.getQueryDsl().contains("\"must\":{\"exists\":{\"field\":\"value\"}}"));
+        }
+    }
+
+    @Test
     public void testRegexpProducesRegexpQuery() {
         // SQL: WHERE name REGEXP '^test.*'
         ConnectorColumnRef col = new ConnectorColumnRef("name", ConnectorType.of("VARCHAR"));
