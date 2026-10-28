@@ -54,7 +54,7 @@ public class PaimonJniHeapEstimateTest {
     private static final long MB = 1024L * 1024;
 
     // A primary-key table's: 128 MB row groups, 64 MB stripes, four columns a file (4 MB of dictionaries).
-    private final PaimonJniHeapEstimate estimate = new PaimonJniHeapEstimate(true,
+    private final PaimonJniHeapEstimate estimate = new PaimonJniHeapEstimate(true, false,
             schemaId -> new PaimonJniHeapEstimate.FileLayout(128 * MB, 64 * MB, MB, 4));
 
     /**
@@ -87,7 +87,7 @@ public class PaimonJniHeapEstimateTest {
         Assertions.assertEquals(merged, estimate.bytesOf(diff));
         Assertions.assertEquals(merged, estimate.bytesOf(FallbackReadFileStoreTable.toFallbackSplit(diff, true)));
 
-        PaimonJniHeapEstimate appendTable = new PaimonJniHeapEstimate(false,
+        PaimonJniHeapEstimate appendTable = new PaimonJniHeapEstimate(false, false,
                 schemaId -> new PaimonJniHeapEstimate.FileLayout(128 * MB, 64 * MB, MB, 4));
         Assertions.assertEquals((256 + 4) * MB, appendTable.bytesOf(diff));
 
@@ -155,9 +155,33 @@ public class PaimonJniHeapEstimateTest {
         DataSplit mixed = split(true, uncountedFile("data-0.parquet", 130 * MB, 2), file("data-1.parquet", 12 * MB));
         Assertions.assertEquals((130 + 4) * MB + (12 + 4) * MB, estimate.bytesOf(mixed));
 
-        PaimonJniHeapEstimate appendTable = new PaimonJniHeapEstimate(false,
+        PaimonJniHeapEstimate appendTable = new PaimonJniHeapEstimate(false, false,
                 schemaId -> new PaimonJniHeapEstimate.FileLayout(128 * MB, 64 * MB, MB, 4));
         Assertions.assertEquals((130 + 4) * MB, appendTable.bytesOf(uncounted));
+    }
+
+    /**
+     * $audit_log and $binlog keep the deleted rows, which has paimon merge a primary-key table's split it planned
+     * as needing no merging. A deletion-vector or first-row table's such split holds files of two levels whose
+     * keys overlap, open together then; the files of one level are a sorted run, read one after another all the
+     * same. An append table's read has no deletes to keep.
+     */
+    @Test
+    public void readThatKeepsDeletesMergesTheFilesOfMoreThanOneLevel() {
+        PaimonJniHeapEstimate keepingDeletes = new PaimonJniHeapEstimate(true, true,
+                schemaId -> new PaimonJniHeapEstimate.FileLayout(128 * MB, 64 * MB, MB, 4));
+        DataSplit twoLevels = split(true, fileOnLevel("data-0.parquet", 60 * MB, 5),
+                fileOnLevel("data-1.parquet", 50 * MB, 4));
+        Assertions.assertEquals((60 + 4) * MB, estimate.bytesOf(twoLevels));
+        Assertions.assertEquals((60 + 4) * MB + (50 + 4) * MB, keepingDeletes.bytesOf(twoLevels));
+
+        DataSplit oneLevel = split(true, fileOnLevel("data-2.parquet", 60 * MB, 5),
+                fileOnLevel("data-3.parquet", 50 * MB, 5));
+        Assertions.assertEquals((60 + 4) * MB, keepingDeletes.bytesOf(oneLevel));
+
+        PaimonJniHeapEstimate appendTable = new PaimonJniHeapEstimate(false, true,
+                schemaId -> new PaimonJniHeapEstimate.FileLayout(128 * MB, 64 * MB, MB, 4));
+        Assertions.assertEquals((60 + 4) * MB, appendTable.bytesOf(twoLevels));
     }
 
     /** Moving on to the next row group, a file has the old one and the new one in the heap together. */
@@ -244,7 +268,7 @@ public class PaimonJniHeapEstimateTest {
             FileStoreTable table = (FileStoreTable) catalog.getTable(id);
             Assertions.assertEquals(1L, table.schema().id());
             List<Long> reads = new ArrayList<>();
-            PaimonJniHeapEstimate estimate = PaimonJniHeapEstimate.of(table, schemaId -> {
+            PaimonJniHeapEstimate estimate = PaimonJniHeapEstimate.of(table, false, schemaId -> {
                 reads.add(schemaId);
                 return table.schemaManager().schema(schemaId);
             });
@@ -258,7 +282,7 @@ public class PaimonJniHeapEstimateTest {
     }
 
     private static void assertBothDeclare(long expected, Table table, DataSplit split) {
-        Assertions.assertEquals(expected, PaimonJniHeapEstimate.of((FileStoreTable) table, schemaId -> {
+        Assertions.assertEquals(expected, PaimonJniHeapEstimate.of((FileStoreTable) table, false, schemaId -> {
             throw new AssertionError("read schema " + schemaId + ", the table's own");
         }).bytesOf(split));
         Assertions.assertEquals(expected, PaimonJniHeapEstimate.of(table).bytesOf(split));
@@ -284,6 +308,13 @@ public class PaimonJniHeapEstimateTest {
     private static DataFileMeta file(String name, long size, long schemaId) {
         return DataFileMeta.forAppend(name, size, 1000L, SimpleStats.EMPTY_STATS, 0L, 0L, schemaId,
                 Collections.emptyList(), null, null, null, null, null, null);
+    }
+
+    // A file of a level, which counts its deleted rows: none.
+    private static DataFileMeta fileOnLevel(String name, long size, int level) {
+        return DataFileMeta.create(name, size, 1000L, BinaryRow.EMPTY_ROW, BinaryRow.EMPTY_ROW,
+                SimpleStats.EMPTY_STATS, SimpleStats.EMPTY_STATS, 0L, 0L, 0L, level, Collections.emptyList(),
+                0L, null, null, null, null, null, null);
     }
 
     // A file written before paimon counted deleted rows (0.7 and earlier): it has no deleteRowCount.
