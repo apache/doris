@@ -75,6 +75,8 @@ public:
 private:
     struct OrcProfile {
         RuntimeProfile::Counter* row_readers_created = nullptr;
+        RuntimeProfile::Counter* dictionary_stripes_filtered = nullptr;
+        RuntimeProfile::Counter* dictionary_values_evaluated = nullptr;
         RuntimeProfile::Counter* total_time = nullptr;
         RuntimeProfile::Counter* reader_call = nullptr;                 // ReaderCall
         RuntimeProfile::Counter* reader_inclusive_latency_us = nullptr; // ReaderInclusiveLatencyUs
@@ -99,6 +101,7 @@ private:
     };
 
     class OrcFilterImpl;
+    class StringDictFilterImpl;
 
     void _init_profile() override;
     void _collect_profile() const;
@@ -138,6 +141,7 @@ private:
     Status _create_row_reader();
     size_t _read_batch_size() const;
 
+    Status _init_lazy_predicate_block();
     Status _filter_orc_batch(::orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t size,
                              void* arg);
 
@@ -182,6 +186,7 @@ private:
                                    size_t selected_rows) const;
 
     std::unique_ptr<OrcFilterImpl> _orc_filter;
+    std::unique_ptr<StringDictFilterImpl> _string_dict_filter;
     std::unique_ptr<OrcReaderScanState> _state;
     OrcProfile _orc_profile; // RuntimeProfile counters
     std::optional<format::GlobalRowIdContext> _global_rowid_context;

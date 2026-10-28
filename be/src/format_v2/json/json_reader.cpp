@@ -44,6 +44,7 @@
 #include "format_v2/column_mapper.h"
 #include "format_v2/materialized_reader_util.h"
 #include "io/file_factory.h"
+#include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/stream_load_pipe.h"
 #include "io/fs/tracing_file_reader.h"
@@ -540,8 +541,17 @@ Status JsonReader::_open_file_reader(bool need_schema) {
                 _reader_range.__isset.modification_time ? _reader_range.modification_time : 0;
         auto reader_options = FileFactory::get_reader_options(_runtime_state->query_options(),
                                                               *_file_description);
-        auto file_reader = DORIS_TRY(FileFactory::create_file_reader(
-                *_system_properties, *_file_description, reader_options, _profile));
+        // The aligned prefix belongs to this scan, while the original split end bounds
+        // asynchronous read-ahead. Shared ownership keeps cancellation state alive for workers.
+        const auto range_end =
+                _reader_range.size > 0
+                        ? static_cast<size_t>(_reader_range.start_offset + _reader_range.size)
+                        : std::numeric_limits<size_t>::max();
+        auto file_reader = DORIS_TRY(io::DelegateReader::create_file_reader(
+                _profile, *_system_properties, *_file_description, reader_options,
+                io::DelegateReader::AccessMode::SEQUENTIAL,
+                std::static_pointer_cast<const io::IOContext>(_io_ctx),
+                io::PrefetchRange(_current_offset, range_end)));
         _physical_file_reader =
                 _io_ctx && _io_ctx->file_reader_stats
                         ? std::make_shared<io::TracingFileReader>(std::move(file_reader),

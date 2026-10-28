@@ -41,6 +41,7 @@ PYTHON="${BUILD_HYGIENE_PYTHON:-python3}"
 
 PROBE_SRC="${ROOT}/be/src/util/tmp_hygiene_probe.cpp"
 PROBE_DIR="${ROOT}/be/test/tmp_hygiene_probe"
+WHOLETARGET_SOURCE="format/file_reader/new_plain_text_line_reader.cpp"
 cleanup() { rm -f "${PROBE_SRC}"; rm -rf "${PROBE_DIR}"; }
 trap cleanup EXIT
 
@@ -52,6 +53,9 @@ OUT="$("${PYTHON}" "${GATE}" 2>&1)"; EC=$?
 [ "${EC}" -eq 0 ] || fail "clean tree expected green, got ${EC}:"$'\n'"${OUT}"
 
 # ---- fixtures ----
+# Missing sources are ignored by the include scanner, so stale probes would silently pass.
+[ -f "${ROOT}/be/src/${WHOLETARGET_SOURCE}" ] \
+    || fail "whole-target probe source is missing"
 echo "namespace doris { int tmp_hygiene_probe_symbol = 0; }" > "${PROBE_SRC}"
 mkdir -p "${PROBE_DIR}"
 # RED: util sets UNITY_BUILD and lists skips literally; the probe src is new,
@@ -60,7 +64,7 @@ printf '#include "util/tmp_hygiene_probe.cpp"\n' > "${PROBE_DIR}/red_probe_test.
 # SILENT: cross-directory literal entry (appended into format's skip list).
 printf '#include "format_v2/table/adbc_reader.cpp"\n' > "${PROBE_DIR}/literal_probe_test.cpp"
 # SILENT: whole-target opt-out (format skip list is seeded from SRC_FILES).
-printf '#include "format/orc/orc_file_reader.cpp"\n' > "${PROBE_DIR}/wholetarget_probe_test.cpp"
+printf '#include "%s"\n' "${WHOLETARGET_SOURCE}" > "${PROBE_DIR}/wholetarget_probe_test.cpp"
 # SILENT: commented include is not an include.
 printf '//#include "format_v2/parquet/reader/native/decoder.cpp"\n' > "${PROBE_DIR}/comment_probe_test.cpp"
 

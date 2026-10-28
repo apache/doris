@@ -1674,18 +1674,21 @@ private:
 class NullableStringEqualsExpr final : public VExpr {
 public:
     NullableStringEqualsExpr(int column_id, DataTypePtr source_type, std::string value,
-                             std::string column_name)
+                             std::string column_name, bool null_literal = false)
             : VExpr(std::make_shared<DataTypeUInt8>(), false),
               _column_id(column_id),
-              _value(std::move(value)) {
+              _value(std::move(value)),
+              _null_literal(null_literal) {
         _node_type = TExprNodeType::BINARY_PRED;
-        _opcode = TExprOpcode::EQ;
+        _opcode = null_literal ? TExprOpcode::EQ_FOR_NULL : TExprOpcode::EQ;
         const auto string_type = std::make_shared<DataTypeString>();
         add_child(TableSlotRef::create_shared(column_id, column_id, -1,
                                               make_nullable(std::move(source_type)),
                                               std::move(column_name)));
-        add_child(
-                TableLiteral::create_shared(string_type, Field::create_field<TYPE_STRING>(_value)));
+        add_child(TableLiteral::create_shared(
+                null_literal ? make_nullable(string_type) : string_type,
+                null_literal ? Field::create_field<TYPE_NULL>(Null())
+                             : Field::create_field<TYPE_STRING>(_value)));
     }
 
     Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
@@ -1698,8 +1701,11 @@ public:
         result_data.resize(count);
         for (size_t row = 0; row < count; ++row) {
             const size_t input_row = selector == nullptr ? row : (*selector)[row];
-            result_data[row] = !nullable_column.is_null_at(input_row) &&
-                               input.get_data_at(input_row).to_string_view().compare(_value) == 0;
+            result_data[row] =
+                    _null_literal ? nullable_column.is_null_at(input_row)
+                                  : !nullable_column.is_null_at(input_row) &&
+                                            input.get_data_at(input_row).to_string_view().compare(
+                                                    _value) == 0;
         }
         result_column = std::move(result);
         return Status::OK();
@@ -1710,6 +1716,7 @@ public:
 private:
     const int _column_id;
     const std::string _value;
+    const bool _null_literal;
     const std::string _expr_name = "NullableStringEqualsExpr";
 };
 
@@ -2919,6 +2926,33 @@ void write_orc_file(const std::string& file_path) {
 
     std::ofstream out(file_path, std::ios::binary);
     out.write(memory_stream.getData(), static_cast<std::streamsize>(memory_stream.getLength()));
+}
+
+void write_string_filter_orc_file(const std::string& path, bool dictionary,
+                                  bool with_null = false) {
+    auto type = ::orc::Type::buildTypeFromString("struct<value:string,payload:string>");
+    MemoryOutputStream stream(1024 * 1024);
+    ::orc::WriterOptions options;
+    options.setCompression(::orc::CompressionKind_NONE);
+    options.setDictionaryKeySizeThreshold(dictionary ? 1.0 : 0.0);
+    auto writer = ::orc::createWriter(*type, &stream, options);
+    auto batch = writer->createRowBatch(64);
+    auto& fields = dynamic_cast<::orc::StructVectorBatch&>(*batch);
+    auto& values = dynamic_cast<::orc::StringVectorBatch&>(*fields.fields[0]);
+    auto& payloads = dynamic_cast<::orc::StringVectorBatch&>(*fields.fields[1]);
+    const std::array<std::string, 2> dictionary_values {"aa", "zz"};
+    const std::string payload(2048, 'p');
+    values.hasNulls = with_null;
+    for (size_t row = 0; row < 64; ++row) {
+        values.notNull[row] = !with_null || row != 7;
+        set_string_value(values, row, dictionary_values[row % 2]);
+        set_string_value(payloads, row, payload);
+    }
+    fields.numElements = values.numElements = payloads.numElements = 64;
+    writer->add(*batch);
+    writer->close();
+    std::ofstream out(path, std::ios::binary);
+    out.write(stream.getData(), static_cast<std::streamsize>(stream.getLength()));
 }
 
 void write_orc_prefetch_file(const std::string& file_path) {
@@ -7940,6 +7974,135 @@ TEST_F(NewOrcReaderTest, SargVarcharCastToStringConjunctPrunesStripes) {
     EXPECT_EQ(reader->reader_statistics().filtered_row_groups, 1);
     EXPECT_EQ(reader->reader_statistics().filtered_row_groups_by_min_max, 1);
     EXPECT_EQ(reader->reader_statistics().filtered_group_rows, 200);
+}
+
+TEST_F(NewOrcReaderTest, DictionaryRejectsAbsentValuesWithoutRowDecoding) {
+    const auto path = (_test_dir / "dictionary_absent.orc").string();
+    write_string_filter_orc_file(path, true);
+    auto reader = create_reader_for_path(path);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->predicate_columns = {field_projection(0)};
+    request->non_predicate_columns = {field_projection(1)};
+    // 'mm' lies inside the stripe min/max ['aa', 'zz'], but outside its dictionary.
+    request->conjuncts.push_back(
+            VExprContext::create_shared(std::make_shared<NullableStringEqualsExpr>(
+                    0, remove_nullable(schema[0].type), "mm", "value")));
+    ASSERT_TRUE(reader->open(request).ok());
+    size_t decode_calls = 0;
+    ScopedDebugPoint count_decode("OrcReader::_decode_column", [&] { ++decode_calls; });
+    Block block = build_file_block(schema);
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    EXPECT_TRUE(eof);
+    EXPECT_EQ(rows, 0);
+    EXPECT_EQ(decode_calls, 0);
+}
+
+TEST_F(NewOrcReaderTest, DictionaryKeepsNullSafeMatches) {
+    const auto path = (_test_dir / "dictionary_nullable.orc").string();
+    write_string_filter_orc_file(path, true, true);
+    RuntimeProfile profile("nullable-dictionary");
+    auto reader = create_reader_for_path(path, &profile);
+    TQueryOptions options;
+    options.__set_enable_orc_filter_by_min_max(false);
+    RuntimeState state {options, TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+    reader->set_batch_size(1);
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->predicate_columns = {field_projection(0)};
+    request->non_predicate_columns = {field_projection(1)};
+    request->conjuncts.push_back(
+            VExprContext::create_shared(std::make_shared<NullableStringEqualsExpr>(
+                    0, remove_nullable(schema[0].type), "", "value", true)));
+    ASSERT_TRUE(reader->open(request).ok());
+    bool eof = false;
+    size_t total_rows = 0;
+    while (!eof) {
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        total_rows += rows;
+        for (size_t row = 0; row < rows; ++row) {
+            EXPECT_TRUE(block.get_by_position(0).column->is_null_at(row));
+        }
+    }
+    EXPECT_EQ(total_rows, 1);
+    EXPECT_EQ(profile.get_counter("DictionaryStripesFiltered")->value(), 0);
+    EXPECT_EQ(profile.get_counter("DictionaryValuesEvaluated")->value(), 3);
+}
+
+TEST_F(NewOrcReaderTest, DictionaryPruningRespectsDirectEncodingAndPredicateFence) {
+    for (const bool dictionary : {false, true}) {
+        const auto path =
+                (_test_dir / (dictionary ? "dictionary_fence.orc" : "direct.orc")).string();
+        write_string_filter_orc_file(path, dictionary);
+        auto reader = create_reader_for_path(path);
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        ASSERT_TRUE(reader->init(&state).ok());
+        std::vector<format::ColumnDefinition> schema;
+        ASSERT_TRUE(reader->get_schema(&schema).ok());
+        auto request = std::make_shared<format::FileScanRequest>();
+        request->predicate_columns = {field_projection(0)};
+        request->non_predicate_columns = {field_projection(1)};
+        request->metadata_pruning_safe_conjunct_count = dictionary ? 0 : 1;
+        request->conjuncts.push_back(
+                VExprContext::create_shared(std::make_shared<NullableStringEqualsExpr>(
+                        0, remove_nullable(schema[0].type), "mm", "value")));
+        ASSERT_TRUE(reader->open(request).ok());
+        size_t decode_calls = 0;
+        ScopedDebugPoint count_decode("OrcReader::_decode_column", [&] { ++decode_calls; });
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        bool eof = false;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        EXPECT_TRUE(eof);
+        EXPECT_EQ(rows, 0);
+        EXPECT_GT(decode_calls, 0);
+    }
+}
+
+TEST_F(NewOrcReaderTest, LazyPredicateColumnsAreDecodedOncePerBatch) {
+    const auto path = (_test_dir / "lazy_direct_strings.orc").string();
+    write_string_filter_orc_file(path, false);
+    auto reader = create_reader_for_path(path);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+    reader->set_batch_size(16);
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->predicate_columns = {field_projection(0)};
+    request->non_predicate_columns = {field_projection(1)};
+    request->conjuncts.push_back(
+            VExprContext::create_shared(std::make_shared<NullableStringEqualsExpr>(
+                    0, remove_nullable(schema[0].type), "aa", "value")));
+    ASSERT_TRUE(reader->open(request).ok());
+    size_t decode_calls = 0;
+    ScopedDebugPoint count_decode("OrcReader::_decode_column", [&] { ++decode_calls; });
+    size_t total_rows = 0;
+    bool eof = false;
+    while (!eof) {
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        total_rows += rows;
+        if (rows > 0) {
+            const auto& payloads = assert_cast<const ColumnString&>(
+                    assert_cast<const ColumnNullable&>(*block.get_by_position(1).column)
+                            .get_nested_column());
+            EXPECT_EQ(payloads.get_data_at(0).to_string(), std::string(2048, 'p'));
+        }
+    }
+    EXPECT_EQ(total_rows, 32);
+    // Four physical batches, each converting one predicate and one follower column.
+    EXPECT_EQ(decode_calls, 8);
 }
 
 TEST_F(NewOrcReaderTest, SargStringEqualsKeepsMatchingHiveDictRows) {
