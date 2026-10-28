@@ -21,12 +21,14 @@
 #include <gtest/gtest.h>
 #include <sys/resource.h>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <memory>
 #include <roaring/roaring.hh>
 #include <set>
 #include <string>
+#include <vector>
 
 #include "io/fs/local_file_system.h"
 #include "runtime/runtime_state.h"
@@ -37,6 +39,7 @@
 #include "storage/index/inverted/common/string_helper.h"
 #include "storage/index/inverted/query/engine/expand_query/expand_weight.h"
 #include "storage/index/inverted/query/scoring/collection_similarity.h"
+#include "storage/index/inverted/query/spi/index_source.h"
 #include "storage/index/inverted/reader/collection_statistics.h"
 
 CL_NS_USE(store)
@@ -547,6 +550,68 @@ TEST_F(PhrasePrefixQueryV2Test, segment_statistics_count_the_terms_a_prefix_expa
     EXPECT_TRUE(expansions.at(StringHelper::to_wstring("bro")).terms().empty());
 
     _CLDECDELETE(dir);
+}
+
+namespace {
+
+// A dictionary alone: it lists the terms that start with a prefix, in byte order.
+class DictionaryOnlySource final : public index_query::IndexSource {
+public:
+    explicit DictionaryOnlySource(std::vector<std::string> terms) : _terms(std::move(terms)) {
+        std::ranges::sort(_terms);
+    }
+
+    uint32_t doc_count() const override { return 1; }
+
+    Status open_term(std::string_view, bool, bool,
+                     std::unique_ptr<index_query::PostingsCursor>* out) override {
+        out->reset();
+        return Status::OK();
+    }
+
+    Status expand_terms(index_query::TermPattern&, int32_t max_expansions,
+                        std::vector<std::string>* out) override {
+        out->clear();
+        for (const auto& term : _terms) {
+            if (max_expansions > 0 && out->size() == static_cast<size_t>(max_expansions)) {
+                break;
+            }
+            out->push_back(term);
+        }
+        return Status::OK();
+    }
+
+private:
+    std::vector<std::string> _terms;
+};
+
+} // namespace
+
+// SNII keeps the bytes of a token as they are, so its dictionary can hold terms that are not valid
+// UTF-8. StringHelper::to_wstring drops those bytes, and "ra\xFF" and "ra\xFE" would both get the
+// key "ra" and add their document frequencies up, to more than the documents of the tablet. Such
+// terms are not scored and take no place: with a limit of 2 the prefix expands to rb and rc.
+TEST_F(PhrasePrefixQueryV2Test, segment_statistics_skip_terms_without_a_wide_string_key) {
+    DictionaryOnlySource source({"ra\xFF", "ra\xFE", "rb", "rc", "rd"});
+    CollectInfo collect_info;
+    TermInfo r;
+    r.term = std::string("r");
+    scoring_collection_detail::append_scoring_prefix(&collect_info, r, 2);
+
+    const collection_statistics_detail::VisibleDocFreq one_document = [](const std::string&,
+                                                                         uint64_t* out) {
+        *out = 1;
+        return Status::OK();
+    };
+    FieldPrefixExpansions expansions;
+    std::vector<std::string> terms;
+    ASSERT_TRUE(collection_statistics_detail::segment_scoring_terms(
+                        source, collect_info, one_document, &expansions, &terms)
+                        .ok());
+    EXPECT_EQ(terms, (std::vector<std::string> {"rb", "rc"}));
+    EXPECT_EQ(expansions.at(StringHelper::to_wstring("r")).terms(),
+              (std::set<std::wstring> {StringHelper::to_wstring("rb"),
+                                       StringHelper::to_wstring("rc")}));
 }
 
 // --- PhrasePrefixWeight scorer: nullable branch ---

@@ -286,7 +286,8 @@ Status exclude_hidden_docs(std::span<const uint32_t> hidden_docs, const roaring:
 // change when a compaction drops the hidden rows. With a limit of 1, and `ra` held by hidden rows
 // and `rb` by visible ones, the prefix "r" expands to rb before and after the compaction.
 // The dictionary is therefore read again, with twice the limit, while it still has terms and the
-// terms found hold fewer than `max_expansions` visible ones.
+// terms found hold fewer than `max_expansions` visible ones. A term whose bytes are not valid UTF-8
+// has no wide-string key of its own and is skipped like a hidden one.
 //
 // Example: "red r" collects red and, in a segment holding red, rose and run, the terms red (already
 // listed), rose and run, and records {red, rose, run} for the prefix "r".

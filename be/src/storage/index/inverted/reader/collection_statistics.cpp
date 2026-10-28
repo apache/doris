@@ -137,6 +137,15 @@ Status segment_scoring_terms(index_query::IndexSource& source, const CollectInfo
             RETURN_IF_ERROR(source.expand_terms(pattern, limit, &expanded));
             visible.clear();
             for (auto& term : expanded) {
+                // The statistics are keyed by wide string, and StringHelper::to_wstring drops the
+                // bytes that are not valid UTF-8, which SNII keeps in a token. Two such terms,
+                // "ra\xFF" and "ra\xFE", would share the key "ra" and add their document
+                // frequencies up, to more than the documents of the tablet and a negative idf. A
+                // term without a key of its own is not scored, and takes no place.
+                if (segment_v2::inverted_index::StringHelper::to_string(
+                            segment_v2::inverted_index::StringHelper::to_wstring(term)) != term) {
+                    continue;
+                }
                 uint64_t doc_freq = 0;
                 RETURN_IF_ERROR(visible_doc_freq(term, &doc_freq));
                 if (doc_freq > 0) {
