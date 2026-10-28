@@ -22,6 +22,18 @@
 -- !null --
 3	\N
 
+-- !computed_root --
+1	{"a":{"name":"first","x":7},"arr":[1,2]}
+2	{"a":{"name":"last","x":9},"arr":[3,4],"flag":true}
+
+-- !computed_empty --
+
+-- !computed_null --
+3	\N
+
+-- !variant_expression_only --
+2	{"a":{"name":"last","x":9},"arr":[3,4],"flag":true}
+
 -- !vector_root --
 1	{"a":{"name":"first","x":7},"arr":[1,2]}
 2	{"a":{"name":"last","x":9},"arr":[3,4],"flag":true}

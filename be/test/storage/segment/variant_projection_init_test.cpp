@@ -17,20 +17,25 @@
 
 #include <gtest/gtest.h>
 
+#include "cloud/config.h"
+#include "common/config.h"
 #include "common/consts.h"
 #include "core/assert_cast.h"
 #include "core/column/column_vector.h"
+#include "storage/predicate/null_predicate.h"
 #include "storage/segment/column_reader_cache.h"
 #include "storage/segment/row_ranges.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/segment_iterator.h"
 #include "storage/segment/virtual_column_iterator.h"
+#include "util/defer_op.h"
 
 namespace doris::segment_v2 {
 
 class VariantProjectionInitTest : public testing::Test {
 protected:
     void SetUp() override {
+        _opts.io_ctx.reader_type = ReaderType::READER_QUERY;
         _schema = std::make_shared<TabletSchema>();
         TabletSchemaPB schema_pb;
         schema_pb.set_keys_type(DUP_KEYS);
@@ -62,24 +67,104 @@ protected:
                 _segment, std::make_shared<ReadSchema>(_schema->columns()), _opts);
     }
 
+    void check_vector_filter(bool select_nulls, bool later_survivors = false) {
+        if (later_survivors) {
+            _opts.block_row_max = 4;
+        }
+        auto iterator = make_iterator();
+        ASSERT_TRUE(iterator->init(_opts).ok());
+        auto block = iterator->schema().create_read_block();
+        ASSERT_TRUE(iterator->_lazy_init(&block).ok());
+        // Install a vector predicate after storage pruning. The synthetic key
+        // column supplies eight NULLs; IS NOT NULL rejects all eight rows.
+        iterator->_column_states[0].has_scan_pred = true;
+        iterator->_is_need_vec_eval = true;
+        iterator->_pre_eval_block_predicate.push_back(
+                NullPredicate::create_shared(0, "k", select_nulls, PrimitiveType::TYPE_INT));
+        iterator->_predicate_ordinals = {0};
+        iterator->_output_ordinals = {1};
+        iterator->_current_columns[0] = ReadSchema::get_predicate_column_ptr(
+                iterator->_storage_name_and_type[0].second, _opts.io_ctx.reader_type);
+        ASSERT_TRUE(iterator->next_batch(&block).ok());
+        EXPECT_EQ(block.rows(), select_nulls ? 8 : 0);
+        EXPECT_EQ(iterator->_column_iterators[1] != nullptr, select_nulls);
+        EXPECT_EQ(_stats.raw_rows_read, later_survivors ? 4 : 8);
+        if (select_nulls) {
+            EXPECT_TRUE(block.get_by_position(1).column->is_null_at(0));
+        }
+        if (later_survivors) {
+            check_later_survivors(*iterator, block);
+        }
+    }
+
+    void check_later_survivors(SegmentIterator& iterator, Block& block) const {
+        // The first four rows were rejected. The next batch must open and
+        // read the projection at rowid 4 rather than treating it as EOF.
+        iterator._pre_eval_block_predicate[0] =
+                NullPredicate::create_shared(0, "k", true, PrimitiveType::TYPE_INT);
+        ASSERT_TRUE(iterator.next_batch(&block).ok());
+        EXPECT_EQ(block.rows(), 4);
+        EXPECT_NE(iterator._column_iterators[1], nullptr);
+        EXPECT_TRUE(block.get_by_position(1).column->is_null_at(0));
+        EXPECT_EQ(_stats.raw_rows_read, 8);
+    }
+
     TabletSchemaSPtr _schema;
     std::shared_ptr<Segment> _segment;
     OlapReaderStatistics _stats;
     StorageReadOptions _opts {_stats};
 };
 
-TEST_F(VariantProjectionInitTest, InitializeProjectionOnlyForSurvivingRows) {
+TEST_F(VariantProjectionInitTest, InitializeProjectionAtFirstRead) {
     auto iterator = make_iterator();
     ASSERT_TRUE(iterator->init(_opts).ok());
     EXPECT_NE(iterator->_column_iterators[0], nullptr);
     EXPECT_EQ(iterator->_column_iterators[1], nullptr);
     auto block = iterator->schema().create_read_block();
     ASSERT_TRUE(iterator->_lazy_init(&block).ok());
-    EXPECT_NE(iterator->_column_iterators[1], nullptr);
+    EXPECT_EQ(iterator->_column_iterators[1], nullptr);
     EXPECT_EQ(iterator->_row_bitmap.cardinality(), 8);
     ASSERT_TRUE(iterator->next_batch(&block).ok());
     EXPECT_EQ(block.rows(), 8);
+    EXPECT_NE(iterator->_column_iterators[1], nullptr);
     EXPECT_TRUE(block.get_by_position(1).column->is_null_at(0));
+}
+
+TEST_F(VariantProjectionInitTest, VectorPredicateRejectsRowsWithoutOpeningProjection) {
+    check_vector_filter(false);
+}
+
+TEST_F(VariantProjectionInitTest, VectorPredicateSurvivorsReadDeferredProjection) {
+    check_vector_filter(true);
+}
+
+TEST_F(VariantProjectionInitTest, LaterBatchSurvivorsReadDeferredProjection) {
+    check_vector_filter(false, true);
+}
+
+TEST_F(VariantProjectionInitTest, CompactionInitializesProjectionBeforeRead) {
+    _opts.io_ctx.reader_type = ReaderType::READER_BASE_COMPACTION;
+    auto iterator = make_iterator();
+    ASSERT_TRUE(iterator->init(_opts).ok());
+    auto block = iterator->schema().create_read_block();
+    ASSERT_TRUE(iterator->_lazy_init(&block).ok());
+    EXPECT_NE(iterator->_column_iterators[1], nullptr);
+}
+
+TEST_F(VariantProjectionInitTest, CloudPrefetchInitializesProjectionBeforeRead) {
+    const auto old_cloud_id = config::cloud_unique_id;
+    const auto old_prefetch = config::enable_query_segment_file_cache_prefetch;
+    Defer restore_config([&] {
+        config::cloud_unique_id = old_cloud_id;
+        config::enable_query_segment_file_cache_prefetch = old_prefetch;
+    });
+    config::cloud_unique_id = "variant_projection_init_test";
+    config::enable_query_segment_file_cache_prefetch = true;
+    auto iterator = make_iterator();
+    ASSERT_TRUE(iterator->init(_opts).ok());
+    auto block = iterator->schema().create_read_block();
+    ASSERT_TRUE(iterator->_lazy_init(&block).ok());
+    EXPECT_NE(iterator->_column_iterators[1], nullptr);
 }
 
 TEST_F(VariantProjectionInitTest, DeletedRowsDoNotInitializeProjection) {

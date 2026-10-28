@@ -69,6 +69,25 @@ suite("test_variant_projection_deferred_init", "p0") {
         SELECT k, CAST(attrs AS STRING) FROM variant_projection_deferred_init WHERE tag = 'null'
     """
 
+    // Computed predicates require row evaluation; rejected rowsets must not
+    // open the wide VARIANT projection before that evaluation finishes.
+    order_qt_computed_root """
+        SELECT k, CAST(attrs AS STRING) FROM variant_projection_deferred_init
+        WHERE md5(tag) = md5('match')
+    """
+    order_qt_computed_empty """
+        SELECT k, CAST(attrs AS STRING) FROM variant_projection_deferred_init
+        WHERE md5(tag) = md5('absent')
+    """
+    order_qt_computed_null """
+        SELECT k, CAST(attrs AS STRING) FROM variant_projection_deferred_init
+        WHERE md5(tag) = md5('null')
+    """
+    order_qt_variant_expression_only """
+        SELECT k, CAST(attrs AS STRING) FROM variant_projection_deferred_init
+        WHERE CAST(attrs['a']['x'] AS INT) >= 8
+    """
+
     sql "SET enable_inverted_index_query = false"
     order_qt_vector_root """
         SELECT k, CAST(attrs AS STRING) FROM variant_projection_deferred_init WHERE tag = 'match'
