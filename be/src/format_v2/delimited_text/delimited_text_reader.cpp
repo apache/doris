@@ -443,6 +443,13 @@ Status DelimitedTextReader::close() {
         _line_reader.reset();
     }
     _decompressor.reset();
+    // Stream pipes are shared with the load context; preserve their existing ownership and
+    // cancellation behavior. Only filesystem readers enter the sequential prefetch path.
+    if (_file_reader != nullptr && _scan_params->file_type != TFileType::FILE_STREAM) {
+        // Drain prefetch workers before publishing their counters or releasing IOContext refs.
+        RETURN_IF_ERROR(_file_reader->close());
+        _file_reader->collect_profile_before_close();
+    }
     _file_reader.reset();
     _tracing_file_reader.reset();
     _requested_columns.clear();

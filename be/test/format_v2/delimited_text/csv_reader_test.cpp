@@ -47,6 +47,7 @@
 #include "exprs/vexpr_context.h"
 #include "format/csv/csv_reader.h"
 #include "format_v2/column_mapper.h"
+#include "io/fs/stream_load_pipe.h"
 #include "io/io_common.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_profile.h"
@@ -651,7 +652,14 @@ TEST_F(CsvV2ReaderTest, S3PrefetchPreservesSplitRowsAndReadStatistics) {
         EXPECT_EQ(nullable_string_at(*block.get_by_position(1).column, rows - 1), "carol");
         EXPECT_GT(stats.read_calls, 0);
         EXPECT_GT(stats.read_bytes, 0);
+        const auto previous_prefetch_io = counter_value(&_profile, "PreRequestIO");
         ASSERT_TRUE(reader->close().ok());
+        EXPECT_GT(counter_value(&_profile, "PreRequestIO"), previous_prefetch_io);
+        EXPECT_GT(counter_value(&_profile, "PreRequestBytes"), 0);
+        EXPECT_GT(counter_value(&_profile, "ReadTime"), 0);
+        const auto collected_prefetch_io = counter_value(&_profile, "PreRequestIO");
+        ASSERT_TRUE(reader->close().ok());
+        EXPECT_EQ(counter_value(&_profile, "PreRequestIO"), collected_prefetch_io);
     }
     EXPECT_GT(client->reads.load(), 0);
     EXPECT_EQ(client->foreground_reads.load(), 0);
@@ -1070,6 +1078,17 @@ TEST_F(CsvV2ReaderTest, StreamInputRequiresLoadIdBeforeOpeningPipe) {
     ASSERT_FALSE(status.ok());
     EXPECT_NE(status.to_string().find("stream reader requires load id"), std::string::npos)
             << status;
+}
+
+TEST_F(CsvV2ReaderTest, ClosePreservesSharedStreamPipe) {
+    _params.__set_file_type(TFileType::FILE_STREAM);
+    auto reader = create_unknown_size_reader(_file_path, &_params, _slots, &_state, &_profile);
+    auto pipe = std::make_shared<io::StreamLoadPipe>();
+    reader->_file_reader = pipe;
+    ASSERT_TRUE(reader->close().ok());
+    EXPECT_FALSE(pipe->closed());
+    reader.reset();
+    EXPECT_FALSE(pipe->closed());
 }
 
 // Scenario: CSV has no footer row count, so v2 COUNT pushdown scans the split and returns the
