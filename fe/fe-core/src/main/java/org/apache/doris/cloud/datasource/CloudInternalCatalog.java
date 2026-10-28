@@ -690,9 +690,9 @@ public class CloudInternalCatalog extends InternalCatalog {
         rowsetBuilder.setEmpty(true);
 
         UUID uuid = UUID.randomUUID();
-        String rowsetIdV2Str = String.format("%016X", 2L << 56)
-                + String.format("%016X", uuid.getMostSignificantBits())
-                + String.format("%016X", uuid.getLeastSignificantBits());
+        String rowsetIdV2Str = String.format("%016x", 2L << 56)
+                + String.format("%016x", uuid.getMostSignificantBits())
+                + String.format("%016x", uuid.getLeastSignificantBits());
         rowsetBuilder.setRowsetIdV2(rowsetIdV2Str);
 
         rowsetBuilder.setTabletSchema(schema);
