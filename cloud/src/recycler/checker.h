@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <gen_cpp/cloud.pb.h>
-
 #include "resource-manager/resource_manager.h"
 #if defined(USE_LIBCPP) && _LIBCPP_ABI_VERSION <= 1
 #define _LIBCPP_ABI_INCOMPLETE_TYPES_IN_DEQUE
@@ -161,7 +159,6 @@ private:
     // location -> all instance/resource pairs located there
     std::map<StorageLocation, std::vector<SharedResourceOwner>> location_to_owners_;
 };
-
 
 class Checker {
 public:
