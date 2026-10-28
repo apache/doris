@@ -82,6 +82,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.resource.computegroup.ComputeGroupBindingUtil;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TCell;
@@ -331,6 +332,10 @@ public class MTMVTask extends AbstractTask {
         }
         mtmvSchemaChangeVersion = mtmv.getSchemaChangeVersion();
         ConnectContext ctx = MTMVPlanUtil.createMTMVContext(mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
+        // The planning done on this context (base table resolution, partition calculation) must see
+        // the same compute group the refresh will execute in, otherwise the workload group would be
+        // looked up in a different namespace.
+        applyComputeGroup(ctx);
         try {
             if (LOG.isDebugEnabled()) {
                 String taskSessionContext = ctx.getSessionVariable().toJson().toJSONString();
@@ -917,6 +922,7 @@ public class MTMVTask extends AbstractTask {
                         MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
                 try {
                     setupComputeGroup(ivmConnectContext);
+                    checkComputeGroupBeforeTask(ivmConnectContext);
                     IvmIncrRefreshContext ivmIncrRefreshContext = new IvmIncrRefreshContext(mtmv,
                             ivmConnectContext,
                             getRefreshAuditStmt(RefreshMode.INCREMENTAL, Sets.newHashSet(incrementalScope)),
@@ -1603,6 +1609,7 @@ public class MTMVTask extends AbstractTask {
                 .from(mtmv, mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE
                         ? refreshPartitionNames : Sets.newHashSet(), tableWithPartKey, statementContext);
         setupComputeGroup(mtmvCtx);
+        checkComputeGroupBeforeTask(mtmvCtx);
         AtomicReference<IvmPlanSignature> signatureRef = new AtomicReference<>();
         try {
             MTMVPlanUtil.executeCommand(mtmvCtx, command, statementContext,
@@ -1668,16 +1675,41 @@ public class MTMVTask extends AbstractTask {
             computeGroup = FeConstants.null_string;
             return;
         }
-        String taskComputeGroup = taskContext.getComputeGroup();
-        if (!Strings.isNullOrEmpty(taskComputeGroup)) {
-            ctx.setCloudCluster(taskComputeGroup);
-        }
+        applyComputeGroup(ctx);
         try {
             computeGroup = ctx.getCloudCluster(false);
         } catch (ComputeGroupException e) {
             computeGroup = FeConstants.null_string;
             LOG.warn("failed to resolve compute group for mtmv task, taskId: {}", getTaskId(), e);
         }
+    }
+
+    private void applyComputeGroup(ConnectContext ctx) {
+        // A compute group declared on the MV pins every refresh, automatic or manual, to that group.
+        // Only when the MV declares nothing does a manual REFRESH keep borrowing the session's group,
+        // which is the behaviour every existing MV keeps.
+        String effective = mtmv.getComputeGroup().orElse(taskContext.getComputeGroup());
+        if (!Strings.isNullOrEmpty(effective)) {
+            // A no-op outside cloud mode.
+            ctx.setCloudCluster(effective);
+        }
+    }
+
+    /**
+     * Re-checks the declared compute group before the refresh runs: it can be dropped and its
+     * privileges revoked while the MV exists, and without this the refresh would fail later with an
+     * unrelated message.
+     *
+     * <p>The identity used here is whatever the refresh actually runs as, which today is the
+     * hardcoded {@code admin} (see {@link MTMVPlanUtil#createBasicMvContext}). That makes the
+     * privilege half of the check always pass; the existence half is what has teeth right now. Once
+     * an MV carries a real owner, passing that owner here is the only change needed.
+     */
+    private void checkComputeGroupBeforeTask(ConnectContext ctx) throws UserException {
+        // Only the explicitly declared compute group is re-checked; an MV that declares none borrows
+        // the session's group, which the user never chose for it.
+        ComputeGroupBindingUtil.checkComputeGroupBeforeTask(ctx.getCurrentUserIdentity(),
+                mtmv.getComputeGroup().orElse(null));
     }
 
     private void recordQueryId(String queryId) {

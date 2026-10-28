@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.commands.load.LoadProperty;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.resource.computegroup.ComputeGroupBindingUtil;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
@@ -74,6 +75,7 @@ public class AlterRoutineLoadCommand extends AlterCommand {
             .add(CreateRoutineLoadInfo.STRICT_MODE)
             .add(CreateRoutineLoadInfo.TIMEZONE)
             .add(CreateRoutineLoadInfo.WORKLOAD_GROUP)
+            .add(CreateRoutineLoadInfo.COMPUTE_GROUP)
             .add(JsonFileFormatProperties.PROP_JSON_PATHS)
             .add(JsonFileFormatProperties.PROP_STRIP_OUTER_ARRAY)
             .add(JsonFileFormatProperties.PROP_NUM_AS_STRING)
@@ -162,7 +164,7 @@ public class AlterRoutineLoadCommand extends AlterCommand {
         labelNameInfo.validate(ctx);
         FeNameFormat.checkCommonName(NAME_TYPE, labelNameInfo.getLabel());
         // check routine load job properties include desired concurrent number etc.
-        checkJobProperties();
+        checkJobProperties(ctx);
         // check load properties
         RoutineLoadJob job = Env.getCurrentEnv().getRoutineLoadManager()
                 .getJob(getDbName(), getJobName());
@@ -177,7 +179,7 @@ public class AlterRoutineLoadCommand extends AlterCommand {
         }
     }
 
-    private void checkJobProperties() throws UserException {
+    private void checkJobProperties(ConnectContext ctx) throws UserException {
         Optional<String> optional = jobProperties.keySet().stream().filter(
                 entity -> !CONFIGURABLE_JOB_PROPERTIES_SET.contains(entity)).findFirst();
         if (optional.isPresent()) {
@@ -285,6 +287,16 @@ public class AlterRoutineLoadCommand extends AlterCommand {
             // Validate the mode string
             CreateRoutineLoadInfo.parseAndValidateUniqueKeyUpdateMode(modeStr);
             analyzedJobProperties.put(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE, modeStr.toUpperCase());
+        }
+
+        if (jobProperties.containsKey(CreateRoutineLoadInfo.COMPUTE_GROUP)) {
+            String computeGroup = jobProperties.get(CreateRoutineLoadInfo.COMPUTE_GROUP);
+            if (!StringUtil.isEmpty(computeGroup)) {
+                // Unlike workload group, the compute group can be fully validated right here, so do
+                // it now instead of letting a bad name pause the whole job on the next task.
+                ComputeGroupBindingUtil.validateDeclaredComputeGroup(ctx, computeGroup);
+                analyzedJobProperties.put(CreateRoutineLoadInfo.COMPUTE_GROUP, computeGroup);
+            }
         }
 
         if (jobProperties.containsKey(CreateRoutineLoadInfo.WORKLOAD_GROUP)) {
