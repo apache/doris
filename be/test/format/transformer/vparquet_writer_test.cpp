@@ -49,7 +49,7 @@
 #include "core/data_type/data_type_variant_v2.h"
 #include "exec/sink/writer/iceberg/viceberg_partition_writer.h"
 #include "exec/sink/writer/vhive_partition_writer.h"
-#include "exprs/function/geo/functions_geo.h"
+#include "exprs/function/geo/spatial_wkb_validation.h"
 #include "exprs/function/parse/variant_string_parse.h"
 #include "format/table/iceberg/schema_parser.h"
 #include "format/transformer/viceberg_parquet_writer.h"

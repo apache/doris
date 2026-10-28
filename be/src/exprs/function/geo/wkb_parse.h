@@ -51,9 +51,6 @@ public:
                                              bool geographic = false);
     static Status validate_spatial_wkb(const char* data, size_t size, bool geographic, size_t row);
     static GeoParseStatus wkb_to_wkt(const char* data, size_t size, std::string* wkt);
-    // Retain original XY ordinates when proving common meridians/equator for calculations.
-    static GeoParseStatus xy_coordinates(const char* data, size_t size,
-                                         GeoCoordinateList* coordinates);
     // Preserve sequence/ring boundaries for admitted XY calculation shapes.
     static GeoParseStatus calculation_coordinates(const char* data, size_t size,
                                                   GeoCoordinateListList* sequences,

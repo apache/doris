@@ -1151,14 +1151,9 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             spatial |= IcebergSpatialSchemaValidator.containsSpatial(field.type());
         }
         if (spatial) {
-            String fileFormat = IcebergSchemaBuilder.getEffectiveTableProperty(
-                    request.getProperties(), properties, "write-format");
-            if (fileFormat == null) {
-                fileFormat = IcebergSchemaBuilder.getEffectiveTableProperty(request.getProperties(), properties,
-                        TableProperties.DEFAULT_FILE_FORMAT);
-            }
             IcebergSpatialSchemaValidator.validateTable(
-                    IcebergSchemaBuilder.getEffectiveFormatVersion(request.getProperties(), properties), fileFormat);
+                    IcebergSchemaBuilder.getEffectiveFormatVersion(request.getProperties(), properties),
+                    IcebergSchemaBuilder.getEffectiveFileFormatName(request.getProperties(), properties));
         }
         PartitionSpec partitionSpec = IcebergSchemaBuilder.buildPartitionSpec(request.getPartitionSpec(), schema);
         SortOrder sortOrder = IcebergSchemaBuilder.buildSortOrder(request.getSortOrder(), schema);

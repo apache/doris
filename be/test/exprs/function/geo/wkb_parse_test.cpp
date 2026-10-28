@@ -88,12 +88,12 @@ TEST_F(WkbParseTest, RawCoordinatesKeepSourceOrdinateBits) {
         const std::string input(hex);
         std::string bytes(input.size() / 2, '\0');
         ASSERT_EQ(string_hex::hex_decode(input.data(), input.size(), bytes.data()), bytes.size());
-        GeoCoordinateList coordinates;
-        ASSERT_EQ(WkbParse::xy_coordinates(bytes.data(), bytes.size(), &coordinates),
+        double x;
+        double y;
+        ASSERT_EQ(WkbParse::point_coordinates(bytes.data(), bytes.size(), &x, &y),
                   GeoParseStatus::GEO_PARSE_OK);
-        ASSERT_EQ(coordinates.list.size(), 1);
-        EXPECT_DOUBLE_EQ(coordinates.list[0].x, 10);
-        EXPECT_DOUBLE_EQ(coordinates.list[0].y, 45);
+        EXPECT_DOUBLE_EQ(x, 10);
+        EXPECT_DOUBLE_EQ(y, 45);
     }
 }
 TEST_F(WkbParseTest, ByteShapesMatchLegacyHexAndOwnCoordinates) {

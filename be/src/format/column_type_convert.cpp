@@ -20,7 +20,7 @@
 #include "common/cast_set.h"
 #include "core/column/column_nullable.h"
 #include "core/data_type/define_primitive_type.h"
-#include "exprs/function/geo/functions_geo.h"
+#include "exprs/function/geo/spatial_wkb_validation.h"
 
 namespace doris::converter {
 

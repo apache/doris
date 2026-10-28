@@ -28,6 +28,7 @@
 #include "core/data_type/data_type.h"
 #include "core/types.h"
 #include "exprs/function/function.h"
+#include "exprs/function/geo/spatial_wkb_validation.h"
 #include "exprs/function_context.h"
 
 namespace doris {
@@ -52,19 +53,6 @@ struct StContainsState {
     bool is_null;
     std::vector<std::shared_ptr<GeoShape>> shapes;
 };
-
-#ifdef BE_TEST
-size_t geography_calculation_edges_for_test(const std::string& left, const std::string& right,
-                                            size_t* exact_proofs = nullptr,
-                                            size_t* candidate_visits = nullptr);
-#endif
-
-Status validate_spatial_wkb_inputs(const Block& block, const ColumnNumbers& arguments);
-
-// Decode physical binary storage using the spatial identity supplied by the table schema.
-Status append_spatial_wkb(const ColumnPtr& source, IColumn& destination,
-                          const DataTypePtr& spatial_type,
-                          const NullMap::value_type* null_map = nullptr);
 
 template <typename Impl>
 class GeoFunction : public IFunction {

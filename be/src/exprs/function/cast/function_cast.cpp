@@ -32,7 +32,7 @@
 #include "exprs/function/cast/cast_to_struct.h"
 #include "exprs/function/cast/cast_wrapper_decls.h"
 #include "exprs/function/cast/variant_v2/cast_variant_v2.h"
-#include "exprs/function/geo/functions_geo.h"
+#include "exprs/function/geo/spatial_wkb_validation.h"
 #include "exprs/function/simple_function_factory.h"
 
 namespace doris {

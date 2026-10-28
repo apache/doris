@@ -19,6 +19,7 @@ package org.apache.doris.datasource.connector.converter;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.nereids.CTEContext;
+import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -209,6 +210,72 @@ public final class ConnectorSpatialWriteNormalizer {
         }
     }
 
+    public static Expression normalizeSpatialNullsBeforeBinding(Expression input, DataType target) {
+        if (!target.toCatalogDataType().typeContainsSpatialType()) {
+            return input;
+        }
+        Expression origin = input;
+        while (origin instanceof Cast) {
+            origin = origin.child(0);
+        }
+        if (origin.isNullLiteral()) {
+            return new NullLiteral(target);
+        }
+        String constructor = "";
+        if (input instanceof UnboundFunction) {
+            UnboundFunction function = (UnboundFunction) input;
+            // Qualified or DISTINCT/skew calls are not these built-in container constructors.
+            if (function.getDbName() != null || function.isDistinct() || function.isSkew()) {
+                return input;
+            }
+            constructor = function.getName();
+        }
+        List<Expression> children = new ArrayList<>(input.children());
+        if ((input instanceof Array || constructor.equalsIgnoreCase("array")) && target instanceof ArrayType) {
+            children.replaceAll(child -> normalizeSpatialNullsBeforeBinding(child,
+                    ((ArrayType) target).getItemType()));
+        } else if ((input instanceof CreateMap || constructor.equalsIgnoreCase("map")) && target instanceof MapType
+                && input.arity() % 2 == 0) {
+            MapType map = (MapType) target;
+            for (int i = 0; i < children.size(); i++) {
+                children.set(i, normalizeSpatialNullsBeforeBinding(children.get(i),
+                        i % 2 == 0 ? map.getKeyType() : map.getValueType()));
+            }
+        } else if (target instanceof StructType) {
+            boolean named = input instanceof CreateNamedStruct || constructor.equalsIgnoreCase("named_struct");
+            int step = named ? 2 : 1;
+            StructType struct = (StructType) target;
+            // Wrong field counts must retain the original binder's error, not index a target field.
+            if (!(named || input instanceof CreateStruct || constructor.equalsIgnoreCase("struct"))
+                    || input.arity() != step * struct.getFields().size()) {
+                return input;
+            }
+            for (int i = step - 1; i < children.size(); i += step) {
+                children.set(i, normalizeSpatialNullsBeforeBinding(children.get(i),
+                        struct.getFields().get(i / step).getDataType()));
+            }
+        }
+        if (children.equals(input.children())) {
+            return input;
+        }
+        return rebuildConstructor(input, children);
+    }
+
+    private static Expression rebuildConstructor(Expression input, List<Expression> children) {
+        // Bound withChildren preserves a cached signature such as ARRAY<INT>.
+        // New typed NULL leaves must recompute the built-in constructor's signature.
+        if (input instanceof Array) {
+            return new Array(children);
+        } else if (input instanceof CreateMap) {
+            return new CreateMap(children.toArray(new Expression[0]));
+        } else if (input instanceof CreateNamedStruct) {
+            return new CreateNamedStruct(children.toArray(new Expression[0]));
+        } else if (input instanceof CreateStruct) {
+            return new CreateStruct(children.toArray(new Expression[0]));
+        }
+        return input.withChildren(children);
+    }
+
     public static Expression normalizeSpatialNulls(Expression input, DataType target) {
         if (!target.toCatalogDataType().typeContainsSpatialType()) {
             return input;
@@ -223,24 +290,24 @@ public final class ConnectorSpatialWriteNormalizer {
         // Binding folds CAST(NULL), but does not fold every container constructor to a literal.
         // Rebuild just these constructors after identity validation, retaining names and ordinary siblings.
         if (input instanceof Array && target instanceof ArrayType) {
-            return new Array(input.children().stream()
+            return rebuildConstructor(input, input.children().stream()
                     .map(child -> normalizeSpatialNulls(child, ((ArrayType) target).getItemType()))
                     .collect(ImmutableList.toImmutableList()));
         }
         if (input instanceof CreateMap && target instanceof MapType) {
             MapType map = (MapType) target;
-            return new CreateMap(IntStream.range(0, input.arity()).mapToObj(i -> normalizeSpatialNulls(
+            return rebuildConstructor(input, IntStream.range(0, input.arity()).mapToObj(i -> normalizeSpatialNulls(
                     input.child(i), i % 2 == 0 ? map.getKeyType() : map.getValueType()))
-                    .toArray(Expression[]::new));
+                    .collect(ImmutableList.toImmutableList()));
         }
         if ((input instanceof CreateStruct || input instanceof CreateNamedStruct) && target instanceof StructType) {
             StructType struct = (StructType) target;
             int step = input instanceof CreateNamedStruct ? 2 : 1;
-            Expression[] children = IntStream.range(0, input.arity())
+            List<Expression> children = IntStream.range(0, input.arity())
                     .mapToObj(i -> step == 2 && i % 2 == 0 ? input.child(i)
                             : normalizeSpatialNulls(input.child(i), struct.getFields().get(i / step).getDataType()))
-                    .toArray(Expression[]::new);
-            return step == 2 ? new CreateNamedStruct(children) : new CreateStruct(children);
+                    .collect(ImmutableList.toImmutableList());
+            return rebuildConstructor(input, children);
         }
         return input;
     }

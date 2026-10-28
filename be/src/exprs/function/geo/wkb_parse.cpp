@@ -102,13 +102,8 @@ GeoParseStatus read_wkb_type(WkbParseContext& ctx, uint32_t* type, uint32_t* dim
 class RawWkbReader {
 public:
     RawWkbReader(WkbParseContext& context, bool geographic, std::ostream* output = nullptr,
-                 GeoCoordinateList* coordinates = nullptr,
                  GeoCoordinateListList* sequences = nullptr)
-            : _ctx(context),
-              _geographic(geographic),
-              _output(output),
-              _coordinates(coordinates),
-              _sequences(sequences) {}
+            : _ctx(context), _geographic(geographic), _output(output), _sequences(sequences) {}
 
     GeoParseStatus read() {
         do {
@@ -209,9 +204,6 @@ private:
             if (std::isinf(_coordinate[i])) {
                 return false;
             }
-        }
-        if (_coordinates != nullptr) {
-            _coordinates->add({.x = _coordinate[0], .y = _coordinate[1]});
         }
         if (_sequences != nullptr) {
             _sequences->list.back()->add({.x = _coordinate[0], .y = _coordinate[1]});
@@ -347,7 +339,6 @@ private:
     WkbParseContext& _ctx;
     const bool _geographic;
     std::ostream* const _output;
-    GeoCoordinateList* const _coordinates;
     GeoCoordinateListList* const _sequences;
     uint32_t _root_type = 0;
     uint32_t _dimensions = 0;
@@ -466,15 +457,6 @@ GeoParseStatus WkbParse::wkb_to_wkt(const char* data, size_t size, std::string* 
     return status;
 }
 
-GeoParseStatus WkbParse::xy_coordinates(const char* data, size_t size,
-                                        GeoCoordinateList* coordinates) {
-    WkbParseContext ctx;
-    if (initialize_context(data, size, &ctx) != GeoParseStatus::GEO_PARSE_OK) {
-        return GeoParseStatus::GEO_PARSE_WKB_SYNTAX_ERROR;
-    }
-    return RawWkbReader(ctx, false, nullptr, coordinates).read();
-}
-
 GeoParseStatus WkbParse::calculation_coordinates(const char* data, size_t size,
                                                  GeoCoordinateListList* sequences,
                                                  GeoShapeType* type) {
@@ -493,7 +475,7 @@ GeoParseStatus WkbParse::calculation_coordinates(const char* data, size_t size,
     // Rewind the same byte cursor; no payload copy or second WKB grammar.
     const auto initialized = initialize_context(data, size, &ctx);
     DCHECK_EQ(initialized, GeoParseStatus::GEO_PARSE_OK);
-    const auto status = RawWkbReader(ctx, true, nullptr, nullptr, sequences).read();
+    const auto status = RawWkbReader(ctx, true, nullptr, sequences).read();
     if (status != GeoParseStatus::GEO_PARSE_OK) {
         return status;
     }

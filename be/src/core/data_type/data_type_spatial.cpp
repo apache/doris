@@ -27,6 +27,7 @@
 #include "core/assert_cast.h"
 #include "core/column/column_const.h"
 #include "core/data_type/data_type.h"
+#include "core/data_type/data_type_binary_serialization.h"
 #include "core/data_type_serde/data_type_varbinary_serde.h"
 #include "core/field.h"
 #include "core/string_view.h"
@@ -133,52 +134,16 @@ Status DataTypeSpatial::check_column(const IColumn& column) const {
 
 int64_t DataTypeSpatial::get_uncompressed_serialized_bytes(const IColumn& column,
                                                            int be_exec_version) const {
-    const IColumn* data_column = &column;
-    const bool is_const = is_column_const(column);
-    const size_t stored_rows = is_const ? 1 : column.size();
-    if (is_const) {
-        data_column = &assert_cast<const ColumnConst&>(column).get_data_column();
-    }
-    const auto& spatial = assert_cast<const ColumnSpatial&>(*data_column);
-    size_t payload_size = 0;
-    for (size_t i = 0; i < stored_rows; ++i) {
-        payload_size += spatial.get_data_at(i).size;
-    }
-    return sizeof(bool) + sizeof(size_t) * (2 + stored_rows) + payload_size;
+    return get_binary_column_serialized_bytes<ColumnSpatial>(column);
 }
 
 char* DataTypeSpatial::serialize(const IColumn& column, char* buf, int be_exec_version) const {
-    const IColumn* data_column = &column;
-    size_t stored_rows = 0;
-    buf = serialize_const_flag_and_row_num(&data_column, buf, &stored_rows);
-    const auto& spatial = assert_cast<const ColumnSpatial&>(*data_column);
-    auto* sizes = reinterpret_cast<size_t*>(buf);
-    for (size_t i = 0; i < stored_rows; ++i) {
-        unaligned_store<size_t>(&sizes[i], spatial.get_data_at(i).size);
-    }
-    char* payload = buf + sizeof(size_t) * stored_rows;
-    for (size_t i = 0; i < stored_rows; ++i) {
-        const auto value = spatial.get_data_at(i);
-        memcpy(payload, value.data, value.size);
-        payload += value.size;
-    }
-    return payload;
+    return serialize_binary_column<ColumnSpatial>(column, buf);
 }
 
 const char* DataTypeSpatial::deserialize(const char* buf, MutableColumnPtr* column,
                                          int be_exec_version) const {
-    auto* original = column->get();
-    size_t stored_rows = 0;
-    buf = deserialize_const_flag_and_row_num(buf, column, &stored_rows);
-    auto& spatial = assert_cast<ColumnSpatial&>(*original);
-    const auto* sizes = reinterpret_cast<const size_t*>(buf);
-    const char* payload = buf + sizeof(size_t) * stored_rows;
-    for (size_t i = 0; i < stored_rows; ++i) {
-        const auto size = unaligned_load<size_t>(&sizes[i]);
-        spatial.insert_data(payload, size);
-        payload += size;
-    }
-    return payload;
+    return deserialize_binary_column<ColumnSpatial>(buf, column);
 }
 
 Field DataTypeSpatial::get_field(const TExprNode& /* node */) const {

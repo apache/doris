@@ -30,7 +30,7 @@
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
 #include "core/value/uuid_value.h"
-#include "exprs/function/geo/functions_geo.h"
+#include "exprs/function/geo/spatial_wkb_validation.h"
 
 namespace doris::parquet {
 const cctz::time_zone ConvertParams::utc0 = cctz::utc_time_zone();

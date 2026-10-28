@@ -147,6 +147,55 @@ TEST(DataTypeSpatialTest, DefaultCrsCaseIsCanonicalButCustomCrsIsPreserved) {
     }
 }
 
+static void check_binary_block_layout(PrimitiveType primitive, bool constant, size_t rows) {
+    const std::vector<std::string> values {"", std::string("a\0b", 3), std::string(64, 'w')};
+    const auto version = BeExecVersionManager::get_newest_version();
+    // Const columns retain one stored value even for zero logical rows.
+    const size_t stored = constant ? 1 : rows;
+    std::string expected;
+    const auto append = [&expected](const auto& value) {
+        expected.append(reinterpret_cast<const char*>(&value), sizeof(value));
+    };
+    append(constant);
+    append(rows);
+    append(stored);
+    for (size_t row = 0; row < stored; ++row) {
+        append(values[row].size());
+    }
+    for (size_t row = 0; row < stored; ++row) {
+        expected.append(values[row]);
+    }
+    const auto type = DataTypeFactory::instance().create_data_type(primitive, false);
+    auto data = type->create_column();
+    for (size_t row = 0; row < stored; ++row) {
+        data->insert_data(values[row].data(), values[row].size());
+    }
+    ColumnPtr column =
+            constant ? ColumnConst::create(std::move(data), rows) : ColumnPtr(std::move(data));
+    ASSERT_EQ(type->get_uncompressed_serialized_bytes(*column, version), expected.size());
+    std::string actual(expected.size(), '\0');
+    EXPECT_EQ(type->serialize(*column, actual.data(), version), actual.data() + actual.size());
+    EXPECT_EQ(actual, expected);
+    auto restored = type->create_column();
+    EXPECT_EQ(type->deserialize(expected.data(), &restored, version),
+              expected.data() + expected.size());
+    ASSERT_EQ(restored->size(), rows);
+    EXPECT_EQ(is_column_const(*restored), constant);
+    for (size_t row = 0; row < rows; ++row) {
+        EXPECT_EQ(restored->get_data_at(row).to_string(), values[constant ? 0 : row]);
+    }
+}
+
+TEST(DataTypeSpatialTest, BinaryBlockLayoutRemainsCompatible) {
+    for (const bool constant : {false, true}) {
+        for (const size_t rows : {0, 1, 3}) {
+            for (const auto primitive : {TYPE_VARBINARY, TYPE_GEOMETRY, TYPE_GEOGRAPHY}) {
+                check_binary_block_layout(primitive, constant, rows);
+            }
+        }
+    }
+}
+
 static void check_spatial_trim_memory(PrimitiveType primitive, size_t payload_size) {
     auto column = ColumnSpatial::create(primitive);
     const std::string first(payload_size, 'a');

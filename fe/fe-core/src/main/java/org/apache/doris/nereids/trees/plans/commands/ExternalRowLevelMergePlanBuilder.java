@@ -22,16 +22,15 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.connector.converter.ConnectorSpatialWriteNormalizer;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
-import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.LogicalPlanBuilderAssistant;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
@@ -39,10 +38,6 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateNamedStruct;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateStruct;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
@@ -55,11 +50,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
-import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.IntegerType;
-import org.apache.doris.nereids.types.MapType;
-import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
@@ -323,7 +315,7 @@ public class ExternalRowLevelMergePlanBuilder {
                 // the eager complex cast before sink NULL normalization. Retag only proven
                 // NULL leaves; retain actual values and ordinary siblings for normal validation.
                 if (spatialTarget) {
-                    value = normalizeSpatialNullsBeforeBinding(value, outputType);
+                    value = ConnectorSpatialWriteNormalizer.normalizeSpatialNullsBeforeBinding(value, outputType);
                 }
                 Expression branch = TypeCoercionUtils.castUnbound(value, outputType);
                 project = MergeUtils.selectBranch(
@@ -333,68 +325,6 @@ public class ExternalRowLevelMergePlanBuilder {
             output.add(new UnboundAlias(project, colNames.get(i)));
         }
         return output;
-    }
-
-    private static Expression normalizeSpatialNullsBeforeBinding(Expression input, DataType target) {
-        if (!target.toCatalogDataType().typeContainsSpatialType()) {
-            return input;
-        }
-        Expression origin = input;
-        while (origin instanceof Cast) {
-            origin = origin.child(0);
-        }
-        if (origin.isNullLiteral()) {
-            return new NullLiteral(target);
-        }
-        String constructor = "";
-        if (input instanceof UnboundFunction) {
-            UnboundFunction function = (UnboundFunction) input;
-            // Qualified or DISTINCT/skew calls are not these built-in container constructors.
-            if (function.getDbName() != null || function.isDistinct() || function.isSkew()) {
-                return input;
-            }
-            constructor = function.getName();
-        }
-        List<Expression> children = new ArrayList<>(input.children());
-        if ((input instanceof Array || constructor.equalsIgnoreCase("array")) && target instanceof ArrayType) {
-            children.replaceAll(child -> normalizeSpatialNullsBeforeBinding(child,
-                    ((ArrayType) target).getItemType()));
-        } else if ((input instanceof CreateMap || constructor.equalsIgnoreCase("map")) && target instanceof MapType
-                && input.arity() % 2 == 0) {
-            MapType map = (MapType) target;
-            for (int i = 0; i < children.size(); i++) {
-                children.set(i, normalizeSpatialNullsBeforeBinding(children.get(i),
-                        i % 2 == 0 ? map.getKeyType() : map.getValueType()));
-            }
-        } else if (target instanceof StructType) {
-            boolean named = input instanceof CreateNamedStruct || constructor.equalsIgnoreCase("named_struct");
-            int step = named ? 2 : 1;
-            StructType struct = (StructType) target;
-            // Wrong field counts must retain the original binder's error, not index a target field.
-            if (!(named || input instanceof CreateStruct || constructor.equalsIgnoreCase("struct"))
-                    || input.arity() != step * struct.getFields().size()) {
-                return input;
-            }
-            for (int i = step - 1; i < children.size(); i += step) {
-                children.set(i, normalizeSpatialNullsBeforeBinding(children.get(i),
-                        struct.getFields().get(i / step).getDataType()));
-            }
-        }
-        if (children.equals(input.children())) {
-            return input;
-        }
-        // Bound withChildren preserves a cached signature such as ARRAY<INT>.
-        // New typed NULL leaves must recompute the built-in constructor's signature.
-        if (input instanceof Array) {
-            return new Array(children);
-        } else if (input instanceof CreateMap) {
-            return new CreateMap(children.toArray(new Expression[0]));
-        } else if (input instanceof CreateNamedStruct) {
-            return new CreateNamedStruct(children.toArray(new Expression[0]));
-        } else if (input instanceof CreateStruct) {
-            return new CreateStruct(children.toArray(new Expression[0]));
-        }
-        return input.withChildren(children);
     }
 
     private LogicalPlan buildMergeProjectPlan(ConnectContext ctx, ExternalTable icebergTable) {

@@ -42,6 +42,7 @@
 #include "exprs/function/geo/functions_geo.h"
 #include "exprs/function/geo/geo_common.h"
 #include "exprs/function/geo/geo_types.h"
+#include "exprs/function/geo/geography_calculation.h"
 #include "exprs/function/geo/wkb_parse.h"
 #include "exprs/function/string_hex_util.h"
 #include "format/arrow/arrow_block_convertor.h"

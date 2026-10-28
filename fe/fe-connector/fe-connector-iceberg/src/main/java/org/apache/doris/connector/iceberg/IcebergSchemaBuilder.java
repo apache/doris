@@ -352,13 +352,18 @@ public final class IcebergSchemaBuilder {
      */
     public static FileFormat getEffectiveFileFormat(Map<String, String> requestProperties,
             Map<String, String> catalogProperties) {
+        return IcebergWriterHelper.toFileFormat(getEffectiveFileFormatName(requestProperties, catalogProperties));
+    }
+
+    // Keep the raw name for spatial validation: toFileFormat can default an unknown name to Parquet.
+    static String getEffectiveFileFormatName(Map<String, String> requestProperties,
+            Map<String, String> catalogProperties) {
         Map<String, String> effective = new HashMap<>();
         copyFileFormat(effective, catalogProperties, CatalogProperties.TABLE_DEFAULT_PREFIX);
         copyFileFormat(effective, requestProperties, "");
         copyFileFormat(effective, catalogProperties, CatalogProperties.TABLE_OVERRIDE_PREFIX);
-        String fileFormat = effective.containsKey(WRITE_FORMAT) ? effective.get(WRITE_FORMAT)
+        return effective.containsKey(WRITE_FORMAT) ? effective.get(WRITE_FORMAT)
                 : effective.getOrDefault(TableProperties.DEFAULT_FILE_FORMAT, FileFormat.PARQUET.name());
-        return IcebergWriterHelper.toFileFormat(fileFormat);
     }
 
     private static void copyFileFormat(Map<String, String> effective, Map<String, String> properties,
