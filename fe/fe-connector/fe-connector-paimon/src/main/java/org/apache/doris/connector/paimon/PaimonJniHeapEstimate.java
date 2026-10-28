@@ -55,14 +55,19 @@ import java.util.function.LongFunction;
  * that need the gate and over the mark for files that do not overlap, which are read one section after
  * another. A split that needs no merging reads its files one after another and holds one file's share -
  * unless a file of a primary-key table in it was written before paimon counted deleted rows: paimon plans
- * such files as needing no merging, but merges them when it reads them, as they may hold deletes.
+ * such files as needing no merging, but merges them when it reads them, as they may hold deletes. A read
+ * that keeps the deleted rows, $audit_log's and $binlog's, merges every split of a primary-key table. One
+ * whose files are on one level still holds one file's share, a level being a sorted run whose files do not
+ * overlap; but paimon plans the files of a deletion-vector or first-row table as needing no merging on any
+ * number of levels, and such a split of files on more than one holds the share of every file.
  *
  * <p>A diff read between two snapshots ({@code @incr} with {@code incrementalBetweenScanMode} diff) plans an
  * {@link IncrementalSplit} instead, of the files only the earlier snapshot has and those only the later one
  * has. Of a primary-key table it merges each of the two and compares the merges, which are open together,
  * so it holds what one merge of all those files holds; of an append table it reads the later snapshot's
  * files one after another. The other splits that are not DataSplits, those of the metadata system tables
- * and of format tables, hold little and declare nothing.
+ * and of format tables, hold little and declare nothing; so does a chain table's ChainSplit, as Doris does
+ * not read chain tables yet.
  *
  * <p>A split is looked at through the wrappers paimon plans it in, which its reader reads through: the
  * {@code QueryAuthSplit} every split of a table with query-auth rules (a catalog's row filter or column
@@ -101,22 +106,26 @@ final class PaimonJniHeapEstimate {
     // A primary-key table's diff read merges its files, as does its read of files that do not count their
     // deleted rows; an append table's reads them one after another.
     private final boolean primaryKeyTable;
+    // Whether the read keeps the deleted rows, which has paimon merge a primary-key table's split that it
+    // planned as needing no merging; an append table's read has none to keep.
+    private final boolean keepsDeletes;
     // How the files written under a schema version are laid out, by its id, each worked out once.
     private final LongFunction<FileLayout> layoutOfSchema;
     private final Map<Long, FileLayout> layouts = new HashMap<>();
 
-    PaimonJniHeapEstimate(boolean primaryKeyTable, LongFunction<FileLayout> layoutOfSchema) {
+    PaimonJniHeapEstimate(boolean primaryKeyTable, boolean keepsDeletes, LongFunction<FileLayout> layoutOfSchema) {
         this.primaryKeyTable = primaryKeyTable;
+        this.keepsDeletes = keepsDeletes;
         this.layoutOfSchema = layoutOfSchema;
     }
 
     /**
-     * For the splits of {@code table}, each file laid out by the schema version it was written under:
-     * the table's own is at hand, and {@code schemaAt} reads the others by id.
+     * For the splits of {@code table}, read with its deleted rows kept or not, each file laid out by the schema
+     * version it was written under: the table's own is at hand, and {@code schemaAt} reads the others by id.
      */
-    static PaimonJniHeapEstimate of(FileStoreTable table, LongFunction<TableSchema> schemaAt) {
+    static PaimonJniHeapEstimate of(FileStoreTable table, boolean keepsDeletes, LongFunction<TableSchema> schemaAt) {
         TableSchema own = table.schema();
-        return new PaimonJniHeapEstimate(!own.primaryKeys().isEmpty(),
+        return new PaimonJniHeapEstimate(!own.primaryKeys().isEmpty(), keepsDeletes,
                 schemaId -> FileLayout.of(schemaId == own.id() ? own : schemaAt.apply(schemaId)));
     }
 
@@ -124,7 +133,7 @@ final class PaimonJniHeapEstimate {
     static PaimonJniHeapEstimate of(Table table) {
         FileLayout layout = FileLayout.of(table.options(), FileLayout.columns(table.rowType()),
                 table.primaryKeys().size());
-        return new PaimonJniHeapEstimate(!table.primaryKeys().isEmpty(), schemaId -> layout);
+        return new PaimonJniHeapEstimate(!table.primaryKeys().isEmpty(), false, schemaId -> layout);
     }
 
     long bytesOf(Split split) {
@@ -141,12 +150,19 @@ final class PaimonJniHeapEstimate {
         return primaryKeyTable ? total(diff.beforeFiles()) + total(diff.afterFiles()) : largest(diff.afterFiles());
     }
 
-    // Whether paimon reads the split's files one after another, as PrimaryKeyTableRawFileSplitReadProvider
-    // decides: it was planned as needing no merging and, of a primary-key table, every file counts its deleted
-    // rows. A file written before paimon counted them may hold deletes, so a split with such files is merged.
+    // Whether paimon reads the split's files one after another. PrimaryKeyTableRawFileSplitReadProvider reads so
+    // a split planned as needing no merging, unless a file does not count its deleted rows - one written before
+    // paimon counted them may hold deletes - or the read keeps deletes; it merges the others. A read that keeps
+    // deletes still reads the files of one level one after another, as they are a sorted run whose keys do not
+    // overlap.
     private boolean readsFileByFile(DataSplit split) {
-        return split.rawConvertible() && (!primaryKeyTable
-                || split.dataFiles().stream().allMatch(file -> file.deleteRowCount().isPresent()));
+        if (!primaryKeyTable) {
+            return split.rawConvertible();
+        }
+        List<DataFileMeta> files = split.dataFiles();
+        return split.rawConvertible()
+                && files.stream().allMatch(file -> file.deleteRowCount().isPresent())
+                && (!keepsDeletes || files.stream().mapToInt(DataFileMeta::level).distinct().count() == 1);
     }
 
     private long total(List<DataFileMeta> files) {

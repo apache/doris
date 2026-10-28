@@ -82,6 +82,7 @@ import org.apache.paimon.table.source.ScanMode;
 import org.apache.paimon.table.source.Split;
 import org.apache.paimon.table.source.TableScan;
 import org.apache.paimon.table.source.snapshot.SnapshotReader;
+import org.apache.paimon.table.system.AuditLogTable;
 import org.apache.paimon.table.system.ReadOptimizedTable;
 import org.apache.paimon.table.system.SystemTableLoader;
 import org.apache.paimon.types.ArrayType;
@@ -2245,8 +2246,9 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      * the estimate reads the versions its files were written under, of the branch that planned its split: a
      * scan.fallback-branch or scan.primary-branch table plans the splits of two branches, each numbering its
      * schema versions on its own. $ro, $audit_log, $binlog and $row_tracking read their base table's files,
-     * under that table's schema ids, while showing its current options; the metadata system tables are
-     * estimated by the options they show.
+     * under that table's schema ids, while showing its current options; $audit_log and $binlog read its deleted
+     * rows too, which has paimon merge the splits it planned as needing no merging. The metadata system tables
+     * are estimated by the options they show.
      */
     private ToLongFunction<Split> jniHeapBytes(Table table, PaimonTableHandle handle) {
         // The base table of a wrapper, resolved as the timestamp-history checks resolve it.
@@ -2255,15 +2257,17 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             return PaimonJniHeapEstimate.of(table)::bytesOf;
         }
         FileStoreTable fileStoreTable = (FileStoreTable) physicalSchemaTable;
+        // The read of $audit_log, and of $binlog, which extends it, keeps the deleted rows (forceKeepDelete).
+        boolean keepsDeletes = table instanceof AuditLogTable;
         Map<FileStoreTable, PaimonJniHeapEstimate> branchEstimates = new java.util.IdentityHashMap<>();
-        return split -> branchEstimates.computeIfAbsent(splitBranch(fileStoreTable, split), this::jniHeapEstimate)
-                .bytesOf(split);
+        return split -> branchEstimates.computeIfAbsent(splitBranch(fileStoreTable, split),
+                branch -> jniHeapEstimate(branch, keepsDeletes)).bytesOf(split);
     }
 
     // The files of a branch, each laid out by the schema version of that branch it was written under.
-    private PaimonJniHeapEstimate jniHeapEstimate(FileStoreTable branch) {
+    private PaimonJniHeapEstimate jniHeapEstimate(FileStoreTable branch, boolean keepsDeletes) {
         SchemaManager schemaManager = branch.schemaManager();
-        return PaimonJniHeapEstimate.of(branch, schemaId -> readSchema(schemaManager, schemaId));
+        return PaimonJniHeapEstimate.of(branch, keepsDeletes, schemaId -> readSchema(schemaManager, schemaId));
     }
 
     // A schema file, read under the FE-injected authenticator as planSplits reads the manifests.
