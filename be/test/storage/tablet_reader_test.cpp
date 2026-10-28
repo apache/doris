@@ -30,6 +30,8 @@
 #include <utility>
 #include <vector>
 
+#include "cloud/cloud_storage_engine.h"
+#include "cloud/cloud_tablet.h"
 #include "cloud/config.h"
 #include "common/config.h"
 #include "core/column/column_vector.h"
@@ -287,8 +289,8 @@ protected:
         _old_prune = config::enable_prune_delete_sign_when_base_compaction;
         _old_cloud_unique_id = config::cloud_unique_id;
         _old_deploy_mode = config::deploy_mode;
-        config::cloud_unique_id.clear();
-        config::deploy_mode = "local";
+        config::cloud_unique_id = "sequence-retention-test";
+        config::deploy_mode = "cloud";
         config::sequence_delete_sign_retention_version_gap = 10;
         config::enable_prune_delete_sign_when_base_compaction = true;
     }
@@ -328,7 +330,7 @@ protected:
         return schema;
     }
 
-    static void init_reader(StorageEngine& engine, TabletReader& reader, ReaderType type,
+    static void init_reader(CloudStorageEngine& engine, TabletReader& reader, ReaderType type,
                             const TabletSchemaSPtr& schema, bool mow = true,
                             int64_t max_version = 100) {
         auto meta = std::make_shared<TabletMeta>();
@@ -338,7 +340,9 @@ protected:
         rowset->set_version(Version(max_version, max_version));
         rowset->set_tablet_schema(schema);
         ASSERT_TRUE(meta->add_rs_meta(rowset).ok());
-        reader._tablet = std::make_shared<Tablet>(engine, std::move(meta), nullptr);
+        auto tablet = std::make_shared<CloudTablet>(engine, std::move(meta));
+        tablet->_max_version = max_version;
+        reader._tablet = std::move(tablet);
         reader._tablet_schema = schema;
         reader._read_schema = std::make_shared<ReadSchema>(schema->columns());
         TabletReader::ReaderParams params;
@@ -386,7 +390,7 @@ private:
 };
 
 TEST_F(SequenceDeleteSignRetentionTest, retains_until_exact_version_gap) {
-    StorageEngine engine({});
+    CloudStorageEngine engine({});
     for (auto type : {ReaderType::READER_BASE_COMPACTION, ReaderType::READER_FULL_COMPACTION,
                       ReaderType::READER_COLD_DATA_COMPACTION}) {
         TabletReader reader;
@@ -397,12 +401,13 @@ TEST_F(SequenceDeleteSignRetentionTest, retains_until_exact_version_gap) {
 }
 
 TEST_F(SequenceDeleteSignRetentionTest, snapshots_config_and_local_published_version) {
-    StorageEngine engine({});
+    CloudStorageEngine engine({});
     TabletReader reader;
     init_reader(engine, reader, ReaderType::READER_BASE_COMPACTION, sequence_schema());
     auto rowset = std::make_shared<RowsetMeta>();
     rowset->set_version(Version(200, 200));
     ASSERT_TRUE(reader._tablet->tablet_meta()->add_rs_meta(rowset).ok());
+    std::static_pointer_cast<CloudTablet>(reader._tablet)->_max_version = 200;
     config::sequence_delete_sign_retention_version_gap = 0;
     EXPECT_EQ(std::vector<uint8_t>({0, 0, 1, 1, 1, 1}), filter_rows(reader));
 
@@ -414,7 +419,7 @@ TEST_F(SequenceDeleteSignRetentionTest, snapshots_config_and_local_published_ver
 }
 
 TEST_F(SequenceDeleteSignRetentionTest, preserves_legacy_pruning_and_checksum_behavior) {
-    StorageEngine engine({});
+    CloudStorageEngine engine({});
     config::sequence_delete_sign_retention_version_gap = 0;
     TabletReader disabled;
     init_reader(engine, disabled, ReaderType::READER_BASE_COMPACTION, sequence_schema());
@@ -432,11 +437,13 @@ TEST_F(SequenceDeleteSignRetentionTest, preserves_legacy_pruning_and_checksum_be
                 sequence_schema(true, false));
     EXPECT_EQ(std::vector<uint8_t>({0, 0, 0, 0, 0, 1}), filter_rows(no_sequence));
 
-    config::cloud_unique_id = "sequence-retention-test";
-    TabletReader cloud;
-    init_reader(engine, cloud, ReaderType::READER_BASE_COMPACTION, sequence_schema());
-    EXPECT_EQ(std::vector<uint8_t>({0, 0, 0, 0, 0, 1}), filter_rows(cloud));
     config::cloud_unique_id.clear();
+    config::deploy_mode = "local";
+    TabletReader local;
+    init_reader(engine, local, ReaderType::READER_BASE_COMPACTION, sequence_schema());
+    EXPECT_EQ(std::vector<uint8_t>({0, 0, 0, 0, 0, 1}), filter_rows(local));
+    config::cloud_unique_id = "sequence-retention-test";
+    config::deploy_mode = "cloud";
 
     config::enable_prune_delete_sign_when_base_compaction = false;
     TabletReader no_pruning;
@@ -446,7 +453,7 @@ TEST_F(SequenceDeleteSignRetentionTest, preserves_legacy_pruning_and_checksum_be
 }
 
 TEST_F(SequenceDeleteSignRetentionTest, retains_legacy_delete_signs_without_version_column) {
-    StorageEngine engine({});
+    CloudStorageEngine engine({});
     TabletReader reader;
     init_reader(engine, reader, ReaderType::READER_BASE_COMPACTION, sequence_schema(false));
     EXPECT_EQ(std::vector<uint8_t>({1, 1, 1, 1, 1, 1}), filter_rows(reader));
@@ -458,7 +465,7 @@ TEST_F(SequenceDeleteSignRetentionTest, validates_config_and_handles_large_gap) 
     ASSERT_TRUE(config::set_config("sequence_delete_sign_retention_version_gap",
                                    std::to_string(std::numeric_limits<int64_t>::max()))
                         .ok());
-    StorageEngine engine({});
+    CloudStorageEngine engine({});
     TabletReader reader;
     init_reader(engine, reader, ReaderType::READER_BASE_COMPACTION, sequence_schema());
     EXPECT_EQ(std::vector<uint8_t>({1, 1, 1, 1, 1, 1}), filter_rows(reader));

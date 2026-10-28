@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_sequence_delete_sign_retention_version_gap", "nonConcurrent") {
-    if (isCloudMode()) {
+    if (!isCloudMode()) {
         return
     }
 

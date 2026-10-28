@@ -474,11 +474,11 @@ Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
                               read_params.reader_type == ReaderType::READER_COLD_DATA_COMPACTION ||
                               read_params.reader_type == ReaderType::READER_CHECKSUM);
 
-    // Keep a sequence=100 delete long enough to reject a concurrently delayed sequence=90
+    // Cloud MOW tables keep a sequence=100 delete long enough to reject a delayed sequence=90
     // write. Checksums must still exclude this invisible row regardless of physical retention.
     const int64_t retention_gap = config::sequence_delete_sign_retention_version_gap;
     if (_delete_sign_available && read_params.reader_type != ReaderType::READER_CHECKSUM &&
-        !config::is_cloud_mode() && _tablet->enable_unique_key_merge_on_write() &&
+        config::is_cloud_mode() && _tablet->enable_unique_key_merge_on_write() &&
         _tablet_schema->has_sequence_col() && retention_gap > 0) {
         _retain_sequence_delete_sign = true;
         std::shared_lock lock(_tablet->get_header_lock());

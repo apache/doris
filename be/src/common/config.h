@@ -1985,8 +1985,8 @@ DECLARE_mBool(enable_check_tablet_delete_bitmap_score);
 // ATTN: this config is only for test
 DECLARE_mBool(enable_prune_delete_sign_when_base_compaction);
 
-// Retain sequence delete signs until the local published version is this far ahead.
-// Shared-nothing MOW only. Keep the same value on every BE; 0 preserves immediate pruning.
+// Retain sequence delete signs until the local cloud tablet version is this far ahead.
+// Cloud MOW only. Zero preserves immediate pruning.
 DECLARE_mInt64(sequence_delete_sign_retention_version_gap);
 
 DECLARE_mBool(enable_mow_verbose_log);

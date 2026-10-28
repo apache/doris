@@ -2002,8 +2002,8 @@ DEFINE_mBool(enable_check_tablet_delete_bitmap_score, "true");
 // ATTN: this config is only for test
 DEFINE_mBool(enable_prune_delete_sign_when_base_compaction, "true");
 
-// Shared-nothing MOW sequence tables: minimum published-version gap before pruning delete signs.
-// All BEs must use the same value. Zero keeps the existing immediate-pruning behavior.
+// Cloud MOW sequence tables: minimum published-version gap before pruning delete signs.
+// Zero keeps the existing immediate-pruning behavior.
 DEFINE_mInt64(sequence_delete_sign_retention_version_gap, "0");
 DEFINE_Validator(sequence_delete_sign_retention_version_gap,
                  [](const int64_t gap) -> bool { return gap >= 0; });
