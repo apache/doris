@@ -453,9 +453,9 @@ class ConstantPropagationTest {
     }
 
     @Test
-    public void testProjectItemShadowingAChildSlotGetsFreshExprId() {
-        // a project item which re-defines a column which its child still outputs describes another value, so it
-        // must be materialized with a fresh exprId, and the sink above has to follow that exprId
+    public void testProjectItemShadowingAChildSlotWithSameNullabilityKeepsTheExprId() {
+        // a project item which re-defines a column which its child still outputs and which does not change the
+        // nullability of the column keeps the exprId, so the sink above keeps referencing it
         LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(ImmutableSet.of(
                 new EqualTo(studentId, new IntegerLiteral(5))), student);
         LogicalProject<LogicalFilter<LogicalOlapScan>> project = new LogicalProject<>(ImmutableList.of(
@@ -466,10 +466,11 @@ class ConstantPropagationTest {
                 = new LogicalBlackholeSink<>(sinkOutputExprs, project);
 
         LogicalSink<?> rewrittenSink = (LogicalSink<?>) executor.rewriteRoot(sink, jobContext);
-        // the child of the project still outputs studentId, so the constant item got a fresh exprId
+        // the constant does not change the nullability of the column, so the exprId is kept and the consumers
+        // which rely on the identity of the column keep working
         NamedExpression constantItem = ((LogicalProject<?>) rewrittenSink.child()).getProjects().get(0);
         Assertions.assertEquals(new IntegerLiteral(5), ((Alias) constantItem).child());
-        Assertions.assertNotEquals(studentId.getExprId(), constantItem.getExprId());
+        Assertions.assertEquals(studentId.getExprId(), constantItem.getExprId());
         // and the sink follows it, otherwise it would reference a slot which its child no longer outputs
         Assertions.assertEquals(constantItem.getExprId(), rewrittenSink.getOutputExprs().get(0).getExprId());
         List<ExprId> childOutputIds = rewrittenSink.child().getOutput().stream()
