@@ -786,6 +786,25 @@ public class SPMPlanner {
                     + " the frozen SQL would persist the creator's value: "
                     + bindSql);
         }
+        // The CALL alone is not enough (round-85): the guard above walks the PARSED trees, but
+        // an ALIAS UDF's registry-owned body only enters the plan when analysis INLINES it -
+        // `CREATE ALIAS FUNCTION f() WITH PARAMETER() AS current_user()` then had that
+        // CurrentUser folded into a literal by the creator-context optimization (no
+        // NeedSessionVarGuard on CurrentUser) and frozen into the planSql, while matching still
+        // compared the caller's own `f()` text: a GLOBAL baseline answered every other user with
+        // the creating identity. The resolved bodies are inspected TRANSITIVELY (and in the
+        // same resolved scope the call will use) before anything is parameterized.
+        ConnectContext currentCtx = ConnectContext.get();
+        if (SPMPlanTreeSupport.containsReplayContextInAliasBodies(currentCtx, bindPlan)
+                || SPMPlanTreeSupport.containsReplayContextInAliasBodies(currentCtx, planPlan)) {
+            throw new AnalysisException("SPM does not support replay-time context expressions"
+                    + " inside a resolved ALIAS FUNCTION body (an alias whose body calls"
+                    + " current_user() / session_user() / database() / @v / a clock function,"
+                    + " possibly through another alias): analysis INLINES the body and the"
+                    + " creator-context folding then persists the CREATOR's value in the frozen"
+                    + " SQL while matching compares the caller's own call: "
+                    + bindSql);
+        }
     }
 
     /**

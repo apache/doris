@@ -487,7 +487,9 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             // and the `{'x': TRUE}` variant had no id left to substitute.
             Map<Literal, Literal> entries = ((MapLiteral) expr).getValue();
             if (entries.isEmpty()) {
-                return false;
+                // the same argument as for the empty ARRAY literal: without an entry there is no
+                // value type to inherit, so the empty map is NullType-valued as well (round-85)
+                return true;
             }
             for (Literal value : entries.values()) {
                 if (!producesNullType(value)) {
@@ -580,7 +582,13 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         List<? extends Expression> elements = expr instanceof ArrayLiteral
                 ? ((ArrayLiteral) expr).getValue() : expr.children();
         if (elements.isEmpty()) {
-            return false;
+            // An EMPTY array literal carries no element to take a type from, so its element type
+            // is NullType as well (round-85): without this branch `element_at([], 1)` was NOT
+            // classified as a NullType producer, the Boolean context never reached the container
+            // marker, and the payload kept ARRAY<NULL_TYPE> - the consumer then replaced the
+            // whole operand together with its markers and the `element_at([TRUE], 1)` caller had
+            // nothing to substitute.
+            return true;
         }
         for (Expression element : elements) {
             if (!producesNullType(element)) {
@@ -905,7 +913,24 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
      * @return whether the literal is such a container
      */
     private boolean isNullTypeContainerPosition(Expression parent) {
-        return (isElementAtCall(parent) || isArrayReducerCall(parent)) && currentChildIndex() == 0;
+        if ((isElementAtCall(parent) || isArrayReducerCall(parent)) && currentChildIndex() == 0) {
+            return true;
+        }
+        // A TYPE-PRESERVING WRAPPER forwards its INPUT's element type to the enclosing call
+        // (round-85): `element_at(array_sort([NULL]), 1)` reads the result THROUGH array_sort's
+        // `retArgType(0)`, so the wrapper's array argument sits in the SAME container position.
+        // The unrecognized chain left the ARRAY<NULL_TYPE> literal untouched, `element_at` stayed
+        // NullType, and the Boolean consumer replaced the whole operand together with its
+        // markers - the `element_at(array_sort([TRUE]), 1)` caller then had no id to substitute.
+        // ARRAY_CONCAT derives its element type from EVERY part, so each part is such a position,
+        // and MAP_VALUES turns its map's VALUE type into the result's element type (position 0).
+        if (isTypePreservingArrayCall(parent)) {
+            return currentChildIndex() == 0;
+        }
+        if (isArrayConcatCall(parent)) {
+            return true;
+        }
+        return isMapValuesCall(parent) && currentChildIndex() == 0;
     }
 
     /**
@@ -992,9 +1017,23 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
      * @return the retyped payload, or null when the literal is not repairable here
      */
     private static Literal booleanContainerPayload(Literal literal, Expression parent) {
-        if (literal.isNullLiteral() && isArrayOverload(parent)) {
-            return new ArrayLiteral(List.of(NullLiteral.BOOLEAN_INSTANCE),
-                    ArrayType.of(BooleanType.INSTANCE));
+        if (literal.isNullLiteral()) {
+            if (containerIsArray(parent)) {
+                return new ArrayLiteral(List.of(NullLiteral.BOOLEAN_INSTANCE),
+                        ArrayType.of(BooleanType.INSTANCE));
+            }
+            if (containerIsMap(parent)) {
+                // A bare NULL container under the MAP overload / under `map_values` (round-85):
+                // `element_at(NULL, 'x')` resolved through ElementAt's NullType-input signature
+                // and stayed NullType, so the Boolean consumer erased the call and BOTH markers -
+                // the `element_at({'x': TRUE}, 'x')` caller (same scalar-literal digest) had
+                // nothing left to substitute. A NULL typed MAP<key, BOOLEAN> keeps the MAP
+                // overload and removes the NullType from the tree; the KEY type is the written
+                // index's own type (STRING for `'x'`), and a NULL value stays NULL whatever its
+                // type.
+                return new NullLiteral(MapType.of(mapKeyTypeOf(parent), BooleanType.INSTANCE));
+            }
+            return null;
         }
         if (literal instanceof MapLiteral) {
             // A whole-map LITERAL container (round-84 #1): the MAP overload of element_at reads
@@ -1015,9 +1054,10 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             }
             items.add(NullLiteral.BOOLEAN_INSTANCE);
         }
-        if (items.isEmpty()) {
-            return null;
-        }
+        // An EMPTY array literal is ARRAY<NULL_TYPE> as well (round-85): `element_at([], 1)` is
+        // a NullType producer, so the Boolean consumer replaced the call and its markers and the
+        // `element_at([TRUE], 1)` caller had nothing to substitute. Retyping the EMPTY container
+        // to ARRAY<BOOLEAN> keeps the shape (no element is added) and removes the NullType.
         return new ArrayLiteral(items, ArrayType.of(BooleanType.INSTANCE));
     }
 
@@ -1032,8 +1072,20 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
      */
     private static Literal booleanMapPayload(MapLiteral literal) {
         Map<Literal, Literal> entries = literal.getValue();
+        DataType mapType = literal.getDataType();
+        DataType keyType = mapType instanceof MapType
+                ? ((MapType) mapType).getKeyType()
+                : org.apache.doris.nereids.types.StringType.INSTANCE;
+        if (keyType.isNullType()) {
+            // an EMPTY map literal carries no key to inherit a type from
+            keyType = org.apache.doris.nereids.types.StringType.INSTANCE;
+        }
         if (entries.isEmpty()) {
-            return null;
+            // an EMPTY map literal is MAP<..., NULL_TYPE> much like the empty array (round-85):
+            // retyping the VALUE type of the (still empty) container removes the NullType from
+            // `element_at({}, 'x')` without adding any entry
+            return new MapLiteral(new java.util.LinkedHashMap<>(),
+                    MapType.of(keyType, BooleanType.INSTANCE));
         }
         Map<Literal, Literal> retyped = new java.util.LinkedHashMap<>();
         for (Map.Entry<Literal, Literal> entry : entries.entrySet()) {
@@ -1042,9 +1094,6 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             }
             retyped.put(entry.getKey(), NullLiteral.BOOLEAN_INSTANCE);
         }
-        DataType mapType = literal.getDataType();
-        DataType keyType = mapType instanceof MapType
-                ? ((MapType) mapType).getKeyType() : org.apache.doris.nereids.types.StringType.INSTANCE;
         return new MapLiteral(retyped, MapType.of(keyType, BooleanType.INSTANCE));
     }
 
@@ -1059,10 +1108,15 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
      * @param parent the call
      * @return whether the call can only be the ARRAY overload
      */
-    private static boolean isArrayOverload(Expression parent) {
-        if (isArrayReducerCall(parent)) {
-            // array_min / array_max have no map overload at all
+    private static boolean containerIsArray(Expression parent) {
+        if (isArrayReducerCall(parent) || isTypePreservingArrayCall(parent)
+                || isArrayConcatCall(parent)) {
+            // array_min / array_max have no map overload at all, and the type-preserving
+            // transformations only accept an array
             return true;
+        }
+        if (isMapValuesCall(parent)) {
+            return false; // map_values takes a MAP
         }
         if (!(parent instanceof Function) || parent.children().size() < 2) {
             return false;
@@ -1070,6 +1124,37 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         Expression index = parent.child(1);
         return index instanceof Literal
                 && !((Literal) index).getDataType().isStringLikeType();
+    }
+
+    /**
+     * Whether one container-taking call resolves to the MAP signature (see
+     * booleanContainerPayload): {@code map_values} always reads a map, and an {@code element_at}
+     * whose INDEX is a STRING selects the MAP overload. A non-literal index cannot be
+     * classified and is not repaired.
+     *
+     * @param parent the call
+     * @return whether the call can only be the MAP overload
+     */
+    private static boolean containerIsMap(Expression parent) {
+        if (isMapValuesCall(parent)) {
+            return true;
+        }
+        if (!(parent instanceof Function) || parent.children().size() < 2) {
+            return false;
+        }
+        Expression index = parent.child(1);
+        return index instanceof Literal && ((Literal) index).getDataType().isStringLikeType();
+    }
+
+    /** The MAP KEY type a repaired bare-NULL container has to carry: the written index's type. */
+    private static DataType mapKeyTypeOf(Expression parent) {
+        if (parent instanceof Function && parent.children().size() >= 2) {
+            Expression index = parent.child(1);
+            if (index instanceof Literal) {
+                return ((Literal) index).getDataType();
+            }
+        }
+        return org.apache.doris.nereids.types.StringType.INSTANCE;
     }
 
     // ==================== IN (constant list) -> list placeholder ====================

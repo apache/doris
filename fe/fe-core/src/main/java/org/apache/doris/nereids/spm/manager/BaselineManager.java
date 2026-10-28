@@ -2723,6 +2723,11 @@ public class BaselineManager {
                     // resolvePendingMutationFences).
                     removeCachedBaseline(removed);
                     recordPendingAbsenceFence(removed);
+                    // a cold read that started between the removal and the fence can have
+                    // re-cached the row it still found durable: it must leave again NOW that the
+                    // fence makes the identity unmatchable (see
+                    // evictReWarmedAfterAbsenceFence)
+                    evictReWarmedAfterAbsenceFence(List.of(removed));
                 }
                 throw e;
             }
@@ -2757,6 +2762,11 @@ public class BaselineManager {
             // only its publication lags - an EXPIRING fence re-published the pre-DROP row as
             // soon as the bound elapsed.
             recordConfirmedAbsenceFence(id);
+            // the removal above ran BEFORE the fence and the durable delete: a cold read that
+            // finished in between can have re-cached the still-durable OLD row, and a warm bucket
+            // is served BEFORE any fence reconciliation (see
+            // evictReWarmedAfterAbsenceFence)
+            evictReWarmedAfterAbsenceFence(List.of(removed));
             List<BaselinePlan> retiredTwins = new ArrayList<>();
             try {
                 retiredTwins = wipeDurableRowsById(id, removed, retiredTwins);
@@ -2835,6 +2845,30 @@ public class BaselineManager {
         } finally {
             stateLock.writeLock().unlock();
         }
+    }
+
+    /**
+     * Evicts the DROP's own rows ONE MORE TIME, immediately AFTER its ABSENCE FENCE became
+     * visible (round-85).
+     *
+     * The DROP evicts the row before the durable delete / fence and serves the guarantee
+     * "an evicted bucket cannot come back": a by-hash COLD READ that started in the interval
+     * between that eviction and the fence read the row while it was still durable, and it passes
+     * its own pre-fence epoch check - so it could re-warm the bucket with the OLD ENABLED row
+     * after the removal. Installing the fence never looked at the cache again, and
+     * completeRowsForHash serves a WARM bucket BEFORE any tombstone / fence reconciliation, so
+     * the dropped baseline could keep matching until the next refresh or eviction.
+     *
+     * Re-evicting after the fence closes that window in the right order: every loader that
+     * observed the pre-fence state either publishes BEFORE this second removal (and is then
+     * removed) or is rejected by the epoch this removal bumps. A loader that starts after the
+     * fence reconciles against it and never publishes the row at all.
+     *
+     * @param rows the rows the DROP just retired (its own row, plus any identity already
+     *             evicted earlier in the same DROP)
+     */
+    private void evictReWarmedAfterAbsenceFence(List<BaselinePlan> rows) {
+        evictRetiredRows(rows);
     }
 
     /**
@@ -2947,6 +2981,10 @@ public class BaselineManager {
         // Same CONFIRMED absence fence as dropBaseline (round-76 #7): every identity delete of
         // this branch returned OK, so absence is irreversible and only its publication lags.
         recordConfirmedAbsenceFence(id);
+        // ... and the same post-fence re-eviction (round-85): this branch found the row UNCACHED,
+        // so only a concurrent cold read can have re-cached it while the deletes were in flight -
+        // which is exactly what the fence + this second removal now rule out.
+        evictReWarmedAfterAbsenceFence(durable);
         // retire the KEY's superseded same-key twins as well: this cache-miss DROP path
         // must not leave the loser of a handoff twin pair durable (see
         // retireSupersededKeyTwins). A twin delete that throws leaves this id ABSENT durably,

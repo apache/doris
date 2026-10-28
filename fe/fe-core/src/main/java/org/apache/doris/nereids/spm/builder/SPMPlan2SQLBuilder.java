@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -46,7 +47,9 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctGro
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingId;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
@@ -1015,7 +1018,16 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                     child.setLimit("");
                 }
             }
-            outer.setFrom("(" + child.toSQL() + ") " + alias);
+            // A relabelled ASSERT_ROWS child keeps its assertion (round-85): toSQL() of the
+            // relation never renders the relation PREFIX (only toRelationSQL does), so the
+            // wrapper used to drop the single-row assertion of
+            // `SELECT * FROM ASSERT_ROWS (SELECT k+1 FROM t WHERE k>0) a` - CREATE's probe planned
+            // the plain SELECT happily and an identical replay returned BOTH rows where native
+            // execution raises the row-count error. The relation prefix is the only statement
+            // form the grammar has for it, so it is rendered HERE with this wrapper's alias.
+            outer.setFrom((child.isAssertRows()
+                    ? "ASSERT_ROWS (" + child.toSQL() + ") "
+                    : "(" + child.toSQL() + ") ") + alias);
             outer.setSelects(ordered);
             return outer;
         }
@@ -2552,10 +2564,16 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         // only provable through these keys.
         Set<ExprId> dedupKeyIds = dedupKeysBelow(agg.child(0), ownGroupKeyIds(agg),
                 stageHasDistinctMergeBuffer);
+        // The dedup keys are only a RETENTION claim when the stage carrying them survives into
+        // the frozen SQL (round-85): dedupKeysBelow also harvests keys from stages that
+        // visitPhysicalHashAggregate FOLDS AWAY, and a tuple grouping on such a stage is NOT
+        // deduplicating anything in the rendered text (see retainedGroupingKeysBelow).
+        Set<ExprId> retainedGroupingKeys =
+                retainedGroupingKeysBelow(agg.child(0), ownGroupKeyIds(agg));
         List<Pair<ExprId, String>> selects = new ArrayList<>();
         for (NamedExpression output : agg.getOutputExpressions()) {
             appendAggSelect(aggRelation, childRelation, output, selects, distinctMergeCount,
-                    stageHasDistinctMergeBuffer, dedupKeyIds);
+                    stageHasDistinctMergeBuffer, dedupKeyIds, retainedGroupingKeys);
         }
         aggRelation.setSelects(selects);
         // columnNames: expose ONLY the aggregate output columns (group-by keys +
@@ -2810,6 +2828,100 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     }
 
     /**
+     * The group keys of the aggregate stage below this one that STAYS in the frozen SQL - the
+     * tuple deduplication a scalar count may rely on (round-85), or empty when the whole chain
+     * is execution-only and gets folded away.
+     *
+     * `dedupKeysBelow` harvests the keys of every FOLDED stage (that is exactly what restoring a
+     * cleared DISTINCT needs), but a key harvested from a stage this decompiler FOLDS is not
+     * deduplicating anything in the rendered text. The multi-key count mixed with a plain
+     * aggregate exposes the difference:
+     *
+     *   DISTINCT_GLOBAL [k], count(IF(a IS NULL,NULL,b)), sum(sum_buffer)
+     *     GLOBAL [k,a,b], partial_sum(v)      <- ALL outputs are partial buffers
+     *       Scan(t)
+     *
+     * The lower stage is `isIntermediateAggStage`, so visitPhysicalHashAggregate eliminates it -
+     * its grouping never reaches the SQL. `dedupKeysBelow` still reported {a,b}, the count
+     * looked "retained", its DISTINCT was suppressed, and the frozen text counted the RAW rows
+     * (3 for (k,a,b,v) = (1,1,7,10),(1,1,7,20),(1,2,7,30)) where native execution returns 2.
+     *
+     * @param childPlan    the input of the final stage
+     * @param ownGroupKeys the final stage's own group keys (never dedup keys)
+     * @return the SURVIVING stage's extra group keys (empty when every stage is folded)
+     */
+    private static Set<ExprId> retainedGroupingKeysBelow(Plan childPlan,
+            Set<ExprId> ownGroupKeys) {
+        Set<ExprId> keys = new HashSet<>();
+        Plan node = childPlan;
+        while (node != null) {
+            if (node instanceof PhysicalHashAggregate) {
+                PhysicalHashAggregate<? extends Plan> stage =
+                        (PhysicalHashAggregate<? extends Plan>) node;
+                if (!stage.getAggPhase().isLocal() && !isIntermediateAggStage(stage)) {
+                    for (Expression group : stage.getGroupByExpressions()) {
+                        collectAllSlotIds(group, keys);
+                    }
+                    break;
+                }
+            } else if (!(node instanceof PhysicalDistribute)) {
+                break;
+            }
+            node = node.children().isEmpty() ? null : node.child(0);
+        }
+        keys.removeAll(ownGroupKeys);
+        return keys;
+    }
+
+    /**
+     * The DISTINCT keys of the user's multi-column count, reconstructed from the PHYSICAL
+     * argument pattern (round-85), or null when the argument is not that pattern.
+     *
+     * `SplitAggBaseRule` / `AggregateUtils#countDistinctMultiExprToCountIf` rewrite
+     * `count(DISTINCT a, b)` into `count(IF(ISNULL(a), NULL, b))` (one nesting level per leading
+     * key, the last key as the innermost value) over a dedup stage grouped by the keys. When that
+     * stage survives, the plain count over its distinct tuples is correct; when it is folded, the
+     * ONLY faithful spelling left is the user's `count(DISTINCT a, b)` - the scalar
+     * `count(DISTINCT IF(...))` would count the shared trailing column once.
+     *
+     * @param args the aggregate's printed arguments
+     * @return the key expressions in written order, or null when the argument is no such chain
+     */
+    private static List<Expression> multiKeyDistinctCountKeys(List<Expression> args) {
+        if (args == null || args.size() != 1) {
+            return null;
+        }
+        List<Expression> keys = new ArrayList<>();
+        Expression current = args.get(0);
+        while (current instanceof If && current.arity() == 3) {
+            Expression condition = current.child(0);
+            if (!(condition instanceof IsNull)
+                    || condition.arity() != 1
+                    || !isNullValued(current.child(1))) {
+                return null;
+            }
+            keys.add(condition.child(0));
+            current = current.child(2);
+        }
+        if (keys.isEmpty()) {
+            return null; // a plain single-key count / any other argument
+        }
+        keys.add(current);
+        return keys;
+    }
+
+    /** Whether the expression is a NULL VALUE (a NULL literal or a cast of one). */
+    private static boolean isNullValued(Expression expr) {
+        if (expr instanceof Literal) {
+            return ((Literal) expr).isNullLiteral();
+        }
+        return expr instanceof org.apache.doris.nereids.trees.expressions.Cast
+                && expr.arity() == 1
+                && expr.child(0) instanceof Literal
+                && ((Literal) expr.child(0)).isNullLiteral();
+    }
+
+    /**
      * Whether any dedup KEY slot appears anywhere INSIDE an argument EXPRESSION (not as
      * the direct argument). The multi-key tuple count count(DISTINCT a, b) reaches the
      * final stage as Count(IF(a IS NULL,NULL,b)) whose argument consumes the RETAINED
@@ -2919,7 +3031,8 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      */
     private void appendAggSelect(SQLRelation relation, SQLRelation child, NamedExpression output,
             List<Pair<ExprId, String>> selects, boolean distinctMergeCount,
-            boolean stageHasDistinctMergeBuffer, Set<ExprId> dedupKeyIds) {
+            boolean stageHasDistinctMergeBuffer, Set<ExprId> dedupKeyIds,
+            Set<ExprId> retainedGroupingKeys) {
         Expression inner = output instanceof Alias ? ((Alias) output).child() : output;
         if (inner instanceof SlotReference
                 && (isSystemColumnName(((SlotReference) inner).getName())
@@ -3023,9 +3136,25 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             // whatever flag the function carries - "count(DISTINCT if(a IS NULL,NULL,b))"
             // counted the SCALAR column and returned 1 instead of 2 for the tuples
             // (1,7),(2,7).
-            boolean tupleDedupRetainedBelow = dedupKeyConsumedByExpression(args, dedupKeyIds)
-                    && !consumesDedupKey(args, dedupKeyIds)
-                    && !consumesDedupKey(bufferArgs, dedupKeyIds);
+            // RETENTION is a claim about the RENDERED text: only a grouping that survives into
+            // it can deduplicate the rows a scalar argument reads (round-85). A key harvested
+            // from a folded execution-only stage deduplicates nothing - see
+            // retainedGroupingKeysBelow for the mixed count(DISTINCT a, b) + sum(v) shape whose
+            // lower tuple stage is eliminated.
+            boolean tupleDedupRetainedBelow =
+                    dedupKeyConsumedByExpression(args, retainedGroupingKeys)
+                            && !consumesDedupKey(args, retainedGroupingKeys)
+                            && !consumesDedupKey(bufferArgs, retainedGroupingKeys);
+            // The SAME pattern with the tuple grouping FOLDED away: the split left
+            // count(IF(a IS NULL,NULL,b)) (see AggregateUtils#countDistinctMultiExprToCountIf)
+            // over a dedup stage this decompiler eliminates, so the IF would count RAW rows.
+            // Restoring the user's multi-column COUNT(DISTINCT a, b) is the only faithful
+            // spelling: a scalar DISTINCT would count the shared b once, and a plain count
+            // counts the multiplicity (see multiKeyDistinctCountKeys).
+            boolean tupleDedupFoldedBelow = dedupKeyConsumedByExpression(args, dedupKeyIds)
+                    && !dedupKeyConsumedByExpression(args, retainedGroupingKeys);
+            List<Expression> multiKeyCountKeys = tupleDedupFoldedBelow
+                    ? multiKeyDistinctCountKeys(args) : null;
             boolean distinct;
             if (fn.isDistinct()) {
                 // SplitAggBaseRule KEEPS the user's DISTINCT flag on the scalar count it
@@ -3071,7 +3200,17 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                 distinct = false;
             }
             String distinctSql = distinct ? "DISTINCT " : "";
-            if ("count".equalsIgnoreCase(aggName) && starCountArg && argSqls.isEmpty()) {
+            if ("count".equalsIgnoreCase(aggName) && multiKeyCountKeys != null
+                    && !multiKeyCountKeys.isEmpty()) {
+                // count(DISTINCT a, b): the tuple deduplication the physical IF chain relied on
+                // was folded away, so the frozen text has to re-express the USER'S own
+                // multi-column distinct count (round-85).
+                List<String> keySqls = new ArrayList<>(multiKeyCountKeys.size());
+                for (Expression key : multiKeyCountKeys) {
+                    keySqls.add(exprSqlBuilder.print(key, child));
+                }
+                sql = aggName + "(DISTINCT " + String.join(", ", keySqls) + ")";
+            } else if ("count".equalsIgnoreCase(aggName) && starCountArg && argSqls.isEmpty()) {
                 sql = aggName + "(" + distinctSql + "*)";
             } else {
                 sql = aggName + "(" + distinctSql + String.join(", ", argSqls) + ")";

@@ -2213,6 +2213,150 @@ public final class SPMPlanTreeSupport {
         return false;
     }
 
+    /**
+     * Whether the tree REFERENCES an alias UDF whose RESOLVED BODY (transitively) carries a
+     * replay-time context expression (see
+     * org.apache.doris.nereids.spm.SPMPlanner#rejectReplayContextExpressions).
+     *
+     * The parsed-tree check above only sees the CALL: `CREATE ALIAS FUNCTION f() WITH
+     * PARAMETER() AS current_user()` is an ordinary UnboundFunction in the bind text, and its
+     * registry-owned body enters the plan LATER, when analysis INLINES the alias body. The
+     * creator-context optimization of the capture then folds that CurrentUser into the CREATOR's
+     * identity (FoldConstantRuleOnFE, no NeedSessionVarGuard on CurrentUser) and the frozen
+     * planSql persists it - while matching still compares the user's own `f()` text, so a GLOBAL
+     * baseline served every other user the creating identity. The body is therefore resolved
+     * here, through the registry and TRANSITIVELY (an alias body may call another alias), and
+     * inspected with the same classifier.
+     *
+     * Only ALIAS UDFs are expanded: a Java / Python UDF's body is compiled code, not SQL.
+     *
+     * @param ctx  the creating session (supplies the CURRENT database for an unqualified call)
+     * @param plan the parsed (unbound) tree
+     * @return whether a resolved alias body contains a replay-time context expression
+     */
+    public static boolean containsReplayContextInAliasBodies(ConnectContext ctx,
+            LogicalPlan plan) {
+        return containsReplayContextInAliasBodies(ctx, plan, new HashSet<>());
+    }
+
+    /** As {@link #containsReplayContextInAliasBodies(ConnectContext, LogicalPlan)}, carrying the
+     * resolved scopes already expanded on this path (an alias body may reference a subquery). */
+    private static boolean containsReplayContextInAliasBodies(ConnectContext ctx, LogicalPlan plan,
+            Set<String> expanding) {
+        if (plan == null) {
+            return false;
+        }
+        final boolean[] found = {false};
+        SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, (Plan node) -> {
+            if (found[0]) {
+                return;
+            }
+            if (node instanceof LogicalUsingJoin) {
+                Optional<Expression> matchCondition =
+                        ((LogicalUsingJoin<?, ?>) node).getMatchCondition();
+                if (matchCondition.isPresent() && containsReplayContextInAliasBodies(ctx,
+                        matchCondition.get(), expanding)) {
+                    found[0] = true;
+                    return;
+                }
+            }
+            for (Expression expr : node.getExpressions()) {
+                if (containsReplayContextInAliasBodies(ctx, expr, expanding)) {
+                    found[0] = true;
+                    return;
+                }
+            }
+        });
+        return found[0];
+    }
+
+    /** Whether one expression tree references an alias body with a context expression. */
+    private static boolean containsReplayContextInAliasBodies(ConnectContext ctx,
+            Expression expr, Set<String> expanding) {
+        if (expr == null) {
+            return false;
+        }
+        if (expr instanceof UnboundFunction) {
+            UnboundFunction function = (UnboundFunction) expr;
+            String scope = function.getDbName() == null || function.getDbName().isEmpty()
+                    ? (ctx == null || ctx.getDatabase() == null ? null : ctx.getDatabase())
+                    : function.getDbName();
+            String name = function.getName() == null ? ""
+                    : function.getName().toLowerCase(Locale.ROOT);
+            String key = (scope == null ? "" : scope.toLowerCase(Locale.ROOT)) + '.' + name;
+            if (expanding.add(key)) {
+                try {
+                    for (org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdf body
+                            : aliasUdfBodies(scope, function.getName())) {
+                        if (containsReplayContextExpression(body.getUnboundFunction())
+                                || containsReplayContextInAliasBodies(ctx,
+                                        body.getUnboundFunction(), expanding)) {
+                            return true;
+                        }
+                    }
+                } finally {
+                    expanding.remove(key);
+                }
+            }
+        }
+        if (expr instanceof UnboundStar) {
+            for (NamedExpression replaced : ((UnboundStar) expr).getReplacedAlias()) {
+                if (containsReplayContextInAliasBodies(ctx, replaced, expanding)) {
+                    return true;
+                }
+            }
+        }
+        if (expr instanceof SubqueryExpr) {
+            if (containsReplayContextInAliasBodies(ctx,
+                    ((SubqueryExpr) expr).getQueryPlan(), expanding)) {
+                return true;
+            }
+        }
+        for (Expression child : expr.children()) {
+            if (containsReplayContextInAliasBodies(ctx, child, expanding)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * The ALIAS UDF definitions one unqualified / qualified call resolves to (see
+     * containsReplayContextInAliasBodies).
+     *
+     * @param scope the resolved lookup scope (the written qualifier, else the current database)
+     * @param name  the written function name
+     * @return the alias bodies (never null)
+     */
+    private static List<org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdf>
+            aliasUdfBodies(String scope, String name) {
+        List<org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdf> bodies =
+                new ArrayList<>();
+        if (name == null || name.isEmpty()) {
+            return bodies;
+        }
+        try {
+            for (org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder builder
+                    : org.apache.doris.catalog.Env.getCurrentEnv().getFunctionRegistry()
+                            .findUdfBuilder(scope, name)) {
+                if (builder instanceof org.apache.doris.nereids.trees.expressions.functions.udf
+                        .AliasUdfBuilder) {
+                    org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdf body =
+                            ((org.apache.doris.nereids.trees.expressions.functions.udf
+                                    .AliasUdfBuilder) builder).getAliasUdf();
+                    if (body != null) {
+                        bodies.add(body);
+                    }
+                }
+            }
+        } catch (RuntimeException e) {
+            // a registry hiccup cannot certify the body: the direct parsed-tree check above
+            // still covers the caller's own text
+            return bodies;
+        }
+        return bodies;
+    }
+
     // ==================== whole-tree placeholder detection ====================
 
     /**
@@ -5492,6 +5636,72 @@ public final class SPMPlanTreeSupport {
         return true;
     }
 
+    /**
+     * Whether the GROUPING SETS of the two statements RESOLVE to the same expressions (see
+     * rejectManualPlanDivergence).
+     *
+     * A REPEAT is the grouping-sets consumer of the block's output aliases - the same way a
+     * GROUP BY is (round-85): `BindExpression#bindRepeat` resolves every set through
+     * `bindGroupBy`, i.e. a set member that names no base column binds the block's OUTPUT
+     * (MappingSlot). Bind {@code SELECT k AS x, v AS y, count(*) AS n FROM t GROUP BY GROUPING
+     * SETS((x,y),(x))} therefore subtotals k while a plan that swaps the labels
+     * ({@code k AS y, v AS x}) subtotals v. Both columns belong to the flattened grouping-key
+     * union, so ONLY_FULL_GROUP_BY admits both statements, the raw sets compare equal, and only
+     * the LABELS differ - yet the caller returns three rows (two details and one subtotal) and
+     * the frozen replay four (two details and two subtotals). Renaming the final headers cannot
+     * repair the resolved grouping.
+     *
+     * Every REPEAT is paired with the repeat at the same traversal position of the other tree; a
+     * size difference is left to the topology contract. The SETS are positional (a set means
+     * "subtotal over exactly these keys", and their order is the grouping-id order), while the
+     * members inside one set are compared order-insensitively.
+     *
+     * @param bindPlan the bind tree
+     * @param planPlan the plan tree
+     * @return whether every grouping set resolves to the same expressions on both sides
+     */
+    private static boolean sameResolvedGroupingSets(Plan bindPlan, Plan planPlan) {
+        List<LogicalRepeat<?>> bindRepeats = collectRepeats(bindPlan);
+        List<LogicalRepeat<?>> planRepeats = collectRepeats(planPlan);
+        if (bindRepeats.size() != planRepeats.size()) {
+            return true;
+        }
+        for (int i = 0; i < bindRepeats.size(); i++) {
+            LogicalRepeat<?> bindRepeat = bindRepeats.get(i);
+            LogicalRepeat<?> planRepeat = planRepeats.get(i);
+            List<List<Expression>> bindSets = bindRepeat.getGroupingSets();
+            List<List<Expression>> planSets = planRepeat.getGroupingSets();
+            if (bindSets.size() != planSets.size()) {
+                return true;
+            }
+            Map<String, Expression> bindLabels =
+                    outputLabelExpressions(bindRepeat.getOutputExpressions());
+            Map<String, Expression> planLabels =
+                    outputLabelExpressions(planRepeat.getOutputExpressions());
+            for (int set = 0; set < bindSets.size(); set++) {
+                if (!sameResolvedExpressionSet(bindSets.get(set), bindLabels,
+                        planSets.get(set), planLabels)) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    /** Every REPEAT of one tree, in traversal order (see sameResolvedGroupingSets). */
+    private static List<LogicalRepeat<?>> collectRepeats(Plan plan) {
+        List<LogicalRepeat<?>> repeats = new ArrayList<>();
+        if (plan == null) {
+            return repeats;
+        }
+        SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, node -> {
+            if (node instanceof LogicalRepeat) {
+                repeats.add((LogicalRepeat<?>) node);
+            }
+        });
+        return repeats;
+    }
+
     /** Every aggregate of one tree, in traversal order (see sameResolvedGroupByKeys). */
     private static List<LogicalAggregate<?>> collectAggregates(Plan plan) {
         List<LogicalAggregate<?>> aggregates = new ArrayList<>();
@@ -5645,6 +5855,19 @@ public final class SPMPlanTreeSupport {
             return "order|" + (order.isAsc() ? "asc" : "desc") + "|"
                     + (order.isNullFirst() ? "nulls_first" : "nulls_last");
         }
+        if (expression instanceof org.apache.doris.nereids.trees.expressions.Match) {
+            // The MATCH ANALYZER is the fifth such attribute (round-85): it lives in a field of
+            // the node and decides how the pattern is tokenized, so `s MATCH_ANY 'hello' USING
+            // ANALYZER standard` and `... ANALYZER none` over the same column and pattern are
+            // different predicates - standard matches both 'hello world' and 'hello', none only
+            // 'hello'. An alias permutation between them passed this comparison (same class,
+            // same children), the caller's Limit(1) over the resolved sort key picked id = 1
+            // while the frozen replay picked id = 2.
+            org.apache.doris.nereids.trees.expressions.Match match =
+                    (org.apache.doris.nereids.trees.expressions.Match) expression;
+            return expression.getClass().getName() + "|analyzer="
+                    + match.getAnalyzer().orElse("-").toLowerCase(Locale.ROOT);
+        }
         if (expression instanceof org.apache.doris.nereids.trees.expressions.Cast) {
             return expression.getClass().getName() + "->"
                     + ((org.apache.doris.nereids.trees.expressions.Cast) expression)
@@ -5707,7 +5930,8 @@ public final class SPMPlanTreeSupport {
      *    GROUP BY aliases: a group key that names no base column binds the block's
      *       OUTPUT (MappingSlot), so `GROUP BY x` groups another expression after an
      *       alias permutation - bind `k AS x, v AS y ... GROUP BY x` groups k, the plan
-     *       `k AS y, v AS x ... GROUP BY x` groups v (one group vs two);
+     *       `k AS y, v AS x ... GROUP BY x` groups v (one group vs two); the GROUPING SETS
+     *       spelling reaches the same consumer through a REPEAT and is checked the same way;
      *    HAVING aliases: an output label a HAVING predicate CONSUMES is semantic
      *       (bind SELECT k AS x FROM t HAVING x > 0 vs a plan with k AS y): HAVING binds
      *       the block's output names before the base columns, so the renamed plan filters
@@ -5835,6 +6059,17 @@ public final class SPMPlanTreeSupport {
                             + " resolve to different expressions. A GROUP BY name that is not a"
                             + " base column binds the block's OUTPUT column, so renaming /"
                             + " re-ordering those items silently groups by another expression: "
+                            + bindSql);
+        }
+        // GROUPING SETS is the SAME consumer through REPEAT (round-85): every set member that
+        // names no base column binds the block's OUTPUT, so an alias permutation keeps the raw
+        // sets and both texts while the bind subtotals k and the plan subtotals v.
+        if (!sameResolvedGroupingSets(bindPlan, planPlan)) {
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                    "SPM cannot align the plan SQL with the bind SQL: their GROUPING SETS"
+                            + " resolve to different expressions. A GROUPING SETS member that is"
+                            + " not a base column binds the block's OUTPUT column, so renaming /"
+                            + " re-ordering those items silently subtotals another expression: "
                             + bindSql);
         }
         Set<String> bindFilters = filterConjunctTexts(bindPlan);

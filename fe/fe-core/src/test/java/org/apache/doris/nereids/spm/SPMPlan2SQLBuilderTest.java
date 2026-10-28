@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
@@ -54,10 +55,12 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Explode;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeOuter;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
@@ -89,6 +92,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnionAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnionProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
@@ -895,6 +899,38 @@ public class SPMPlan2SQLBuilderTest {
         });
         Assertions.assertTrue(found[0],
                 "the frozen SQL must re-parse into a LogicalAssertNumRows: " + sql);
+    }
+
+    /**
+     * The ASSERT_ROWS relation under the RESULT-SINK RELABEL WRAPPER (round-85): the root
+     * rendering materializes a bare assertion, but the wrapper that re-exposes the user's output
+     * labels builds its FROM from `child.toSQL()`, which never renders the relation PREFIX while
+     * the child IS the assert. `SELECT * FROM ASSERT_ROWS (SELECT k+1 FROM t WHERE k>0) a` froze as
+     * an ordinary filtered SELECT, CREATE's probe planned it happily, and an identical replay
+     * returned BOTH rows where native execution raises the row-count error.
+     */
+    @Test
+    public void testSinkRelabelWrapperKeepsTheAssertion() {
+        SlotReference k = new SlotReference("k", IntegerType.INSTANCE);
+        PhysicalOlapScan scan = mockScan("t1", List.of(k));
+        Alias plus = new Alias(new Add(k, new IntegerLiteral(1)), "k1");
+        PhysicalProject<?> project = mockProjectExprs(List.of((NamedExpression) plus), scan);
+        PhysicalAssertNumRows<?> assertNumRows = mockAssert(project);
+
+        Slot output = Mockito.mock(Slot.class);
+        Mockito.when(output.getExprId()).thenReturn(plus.getExprId());
+        Mockito.when(output.getName()).thenReturn("k_plus");
+        PhysicalResultSink sink = Mockito.mock(PhysicalResultSink.class);
+        Mockito.when(sink.child(0)).thenReturn(assertNumRows);
+        Mockito.when(sink.getOutput()).thenReturn(List.of(output));
+
+        // the result sink has no SQL node of its own: its handler is the relabel entry point
+        String sql = new SPMPlan2SQLBuilder().visitPhysicalSink(sink, null).toSQL();
+        Assertions.assertTrue(sql.contains("ASSERT_ROWS (SELECT"),
+                "the relabel wrapper must keep the assertion in its FROM: " + sql);
+        Assertions.assertTrue(sql.contains("AS k1"),
+                "the projection over the assert keeps its output: " + sql);
+        assertReparsesIntoAssertion(sql);
     }
 
     /**
@@ -2214,6 +2250,65 @@ public class SPMPlan2SQLBuilderTest {
         Assertions.assertTrue(sql.contains("sum(y)"),
                 "the riding aggregate keeps its plain form: " + sql);
         Assertions.assertFalse(sql.contains("sum(DISTINCT y)"), sql);
+    }
+
+    /**
+     * A multi-column COUNT(DISTINCT a, b) MIXED with a plain SUM (round-85):
+     *
+     *   DISTINCT_GLOBAL [k], count(IF(a IS NULL,NULL,b)), sum(sum_buffer)
+     *     GLOBAL [k,a,b], partial_sum(v)      <- ALL outputs are partial buffers
+     *       Scan(t)
+     *
+     * The lower stage is execution-only, so visitPhysicalHashAggregate eliminates it - its tuple
+     * grouping never reaches the frozen SQL. `dedupKeysBelow` still reported {a,b}, the count
+     * looked "retained", its DISTINCT was suppressed and the frozen text counted the RAW rows:
+     * for (k,a,b,v) = (1,1,7,10),(1,1,7,20),(1,2,7,30) native execution returns (1,2,60) while the
+     * replay returned (1,3,60). The user's multi-column COUNT has to be restored instead - a scalar
+     * DISTINCT would count the shared b = 7 once.
+     */
+    @Test
+    public void testMixedMultiKeyDistinctCountKeepsTupleDeduplication() {
+        SlotReference k = new SlotReference("k", IntegerType.INSTANCE);
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        SlotReference v = new SlotReference("v", IntegerType.INSTANCE);
+        PhysicalOlapScan scan = mockScan("t1", List.of(k, a, b, v));
+
+        // the FOLDED tuple-dedup stage: every output is a product buffer
+        Alias partialSum = new Alias(new AggregateExpression(new Sum(v),
+                new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_BUFFER)), "sum_buf");
+        PhysicalHashAggregate<?> dedup = Mockito.mock(PhysicalHashAggregate.class);
+        Mockito.when(dedup.child(0)).thenReturn(scan);
+        Mockito.when(dedup.getAggPhase()).thenReturn(AggPhase.GLOBAL);
+        Mockito.when(dedup.getGroupByExpressions()).thenReturn(List.of(k, a, b));
+        Mockito.when(dedup.getOutputExpressions()).thenReturn(List.of(k, a, b, partialSum));
+        stubAccept(dedup);
+
+        SlotReference bufferSlot = new SlotReference(
+                partialSum.getExprId(), "sum_buf", IntegerType.INSTANCE, true, List.of());
+        Count tupleCount = new Count(new If(new IsNull(a), NullLiteral.INSTANCE, b));
+        PhysicalHashAggregate<?> finalAgg = Mockito.mock(PhysicalHashAggregate.class);
+        Mockito.when(finalAgg.child(0)).thenReturn(dedup);
+        Mockito.when(finalAgg.getAggPhase()).thenReturn(AggPhase.DISTINCT_GLOBAL);
+        Mockito.when(finalAgg.getGroupByExpressions()).thenReturn(List.of(k));
+        Mockito.when(finalAgg.getOutputExpressions()).thenReturn(List.of(
+                k,
+                (NamedExpression) new Alias(new AggregateExpression(tupleCount,
+                        new AggregateParam(AggPhase.DISTINCT_GLOBAL, AggMode.INPUT_TO_RESULT)),
+                        "c"),
+                (NamedExpression) new Alias(new AggregateExpression(new Sum(bufferSlot),
+                        new AggregateParam(AggPhase.DISTINCT_GLOBAL, AggMode.BUFFER_TO_RESULT),
+                        bufferSlot), "s")));
+        stubAccept(finalAgg);
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(finalAgg);
+        Assertions.assertTrue(sql.contains("count(DISTINCT a, b)"),
+                "the folded tuple grouping must be re-expressed as the user's multi-column"
+                        + " COUNT: " + sql);
+        Assertions.assertFalse(sql.contains("count(IF("),
+                "a plain count over raw rows counts the multiplicity: " + sql);
+        Assertions.assertTrue(sql.contains("sum(v)"),
+                "the riding SUM keeps its own (plain) aggregation: " + sql);
     }
 
     // ==================== external file scan modifiers ====================
