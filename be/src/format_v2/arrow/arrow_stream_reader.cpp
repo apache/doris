@@ -35,6 +35,7 @@
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type_serde/data_type_variant_v2_serde.h"
 #include "format/arrow/arrow_array_normalizer.h"
 #include "format/arrow/arrow_row_batch.h"
 #include "format/arrow/arrow_utils.h"
@@ -425,9 +426,15 @@ Status ArrowStreamReader::_open_next_stream() {
 Status ArrowStreamReader::_prepare_arrays() {
     _arrays.assign(_file_slots.size(), nullptr);
     for (const auto& [id, position] : _request->local_positions) {
-        std::shared_ptr<arrow::Array> array;
-        RETURN_IF_ERROR(normalize_arrow_array(_batch->column(_arrow_positions[id.value()]),
-                                              _arrow_pool.get(), &array));
+        std::shared_ptr<arrow::Array> array = _batch->column(_arrow_positions[id.value()]);
+        // The VARIANT SerDe reads large_binary and dictionary-encoded metadata itself. Decoding
+        // a metadata dictionary here would copy a batch's shared blob, often tens of KB, into
+        // every row and make the SerDe compare it row by row.
+        if (remove_nullable(_file_slots[id.value()]->type())->get_primitive_type() !=
+                    TYPE_VARIANT ||
+            !DataTypeVariantV2SerDe::is_arrow_input_type(*array->type())) {
+            RETURN_IF_ERROR(normalize_arrow_array(array, _arrow_pool.get(), &array));
+        }
         arrow::compute::ExecContext context(_arrow_pool.get());
         std::shared_ptr<arrow::DataType> binding;
         RETURN_DORIS_STATUS_IF_RESULT_ERROR(
