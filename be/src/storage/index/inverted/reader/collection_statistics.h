@@ -300,6 +300,14 @@ Status segment_scoring_terms(index_query::IndexSource& source, const CollectInfo
 Status exclude_hidden_term_docs(index_query::IndexSource& source, std::string_view term,
                                 std::span<const uint32_t> hidden_docs, uint64_t* doc_frequency);
 
+// The document frequency of a term in `source` without the rows of `hidden_docs`, computed once
+// per term for the lifetime of the returned function. With hidden rows every term costs an
+// intersection of its postings with them, and the terms a prefix expands to are asked for twice:
+// to choose the ones to keep, and to add up the frequencies of the ones kept.
+// `source` and `hidden_docs` must outlive the function.
+VisibleDocFreq cached_visible_doc_freq(index_query::IndexSource& source,
+                                       std::span<const uint32_t> hidden_docs);
+
 } // namespace collection_statistics_detail
 
 } // namespace doris

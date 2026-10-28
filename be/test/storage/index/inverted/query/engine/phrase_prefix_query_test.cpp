@@ -569,6 +569,15 @@ public:
         return Status::OK();
     }
 
+    // Every term is held by 3 documents; the calls are counted.
+    Status doc_freq(std::string_view, uint64_t* out) override {
+        ++doc_freq_calls;
+        *out = 3;
+        return Status::OK();
+    }
+
+    int doc_freq_calls = 0;
+
     Status expand_terms(index_query::TermPattern&, int32_t max_expansions,
                         std::vector<std::string>* out) override {
         out->clear();
@@ -612,6 +621,34 @@ TEST_F(PhrasePrefixQueryV2Test, segment_statistics_skip_terms_without_a_wide_str
     EXPECT_EQ(expansions.at(StringHelper::to_wstring("r")).terms(),
               (std::set<std::wstring> {StringHelper::to_wstring("rb"),
                                        StringHelper::to_wstring("rc")}));
+}
+
+// With hidden rows every document frequency costs an intersection of the term's postings with
+// them. The terms a prefix expands to are asked for twice, to choose the ones kept and to add up
+// their frequencies, and the intersection is made once.
+TEST_F(PhrasePrefixQueryV2Test, visible_document_frequencies_are_computed_once_per_term) {
+    DictionaryOnlySource source({"rb", "rc"});
+    const auto doc_freq = collection_statistics_detail::cached_visible_doc_freq(source, {});
+
+    CollectInfo collect_info;
+    TermInfo r;
+    r.term = std::string("r");
+    scoring_collection_detail::append_scoring_prefix(&collect_info, r, 2);
+    FieldPrefixExpansions expansions;
+    std::vector<std::string> terms;
+    ASSERT_TRUE(collection_statistics_detail::segment_scoring_terms(source, collect_info, doc_freq,
+                                                                    &expansions, &terms)
+                        .ok());
+    ASSERT_EQ(terms, (std::vector<std::string> {"rb", "rc"}));
+    EXPECT_EQ(source.doc_freq_calls, 2);
+
+    // The final count asks for the same terms again.
+    for (const auto& term : terms) {
+        uint64_t frequency = 0;
+        ASSERT_TRUE(doc_freq(term, &frequency).ok());
+        EXPECT_EQ(frequency, 3U);
+    }
+    EXPECT_EQ(source.doc_freq_calls, 2);
 }
 
 // --- PhrasePrefixWeight scorer: nullable branch ---

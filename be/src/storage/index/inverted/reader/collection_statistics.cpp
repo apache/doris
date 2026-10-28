@@ -254,6 +254,24 @@ Status exclude_hidden_term_docs(index_query::IndexSource& source, std::string_vi
     return Status::OK();
 }
 
+VisibleDocFreq cached_visible_doc_freq(index_query::IndexSource& source,
+                                       std::span<const uint32_t> hidden_docs) {
+    auto cache = std::make_shared<std::unordered_map<std::string, uint64_t>>();
+    return [&source, hidden_docs, cache](const std::string& term,
+                                         uint64_t* doc_frequency) -> Status {
+        if (const auto cached = cache->find(term); cached != cache->end()) {
+            *doc_frequency = cached->second;
+            return Status::OK();
+        }
+        RETURN_IF_ERROR(source.scoring_doc_freq(term, doc_frequency));
+        if (!hidden_docs.empty()) {
+            RETURN_IF_ERROR(exclude_hidden_term_docs(source, term, hidden_docs, doc_frequency));
+        }
+        cache->emplace(term, *doc_frequency);
+        return Status::OK();
+    };
+}
+
 } // namespace collection_statistics_detail
 
 namespace {
@@ -575,15 +593,8 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
                             collect_info.index_meta->properties())));
 
             // The document frequency of a term in this segment, without its hidden rows.
-            const auto visible_doc_freq = [&](const std::string& term,
-                                              uint64_t* doc_frequency) -> Status {
-                RETURN_IF_ERROR(source.scoring_doc_freq(term, doc_frequency));
-                if (!hidden_docs.empty()) {
-                    RETURN_IF_ERROR(collection_statistics_detail::exclude_hidden_term_docs(
-                            source, term, hidden_docs, doc_frequency));
-                }
-                return Status::OK();
-            };
+            const auto visible_doc_freq =
+                    collection_statistics_detail::cached_visible_doc_freq(source, hidden_docs);
             std::vector<std::string> segment_terms;
             RETURN_IF_ERROR(collection_statistics_detail::segment_scoring_terms(
                     source, collect_info, visible_doc_freq,
@@ -719,15 +730,8 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
                 scoring_stats.has_norms ? scoring_stats.token_count : scoring_stats.doc_count;
 
         // The document frequency of a term in this segment, without its hidden rows.
-        const auto visible_doc_freq = [&](const std::string& term,
-                                          uint64_t* doc_frequency) -> Status {
-            RETURN_IF_ERROR(source->scoring_doc_freq(term, doc_frequency));
-            if (!hidden_docs.empty()) {
-                RETURN_IF_ERROR(collection_statistics_detail::exclude_hidden_term_docs(
-                        *source, term, hidden_docs, doc_frequency));
-            }
-            return Status::OK();
-        };
+        const auto visible_doc_freq =
+                collection_statistics_detail::cached_visible_doc_freq(*source, hidden_docs);
         std::vector<std::string> segment_terms;
         RETURN_IF_ERROR(collection_statistics_detail::segment_scoring_terms(
                 *source, collect_info, visible_doc_freq, &_prefix_expansions[ws_field_name],
