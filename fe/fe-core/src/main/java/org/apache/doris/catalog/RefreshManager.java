@@ -162,17 +162,14 @@ public class RefreshManager {
             return;
         }
 
-        TableIf table = db.getTableNullable(tableName);
-        if (table == null) {
-            if (!ignoreIfNotExists) {
-                throw new DdlException("Table " + tableName + " does not exist in db " + dbName);
-            }
-            return;
-        }
-        long updateTime = System.currentTimeMillis();
-        refreshTableInternal((ExternalDatabase) db, (ExternalTable) table, updateTime, true);
+        // A forwarding FE may retain a dropped table that is cold on the master. Refresh by name so
+        // remote absence cannot prevent invalidating that FE's stale lookup through the edit log.
+        ExternalDatabase<?> externalDb = (ExternalDatabase<?>) db;
+        String localTableName = externalDb.getTableForReplay(tableName)
+                .map(ExternalTable::getName).orElse(tableName);
         ExternalObjectLog log = ExternalObjectLog.createForExplicitRefreshTable(
-                catalog.getId(), db.getFullName(), table.getName(), updateTime);
+                catalog.getId(), db.getFullName(), localTableName, System.currentTimeMillis());
+        replayRefreshTable(log);
         env.getEditLog().logRefreshExternalTable(log);
     }
 

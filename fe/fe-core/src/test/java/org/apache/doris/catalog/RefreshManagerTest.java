@@ -190,6 +190,52 @@ public class RefreshManagerTest {
         Assertions.assertTrue(log.getValue().isInvalidateTableLookup());
     }
 
+    @ParameterizedTest
+    @ValueSource(ints = {0, 1, 2})
+    public void testExplicitRefreshOnColdMasterInvalidatesDroppedTableOnFollower(int mode) throws Exception {
+        useMutableCatalog(mode);
+        TestExternalCatalog followerCatalog = catalog;
+        CountingDatabase followerDatabase = database;
+        TestExternalTable staleTable = followerDatabase.getTableNullable(TABLE_NAME);
+        Assertions.assertNotNull(staleTable);
+        Assertions.assertNotNull(followerDatabase.getCachedTableNamesForTest());
+
+        // Each FE owns its lookup cache; warming the follower does not warm the elected master.
+        useMutableCatalog(mode);
+        Assertions.assertNull(database.getCachedTableNamesForTest());
+        Assertions.assertNull(database.getCachedTableForTest(TABLE_NAME));
+        MutableCatalogProvider.removeTable();
+
+        Assertions.assertDoesNotThrow(() ->
+                new RefreshManager().handleRefreshTable(CATALOG_NAME, DATABASE_NAME, TABLE_NAME, false));
+
+        Assertions.assertEquals(0, database.buildTableCalls.get());
+        Assertions.assertNull(database.getCachedTableNamesForTest());
+        ArgumentCaptor<ExternalObjectLog> logCaptor = ArgumentCaptor.forClass(ExternalObjectLog.class);
+        Mockito.verify(editLog).logRefreshExternalTable(logCaptor.capture());
+        ExternalObjectLog log = GsonUtils.GSON.fromJson(
+                GsonUtils.GSON.toJson(logCaptor.getValue()), ExternalObjectLog.class);
+        Assertions.assertTrue(log.isInvalidateTableLookup());
+        Assertions.assertEquals(CATALOG_ID, log.getCatalogId());
+        Assertions.assertEquals(DATABASE_NAME, log.getDbName());
+        Assertions.assertEquals(TABLE_NAME, log.getTableName());
+
+        testingCatalogMgr.setCatalog(followerCatalog);
+        new RefreshManager().replayRefreshTable(log);
+
+        Assertions.assertNull(followerDatabase.getCachedTableNamesForTest());
+        Assertions.assertNull(followerDatabase.getCachedTableForTest(TABLE_NAME));
+        Assertions.assertNull(followerDatabase.getCachedTableNameByIdForTest(TABLE_ID));
+        Assertions.assertTrue(followerDatabase.getTableNamesWithLock().isEmpty());
+        Assertions.assertNull(followerDatabase.getTableNullable(TABLE_NAME));
+
+        MutableCatalogProvider.putTable("replacement_column");
+        followerDatabase.invalidateTableLookup(TABLE_NAME);
+        TestExternalTable replacement = followerDatabase.getTableNullable(TABLE_NAME);
+        Assertions.assertNotNull(replacement);
+        Assertions.assertNotSame(staleTable, replacement);
+    }
+
     @Test
     public void testExplicitRefreshReplayRetainsReplacementUpdateTimeBeforeSchemaLoad() {
         useMutableCatalog();
