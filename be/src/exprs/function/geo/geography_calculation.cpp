@@ -40,11 +40,12 @@
 #include <array>
 #include <bit>
 #include <boost/iterator/iterator_facade.hpp>
-// cpp_int needs no quadmath wrappers. Boost's float128 numeric_limits specialization
-// conflicts with libstdc++ 15's native specialization in the GCC performance build.
+// Integer proofs and software-wide arithmetic need no quadmath wrappers. Boost's float128
+// numeric_limits specialization conflicts with libstdc++ 15 in the GCC performance build.
 #if defined(__GNUC__) && !defined(__clang__) && __GNUC__ >= 15
 #define BOOST_CSTDFLOAT_NO_LIBQUADMATH_SUPPORT
 #endif
+#include <boost/multiprecision/cpp_bin_float.hpp>
 #include <boost/multiprecision/cpp_int.hpp>
 #if defined(__GNUC__) && !defined(__clang__) && __GNUC__ >= 15
 #undef BOOST_CSTDFLOAT_NO_LIBQUADMATH_SUPPORT
@@ -56,6 +57,7 @@
 #include <numbers>
 #include <optional>
 #include <set>
+#include <type_traits>
 #include <utility>
 
 #include "core/assert_cast.h"
@@ -64,6 +66,26 @@
 #include "exprs/function/geo/wkb_parse.h"
 
 namespace doris {
+
+// Apple ARM64 long double has binary64 precision/range. Keep native wide arithmetic
+// where available; software quad preserves the tiny residual products on narrower ABIs.
+using GeographyFloat =
+        std::conditional_t<std::numeric_limits<long double>::digits >= 64 &&
+                                   std::numeric_limits<long double>::min_exponent <= -4096,
+                           long double, boost::multiprecision::cpp_bin_float_quad>;
+static_assert(std::numeric_limits<GeographyFloat>::digits >= 64 &&
+              std::numeric_limits<GeographyFloat>::min_exponent <= -4096);
+
+template <typename Float>
+static Float geography_pi() {
+    if constexpr (std::is_same_v<Float, long double>) {
+        return std::numbers::pi_v<long double>;
+    } else {
+        // Public software acos avoids float128 constant conversions/libquadmath on GCC.
+        static const Float pi = boost::multiprecision::acos(Float(-1));
+        return pi;
+    }
+}
 
 // Calculations use canonical positions; raw spatial accessors still return the original WKB.
 static S2Point canonical_geography_point(const S2Point& point) {
@@ -89,16 +111,25 @@ static std::pair<double, double> geography_degree_sum(double a, double b) {
 
 // Reduce the exact degree sum before converting to radians. In particular,
 // 180 + (-1e-300) must retain its small sine instead of becoming sin(pi).
-static std::pair<long double, long double> geography_degree_sincos(double a, double b = 0,
-                                                                   bool half = false) {
+template <typename Float = GeographyFloat>
+static std::pair<Float, Float> geography_degree_sincos(double a, double b = 0, bool half = false) {
     const auto [high, low] = geography_degree_sum(a, b);
     int quadrant;
-    const long double reduced =
-            std::remquo(static_cast<long double>(high), half ? 180.0L : 90.0L, &quadrant) +
-            static_cast<long double>(low);
-    const auto radians = reduced * (std::numbers::pi_v<long double> / 180) / (half ? 2 : 1);
-    const auto sine = std::sin(radians);
-    const auto cosine = std::cos(radians);
+    const Float reduced = [&] {
+        if constexpr (std::is_same_v<Float, long double>) {
+            return std::remquo(static_cast<Float>(high), half ? 180.0L : 90.0L, &quadrant) +
+                   static_cast<Float>(low);
+        } else {
+            // high is binary64 and the periods are exact integers: its reduced remainder
+            // is representable in binary64. Add TwoSum's low residual only after widening.
+            return Float(std::remquo(high, half ? 180.0 : 90.0, &quadrant)) + Float(low);
+        }
+    }();
+    const Float radians = reduced * (geography_pi<Float>() / 180) / (half ? 2 : 1);
+    using std::cos;
+    using std::sin;
+    const Float sine = sin(radians);
+    const Float cosine = cos(radians);
     switch ((quadrant % 4 + 4) % 4) {
     case 0:
         return {sine, cosine};
@@ -115,30 +146,29 @@ static std::pair<long double, long double> geography_degree_sincos(double a, dou
 // rounded nearly opposite vectors. Longitude-midpoint coordinates give
 // (-sin(dLon/2)*sin(latA+latB), cos(dLon/2)*sin(latA-latB),
 //  cos(latA)*cos(latB)*sin(dLon)) for the oriented normal.
+template <typename Float = GeographyFloat>
 struct GeographyRawArc {
     S2Point normal;
     S2Point midpoint;
 
     GeographyRawArc(const GeoCoordinate& a, const GeoCoordinate& b) {
-        // Wide exponents retain products of the smallest binary64 degree residuals.
-        static_assert(std::numeric_limits<long double>::digits >= 64 &&
-                      std::numeric_limits<long double>::min_exponent <= -4096);
-        const auto [sd, cd] = geography_degree_sincos(b.x, -a.x, true);
-        const auto [sm, cm] = geography_degree_sincos(a.x, b.x, true);
-        const auto rotate_unit = [&](long double x, long double y, long double z) {
-            const auto norm = std::sqrt(x * x + y * y + z * z);
+        const auto [sd, cd] = geography_degree_sincos<Float>(b.x, -a.x, true);
+        const auto [sm, cm] = geography_degree_sincos<Float>(a.x, b.x, true);
+        const auto rotate_unit = [&](Float x, Float y, Float z) {
+            using std::sqrt;
+            const Float norm = sqrt(x * x + y * y + z * z);
             DCHECK_GT(norm, 0);
             return S2Point(static_cast<double>((cm * x - sm * y) / norm),
                            static_cast<double>((sm * x + cm * y) / norm),
                            static_cast<double>(z / norm));
         };
-        normal = rotate_unit(-sd * geography_degree_sincos(a.y, b.y).first,
-                             cd * geography_degree_sincos(a.y, -b.y).first,
-                             geography_degree_sincos(a.y).second *
-                                     geography_degree_sincos(b.y).second *
-                                     geography_degree_sincos(b.x, -a.x).first);
-        const auto [sl, cl] = geography_degree_sincos(a.y, b.y, true);
-        const auto [st, ct] = geography_degree_sincos(b.y, -a.y, true);
+        normal = rotate_unit(-sd * geography_degree_sincos<Float>(a.y, b.y).first,
+                             cd * geography_degree_sincos<Float>(a.y, -b.y).first,
+                             geography_degree_sincos<Float>(a.y).second *
+                                     geography_degree_sincos<Float>(b.y).second *
+                                     geography_degree_sincos<Float>(b.x, -a.x).first);
+        const auto [sl, cl] = geography_degree_sincos<Float>(a.y, b.y, true);
+        const auto [st, ct] = geography_degree_sincos<Float>(b.y, -a.y, true);
         midpoint = rotate_unit(cd * cl * ct, -sd * sl * st, sl * ct);
     }
 };
@@ -464,6 +494,15 @@ public:
                 }
             }
         }
+        // Polygon rings retain directed edges, unlike the merged line intervals. Raw
+        // coordinate bands avoid recalling a whole tiny zigzag ring for every edge.
+        if (left.type == GeoShapeType::GEO_SHAPE_POLYGON ||
+            right.type == GeoShapeType::GEO_SHAPE_POLYGON) {
+            _longitude_order.assign(coordinates.begin(), coordinates.end());
+            _latitude_order = _longitude_order;
+            std::ranges::sort(_latitude_order, {},
+                              [](const auto& vertex) { return vertex.coordinate.y; });
+        }
         // Keep dense longitude groups separately so a circle can skip its known
         // endpoint longitudes before enumerating nearby points. At sqrt(N) points
         // per group there are at most sqrt(N) extra indexes, even with unrelated
@@ -563,25 +602,25 @@ public:
         const bool wraps = geography_degree_sum(std::max(a.x, b.x), -std::min(a.x, b.x)) >
                            std::pair {180.0, 0.0};
         const bool east = (a.x < b.x) != wraps;
-        // A near-antipodal rounded edge can miss true raw-coordinate nodes. Two
-        // stable half-arcs recall those nodes without a hemispherical search.
-        const auto midpoint = GeographyRawArc(a, b).midpoint;
         DorisVector<GeographyVertex> on_edge;
-        for (const auto& endpoint : {start, end}) {
-            visit_edge_candidates(
-                    endpoint.point, midpoint, [](double) { return false; },
-                    [&](const GeographyVertex& point) {
-                        const auto& c = point.coordinate;
-                        // Longitude is strictly monotone along every non-meridian minor arc.
-                        // Check the original interval (including date-line wrap), not a distance
-                        // tolerance that could append a point just beyond an endpoint.
-                        const bool within =
-                                wraps ? (c.x < std::min(a.x, b.x) || c.x > std::max(a.x, b.x))
+        const auto append = [&](const GeographyVertex& point) {
+            const auto& c = point.coordinate;
+            // Longitude is strictly monotone along every non-meridian minor arc.
+            // Retain the raw interval and exact proof for both candidate strategies.
+            const bool within = wraps ? (c.x < std::min(a.x, b.x) || c.x > std::max(a.x, b.x))
                                       : (c.x > std::min(a.x, b.x) && c.x < std::max(a.x, b.x));
-                        if (within && geography_common_great_circle(a, b, c)) {
-                            on_edge.push_back(point);
-                        }
-                    });
+            if (within && geography_common_great_circle(a, b, c)) {
+                on_edge.push_back(point);
+            }
+        };
+        if (!visit_small_raw_candidates(start, end, wraps, append)) {
+            // Near-antipodal conversion can miss raw nodes. Preserve the existing
+            // stable half-arc recall whenever a small raw band is unavailable.
+            const auto midpoint = GeographyRawArc(a, b).midpoint;
+            for (const auto& endpoint : {start, end}) {
+                visit_edge_candidates(
+                        endpoint.point, midpoint, [](double) { return false; }, append);
+            }
         }
         std::ranges::sort(on_edge, [&](const GeographyVertex& x, const GeographyVertex& y) {
             const double x_lon = x.coordinate.x;
@@ -664,6 +703,70 @@ public:
     }
 
 private:
+    template <typename Visit>
+    bool visit_small_raw_candidates(const GeographyVertex& start, const GeographyVertex& end,
+                                    bool wraps, Visit&& visit) const {
+        // The S2 recall radius can cover an entire 1e-14-degree ring. Ordinary
+        // edges keep the spatial query; this threshold only selects an index.
+        constexpr double recall_radius = 64 * std::numeric_limits<double>::epsilon();
+        if ((start.point - end.point).Norm2() > recall_radius * recall_radius) {
+            return false;
+        }
+        const auto& a = start.coordinate;
+        const auto& b = end.coordinate;
+        const auto longitude = [](const auto& vertex) { return vertex.coordinate.x; };
+        const auto lo =
+                std::ranges::upper_bound(_longitude_order, std::min(a.x, b.x), {}, longitude);
+        const auto hi =
+                std::ranges::lower_bound(_longitude_order, std::max(a.x, b.x), {}, longitude);
+        auto first = wraps ? _longitude_order.begin() : lo;
+        auto last = hi;
+        auto second = wraps ? lo : _longitude_order.end();
+        if (wraps) {
+            // At the date-line cut the strict longitude interval has two pieces.
+            last = std::ranges::lower_bound(_longitude_order, std::min(a.x, b.x), {}, longitude);
+            second = std::ranges::upper_bound(_longitude_order, std::max(a.x, b.x), {}, longitude);
+        }
+        size_t count = (last - first) + (_longitude_order.end() - second);
+        const double dx = std::nextafter(std::abs(b.x - a.x), INFINITY);
+        const double dy = std::nextafter(std::abs(b.y - a.y), 0.0);
+        // For |A|,|B|<=45 and |dLon|<=90, endpoint latitude tangents have signs of
+        // sin(B-A) plus sin(A)cos(B)*(1-cos(dLon)), or minus sin(B)cos(A)*(1-cos(dLon)).
+        // In degrees, |sin(dLat)|
+        // >= |dLat|/90 and 1-cos(dLon) < dLon^2/5000. Thus dy>dx^2 proves
+        // monotonicity, with outward rounding below. A (0,45)->(90,45) arc
+        // fails this certificate: its latitude bows above both endpoints.
+        if (std::abs(a.y) <= 45 && std::abs(b.y) <= 45 && dx <= 90 &&
+            dy > std::nextafter(dx * dx, INFINITY)) {
+            const auto latitude = [](const auto& vertex) { return vertex.coordinate.y; };
+            const auto from =
+                    std::ranges::lower_bound(_latitude_order, std::min(a.y, b.y), {}, latitude);
+            const auto to =
+                    std::ranges::upper_bound(_latitude_order, std::max(a.y, b.y), {}, latitude);
+            if (static_cast<size_t>(to - from) < count) {
+                first = from;
+                last = to;
+                second = _longitude_order.end();
+                count = to - from;
+            }
+        }
+        // Eight is only a strategy crossover, never a result cap. Larger or
+        // unproven bands use the complete existing S2 recall without truncation.
+        if (count > 8) {
+            return false;
+        }
+        for (const auto& range :
+             {std::pair {first, last}, std::pair {second, _longitude_order.end()}}) {
+            for (auto point = range.first; point != range.second; ++point) {
+#ifdef BE_TEST
+                ++geography_candidate_visits;
+#endif
+                visit(*point);
+            }
+        }
+        return true;
+    }
+
     void add_line_shapes(const DorisVector<GeographyVertex>& line, const LineEdges& edges,
                          MutableS2ShapeIndex* index) const {
         const auto& first = line.front();
@@ -899,6 +1002,8 @@ private:
     DorisMap<double, S2PointIndex<GeographyVertex>> _dense_longitudes;
     S2PointIndex<GeographyVertex> _vertex_index;
     DorisMap<std::pair<double, double>, std::array<DorisVector<Vertex>, 2>> _meridians;
+    DorisVector<GeographyVertex> _longitude_order;
+    DorisVector<GeographyVertex> _latitude_order;
 };
 
 static void geography_shape_index(const GeoShape& shape, const GeographyCoordinates& raw,
@@ -1343,7 +1448,8 @@ static std::pair<double, double> geography_point_coordinate(StringRef wkb) {
     return {longitude, latitude};
 }
 
-bool geography_bearing(StringRef from, StringRef to, double* bearing) {
+template <typename Float>
+static bool geography_bearing_impl(StringRef from, StringRef to, double* bearing) {
     const auto start = geography_point_coordinate(from);
     const auto end = geography_point_coordinate(to);
     // Coincident or antipodal positions have no unique initial bearing. Compare original degrees:
@@ -1361,16 +1467,33 @@ bool geography_bearing(StringRef from, StringRef to, double* bearing) {
     // Reduce the original degrees before converting to radians so an exact 180-degree
     // longitude difference has zero east component even next to an antipode.
     // For example, (0, 45) -> (180, nextafter(-45, +inf)) starts due north, not west.
-    const auto [sin_half, cos_half] = geography_degree_sincos(end.first, -start.first, true);
-    const long double east = geography_degree_sincos(end.second).second *
-                             geography_degree_sincos(end.first, -start.first).first;
-    const long double north =
-            geography_degree_sincos(end.second, -start.second).first * cos_half * cos_half +
-            geography_degree_sincos(end.second, start.second).first * sin_half * sin_half;
-    *bearing = std::atan2(east, north);
+    const auto [sin_half, cos_half] = geography_degree_sincos<Float>(end.first, -start.first, true);
+    const Float east = geography_degree_sincos<Float>(end.second).second *
+                       geography_degree_sincos<Float>(end.first, -start.first).first;
+    const Float north =
+            geography_degree_sincos<Float>(end.second, -start.second).first * cos_half * cos_half +
+            geography_degree_sincos<Float>(end.second, start.second).first * sin_half * sin_half;
+    using std::atan2;
+    *bearing = static_cast<double>(atan2(east, north));
     *bearing = std::fmod(*bearing + 2 * M_PI, 2 * M_PI);
     return true;
 }
+
+bool geography_bearing(StringRef from, StringRef to, double* bearing) {
+    return geography_bearing_impl<GeographyFloat>(from, to, bearing);
+}
+
+#ifdef BE_TEST
+std::array<double, 6> geography_portable_arc_for_test(double ax, double ay, double bx, double by) {
+    const GeographyRawArc<boost::multiprecision::cpp_bin_float_quad> arc({ax, ay}, {bx, by});
+    return {arc.normal.x(),   arc.normal.y(),   arc.normal.z(),
+            arc.midpoint.x(), arc.midpoint.y(), arc.midpoint.z()};
+}
+
+bool geography_portable_bearing_for_test(StringRef from, StringRef to, double* bearing) {
+    return geography_bearing_impl<boost::multiprecision::cpp_bin_float_quad>(from, to, bearing);
+}
+#endif
 
 double geography_distance(const GeoShape& left_shape, const GeoShape& right_shape,
                           StringRef left_wkb, StringRef right_wkb) {

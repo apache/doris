@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <array>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -35,6 +36,8 @@ double geography_distance(const GeoShape& left_shape, const GeoShape& right_shap
                           StringRef left_wkb, StringRef right_wkb);
 double geography_area(const GeoShape& shape, StringRef wkb, bool square_meters);
 #ifdef BE_TEST
+std::array<double, 6> geography_portable_arc_for_test(double ax, double ay, double bx, double by);
+bool geography_portable_bearing_for_test(StringRef from, StringRef to, double* bearing);
 size_t geography_calculation_edges_for_test(const std::string& left, const std::string& right,
                                             size_t* exact_proofs = nullptr,
                                             size_t* candidate_visits = nullptr);

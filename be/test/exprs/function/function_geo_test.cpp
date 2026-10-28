@@ -20,7 +20,9 @@
 #include <gtest/gtest-test-part.h>
 #include <stdint.h>
 
+#include <array>
 #include <bit>
+#include <cmath>
 #include <iomanip>
 #include <limits>
 #include <memory>
@@ -1491,6 +1493,99 @@ TEST(VGeoFunctionsTest, GeographyBearingUsesOriginalNearAntipodalDirections) {
         geography_measurement("st_angle", {value.north, value.from, value.to}, &result);
         EXPECT_NEAR(result, value.bearing, 1e-14);
     }
+}
+
+TEST(VGeoFunctionsTest, GeographyPortableArithmeticRetainsTinyResiduals) {
+    const std::array<std::array<double, 4>, 5> cases {{{0, 0, 0, 1},
+                                                       {45, 0, 135, 0},
+                                                       {10, 45, 10, 46},
+                                                       {1e-300, 0, -180, 0},
+                                                       {0, 45, 180, std::nextafter(-45.0, 0.0)}}};
+    for (const auto& point : cases) {
+        const auto arc = geography_portable_arc_for_test(point[0], point[1], point[2], point[3]);
+        EXPECT_NEAR(arc[0] * arc[0] + arc[1] * arc[1] + arc[2] * arc[2], 1, 1e-15);
+        EXPECT_NEAR(arc[3] * arc[3] + arc[4] * arc[4] + arc[5] * arc[5], 1, 1e-15);
+        EXPECT_NEAR(arc[0] * arc[3] + arc[1] * arc[4] + arc[2] * arc[5], 0, 1e-15);
+        const auto wkb = [&](int offset) {
+            std::ostringstream text;
+            text << std::setprecision(17) << "POINT (" << point[offset] << " " << point[offset + 1]
+                 << ")";
+            return spatial_test_wkb(geography_test_hex(text.str()));
+        };
+        const auto from = wkb(0);
+        const auto to = wkb(2);
+        double native = -1;
+        double portable = -1;
+        ASSERT_TRUE(geography_bearing(StringRef(from), StringRef(to), &native));
+        ASSERT_TRUE(geography_portable_bearing_for_test(StringRef(from), StringRef(to), &portable));
+        EXPECT_NEAR(portable, native, 1e-14);
+    }
+    // Squaring the 1e-300 longitude residual underflows binary64, but the unique
+    // minor arc still goes east. Both normal and midpoint must retain its direction.
+    const auto tiny = geography_portable_arc_for_test(1e-300, 0, -180, 0);
+    EXPECT_NEAR(tiny[2], 1, 1e-15);
+    EXPECT_NEAR(tiny[4], 1, 1e-15);
+}
+
+TEST(VGeoFunctionsTest, GeographyDensePolygonBoundsCandidateWork) {
+    for (bool swap_axes : {false, true}) {
+        for (const int count : {32, 64, 128}) {
+            constexpr double radius = 1e-14;
+            std::ostringstream polygon;
+            polygon << std::setprecision(17) << "POLYGON ((";
+            const auto vertex = [&](double x, double y) {
+                polygon << (swap_axes ? y : x) << " " << (swap_axes ? x : y) << ",";
+            };
+            for (int i = 0; i < count; ++i) {
+                vertex((i % 2 == 0 ? -radius : radius) + 0.1 * radius * i / (count - 1),
+                       -radius + 2 * radius * i / (count - 1));
+            }
+            vertex(2 * radius, 2 * radius);
+            vertex(2 * radius, -2 * radius);
+            polygon << -radius << " " << -radius << "))";
+            const auto a = spatial_test_wkb(geography_test_hex(polygon.str()));
+            const auto b = spatial_test_wkb(geography_test_hex("POINT (0 0)"));
+            size_t proofs = 0;
+            size_t visits = 0;
+            EXPECT_LE(geography_calculation_edges_for_test(a, b, &proofs, &visits), 4 * count);
+            EXPECT_LE(proofs, 4 * count);
+            EXPECT_LE(visits, 16 * count);
+            const auto suffix = std::to_string(count) + (swap_axes ? "_swapped" : "");
+            RecordProperty("polygon_proofs_" + suffix, std::to_string(proofs));
+            RecordProperty("polygon_visits_" + suffix, std::to_string(visits));
+        }
+    }
+}
+
+TEST(VGeoFunctionsTest, GeographyPolygonCandidateBandsKeepCompleteFallback) {
+    // More than eight genuine nodes must still split the equatorial ring edge.
+    // Equal endpoint latitudes do not prove a monotone latitude interval.
+    const auto a = spatial_test_wkb(geography_test_hex("POLYGON ((0 0,2e-14 0,0 1e-14,0 0))"));
+    const auto b = spatial_test_wkb(
+            geography_test_hex("POLYGON ((1e-15 0,2e-15 0,3e-15 0,4e-15 0,5e-15 0,6e-15 0,7e-15 0,"
+                               "8e-15 0,9e-15 0,9e-15 -1e-14,1e-15 -1e-14,1e-15 0))"));
+    EXPECT_EQ(geography_calculation_edges_for_test(a, b), 23);
+    EXPECT_EQ(geography_calculation_edges_for_test(b, a), 23);
+    // This tiny edge uses both sides of the raw longitude index at the date line.
+    const auto cut = spatial_test_wkb(
+            geography_test_hex("POLYGON ((179.99999999999997 0,-179.99999999999997 0,180 1e-14,"
+                               "179.99999999999997 0))"));
+    const auto point = spatial_test_wkb(geography_test_hex("POINT (180 0)"));
+    EXPECT_EQ(geography_calculation_edges_for_test(cut, point), 5);
+    EXPECT_EQ(geography_calculation_edges_for_test(point, cut), 5);
+    // A turning arc must recall a point above its endpoint latitudes, even if
+    // the final raw exact proof rejects that rounded midpoint as a true node.
+    size_t proofs = 0;
+    geography_calculation_edges_for_test(
+            spatial_test_wkb(geography_test_hex("POLYGON ((0 45,90 45,45 40,0 45))")),
+            spatial_test_wkb(geography_test_hex("POINT (45 54.735610317245346)")), &proofs);
+    EXPECT_GT(proofs, 0);
+    // Date-line and meridian routing retain their complete original intervals.
+    expect_geography_relation("st_intersects", "POLYGON ((170 0,-170 0,180 10,170 0))",
+                              "POINT (180 0)", true);
+    expect_geography_relation("st_intersects", "POLYGON ((170 0,-170 0,180 10,170 0))",
+                              "POINT (0 0)", false);
+    expect_geography_relation("st_intersects", "POLYGON ((0 0,0 2,2 0,0 0))", "POINT (0 1)", true);
 }
 
 TEST(VGeoFunctionsTest, GeographyUncertainCircleDoesNotBroadenStableCircleSearches) {
