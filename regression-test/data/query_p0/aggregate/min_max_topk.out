@@ -112,6 +112,9 @@ e	0	0	[{"value":0, "count":5}]	[{"value":0, "count":5}]
 -- !two_phase_merge --
 [{"value":0, "count":5}, {"value":1, "count":2}]	[{"value":17, "count":1}, {"value":16, "count":1}]	[{"value":0, "count":7}, {"value":1, "count":2}, {"value":2, "count":1}, {"value":3, "count":2}, {"value":5, "count":1}, {"value":9, "count":1}, {"value":10, "count":1}, {"value":11, "count":1}]	[{"value":17, "count":1}, {"value":16, "count":1}, {"value":15, "count":1}, {"value":14, "count":1}, {"value":13, "count":1}, {"value":12, "count":1}, {"value":11, "count":1}, {"value":10, "count":1}]
 
+-- !two_phase_merge_scalar --
+[{"value":"a", "count":1}, {"value":"b", "count":1}]	[{"value":"z", "count":1}, {"value":"x", "count":1}]	[{"value":0.00, "count":5}, {"value":1.10, "count":2}]	[{"value":17.10, "count":1}, {"value":16.10, "count":1}]
+
 -- !max_k_accepted --
 [{"value":1, "count":1}]	[{"value":1, "count":1}]
 

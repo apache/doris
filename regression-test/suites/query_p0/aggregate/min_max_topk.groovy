@@ -167,6 +167,13 @@ suite("min_max_topk") {
                min_topk(ni, 8), max_topk(ni, 8)
         FROM min_max_topk_t
     """
+    // The values of a state are not kept in a column in memory, but the serialized state is a
+    // column: cover the String and Decimal stores through a serialized partial state as well.
+    order_qt_two_phase_merge_scalar """
+        SELECT min_topk(s, 2), max_topk(s, 2),
+               min_topk(d, 2), max_topk(d, 2)
+        FROM min_max_topk_t
+    """
     sql "set parallel_pipeline_task_num = 0"
 
     // k has no upper bound: the list is bounded by the group's distinct values.

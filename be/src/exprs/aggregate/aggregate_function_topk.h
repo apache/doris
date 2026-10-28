@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <type_traits>
 #include <utility>
 
 #include "common/check.h"
@@ -29,7 +30,9 @@
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
+#include "core/column/column_decimal.h"
 #include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
 #include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
 #include "core/custom_allocator.h"
@@ -39,19 +42,76 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/primitive_type.h"
+#include "core/memcmp_small.h"
+#include "core/pod_array.h"
 #include "core/string_buffer.hpp"
+#include "core/string_ref.h"
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"
 
 namespace doris {
 
+/// The values of one group, in arrival order, one entry per slot.
+///
+/// They deliberately do not live in a Doris column: a column's container allocates a 4 KiB initial
+/// chunk (PaddedPODArray) as soon as it holds one value, so one column per group costs ~4 KiB per
+/// group regardless of k. That dominates the memory of a GROUP BY with millions of groups, while
+/// these stores grow with the number of values actually retained.
+template <typename T>
+struct FixedTopKValueStore {
+    DorisVector<T> values;
+
+    size_t size() const { return values.size(); }
+    void reserve(size_t n) { values.reserve(n); }
+    void clear() { values.clear(); }
+    const T& at(size_t slot) const { return values[slot]; }
+    void append(const T& value) { values.push_back(value); }
+    void swap(FixedTopKValueStore& other) noexcept { values.swap(other.values); }
+};
+
+/// A StringRef cannot be stored: the arena reallocates and would invalidate the pointers. A slot
+/// keeps an offset/length into the bytes instead and materializes a view on access.
+struct StringTopKValueStore {
+    struct Span {
+        uint32_t offset = 0;
+        uint32_t length = 0;
+    };
+
+    /// The initial allocation is small on purpose; see the comment on FixedTopKValueStore.
+    PODArray<char, 32> bytes;
+    DorisVector<Span> spans;
+
+    size_t size() const { return spans.size(); }
+    void reserve(size_t n) { spans.reserve(n); }
+    void clear() {
+        bytes.clear();
+        spans.clear();
+    }
+    StringRef at(size_t slot) const {
+        const Span& span = spans[slot];
+        return StringRef(bytes.data() + span.offset, span.length);
+    }
+    void append(StringRef value) {
+        DCHECK_LE(bytes.size() + value.size, std::numeric_limits<uint32_t>::max());
+        DCHECK_LE(value.size, std::numeric_limits<uint32_t>::max());
+        spans.push_back({static_cast<uint32_t>(bytes.size()), static_cast<uint32_t>(value.size)});
+        if (value.size != 0) {
+            bytes.insert(value.data, value.data + value.size);
+        }
+    }
+    void swap(StringTopKValueStore& other) noexcept {
+        bytes.swap(other.bytes);
+        spans.swap(other.spans);
+    }
+};
+
 /**
- * State shared by min_topk and max_topk.
+ * State shared by min_topk and max_topk, for one value type.
  *
- * The distinct values sit in the slots of a column, with one entry per slot carrying the row count
- * and the links of a treap ordered best-first (ascending values for MIN, descending for MAX). A
- * row costs one O(log k) descent: it either finds its value and bumps the count or links a new slot
- * at the leaf. A sorted vector would shift O(k) column elements for the same insert.
+ * The distinct values sit in slots (see the stores above), with one Slot record per value carrying
+ * the row count and the links of a treap ordered best-first (ascending values for MIN, descending
+ * for MAX). A row costs one O(log k) descent: it either finds its value and bumps the count or
+ * links a new slot at the leaf. A sorted vector would shift O(k) elements for the same insert.
  *
  * The treap stores explicit child links because, unlike a heap, its shape is not the complete tree
  * that an array index can describe: rotations move entries, and the in-order sequence is the value
@@ -60,20 +120,25 @@ namespace doris {
  * result without sorting. The ordered tree is the structure that keeps find, insert and eviction
  * all at O(log k) with comparisons only.
  *
- * An entry that is evicted keeps its slot and value until the next compaction: no column type
- * supports replacing an element in place, so reusing a slot would require rebuilding the column
- * anyway. The tree never points at a dead slot.
+ * An entry that is evicted keeps its slot and value until the next compaction. The tree never
+ * points at a dead slot.
  *
  * With k == 0 the state holds at most the single extreme value and its row count; the caller
  * derives truncation from the list length, so the state carries no separate bound.
  */
+template <PrimitiveType T>
 struct AggregateTopKCountData {
+    using CppType = typename PrimitiveTypeTraits<T>::CppType;
+    static constexpr bool IS_STRING = is_string_type(T);
+    using ValueStore =
+            std::conditional_t<IS_STRING, StringTopKValueStore, FixedTopKValueStore<CppType>>;
+    using ValueRef = std::conditional_t<IS_STRING, StringRef, const CppType&>;
+
     static constexpr int32_t NO_SLOT = -1;
     // Row counts are never negative, so this cannot collide with a live entry.
     static constexpr int64_t DEAD_COUNT = -1;
 
-    /// One slot's metadata; the value itself lives in `value_column` at the same index, because
-    /// its type is only known at runtime.
+    /// One slot's metadata; the value itself lives in `values` at the same index.
     struct Slot {
         int64_t count = 0;
         int32_t left = NO_SLOT;
@@ -81,13 +146,10 @@ struct AggregateTopKCountData {
         uint32_t priority = 0;
     };
 
-    const DataTypePtr value_type;
     bool has_k = false;
     int64_t k = 0;
-    MutableColumnPtr value_column;
-    // Indexed by slot; evicted slots stay as dead entries until compaction. 24 bytes per slot
-    // (1.5 MiB at k = 65536) on top of the value column, and DorisVector keeps the allocation
-    // inside the query's memory accounting.
+    // Indexed by slot; an evicted slot stays as a dead entry until compaction.
+    ValueStore values;
     DorisVector<Slot> slots;
     int32_t root = NO_SLOT;
     // The last live slot in the aggregate's order: the value an incoming row has to beat to enter
@@ -98,10 +160,7 @@ struct AggregateTopKCountData {
     int64_t dead = 0;
     uint64_t rng = 0x243F6A8885A308D3ULL;
 
-    explicit AggregateTopKCountData(const DataTypes& argument_types_)
-            : value_type(remove_nullable(argument_types_[0])),
-              value_column(value_type->create_column()) {}
-
+    AggregateTopKCountData() = default;
     AggregateTopKCountData(const AggregateTopKCountData&) = delete;
     AggregateTopKCountData& operator=(const AggregateTopKCountData&) = delete;
 };
@@ -120,13 +179,19 @@ struct AggregateTopKCountData {
  */
 template <PrimitiveType T, bool IsMin>
 class AggregateFunctionTopK final
-        : public IAggregateFunctionDataHelper<AggregateTopKCountData,
-                                              AggregateFunctionTopK<T, IsMin>, true>,
+        : public IAggregateFunctionDataHelper<AggregateTopKCountData<T>,
+                                              AggregateFunctionTopK<T, IsMin>, false>,
           public MultiExpression,
           public NotNullableAggregateFunction {
 public:
-    using Base = IAggregateFunctionDataHelper<AggregateTopKCountData,
-                                              AggregateFunctionTopK<T, IsMin>, true>;
+    using State = AggregateTopKCountData<T>;
+    using Base = IAggregateFunctionDataHelper<State, AggregateFunctionTopK<T, IsMin>, false>;
+    using Slot = typename State::Slot;
+    using ValueStore = typename State::ValueStore;
+    using ValueRef = typename State::ValueRef;
+    using ColumnType = typename PrimitiveTypeTraits<T>::ColumnType;
+    static constexpr bool IS_STRING = State::IS_STRING;
+    static constexpr int32_t NO_SLOT = State::NO_SLOT;
 
     explicit AggregateFunctionTopK(const DataTypes& argument_types_) : Base(argument_types_) {
         DCHECK_EQ(argument_types_.size(), 2);
@@ -186,14 +251,14 @@ public:
         buf.write_binary(state.k);
         // The slots are in arrival order and may include dead ones, while the serialized form is
         // the sorted (value, count) list the reader rebuilds the tree from.
-        DorisVector<int32_t> slots;
-        collect_in_order(state, slots);
-        auto sorted_values = state.value_column->clone_empty();
-        sorted_values->reserve(slots.size());
+        DorisVector<int32_t> order;
+        collect_in_order(state, order);
+        auto sorted_values = remove_nullable(this->argument_types[0])->create_column();
+        sorted_values->reserve(order.size());
         DorisVector<int64_t> sorted_counts;
-        sorted_counts.reserve(slots.size());
-        for (int32_t slot : slots) {
-            sorted_values->insert_from(*state.value_column, slot);
+        sorted_counts.reserve(order.size());
+        for (int32_t slot : order) {
+            insert_value(*sorted_values, state.values.at(slot));
             sorted_counts.push_back(state.slots[slot].count);
         }
         auto size = static_cast<int64_t>(sorted_counts.size());
@@ -220,7 +285,12 @@ public:
         if (size != 0) {
             buf.read(reinterpret_cast<char*>(counts.data()), size * sizeof(int64_t));
         }
-        assign_sorted(state, std::move(values), std::move(counts));
+        ValueStore value_store;
+        value_store.reserve(static_cast<size_t>(size));
+        for (int64_t row = 0; row != size; ++row) {
+            value_store.append(value_at(*values, static_cast<size_t>(row)));
+        }
+        assign_sorted(state, std::move(value_store), std::move(counts));
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
@@ -232,17 +302,11 @@ public:
         auto& pair_column = assert_cast<ColumnStruct&>(pair_nullable.get_nested_column());
         auto& value_column = assert_cast<ColumnNullable&>(pair_column.get_column(0));
         auto& count_column = assert_cast<ColumnNullable&>(pair_column.get_column(1));
-        DorisVector<int32_t> slots;
-        collect_in_order(state, slots);
-        for (int32_t slot : slots) {
-            if (const auto* nullable_value =
-                        check_and_get_column<ColumnNullable>(state.value_column.get())) {
-                // A nullable value argument carries its own null map, which is never set here.
-                value_column.insert_from(*nullable_value, slot);
-            } else {
-                value_column.get_nested_column().insert_from(*state.value_column, slot);
-                value_column.get_null_map_data().push_back(0);
-            }
+        DorisVector<int32_t> order;
+        collect_in_order(state, order);
+        for (int32_t slot : order) {
+            insert_value(value_column.get_nested_column(), state.values.at(slot));
+            value_column.get_null_map_data().push_back(0);
             assert_cast<ColumnInt64&>(count_column.get_nested_column())
                     .get_data()
                     .push_back(state.slots[slot].count);
@@ -266,6 +330,38 @@ public:
     }
 
 private:
+    /// The value of the row in `column`. The returned view is valid while the column is alive.
+    static ValueRef value_at(const IColumn& column, size_t row_num) {
+        if constexpr (IS_STRING) {
+            return assert_cast<const ColumnType&, TypeCheckOnRelease::DISABLE>(column).get_data_at(
+                    row_num);
+        } else {
+            return assert_cast<const ColumnType&, TypeCheckOnRelease::DISABLE>(column)
+                    .get_data()[row_num];
+        }
+    }
+
+    /// Exactly the comparison the value column would apply: CompareFloat for FLOAT/DOUBLE through
+    /// Compare::compare (the column uses the same helper), the same memcmp helper ColumnString
+    /// uses for strings, and the column's scale-independent ordering for every other type.
+    static int compare_values(ValueRef lhs, ValueRef rhs) {
+        if constexpr (IS_STRING) {
+            return memcmp_small_allow_overflow15(
+                    reinterpret_cast<const uint8_t*>(lhs.data), lhs.size,
+                    reinterpret_cast<const uint8_t*>(rhs.data), rhs.size);
+        } else {
+            return Compare::compare(lhs, rhs);
+        }
+    }
+
+    static void insert_value(IColumn& column, ValueRef value) {
+        if constexpr (IS_STRING) {
+            assert_cast<ColumnString&>(column).insert_data(value.data, value.size);
+        } else {
+            assert_cast<ColumnType&>(column).get_data().push_back(value);
+        }
+    }
+
     /// True when `cmp` puts the left operand before the right one in the aggregate's order.
     static bool comes_before(int cmp) { return IsMin ? cmp < 0 : cmp > 0; }
 
@@ -275,41 +371,41 @@ private:
 
     /// splitmix64. The priorities only have to be independent enough to keep the treap balanced;
     /// a per-state sequence keeps the shape reproducible for the same insertion order.
-    static uint32_t next_priority(AggregateTopKCountData& state) {
+    static uint32_t next_priority(State& state) {
         uint64_t z = (state.rng += 0x9E3779B97F4A7C15ULL);
         z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
         z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
         return static_cast<uint32_t>(z ^ (z >> 31));
     }
 
-    static int compare_slots(const AggregateTopKCountData& state, int32_t lhs, int32_t rhs) {
-        return compare_at(*state.value_column, lhs, *state.value_column, rhs);
+    static int compare_slots(const State& state, int32_t lhs, int32_t rhs) {
+        return compare_values(state.values.at(lhs), state.values.at(rhs));
     }
 
-    /// Appends (value, count) as the next slot. A value never moves once it has a slot: the tree
-    /// reorders slots, not column rows.
-    static int32_t append_slot(AggregateTopKCountData& state, const IColumn& column, size_t row_num,
-                               int64_t count) {
+    /// Appends (value, count) as the next slot.
+    static int32_t append_slot(State& state, ValueRef value, int64_t count) {
         auto slot = static_cast<int32_t>(state.slots.size());
         DCHECK_LT(slot, std::numeric_limits<int32_t>::max());
-        state.value_column->insert_from(column, row_num);
-        state.slots.push_back(AggregateTopKCountData::Slot {count, AggregateTopKCountData::NO_SLOT,
-                                                            AggregateTopKCountData::NO_SLOT,
-                                                            next_priority(state)});
+        state.values.append(value);
+        state.slots.push_back(Slot {count, State::NO_SLOT, State::NO_SLOT, next_priority(state)});
         ++state.live;
         return slot;
     }
 
+    static int32_t append_slot(State& state, const IColumn& column, size_t row_num, int64_t count) {
+        return append_slot(state, value_at(column, row_num), count);
+    }
+
     /// Rotates the subtree rooted at `node` right: the left child becomes the root and `node` its
     /// right child. The in-order sequence is unchanged, so the treap stays ordered.
-    static int32_t rotate_right(AggregateTopKCountData& state, int32_t node) {
+    static int32_t rotate_right(State& state, int32_t node) {
         int32_t pivot = state.slots[node].left;
         state.slots[node].left = state.slots[pivot].right;
         state.slots[pivot].right = node;
         return pivot;
     }
 
-    static int32_t rotate_left(AggregateTopKCountData& state, int32_t node) {
+    static int32_t rotate_left(State& state, int32_t node) {
         int32_t pivot = state.slots[node].right;
         state.slots[node].right = state.slots[pivot].left;
         state.slots[pivot].left = node;
@@ -319,13 +415,13 @@ private:
     /// One descent that performs the whole per-row update: an equal value bumps its count and
     /// reports no insertion; a missing value is linked as a new slot at the leaf and rotated up
     /// while the recursion unwinds. `inserted_slot` receives the new slot, NO_SLOT on a hit.
-    static int32_t add_or_increment(AggregateTopKCountData& state, int32_t node,
-                                    const IColumn& column, size_t row_num, int32_t* inserted_slot) {
-        if (node == AggregateTopKCountData::NO_SLOT) {
+    static int32_t add_or_increment(State& state, int32_t node, const IColumn& column,
+                                    size_t row_num, int32_t* inserted_slot) {
+        if (node == State::NO_SLOT) {
             *inserted_slot = append_slot(state, column, row_num, 1);
             return *inserted_slot;
         }
-        int cmp = compare_at(*state.value_column, node, column, row_num);
+        int cmp = compare_values(state.values.at(node), value_at(column, row_num));
         if (cmp == 0) {
             state.slots[node].count = checked_add(state.slots[node].count, 1);
             return node;
@@ -350,8 +446,8 @@ private:
     /// Removes the last entry in the aggregate's order (the largest value for MIN) and returns the
     /// new subtree root. That entry has no right child, so its left subtree takes its place; the
     /// child's priority is below the parent's, so no rotation is needed.
-    static int32_t erase_worst(AggregateTopKCountData& state, int32_t node, int32_t* removed) {
-        if (state.slots[node].right == AggregateTopKCountData::NO_SLOT) {
+    static int32_t erase_worst(State& state, int32_t node, int32_t* removed) {
+        if (state.slots[node].right == State::NO_SLOT) {
             *removed = node;
             return state.slots[node].left;
         }
@@ -359,23 +455,22 @@ private:
         return node;
     }
 
-    static void refresh_worst(AggregateTopKCountData& state) {
+    static void refresh_worst(State& state) {
         int32_t node = state.root;
-        while (node != AggregateTopKCountData::NO_SLOT &&
-               state.slots[node].right != AggregateTopKCountData::NO_SLOT) {
+        while (node != State::NO_SLOT && state.slots[node].right != State::NO_SLOT) {
             node = state.slots[node].right;
         }
         state.worst = node;
     }
 
     /// Slots in the aggregate's order, i.e. the order of the result array.
-    static void collect_in_order(const AggregateTopKCountData& state, DorisVector<int32_t>& slots) {
+    static void collect_in_order(const State& state, DorisVector<int32_t>& slots) {
         slots.reserve(static_cast<size_t>(state.live));
         DorisVector<int32_t> stack;
         stack.reserve(64);
         int32_t node = state.root;
-        while (node != AggregateTopKCountData::NO_SLOT || !stack.empty()) {
-            while (node != AggregateTopKCountData::NO_SLOT) {
+        while (node != State::NO_SLOT || !stack.empty()) {
+            while (node != State::NO_SLOT) {
                 stack.push_back(node);
                 node = state.slots[node].left;
             }
@@ -389,14 +484,13 @@ private:
         DCHECK_EQ(static_cast<int64_t>(slots.size()), state.live);
     }
 
-    /// Rebuilds the state from a (value, count) sequence already in the aggregate's order. The
-    /// treap is built in O(size) as a Cartesian tree over the fresh priorities.
-    static void assign_sorted(AggregateTopKCountData& state, MutableColumnPtr values,
-                              DorisVector<int64_t> counts) {
+    /// Rebuilds the tree from `values`, already in the aggregate's order, and the matching counts.
+    /// The treap is built in O(size) as a Cartesian tree over the fresh priorities.
+    static void assign_sorted(State& state, ValueStore values, DorisVector<int64_t> counts) {
         const size_t size = counts.size();
-        DCHECK_EQ(values->size(), size);
-        state.value_column = std::move(values);
-        state.slots.assign(size, AggregateTopKCountData::Slot {});
+        DCHECK_EQ(values.size(), size);
+        state.values.swap(values);
+        state.slots.assign(size, Slot {});
         for (size_t slot = 0; slot != size; ++slot) {
             state.slots[slot].count = counts[slot];
         }
@@ -406,7 +500,7 @@ private:
         stack.reserve(size);
         for (size_t slot = 0; slot != size; ++slot) {
             state.slots[slot].priority = next_priority(state);
-            int32_t last = AggregateTopKCountData::NO_SLOT;
+            int32_t last = State::NO_SLOT;
             while (!stack.empty() &&
                    state.slots[stack.back()].priority < state.slots[slot].priority) {
                 last = stack.back();
@@ -418,28 +512,27 @@ private:
             }
             stack.push_back(static_cast<int32_t>(slot));
         }
-        state.root = stack.empty() ? AggregateTopKCountData::NO_SLOT : stack.front();
+        state.root = stack.empty() ? State::NO_SLOT : stack.front();
         refresh_worst(state);
     }
 
     /// Reclaims the slots evicted since the last compaction. The O(k) rebuild is charged to the
     /// k/2 evictions that produced the dead slots, so it stays O(1) amortized per row.
-    static void compact(AggregateTopKCountData& state) {
+    static void compact(State& state) {
         DorisVector<int32_t> slots;
         collect_in_order(state, slots);
-        auto values = state.value_column->clone_empty();
-        values->reserve(slots.size());
+        ValueStore values;
+        values.reserve(slots.size());
         DorisVector<int64_t> counts;
         counts.reserve(slots.size());
         for (int32_t slot : slots) {
-            values->insert_from(*state.value_column, slot);
+            values.append(state.values.at(slot));
             counts.push_back(state.slots[slot].count);
         }
         assign_sorted(state, std::move(values), std::move(counts));
     }
 
-    static void check_k(AggregateTopKCountData& state, const IColumn& count_column,
-                        size_t row_num) {
+    static void check_k(State& state, const IColumn& count_column, size_t row_num) {
         const IColumn* nested = &count_column;
         if (const auto* nullable = check_and_get_column<ColumnNullable>(&count_column)) {
             if (UNLIKELY(nullable->is_null_at(row_num))) {
@@ -467,22 +560,6 @@ private:
         }
     }
 
-    /// Ordering of the values. FLOAT/DOUBLE use CompareFloat so that NaN sorts greatest and is
-    /// distinct from every number, which keeps the list mergeable and the top-K deterministic;
-    /// every other type uses the column's compare_at, i.e. exactly the MIN/MAX comparison.
-    static int compare_at(const IColumn& lhs, size_t lhs_row, const IColumn& rhs, size_t rhs_row) {
-        if constexpr (is_float_or_double(T)) {
-            using ColumnType = typename PrimitiveTypeTraits<T>::ColumnType;
-            const auto& left =
-                    assert_cast<const ColumnType&, TypeCheckOnRelease::DISABLE>(lhs).get_data();
-            const auto& right =
-                    assert_cast<const ColumnType&, TypeCheckOnRelease::DISABLE>(rhs).get_data();
-            return CompareFloat(left[lhs_row], right[rhs_row]);
-        } else {
-            return lhs.compare_at(lhs_row, rhs_row, rhs, 1);
-        }
-    }
-
     static int64_t checked_add(int64_t lhs, int64_t rhs) {
         int64_t result = 0;
         if (UNLIKELY(__builtin_add_overflow(lhs, rhs, &result))) {
@@ -492,21 +569,21 @@ private:
     }
 
     /// k == 0 fast path: only the extreme value is tracked.
-    static void add_value(AggregateTopKCountData& state, const IColumn& column, size_t row_num) {
+    static void add_value(State& state, const IColumn& column, size_t row_num) {
         if (state.k == 0) {
             if (state.live == 0) {
                 state.root = append_slot(state, column, row_num, 1);
                 state.worst = state.root;
                 return;
             }
-            int cmp = compare_at(column, row_num, *state.value_column, 0);
+            int cmp = compare_values(value_at(column, row_num), state.values.at(0));
             if (cmp == 0) {
                 state.slots[0].count = checked_add(state.slots[0].count, 1);
             } else if (comes_before(cmp)) {
                 // The new value is better: replace the tracked extreme. The slot and the
-                // single-node tree stay in place, only the column row changes.
-                state.value_column->clear();
-                state.value_column->insert_from(column, row_num);
+                // single-node tree stay in place, only the stored value changes.
+                state.values.clear();
+                state.values.append(value_at(column, row_num));
                 state.slots[0].count = 1;
             }
             return;
@@ -520,7 +597,7 @@ private:
         if (state.live >= state.k) {
             // A full list rejects or absorbs most rows: comparing with the eviction candidate
             // costs one comparison, while the tree descent would cost log2(k).
-            int cmp = compare_at(column, row_num, *state.value_column, state.worst);
+            int cmp = compare_values(value_at(column, row_num), state.values.at(state.worst));
             if (cmp == 0) {
                 state.slots[state.worst].count = checked_add(state.slots[state.worst].count, 1);
                 return;
@@ -530,15 +607,15 @@ private:
             }
         }
 
-        int32_t inserted = AggregateTopKCountData::NO_SLOT;
+        int32_t inserted = State::NO_SLOT;
         state.root = add_or_increment(state, state.root, column, row_num, &inserted);
-        if (inserted == AggregateTopKCountData::NO_SLOT) {
+        if (inserted == State::NO_SLOT) {
             return;
         }
         if (state.live <= state.k) {
             // Not over capacity: the new entry competes with the cached worst for the eviction
             // candidate role.
-            if (state.worst == AggregateTopKCountData::NO_SLOT ||
+            if (state.worst == State::NO_SLOT ||
                 is_worse(compare_slots(state, inserted, state.worst))) {
                 state.worst = inserted;
             }
@@ -546,31 +623,31 @@ private:
         }
         // The list was full and the value is new. It beat the cached worst above, so it cannot be
         // the worst itself; the old worst is still the rightmost entry and leaves the list.
-        int32_t removed = AggregateTopKCountData::NO_SLOT;
+        int32_t removed = State::NO_SLOT;
         state.root = erase_worst(state, state.root, &removed);
         DCHECK_EQ(removed, state.worst);
-        state.slots[removed].count = AggregateTopKCountData::DEAD_COUNT;
+        state.slots[removed].count = State::DEAD_COUNT;
         --state.live;
         ++state.dead;
         refresh_worst(state);
     }
 
     /// k == 0: the state holds at most the extreme value and its count.
-    static void merge_extreme(AggregateTopKCountData& state, const AggregateTopKCountData& other) {
+    static void merge_extreme(State& state, const State& other) {
         if (other.live == 0) {
             return;
         }
         if (state.live == 0) {
-            state.root = append_slot(state, *other.value_column, 0, other.slots[0].count);
+            state.root = append_slot(state, other.values.at(0), other.slots[0].count);
             state.worst = state.root;
             return;
         }
-        int cmp = compare_at(*state.value_column, 0, *other.value_column, 0);
+        int cmp = compare_values(state.values.at(0), other.values.at(0));
         if (cmp == 0) {
             state.slots[0].count = checked_add(state.slots[0].count, other.slots[0].count);
         } else if (is_worse(cmp)) {
-            state.value_column->clear();
-            state.value_column->insert_from(*other.value_column, 0);
+            state.values.clear();
+            state.values.append(other.values.at(0));
             state.slots[0].count = other.slots[0].count;
         }
     }
@@ -581,7 +658,7 @@ private:
     /// distinct values, and equal values have already been combined, so every remaining value is
     /// worse than all retained ones: it can neither enter the result nor overflow it. Stopping
     /// here also avoids materializing a tail that would be truncated away.
-    static void merge_values(AggregateTopKCountData& state, const AggregateTopKCountData& other) {
+    static void merge_values(State& state, const State& other) {
         if (other.live == 0) {
             // The other partial state saw no non-NULL row.
             return;
@@ -591,7 +668,8 @@ private:
         collect_in_order(state, lhs_slots);
         collect_in_order(other, rhs_slots);
         const auto limit = static_cast<size_t>(state.k);
-        auto merged = state.value_column->clone_empty();
+        ValueStore merged_values;
+        merged_values.reserve(std::min(limit, lhs_slots.size() + rhs_slots.size()));
         DorisVector<int64_t> merged_counts;
         merged_counts.reserve(std::min(limit, lhs_slots.size() + rhs_slots.size()));
         size_t lhs_index = 0;
@@ -599,29 +677,30 @@ private:
         while (merged_counts.size() < limit &&
                (lhs_index < lhs_slots.size() || rhs_index < rhs_slots.size())) {
             if (rhs_index == rhs_slots.size()) {
-                merged->insert_from(*state.value_column, lhs_slots[lhs_index]);
+                merged_values.append(state.values.at(lhs_slots[lhs_index]));
                 merged_counts.push_back(state.slots[lhs_slots[lhs_index]].count);
                 ++lhs_index;
             } else if (lhs_index == lhs_slots.size()) {
-                merged->insert_from(*other.value_column, rhs_slots[rhs_index]);
+                merged_values.append(other.values.at(rhs_slots[rhs_index]));
                 merged_counts.push_back(other.slots[rhs_slots[rhs_index]].count);
                 ++rhs_index;
             } else {
-                int cmp = compare_at(*state.value_column, lhs_slots[lhs_index], *other.value_column,
-                                     rhs_slots[rhs_index]);
+                ValueRef lhs_value = state.values.at(lhs_slots[lhs_index]);
+                ValueRef rhs_value = other.values.at(rhs_slots[rhs_index]);
+                int cmp = compare_values(lhs_value, rhs_value);
                 // Both lists are ordered best-first (ascending for MIN, descending for MAX).
                 const bool lhs_is_better = comes_before(cmp);
                 if (lhs_is_better) {
-                    merged->insert_from(*state.value_column, lhs_slots[lhs_index]);
+                    merged_values.append(lhs_value);
                     merged_counts.push_back(state.slots[lhs_slots[lhs_index]].count);
                     ++lhs_index;
                 } else if (cmp != 0) {
                     // Not better and not equal: the right-hand value is better.
-                    merged->insert_from(*other.value_column, rhs_slots[rhs_index]);
+                    merged_values.append(rhs_value);
                     merged_counts.push_back(other.slots[rhs_slots[rhs_index]].count);
                     ++rhs_index;
                 } else {
-                    merged->insert_from(*state.value_column, lhs_slots[lhs_index]);
+                    merged_values.append(lhs_value);
                     merged_counts.push_back(checked_add(state.slots[lhs_slots[lhs_index]].count,
                                                         other.slots[rhs_slots[rhs_index]].count));
                     ++lhs_index;
@@ -629,7 +708,7 @@ private:
                 }
             }
         }
-        assign_sorted(state, std::move(merged), std::move(merged_counts));
+        assign_sorted(state, std::move(merged_values), std::move(merged_counts));
     }
 
     /// Writes a length-prefixed column blob. The declared length is
