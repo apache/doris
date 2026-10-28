@@ -38,6 +38,7 @@
 #include <orc/sargs/Literal.hh>
 #include <orc/sargs/SearchArgument.hh>
 #include <set>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -2210,6 +2211,9 @@ Status OrcReader::get_block(Block* file_block, size_t* rows, bool* eof) {
                     RETURN_IF_ERROR(_advance_to_next_stripe_range(&advanced));
                     DORIS_CHECK(advanced);
                 }
+                // Exercise seek failures inside the phase-two materialization error boundary.
+                DBUG_EXECUTE_IF("OrcReader::rowid_seek.inject_error",
+                                { throw std::runtime_error("injected ORC RowID seek failure"); });
                 _state->row_reader->seekToRow(*fetched_row_id);
             }
             // Condition-cache seeks can perform I/O, so keep them in the same cancellation

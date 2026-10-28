@@ -10336,6 +10336,37 @@ TEST_F(NewOrcReaderTest, ReadsOnlyRequestedAbsoluteFileRows) {
     EXPECT_EQ(ids, std::vector<int32_t>({1, 3, 5}));
 }
 
+TEST_F(NewOrcReaderTest, RowIdSeekFailureReturnsStatusAndAllowsRetry) {
+    auto reader = create_reader();
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(0)};
+    request->row_ids = {0, 2, 4};
+    ASSERT_TRUE(reader->open(request).ok());
+
+    Block block = build_file_block({schema[0]});
+    size_t rows = 0;
+    bool eof = false;
+    {
+        ScopedDebugPoint point("OrcReader::rowid_seek.inject_error", [] {});
+        const auto status = reader->get_block(&block, &rows, &eof);
+        ASSERT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("injected ORC RowID seek failure"), std::string::npos);
+        EXPECT_EQ(rows, 0);
+        EXPECT_EQ(block.rows(), 0);
+    }
+    // A failed seek must not consume the requested RowID or leave the reader at EOF.
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_GT(rows, 0);
+    const auto& ids = assert_cast<const ColumnInt32&>(
+            assert_cast<const ColumnNullable&>(*block.get_by_position(0).column)
+                    .get_nested_column());
+    EXPECT_EQ(ids.get_element(0), 1);
+}
+
 TEST_F(NewOrcReaderTest, ReadPrimitiveTypesWithNulls) {
     const auto primitive_file_path = (_test_dir / "primitive.orc").string();
     write_primitive_orc_file(primitive_file_path);
