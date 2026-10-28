@@ -1427,6 +1427,14 @@ Status VariantColumnReader::create_path_reader(
     if (node != nullptr && node->data.footer_ordinal >= 0) {
         // leaf node, get the column meta by footer ordinal
         const int32_t column_ordinal = node->data.footer_ordinal;
+        // V2 subcolumn metadata already lives in the shared footer. Creating the reader
+        // consumes it synchronously, so avoid copying its paths and index trees first.
+        // V3 ordinals address the external meta region even when inline columns exist.
+        if (footer.version() < SEGMENT_FOOTER_VERSION_V3_EXT_COL_META &&
+            column_ordinal < footer.columns_size()) {
+            return ColumnReader::create(opts, footer.columns(column_ordinal), num_rows, file_reader,
+                                        out);
+        }
         ColumnMetaPB meta;
         RETURN_IF_ERROR(accessor->get_column_meta_by_column_ordinal_id(
                 footer, column_ordinal, &meta, stats, source_io_ctx));
