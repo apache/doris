@@ -1200,9 +1200,12 @@ Status geography_relation(std::string_view name, const GeoShape& lhs, const GeoS
                 "representation",
                 name);
     }
-    // An exterior raw apex at 58+ulp can round onto 58 while its other vertices
-    // remain strictly inside. Check before either coverage exit accepts that region.
-    if (raw_polygon_coverage &&
+    // An exterior raw apex or line endpoint at 58+ulp can round onto 58 while
+    // the remaining vertices lie inside. Check before coverage accepts either shape.
+    const bool polygon_line_coverage = containment &&
+                                       container.type() == GeoShapeType::GEO_SHAPE_POLYGON &&
+                                       value.type() == GeoShapeType::GEO_SHAPE_LINE_STRING;
+    if ((raw_polygon_coverage || polygon_line_coverage) &&
         geography_rounded_vertex_collision(
                 left_edges, name == "st_within" ? nodes.right : nodes.left, right_edges,
                 name == "st_within" ? nodes.left : nodes.right)) {

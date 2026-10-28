@@ -931,6 +931,22 @@ TEST(VGeoFunctionsTest, GeographyRejectsRoundedStrictPolygonCoverage) {
     expect_geography_relation("st_overlaps", exact, a, false);
 }
 
+TEST(VGeoFunctionsTest, GeographyRejectsRoundedPolygonLineCoverage) {
+    const std::string polygon = "POLYGON ((58 0,57 -1,58 -1,58 0))";
+    for (const auto& line : {"LINESTRING (58.00000000000001 0,57.75 -0.5)",
+                             "LINESTRING (57.75 -0.5,58.00000000000001 0)"}) {
+        expect_rounded_polygon_interior_error("st_contains", polygon, line);
+        expect_rounded_polygon_interior_error("st_within", line, polygon);
+        expect_geography_relation("st_contains", line, polygon, false);
+        expect_geography_relation("st_within", polygon, line, false);
+    }
+    const std::string exact = "LINESTRING (58 0,57.75 -0.5)";
+    expect_geography_relation("st_contains", polygon, exact, true);
+    expect_geography_relation("st_within", exact, polygon, true);
+    expect_geography_relation("st_contains", polygon, "LINESTRING (58 0,58 -1)", false);
+    expect_geography_relation("st_contains", polygon, "LINESTRING (58.1 0,58.2 -0.5)", false);
+}
+
 TEST(VGeoFunctionsTest, GeographyOverlapsRejectsRoundedPolygonVertex) {
     const std::string a = "POLYGON ((58 58,59 58,58 59,58 58))";
     const std::string b =

@@ -37,6 +37,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateNamedStruct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -182,6 +184,41 @@ public class ConnectorSpatialWriteNormalizerTest {
             if (result instanceof CreateMap) {
                 Assertions.assertEquals(new StringLiteral("ordinary-key"), result.child(0));
             }
+        }
+    }
+
+    @Test
+    public void testCastNullArrayProvenanceAtBoundWriteSink() {
+        DataType integers = org.apache.doris.nereids.types.ArrayType.of(IntegerType.INSTANCE);
+        for (Type spatial : ImmutableList.of(ScalarType.createGeometryType("OGC:CRS84"),
+                ScalarType.createGeographyType("OGC:CRS84", "spherical"))) {
+            Type target = new ArrayType(spatial);
+            for (Expression array : ImmutableList.of(new Array(new NullLiteral(IntegerType.INSTANCE)),
+                    new ArrayLiteral(ImmutableList.of(new NullLiteral(IntegerType.INSTANCE))))) {
+                Cast value = new Cast(array, integers, true, true);
+                LogicalPlan source = row(value);
+                LogicalPlan normalized = ConnectorSpatialWriteNormalizer.normalize(
+                        ImmutableList.of(new Column("shape", target)), source, new CTEContext());
+                Expression result = ((LogicalProject<?>) normalized).getProjects().get(0).child(0);
+                Assertions.assertInstanceOf(Cast.class, result);
+                Assertions.assertEquals(DataType.fromCatalogType(target), result.getDataType());
+                Assertions.assertFalse(result.isNullLiteral());
+                Assertions.assertTrue(((Cast) result).isExplicitType());
+                Assertions.assertTrue(((Cast) result).isStrict());
+                Assertions.assertSame(source, normalized.child(0));
+            }
+        }
+    }
+
+    @Test
+    public void testCastArraysCannotHideNonNullValuesOrInvalidDimensions() {
+        DataType integers = org.apache.doris.nereids.types.ArrayType.of(IntegerType.INSTANCE);
+        Type target = new ArrayType(ScalarType.createGeometryType("OGC:CRS84"));
+        for (Expression child : ImmutableList.of(new Array(new IntegerLiteral(1)),
+                new Array(new Array(NullLiteral.INSTANCE)))) {
+            LogicalPlan source = row(new Cast(child, integers));
+            Assertions.assertThrows(AnalysisException.class, () -> ConnectorSpatialWriteNormalizer.normalize(
+                    ImmutableList.of(new Column("shape", target)), source, new CTEContext()));
         }
     }
 

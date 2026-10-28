@@ -92,10 +92,16 @@ public final class ConnectorSpatialWriteNormalizer {
             int sourceOrdinal = sourceOrdinals.get(i);
             Slot slot = source.getOutput().get(sourceOrdinal);
             Expression value = resolver.resolve(slot, source);
+            boolean literal = isLiteralConstruction(value);
+            // SELECT/UPDATE reach the bound sink with CAST(ARRAY(NULL) AS ARRAY<INT>).
+            // Reuse MERGE's NULL-only proof before validation, without lifting arbitrary producers.
+            if (literal) {
+                value = normalizeSpatialNullsBeforeBinding(value, DataType.fromCatalogType(target.getType()));
+            }
             ConnectorSpatialWriteValidator.validate(target, value);
             // Never lift arbitrary producer expressions above their input scope, or
             // replace outer-join NULL padding with a non-NULL container constant.
-            if (isLiteralConstruction(value)) {
+            if (literal) {
                 Expression normalized = normalizeSpatialNulls(value, DataType.fromCatalogType(target.getType()));
                 if (!normalized.getDataType().equals(slot.getDataType())) {
                     // SELECT v,v can feed an ordinary BIGINT and a spatial NULL. Sharing
@@ -109,7 +115,10 @@ public final class ConnectorSpatialWriteNormalizer {
     }
 
     private static boolean isLiteralConstruction(Expression value) {
-        return value instanceof Literal || ((value instanceof Array || value instanceof CreateMap
+        // Only proven NULL-only casts can be retargeted; actual values and invalid source
+        // array-depth conversions must retain their original identity and errors.
+        return value instanceof Literal || (value.getClass() == Cast.class && nullArrayDepth(value) >= 0)
+                || ((value instanceof Array || value instanceof CreateMap
                 || value instanceof CreateStruct || value instanceof CreateNamedStruct)
                 && value.children().stream().allMatch(ConnectorSpatialWriteNormalizer::isLiteralConstruction));
     }

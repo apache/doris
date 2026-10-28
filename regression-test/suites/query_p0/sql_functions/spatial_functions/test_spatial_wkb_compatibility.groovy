@@ -520,6 +520,25 @@ suite("test_spatial_wkb_compatibility") {
         ST_Overlaps(${strictPolygon}, ${exactApexPolygon}),
         ST_Overlaps(${exactApexPolygon}, ${strictPolygon})"""
 
+    // A raw exterior line endpoint must not become the polygon apex after S2 rounding.
+    for (String wkb : [
+            '0102000000020000000100000000004d4000000000000000000000000000e04c40000000000000e0bf',
+            '0102000000020000000000000000e04c40000000000000e0bf0100000000004d400000000000000000']) {
+        def line = "ST_GeogFromWKB('${wkb}')"
+        test {
+            sql "select ST_Contains(${strictPolygon}, ${line})"
+            exception "ambiguous spherical Polygon boundary interiors"
+        }
+        test {
+            sql "select ST_Within(${line}, ${strictPolygon})"
+            exception "ambiguous spherical Polygon boundary interiors"
+        }
+    }
+    def exactApexLine = "ST_GeogFromWKB('0102000000020000000000000000004d4000000000000000000000000000e04c40000000000000e0bf')"
+    order_qt_geography_polygon_line_coverage_controls """select
+        ST_Contains(${strictPolygon}, ${exactApexLine}), ST_Within(${exactApexLine}, ${strictPolygon}),
+        ST_Contains(${exactApexLine}, ${strictPolygon}), ST_Within(${strictPolygon}, ${exactApexLine})"""
+
     // Exactly antipodal raw endpoints have no unique spherical edge; storage is still valid.
     test {
         sql "select ST_Length(ST_GeogFromWKB('0102000000020000000000000000000000000000000000000000000000008066400000000000000000'))"

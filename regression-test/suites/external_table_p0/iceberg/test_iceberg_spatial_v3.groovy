@@ -1607,4 +1607,42 @@ public class CreateIcebergSpatialV3Table {
         g_array is null, size(g_array), g_array[1] is null,
         gg_array is null, size(gg_array), gg_array[1] is null, ordinary
         from spatial_merge_cast_null_arrays order by id"""
+
+    // SELECT and UPDATE use the bound write sink, independently of MERGE branch normalization.
+    sql "drop table if exists spatial_write_cast_null_arrays"
+    sql """create table spatial_write_cast_null_arrays (
+        id int, g_array array<geometry>, gg_array array<geography>,
+        g_map map<string,array<geometry>>, ordinary bigint
+    ) properties ('format-version'='3', 'write.format.default'='parquet',
+        'write.update.mode'='merge-on-read')"""
+    sql """insert into spatial_write_cast_null_arrays select 1,
+        cast(array(cast(null as int)) as array<int>),
+        cast(cast(array(cast(null as int)) as array<int>) as array<bigint>),
+        map('ordinary-key', cast(array(cast(null as int)) as array<int>)), cast(1 as tinyint)"""
+    sql """insert into spatial_write_cast_null_arrays select 2,
+        array(ST_GeometryFromWKBTyped('0101000000000000000000F03F0000000000000040')),
+        array(ST_GeogFromWKB('0101000000000000000000F03F0000000000000040')),
+        map('ordinary-key', array(ST_GeometryFromWKBTyped('0101000000000000000000F03F0000000000000040'))), 2"""
+    sql """update spatial_write_cast_null_arrays set
+        g_array = cast(array(cast(null as int)) as array<int>),
+        gg_array = cast(cast(array(cast(null as int)) as array<int>) as array<bigint>),
+        g_map = map('ordinary-key', cast(array(cast(null as int)) as array<int>)),
+        ordinary = cast(12 as tinyint) where id = 2"""
+    test {
+        sql """insert into spatial_write_cast_null_arrays (id, g_array)
+            select 3, cast(array(cast(null as int), 1) as array<int>)"""
+        exception "Spatial connector write cannot convert input column"
+    }
+    test {
+        sql """update spatial_write_cast_null_arrays
+            set g_array = cast(array(array(cast(null as int))) as array<int>) where id = 1"""
+        exception "can not cast"
+    }
+    sql "refresh table spatial_write_cast_null_arrays"
+    order_qt_spatial_write_cast_null_arrays """select id,
+        g_array is null, size(g_array), g_array[1] is null,
+        gg_array is null, size(gg_array), gg_array[1] is null,
+        map_keys(g_map), g_map['ordinary-key'] is null,
+        size(g_map['ordinary-key']), g_map['ordinary-key'][1] is null, ordinary
+        from spatial_write_cast_null_arrays order by id"""
 }

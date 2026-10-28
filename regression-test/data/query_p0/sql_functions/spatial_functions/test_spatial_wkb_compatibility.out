@@ -236,3 +236,6 @@ false	false	true	true
 -- !geography_strict_polygon_coverage_controls --
 true	true	false	false
 
+-- !geography_polygon_line_coverage_controls --
+true	true	false	false
+
