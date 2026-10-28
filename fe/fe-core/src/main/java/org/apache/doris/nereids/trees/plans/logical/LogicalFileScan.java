@@ -325,7 +325,8 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         public enum State {
             NOT_PRUNED,
             DEFERRED,
-            MATERIALIZED
+            MATERIALIZED,
+            NATIVE
         }
 
         public static final long UNKNOWN_TOTAL_PARTITION_NUM = -1L;

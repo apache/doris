@@ -248,6 +248,22 @@ public class QueryPartitionCollectorTest {
                 Optional.empty(), tableSnapshot, Optional.empty(), Optional.empty());
     }
 
+    private LogicalFileScan scan(int id, String... names) {
+        Mockito.when(context.getStatementContext()).thenReturn(statement);
+        Mockito.when(table.getDatabase()).thenReturn(Mockito.mock(DatabaseIf.class));
+        Mockito.when(table.getFullQualifiers()).thenReturn(QUALIFIERS);
+        Mockito.when(table.supportInternalPartitionPruned()).thenReturn(true);
+        ImmutableMap.Builder<String, PartitionItem> items = ImmutableMap.builder();
+        for (String name : names) {
+            items.put(name, Mockito.mock(PartitionItem.class));
+        }
+        LogicalFileScan scan = Mockito.mock(LogicalFileScan.class);
+        Mockito.when(scan.getTable()).thenReturn(table);
+        Mockito.when(scan.getRelationId()).thenReturn(new RelationId(id));
+        Mockito.when(scan.getSelectedPartitions()).thenReturn(new SelectedPartitions(10, items.build(), true));
+        return scan;
+    }
+
     private static PluginDrivenExternalTable table(SelectedPartitions selectedPartitions) {
         PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
         DatabaseIf<?> database = Mockito.mock(DatabaseIf.class);
@@ -275,22 +291,6 @@ public class QueryPartitionCollectorTest {
         Mockito.when(internalTable.needReadLockWhenPlan()).thenReturn(true);
         statementContext.getTables().put(ImmutableList.of("ctl", "db", "internal"), internalTable);
         return statementContext;
-    }
-
-    private LogicalFileScan scan(int id, String... names) {
-        Mockito.when(context.getStatementContext()).thenReturn(statement);
-        Mockito.when(table.getDatabase()).thenReturn(Mockito.mock(DatabaseIf.class));
-        Mockito.when(table.getFullQualifiers()).thenReturn(QUALIFIERS);
-        Mockito.when(table.supportInternalPartitionPruned()).thenReturn(true);
-        ImmutableMap.Builder<String, PartitionItem> items = ImmutableMap.builder();
-        for (String name : names) {
-            items.put(name, Mockito.mock(PartitionItem.class));
-        }
-        LogicalFileScan scan = Mockito.mock(LogicalFileScan.class);
-        Mockito.when(scan.getTable()).thenReturn(table);
-        Mockito.when(scan.getRelationId()).thenReturn(new RelationId(id));
-        Mockito.when(scan.getSelectedPartitions()).thenReturn(new SelectedPartitions(10, items.build(), true));
-        return scan;
     }
 
     @Test

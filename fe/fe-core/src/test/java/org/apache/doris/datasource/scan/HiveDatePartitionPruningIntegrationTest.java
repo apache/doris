@@ -156,6 +156,7 @@ public class HiveDatePartitionPruningIntegrationTest {
                 .partitionKeyTypes(Collections.singletonMap("d", type.getPrimitiveType().name()))
                 .build();
         ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Mockito.when(session.getTaskScheduler(Mockito.any())).thenCallRealMethod();
         Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
         Connector connector = Mockito.mock(Connector.class);
         Mockito.when(connector.getMetadata(session)).thenReturn(metadata);
