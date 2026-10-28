@@ -79,6 +79,9 @@ import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBo
 public class PipelineCoordinator {
     private static final Logger LOG = LoggerFactory.getLogger(PipelineCoordinator.class);
     private static final String SPLIT_ID = "splitId";
+    private static final String SCHEMA_CHANGE_RECOVERY_HINT =
+            "Review and adjust the target schema as needed. "
+                    + "RESUME confirms acceptance of unsupported changes for this recovery round.";
     // jobId
     private final Map<String, DorisBatchStreamLoad> batchStreamLoadMap = new ConcurrentHashMap<>();
     // taskId -> list of split offsets (accumulates all splits processed in one task)
@@ -745,8 +748,8 @@ public class PipelineCoordinator {
                     TaskFailureRequest.SCHEMA_CHANGE_UNSUPPORTED
                             + " "
                             + result.getUnsupportedReason()
-                            + ". Review the target schema. RESUME confirms acceptance of unsupported"
-                            + " changes for this recovery round.");
+                            + ". "
+                            + SCHEMA_CHANGE_RECOVERY_HINT);
         }
         try {
             SchemaChangeManager.validateTargetSchemas(
@@ -764,7 +767,8 @@ public class PipelineCoordinator {
                                     + result.getUnsupportedReason()
                                     + ". Doris target: "
                                     + e.getMessage()
-                                    + ". Fix the target schema, then RESUME the job.");
+                                    + ". "
+                                    + SCHEMA_CHANGE_RECOVERY_HINT);
             // The root message drives FE's pause classification.
             failure.addSuppressed(e);
             throw failure;

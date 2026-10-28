@@ -87,6 +87,7 @@ import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TxnStateChangeCallback;
 
 import com.google.common.base.Preconditions;
+import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
@@ -116,6 +117,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, Map<Object, Object>> implements
         TxnStateChangeCallback, GsonPostProcessable {
     public static final String JOB_FILE_CATALOG = "streaming_job";
+    private static final Gson ERROR_MSG_GSON = GsonUtils.GSON.newBuilder().disableHtmlEscaping().create();
     private long dbId;
     // Streaming job statistics, all persisted in txn attachment
     // when checkpoint image replay need Serialized
@@ -1289,7 +1291,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         // returning the plain FailMsg.msg string — they use a different error taxonomy
         // (FailMsg/CancelType) that is out of scope for this PR.
         trow.addToColumnValue(new TCell().setStringVal(failureReason == null
-                ? "" : GsonUtils.GSON.toJson(failureReason)));
+                ? "" : ERROR_MSG_GSON.toJson(failureReason)));
         trow.addToColumnValue(new TCell().setStringVal(jobRuntimeMsg == null
                 ? "" : jobRuntimeMsg));
         trow.addToColumnValue(new TCell().setStringVal(getLag()));
