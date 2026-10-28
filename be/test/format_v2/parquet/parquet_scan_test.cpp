@@ -1056,13 +1056,52 @@ PreparedTopNConjunct create_topn_conjunct(RuntimeState* state, int column_id,
 
     TExprNode topn_node;
     topn_node.__set_type(std::make_shared<DataTypeUInt8>()->to_thrift());
-    topn_node.__set_is_nullable(false);
+    // Match create_vtopn_pred(): comparing a nullable input yields a nullable Boolean result.
+    topn_node.__set_is_nullable(data_type->is_nullable());
     auto topn = VTopNPred::create_shared(topn_node, 10, nullptr);
     topn->add_child(VSlotRef::create_shared(column_id, column_id, -1, data_type, "topn_column"));
     auto conjunct = VExprContext::create_shared(std::move(topn));
     DORIS_CHECK(conjunct->prepare(state, RowDescriptor()).ok());
     DORIS_CHECK(conjunct->open(state).ok());
     return {.query_context = std::move(query_context), .conjunct = std::move(conjunct)};
+}
+
+TEST(ParquetRuntimeFilterDirectReaderTest, TopNResultTypeMatchesInputNullability) {
+    const std::vector<std::pair<DataTypePtr, Field>> inputs {
+            {std::make_shared<DataTypeInt32>(), Field::create_field<TYPE_INT>(3)},
+            {std::make_shared<DataTypeString>(),
+             Field::create_field<TYPE_STRING>(std::string("charlie"))}};
+    for (const auto& [nested_type, bound] : inputs) {
+        for (bool nullable : {false, true}) {
+            const auto type = nullable ? make_nullable(nested_type) : nested_type;
+            SCOPED_TRACE(type->get_name());
+            RuntimeState state {TQueryOptions(), TQueryGlobals()};
+            auto prepared = create_topn_conjunct(&state, 0, type, bound, false);
+            auto column = type->create_column();
+            column->insert(nullable ? Field() : bound);
+            column->insert(bound);
+            Block block;
+            block.insert({std::move(column), type, "topn_column"});
+            for (bool publish_bound : {false, true}) {
+                if (publish_bound) {
+                    ASSERT_TRUE(
+                            prepared.query_context->get_runtime_predicate(10).update(bound).ok());
+                }
+                ColumnPtr result;
+                const auto status = prepared.conjunct->root()->execute_column(
+                        prepared.conjunct.get(), &block, nullptr, 2, result);
+                ASSERT_TRUE(status.ok()) << status;
+                ASSERT_EQ(result->size(), 2);
+                const auto result_type = prepared.conjunct->root()->data_type();
+                const auto type_status = result_type->check_column(*result);
+                EXPECT_TRUE(type_status.ok()) << type_status;
+                EXPECT_EQ(result_type->is_nullable(), nullable);
+                EXPECT_EQ(result->is_null_at(0), nullable && publish_bound);
+                EXPECT_EQ(result->get_bool(1), 1);
+            }
+            prepared.conjunct->close();
+        }
+    }
 }
 
 template <PrimitiveType T>
