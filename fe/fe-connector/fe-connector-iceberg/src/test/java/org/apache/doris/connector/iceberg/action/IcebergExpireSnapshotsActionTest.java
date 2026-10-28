@@ -29,7 +29,9 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
+import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileFormat;
+import org.apache.iceberg.FileMetadata;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Snapshot;
@@ -328,6 +330,51 @@ public class IcebergExpireSnapshotsActionTest {
         Assertions.assertEquals(IcebergExpireSnapshotsAction.FileKind.EQUALITY_DELETES,
                 kindByPath.get("s3://b/db1/eq-del.parquet"),
                 "the equality-delete file must stay classified as EQUALITY_DELETES");
+    }
+
+    @Test
+    public void countsPositionDeletesCommittedAfterTheTableWasLoaded() {
+        assertLateDeleteClassification(true);
+    }
+
+    @Test
+    public void countsEqualityDeletesCommittedAfterTheTableWasLoaded() {
+        assertLateDeleteClassification(false);
+    }
+
+    private static void assertLateDeleteClassification(boolean positionDelete) {
+        InMemoryCatalog catalog = ActionTestTables.freshCatalog();
+        TableIdentifier id = ActionTestTables.id("late_delete");
+        ActionTestTables.createTable(catalog, "late_delete");
+        ActionTestTables.appendSnapshot(catalog, "late_delete", "base.parquet", 1L);
+        Table loadedBeforeDelete = catalog.loadTable(id);
+
+        FileMetadata.Builder builder = FileMetadata.deleteFileBuilder(PartitionSpec.unpartitioned());
+        if (positionDelete) {
+            builder.ofPositionDeletes().withReferencedDataFile("s3://b/db1/base.parquet");
+        } else {
+            builder.ofEqualityDeletes(1);
+        }
+        DeleteFile delete = builder.withPath("s3://b/db1/late-delete.parquet")
+                .withFormat(FileFormat.PARQUET)
+                .withFileSizeInBytes(64L)
+                .withRecordCount(1L)
+                .build();
+
+        Table writer = catalog.loadTable(id);
+        writer.newRowDelta().addDeletes(delete).commit();
+        writer.newRowDelta().removeDeletes(delete).commit();
+        ActionTestTables.appendSnapshot(catalog, "late_delete", "current.parquet", 1L);
+
+        IcebergExpireSnapshotsAction action =
+                action(ImmutableMap.of("older_than", "4102444800000", "retain_last", "1"));
+        action.validate();
+        List<String> row = action.execute(loadedBeforeDelete, ActionTestTables.session("UTC")).getRows().get(0);
+
+        Assertions.assertEquals(1, Iterables.size(catalog.loadTable(id).snapshots()),
+                "the delete-file history must actually expire");
+        Assertions.assertEquals(ImmutableList.of("0", positionDelete ? "1" : "0", positionDelete ? "0" : "1",
+                "2", "3", "0"), row);
     }
 
     @Test
