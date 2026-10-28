@@ -249,7 +249,8 @@ private:
         // Table-side types of the keys, from the scan's schema metadata. They resolve table
         // fields and build defaults for keys a data file lacks. The comparison type comes from
         // the file types; a table type only lets a timestamptz key read as DATETIMEV2 compare
-        // as TIMESTAMPTZ.
+        // as TIMESTAMPTZ, and a STRING placeholder (an Iceberg TIME or timestamptz_ns, which
+        // Doris cannot represent) lets an ORC TIME key and its text default compare as TIMEV2.
         std::vector<DataTypePtr> key_types;
         // Types of the delete block columns: the delete file's own key types, or the comparison
         // types of a converted filter.

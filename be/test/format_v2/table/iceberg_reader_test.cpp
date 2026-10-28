@@ -5036,35 +5036,49 @@ struct KeyDataFile {
     std::shared_ptr<arrow::Array> keys;
 };
 
+// Writes an equality delete file at the given path and returns its format.
+using EqualityDeleteFileWriter = std::function<TFileFormatType::type(const std::string&)>;
+
 // Reads each data file as one split of a single reader. Every split carries the same equality
 // delete file on `equality_field_id`, whose one column has the name and field id of `key_field`
 // and holds `delete_keys`; for a nested key that is a struct array whose child carries the key's
-// field id. `key_field` describes that column in the scan's schema metadata, as the FE sends it.
-// Returns the surviving ids of each split.
+// field id. `write_delete_file`, when given, writes that file instead, for physical shapes Arrow
+// does not produce. `key_field` describes that column in the scan's schema metadata, as the FE
+// sends it. Returns the surviving ids of each split.
 Status read_ids_after_key_equality_delete(const std::string& test_name,
                                           const std::vector<KeyDataFile>& data_files,
                                           const std::shared_ptr<arrow::Array>& delete_keys,
                                           schema::external::TFieldPtr key_field,
                                           std::vector<std::vector<int32_t>>* ids_per_split,
-                                          int32_t equality_field_id = 1) {
+                                          int32_t equality_field_id = 1,
+                                          bool enable_mapping_timestamp_tz = false,
+                                          const EqualityDeleteFileWriter& write_delete_file = {}) {
     const auto test_dir = std::filesystem::temp_directory_path() / test_name;
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
     const auto delete_file_path = (test_dir / "equality-delete.parquet").string();
-    const auto& delete_column = *key_field.field_ptr;
-    write_parquet_table(
-            delete_file_path,
-            arrow::Table::Make(
-                    arrow::schema({arrow::field(delete_column.name, delete_keys->type(), true)
-                                           ->WithMetadata(arrow::key_value_metadata(
-                                                   {"PARQUET:field_id"},
-                                                   {std::to_string(delete_column.id)}))}),
-                    {delete_keys}));
+    auto delete_file_format = TFileFormatType::FORMAT_PARQUET;
+    if (write_delete_file) {
+        delete_file_format = write_delete_file(delete_file_path);
+    } else {
+        const auto& delete_column = *key_field.field_ptr;
+        write_parquet_table(
+                delete_file_path,
+                arrow::Table::Make(
+                        arrow::schema({arrow::field(delete_column.name, delete_keys->type(), true)
+                                               ->WithMetadata(arrow::key_value_metadata(
+                                                       {"PARQUET:field_id"},
+                                                       {std::to_string(delete_column.id)}))}),
+                        {delete_keys}));
+    }
 
     std::vector<ColumnDefinition> projected_columns;
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
     auto scan_params = make_local_parquet_scan_params();
     scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+    if (enable_mapping_timestamp_tz) {
+        scan_params.__set_enable_mapping_timestamp_tz(true);
+    }
     scan_params.__set_current_schema_id(100);
     scan_params.__set_history_schema_info(
             {external_schema(100, {external_schema_field("id", 0), std::move(key_field)})});
@@ -5082,8 +5096,8 @@ Status read_ids_after_key_equality_delete(const std::string& test_name,
         auto split_options = build_split_options(file_path);
         split_options.cache = &cache;
         split_options.current_range.__set_table_format_params(make_iceberg_table_format_desc(
-                file_path,
-                {make_iceberg_equality_delete_file(delete_file_path, {equality_field_id})}));
+                file_path, {make_iceberg_equality_delete_file(delete_file_path, {equality_field_id},
+                                                              delete_file_format)}));
         RETURN_IF_ERROR(reader.prepare_split(split_options));
         std::vector<int32_t> ids;
         bool eos = false;
@@ -5303,6 +5317,317 @@ TEST(IcebergV2ReaderTest, IcebergMissingWholeStructEqualityKeyComparesNullLeafIn
                 &ids, 3);
         ASSERT_TRUE(status.ok()) << status;
         EXPECT_EQ(ids, (std::vector<std::vector<int32_t>> {expected_ids}));
+    }
+}
+
+constexpr int64_t TIME_01_00_00_000001_MICROS = 3600LL * 1000 * 1000 + 1;
+constexpr int64_t TIME_02_00_00_MICROS = 7200LL * 1000 * 1000;
+
+// Iceberg's Parquet writer stores TIME as TIME(isAdjustedToUTC=false, MICROS), read as TIMEV2(6),
+// and timestamptz_ns as TIMESTAMP(isAdjustedToUTC=true, NANOS), both INT64.
+std::shared_ptr<const ::parquet::LogicalType> iceberg_parquet_time_type() {
+    return ::parquet::LogicalType::Time(false, ::parquet::LogicalType::TimeUnit::MICROS);
+}
+
+// Writes the Iceberg TIME `k` (field id 1) as Iceberg stores it, microseconds from midnight in
+// both formats: Parquet's TIME(MICROS) and ORC's LONG annotated iceberg.long-type=TIME, which reads
+// as BIGINT. Nonempty `ids` add the INT `id` (field id 0) in front.
+void write_iceberg_time_file(const std::string& file_path, FileFormat format,
+                             const std::vector<int32_t>& ids,
+                             const std::vector<std::optional<int64_t>>& micros) {
+    ASSERT_TRUE(ids.empty() || ids.size() == micros.size());
+    if (format == FileFormat::PARQUET) {
+        ::parquet::schema::NodeVector fields;
+        if (!ids.empty()) {
+            fields.push_back(::parquet::schema::PrimitiveNode::Make(
+                    "id", ::parquet::Repetition::REQUIRED, ::parquet::LogicalType::None(),
+                    ::parquet::Type::INT32, -1, 0));
+        }
+        fields.push_back(::parquet::schema::PrimitiveNode::Make(
+                "k", ::parquet::Repetition::OPTIONAL, iceberg_parquet_time_type(),
+                ::parquet::Type::INT64, -1, 1));
+        auto schema = std::static_pointer_cast<::parquet::schema::GroupNode>(
+                ::parquet::schema::GroupNode::Make("schema", ::parquet::Repetition::REQUIRED,
+                                                   fields));
+        auto out = arrow::io::FileOutputStream::Open(file_path).ValueOrDie();
+        auto writer = ::parquet::ParquetFileWriter::Open(out, schema);
+        auto* group = writer->AppendRowGroup();
+        if (!ids.empty()) {
+            auto* id_writer = static_cast<::parquet::Int32Writer*>(group->NextColumn());
+            for (const int32_t id : ids) {
+                id_writer->WriteBatch(1, nullptr, nullptr, &id);
+            }
+            id_writer->Close();
+        }
+        auto* key_writer = static_cast<::parquet::Int64Writer*>(group->NextColumn());
+        for (const auto& value : micros) {
+            const int16_t level = value.has_value() ? 1 : 0;
+            const int64_t micros_value = value.value_or(0);
+            key_writer->WriteBatch(1, &level, nullptr, &micros_value);
+        }
+        key_writer->Close();
+        group->Close();
+        writer->Close();
+        ASSERT_TRUE(out->Close().ok());
+        return;
+    }
+    auto type = std::unique_ptr<::orc::Type>(::orc::Type::buildTypeFromString(
+            ids.empty() ? "struct<k:bigint>" : "struct<id:int,k:bigint>"));
+    const size_t key_index = ids.empty() ? 0 : 1;
+    if (!ids.empty()) {
+        type->getSubtype(0)->setAttribute("iceberg.id", "0");
+    }
+    type->getSubtype(key_index)->setAttribute("iceberg.id", "1");
+    type->getSubtype(key_index)->setAttribute("iceberg.long-type", "TIME");
+    MemoryOutputStream stream(1024 * 1024);
+    ::orc::WriterOptions options;
+    auto writer = ::orc::createWriter(*type, &stream, options);
+    auto batch = writer->createRowBatch(micros.size());
+    auto& root = dynamic_cast<::orc::StructVectorBatch&>(*batch);
+    root.numElements = micros.size();
+    if (!ids.empty()) {
+        auto& id_batch = dynamic_cast<::orc::LongVectorBatch&>(*root.fields[0]);
+        id_batch.numElements = ids.size();
+        for (size_t row = 0; row < ids.size(); ++row) {
+            id_batch.data[row] = ids[row];
+        }
+    }
+    auto& key_batch = dynamic_cast<::orc::LongVectorBatch&>(*root.fields[key_index]);
+    key_batch.numElements = micros.size();
+    key_batch.hasNulls = true;
+    for (size_t row = 0; row < micros.size(); ++row) {
+        key_batch.notNull[row] = micros[row].has_value();
+        key_batch.data[row] = micros[row].value_or(0);
+    }
+    writer->add(*batch);
+    writer->close();
+    std::ofstream out(file_path, std::ios::binary);
+    out.write(stream.getData(), static_cast<std::streamsize>(stream.getLength()));
+}
+
+// The FE sends an Iceberg TIME, which Doris cannot represent, as a STRING placeholder, so a hidden
+// TIME key compares in the files' own types: BIGINT microseconds in ORC, TIMEV2(6) in Parquet. The
+// pair compares as TIMEV2(6) with the ORC value converted exactly, in either direction, so the NULL
+// tombstone deletes row 1 and 01:00:00.000001 deletes row 2 (3600000001). Without that rule the
+// mixed pairs fail with NotSupported; a SQL cast would read 3600000001 as HHMMSS digits, and the
+// old STRING comparison never matched "3600000001" against "01:00:00.000001". Same-format pairs
+// compare as they are.
+TEST(IcebergV2ReaderTest, IcebergEqualityDeleteComparesTimeKeysAcrossOrcAndParquet) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_iceberg_equality_delete_time_formats";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+    const std::vector<std::pair<std::optional<int64_t>, std::vector<int32_t>>> cases {
+            {std::nullopt, {2, 3}}, {TIME_01_00_00_000001_MICROS, {1, 3}}};
+    // Every run writes new files: the reader caches Parquet footers and pages by path and size, so
+    // a same-size file rewritten at one path could be read as its earlier content.
+    int run = 0;
+    for (auto data_format : {FileFormat::ORC, FileFormat::PARQUET}) {
+        for (auto delete_format : {FileFormat::ORC, FileFormat::PARQUET}) {
+            for (const auto& [tombstone, expected_ids] : cases) {
+                SCOPED_TRACE(::testing::Message()
+                             << "data=" << static_cast<int>(data_format)
+                             << " delete=" << static_cast<int>(delete_format) << " tombstone="
+                             << (tombstone.has_value() ? std::to_string(*tombstone) : "NULL"));
+                const auto file_path = (test_dir / ("data-" + std::to_string(run))).string();
+                const auto delete_path = (test_dir / ("delete-" + std::to_string(run++))).string();
+                write_iceberg_time_file(
+                        file_path, data_format, {1, 2, 3},
+                        {std::nullopt, TIME_01_00_00_000001_MICROS, TIME_02_00_00_MICROS});
+                write_iceberg_time_file(delete_path, delete_format, {}, {tombstone});
+                std::vector<ColumnDefinition> columns = {
+                        make_table_column(0, "id", std::make_shared<DataTypeInt32>())};
+                auto scan_params = make_local_scan_params(data_format);
+                scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+                scan_params.__set_current_schema_id(100);
+                scan_params.__set_history_schema_info({external_schema(
+                        100, {external_schema_field("id", 0),
+                              external_schema_field("k", 1, {}, std::nullopt,
+                                                    external_primitive_type(TPrimitiveType::STRING),
+                                                    false, true)})});
+                RuntimeState state {TQueryOptions(), TQueryGlobals()};
+                RuntimeProfile profile("time_formats");
+                io::FileReaderStats stats;
+                io::FileCacheStatistics cache_stats;
+                auto io_ctx = make_io_context(&stats, &cache_stats);
+                ShardedKVCache cache(1);
+                iceberg::IcebergTableReader reader;
+                init_iceberg_reader(&reader, columns, &scan_params, io_ctx, &state, &profile,
+                                    data_format);
+                auto split = build_split_options(file_path);
+                split.current_split_format = data_format;
+                split.cache = &cache;
+                split.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+                        file_path, {make_iceberg_equality_delete_file(
+                                           delete_path, {1},
+                                           delete_format == FileFormat::PARQUET
+                                                   ? TFileFormatType::FORMAT_PARQUET
+                                                   : TFileFormatType::FORMAT_ORC)}));
+                const auto status = reader.prepare_split(split);
+                ASSERT_TRUE(status.ok()) << status;
+                EXPECT_EQ(read_iceberg_ids(&reader, columns), expected_ids);
+                ASSERT_TRUE(reader.close().ok());
+            }
+        }
+    }
+    std::filesystem::remove_all(test_dir);
+}
+
+// `payload` (field id 1) of a data file written before `payload.k` existed: a struct whose only
+// child is the INT `a` (field id 2). std::nullopt is a NULL `payload`.
+std::shared_ptr<arrow::Array> build_payload_without_key(
+        const std::vector<std::optional<int32_t>>& values) {
+    auto a_field = arrow::field("a", arrow::int32(), true)
+                           ->WithMetadata(arrow::key_value_metadata({"PARQUET:field_id"}, {"2"}));
+    std::unique_ptr<arrow::ArrayBuilder> builder;
+    EXPECT_TRUE(
+            arrow::MakeBuilder(arrow::default_memory_pool(), arrow::struct_({a_field}), &builder)
+                    .ok());
+    auto& struct_builder = static_cast<arrow::StructBuilder&>(*builder);
+    auto& a_builder = static_cast<arrow::Int32Builder&>(*struct_builder.field_builder(0));
+    for (const auto& value : values) {
+        if (value.has_value()) {
+            EXPECT_TRUE(struct_builder.Append().ok());
+            EXPECT_TRUE(a_builder.Append(*value).ok());
+        } else {
+            EXPECT_TRUE(struct_builder.AppendNull().ok());
+        }
+    }
+    std::shared_ptr<arrow::Array> result;
+    EXPECT_TRUE(struct_builder.Finish(&result).ok());
+    return result;
+}
+
+// Writes the nested equality delete column `payload` (field id 1) whose child `k` (field id 3) is
+// an INT64 leaf of `logical_type`, holding `keys` under non-NULL parents.
+void write_nested_int64_key_delete_parquet_file(
+        const std::string& file_path,
+        const std::shared_ptr<const ::parquet::LogicalType>& logical_type,
+        const std::vector<std::optional<int64_t>>& keys) {
+    ::parquet::schema::NodeVector key_fields {::parquet::schema::PrimitiveNode::Make(
+            "k", ::parquet::Repetition::OPTIONAL, logical_type, ::parquet::Type::INT64, -1, 3)};
+    ::parquet::schema::NodeVector fields {
+            ::parquet::schema::GroupNode::Make("payload", ::parquet::Repetition::OPTIONAL,
+                                               key_fields, ::parquet::ConvertedType::NONE, 1)};
+    auto schema = std::static_pointer_cast<::parquet::schema::GroupNode>(
+            ::parquet::schema::GroupNode::Make("schema", ::parquet::Repetition::REQUIRED, fields));
+    auto out = arrow::io::FileOutputStream::Open(file_path).ValueOrDie();
+    auto writer = ::parquet::ParquetFileWriter::Open(out, schema);
+    auto* group = writer->AppendRowGroup();
+    auto* key_writer = static_cast<::parquet::Int64Writer*>(group->NextColumn());
+    for (const auto& key : keys) {
+        // Definition level 2: `payload` and `k` present; 1: `payload` present with a NULL `k`.
+        const int16_t level = key.has_value() ? 2 : 1;
+        const int64_t value = key.value_or(0);
+        key_writer->WriteBatch(1, &level, nullptr, &value);
+    }
+    key_writer->Close();
+    group->Close();
+    writer->Close();
+    ASSERT_TRUE(out->Close().ok());
+}
+
+// The same column in ORC, where `k` is an Iceberg TIME: a LONG annotated iceberg.long-type=TIME.
+void write_nested_time_key_delete_orc_file(const std::string& file_path,
+                                           const std::vector<std::optional<int64_t>>& micros) {
+    auto type = std::unique_ptr<::orc::Type>(
+            ::orc::Type::buildTypeFromString("struct<payload:struct<k:bigint>>"));
+    type->getSubtype(0)->setAttribute("iceberg.id", "1");
+    type->getSubtype(0)->getSubtype(0)->setAttribute("iceberg.id", "3");
+    type->getSubtype(0)->getSubtype(0)->setAttribute("iceberg.long-type", "TIME");
+    MemoryOutputStream stream(1024 * 1024);
+    ::orc::WriterOptions options;
+    auto writer = ::orc::createWriter(*type, &stream, options);
+    auto batch = writer->createRowBatch(micros.size());
+    auto& root = dynamic_cast<::orc::StructVectorBatch&>(*batch);
+    root.numElements = micros.size();
+    auto& payload = dynamic_cast<::orc::StructVectorBatch&>(*root.fields[0]);
+    payload.numElements = micros.size();
+    auto& keys = dynamic_cast<::orc::LongVectorBatch&>(*payload.fields[0]);
+    keys.numElements = micros.size();
+    keys.hasNulls = true;
+    for (size_t row = 0; row < micros.size(); ++row) {
+        keys.notNull[row] = micros[row].has_value();
+        keys.data[row] = micros[row].value_or(0);
+    }
+    writer->add(*batch);
+    writer->close();
+    std::ofstream out(file_path, std::ios::binary);
+    out.write(stream.getData(), static_cast<std::streamsize>(stream.getLength()));
+}
+
+// Iceberg TIME and timestamptz_ns have no Doris type, so the FE sends `payload.k` as a STRING
+// placeholder whose initial default is Iceberg's text of the value. That text is parsed in the
+// tombstones' type (an ORC TIME tombstone, BIGINT, compares as TIMEV2(6)). Rows under the data
+// file's NULL `payload` keep a NULL key and the others take the default, so a NULL tombstone
+// deletes only row 1, the default's tombstone rows 2 and 3, and another value none. Comparing the
+// STRING default with the TIMEV2 or TIMESTAMPTZ tombstones failed the split with NotSupported.
+TEST(IcebergV2ReaderTest, IcebergMissingNestedPlaceholderKeyParsesTextDefaultInTombstoneType) {
+    struct PlaceholderDefault {
+        std::string name;
+        std::string text_default;
+        // Writes a delete file holding the tombstone, in the file's unit.
+        std::function<TFileFormatType::type(const std::string&, std::optional<int64_t>)> writer;
+        int64_t default_value;
+        int64_t other_value;
+        bool enable_mapping_timestamp_tz;
+    };
+    const std::vector<PlaceholderDefault> kinds {
+            {"Parquet TIME", "00:00",
+             [](const std::string& path, std::optional<int64_t> key) {
+                 write_nested_int64_key_delete_parquet_file(path, iceberg_parquet_time_type(),
+                                                            {key});
+                 return TFileFormatType::FORMAT_PARQUET;
+             },
+             0, TIME_01_00_00_000001_MICROS, false},
+            {"ORC TIME", "00:00",
+             [](const std::string& path, std::optional<int64_t> key) {
+                 write_nested_time_key_delete_orc_file(path, {key});
+                 return TFileFormatType::FORMAT_ORC;
+             },
+             0, TIME_01_00_00_000001_MICROS, false},
+            {"Parquet timestamptz_ns", "1970-01-01 00:00:00+00:00",
+             [](const std::string& path, std::optional<int64_t> key) {
+                 write_nested_int64_key_delete_parquet_file(
+                         path,
+                         ::parquet::LogicalType::Timestamp(true,
+                                                           ::parquet::LogicalType::TimeUnit::NANOS),
+                         {key});
+                 return TFileFormatType::FORMAT_PARQUET;
+             },
+             0, 1000, true}};
+    // A directory per run, as in IcebergEqualityDeleteComparesTimeKeysAcrossOrcAndParquet: the
+    // 1-row INT64 delete files of one kind have the same size whatever the tombstone.
+    int run = 0;
+    for (const auto& kind : kinds) {
+        const std::vector<std::pair<std::optional<int64_t>, std::vector<int32_t>>> cases {
+                {std::nullopt, {2, 3}}, {kind.default_value, {1}}, {kind.other_value, {1, 2, 3}}};
+        for (const auto& [tombstone, expected_ids] : cases) {
+            SCOPED_TRACE(::testing::Message()
+                         << kind.name << " tombstone="
+                         << (tombstone.has_value() ? std::to_string(*tombstone) : "NULL"));
+            std::vector<std::vector<int32_t>> ids;
+            const auto status = read_ids_after_key_equality_delete(
+                    "doris_iceberg_equality_delete_placeholder_text_default_" +
+                            std::to_string(run++),
+                    {{.ids = {1, 2, 3}, .keys = build_payload_without_key({std::nullopt, 1, 2})}},
+                    nullptr,
+                    external_struct_schema_field(
+                            "payload", 1,
+                            {external_schema_field("a", 2, {}, std::nullopt,
+                                                   external_primitive_type(TPrimitiveType::INT),
+                                                   false, true),
+                             external_schema_field("k", 3, {}, kind.text_default,
+                                                   external_primitive_type(TPrimitiveType::STRING),
+                                                   false, true)},
+                            true),
+                    &ids, 3, kind.enable_mapping_timestamp_tz,
+                    [&kind, tombstone = tombstone](const std::string& path) {
+                        return kind.writer(path, tombstone);
+                    });
+            ASSERT_TRUE(status.ok()) << status;
+            EXPECT_EQ(ids, (std::vector<std::vector<int32_t>> {expected_ids}));
+        }
     }
 }
 

@@ -42,9 +42,11 @@
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_time.h"
 #include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/field.h"
+#include "core/value/time_value.h"
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
 #include "format/table/deletion_vector_reader.h"
@@ -847,7 +849,12 @@ public:
 
     Status open(RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override {
-        RETURN_IF_ERROR_OR_PREPARED(VExpr::open(state, context, scope));
+        DCHECK(_prepare_finished);
+        // Opens the children, as EqualityDeletePredicate does. RETURN_IF_ERROR_OR_PREPARED would
+        // return at once, since prepare() has set `_prepared`, leaving a default cast to the
+        // comparison type, e.g. the TIME text `00:00` parsed as TIMEV2, unopened, so executing it
+        // fails "Check failed: _open_finished" in Cast.
+        RETURN_IF_ERROR(VExpr::open(state, context, scope));
         _open_finished = true;
         return Status::OK();
     }
@@ -913,6 +920,94 @@ public:
     }
 
 private:
+    std::string _expr_name;
+};
+
+// Converts an Iceberg TIME read from ORC, microseconds from midnight as BIGINT, to TIMEV2, which
+// holds microseconds as well (as a double, exactly): 3600000001 becomes 01:00:00.000001. An
+// ordinary CAST(BIGINT AS TIME) reads the integer's decimal digits as HHMMSS instead, turning
+// 3600 into 00:36:00. A value outside 00:00:00..23:59:59.999999 is no Iceberg TIME and fails, as
+// the strict comparison casts do.
+class IcebergTimeMicrosExpr final : public VExpr {
+public:
+    IcebergTimeMicrosExpr(DataTypePtr data_type, std::string expr_name)
+            : VExpr(std::move(data_type), false), _expr_name(std::move(expr_name)) {
+        _node_type = TExprNodeType::FUNCTION_CALL;
+        DORIS_CHECK(remove_nullable(_data_type)->get_primitive_type() == TYPE_TIMEV2);
+    }
+
+    Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
+                   VExprContext* context) override {
+        RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, row_desc, context));
+        _prepare_finished = true;
+        return Status::OK();
+    }
+
+    Status open(RuntimeState* state, VExprContext* context,
+                FunctionContext::FunctionStateScope scope) override {
+        DCHECK(_prepare_finished);
+        // As in AncestorNullDefaultExpr: the child, e.g. a nested key's NestedStructFieldExpr,
+        // must be opened, which RETURN_IF_ERROR_OR_PREPARED would skip after prepare().
+        RETURN_IF_ERROR(VExpr::open(state, context, scope));
+        _open_finished = true;
+        return Status::OK();
+    }
+
+    void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override {
+        VExpr::close(context, scope);
+    }
+
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
+        DORIS_CHECK(_children.size() == 1);
+        ColumnPtr input;
+        RETURN_IF_ERROR(_children.front()->execute_column(context, block, selector, count, input));
+        input = input->convert_to_full_column_if_const();
+        DORIS_CHECK(input->size() == count);
+        const NullMap* null_map = nullptr;
+        const IColumn* micros_column = input.get();
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(*input);
+            nullable != nullptr) {
+            null_map = &nullable->get_null_map_data();
+            micros_column = &nullable->get_nested_column();
+        }
+        DORIS_CHECK(_data_type->is_nullable() == (null_map != nullptr));
+        const auto& micros = assert_cast<const ColumnInt64&>(*micros_column).get_data();
+        auto times = ColumnTimeV2::create();
+        auto& values = times->get_data();
+        values.resize_fill(count, 0);
+        for (size_t row = 0; row < count; ++row) {
+            if (null_map != nullptr && (*null_map)[row] != 0) {
+                continue;
+            }
+            if (micros[row] < 0 || micros[row] >= MICROS_PER_DAY) {
+                return Status::InvalidArgument(
+                        "Iceberg TIME value {} of {} is outside 00:00:00..23:59:59.999999",
+                        micros[row], _expr_name);
+            }
+            values[row] = static_cast<double>(micros[row]);
+        }
+        if (null_map == nullptr) {
+            result_column = std::move(times);
+        } else {
+            auto nulls = ColumnUInt8::create();
+            nulls->get_data().assign(null_map->begin(), null_map->end());
+            result_column = ColumnNullable::create(std::move(times), std::move(nulls));
+        }
+        return Status::OK();
+    }
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+    Status clone_node(VExprSPtr* cloned_expr) const override {
+        DORIS_CHECK(cloned_expr != nullptr);
+        *cloned_expr = std::make_shared<IcebergTimeMicrosExpr>(*this);
+        return Status::OK();
+    }
+
+private:
+    static constexpr int64_t MICROS_PER_DAY = 24 * TimeValue::ONE_HOUR_MICROSECONDS;
+
     std::string _expr_name;
 };
 
@@ -1080,7 +1175,7 @@ static bool is_equality_delete_widening(const DataTypePtr& from, const DataTypeP
 // promotion, the table type of a dropped key is INT while its tombstones are LONG, and casting
 // 4294967296 to INT yields NULL, which deletes the rows whose key is NULL. `table_type` is the
 // key's type in the scan's schema metadata; it decides only how a timestamptz field read as
-// DATETIMEV2 compares.
+// DATETIMEV2 and a TIME field behind a STRING placeholder compare.
 static Status equality_delete_comparison_type(int field_id, const DataTypePtr& delete_type,
                                               const DataTypePtr& data_type,
                                               const DataTypePtr& table_type,
@@ -1115,6 +1210,18 @@ static Status equality_delete_comparison_type(int field_id, const DataTypePtr& d
                 std::max(delete_value_type->get_scale(), data_value_type->get_scale()));
         return Status::OK();
     }
+    // The FE sends an Iceberg TIME, which Doris cannot represent, as a STRING placeholder, so only
+    // the files type its values: microseconds from midnight in both formats, but ORC stores them as
+    // a LONG annotated iceberg.long-type=TIME, which reads as BIGINT, while Parquet's TIME(MICROS)
+    // reads as TIMEV2(6). Such a pair compares as TIMEV2(6), which holds microseconds too, so the
+    // ORC key 3600000001 matches the Parquet tombstone 01:00:00.000001; cast_equality_delete_key
+    // converts the BIGINT side without a SQL cast. Under any other table type the pair fails below.
+    if (remove_nullable(table_type)->get_primitive_type() == TYPE_STRING &&
+        ((delete_primitive == TYPE_BIGINT && data_primitive == TYPE_TIMEV2) ||
+         (delete_primitive == TYPE_TIMEV2 && data_primitive == TYPE_BIGINT))) {
+        *comparison_type = std::make_shared<DataTypeTimeV2>(TimeValue::MICROS_SCALE);
+        return Status::OK();
+    }
     // No promotion leads from one type to the other, so no third type compares them faithfully:
     // STRING tombstones cast to an INT key would delete the row with key 1 for the string "1".
     return Status::NotSupported(
@@ -1122,6 +1229,29 @@ static Status equality_delete_comparison_type(int field_id, const DataTypePtr& d
             "{}, and neither type converts exactly to the other",
             field_id, remove_nullable(delete_type)->get_name(),
             remove_nullable(data_type)->get_name(), data_file_path);
+}
+
+// The comparison type of a missing key whose non-NULL initial default sits behind a STRING
+// placeholder, an Iceberg TIME or timestamptz_ns (see equality_delete_comparison_type), or nullptr
+// for any other table or tombstone type. The default is Iceberg's text of the value, `00:00` for a
+// TIME midnight or `1970-01-01 00:00:00+00:00` for a timestamptz_ns epoch, so it is parsed into the
+// tombstones' type by the strict comparison cast, and text that does not parse fails the scan; an
+// ORC TIME tombstone, BIGINT, compares in TIMEV2(6) as a present key does. Compared as text, the
+// default `00:00` never matched a tombstone printing 00:00:00.000000.
+static DataTypePtr equality_delete_placeholder_default_type(const DataTypePtr& table_type,
+                                                            const DataTypePtr& delete_type) {
+    if (remove_nullable(table_type)->get_primitive_type() != TYPE_STRING) {
+        return nullptr;
+    }
+    switch (remove_nullable(delete_type)->get_primitive_type()) {
+    case TYPE_TIMEV2:
+    case TYPE_TIMESTAMPTZ:
+        return remove_nullable(delete_type);
+    case TYPE_BIGINT:
+        return std::make_shared<DataTypeTimeV2>(TimeValue::MICROS_SCALE);
+    default:
+        return nullptr;
+    }
 }
 
 // Makes `key_expr` yield `comparison_type`, keeping its nullability.
@@ -1132,10 +1262,18 @@ static VExprSPtr cast_equality_delete_key(VExprSPtr key_expr, const DataTypePtr&
     if (remove_nullable(source_type)->equals(*remove_nullable(comparison_type))) {
         return key_expr;
     }
-    auto cast_expr = EvolutionCast::create_shared(source_type->is_nullable()
-                                                          ? make_nullable(comparison_type)
-                                                          : remove_nullable(comparison_type),
-                                                  false, true);
+    const auto result_type = source_type->is_nullable() ? make_nullable(comparison_type)
+                                                        : remove_nullable(comparison_type);
+    // Only an ORC Iceberg TIME key compares a BIGINT as TIMEV2 (equality_delete_comparison_type),
+    // and its value is microseconds, which CAST(BIGINT AS TIME) would read as HHMMSS digits.
+    if (remove_nullable(source_type)->get_primitive_type() == TYPE_BIGINT &&
+        remove_nullable(comparison_type)->get_primitive_type() == TYPE_TIMEV2) {
+        auto time_expr =
+                std::make_shared<IcebergTimeMicrosExpr>(result_type, key_expr->expr_name());
+        time_expr->add_child(std::move(key_expr));
+        return time_expr;
+    }
+    auto cast_expr = EvolutionCast::create_shared(result_type, false, true);
     cast_expr->add_child(std::move(key_expr));
     return cast_expr;
 }
@@ -1748,6 +1886,13 @@ Status IcebergTableReader::_build_missing_equality_delete_key_expr(
         // key whose retained schemas only typed it Iceberg `unknown` arrives as STRING, while its
         // tombstones are, for example, DATE.
         *comparison_type = remove_nullable(filter.delete_key_types[key_idx]);
+    } else if (auto placeholder_type = equality_delete_placeholder_default_type(
+                       table_leaf->type, filter.delete_key_types[key_idx]);
+               placeholder_type != nullptr) {
+        // A TIME `payload.k` added with the default `00:00` after the file was written: rows
+        // under a NULL `payload` still get a NULL key from AncestorNullDefaultExpr below, the
+        // others the parsed midnight, so a 00:00:00 tombstone deletes exactly those.
+        *comparison_type = std::move(placeholder_type);
     } else {
         RETURN_IF_ERROR(equality_delete_comparison_type(
                 filter.field_ids[key_idx], filter.delete_key_types[key_idx], table_leaf->type,
