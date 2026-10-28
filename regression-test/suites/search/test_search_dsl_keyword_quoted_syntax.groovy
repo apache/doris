@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_search_dsl_keyword_quoted_syntax", "p0") {
+    // SEARCH requires expression pushdown on 4.1, including under fuzzy session settings.
+    sql "set enable_common_expr_pushdown = true"
+
     // SEARCH DSL parses boolean keywords case-insensitively. In value position they stay
     // ordinary terms, so `field:and` keeps searching for the term "and" (DORIS-23194).
     def keywordTable = "test_search_dsl_keyword_values"
