@@ -575,9 +575,12 @@ Status DataTypeMapSerDe::read_column_from_arrow(IColumn& column, const arrow::Ar
         offsets_data.emplace_back(prev_size + current_offset - arrow_nested_start_offset);
     }
     // The entries of a NULL map row are unspecified, as under a NULL list row, and are not decoded.
-    const auto entry_slots = [concrete_map](int64_t row) {
-        return std::pair<int64_t, int64_t>(concrete_map->value_offset(row),
-                                           concrete_map->value_offset(row + 1));
+    // The offsets buffer may be misaligned (e.g. from a Python UDF), so read it like the loop above:
+    // MapArray::value_offset() is an aligned int32_t load.
+    const auto entry_slots = [base_offsets_ptr](int64_t row) {
+        return std::pair<int64_t, int64_t>(
+                unaligned_load<int32_t>(base_offsets_ptr + row * sizeof(int32_t)),
+                unaligned_load<int32_t>(base_offsets_ptr + (row + 1) * sizeof(int32_t)));
     };
     std::shared_ptr<arrow::Array> keys;
     RETURN_IF_ERROR(mask_arrow_children_hidden_by_null_parents(
