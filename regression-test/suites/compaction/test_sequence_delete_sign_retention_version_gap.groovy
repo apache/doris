@@ -116,13 +116,14 @@ suite("test_sequence_delete_sign_retention_version_gap", "nonConcurrent") {
             checkDelete()
             qt_deleted_key "select k1,c1,seq from test_sequence_delete_sign_retention_version_gap where k1=1 order by k1"
 
+            // Cloud base/full compaction exclude the initial empty [0-1] rowset.
             // max_version=62, row_version=32, gap=30 < 31: both base and full must retain it.
             sql 'insert into test_sequence_delete_sign_retention_version_gap values (60,60,100)'
             syncAndWaitTabletVersion(tablets, 62)
-            compactAndCheck(tablets, 'base', ['[0-61]', '[62-62]'], 62)
+            compactAndCheck(tablets, 'base', ['[0-1]', '[2-61]', '[62-62]'], 62)
             checkDelete()
             qt_deleted_key "select k1,c1,seq from test_sequence_delete_sign_retention_version_gap where k1=1 order by k1"
-            compactAndCheck(tablets, 'full', ['[0-62]'], null)
+            compactAndCheck(tablets, 'full', ['[0-1]', '[2-62]'], null)
             checkDelete()
             qt_deleted_key "select k1,c1,seq from test_sequence_delete_sign_retention_version_gap where k1=1 order by k1"
 
@@ -134,7 +135,7 @@ suite("test_sequence_delete_sign_retention_version_gap", "nonConcurrent") {
 
             // max_version=63: the original DELETE is exactly 31 versions old. After full
             // compaction it is physically gone, so a subsequent lower-sequence write can enter.
-            compactAndCheck(tablets, 'full', ['[0-63]'], null)
+            compactAndCheck(tablets, 'full', ['[0-1]', '[2-63]'], null)
             checkDelete()
             sql 'insert into test_sequence_delete_sign_retention_version_gap values (1,90,90)'
             syncAndWaitTabletVersion(tablets, 64)
