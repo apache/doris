@@ -315,6 +315,10 @@ public:
                       });
         sp->disable_processing();
         ExecEnv::GetInstance()->_s3_file_upload_thread_pool.reset();
+        // The static filesystem owns a factory client. Release it after uploads
+        // drain, before the factory's AWS SDK shutdown at process exit.
+        s3_fs.reset();
+        mock_client.reset();
     }
 };
 

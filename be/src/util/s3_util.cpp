@@ -274,6 +274,12 @@ void S3ClientFactory::init_cache_policy() {
 }
 
 void S3ClientFactory::close_cache() {
+    // Partial ExecEnv instances in unit tests call destroy() without initializing
+    // this policy. Their teardown must not close the process-wide factory used
+    // by later tests; the initialized ExecEnv owns the policy and cache shutdown.
+    if (_cache_policy == nullptr) {
+        return;
+    }
     _cache_policy.reset();
     _cache->close();
 }
