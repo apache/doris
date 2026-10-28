@@ -129,7 +129,8 @@ void do_write_to_file_cache(const std::string& small_file_path, const std::strin
 
     // Generate cache key from small file path (e.g., "rowset_id_seg_id.dat")
     Path path(small_file_path);
-    UInt128Wrapper cache_hash = BlockFileCache::hash(path.filename().native());
+    UInt128Wrapper cache_hash =
+            BlockFileCache::hash(BlockFileCache::doris_table_cache_file_name(path.native()));
 
     VLOG_DEBUG << "packed_file_cache_write: path=" << small_file_path
                << " filename=" << path.filename().native() << " hash=" << cache_hash.to_string()

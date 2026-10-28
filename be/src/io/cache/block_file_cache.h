@@ -31,6 +31,8 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <string>
+#include <string_view>
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
@@ -197,6 +199,11 @@ class BlockFileCache {
 public:
     // hash the file_name to uint128
     static UInt128Wrapper hash(const std::string& path);
+
+    // The file name identifying a remote Doris table file in the file cache: the path version 0
+    // name {rowset_id}_{seg_id}.dat, also for path version 1 .../{rowset_id}/{seg_id}.dat, whose
+    // bare file name is not unique across rowsets.
+    static std::string doris_table_cache_file_name(std::string_view path);
 
     BlockFileCache(const std::string& cache_base_path, const FileCacheSettings& cache_settings);
 

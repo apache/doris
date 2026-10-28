@@ -19,6 +19,7 @@
 #include <gtest/gtest.h>
 #include <sys/resource.h>
 
+#include "io/cache/block_file_cache.h"
 #include "io/fs/s3_file_system.h"
 #include "storage/rowset/rowset_meta.h"
 #include "storage/storage_policy.h"
@@ -86,6 +87,65 @@ TEST(StorageResourceTest, RemotePath) {
                      StorageResource(res.value(), storage_vault_pb.path_format());
                  }),
                  "unknown");
+
+    path_format->set_path_version(1);
+    path_format->set_shard_num(0);
+    ASSERT_DEATH(({
+                     struct rlimit core_limit {};
+                     setrlimit(RLIMIT_CORE, &core_limit);
+                     StorageResource(res.value(), storage_vault_pb.path_format());
+                 }),
+                 "invalid shard num");
+}
+
+TEST(StorageResourceTest, FileCacheName) {
+    constexpr std::string_view rowset_id_str = "0200000000001cc2224124562e7dfd4834d031b13c0210be";
+    constexpr std::string_view other_rowset_id_str =
+            "0200000000001cc3224124562e7dfd4834d031b13c0210be";
+    RowsetMeta rs_meta;
+    rs_meta.set_tablet_id(10005);
+    RowsetId rowset_id;
+    rowset_id.init(rowset_id_str);
+    rs_meta.set_rowset_id(rowset_id);
+
+    cloud::StorageVaultPB storage_vault_pb;
+    // Paths do not need a file system
+    StorageResource v0(nullptr, storage_vault_pb.path_format());
+    storage_vault_pb.mutable_path_format()->set_path_version(1);
+    storage_vault_pb.mutable_path_format()->set_shard_num(1000);
+    StorageResource v1(nullptr, storage_vault_pb.path_format());
+
+    auto file_name = [](const std::string& path) { return path.substr(path.rfind('/') + 1); };
+
+    // path version 0 files are identified by their file names
+    EXPECT_EQ(io::BlockFileCache::doris_table_cache_file_name(
+                      v0.remote_segment_path(10005, rowset_id_str, 0)),
+              "0200000000001cc2224124562e7dfd4834d031b13c0210be_0.dat");
+    EXPECT_EQ(io::BlockFileCache::doris_table_cache_file_name(
+                      v0.remote_delete_bitmap_path(10005, rowset_id_str)),
+              file_name(v0.remote_delete_bitmap_path(10005, rowset_id_str)));
+
+    // path version 1 files are identified by the path version 0 file names
+    EXPECT_EQ(io::BlockFileCache::doris_table_cache_file_name(
+                      v1.remote_segment_path(10005, rowset_id_str, 0)),
+              file_name(v0.remote_segment_path(10005, rowset_id_str, 0)));
+    EXPECT_EQ(io::BlockFileCache::doris_table_cache_file_name(v1.remote_idx_v2_path(rs_meta, 3)),
+              file_name(v0.remote_idx_v2_path(rs_meta, 3)));
+    EXPECT_EQ(io::BlockFileCache::doris_table_cache_file_name(
+                      v1.remote_idx_v1_path(rs_meta, 3, 10010, "suffix")),
+              file_name(v0.remote_idx_v1_path(rs_meta, 3, 10010, "suffix")));
+    EXPECT_EQ(io::BlockFileCache::doris_table_cache_file_name(
+                      v1.remote_delete_bitmap_path(10005, rowset_id_str)),
+              file_name(v0.remote_delete_bitmap_path(10005, rowset_id_str)));
+
+    // the same segment of different rowsets must not collide
+    EXPECT_NE(io::BlockFileCache::doris_table_cache_file_name(
+                      v1.remote_segment_path(10005, rowset_id_str, 0)),
+              io::BlockFileCache::doris_table_cache_file_name(
+                      v1.remote_segment_path(10005, other_rowset_id_str, 0)));
+
+    EXPECT_EQ(io::BlockFileCache::doris_table_cache_file_name("0.dat"), "0.dat");
+    EXPECT_EQ(io::BlockFileCache::doris_table_cache_file_name("/0.dat"), "0.dat");
 }
 
 TEST(StorageResourceTest, ParseTabletIdFromPath) {

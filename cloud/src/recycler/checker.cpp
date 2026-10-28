@@ -583,6 +583,16 @@ int InstanceChecker::init_storage_vault_accessors(const InstanceInfoPB& instance
         }
         TEST_SYNC_POINT_CALLBACK("InstanceRecycler::init_storage_vault_accessors.mock_vault",
                                  &accessor_map_, &vault);
+        auto path_format = path_format_from_pb(vault.path_format());
+        if (!path_format.is_supported()) {
+            LOG_WARNING("failed to init accessor for vault because of unsupported path format")
+                    .tag("instance_id", instance_id_)
+                    .tag("resource_id", vault.id())
+                    .tag("name", vault.name())
+                    .tag("path_format", vault.path_format().ShortDebugString());
+            return -1;
+        }
+        path_format_map_.emplace(vault.id(), path_format);
         if (vault.has_hdfs_info()) {
 #ifdef ENABLE_HDFS_STORAGE_VAULT
             auto accessor = std::make_shared<HdfsAccessor>(vault.hdfs_info());
@@ -667,6 +677,7 @@ int InstanceChecker::do_check() {
         bool data_loss = false;
         bool segment_file_loss = false;
         bool index_file_loss = false;
+        auto path_format = path_format_of(rs_meta.resource_id());
 
         DORIS_CLOUD_DEFER {
             if (data_loss) {
@@ -695,8 +706,8 @@ int InstanceChecker::do_check() {
             }
 
             std::unique_ptr<ListIterator> list_iter;
-            int ret = find_it->second->list_directory(tablet_path_prefix(rs_meta.tablet_id()),
-                                                      &list_iter);
+            int ret = find_it->second->list_directory(
+                    tablet_path_prefix(rs_meta.tablet_id(), path_format), &list_iter);
             if (ret != 0) { // No need to log, because S3Accessor has logged this error
                 check_ret = -1;
                 return;
@@ -712,7 +723,8 @@ int InstanceChecker::do_check() {
 
         for (int i = 0; i < rs_meta.num_segments(); ++i) {
             auto segment_id = rowset_segment_id(rs_meta, i);
-            auto path = segment_path(rs_meta.tablet_id(), rs_meta.rowset_id_v2(), segment_id);
+            auto path = segment_path(rs_meta.tablet_id(), rs_meta.rowset_id_v2(), segment_id,
+                                     path_format);
 
             // Skip check if segment is already packed into a larger file
             const auto& index_map = rs_meta.packed_slice_locations();
@@ -790,11 +802,11 @@ int InstanceChecker::do_check() {
                                   << " index_suffix_name=" << index_id.second;
                         index_path_v.emplace_back(inverted_index_path_v1(
                                 rs_meta.tablet_id(), rs_meta.rowset_id_v2(), segment_id,
-                                index_id.first, index_id.second));
+                                index_id.first, index_id.second, path_format));
                     }
                 } else {
                     index_path_v.emplace_back(inverted_index_path_v2(
-                            rs_meta.tablet_id(), rs_meta.rowset_id_v2(), segment_id));
+                            rs_meta.tablet_id(), rs_meta.rowset_id_v2(), segment_id, path_format));
                 }
 
                 if (std::ranges::all_of(index_path_v, [&](const auto& idx_file_path) {
@@ -915,32 +927,25 @@ int InstanceChecker::do_inverted_check() {
     RowsetIndexesFormatV2 rowset_index_cache_v2;
 
     // Return 0 if check success, return 1 if file is garbage data, negative if error occurred
-    auto check_segment_file = [&](const std::string& obj_key) {
-        std::vector<std::string> str;
-        butil::SplitString(obj_key, '/', &str);
+    auto check_segment_file = [&](const std::string& obj_key, const RemotePathFormat& path_format) {
         // data/{tablet_id}/{rowset_id}_{seg_num}.dat
-        if (str.size() < 3) {
-            // clang-format off
-            LOG(WARNING) << "split obj_key error, str.size() should be less than 3,"
-                         << " value = " << str.size();
-            // clang-format on
+        // data/{shard}/{tablet_id}/{rowset_id}/{seg_num}.dat
+        int64_t tablet_id = 0;
+        std::string file_name;
+        if (!split_remote_tablet_file_key(obj_key, path_format, &tablet_id, &file_name)) {
+            LOG(WARNING) << "failed to parse tablet file key, key=" << obj_key
+                         << " path_version=" << path_format.path_version;
             return -1;
         }
 
-        int64_t tablet_id = atol(str[1].c_str());
-        if (tablet_id <= 0) {
-            LOG(WARNING) << "failed to parse tablet_id, key=" << obj_key;
-            return -1;
-        }
-
-        if (!str[2].ends_with(".dat")) {
+        if (!file_name.ends_with(".dat")) {
             // skip check not segment file
             return 0;
         }
 
         std::string rowset_id;
-        if (auto pos = str.back().find('_'); pos != std::string::npos) {
-            rowset_id = str.back().substr(0, pos);
+        if (auto pos = file_name.find('_'); pos != std::string::npos) {
+            rowset_id = file_name.substr(0, pos);
         } else {
             LOG(WARNING) << "failed to parse rowset_id, key=" << obj_key;
             return -1;
@@ -1001,28 +1006,21 @@ int InstanceChecker::do_inverted_check() {
         return 0;
     };
 
-    auto check_inverted_index_file = [&](const std::string& obj_key) {
-        std::vector<std::string> str;
-        butil::SplitString(obj_key, '/', &str);
+    auto check_inverted_index_file = [&](const std::string& obj_key,
+                                         const RemotePathFormat& path_format) {
         // format v1: data/{tablet_id}/{rowset_id}_{seg_num}_{idx_id}{idx_suffix}.idx
         // format v2: data/{tablet_id}/{rowset_id}_{seg_num}.idx
-        if (str.size() < 3) {
-            // clang-format off
-            LOG(WARNING) << "split obj_key error, str.size() should be less than 3,"
-                         << " value = " << str.size();
-            // clang-format on
-            return -1;
-        }
-
-        int64_t tablet_id = atol(str[1].c_str());
-        if (tablet_id <= 0) {
-            LOG(WARNING) << "failed to parse tablet_id, key=" << obj_key;
+        // path_version 1 keys are data/{shard}/{tablet_id}/{rowset_id}/..., see `split_remote_tablet_file_key`
+        int64_t tablet_id = 0;
+        std::string rowset_info;
+        if (!split_remote_tablet_file_key(obj_key, path_format, &tablet_id, &rowset_info)) {
+            LOG(WARNING) << "failed to parse tablet file key, key=" << obj_key
+                         << " path_version=" << path_format.path_version;
             return -1;
         }
 
         // v1: {rowset_id}_{seg_num}_{idx_id}{idx_suffix}.idx
         // v2: {rowset_id}_{seg_num}.idx
-        std::string rowset_info = str.back();
 
         if (!rowset_info.ends_with(".idx")) {
             return 0; // Not an index file
@@ -1034,7 +1032,7 @@ int InstanceChecker::do_inverted_check() {
                         : InvertedIndexStorageFormatPB::V2;
 
         size_t pos = rowset_info.find_last_of('_');
-        if (pos == std::string::npos || pos + 1 >= str.back().size() - 4) {
+        if (pos == std::string::npos || pos + 1 >= rowset_info.size() - 4) {
             LOG(WARNING) << "Invalid index_id format, key=" << obj_key;
             return -1;
         }
@@ -1049,7 +1047,8 @@ int InstanceChecker::do_inverted_check() {
     // so we choose to skip here.
     TEST_SYNC_POINT_RETURN_WITH_VALUE("InstanceChecker::do_inverted_check", (int)0);
 
-    for (auto& [_, accessor] : accessor_map_) {
+    for (auto& [id, accessor] : accessor_map_) {
+        auto path_format = path_format_of(id);
         std::unique_ptr<ListIterator> list_iter;
         int ret = accessor->list_directory("data", &list_iter);
         if (ret != 0) {
@@ -1062,7 +1061,7 @@ int InstanceChecker::do_inverted_check() {
                 continue; // packed_file has dedicated check logic
             }
             ++num_scanned;
-            int ret = check_segment_file(path);
+            int ret = check_segment_file(path, path_format);
             if (ret != 0) {
                 LOG(WARNING) << "failed to check segment file, uri=" << accessor->uri()
                              << " path=" << path;
@@ -1072,7 +1071,7 @@ int InstanceChecker::do_inverted_check() {
                     check_ret = -1;
                 }
             }
-            ret = check_inverted_index_file(path);
+            ret = check_inverted_index_file(path, path_format);
             if (ret != 0) {
                 LOG(WARNING) << "failed to check index file, uri=" << accessor->uri()
                              << " path=" << path;
