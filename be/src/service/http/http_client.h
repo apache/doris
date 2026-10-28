@@ -166,6 +166,11 @@ public:
     // Get the value of the header CONTENT-MD5. The output is empty if no such header exists.
     Status get_content_md5(std::string* md5) const;
 
+    // Parse the total resource size from Content-Range. A satisfiable response uses
+    // "bytes <start>-<end>/<total>"; an unsatisfied response uses "bytes */<total>".
+    // The expected form is selected by expect_unsatisfied. Unknown or malformed totals fail.
+    Status get_content_range_total(uint64_t* total, bool expect_unsatisfied) const;
+
     CURLcode get_last_curl_code() const { return _last_curl_code; }
 
     // Metrics for the latest transfer, including failed requests. Read before reset/init.
