@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <utility>
 
@@ -47,20 +48,55 @@ namespace doris {
 /**
  * State shared by min_topk and max_topk.
  *
- * The entries are held as two parallel structures: a column with the distinct values (sorted
- * ascending for MIN / descending for MAX, at most k entries) and their non-negative int64 counts.
- * Only values with count > 0 are kept. With k == 0 the list holds at most the single extreme
- * value and its row count; the caller derives truncation from the list length, so the state
- * carries no separate bound.
+ * The distinct values sit in the slots of a column, with one entry per slot carrying the row count
+ * and the links of a treap ordered best-first (ascending values for MIN, descending for MAX). A
+ * row costs one O(log k) descent: it either finds its value and bumps the count or links a new slot
+ * at the leaf. A sorted vector would shift O(k) column elements for the same insert.
+ *
+ * The treap stores explicit child links because, unlike a heap, its shape is not the complete tree
+ * that an array index can describe: rotations move entries, and the in-order sequence is the value
+ * order rather than the arrival order. A heap could evict and append in O(log k), but it cannot
+ * find an existing value without a hash index or a linear scan, and it cannot produce the sorted
+ * result without sorting. The ordered tree is the structure that keeps find, insert and eviction
+ * all at O(log k) with comparisons only.
+ *
+ * An entry that is evicted keeps its slot and value until the next compaction: no column type
+ * supports replacing an element in place, so reusing a slot would require rebuilding the column
+ * anyway. The tree never points at a dead slot.
+ *
+ * With k == 0 the state holds at most the single extreme value and its row count; the caller
+ * derives truncation from the list length, so the state carries no separate bound.
  */
 struct AggregateTopKCountData {
+    static constexpr int32_t NO_SLOT = -1;
+    // Row counts are never negative, so this cannot collide with a live entry.
+    static constexpr int64_t DEAD_COUNT = -1;
+
+    /// One slot's metadata; the value itself lives in `value_column` at the same index, because
+    /// its type is only known at runtime.
+    struct Slot {
+        int64_t count = 0;
+        int32_t left = NO_SLOT;
+        int32_t right = NO_SLOT;
+        uint32_t priority = 0;
+    };
+
     const DataTypePtr value_type;
     bool has_k = false;
     int64_t k = 0;
     MutableColumnPtr value_column;
-    // Tracked so that the per-group counts participate in query memory accounting: at the maximum
-    // k this buffer alone is 512 KiB per group.
-    DorisVector<int64_t> counts;
+    // Indexed by slot; evicted slots stay as dead entries until compaction. 24 bytes per slot
+    // (1.5 MiB at k = 65536) on top of the value column, and DorisVector keeps the allocation
+    // inside the query's memory accounting.
+    DorisVector<Slot> slots;
+    int32_t root = NO_SLOT;
+    // The last live slot in the aggregate's order: the value an incoming row has to beat to enter
+    // a full list. Cached so that rejecting a worse value costs one comparison, not a descent.
+    int32_t worst = NO_SLOT;
+    int64_t live = 0;
+    // Slots evicted since the last compaction.
+    int64_t dead = 0;
+    uint64_t rng = 0x243F6A8885A308D3ULL;
 
     explicit AggregateTopKCountData(const DataTypes& argument_types_)
             : value_type(remove_nullable(argument_types_[0])),
@@ -148,14 +184,26 @@ public:
         const auto& state = Base::data(place);
         buf.write_binary(state.has_k);
         buf.write_binary(state.k);
-        auto size = static_cast<int64_t>(state.counts.size());
+        // The slots are in arrival order and may include dead ones, while the serialized form is
+        // the sorted (value, count) list the reader rebuilds the tree from.
+        DorisVector<int32_t> slots;
+        collect_in_order(state, slots);
+        auto sorted_values = state.value_column->clone_empty();
+        sorted_values->reserve(slots.size());
+        DorisVector<int64_t> sorted_counts;
+        sorted_counts.reserve(slots.size());
+        for (int32_t slot : slots) {
+            sorted_values->insert_from(*state.value_column, slot);
+            sorted_counts.push_back(state.slots[slot].count);
+        }
+        auto size = static_cast<int64_t>(sorted_counts.size());
         buf.write_binary(size);
-        write_column(buf, *state.value_column);
+        write_column(buf, *sorted_values);
         if (size != 0) {
             // An empty list keeps an empty vector, whose data() is null; passing it to memcpy is
             // undefined even for a zero length.
-            buf.write(reinterpret_cast<const char*>(state.counts.data()),
-                      state.counts.size() * sizeof(int64_t));
+            buf.write(reinterpret_cast<const char*>(sorted_counts.data()),
+                      sorted_counts.size() * sizeof(int64_t));
         }
     }
 
@@ -166,12 +214,13 @@ public:
         buf.read_binary(state.k);
         int64_t size = 0;
         buf.read_binary(size);
-        state.value_column = read_column(buf);
-        DCHECK_EQ(static_cast<int64_t>(state.value_column->size()), size);
-        state.counts.resize(size);
+        auto values = read_column(buf);
+        DCHECK_EQ(static_cast<int64_t>(values->size()), size);
+        DorisVector<int64_t> counts(static_cast<size_t>(size));
         if (size != 0) {
-            buf.read(reinterpret_cast<char*>(state.counts.data()), size * sizeof(int64_t));
+            buf.read(reinterpret_cast<char*>(counts.data()), size * sizeof(int64_t));
         }
+        assign_sorted(state, std::move(values), std::move(counts));
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
@@ -183,18 +232,20 @@ public:
         auto& pair_column = assert_cast<ColumnStruct&>(pair_nullable.get_nested_column());
         auto& value_column = assert_cast<ColumnNullable&>(pair_column.get_column(0));
         auto& count_column = assert_cast<ColumnNullable&>(pair_column.get_column(1));
-        for (size_t i = 0; i != state.counts.size(); ++i) {
+        DorisVector<int32_t> slots;
+        collect_in_order(state, slots);
+        for (int32_t slot : slots) {
             if (const auto* nullable_value =
                         check_and_get_column<ColumnNullable>(state.value_column.get())) {
                 // A nullable value argument carries its own null map, which is never set here.
-                value_column.insert_from(*nullable_value, i);
+                value_column.insert_from(*nullable_value, slot);
             } else {
-                value_column.get_nested_column().insert_from(*state.value_column, i);
+                value_column.get_nested_column().insert_from(*state.value_column, slot);
                 value_column.get_null_map_data().push_back(0);
             }
             assert_cast<ColumnInt64&>(count_column.get_nested_column())
                     .get_data()
-                    .push_back(state.counts[i]);
+                    .push_back(state.slots[slot].count);
             count_column.get_null_map_data().push_back(0);
             pair_nullable.get_null_map_data().push_back(0);
         }
@@ -215,6 +266,178 @@ public:
     }
 
 private:
+    /// True when `cmp` puts the left operand before the right one in the aggregate's order.
+    static bool comes_before(int cmp) { return IsMin ? cmp < 0 : cmp > 0; }
+
+    /// True when `cmp`, which compares a value with the worst retained one, puts it after it: the
+    /// value is worse and cannot enter the list.
+    static bool is_worse(int cmp) { return IsMin ? cmp > 0 : cmp < 0; }
+
+    /// splitmix64. The priorities only have to be independent enough to keep the treap balanced;
+    /// a per-state sequence keeps the shape reproducible for the same insertion order.
+    static uint32_t next_priority(AggregateTopKCountData& state) {
+        uint64_t z = (state.rng += 0x9E3779B97F4A7C15ULL);
+        z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
+        z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
+        return static_cast<uint32_t>(z ^ (z >> 31));
+    }
+
+    static int compare_slots(const AggregateTopKCountData& state, int32_t lhs, int32_t rhs) {
+        return compare_at(*state.value_column, lhs, *state.value_column, rhs);
+    }
+
+    /// Appends (value, count) as the next slot. A value never moves once it has a slot: the tree
+    /// reorders slots, not column rows.
+    static int32_t append_slot(AggregateTopKCountData& state, const IColumn& column, size_t row_num,
+                               int64_t count) {
+        auto slot = static_cast<int32_t>(state.slots.size());
+        DCHECK_LT(slot, std::numeric_limits<int32_t>::max());
+        state.value_column->insert_from(column, row_num);
+        state.slots.push_back(AggregateTopKCountData::Slot {count, AggregateTopKCountData::NO_SLOT,
+                                                            AggregateTopKCountData::NO_SLOT,
+                                                            next_priority(state)});
+        ++state.live;
+        return slot;
+    }
+
+    /// Rotates the subtree rooted at `node` right: the left child becomes the root and `node` its
+    /// right child. The in-order sequence is unchanged, so the treap stays ordered.
+    static int32_t rotate_right(AggregateTopKCountData& state, int32_t node) {
+        int32_t pivot = state.slots[node].left;
+        state.slots[node].left = state.slots[pivot].right;
+        state.slots[pivot].right = node;
+        return pivot;
+    }
+
+    static int32_t rotate_left(AggregateTopKCountData& state, int32_t node) {
+        int32_t pivot = state.slots[node].right;
+        state.slots[node].right = state.slots[pivot].left;
+        state.slots[pivot].left = node;
+        return pivot;
+    }
+
+    /// One descent that performs the whole per-row update: an equal value bumps its count and
+    /// reports no insertion; a missing value is linked as a new slot at the leaf and rotated up
+    /// while the recursion unwinds. `inserted_slot` receives the new slot, NO_SLOT on a hit.
+    static int32_t add_or_increment(AggregateTopKCountData& state, int32_t node,
+                                    const IColumn& column, size_t row_num, int32_t* inserted_slot) {
+        if (node == AggregateTopKCountData::NO_SLOT) {
+            *inserted_slot = append_slot(state, column, row_num, 1);
+            return *inserted_slot;
+        }
+        int cmp = compare_at(*state.value_column, node, column, row_num);
+        if (cmp == 0) {
+            state.slots[node].count = checked_add(state.slots[node].count, 1);
+            return node;
+        }
+        if (comes_before(cmp)) {
+            // The stored value is the better one, so the input belongs in the right subtree.
+            state.slots[node].right = add_or_increment(state, state.slots[node].right, column,
+                                                       row_num, inserted_slot);
+            if (state.slots[state.slots[node].right].priority > state.slots[node].priority) {
+                return rotate_left(state, node);
+            }
+        } else {
+            state.slots[node].left =
+                    add_or_increment(state, state.slots[node].left, column, row_num, inserted_slot);
+            if (state.slots[state.slots[node].left].priority > state.slots[node].priority) {
+                return rotate_right(state, node);
+            }
+        }
+        return node;
+    }
+
+    /// Removes the last entry in the aggregate's order (the largest value for MIN) and returns the
+    /// new subtree root. That entry has no right child, so its left subtree takes its place; the
+    /// child's priority is below the parent's, so no rotation is needed.
+    static int32_t erase_worst(AggregateTopKCountData& state, int32_t node, int32_t* removed) {
+        if (state.slots[node].right == AggregateTopKCountData::NO_SLOT) {
+            *removed = node;
+            return state.slots[node].left;
+        }
+        state.slots[node].right = erase_worst(state, state.slots[node].right, removed);
+        return node;
+    }
+
+    static void refresh_worst(AggregateTopKCountData& state) {
+        int32_t node = state.root;
+        while (node != AggregateTopKCountData::NO_SLOT &&
+               state.slots[node].right != AggregateTopKCountData::NO_SLOT) {
+            node = state.slots[node].right;
+        }
+        state.worst = node;
+    }
+
+    /// Slots in the aggregate's order, i.e. the order of the result array.
+    static void collect_in_order(const AggregateTopKCountData& state, DorisVector<int32_t>& slots) {
+        slots.reserve(static_cast<size_t>(state.live));
+        DorisVector<int32_t> stack;
+        stack.reserve(64);
+        int32_t node = state.root;
+        while (node != AggregateTopKCountData::NO_SLOT || !stack.empty()) {
+            while (node != AggregateTopKCountData::NO_SLOT) {
+                stack.push_back(node);
+                node = state.slots[node].left;
+            }
+            node = stack.back();
+            stack.pop_back();
+            // Only live slots are reachable from the root; an evicted slot has no row count.
+            DCHECK_GE(state.slots[node].count, 0);
+            slots.push_back(node);
+            node = state.slots[node].right;
+        }
+        DCHECK_EQ(static_cast<int64_t>(slots.size()), state.live);
+    }
+
+    /// Rebuilds the state from a (value, count) sequence already in the aggregate's order. The
+    /// treap is built in O(size) as a Cartesian tree over the fresh priorities.
+    static void assign_sorted(AggregateTopKCountData& state, MutableColumnPtr values,
+                              DorisVector<int64_t> counts) {
+        const size_t size = counts.size();
+        DCHECK_EQ(values->size(), size);
+        state.value_column = std::move(values);
+        state.slots.assign(size, AggregateTopKCountData::Slot {});
+        for (size_t slot = 0; slot != size; ++slot) {
+            state.slots[slot].count = counts[slot];
+        }
+        state.live = static_cast<int64_t>(size);
+        state.dead = 0;
+        DorisVector<int32_t> stack;
+        stack.reserve(size);
+        for (size_t slot = 0; slot != size; ++slot) {
+            state.slots[slot].priority = next_priority(state);
+            int32_t last = AggregateTopKCountData::NO_SLOT;
+            while (!stack.empty() &&
+                   state.slots[stack.back()].priority < state.slots[slot].priority) {
+                last = stack.back();
+                stack.pop_back();
+            }
+            state.slots[slot].left = last;
+            if (!stack.empty()) {
+                state.slots[stack.back()].right = static_cast<int32_t>(slot);
+            }
+            stack.push_back(static_cast<int32_t>(slot));
+        }
+        state.root = stack.empty() ? AggregateTopKCountData::NO_SLOT : stack.front();
+        refresh_worst(state);
+    }
+
+    /// Reclaims the slots evicted since the last compaction. The O(k) rebuild is charged to the
+    /// k/2 evictions that produced the dead slots, so it stays O(1) amortized per row.
+    static void compact(AggregateTopKCountData& state) {
+        DorisVector<int32_t> slots;
+        collect_in_order(state, slots);
+        auto values = state.value_column->clone_empty();
+        values->reserve(slots.size());
+        DorisVector<int64_t> counts;
+        counts.reserve(slots.size());
+        for (int32_t slot : slots) {
+            values->insert_from(*state.value_column, slot);
+            counts.push_back(state.slots[slot].count);
+        }
+        assign_sorted(state, std::move(values), std::move(counts));
+    }
+
     static void check_k(AggregateTopKCountData& state, const IColumn& count_column,
                         size_t row_num) {
         const IColumn* nested = &count_column;
@@ -268,161 +491,145 @@ private:
         return result;
     }
 
-    /// Inserts (value, count) at `pos`, keeping the value column sorted by value.
-    static void insert_entry(AggregateTopKCountData& state, size_t pos, const IColumn& column,
-                             size_t row_num, int64_t count) {
-        if (pos == state.value_column->size()) {
-            // Appending needs no rebuild: the state column is mutable, so ascending MIN input
-            // (descending MAX input) fills the list without copying the retained prefix.
-            state.value_column->insert_from(column, row_num);
-            state.counts.push_back(count);
-            return;
-        }
-        auto new_values = state.value_column->clone_empty();
-        new_values->reserve(state.value_column->size() + 1);
-        for (size_t i = 0; i < pos; ++i) {
-            new_values->insert_from(*state.value_column, i);
-        }
-        new_values->insert_from(column, row_num);
-        for (size_t i = pos; i < state.value_column->size(); ++i) {
-            new_values->insert_from(*state.value_column, i);
-        }
-        state.value_column = std::move(new_values);
-        state.counts.insert(state.counts.begin() + pos, count);
-    }
-
     /// k == 0 fast path: only the extreme value is tracked.
     static void add_value(AggregateTopKCountData& state, const IColumn& column, size_t row_num) {
         if (state.k == 0) {
-            if (state.counts.empty()) {
-                state.value_column->insert_from(column, row_num);
-                state.counts.push_back(1);
+            if (state.live == 0) {
+                state.root = append_slot(state, column, row_num, 1);
+                state.worst = state.root;
                 return;
             }
             int cmp = compare_at(column, row_num, *state.value_column, 0);
             if (cmp == 0) {
-                state.counts[0] = checked_add(state.counts[0], 1);
-            } else if (IsMin ? cmp < 0 : cmp > 0) {
+                state.slots[0].count = checked_add(state.slots[0].count, 1);
+            } else if (comes_before(cmp)) {
+                // The new value is better: replace the tracked extreme. The slot and the
+                // single-node tree stay in place, only the column row changes.
                 state.value_column->clear();
                 state.value_column->insert_from(column, row_num);
-                state.counts[0] = 1;
+                state.slots[0].count = 1;
             }
             return;
         }
 
-        // A full list already holds the k best values: only a value that is better than the
-        // worst retained one, or equal to it, can change the state. Compare with the tail (the
-        // largest retained value for MIN, the smallest for MAX) before the search, so a rejected
-        // value costs one comparison instead of log2(k); an equal tail still goes through the
-        // search to increment its count.
-        if (std::cmp_greater_equal(state.value_column->size(), state.k)) {
-            int tail_cmp = compare_at(column, row_num, *state.value_column,
-                                      state.value_column->size() - 1);
-            if (IsMin ? tail_cmp > 0 : tail_cmp < 0) {
+        // Dead slots are reclaimed before they can outnumber the live ones; see compact().
+        if (state.dead > state.live) {
+            compact(state);
+        }
+
+        if (state.live >= state.k) {
+            // A full list rejects or absorbs most rows: comparing with the eviction candidate
+            // costs one comparison, while the tree descent would cost log2(k).
+            int cmp = compare_at(column, row_num, *state.value_column, state.worst);
+            if (cmp == 0) {
+                state.slots[state.worst].count = checked_add(state.slots[state.worst].count, 1);
+                return;
+            }
+            if (is_worse(cmp)) {
                 return;
             }
         }
 
-        // The list is ascending for MIN and descending for MAX, so the insertion point is where
-        // the stored values stop being better than the new one.
-        size_t left = 0;
-        size_t right = state.value_column->size();
-        while (left < right) {
-            size_t mid = left + (right - left) / 2;
-            int cmp = compare_at(*state.value_column, mid, column, row_num);
-            if (IsMin ? cmp < 0 : cmp > 0) {
-                left = mid + 1;
-            } else {
-                right = mid;
-            }
-        }
-        if (left < state.value_column->size() &&
-            compare_at(*state.value_column, left, column, row_num) == 0) {
-            state.counts[left] = checked_add(state.counts[left], 1);
+        int32_t inserted = AggregateTopKCountData::NO_SLOT;
+        state.root = add_or_increment(state, state.root, column, row_num, &inserted);
+        if (inserted == AggregateTopKCountData::NO_SLOT) {
             return;
         }
-
-        insert_entry(state, left, column, row_num, 1);
-        if (static_cast<int64_t>(state.value_column->size()) > state.k) {
-            // More than k distinct values: drop the worst one.
-            state.value_column->pop_back(1);
-            state.counts.pop_back();
+        if (state.live <= state.k) {
+            // Not over capacity: the new entry competes with the cached worst for the eviction
+            // candidate role.
+            if (state.worst == AggregateTopKCountData::NO_SLOT ||
+                is_worse(compare_slots(state, inserted, state.worst))) {
+                state.worst = inserted;
+            }
+            return;
         }
+        // The list was full and the value is new. It beat the cached worst above, so it cannot be
+        // the worst itself; the old worst is still the rightmost entry and leaves the list.
+        int32_t removed = AggregateTopKCountData::NO_SLOT;
+        state.root = erase_worst(state, state.root, &removed);
+        DCHECK_EQ(removed, state.worst);
+        state.slots[removed].count = AggregateTopKCountData::DEAD_COUNT;
+        --state.live;
+        ++state.dead;
+        refresh_worst(state);
     }
 
     /// k == 0: the state holds at most the extreme value and its count.
     static void merge_extreme(AggregateTopKCountData& state, const AggregateTopKCountData& other) {
-        if (other.counts.empty()) {
+        if (other.live == 0) {
             return;
         }
-        if (state.counts.empty()) {
-            state.value_column->insert_from(*other.value_column, 0);
-            state.counts.push_back(other.counts[0]);
+        if (state.live == 0) {
+            state.root = append_slot(state, *other.value_column, 0, other.slots[0].count);
+            state.worst = state.root;
             return;
         }
         int cmp = compare_at(*state.value_column, 0, *other.value_column, 0);
         if (cmp == 0) {
-            state.counts[0] = checked_add(state.counts[0], other.counts[0]);
-        } else if (IsMin ? cmp > 0 : cmp < 0) {
+            state.slots[0].count = checked_add(state.slots[0].count, other.slots[0].count);
+        } else if (is_worse(cmp)) {
             state.value_column->clear();
             state.value_column->insert_from(*other.value_column, 0);
-            state.counts[0] = other.counts[0];
+            state.slots[0].count = other.slots[0].count;
         }
     }
 
-    /// Merges two sorted lists, summing the counts of equal values and keeping the k best.
+    /// Merges two ordered lists, summing the counts of equal values and keeping the k best.
     ///
     /// The merge stops as soon as k entries are produced. Both inputs are best-first and hold
     /// distinct values, and equal values have already been combined, so every remaining value is
     /// worse than all retained ones: it can neither enter the result nor overflow it. Stopping
     /// here also avoids materializing a tail that would be truncated away.
     static void merge_values(AggregateTopKCountData& state, const AggregateTopKCountData& other) {
-        if (other.counts.empty()) {
+        if (other.live == 0) {
             // The other partial state saw no non-NULL row.
             return;
         }
+        DorisVector<int32_t> lhs_slots;
+        DorisVector<int32_t> rhs_slots;
+        collect_in_order(state, lhs_slots);
+        collect_in_order(other, rhs_slots);
         const auto limit = static_cast<size_t>(state.k);
         auto merged = state.value_column->clone_empty();
         DorisVector<int64_t> merged_counts;
-        merged_counts.reserve(std::min(limit, state.counts.size() + other.counts.size()));
+        merged_counts.reserve(std::min(limit, lhs_slots.size() + rhs_slots.size()));
         size_t lhs_index = 0;
         size_t rhs_index = 0;
         while (merged_counts.size() < limit &&
-               (lhs_index < state.counts.size() || rhs_index < other.counts.size())) {
-            if (rhs_index == other.counts.size()) {
-                merged->insert_from(*state.value_column, lhs_index);
-                merged_counts.push_back(state.counts[lhs_index]);
+               (lhs_index < lhs_slots.size() || rhs_index < rhs_slots.size())) {
+            if (rhs_index == rhs_slots.size()) {
+                merged->insert_from(*state.value_column, lhs_slots[lhs_index]);
+                merged_counts.push_back(state.slots[lhs_slots[lhs_index]].count);
                 ++lhs_index;
-            } else if (lhs_index == state.counts.size()) {
-                merged->insert_from(*other.value_column, rhs_index);
-                merged_counts.push_back(other.counts[rhs_index]);
+            } else if (lhs_index == lhs_slots.size()) {
+                merged->insert_from(*other.value_column, rhs_slots[rhs_index]);
+                merged_counts.push_back(other.slots[rhs_slots[rhs_index]].count);
                 ++rhs_index;
             } else {
-                int cmp =
-                        compare_at(*state.value_column, lhs_index, *other.value_column, rhs_index);
+                int cmp = compare_at(*state.value_column, lhs_slots[lhs_index], *other.value_column,
+                                     rhs_slots[rhs_index]);
                 // Both lists are ordered best-first (ascending for MIN, descending for MAX).
-                const bool lhs_is_better = IsMin ? cmp < 0 : cmp > 0;
+                const bool lhs_is_better = comes_before(cmp);
                 if (lhs_is_better) {
-                    merged->insert_from(*state.value_column, lhs_index);
-                    merged_counts.push_back(state.counts[lhs_index]);
+                    merged->insert_from(*state.value_column, lhs_slots[lhs_index]);
+                    merged_counts.push_back(state.slots[lhs_slots[lhs_index]].count);
                     ++lhs_index;
                 } else if (cmp != 0) {
                     // Not better and not equal: the right-hand value is better.
-                    merged->insert_from(*other.value_column, rhs_index);
-                    merged_counts.push_back(other.counts[rhs_index]);
+                    merged->insert_from(*other.value_column, rhs_slots[rhs_index]);
+                    merged_counts.push_back(other.slots[rhs_slots[rhs_index]].count);
                     ++rhs_index;
                 } else {
-                    merged->insert_from(*state.value_column, lhs_index);
-                    merged_counts.push_back(
-                            checked_add(state.counts[lhs_index], other.counts[rhs_index]));
+                    merged->insert_from(*state.value_column, lhs_slots[lhs_index]);
+                    merged_counts.push_back(checked_add(state.slots[lhs_slots[lhs_index]].count,
+                                                        other.slots[rhs_slots[rhs_index]].count));
                     ++lhs_index;
                     ++rhs_index;
                 }
             }
         }
-
-        state.value_column = std::move(merged);
-        state.counts = std::move(merged_counts);
+        assign_sorted(state, std::move(merged), std::move(merged_counts));
     }
 
     /// Writes a length-prefixed column blob. The declared length is

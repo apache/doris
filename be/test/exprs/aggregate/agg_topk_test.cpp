@@ -19,7 +19,9 @@
 
 #include <cstdint>
 #include <limits>
+#include <map>
 #include <memory>
+#include <random>
 #include <string>
 #include <vector>
 
@@ -182,6 +184,86 @@ TEST(TopKTest, KZeroTracksExtremeOnly) {
     EXPECT_EQ(max_result.counts, (std::vector<int64_t> {1}));
 }
 
+TEST(TopKTest, EvictsContinuouslyAndCompacts) {
+    AggregateFunctionSimpleFactory factory;
+    register_aggregate_function_topk(factory);
+    DataTypes argument_types = {std::make_shared<DataTypeInt32>(),
+                                std::make_shared<DataTypeInt64>()};
+    Arena arena;
+
+    // Descending input for MIN makes every row beat the current worst, so the list evicts on
+    // every row after the first k; with k = 500 the dead slots exceed the live ones several times
+    // and force a compaction.
+    std::vector<int32_t> descending;
+    for (int32_t value = 1999; value >= 0; --value) {
+        descending.push_back(value);
+    }
+    auto min_result =
+            aggregate(create_function(factory, "min_topk", argument_types), arena, descending, 500);
+    ASSERT_EQ(min_result.values.size(), 500);
+    for (size_t i = 0; i < 500; ++i) {
+        EXPECT_EQ(min_result.values[i], static_cast<int32_t>(i));
+        EXPECT_EQ(min_result.counts[i], 1);
+    }
+
+    auto max_result =
+            aggregate(create_function(factory, "max_topk", argument_types), arena, descending, 500);
+    ASSERT_EQ(max_result.values.size(), 500);
+    for (size_t i = 0; i < 500; ++i) {
+        EXPECT_EQ(max_result.values[i], static_cast<int32_t>(1999 - i));
+        EXPECT_EQ(max_result.counts[i], 1);
+    }
+}
+
+TEST(TopKTest, MatchesReferenceOnRandomInput) {
+    AggregateFunctionSimpleFactory factory;
+    register_aggregate_function_topk(factory);
+    DataTypes argument_types = {std::make_shared<DataTypeInt32>(),
+                                std::make_shared<DataTypeInt64>()};
+    Arena arena;
+
+    // A mix of duplicates, replacements and rejections; the expected result comes from sorting
+    // the frequencies, so the insertion path, the count updates and the evictions are all checked
+    // against the definition rather than against a hand-traced sequence.
+    std::mt19937 rng(20261028);
+    std::uniform_int_distribution<int32_t> value_dist(0, 100000);
+    std::vector<int32_t> input;
+    for (int row = 0; row < 2000; ++row) {
+        input.push_back(value_dist(rng));
+    }
+    std::map<int32_t, int64_t> frequencies;
+    for (int32_t value : input) {
+        ++frequencies[value];
+    }
+
+    for (int64_t k : {1, 3, 5, 16}) {
+        std::vector<int32_t> min_values;
+        std::vector<int64_t> min_counts;
+        for (auto it = frequencies.begin();
+             it != frequencies.end() && static_cast<int64_t>(min_values.size()) < k; ++it) {
+            min_values.push_back(it->first);
+            min_counts.push_back(it->second);
+        }
+        std::vector<int32_t> max_values;
+        std::vector<int64_t> max_counts;
+        for (auto it = frequencies.rbegin();
+             it != frequencies.rend() && static_cast<int64_t>(max_values.size()) < k; ++it) {
+            max_values.push_back(it->first);
+            max_counts.push_back(it->second);
+        }
+
+        auto min_result =
+                aggregate(create_function(factory, "min_topk", argument_types), arena, input, k);
+        EXPECT_EQ(min_result.values, min_values);
+        EXPECT_EQ(min_result.counts, min_counts);
+
+        auto max_result =
+                aggregate(create_function(factory, "max_topk", argument_types), arena, input, k);
+        EXPECT_EQ(max_result.values, max_values);
+        EXPECT_EQ(max_result.counts, max_counts);
+    }
+}
+
 TEST(TopKTest, EmptyInput) {
     AggregateFunctionSimpleFactory factory;
     register_aggregate_function_topk(factory);
@@ -294,6 +376,12 @@ TEST(TopKTest, SerializeDeserializeRoundTrip) {
     };
 
     round_trip({3, 1, 2, 1, 4}, 2);
+    // Evictions leave dead slots in the state; the serialized form is the live entries only.
+    std::vector<int32_t> evicting;
+    for (int32_t value = 100; value >= 0; --value) {
+        evicting.push_back(value);
+    }
+    round_trip(evicting, 3);
     // An empty state (no rows for the group, or every value NULL) keeps an empty count vector,
     // whose data() is null; the serialized form must not hand it to memcpy.
     round_trip({}, 2);
