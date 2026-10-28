@@ -67,8 +67,11 @@ public:
     // account physical remote bytes, so this reader then counts its own reads as
     // physical remote IO. Never set it for cached or local readers: the former
     // double-counts, the latter reports local disk as remote fetch volume.
+    // `local_fs` marks a reader over the local filesystem. A small batch read from it runs on the
+    // calling thread while reads are fast (config::snii_inline_read_max_segments); remote readers
+    // always fan out.
     explicit DorisSniiFileReader(io::FileReaderSPtr reader, const io::IOContext* io_ctx = nullptr,
-                                 bool direct_remote_io = false);
+                                 bool direct_remote_io = false, bool local_fs = false);
 
     Status read_at(uint64_t offset, size_t len, std::vector<uint8_t>* out) override;
     // Fills the caller's buffer directly (no vector round-trip) under the same
@@ -84,6 +87,8 @@ public:
     // batch segment reads. nullptr (default) routes to the BE buffered-reader
     // prefetch pool when ExecEnv is ready, otherwise a serial fallback.
     static void set_io_thread_pool_for_test(ThreadPool* pool);
+    // Test-only: forget the measured read latency, so the next batch is judged afresh.
+    static void reset_read_latency_for_test();
 
 private:
     static io::IOContext _make_index_io_context(const io::IOContext* io_ctx);
@@ -110,6 +115,7 @@ private:
 
     io::FileReaderSPtr _reader;
     const bool _direct_remote_io = false;
+    const bool _local_fs = false;
     io::IOContext _default_io_ctx;
     static thread_local const io::IOContext* _scoped_io_ctx;
     // Test seam for the batch-read executor; see set_io_thread_pool_for_test.
