@@ -19,9 +19,11 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <numeric>
+#include <random>
 #include <string>
 #include <type_traits>
 #include <vector>
@@ -539,6 +541,62 @@ TEST(PrxPodTest, CodecSelectionMatrixMatchesCsrOracleAtLowAndHighTf) {
                 EXPECT_EQ(stats.selected_positions, expected_flat.size());
                 EXPECT_TRUE(stats.is_valid());
             }
+        }
+    }
+}
+
+// The plain-payload selective decoder keeps a fast path for single-byte counts and deltas and hands
+// everything else to the checked decoders. Random windows mix both kinds of value -- multi-byte
+// deltas, docs without positions, positions near the top of the 32-bit range -- and random
+// selections, and every result must equal the positions the window was built from.
+TEST(PrxPodTest, SelectivePlainDecodeMatchesInputForRandomWindows) {
+    std::mt19937 rng(20261028);
+    for (int round = 0; round < 300; ++round) {
+        const uint32_t doc_count = 1 + rng() % 400;
+        const uint32_t style = rng() % 4;
+        PerDoc docs(doc_count);
+        for (auto& doc : docs) {
+            const uint32_t count = (style == 3 && rng() % 4 == 0) ? 0 : rng() % 6;
+            uint32_t position = rng() % 200;
+            for (uint32_t i = 0; i < count; ++i) {
+                doc.push_back(position);
+                uint32_t step = 1 + rng() % 100; // single-byte delta
+                if (style >= 1 && rng() % 8 == 0) {
+                    step = 128 + rng() % 20000; // two or three bytes
+                }
+                if (style == 2 && rng() % 40 == 0) {
+                    step = 1U << (21 + rng() % 8); // up to five bytes
+                }
+                position = (UINT32_MAX - position < step) ? position : position + step;
+            }
+            // keep the list strictly valid for the builder: ascending, duplicates allowed
+            std::sort(doc.begin(), doc.end());
+        }
+        std::vector<uint32_t> ordinals;
+        const uint32_t mode = rng() % 4;
+        for (uint32_t d = 0; d < doc_count; ++d) {
+            const bool take = mode == 0   ? (rng() % 10 == 0)
+                              : mode == 1 ? (rng() % 2 == 0)
+                              : mode == 2 ? true
+                                          : (d == 0 || d + 1 == doc_count);
+            if (take) {
+                ordinals.push_back(d);
+            }
+        }
+        for (PrxCodec codec : {PrxCodec::kRaw, PrxCodec::kZstd}) {
+            SCOPED_TRACE("round=" + std::to_string(round) + " docs=" + std::to_string(doc_count) +
+                         " style=" + std::to_string(style) + " mode=" + std::to_string(mode) +
+                         " codec=" + std::to_string(static_cast<uint8_t>(codec)));
+            const std::vector<uint8_t> encoded = BuildProfileFrame(docs, codec);
+            std::vector<uint32_t> expected_flat;
+            std::vector<uint32_t> expected_offsets;
+            ExpectedSelectiveCsr(docs, ordinals, &expected_flat, &expected_offsets);
+            std::vector<uint32_t> flat;
+            std::vector<uint32_t> offsets;
+            ByteSource source((Slice(encoded)));
+            ASSERT_TRUE(read_prx_window_csr_selective(&source, ordinals, &flat, &offsets).ok());
+            EXPECT_EQ(flat, expected_flat);
+            EXPECT_EQ(offsets, expected_offsets);
         }
     }
 }
