@@ -463,6 +463,48 @@ public class SPMPlan2SQLBuilderTest {
         Assertions.assertFalse(sql.contains("NOT IN"), "no NOT IN rewrite expected: " + sql);
     }
 
+    /**
+     * A residual aggregate-less NULL-AWARE anti SELF join (round-84 #4): both inputs render the
+     * same plain table, so an unaliased preserved input made the residual predicate reference the
+     * INNER occurrence on both sides (`t.v > t.v`) - the NOT IN degenerated and the anti join kept
+     * every left row. The residual path now forces distinct occurrence aliases like the ordinary
+     * join path does.
+     */
+    @Test
+    public void testDecompileNullAwareAntiSelfJoinKeepsDistinctAliases() {
+        SlotReference leftKey = new SlotReference("k", IntegerType.INSTANCE);
+        SlotReference leftValue = new SlotReference("v", IntegerType.INSTANCE);
+        SlotReference rightKey = new SlotReference("k", IntegerType.INSTANCE);
+        SlotReference rightValue = new SlotReference("v", IntegerType.INSTANCE);
+
+        PhysicalOlapScan left = mockScan("t", List.of(leftKey, leftValue));
+        PhysicalOlapScan right = mockScan("t", List.of(rightKey, rightValue));
+        PhysicalHashJoin<?, ?> join = Mockito.mock(PhysicalHashJoin.class);
+        Mockito.when(join.getHashJoinConjuncts())
+                .thenReturn(List.of((Expression) new EqualTo(leftKey, rightKey)));
+        Mockito.when(join.getOtherJoinConjuncts())
+                .thenReturn(List.of((Expression) new GreaterThan(rightValue, leftValue)));
+        Mockito.when(join.getMarkJoinConjuncts()).thenReturn(List.of());
+        Mockito.when(join.getMarkJoinSlotReference()).thenReturn(Optional.empty());
+        Mockito.when(join.getJoinType()).thenReturn(JoinType.NULL_AWARE_LEFT_ANTI_JOIN);
+        Mockito.when(join.isMarkJoin()).thenReturn(false);
+        Mockito.when(join.left()).thenReturn(left);
+        Mockito.when(join.right()).thenReturn(right);
+        stubAccept(join);
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(join);
+        Assertions.assertTrue(sql.contains("NOT IN (SELECT"),
+                "a residual conjunct keeps the subquery rewrite: " + sql);
+        Assertions.assertTrue(sql.contains("(SELECT * FROM"),
+                "the SAME table on both sides must be wrapped under distinct aliases, or the"
+                        + " residual predicate binds both references to the inner occurrence: "
+                        + sql);
+        // the frozen text must still parse: the shared table name is only legal under distinct
+        // occurrence aliases
+        Assertions.assertNotNull(new NereidsParser().parseSingle(sql),
+                "the frozen SQL must parse: " + sql);
+    }
+
     @Test
     public void testDecompileNullAwareAntiResidualStaysInSubquery() {
         // NULL-AWARE anti whose build side carries a residual conjunct: the conjunct

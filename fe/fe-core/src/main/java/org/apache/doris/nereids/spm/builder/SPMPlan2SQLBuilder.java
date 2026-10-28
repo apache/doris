@@ -2258,6 +2258,17 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                     "SPM decompile NULL_AWARE anti: cannot split the IN key sides");
         }
 
+        // A SELF join must not render the preserved input unaliased (round-84 #4): with both
+        // sides being the SAME relation occurrence text, the residual predicate's outer
+        // reference and the subquery's own FROM share one qualifier (`internal.db.t.v`), so
+        // BOTH bind to the INNER occurrence - the NOT IN degenerates and the anti join keeps
+        // every left row. The ordinary join path forces fresh aliases for exactly this case
+        // (see visitPhysicalJoin).
+        if (left.isSameRelation(right)
+                || StringUtils.equalsIgnoreCase(left.getRelationAlias(), right.getRelationAlias())) {
+            left.newAlias();
+            right.newAlias();
+        }
         // Materialize BOTH fragments BEFORE the qualifier below is taken: toRelationSQL()
         // allocates the FINAL wrapper alias when the relation needs one (a left / right
         // relation carrying its own ORDER BY / LIMIT block, a FROM-less relation), and the

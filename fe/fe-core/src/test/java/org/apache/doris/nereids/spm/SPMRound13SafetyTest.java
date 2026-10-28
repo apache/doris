@@ -137,11 +137,29 @@ public class SPMRound13SafetyTest {
 
             ctx.getSessionVariable().preferUdfOverBuiltin = true;
             String udfWins = fingerprint(ctx, "SELECT abs(1)", registry);
-            Assertions.assertTrue(udfWins.contains("fn:abs|udf|u="), udfWins);
+            // the entry carries the EFFECTIVE RESOLVED SCOPE (round-84 #5): an unqualified
+            // call resolves in the session's CURRENT database first, so `abs(1)` under
+            // `USE spm_db` and under `USE other_db` are different functions. Rendering the
+            // database only when it was WRITTEN made the two entries identical and the
+            // frozen db1 function replayed under the db2 session.
+            Assertions.assertTrue(udfWins.contains("fn:spm_db.abs|udf|u="), udfWins);
             Assertions.assertNotEquals(builtinWins, udfWins,
                     "flipping prefer_udf_over_builtin changes which implementation the SQL"
                             + " resolves to: a baseline frozen with the builtin must be"
                             + " invalidated instead of replaying the alias body");
+
+            // the SAME unqualified text under another current database must differ: that
+            // database's same-name UDF is a different function (other_db owns its own
+            // same-name alias, deliberately a DIFFERENT body)
+            Mockito.when(registry.findUdfBuilder("other_db", "abs"))
+                    .thenReturn(List.of(aliasAbs("x - 1")));
+            ctx.setDatabase("other_db");
+            String otherDbUdf = fingerprint(ctx, "SELECT abs(1)", registry);
+            Assertions.assertTrue(otherDbUdf.contains("fn:other_db.abs|udf|u="), otherDbUdf);
+            Assertions.assertNotEquals(udfWins, otherDbUdf,
+                    "an unqualified UDF name resolves in the CURRENT database: switching"
+                            + " it changes the function the frozen plan runs");
+            ctx.setDatabase("spm_db");
 
             // every same-name overload takes part: a SECOND overload (or a changed body)
             // must change the entry even though the exact overload of an unbound call

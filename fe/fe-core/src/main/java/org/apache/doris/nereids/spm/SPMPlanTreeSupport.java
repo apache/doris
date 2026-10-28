@@ -5460,6 +5460,88 @@ public final class SPMPlanTreeSupport {
         return collected;
     }
 
+    /**
+     * Whether the GROUP BY keys of the two statements RESOLVE to the same expressions (see
+     * rejectManualPlanDivergence).
+     *
+     * Every aggregate of one statement is paired with the aggregate at the same traversal
+     * position of the other. A size difference is left to the topology contract (it reports the
+     * added / dropped aggregation with a better message), and the keys of one pair are compared
+     * ORDER-INSENSITIVELY: `GROUP BY a, b` and `GROUP BY b, a` group the same rows.
+     *
+     * @param bindPlan the bind tree
+     * @param planPlan the plan tree
+     * @return whether every group key resolves to the same expression on both sides
+     */
+    private static boolean sameResolvedGroupByKeys(Plan bindPlan, Plan planPlan) {
+        List<LogicalAggregate<?>> bindAggregates = collectAggregates(bindPlan);
+        List<LogicalAggregate<?>> planAggregates = collectAggregates(planPlan);
+        if (bindAggregates.size() != planAggregates.size()) {
+            return true;
+        }
+        for (int i = 0; i < bindAggregates.size(); i++) {
+            LogicalAggregate<?> bindAggregate = bindAggregates.get(i);
+            LogicalAggregate<?> planAggregate = planAggregates.get(i);
+            if (!sameResolvedExpressionSet(bindAggregate.getGroupByExpressions(),
+                    outputLabelExpressions(bindAggregate.getOutputExpressions()),
+                    planAggregate.getGroupByExpressions(),
+                    outputLabelExpressions(planAggregate.getOutputExpressions()))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** Every aggregate of one tree, in traversal order (see sameResolvedGroupByKeys). */
+    private static List<LogicalAggregate<?>> collectAggregates(Plan plan) {
+        List<LogicalAggregate<?>> aggregates = new ArrayList<>();
+        if (plan == null) {
+            return aggregates;
+        }
+        SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, node -> {
+            if (node instanceof LogicalAggregate) {
+                aggregates.add((LogicalAggregate<?>) node);
+            }
+        });
+        return aggregates;
+    }
+
+    /**
+     * Whether two expression LISTS mean the same thing, resolved through their own side's output
+     * labels and matched pairwise without regard to order (see sameResolvedGroupByKeys).
+     *
+     * @param bindKeys   the bind side's expressions
+     * @param bindLabels the bind side's label map
+     * @param planKeys   the plan side's expressions
+     * @param planLabels the plan side's label map
+     * @return whether every bind key resolves to a distinct plan key and vice versa
+     */
+    private static boolean sameResolvedExpressionSet(List<Expression> bindKeys,
+            Map<String, Expression> bindLabels, List<Expression> planKeys,
+            Map<String, Expression> planLabels) {
+        if (bindKeys.size() != planKeys.size()) {
+            return true;
+        }
+        boolean[] matched = new boolean[planKeys.size()];
+        for (Expression bindKey : bindKeys) {
+            boolean found = false;
+            for (int i = 0; i < planKeys.size(); i++) {
+                if (matched[i]) {
+                    continue;
+                }
+                if (sameResolvedExpression(bindKey, bindLabels, planKeys.get(i), planLabels, 0)) {
+                    matched[i] = true;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     /** One predicate's leaf conjuncts into a list: an AND is split into its children. */
     private static void collectFlattenedConjuncts(Expression predicate,
             List<Expression> out) {
@@ -5511,6 +5593,10 @@ public final class SPMPlanTreeSupport {
      * AggregateFunction once bound; both are listed here, and any further attribute that changes
      * what a node MEANS belongs in the same place.
      *
+     * A function's WRITTEN database qualifier (round-84 #3) and a WINDOW's order direction / null
+     * placement / frame (round-84 #2) are the third and fourth: both live outside the expression
+     * children, and both decide which value the node produces.
+     *
      * @param expression the node
      * @return the identity text
      */
@@ -5518,7 +5604,13 @@ public final class SPMPlanTreeSupport {
         if (expression instanceof org.apache.doris.nereids.analyzer.UnboundFunction) {
             org.apache.doris.nereids.analyzer.UnboundFunction function =
                     (org.apache.doris.nereids.analyzer.UnboundFunction) expression;
-            return function.getName().toLowerCase(Locale.ROOT) + "|distinct="
+            // The WRITTEN database qualifier is part of what the call MEANS (round-84 #3):
+            // db1.f and db2.f may be two different functions with one SQL signature (a Java and a
+            // Python scalar returning 1 and -1), so an alias permutation that swaps them passed
+            // this comparison and the frozen plan filtered the other function.
+            String writtenDb = function.getDbName() == null || function.getDbName().isEmpty()
+                    ? "" : function.getDbName().toLowerCase(Locale.ROOT) + ".";
+            return writtenDb + function.getName().toLowerCase(Locale.ROOT) + "|distinct="
                     + function.isDistinct();
         }
         if (expression instanceof org.apache.doris.nereids.trees.expressions.functions.agg
@@ -5532,6 +5624,26 @@ public final class SPMPlanTreeSupport {
         if (expression instanceof org.apache.doris.nereids.trees.expressions.functions.Function) {
             return ((org.apache.doris.nereids.trees.expressions.functions.Function) expression)
                     .getName().toLowerCase(Locale.ROOT);
+        }
+        if (expression instanceof org.apache.doris.nereids.trees.expressions.WindowExpression) {
+            // The WINDOW SPEC lives OUTSIDE the expression children (round-84 #2): the order
+            // DIRECTION / null placement and the frame are fields of the node and of its
+            // OrderExpression children, so `row_number() OVER(ORDER BY k ASC)` and
+            // `... DESC` used to share one identity - an alias permutation between them made the
+            // frozen QUALIFY keep k = 1 while the caller kept k = 2.
+            org.apache.doris.nereids.trees.expressions.WindowExpression window =
+                    (org.apache.doris.nereids.trees.expressions.WindowExpression) expression;
+            StringBuilder spec = new StringBuilder("window|frame=");
+            spec.append(window.getWindowFrame()
+                    .map(org.apache.doris.nereids.trees.expressions.WindowFrame::toSql)
+                    .orElse("-"));
+            return spec.toString();
+        }
+        if (expression instanceof org.apache.doris.nereids.trees.expressions.OrderExpression) {
+            org.apache.doris.nereids.trees.expressions.OrderExpression order =
+                    (org.apache.doris.nereids.trees.expressions.OrderExpression) expression;
+            return "order|" + (order.isAsc() ? "asc" : "desc") + "|"
+                    + (order.isNullFirst() ? "nulls_first" : "nulls_last");
         }
         if (expression instanceof org.apache.doris.nereids.trees.expressions.Cast) {
             return expression.getClass().getName() + "->"
@@ -5592,6 +5704,10 @@ public final class SPMPlanTreeSupport {
      *       (keys, direction, null placement, or none) - an uncapped caller keeps its
      *       ordering contract, and a plan that flips the direction returns (2,1) for the
      *       caller that asked for (1,2);
+     *    GROUP BY aliases: a group key that names no base column binds the block's
+     *       OUTPUT (MappingSlot), so `GROUP BY x` groups another expression after an
+     *       alias permutation - bind `k AS x, v AS y ... GROUP BY x` groups k, the plan
+     *       `k AS y, v AS x ... GROUP BY x` groups v (one group vs two);
      *    HAVING aliases: an output label a HAVING predicate CONSUMES is semantic
      *       (bind SELECT k AS x FROM t HAVING x > 0 vs a plan with k AS y): HAVING binds
      *       the block's output names before the base columns, so the renamed plan filters
@@ -5705,6 +5821,20 @@ public final class SPMPlanTreeSupport {
                             + havingConsumedOutputAliases(planPlan, planItems, true) + "). A"
                             + " QUALIFY name binds the block's OUTPUT column first, so renaming /"
                             + " re-ordering those items silently filters another column: "
+                            + bindSql);
+        }
+        // GROUP BY is a consumer of output aliases as well (round-84 #6): BindExpression resolves
+        // a key that names no base column through the block's OUTPUT (MappingSlot) - bind
+        // `SELECT k AS x, v AS y, count(*) AS n FROM t GROUP BY x` groups k while the plan
+        // `SELECT k AS y, v AS x, count(*) AS n FROM t GROUP BY x` groups v. Both texts spell the
+        // same key and only the labels differ, so every set-wise check above passes, yet the
+        // caller sees ONE group (n = 2) and the frozen replay TWO (n = 1 each).
+        if (!sameResolvedGroupByKeys(bindPlan, planPlan)) {
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                    "SPM cannot align the plan SQL with the bind SQL: their GROUP BY keys"
+                            + " resolve to different expressions. A GROUP BY name that is not a"
+                            + " base column binds the block's OUTPUT column, so renaming /"
+                            + " re-ordering those items silently groups by another expression: "
                             + bindSql);
         }
         Set<String> bindFilters = filterConjunctTexts(bindPlan);
@@ -8249,7 +8379,40 @@ public final class SPMPlanTreeSupport {
             } else {
                 kind = builtinExists ? "builtin" : (overloads.isEmpty() ? "none" : "udf");
             }
-            return "fn:" + (qualified ? writtenDb + "." : "") + name
+            // The EFFECTIVE RESOLVED SCOPE belongs to the entry (round-84 #5): an UNQUALIFIED
+            // call resolves in the session's CURRENT database first, so `f(k)` under `USE db1`
+            // and under `USE db2` are two DIFFERENT functions even when class, signature,
+            // nullability and volatility all match - rendering the database only when it was
+            // WRITTEN made both entries identical, so the frozen db1.f plan replayed under db2's
+            // session and returned 1 instead of -1. A resolution that stays a plain BUILTIN keeps
+            // the scope-free entry: a builtin's definition cannot depend on the current database,
+            // so qualifying it would only cost matches.
+            //
+            // SPM'S OWN PLACEHOLDER NAMES stay scope-free as well: `_spm_const_var` /
+            // `_spm_const_list` exist only in the FROZEN plan text this module renders itself,
+            // so the session's current database says nothing about them - they resolve in no
+            // scope at all (kind `none`). Prefixing them made the entry depend on WHICH session
+            // computed it: a fingerprint written without a current database rendered
+            // `fn:_spm_const_var|none|u=-` while the replaying session (current database
+            // regression_test_spm) rendered `fn:regression_test_spm._spm_const_var|none|u=-`, so
+            // the post-plan revalidation refused a healthy placeholder-only baseline
+            // (test_spm_review_round9: `SELECT 1 AS x LIMIT 0` hit baseline 286 and got
+            // "replay metadata changed between validation and planning"). Every
+            // placeholder-carrying baseline persisted before this section existed would fail the
+            // same way, so the placeholder identity is pinned to the bare name.
+            String resolvedScope = qualified ? writtenDb
+                    : (ctx == null || ctx.getDatabase() == null || ctx.getDatabase().isEmpty()
+                            ? null : ctx.getDatabase());
+            boolean internalPlaceholder =
+                    org.apache.doris.nereids.spm.matcher.SPMFrozenTreeReplacer.CONST_VAR_FUNC
+                            .equals(name)
+                    || org.apache.doris.nereids.spm.matcher.SPMFrozenTreeReplacer.CONST_LIST_FUNC
+                            .equals(name);
+            boolean scopeSensitive = qualified
+                    || (!"builtin".equals(kind) && !internalPlaceholder);
+            return "fn:" + (scopeSensitive && resolvedScope != null
+                            ? resolvedScope.toLowerCase(java.util.Locale.ROOT) + "." : "")
+                    + name
                     + "|" + kind
                     + "|u=" + (overloads.isEmpty() ? "-"
                             : SPMUtils.hashOf(String.join(",", overloads)));

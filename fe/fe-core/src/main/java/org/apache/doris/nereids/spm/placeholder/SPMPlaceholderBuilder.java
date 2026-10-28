@@ -32,11 +32,14 @@ import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.MapType;
 
 import com.google.common.collect.ImmutableList;
 
@@ -44,6 +47,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
+import java.util.Map;
 
 /**
  * SPMPlaceholderBuilder
@@ -472,7 +476,27 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
      * @return whether it is an all-NULL-valued map value
      */
     private static boolean isAllNullMap(Expression expr) {
-        if (expr == null || !isMapConstructor(expr)) {
+        if (expr == null) {
+            return false;
+        }
+        if (expr instanceof MapLiteral) {
+            // A map LITERAL is a LEAF: its entries live in getValue(), not in children()
+            // (round-84 #1). visitLiteral parameterizes the whole literal as ONE marker, and
+            // without this branch `element_at({'x': NULL}, 'x')` stayed a NullType producer
+            // candidate, the Boolean consumer replaced the whole call and the marker with it,
+            // and the `{'x': TRUE}` variant had no id left to substitute.
+            Map<Literal, Literal> entries = ((MapLiteral) expr).getValue();
+            if (entries.isEmpty()) {
+                return false;
+            }
+            for (Literal value : entries.values()) {
+                if (!producesNullType(value)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        if (!isMapConstructor(expr)) {
             return false;
         }
         List<Expression> pairs = expr.children();
@@ -972,6 +996,13 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             return new ArrayLiteral(List.of(NullLiteral.BOOLEAN_INSTANCE),
                     ArrayType.of(BooleanType.INSTANCE));
         }
+        if (literal instanceof MapLiteral) {
+            // A whole-map LITERAL container (round-84 #1): the MAP overload of element_at reads
+            // the map's VALUE type, so an all-NULL-valued literal has to be retyped to
+            // MAP<key, BOOLEAN> for the same reason the array literal is - the keys keep their
+            // own type (a BOOLEAN key would change the map's key type).
+            return booleanMapPayload((MapLiteral) literal);
+        }
         if (!(literal instanceof ArrayLiteral)) {
             return null;
         }
@@ -988,6 +1019,33 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             return null;
         }
         return new ArrayLiteral(items, ArrayType.of(BooleanType.INSTANCE));
+    }
+
+    /**
+     * The BOOLEAN-valued form of an all-NULL-valued MAP literal (see booleanContainerPayload).
+     *
+     * Only the VALUES are retyped: a NULL value is NULL whatever its type, so the marker's TYPE is
+     * all that changes, and the keys keep the type the user wrote.
+     *
+     * @param literal the captured container literal
+     * @return the retyped payload, or null when the literal is not an all-NULL-valued map
+     */
+    private static Literal booleanMapPayload(MapLiteral literal) {
+        Map<Literal, Literal> entries = literal.getValue();
+        if (entries.isEmpty()) {
+            return null;
+        }
+        Map<Literal, Literal> retyped = new java.util.LinkedHashMap<>();
+        for (Map.Entry<Literal, Literal> entry : entries.entrySet()) {
+            if (!entry.getValue().isNullLiteral()) {
+                return null; // a real value keeps the map's own value type
+            }
+            retyped.put(entry.getKey(), NullLiteral.BOOLEAN_INSTANCE);
+        }
+        DataType mapType = literal.getDataType();
+        DataType keyType = mapType instanceof MapType
+                ? ((MapType) mapType).getKeyType() : org.apache.doris.nereids.types.StringType.INSTANCE;
+        return new MapLiteral(retyped, MapType.of(keyType, BooleanType.INSTANCE));
     }
 
     /**
