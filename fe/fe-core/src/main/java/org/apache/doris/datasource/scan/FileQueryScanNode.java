@@ -418,7 +418,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
             splitAssignment = new SplitAssignment(backendPolicy, this, this::splitToScanRange,
                     locationProperties, pathPartitionKeys, admissionResult,
                     sessionVariable.getSplitBatchSize(), sessionVariable.getSplitQueueCapacity());
-            splitAssignment.init();
+            // The first split can require a remote read session (for example, MaxCompute). Keep
+            // the planning wait bounded by the query's effective timeout instead of a fixed 30 seconds.
+            splitAssignment.init(ConnectContext.get().getExecTimeoutS() * 1000L);
             if (executor != null) {
                 executor.getSummaryProfile().setGetSplitsFinishTime();
             }

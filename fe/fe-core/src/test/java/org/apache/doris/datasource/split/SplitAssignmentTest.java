@@ -103,7 +103,7 @@ public class SplitAssignmentTest {
         ExecutorService workers = Executors.newFixedThreadPool(3);
         try {
             Future<?> init = workers.submit(() -> {
-                splitAssignment.init();
+                splitAssignment.init(1000);
                 return null;
             });
             Assertions.assertTrue(initStarted.await(5, TimeUnit.SECONDS));
@@ -178,7 +178,7 @@ public class SplitAssignmentTest {
     // ==================== init() method tests ====================
 
     @Test
-    void testInitSuccess() throws Exception {
+    void testInitAcceptsDelayedFirstSplitWithinCallerDeadline() throws Exception {
         Multimap<Backend, Split> batch = ArrayListMultimap.create();
         batch.put(mockBackend, mockSplit);
 
@@ -200,7 +200,7 @@ public class SplitAssignmentTest {
         splitGeneratorThread.start();
 
         // Test
-        Assertions.assertDoesNotThrow(() -> splitAssignment.init());
+        Assertions.assertDoesNotThrow(() -> splitAssignment.init(1000));
 
         // Verify sample split is set
         Assertions.assertNotNull(splitAssignment.getSampleSplit());
@@ -214,7 +214,7 @@ public class SplitAssignmentTest {
         try {
             Future<UserException> result = executor.submit(() -> {
                 Thread.currentThread().interrupt();
-                return Assertions.assertThrows(UserException.class, splitAssignment::init);
+                return Assertions.assertThrows(UserException.class, () -> splitAssignment.init(1000));
             });
             Assertions.assertInstanceOf(InterruptedException.class, result.get(5, TimeUnit.SECONDS).getCause());
             Mockito.verify(mockSplitGenerator).startSplit(mockBackendPolicy.numBackends());
@@ -225,12 +225,19 @@ public class SplitAssignmentTest {
     }
 
     @Test
+    void testInitUsesCallerDeadlineBeforeFirstSplit() throws Exception {
+        UserException error = Assertions.assertThrows(UserException.class, () -> splitAssignment.init(20));
+        Assertions.assertTrue(error.getMessage().contains("20 ms"), error.getMessage());
+        Mockito.verify(mockSplitGenerator).startSplit(mockBackendPolicy.numBackends());
+    }
+
+    @Test
     void testInitWithPreExistingException() throws Exception {
         UserException preException = new UserException("Pre-existing error");
         splitAssignment.setException(preException);
 
         // Test & Verify
-        UserException exception = Assertions.assertThrows(UserException.class, () -> splitAssignment.init());
+        UserException exception = Assertions.assertThrows(UserException.class, () -> splitAssignment.init(1000));
         Assertions.assertTrue(exception.getMessage().contains(" Pre-existing error"), exception.getMessage());
     }
 
@@ -463,7 +470,7 @@ public class SplitAssignmentTest {
         splitsProvider.start();
 
         // Test init - should succeed once splits are added
-        Assertions.assertDoesNotThrow(() -> splitAssignment.init());
+        Assertions.assertDoesNotThrow(() -> splitAssignment.init(1000));
 
         // Verify
         Assertions.assertNotNull(splitAssignment.getSampleSplit());
@@ -481,7 +488,7 @@ public class SplitAssignmentTest {
         splitAssignment.stop(); // This should make needMoreSplit() return false
 
         // Init should complete immediately without waiting
-        Assertions.assertDoesNotThrow(() -> splitAssignment.init());
+        Assertions.assertDoesNotThrow(() -> splitAssignment.init(1000));
     }
 
     @Test
@@ -490,6 +497,6 @@ public class SplitAssignmentTest {
         splitAssignment.finishSchedule();
 
         // Init should complete immediately without waiting
-        Assertions.assertDoesNotThrow(() -> splitAssignment.init());
+        Assertions.assertDoesNotThrow(() -> splitAssignment.init(1000));
     }
 }

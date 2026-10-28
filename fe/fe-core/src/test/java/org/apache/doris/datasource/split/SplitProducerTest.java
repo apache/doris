@@ -253,8 +253,8 @@ class SplitProducerTest {
         }).when(second.generator).startSplit(Mockito.anyInt());
         try {
             Future<?> initialized = planner.submit(() -> {
-                first.assignment.init();
-                second.assignment.init();
+                first.assignment.init(1000);
+                second.assignment.init(1000);
                 return null;
             });
             initialized.get(5, TimeUnit.SECONDS);

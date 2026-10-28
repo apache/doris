@@ -193,22 +193,23 @@ public class SplitAssignment {
         this.queueCapacity = queueCapacity;
     }
 
-    public void init() throws UserException {
+    public void init(long timeoutMillis) throws UserException {
+        Preconditions.checkArgument(timeoutMillis > 0, "First split timeout must be positive");
         splitGenerator.startSplit(backendPolicy.numBackends());
+        long deadlineNanos = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
         synchronized (readinessLock) {
-            final int waitIntervalTimeMillis = 100;
-            final int initTimeoutMillis = 30000; // 30s
-            int waitTotalTime = 0;
             while (sampleSplit == null && needMoreSplit()) {
-                try {
-                    readinessLock.wait(waitIntervalTimeMillis);
-                } catch (InterruptedException e) {
-                    throw new UserException(e.getMessage(), e);
-                }
-                waitTotalTime += waitIntervalTimeMillis;
-                if (waitTotalTime > initTimeoutMillis) {
+                long remainingNanos = deadlineNanos - System.nanoTime();
+                if (remainingNanos <= 0) {
                     throw new UserException("Failed to get first split after waiting for "
-                            + (waitTotalTime / 1000) + " seconds.");
+                            + timeoutMillis + " ms.");
+                }
+                try {
+                    TimeUnit.NANOSECONDS.timedWait(readinessLock,
+                            Math.min(remainingNanos, TimeUnit.MILLISECONDS.toNanos(100)));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new UserException(e.getMessage(), e);
                 }
             }
         }
