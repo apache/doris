@@ -185,6 +185,7 @@ public class PluginDrivenMvccExternalTableTest {
             Assertions.assertEquals(Collections.singleton("dt=2024-01-01"),
                     result.getSelectedPartitions().selectedPartitions.keySet());
             Assertions.assertTrue(result.hasPartitionPredicate());
+            Assertions.assertEquals(2, result.getSelectedPartitions().totalPartitionNum);
         });
     }
 
@@ -219,6 +220,47 @@ public class PluginDrivenMvccExternalTableTest {
 
             Assertions.assertEquals(Collections.singleton("dt=2024-02-02"),
                     result.getSelectedPartitions().selectedPartitions.keySet());
+            Assertions.assertEquals(3, result.getSelectedPartitions().totalPartitionNum);
+
+            LogicalFileScan secondCopy = result.withPartitionPruned(false);
+            Expression secondPredicate = new Or(
+                    new EqualTo(slot, new DateV2Literal(2024, 1, 1)),
+                    new EqualTo(slot, new DateV2Literal(2024, 1, 2)));
+            LogicalFilter<?> secondFilter = new LogicalFilter<>(
+                    Collections.singleton(secondPredicate), secondCopy);
+            CascadesContext secondContext = CascadesContext.initContext(
+                    ConnectContext.get().getStatementContext(), secondFilter, PhysicalProperties.ANY);
+            Plan secondRewritten =
+                    new PruneFileScanPartition().build().transform(secondFilter, secondContext).get(0);
+            LogicalFileScan secondResult = (LogicalFileScan) secondRewritten.child(0);
+
+            Assertions.assertTrue(secondResult.getSelectedPartitions().selectedPartitions.isEmpty());
+            Assertions.assertEquals(3, secondResult.getSelectedPartitions().totalPartitionNum);
+        });
+    }
+
+    @Test
+    public void repeatedFileScanPruningPreservesUniverseForEmptySelection() {
+        Fixture f = Fixture.partitioned();
+        MvccSnapshot pin = f.table.loadSnapshot(Optional.empty(), Optional.empty());
+        withContextSnapshot(f.table, pin, () -> {
+            SlotReference slot = new SlotReference("dt", DateV2Type.INSTANCE);
+            LogicalFileScan scan = new LogicalFileScan(new RelationId(14), f.table,
+                    Collections.singletonList("db"), Collections.emptyList(), Optional.empty(),
+                    Optional.empty(), Optional.empty(), Optional.of(Collections.singletonList(slot)));
+            scan = scan.withSelectedPartitions(new SelectedPartitions(
+                    scan.getSelectedPartitions().totalPartitionNum, Collections.emptyMap(), false, true));
+            LogicalFilter<?> filter = new LogicalFilter<>(
+                    Collections.singleton(new EqualTo(slot, new DateV2Literal(2024, 1, 1))), scan);
+            CascadesContext context = CascadesContext.initContext(
+                    ConnectContext.get().getStatementContext(), filter, PhysicalProperties.ANY);
+
+            Plan rewritten = new PruneFileScanPartition().build().transform(filter, context).get(0);
+            LogicalFileScan result = (LogicalFileScan) rewritten.child(0);
+
+            Assertions.assertTrue(result.getSelectedPartitions().selectedPartitions.isEmpty());
+            Assertions.assertEquals(2, result.getSelectedPartitions().totalPartitionNum);
+            Assertions.assertTrue(result.hasPartitionPredicate());
         });
     }
 
