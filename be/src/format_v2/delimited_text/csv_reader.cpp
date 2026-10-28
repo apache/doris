@@ -18,6 +18,7 @@
 #include "format_v2/delimited_text/csv_reader.h"
 
 #include <cstring>
+#include <limits>
 #include <utility>
 
 #include "core/assert_cast.h"
@@ -120,7 +121,9 @@ Status CsvReader::_init_format_state() {
         _empty_field_as_null = text_params.empty_field_as_null;
     }
     if (_scan_params->file_attributes.hive_open_csv) {
-        size_t fields = _source_file_slot_descs.size();
+        // A probe precedes slot planning; a zero OpenCSV field limit would hide every column.
+        size_t fields =
+                _schema_only ? std::numeric_limits<size_t>::max() : _source_file_slot_descs.size();
         for (int index : _scan_params->column_idxs) {
             fields = std::max(fields, static_cast<size_t>(index) + 1);
         }
