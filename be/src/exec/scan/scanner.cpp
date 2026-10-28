@@ -225,6 +225,11 @@ Status Scanner::_do_projections(Block* origin_block, Block* output_block) {
         return Status::OK();
     }
 
+    if (_local_state->_parent->has_identity_projection()) {
+        _local_state->_parent->swap_identity_projection(origin_block, output_block);
+        DCHECK_EQ(output_block->rows(), rows);
+        return Status::OK();
+    }
     {
         Block input_block = *origin_block;
 

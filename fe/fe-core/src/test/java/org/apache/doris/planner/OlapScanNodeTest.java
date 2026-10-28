@@ -58,6 +58,7 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TOlapScanNode;
 import org.apache.doris.thrift.TPaloScanRange;
 import org.apache.doris.thrift.TPartitionBoundary;
+import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocations;
 
@@ -82,6 +83,72 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 public class OlapScanNodeTest {
+    @Test
+    public void testIdentityProjection() {
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(table.getName()).thenReturn("identity_projection");
+        Mockito.when(table.getDistributionColumnNames()).thenReturn(Collections.emptySet());
+        TupleDescriptor input = new TupleDescriptor(new TupleId(0));
+        input.setTable(table);
+        SlotDescriptor a = new SlotDescriptor(new SlotId(0), input.getId());
+        a.setType(Type.BIGINT);
+        input.addSlot(a);
+        SlotDescriptor b = new SlotDescriptor(new SlotId(1), input.getId());
+        b.setType(Type.DOUBLE);
+        input.addSlot(b);
+        TupleDescriptor output = new TupleDescriptor(new TupleId(1));
+        SlotDescriptor outA = new SlotDescriptor(new SlotId(2), output.getId());
+        outA.setType(Type.BIGINT);
+        output.addSlot(outA);
+        SlotDescriptor outB = new SlotDescriptor(new SlotId(3), output.getId());
+        outB.setType(Type.DOUBLE);
+        output.addSlot(outB);
+        OlapScanNode scan = new OlapScanNode(new PlanNodeId(0), input, "scan", ScanContext.EMPTY);
+        SelectNode select = new SelectNode(new PlanNodeId(1), scan);
+        select.setOutputTupleDesc(output);
+        select.setProjectList(Lists.newArrayList(new SlotRef(a), new SlotRef(b)));
+        Assertions.assertFalse(select.isIdentityProjection());
+        select.setProjectionInputTupleDescs(Lists.newArrayList(input));
+        Assertions.assertTrue(select.isIdentityProjection());
+        select.setProjectList(Lists.newArrayList(new SlotRef(b), new SlotRef(a)));
+        Assertions.assertFalse(select.isIdentityProjection());
+        select.setProjectList(Lists.newArrayList(new SlotRef(a), new SlotRef(b)));
+        select.addIntermediateProjectList(Lists.newArrayList(new SlotRef(a), new SlotRef(b)));
+        Assertions.assertFalse(select.isIdentityProjection());
+        Assertions.assertFalse(scan.isIdentityProjection());
+        scan.setOutputTupleDesc(output);
+        scan.setProjectList(Lists.newArrayList(new SlotRef(a), new SlotRef(b)));
+        Assertions.assertTrue(scan.isIdentityProjection());
+
+        scan.setProjectList(Lists.newArrayList(new SlotRef(b), new SlotRef(a)));
+        Assertions.assertFalse(scan.isIdentityProjection());
+        scan.setProjectList(Lists.newArrayList(new SlotRef(a), new SlotRef(a)));
+        Assertions.assertFalse(scan.isIdentityProjection());
+        scan.setProjectList(Lists.newArrayList(new SlotRef(a), new IntLiteral(1)));
+        Assertions.assertFalse(scan.isIdentityProjection());
+        scan.setProjectList(Lists.newArrayList(new SlotRef(a)));
+        Assertions.assertFalse(scan.isIdentityProjection());
+        scan.setProjectList(Lists.newArrayList(new SlotRef(a), new SlotRef(b)));
+
+        outA.setType(Type.INT);
+        Assertions.assertFalse(scan.isIdentityProjection());
+        outA.setType(Type.BIGINT);
+        outA.setIsNullable(false);
+        Assertions.assertFalse(scan.isIdentityProjection());
+        outA.setIsNullable(true);
+        scan.setPushDownAggNoGrouping(TPushAggOp.COUNT);
+        Assertions.assertFalse(scan.isIdentityProjection());
+        scan.setPushDownAggNoGrouping(TPushAggOp.NONE);
+        scan.setIsTopnLazyMaterialize(true);
+        Assertions.assertFalse(scan.isIdentityProjection());
+        scan.setIsTopnLazyMaterialize(false);
+        a.setVirtualColumn(new IntLiteral(1));
+        Assertions.assertFalse(scan.isIdentityProjection());
+        a.setVirtualColumn(null);
+        scan.addIntermediateProjectList(Lists.newArrayList(new SlotRef(a), new SlotRef(b)));
+        Assertions.assertFalse(scan.isIdentityProjection());
+    }
+
     @Test
     public void testParseChangeTimestampRange() {
         DateTimeFormatter format = TimeUtils.getDatetimeFormatWithTimeZone();

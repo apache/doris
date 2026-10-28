@@ -814,6 +814,51 @@ TEST(ScannerProjectionTest, publishes_shared_column_and_reuses_output_block) {
     EXPECT_EQ(output.get_by_position(0).column->get_int(1), 4);
 }
 
+TEST(ScannerProjectionTest, identity_projection_returns_idle_column_capacity_to_scanner) {
+    ObjectPool pool;
+    auto data_type = std::make_shared<DataTypeInt32>();
+    MockRuntimeState state;
+    auto op = std::make_shared<MockScanOperatorX>();
+    op->_row_descriptor = MockRowDescriptor({data_type}, &pool);
+    auto& projection = op->set_projection_for_test(
+            MockRowDescriptor(std::vector<DataTypePtr> {data_type}, &pool));
+    projection.is_identity = true;
+    op->_output_tuple_desc = projection.output_row_descriptor.tuple_descriptors()[0];
+    auto local_state = std::make_shared<MockScanLocalState>(&state, op.get());
+    local_state->_projections = MockSlotRef::create_mock_contexts(0, data_type);
+    RuntimeProfile profile("scanner");
+    TestScanner scanner(&state, local_state.get(), -1, &profile);
+    ASSERT_TRUE(scanner.init(&state, {}).ok());
+
+    auto origin = ColumnHelper::create_block<DataTypeInt32>({1, 2});
+    origin.get_by_position(0).name = "input";
+    const auto* data_column = origin.get_by_position(0).column.get();
+    auto idle_column = data_type->create_column();
+    idle_column->reserve(128);
+    const auto* idle_column_ptr = idle_column.get();
+    const auto idle_capacity = idle_column->allocated_bytes();
+    ASSERT_GT(idle_capacity, 0);
+    Block output {{std::move(idle_column), data_type, "output"}};
+
+    ASSERT_TRUE(scanner._do_projections(&origin, &output).ok());
+    EXPECT_EQ(output.get_by_position(0).column.get(), data_column);
+    EXPECT_EQ(output.get_by_position(0).column->get_int(0), 1);
+    EXPECT_EQ(output.get_by_position(0).column->get_int(1), 2);
+    EXPECT_EQ(output.get_by_position(0).name, "input");
+    EXPECT_EQ(origin.get_by_position(0).column.get(), idle_column_ptr);
+    EXPECT_EQ(origin.get_by_position(0).column->allocated_bytes(), idle_capacity);
+    EXPECT_EQ(origin.get_by_position(0).name, "output");
+    EXPECT_EQ(origin.rows(), 0);
+
+    // A new output block receives the input directly without allocating empty columns.
+    auto next_origin = ColumnHelper::create_block<DataTypeInt32>({3, 4});
+    Block next_output;
+    ASSERT_TRUE(scanner._do_projections(&next_origin, &next_output).ok());
+    EXPECT_EQ(next_output.rows(), 2);
+    EXPECT_EQ(next_output.get_by_position(0).column->get_int(0), 3);
+    EXPECT_EQ(next_origin.rows(), 0);
+}
+
 TEST(ScannerProjectionTest, projects_incompatible_blocks_before_reading_the_next_block) {
     ObjectPool pool;
     auto data_type = std::make_shared<DataTypeInt32>();

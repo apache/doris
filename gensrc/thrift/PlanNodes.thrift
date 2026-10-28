@@ -1815,6 +1815,9 @@ struct TPlanNode {
   // FE expression eligibility, independent of the session switch. An old FE has not checked
   // volatility, so absence must disable condition cache on a new BE.
   108: optional bool enable_condition_cache = false
+  // Projection preserves every input slot in order, including type and nullability.
+  // Absence keeps the general projection path for plans from older FEs.
+  109: optional bool is_identity_projection = false
 }
 
 // A flattened representation of a tree of PlanNodes, obtained by depth-first

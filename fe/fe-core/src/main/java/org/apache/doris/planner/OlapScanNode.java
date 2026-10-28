@@ -1393,6 +1393,14 @@ public class OlapScanNode extends ScanNode {
         }
     }
 
+    // Check the final scan tuple at serialization time, after column pruning and slot updates.
+    // For example, [a, b] -> [a, b] qualifies, while [a, b] -> [b, a] does not.
+    @VisibleForTesting
+    @Override
+    protected boolean isIdentityProjection() {
+        return !isTopnLazyMaterialize && isIdentityProjection(desc.getSlots());
+    }
+
     @Override
     protected void toThrift(TPlanNode msg) {
         List<String> keyColumnNames = new ArrayList<String>();

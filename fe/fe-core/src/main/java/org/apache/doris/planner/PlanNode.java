@@ -142,6 +142,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
 
     protected TupleDescriptor outputTupleDesc;
     protected List<Expr> projectList;
+    private List<TupleDescriptor> projectionInputTupleDescs = Collections.emptyList();
     private final List<TupleDescriptor> intermediateOutputTupleDescList = Lists.newArrayList();
     private final List<List<Expr>> intermediateProjectListList = Lists.newArrayList();
 
@@ -519,6 +520,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
             }
         }
         toThrift(msg);
+        msg.setIsIdentityProjection(isIdentityProjection());
         container.addToNodes(msg);
 
         if (outputTupleDesc != null) {
@@ -811,6 +813,46 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
 
     public void addIntermediateProjectList(List<Expr> exprs) {
         intermediateProjectListList.add(exprs);
+    }
+
+    protected boolean hasIntermediateProjection() {
+        return !intermediateProjectListList.isEmpty();
+    }
+
+    public void setProjectionInputTupleDescs(List<TupleDescriptor> tupleDescs) {
+        projectionInputTupleDescs = Lists.newArrayList(tupleDescs);
+    }
+
+    protected boolean isIdentityProjection() {
+        if (projectionInputTupleDescs.isEmpty()) {
+            return false;
+        }
+        return isIdentityProjection(projectionInputTupleDescs.stream()
+                .flatMap(tuple -> tuple.getSlots().stream()).collect(Collectors.toList()));
+    }
+
+    protected boolean isIdentityProjection(List<SlotDescriptor> inputSlots) {
+        if (projectList == null || outputTupleDesc == null || hasIntermediateProjection()
+                || pushDownAggNoGroupingOp != TPushAggOp.NONE) {
+            return false;
+        }
+        List<SlotDescriptor> outputSlots = outputTupleDesc.getSlots();
+        if (projectList.size() != inputSlots.size() || outputSlots.size() != inputSlots.size()) {
+            return false;
+        }
+        for (int i = 0; i < inputSlots.size(); ++i) {
+            Expr projection = projectList.get(i);
+            SlotDescriptor inputSlot = inputSlots.get(i);
+            SlotDescriptor outputSlot = outputSlots.get(i);
+            // Virtual slots may still require expression execution to materialize their data.
+            if (!(projection instanceof SlotRef) || inputSlot.getVirtualColumn() != null
+                    || !((SlotRef) projection).getSlotId().equals(inputSlot.getId())
+                    || !inputSlot.getType().equals(outputSlot.getType())
+                    || inputSlot.isNullable() != outputSlot.isNullable()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private ExprSubstitutionMap createPointQueryProjectionSmap(
