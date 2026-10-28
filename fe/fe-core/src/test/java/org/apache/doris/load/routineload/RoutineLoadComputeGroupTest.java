@@ -23,21 +23,30 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.load.CloudRoutineLoadManager;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LoadException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.kafka.KafkaUtil;
 import org.apache.doris.load.loadv2.LoadTask;
+import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
+import org.apache.doris.load.routineload.kafka.KafkaProgress;
 import org.apache.doris.load.routineload.kafka.KafkaRoutineLoadJob;
 import org.apache.doris.load.routineload.kafka.KafkaTaskInfo;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadProperty;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.persist.meta.PersistMetaModules;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.resource.computegroup.ComputeGroupMgr;
+import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
@@ -47,6 +56,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.List;
@@ -72,6 +82,8 @@ public class RoutineLoadComputeGroupTest {
     private String originalCloudUniqueId;
     private SystemInfoService originalSystemInfo;
     private AccessControllerManager originalAccessManager;
+    private WorkloadGroupMgr originalWorkloadGroupMgr;
+    private ComputeGroupMgr originalComputeGroupMgr;
 
     @BeforeEach
     public void setUp() {
@@ -79,6 +91,8 @@ public class RoutineLoadComputeGroupTest {
         originalCloudUniqueId = Config.cloud_unique_id;
         originalSystemInfo = Env.getCurrentSystemInfo();
         originalAccessManager = Env.getCurrentEnv().getAccessManager();
+        originalWorkloadGroupMgr = Env.getCurrentEnv().getWorkloadGroupMgr();
+        originalComputeGroupMgr = Env.getCurrentEnv().getComputeGroupMgr();
     }
 
     @AfterEach
@@ -87,6 +101,8 @@ public class RoutineLoadComputeGroupTest {
         Config.cloud_unique_id = originalCloudUniqueId;
         Deencapsulation.setField(Env.getCurrentEnv(), "systemInfo", originalSystemInfo);
         Deencapsulation.setField(Env.getCurrentEnv(), "accessManager", originalAccessManager);
+        Deencapsulation.setField(Env.getCurrentEnv(), "workloadGroupMgr", originalWorkloadGroupMgr);
+        Deencapsulation.setField(Env.getCurrentEnv(), "computeGroupMgr", originalComputeGroupMgr);
         ConnectContext.remove();
     }
 
@@ -98,10 +114,7 @@ public class RoutineLoadComputeGroupTest {
         Config.deploy_mode = "cloud";
         Config.cloud_unique_id = "";
 
-        AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
-        Mockito.when(accessManager.checkCloudPriv(Mockito.any(UserIdentity.class), Mockito.anyString(),
-                Mockito.any(PrivPredicate.class), Mockito.any(ResourceTypeEnum.class))).thenReturn(hasPriv);
-        Deencapsulation.setField(Env.getCurrentEnv(), "accessManager", accessManager);
+        mockAccessManager(hasPriv);
 
         Map<String, List<Backend>> clusterToBackends = Maps.newHashMap();
         for (String cluster : existingClusters) {
@@ -113,6 +126,20 @@ public class RoutineLoadComputeGroupTest {
         ConnectContext ctx = new ConnectContext();
         ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
         ctx.setThreadLocalInfo();
+    }
+
+    // USAGE on every compute group and workload group the session asks for, or on none.
+    private void mockAccessManager(boolean hasPriv) {
+        AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+        Mockito.when(accessManager.checkCloudPriv(Mockito.any(UserIdentity.class), Mockito.anyString(),
+                Mockito.any(PrivPredicate.class), Mockito.any(ResourceTypeEnum.class))).thenReturn(hasPriv);
+        Mockito.when(accessManager.checkWorkloadGroupPriv(Mockito.any(ConnectContext.class), Mockito.anyString(),
+                Mockito.any(PrivPredicate.class))).thenReturn(hasPriv);
+        Deencapsulation.setField(Env.getCurrentEnv(), "accessManager", accessManager);
+    }
+
+    private ClusterAwareCloudSystemInfoService cloudSystemInfo() {
+        return (ClusterAwareCloudSystemInfoService) Env.getCurrentSystemInfo();
     }
 
     private KafkaRoutineLoadJob newJob(String snapshotCluster, String declaredComputeGroup) {
@@ -293,6 +320,8 @@ public class RoutineLoadComputeGroupTest {
         // Only the resource check is skipped: the declaration itself is still adopted, so the job
         // keeps running in the group it was pinned to once the group comes back.
         Assertions.assertEquals("cg_dropped", info.getComputeGroupName());
+        // Nor does metadata load wait for the group to start: nothing is sent to it from here.
+        Assertions.assertTrue(cloudSystemInfo().autoStarted.isEmpty(), cloudSystemInfo().autoStarted.toString());
     }
 
     // Negative control for the test above: on the real CREATE path the same value must still be
@@ -306,6 +335,147 @@ public class RoutineLoadComputeGroupTest {
         UserException e = Assertions.assertThrows(UserException.class, info::checkJobProperties);
         Assertions.assertTrue(e.getMessage().contains("Compute group 'cg_dropped' not found."),
                 e.getMessage());
+    }
+
+    /**
+     * Metadata load must not resolve the workload group either.
+     *
+     * <p>The workload group lookup resolves in the declared compute group
+     * ({@code ConnectContext#getComputeGroup} → {@code ComputeGroupMgr#getComputeGroupByName}),
+     * which throws once that group is gone, and {@link RoutineLoadJob#gsonPostProcess()} turns the
+     * throw into the final CANCELLED. The stored statement is the CREATE one: a job moved from
+     * cg_dropped to another group by ALTER still declares cg_dropped there, so dropping its old
+     * group used to cancel it on the next restart.
+     */
+    @Test
+    public void testMetadataLoadDoesNotResolveWorkloadGroupInDeclaredComputeGroup() throws UserException {
+        enterCloudMode(true, Lists.newArrayList("cg_live"));
+        // resolve compute groups through the stub, where cg_dropped has no cluster id
+        Deencapsulation.setField(Env.getCurrentEnv(), "computeGroupMgr", new ComputeGroupMgr(cloudSystemInfo()));
+
+        CreateRoutineLoadInfo info = newCreateInfo("cg_dropped", "wg_a");
+        info.setReplay(true);
+
+        info.checkJobProperties();
+
+        Assertions.assertEquals("cg_dropped", info.getComputeGroupName());
+        Assertions.assertEquals("wg_a", info.getWorkloadGroupName());
+    }
+
+    /**
+     * Image load replays routine load jobs before any workload group exists.
+     *
+     * <p>{@code PersistMetaModules} reads {@code routineLoadJobs} before {@code workloadGroups}, and
+     * until {@code Env#loadWorkloadGroups} runs, the Env holds the empty WorkloadGroupMgr its
+     * constructor created. So the lookup above cannot find the group on image load even when no
+     * compute group is declared: a job created with a workload_group was cancelled by the first
+     * restart that loaded it from an image. This runs in non-cloud mode, where the replay context
+     * (ADMIN) looks the group up under the resource tag of every backend.
+     */
+    @Test
+    public void testImageLoadAdoptsWorkloadGroupBeforeWorkloadGroupsAreLoaded() throws UserException {
+        List<String> modules = PersistMetaModules.MODULE_NAMES;
+        Assertions.assertTrue(modules.indexOf("routineLoadJobs") < modules.indexOf("workloadGroups"),
+                modules.toString());
+        mockAccessManager(true);
+        // the backends module is loaded before routineLoadJobs, the workload groups are not
+        SystemInfoService systemInfo = new SystemInfoService();
+        systemInfo.addBackend(createBackend(10001L));
+        Deencapsulation.setField(Env.getCurrentEnv(), "systemInfo", systemInfo);
+        Deencapsulation.setField(Env.getCurrentEnv(), "computeGroupMgr", new ComputeGroupMgr(systemInfo));
+        Deencapsulation.setField(Env.getCurrentEnv(), "workloadGroupMgr", new WorkloadGroupMgr());
+        ConnectContext ctx = new ConnectContext();
+        ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
+        ctx.setThreadLocalInfo();
+
+        CreateRoutineLoadInfo info = newCreateInfo(null, "wg_a");
+        info.setReplay(true);
+        info.checkJobProperties();
+        Assertions.assertEquals("wg_a", info.getWorkloadGroupName());
+
+        // negative control: a CREATE naming a workload group that does not exist is still rejected
+        UserException e = Assertions.assertThrows(UserException.class,
+                newCreateInfo(null, "wg_a")::checkJobProperties);
+        Assertions.assertTrue(e.getMessage().contains("Can not find workload group wg_a"), e.getMessage());
+    }
+
+    /**
+     * CREATE wakes the declared group, as {@code USE @<compute group>} does after the same checks.
+     *
+     * <p>With custom partitions, CREATE sends its Kafka metadata request through the declared
+     * group's backends while the statement runs. When that group is suspended and the session runs
+     * on another one, nothing else would start it, and the CREATE failed for lack of a backend.
+     */
+    @Test
+    public void testCreateWakesDeclaredComputeGroup() throws UserException {
+        enterCloudMode(true, Lists.newArrayList("cg_live"));
+
+        newCreateInfo("cg_live").checkJobProperties();
+
+        Assertions.assertEquals(Lists.newArrayList("cg_live"), cloudSystemInfo().autoStarted);
+    }
+
+    // ALTER can move a job to a suspended group, and converts the new offsets in it right away.
+    @Test
+    public void testAlterWakesDeclaredComputeGroup() {
+        enterCloudMode(true, Lists.newArrayList("cg_live"));
+        Map<String, String> jobProperties = Maps.newHashMap();
+        jobProperties.put(CreateRoutineLoadInfo.COMPUTE_GROUP, "cg_live");
+        AlterRoutineLoadCommand command = new AlterRoutineLoadCommand(new LabelNameInfo("test_db", "test_job"),
+                jobProperties, Maps.newHashMap());
+
+        Deencapsulation.invoke(command, "checkJobProperties", ConnectContext.get());
+
+        Assertions.assertEquals("cg_live", command.getAnalyzedJobProperties().get(CreateRoutineLoadInfo.COMPUTE_GROUP));
+        Assertions.assertEquals(Lists.newArrayList("cg_live"), cloudSystemInfo().autoStarted);
+    }
+
+    /**
+     * {@code ALTER ROUTINE LOAD ... PROPERTIES("compute_group" = "cg_live")
+     * FROM KAFKA("kafka_partitions" = "0", "kafka_offsets" = "OFFSET_END")} converts the offsets
+     * before the new properties are installed, so the conversion has to go to cg_live already: the
+     * job's current group may be gone, which is why it is being moved.
+     */
+    @Test
+    public void testCombinedAlterConvertsOffsetsInTheGroupItDeclares() {
+        enterCloudMode(true, Lists.newArrayList("cg_live"));
+        KafkaRoutineLoadJob job = newJob(SESSION_SNAPSHOT_CG, "cg_dropped");
+        // left RUNNING, so modifyProperties stops at its PAUSED check right after the conversion
+        Deencapsulation.setField(job, "state", RoutineLoadJob.JobState.RUNNING);
+
+        List<String> conversionGroups = Lists.newArrayList();
+        try (MockedStatic<KafkaUtil> kafkaUtil = Mockito.mockStatic(KafkaUtil.class)) {
+            kafkaUtil.when(() -> KafkaUtil.getRealOffsets(Mockito.any(), Mockito.any(), Mockito.any(),
+                    Mockito.any(), Mockito.any())).thenAnswer(invocation -> {
+                        conversionGroups.add(invocation.getArgument(4));
+                        return invocation.getArgument(3);
+                    });
+
+            DdlException e = Assertions.assertThrows(DdlException.class,
+                    () -> job.modifyProperties(newOffsetAlter("cg_live")));
+            Assertions.assertTrue(e.getMessage().contains("Only supports modification of PAUSED jobs"),
+                    e.getMessage());
+            // an ALTER that declares no group keeps converting in the job's current one
+            Assertions.assertThrows(DdlException.class, () -> job.modifyProperties(newOffsetAlter(null)));
+        }
+
+        Assertions.assertEquals(Lists.newArrayList("cg_live", "cg_dropped"), conversionGroups);
+    }
+
+    // What AlterRoutineLoadCommand#validate leaves behind for "kafka_partitions" = "0",
+    // "kafka_offsets" = "OFFSET_END", optionally with a compute_group.
+    private AlterRoutineLoadCommand newOffsetAlter(String declaredComputeGroup) {
+        Map<String, String> analyzedJobProperties = Maps.newHashMap();
+        if (declaredComputeGroup != null) {
+            analyzedJobProperties.put(CreateRoutineLoadInfo.COMPUTE_GROUP, declaredComputeGroup);
+        }
+        KafkaDataSourceProperties dataSourceProperties = new KafkaDataSourceProperties(Maps.newHashMap());
+        dataSourceProperties.setKafkaPartitionOffsets(Lists.newArrayList(Pair.of(0, KafkaProgress.OFFSET_END_VAL)));
+        AlterRoutineLoadCommand command = new AlterRoutineLoadCommand(new LabelNameInfo("test_db", "test_job"),
+                Maps.newHashMap(), Maps.newHashMap());
+        Deencapsulation.setField(command, "analyzedJobProperties", analyzedJobProperties);
+        Deencapsulation.setField(command, "dataSourceProperties", dataSourceProperties);
+        return command;
     }
 
     /**
@@ -406,8 +576,17 @@ public class RoutineLoadComputeGroupTest {
     }
 
     private CreateRoutineLoadInfo newCreateInfo(String declaredComputeGroup) {
+        return newCreateInfo(declaredComputeGroup, null);
+    }
+
+    private CreateRoutineLoadInfo newCreateInfo(String declaredComputeGroup, String workloadGroup) {
         Map<String, String> jobProperties = Maps.newHashMap();
-        jobProperties.put(CreateRoutineLoadInfo.COMPUTE_GROUP, declaredComputeGroup);
+        if (declaredComputeGroup != null) {
+            jobProperties.put(CreateRoutineLoadInfo.COMPUTE_GROUP, declaredComputeGroup);
+        }
+        if (workloadGroup != null) {
+            jobProperties.put(CreateRoutineLoadInfo.WORKLOAD_GROUP, workloadGroup);
+        }
         Map<String, String> dataSourceProperties = Maps.newHashMap();
         dataSourceProperties.put("kafka_broker_list", "127.0.0.1:9092");
         dataSourceProperties.put("kafka_topic", "test_topic");
@@ -460,9 +639,17 @@ public class RoutineLoadComputeGroupTest {
 
     private static class ClusterAwareCloudSystemInfoService extends CloudSystemInfoService {
         private final Map<String, List<Backend>> clusterToBackends;
+        // every group asked to start, in call order; the real call resumes a suspended group
+        private final List<String> autoStarted = Lists.newArrayList();
 
         private ClusterAwareCloudSystemInfoService(Map<String, List<Backend>> clusterToBackends) {
             this.clusterToBackends = clusterToBackends;
+        }
+
+        @Override
+        public String waitForAutoStart(String clusterName) {
+            autoStarted.add(clusterName);
+            return clusterName;
         }
 
         @Override

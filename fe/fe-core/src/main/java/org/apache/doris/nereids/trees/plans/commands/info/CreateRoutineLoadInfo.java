@@ -171,10 +171,14 @@ public class CreateRoutineLoadInfo {
 
     // Set only by the metadata load path (RoutineLoadJob#gsonPostProcess), which re-parses the
     // stored statement to rebuild the RoutineLoadDesc rather than to admit a new job. Resource
-    // existence must not be re-checked there: a compute group can be dropped, renamed or scaled to
-    // zero backends while a job exists, and an exception during metadata load is turned into
-    // JobState.CANCELLED, which is final and cannot be undone by RESUME. Such a job has to be
-    // paused by the per task check instead, which is recoverable.
+    // existence must not be re-checked there, neither the compute group nor the workload group:
+    // an exception during metadata load is turned into JobState.CANCELLED, which is final and
+    // cannot be undone by RESUME, and both lookups can fail for a job that is fine. A compute group
+    // can be dropped, renamed or scaled to zero backends while a job exists, and the stored
+    // statement is the CREATE one, so a job ALTERed from cg_a to cg_b still names cg_a there. And
+    // an image load reads the routineLoadJobs module before workloadGroups, so no workload group
+    // exists yet when the job is re-parsed. A missing group has to pause the job through the per
+    // task check instead, which is recoverable.
     private boolean isReplay = false;
 
     /**
@@ -633,27 +637,36 @@ public class CreateRoutineLoadInfo {
             // there would cancel the job permanently instead of pausing it - see isReplay.
             if (!isReplay) {
                 ComputeGroupBindingUtil.validateDeclaredComputeGroup(ConnectContext.get(), inputComputeGroupStr);
+                // Kafka metadata requests go through this group as soon as the job is created (custom
+                // partitions or offsets), so start it now if it is suspended, as USE @<group> would.
+                ComputeGroupBindingUtil.activateDeclaredComputeGroup(inputComputeGroupStr);
             }
             this.computeGroupName = inputComputeGroupStr;
         }
 
         String inputWorkloadGroupStr = jobProperties.get(WORKLOAD_GROUP);
         if (!StringUtils.isEmpty(inputWorkloadGroupStr)) {
-            ConnectContext tmpCtx = new ConnectContext();
-            tmpCtx.setCurrentUserIdentity(ConnectContext.get().getCurrentUserIdentity());
-            tmpCtx.getSessionVariable().setWorkloadGroup(inputWorkloadGroupStr);
-            if (Config.isCloudMode()) {
-                // A workload group lives in the namespace of a compute group: the same name under a
-                // different compute group is a different group. So this existence check must be done
-                // against the compute group the job will actually run in, not the session's one.
-                tmpCtx.setCloudCluster(StringUtils.isEmpty(this.computeGroupName)
-                        ? ConnectContext.get().getCloudCluster()
-                        : this.computeGroupName);
-            }
-            List<WorkloadGroup> wgList = Env.getCurrentEnv().getWorkloadGroupMgr()
-                    .getWorkloadGroup(tmpCtx);
-            if (wgList.size() == 0) {
-                throw new UserException("Can not find workload group " + inputWorkloadGroupStr);
+            // Like the compute group above, the name is adopted on the metadata load path without
+            // being resolved, see isReplay. For example, a job created with ("compute_group" = "cg_a",
+            // "workload_group" = "wg_a") and moved to cg_b was cancelled by the first restart after
+            // cg_a was dropped, because this lookup resolved wg_a in cg_a.
+            if (!isReplay) {
+                ConnectContext tmpCtx = new ConnectContext();
+                tmpCtx.setCurrentUserIdentity(ConnectContext.get().getCurrentUserIdentity());
+                tmpCtx.getSessionVariable().setWorkloadGroup(inputWorkloadGroupStr);
+                if (Config.isCloudMode()) {
+                    // A workload group lives in the namespace of a compute group: the same name under a
+                    // different compute group is a different group. So this existence check must be done
+                    // against the compute group the job will actually run in, not the session's one.
+                    tmpCtx.setCloudCluster(StringUtils.isEmpty(this.computeGroupName)
+                            ? ConnectContext.get().getCloudCluster()
+                            : this.computeGroupName);
+                }
+                List<WorkloadGroup> wgList = Env.getCurrentEnv().getWorkloadGroupMgr()
+                        .getWorkloadGroup(tmpCtx);
+                if (wgList.size() == 0) {
+                    throw new UserException("Can not find workload group " + inputWorkloadGroupStr);
+                }
             }
             this.workloadGroupName = inputWorkloadGroupStr;
         }

@@ -103,6 +103,25 @@ public class ComputeGroupBindingUtil {
     }
 
     /**
+     * Starts a declared compute group that is suspended, the third step {@code USE @<compute group>}
+     * takes after the two checks above ({@code CloudEnv#changeCloudCluster}); a no-op when auto start
+     * is disabled or the group is running.
+     *
+     * <p>Routine load needs it: CREATE and ALTER send their Kafka metadata requests (custom
+     * partitions, offset conversion) through the declared group's backends while the statement
+     * runs. For example, a session on cg_a running {@code CREATE ROUTINE LOAD ...
+     * PROPERTIES("compute_group" = "cg_b") FROM KAFKA("kafka_partitions" = "0", ...)} while cg_b is
+     * suspended found no live backend in cg_b and failed, since nothing else starts cg_b. It must
+     * be called on the statement thread before any job lock, and it does not change the session's
+     * group. It is not part of {@link #validateDeclaredComputeGroup}: an async MV sends nothing to
+     * its group at CREATE, and its refresh resolves backends through the session group it binds
+     * ({@code CloudSystemInfoService#getBackendsByCurrentCluster}), which starts the group then.
+     */
+    public static void activateDeclaredComputeGroup(String computeGroup) throws UserException {
+        ((CloudSystemInfoService) Env.getCurrentSystemInfo()).waitForAutoStart(computeGroup);
+    }
+
+    /**
      * Re-checks the compute group a job declared, before each of its tasks runs.
      *
      * <p>Creation-time validation alone is not enough: the group can be dropped and the owner's

@@ -780,8 +780,14 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         Map<String, String> jobProperties = command.getAnalyzedJobProperties();
         KafkaDataSourceProperties dataSourceProperties = (KafkaDataSourceProperties) command.getDataSourceProperties();
         if (null != dataSourceProperties) {
+            // The offsets are converted before modifyPropertiesInternal installs the new properties,
+            // so a compute group this ALTER declares has to be used already: for
+            // ALTER ... PROPERTIES("compute_group" = "cg_b") FROM KAFKA("kafka_offsets" = "OFFSET_END")
+            // the job's current group may be gone, which is why it is being moved to cg_b.
+            String declaredComputeGroup = jobProperties.get(CreateRoutineLoadInfo.COMPUTE_GROUP);
             // if the partition offset is set by timestamp, convert it to real offset
-            convertOffset(dataSourceProperties);
+            convertOffset(dataSourceProperties, Strings.isNullOrEmpty(declaredComputeGroup)
+                    ? getComputeGroupName() : declaredComputeGroup);
         }
 
         writeLock();
@@ -800,12 +806,12 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         }
     }
 
-    private void convertOffset(KafkaDataSourceProperties dataSourceProperties) throws UserException {
+    private void convertOffset(KafkaDataSourceProperties dataSourceProperties, String computeGroupName)
+            throws UserException {
         List<Pair<Integer, Long>> partitionOffsets = dataSourceProperties.getKafkaPartitionOffsets();
         if (partitionOffsets.isEmpty()) {
             return;
         }
-        String computeGroupName = getComputeGroupName();
         List<Pair<Integer, Long>> newOffsets;
         if (dataSourceProperties.isOffsetsForTimes()) {
             newOffsets = KafkaUtil.getOffsetsForTimes(

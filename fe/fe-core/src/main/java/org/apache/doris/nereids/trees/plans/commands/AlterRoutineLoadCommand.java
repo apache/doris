@@ -295,6 +295,8 @@ public class AlterRoutineLoadCommand extends AlterCommand {
                 // Unlike workload group, the compute group can be fully validated right here, so do
                 // it now instead of letting a bad name pause the whole job on the next task.
                 ComputeGroupBindingUtil.validateDeclaredComputeGroup(ctx, computeGroup);
+                // a combined ALTER converts its new Kafka offsets in this group, see KafkaRoutineLoadJob
+                ComputeGroupBindingUtil.activateDeclaredComputeGroup(computeGroup);
                 analyzedJobProperties.put(CreateRoutineLoadInfo.COMPUTE_GROUP, computeGroup);
             }
         }
