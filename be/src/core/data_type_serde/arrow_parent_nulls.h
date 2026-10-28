@@ -54,10 +54,22 @@ Status mask_arrow_children_hidden_by_null_parents(
 // outside the slice, and slot 3 to the NULL row 2. A map's entries struct and its keys must stay
 // NULL-free, as MapArray::SetData() aborts otherwise, so for a map the hidden entries are marked
 // NULL in the items of the returned entries struct and the keys are left as they are. The bitmap
-// comes from `pool`; when no slot is hidden, `*masked` wraps the child's own data and nothing is
-// allocated. A parent other than a list, large list, fixed-size list, map or struct, and offsets
-// that reach outside the child, are rejected.
+// comes from `pool`; when every slot to hide is NULL already, `*masked` wraps the child's own data
+// and nothing is allocated, so masking a child a second time costs nothing. A parent other than a
+// list, large list, fixed-size list, map or struct, and offsets that reach outside the child, are
+// rejected.
 Status mask_arrow_child_slots_not_visible(const arrow::Array& parent, int child_index,
+                                          arrow::MemoryPool* pool,
+                                          std::shared_ptr<arrow::Array>* masked);
+
+// Returns `array` with mask_arrow_child_slots_not_visible() applied at every nesting level, so
+// that no descendant keeps a non-NULL value in a slot that no visible row of `array` reaches
+// through its ancestors, for code that validates or copies a whole nested array. A map's keys,
+// and everything below them, are left as they are. For example, rows [[1, 2]], NULL and [[4]]
+// of LIST<LIST<INT32>> may hold the inner rows [1, 2], [3] and [4]: the inner row [3] is
+// visible to no row, so both it and its value 3 are marked NULL. `*masked` is `array` itself,
+// and nothing is allocated, when no such value exists.
+Status mask_arrow_descendants_not_visible(const std::shared_ptr<arrow::Array>& array,
                                           arrow::MemoryPool* pool,
                                           std::shared_ptr<arrow::Array>* masked);
 

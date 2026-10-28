@@ -400,23 +400,37 @@ Status compact_lance_array(const std::shared_ptr<arrow::Array>& array,
                            arrow::MemoryPool* memory_pool,
                            std::shared_ptr<arrow::Array>* compacted) {
     DORIS_CHECK(memory_pool != nullptr);
-    const auto validation = array->ValidateFull();
+    // ValidateFull() checks each non-NULL value of every descendant over the descendant's whole
+    // length: UTF-8 for strings, the precision of decimals, whole days for Date64 and the day
+    // range for Time32/Time64, also in slots that no visible row reaches. For example, the slice
+    // [1, 4) of FIXED_SIZE_LIST<STRING, 1> rows ["z"], ["a"], NULL, ["c"] may hold the child
+    // strings ["z", "a", "\xff", "c"]: its rows are ["a"], NULL, ["c"], yet the hidden "\xff"
+    // failed the batch with "Invalid UTF8 sequence". Masking first marks NULL every value that no
+    // visible row reaches, at every level, so only visible values are checked and an invalid
+    // visible value still fails; map keys stay unmasked. Subtrees that the normalizer masked
+    // before narrowing are NULL in those slots already, so they get no second bitmap. The copy
+    // below needs the offset and length checks of ValidateFull() all the same, and it keeps
+    // every visible value: the builders copy no child slot of a NULL list, map or fixed-size
+    // list row, and the masked fields of a NULL struct row are read as NULL anyway.
+    std::shared_ptr<arrow::Array> masked;
+    RETURN_IF_ERROR(mask_arrow_descendants_not_visible(array, memory_pool, &masked));
+    const auto validation = masked->ValidateFull();
     if (!validation.ok()) {
         return Status::InvalidArgument("validate sliced Lance array failed: {}",
                                        validation.message());
     }
-    auto builder_result = arrow::MakeBuilder(array->type(), memory_pool);
+    auto builder_result = arrow::MakeBuilder(masked->type(), memory_pool);
     if (!builder_result.ok()) {
         return Status::InternalError("create sliced Lance array builder failed: {}",
                                      builder_result.status().message());
     }
     auto builder = std::move(builder_result).ValueUnsafe();
-    auto arrow_status = builder->Reserve(array->length());
+    auto arrow_status = builder->Reserve(masked->length());
     if (!arrow_status.ok()) {
         return Status::InternalError("reserve sliced Lance array builder failed: {}",
                                      arrow_status.message());
     }
-    arrow_status = builder->AppendArraySlice(*array->data(), 0, array->length());
+    arrow_status = builder->AppendArraySlice(*masked->data(), 0, masked->length());
     if (!arrow_status.ok()) {
         return Status::InternalError("copy sliced Lance array failed: {}", arrow_status.message());
     }

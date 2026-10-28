@@ -2808,6 +2808,32 @@ std::shared_ptr<arrow::DataType> nested_leaf_type(const std::shared_ptr<arrow::D
     return nested_leaf_type(type->field(0)->type());
 }
 
+// Creates an Arrow string array without checking UTF-8, so a test can store invalid bytes.
+std::shared_ptr<arrow::Array> make_string_array(const std::vector<std::string>& values) {
+    arrow::StringBuilder builder;
+    EXPECT_TRUE(builder.AppendValues(values).ok());
+    std::shared_ptr<arrow::Array> array;
+    EXPECT_TRUE(builder.Finish(&array).ok());
+    return array;
+}
+
+// Wraps `child` into four LIST or FIXED_SIZE_LIST<1> rows of which row 2 is NULL, row i owning
+// child slot i, and returns the slice of rows [1, 4): rows 1, NULL, 3 that need a compacted copy.
+std::shared_ptr<arrow::Array> sliced_rows_over(const std::shared_ptr<arrow::DataType>& type,
+                                               const std::shared_ptr<arrow::Array>& child) {
+    std::vector<std::shared_ptr<arrow::Buffer>> buffers {
+            arrow::Buffer::FromVector(std::vector<uint8_t> {0x0B})};
+    if (type->id() == arrow::Type::LIST) {
+        buffers.emplace_back(arrow::Buffer::FromVector(std::vector<int32_t> {0, 1, 2, 3, 4}));
+    }
+    return arrow::MakeArray(arrow::ArrayData::Make(type, 4, buffers, {child->data()}, 1))
+            ->Slice(1, 3);
+}
+
+// 10^38 with two fraction digits: unscaled 10^40 has 41 digits, one more than decimal256(40, 2)
+// holds.
+constexpr const char* WIDE_DECIMAL_OUT_OF_PRECISION = "100000000000000000000000000000000000000.00";
+
 // Wraps three Booleans, offset included, into three-row STRUCT<b>, LIST, MAP<STRING, BOOLEAN>,
 // STRUCT<s: STRUCT<b>> and STRUCT<l: LIST> arrays. Each starts at offset 0 and references exactly
 // its child; the list and map rows hold the values {0, 1}, {} and {2}.
@@ -4088,6 +4114,123 @@ TEST(LanceTableReaderTypeTest, NarrowsDecimal256PayloadsHiddenByNullParents) {
                 EXPECT_EQ(*expected, decimal_doris_type->to_string(leaf, index)) << index;
             }
         }
+    }
+}
+
+// Verifies a nested array that needs a compacted copy reads its visible rows although slots that
+// no visible row reaches hold values that full validation rejects: strings that are not UTF-8
+// under a NULL fixed-size-list row, decimal256(40, 2) values outside the precision under a NULL
+// list row, and strings beside a narrowed Decimal256 field under a NULL list row. The row that
+// the slice leaves out holds such a value too. Without the mask in compact_lance_array(), every
+// case fails with "validate sliced Lance array failed"; a mask that stopped at the direct
+// children would leave the string field of the structs unmasked and fail the last case.
+TEST(LanceTableReaderTypeTest, CompactsArraysWithInvalidPayloadsHiddenByNullParents) {
+    const auto strings = make_string_array({"\xfe", "a", "\xff", "c"});
+    const auto wide_decimals = make_decimal256_array(
+            40, 2, {WIDE_DECIMAL_OUT_OF_PRECISION, "0.01", WIDE_DECIMAL_OUT_OF_PRECISION, "0.02"});
+    // The normalizer masks these hidden 10^18 values itself before narrowing to Decimal128.
+    const auto narrowed_decimals = make_decimal256_array(
+            18, 2, {"10000000000000000.00", "0.01", "10000000000000000.00", "0.02"});
+    auto structs = arrow::StructArray::Make(
+            {strings, narrowed_decimals},
+            {arrow::field("s", arrow::utf8()), arrow::field("d", arrow::decimal256(18, 2))});
+    ASSERT_TRUE(structs.ok()) << structs.status().ToString();
+
+    const auto string_type = nullable_type(TYPE_STRING);
+    const auto wide_decimal_type = nullable_type(TYPE_DECIMAL256, 40, 2);
+    struct HiddenPayloadCase {
+        const char* name;
+        std::shared_ptr<arrow::Array> array;
+        DataTypePtr doris_type;
+        DataTypePtr leaf_type;
+        // The leaf of the column. A NULL list row keeps no slots in the copy, while the slot of
+        // a NULL fixed-size-list row is read as NULL.
+        std::vector<std::optional<std::string>> leaf;
+    };
+    const std::vector<HiddenPayloadCase> cases {
+            {"fixed_size_list of strings",
+             sliced_rows_over(arrow::fixed_size_list(arrow::field("item", arrow::utf8()), 1),
+                              strings),
+             make_nullable(std::make_shared<DataTypeArray>(string_type)),
+             string_type,
+             {"a", std::nullopt, "c"}},
+            {"list of wide decimals",
+             sliced_rows_over(arrow::list(arrow::field("item", arrow::decimal256(40, 2))),
+                              wide_decimals),
+             make_nullable(std::make_shared<DataTypeArray>(wide_decimal_type)),
+             wide_decimal_type,
+             {"0.01", "0.02"}},
+            {"list of structs",
+             sliced_rows_over(arrow::list(arrow::field("item", (*structs)->type())), *structs),
+             make_nullable(
+                     std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeStruct>(
+                             DataTypes {string_type, nullable_type(TYPE_DECIMAL64, 18, 2)},
+                             Strings {"s", "d"})))),
+             string_type,
+             {"a", "c"}},
+    };
+    for (const auto& test_case : cases) {
+        SCOPED_TRACE(test_case.name);
+        const auto& array = test_case.array;
+        // Full validation of the input fails on the hidden values by design.
+        const auto validate_status = array->Validate();
+        ASSERT_TRUE(validate_status.ok()) << validate_status.ToString();
+        const auto schema = arrow::schema({arrow::field("value", array->type())});
+        const auto record_batch = arrow::RecordBatch::Make(schema, array->length(), {array});
+        const Columns columns {projected_column("value", test_case.doris_type)};
+        TQueryGlobals query_globals;
+        RuntimeState state(TQueryOptions(), query_globals);
+        Block block;
+        add_output_columns(&block, columns);
+        size_t rows = 0;
+        const auto status =
+                convert_record_batch_for_test(&state, columns, record_batch, &block, &rows);
+        ASSERT_TRUE(status.ok()) << status.to_string();
+        ASSERT_EQ(3, rows);
+        const auto& values = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+        EXPECT_EQ((ColumnUInt8::Container {0, 1, 0}), values.get_null_map_data());
+        const auto& leaf = nested_leaf(values);
+        ASSERT_EQ(test_case.leaf.size(), leaf.size());
+        for (size_t index = 0; index < leaf.size(); ++index) {
+            const auto& expected = test_case.leaf[index];
+            EXPECT_EQ(!expected.has_value(), leaf.is_null_at(index)) << index;
+            if (expected.has_value()) {
+                EXPECT_EQ(*expected, test_case.leaf_type->to_string(leaf, index)) << index;
+            }
+        }
+    }
+}
+
+// Verifies the mask before a compacted copy hides only what no visible row reaches: the same
+// shapes with the invalid string or the out-of-precision decimal in visible row 1 still fail
+// full validation. A mask that also hid visible slots would let these values through.
+TEST(LanceTableReaderTypeTest, RejectsVisibleInvalidPayloadsInCompactedArrays) {
+    const auto strings = make_string_array({"z", "\xff", "b", "c"});
+    auto structs = arrow::StructArray::Make(
+            {strings, make_decimal256_array(18, 2, {"0.00", "0.01", "0.00", "0.02"})},
+            {arrow::field("s", arrow::utf8()), arrow::field("d", arrow::decimal256(18, 2))});
+    ASSERT_TRUE(structs.ok()) << structs.status().ToString();
+    const std::vector<std::pair<std::shared_ptr<arrow::Array>, const char*>> cases {
+            {sliced_rows_over(arrow::fixed_size_list(arrow::field("item", arrow::utf8()), 1),
+                              strings),
+             "Invalid UTF8 sequence"},
+            {sliced_rows_over(
+                     arrow::list(arrow::field("item", arrow::decimal256(40, 2))),
+                     make_decimal256_array(
+                             40, 2, {"0.00", WIDE_DECIMAL_OUT_OF_PRECISION, "0.00", "0.02"})),
+             "does not fit in precision"},
+            {sliced_rows_over(arrow::list(arrow::field("item", (*structs)->type())), *structs),
+             "Invalid UTF8 sequence"},
+    };
+    for (const auto& [array, message] : cases) {
+        SCOPED_TRACE(array->type()->ToString());
+        std::shared_ptr<arrow::Array> normalized;
+        const auto status = normalize_lance_arrow_array_for_test(
+                arrow::field("value", array->type()), array, &normalized);
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(std::string::npos, status.to_string().find("validate sliced Lance array failed"))
+                << status.to_string();
+        EXPECT_NE(std::string::npos, status.to_string().find(message)) << status.to_string();
     }
 }
 
