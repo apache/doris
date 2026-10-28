@@ -45,6 +45,11 @@ import pandas as pd
 import pyarrow as pa
 from pyarrow import flight
 
+# Top-level names of the modules loaded by the server imports above, including indirect ones
+# such as types. Taken once, so every worker of a runtime makes the same choice in
+# UDFModuleFinder and pickles a UDAF state class under the same module name.
+SERVER_TOP_LEVEL_MODULE_NAMES = frozenset(name.partition(".")[0] for name in sys.modules)
+
 
 class ServerState:
     """Global server state container."""
@@ -937,42 +942,30 @@ class InlineUDFLoader(UDFLoader):
         return AdaptivePythonUDF(self.python_udf_meta, func)
 
 
-class UDFModuleAliasLoader(importlib.abc.Loader):
-    """Makes "pkg" the same module object as "__doris_pyudf_<function_id>.pkg"."""
-
-    def __init__(self, udf_module_name: str):
-        self.udf_module_name = udf_module_name
-        self.udf_module_spec = None
-
-    def create_module(self, spec) -> ModuleType:
-        module = importlib.import_module(self.udf_module_name)
-        self.udf_module_spec = module.__spec__
-        return module
-
-    def exec_module(self, module: ModuleType) -> None:
-        # module_from_spec() replaced the spec; keep it consistent with __name__.
-        module.__spec__ = self.udf_module_spec
-
-
 class UDFModuleFinder(importlib.abc.MetaPathFinder):
     """
-    Loads user modules under the root package "__doris_pyudf_<function_id>", so a
-    user module named like a server module (e.g. types, json) does not resolve to
-    the server module. The name depends only on the function id, which keeps
-    pickled UDAF state classes loadable in every worker.
+    Imports user modules by their own names from the UDF directory on sys.path, except a
+    top-level name the server has already imported (SERVER_TOP_LEVEL_MODULE_NAMES). Such a
+    module, e.g. the user's types.py, is imported as "__doris_pyudf_<function_id>.types"
+    under a root package whose __path__ is the UDF directory, so the server keeps its own
+    types module.
 
-    Absolute imports in user code look in the UDF directory first, e.g.
-    "from json import helper" in the user package json loads
-    "__doris_pyudf_<function_id>.json.helper".
+    Other modules keep their names, so a UDAF state class from state_helper.py is still
+    pickled as "state_helper.State" and stays readable by workers of older versions.
+
+    Absolute imports in user code use the same rule, e.g. "from json import helper" in a
+    UDF directory containing json/ loads "__doris_pyudf_<function_id>.json.helper".
     """
 
     def __init__(self, function_id: int, location: str):
         self.root_package = self.root_package_name(function_id)
         self.root_package_prefix = self.root_package + "."
-        self.location = location
+        # Match absolute module __file__ paths even when user_function_dir is relative.
+        self.location = os.path.abspath(location)
+        self.udf_file_prefix = os.path.join(self.location, "")
         self.original_import = builtins.__import__
-        # Top-level name -> whether the UDF directory provides it.
-        self.udf_top_level_module_cache: Dict[str, bool] = {}
+        # Server top-level name -> whether the UDF directory also provides it.
+        self.shadowed_server_module_cache: Dict[str, bool] = {}
         # importlib.import_module bypasses builtins.__import__, so user code gets
         # an importlib whose import_module adds the prefix.
         self.udf_importlib = ModuleType("importlib")
@@ -985,46 +978,33 @@ class UDFModuleFinder(importlib.abc.MetaPathFinder):
         return f"__doris_pyudf_{function_id}"
 
     def install(self) -> None:
+        sys.path.insert(0, self.location)
         sys.meta_path.insert(0, self)
         builtins.__import__ = self.import_for_udf_code
 
     def find_spec(self, fullname, path=None, target=None):
-        if fullname == self.root_package:
-            spec = importlib.machinery.ModuleSpec(fullname, None, is_package=True)
-            spec.submodule_search_locations = [self.location]
-            return spec
-
-        if fullname.startswith(self.root_package_prefix):
+        # Only creates the root package; PathFinder loads every user module with its own
+        # loader, through sys.path or the root package __path__.
+        if fullname != self.root_package:
             return None
+        spec = importlib.machinery.ModuleSpec(fullname, None, is_package=True)
+        spec.submodule_search_locations = [self.location]
+        return spec
 
-        parent_name = fullname.rpartition(".")[0]
-        if parent_name:
-            # Only children of a user package, so "json.decoder" stays standard.
-            parent = sys.modules.get(parent_name)
-            if getattr(parent, "__name__", None) != self.root_package_prefix + parent_name:
-                return None
-            if importlib.machinery.PathFinder.find_spec(
-                self.root_package_prefix + fullname, path
-            ) is None:
-                return None
-        elif not self.is_udf_top_level_module(fullname):
-            return None
-
-        return importlib.machinery.ModuleSpec(
-            fullname, UDFModuleAliasLoader(self.root_package_prefix + fullname)
-        )
-
-    def is_udf_top_level_module(self, name: str) -> bool:
-        is_udf_module = self.udf_top_level_module_cache.get(name)
-        if is_udf_module is None:
-            is_udf_module = (
-                importlib.machinery.PathFinder.find_spec(name, [self.location]) is not None
+    def is_shadowed_server_module(self, top_level_name: str) -> bool:
+        if top_level_name not in SERVER_TOP_LEVEL_MODULE_NAMES:
+            return False
+        shadowed = self.shadowed_server_module_cache.get(top_level_name)
+        if shadowed is None:
+            shadowed = (
+                importlib.machinery.PathFinder.find_spec(top_level_name, [self.location])
+                is not None
             )
-            self.udf_top_level_module_cache[name] = is_udf_module
-        return is_udf_module
+            self.shadowed_server_module_cache[top_level_name] = shadowed
+        return shadowed
 
     def add_root_package_prefix(self, name: str) -> str:
-        if self.is_udf_top_level_module(name.partition(".")[0]):
+        if self.is_shadowed_server_module(name.partition(".")[0]):
             return self.root_package_prefix + name
         return name
 
@@ -1033,7 +1013,7 @@ class UDFModuleFinder(importlib.abc.MetaPathFinder):
         if (
             level != 0
             or globals is None
-            or not globals.get("__name__", "").startswith(self.root_package_prefix)
+            or not (globals.get("__file__") or "").startswith(self.udf_file_prefix)
         ):
             return self.original_import(name, globals, locals, fromlist, level)
 
@@ -1127,9 +1107,13 @@ class ModuleUDFLoader(UDFLoader):
         return package_name, module_name, func_name
 
     def _get_or_import_module(self, full_module_name: str) -> Any:
-        """Import the module under the root package installed by UDFModuleFinder."""
-        root_package = UDFModuleFinder.root_package_name(self.python_udf_meta.id)
-        return importlib.import_module(f"{root_package}.{full_module_name}")
+        """Import the entry module by the naming rule of UDFModuleFinder."""
+        # The entry module always exists in the UDF directory, so only the server name check
+        # of UDFModuleFinder.is_shadowed_server_module applies.
+        if full_module_name.partition(".")[0] in SERVER_TOP_LEVEL_MODULE_NAMES:
+            root_package = UDFModuleFinder.root_package_name(self.python_udf_meta.id)
+            full_module_name = f"{root_package}.{full_module_name}"
+        return importlib.import_module(full_module_name)
 
     def _extract_function(
         self, module: Any, func_name: str, module_name: str
