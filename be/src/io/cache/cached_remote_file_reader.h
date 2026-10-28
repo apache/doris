@@ -435,7 +435,11 @@ private:
     UInt128Wrapper _cache_hash;
     BlockFileCache* _cache = nullptr;
     std::shared_mutex _mtx;
-    std::map<size_t, FileBlockSPtr> _cache_file_readers;
+    // Downloaded blocks this reader may read directly, keyed by offset. The references are weak on
+    // purpose: the cache decides when a block may go by counting strong references, and a reader
+    // that lives as long as its segment must not keep a block busy. Several readers of the same
+    // file can know about the same block at once.
+    std::map<size_t, std::weak_ptr<FileBlock>> _cache_file_readers;
 };
 
 } // namespace doris::io
