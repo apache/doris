@@ -192,6 +192,16 @@ Status VIcebergPartitionWriter::_build_iceberg_commit_data(TIcebergCommitData* c
     commit_data->__set_file_size(_file_format_transformer->written_len());
     commit_data->__set_file_content(TFileContent::DATA);
     commit_data->__set_partition_values(_partition_values);
+    // Split offsets describe the physical file, even when the table disables all column metrics.
+    if (_file_format_type == TFileFormatType::FORMAT_PARQUET) {
+        std::vector<int64_t> offsets;
+        RETURN_IF_ERROR(static_cast<VIcebergParquetWriter*>(_file_format_transformer.get())
+                                ->collect_split_offsets_after_close(&offsets));
+        // Empty files have no splits; leave the optional field absent, as with an older BE.
+        if (!offsets.empty()) {
+            commit_data->__set_split_offsets(offsets);
+        }
+    }
     // ORC collection reopens the file, so honor the FE policy before any footer work.
     if (!_collect_column_stats) {
         return Status::OK();

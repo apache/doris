@@ -36,7 +36,7 @@ TEST(FileLoadScannerV2Test, LoadSelectionDoesNotDependOnQueryOption) {
     for (auto format : {TFileFormatType::FORMAT_CSV_PLAIN, TFileFormatType::FORMAT_JSON,
                         TFileFormatType::FORMAT_PARQUET, TFileFormatType::FORMAT_ORC,
                         TFileFormatType::FORMAT_PROTO, TFileFormatType::FORMAT_WAL,
-                        TFileFormatType::FORMAT_TEXT}) {
+                        TFileFormatType::FORMAT_TEXT, TFileFormatType::FORMAT_ARROW}) {
         params.__set_format_type(format);
         options.__set_enable_file_scanner_v2(true);
         EXPECT_TRUE(FileScanLocalState::should_use_file_scanner_v2(options, true, params));
@@ -44,7 +44,7 @@ TEST(FileLoadScannerV2Test, LoadSelectionDoesNotDependOnQueryOption) {
         EXPECT_TRUE(FileScanLocalState::should_use_file_scanner_v2(options, true, params));
     }
     options.__set_enable_file_scanner_v2(true);
-    for (auto format : {TFileFormatType::FORMAT_AVRO, TFileFormatType::FORMAT_ARROW}) {
+    for (auto format : {TFileFormatType::FORMAT_AVRO}) {
         params.__set_format_type(format);
         EXPECT_FALSE(FileScanLocalState::should_use_file_scanner_v2(options, true, params));
     }

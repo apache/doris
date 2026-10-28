@@ -2036,7 +2036,7 @@ public class PaimonScanNode extends FileQueryScanNode {
             }
             // System table handles are cached, so preserve query isolation by applying dynamic
             // options to a copied Paimon table instead of changing the shared handle.
-            finalTable = baseTable.copy(getIncrReadParams());
+            finalTable = PaimonScanParams.copyWithHistoricalSchema(baseTable, getIncrReadParams());
         } else if (theScanParams != null && theScanParams.isOptions()) {
             try {
                 finalTable = source.getPaimonTable(theScanParams);

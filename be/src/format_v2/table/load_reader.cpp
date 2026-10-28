@@ -24,6 +24,7 @@
 #include "core/data_type_serde/data_type_serde.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
+#include "format_v2/arrow/arrow_stream_reader.h"
 #include "format_v2/wal/wal_reader.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
@@ -363,6 +364,12 @@ TableColumnMappingMode LoadTableReader::mapping_mode() const {
 }
 
 Status LoadTableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
+    if (_format == FileFormat::ARROW) {
+        *reader = std::make_unique<arrow_stream::ArrowStreamReader>(
+                _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
+                _source_file_slots, _current_range_load_id);
+        return Status::OK();
+    }
     if (_format == FileFormat::WAL) {
         *reader = std::make_unique<wal::WalReader>(_system_properties, _current_task->data_file,
                                                    _io_ctx, _scanner_profile, _projected_columns);

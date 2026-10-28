@@ -73,13 +73,11 @@
 #include "exprs/function/dictionary_factory.h"
 #include "format/arrow/arrow_row_batch.h"
 #include "format/avro/avro_jni_reader.h"
-#include "format/csv/csv_reader.h"
 #include "format/generic_reader.h"
-#include "format/json/new_json_reader.h"
-#include "format/text/text_reader.h"
 #include "format_v2/column_data.h"
 #include "format_v2/schema_reader.h"
 #include "format_v2/table/lance_reader.h"
+#include "io/file_factory.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/stream_load_pipe.h"
 #include "io/io_common.h"
@@ -901,7 +899,6 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         auto file_reader_stats = std::make_shared<io::FileReaderStats>();
         io_ctx->file_cache_stats = file_cache_statis.get();
         io_ctx->file_reader_stats = file_reader_stats.get();
-        constexpr size_t fetch_schema_batch_size = 4064;
         // file_slots is no use, but the lifetime should be longer than reader
         std::vector<SlotDescriptor*> file_slots;
         std::vector<std::string> col_names;
@@ -914,17 +911,9 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         case TFileFormatType::FORMAT_CSV_LZ4BLOCK:
         case TFileFormatType::FORMAT_CSV_SNAPPYBLOCK:
         case TFileFormatType::FORMAT_CSV_LZOP:
-        case TFileFormatType::FORMAT_CSV_DEFLATE: {
-            reader = CsvReader::create_unique(nullptr, profile.get(), nullptr, params, range,
-                                              file_slots, fetch_schema_batch_size, io_ctx.get(),
-                                              io_ctx);
-            break;
-        }
-        case TFileFormatType::FORMAT_TEXT: {
-            reader = TextReader::create_unique(nullptr, profile.get(), nullptr, params, range,
-                                               file_slots, fetch_schema_batch_size, io_ctx.get());
-            break;
-        }
+        case TFileFormatType::FORMAT_CSV_DEFLATE:
+        case TFileFormatType::FORMAT_TEXT:
+        case TFileFormatType::FORMAT_JSON:
         case TFileFormatType::FORMAT_PARQUET:
         case TFileFormatType::FORMAT_ORC: {
             std::vector<format::ColumnDefinition> schema;
@@ -938,11 +927,6 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
             }
             st.to_protobuf(result->mutable_status());
             return;
-        }
-        case TFileFormatType::FORMAT_JSON: {
-            reader = NewJsonReader::create_unique(profile.get(), params, range, file_slots,
-                                                  fetch_schema_batch_size, io_ctx.get(), io_ctx);
-            break;
         }
         case TFileFormatType::FORMAT_AVRO: {
             reader = AvroJNIReader::create_unique(profile.get(), params, range, file_slots);

@@ -64,6 +64,12 @@ public:
     }
 
     int source_node_id() const { return _source_node_id; }
+    bool is_asc() const { return _predicate->is_asc(); }
+    bool nulls_first() const { return _predicate->nulls_first(); }
+
+    bool can_evaluate_zonemap_filter() const override;
+    ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const override;
+
     Status clone_node(VExprSPtr* cloned_expr) const override {
         DORIS_CHECK(cloned_expr != nullptr);
         *cloned_expr = VTopNPred::create_shared(clone_texpr_node(), _source_node_id, nullptr);
