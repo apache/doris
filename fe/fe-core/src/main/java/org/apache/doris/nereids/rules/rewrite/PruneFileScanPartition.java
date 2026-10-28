@@ -124,12 +124,13 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
         boolean enableBinarySearch = ctx.getConnectContext() == null
                 || ctx.getConnectContext().getSessionVariable().enableBinarySearchFilteringPartitions;
         if (enableBinarySearch && !nameToPartitionItem.isEmpty()) {
-            sortedPartitionRanges = scan.getSelectedPartitions().sortedPartitionRanges
-                    .or(() -> (Optional) externalTable.getSortedPartitionRanges(scan))
-                    .or(() -> Optional.ofNullable(SortedPartitionRanges.build(nameToPartitionItem)));
             if (nameToPartitionItem.size() < scan.getSelectedPartitions().totalPartitionNum) {
-                sortedPartitionRanges = sortedPartitionRanges.map(
-                        ranges -> ranges.restrictTo(nameToPartitionItem.keySet()));
+                sortedPartitionRanges = Optional.ofNullable(
+                        SortedPartitionRanges.build(nameToPartitionItem));
+            } else {
+                sortedPartitionRanges = scan.getSelectedPartitions().sortedPartitionRanges
+                        .or(() -> (Optional) externalTable.getSortedPartitionRanges(scan))
+                        .or(() -> Optional.ofNullable(SortedPartitionRanges.build(nameToPartitionItem)));
             }
         }
         PartitionPruneResult<String> result = PartitionPruner.pruneWithResult(
