@@ -2669,9 +2669,15 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(
             name = FETCH_SPLITS_MAX_WAIT_TIME,
-            description = "The max wait time of getting splits in batch mode.",
+            checker = "checkFetchSplitsMaxWaitTime",
+            description = "Maximum wait time per split-fetch RPC in batch mode. A running producer can be retried "
+                    + "after this interval; completion, cancellation and production errors are reported separately.",
             needForward = true)
     public long fetchSplitsMaxWaitTime = 1000;
+
+    public void checkFetchSplitsMaxWaitTime(String value) throws Exception {
+        checkFieldLongValue(FETCH_SPLITS_MAX_WAIT_TIME, 1, value);
+    }
 
     @VarAttrDef.VarAttr(
             name = ENABLE_PARQUET_LAZY_MAT,

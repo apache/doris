@@ -41,6 +41,14 @@ import java.util.concurrent.atomic.AtomicLong;
  * the split source when its related scan node is GC.
  */
 public class SplitSource {
+    /** The producer is still running, but this fetch did not receive a split within its RPC wait window. */
+    public static class SplitPendingException extends UserException {
+        public SplitPendingException(long maxWaitTime) {
+            super("Timeout waiting for the next split after " + maxWaitTime + " ms; production is still running",
+                    null, false, false);
+        }
+    }
+
     private static final AtomicLong UNIQUE_ID_GENERATOR = new AtomicLong(0);
 
     private final long uniqueId;
@@ -56,6 +64,7 @@ public class SplitSource {
     }
 
     public SplitSource(Backend backend, SplitAssignment splitAssignment, long maxWaitTime, int initialBatchSize) {
+        Preconditions.checkArgument(maxWaitTime > 0, "Split fetch wait time must be positive");
         Preconditions.checkArgument(initialBatchSize > 0, "Initial split batch size must be positive");
         this.initialBatchSize = initialBatchSize;
         this.uniqueId = UNIQUE_ID_GENERATOR.getAndIncrement();
@@ -118,7 +127,18 @@ public class SplitSource {
             }
             long remainingNanos = waitNanos - (System.nanoTime() - startTime);
             if (remainingNanos <= 0) {
-                throw new UserException("Timeout. Max wait time(ms): " + maxWaitTime);
+                // A temporary gap between producer batches is neither EOF nor a query failure.
+                // Let the BE retry after this bounded long poll rather than failing a slow listing.
+                SplitAssignment.AssignmentQueue pending = splitAssignment.getAssignedSplits(backend);
+                if (splitAssignment.isStop()) {
+                    isLastBatch.set(true);
+                    break;
+                }
+                if (pending == null) {
+                    isLastBatch.set(true);
+                    break;
+                }
+                throw new SplitPendingException(maxWaitTime);
             }
             try {
                 TScanRangeLocations split = splitAssignment.awaitSplit(backend, remainingNanos);

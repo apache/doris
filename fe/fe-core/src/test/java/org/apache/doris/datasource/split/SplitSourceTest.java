@@ -394,10 +394,59 @@ public class SplitSourceTest {
     }
 
     @Test
-    void timeoutIsAnErrorRatherThanEof() {
+    void waitWindowExpiryIsPendingRatherThanEof() {
         SplitSource source = new SplitSource(backend, assignment, 20);
-        UserException failure = Assertions.assertThrows(UserException.class, () -> source.getNextBatch(1));
+        UserException failure = Assertions.assertThrows(SplitSource.SplitPendingException.class,
+                () -> source.getNextBatch(1));
         Assertions.assertTrue(failure.getMessage().contains("Timeout"));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> new SplitSource(backend, assignment, 0));
+        SessionVariable variables = new SessionVariable();
+        Assertions.assertThrows(Exception.class, () -> variables.checkFetchSplitsMaxWaitTime("0"));
+    }
+
+    @Test
+    void unfinishedListingAfterFirstSplitIsPendingNotEof() throws Exception {
+        SplitSource source = new SplitSource(backend, assignment, 20, 1);
+        assignment.addToQueue(splits.subList(0, 1));
+        Assertions.assertEquals(ranges.subList(0, 1), source.getNextBatch(1));
+
+        // Another partition is still listing beyond one fetch wait window.
+        Assertions.assertThrows(SplitSource.SplitPendingException.class, () -> source.getNextBatch(1));
+        assignment.addToQueue(splits.subList(1, 2));
+        assignment.finishSchedule();
+        Assertions.assertEquals(ranges.subList(1, 2), source.getNextBatch(1));
+        Assertions.assertTrue(source.getNextBatch(1).isEmpty());
+    }
+
+    @Test
+    void completedListingReturnsEof() throws Exception {
+        SplitSource source = new SplitSource(backend, assignment, 20);
+        assignment.finishSchedule();
+        Assertions.assertTrue(source.getNextBatch(1).isEmpty());
+    }
+
+    @Test
+    void backendWithoutInitialAssignmentCanRetryUntilListingFinishes() throws Exception {
+        Backend otherBackend = new Backend(2L, "127.0.0.2", 9050);
+        SplitSource first = new SplitSource(backend, assignment, 20, 1);
+        SplitSource second = new SplitSource(otherBackend, assignment, 20, 1);
+        assignment.addToQueue(splits.subList(0, 1));
+        Assertions.assertEquals(ranges.subList(0, 1), first.getNextBatch(1));
+
+        Assertions.assertThrows(SplitSource.SplitPendingException.class, () -> second.getNextBatch(1));
+        Assertions.assertEquals(1, assignment.offerBatch(otherBackend, ranges.subList(1, 2), 0, () -> {}));
+        assignment.finishSchedule();
+        Assertions.assertEquals(ranges.subList(1, 2), second.getNextBatch(1));
+        Assertions.assertTrue(second.getNextBatch(1).isEmpty());
+    }
+
+    @Test
+    void producerFailureAfterPendingFetchIsStillAnError() throws Exception {
+        SplitSource source = new SplitSource(backend, assignment, 20);
+        Assertions.assertThrows(SplitSource.SplitPendingException.class, () -> source.getNextBatch(1));
+        UserException failure = new UserException("listing failed");
+        assignment.setException(failure);
+        Assertions.assertSame(failure, Assertions.assertThrows(UserException.class, () -> source.getNextBatch(1)));
     }
 
     @Test
