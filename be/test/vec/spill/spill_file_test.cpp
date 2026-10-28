@@ -27,6 +27,7 @@
 #include <numeric>
 #include <set>
 #include <string>
+#include <typeinfo>
 #include <vector>
 
 #include "common/config.h"
@@ -213,6 +214,8 @@ TEST_F(SpillFileTest, CreateWriterAndReader) {
     st = spill_file->create_writer(_runtime_state.get(), _profile.get(), writer);
     ASSERT_TRUE(st.ok()) << st.to_string();
     ASSERT_TRUE(writer != nullptr);
+    SpillFileWriter* raw_writer = writer.get();
+    ASSERT_EQ(typeid(*raw_writer), typeid(SpillFileWriter));
 
     // Close writer with no data written
     st = writer->close();

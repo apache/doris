@@ -51,6 +51,7 @@
 #include "exec/spill/spill_file_manager.h"
 #include "exec/spill/spill_file_reader.h"
 #include "exec/spill/spill_file_writer.h"
+#include "exec/spill/spill_s3_file_writer.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
@@ -464,6 +465,7 @@ protected:
         _saved_inflight = config::spill_s3_max_inflight_upload_bytes;
         _saved_check_after_upload = config::enable_s3_object_check_after_upload;
         _saved_read_coalesce = config::spill_s3_read_coalesce_bytes;
+        _saved_enable_file_cache = config::enable_file_cache;
         // The manager talks to meta-service through the cloud storage engine only in cloud
         // mode; there is no engine in this test, so pin the mode regardless of earlier tests.
         _saved_deploy_mode = config::deploy_mode;
@@ -477,6 +479,8 @@ protected:
         config::s3_write_buffer_size = 8 * 1024;
         config::spill_file_part_size_bytes = 32 * 1024;
         config::spill_storage_limit_bytes = 0;
+        // The mock S3 fixture has no FileCacheFactory; S3 spill explicitly bypasses file cache.
+        config::enable_file_cache = false;
 
         _runtime_state = std::make_unique<MockRuntimeState>();
         _profile = std::make_unique<RuntimeProfile>("test");
@@ -513,6 +517,7 @@ protected:
         config::spill_s3_max_inflight_upload_bytes = _saved_inflight;
         config::enable_s3_object_check_after_upload = _saved_check_after_upload;
         config::spill_s3_read_coalesce_bytes = _saved_read_coalesce;
+        config::enable_file_cache = _saved_enable_file_cache;
         config::deploy_mode = _saved_deploy_mode;
         config::cloud_unique_id = _saved_cloud_unique_id;
         BackendOptions::set_localhost(_saved_localhost);
@@ -793,10 +798,49 @@ protected:
     int64_t _saved_inflight = 0;
     bool _saved_check_after_upload = true;
     int64_t _saved_read_coalesce = 0;
+    bool _saved_enable_file_cache = true;
     std::string _saved_deploy_mode;
     std::string _saved_cloud_unique_id;
     std::string _saved_localhost;
 };
+
+TEST_F(SpillFileS3Test, WriterFactoryUsesS3Subclass) {
+    _create_manager();
+    SpillFileSPtr spill_file;
+    ASSERT_TRUE(_manager->create_spill_file("query_factory/sort-1", spill_file).ok());
+    SpillFileWriterSPtr writer;
+    ASSERT_TRUE(spill_file->create_writer(_runtime_state.get(), _profile.get(), writer).ok());
+    ASSERT_NE(dynamic_cast<SpillS3FileWriter*>(writer.get()), nullptr);
+    ASSERT_TRUE(writer->close().ok());
+    writer.reset();
+    spill_file.reset();
+}
+
+TEST_F(SpillFileS3Test, ImplicitClosePreservesRemoteAccounting) {
+    _create_manager();
+    SpillFileSPtr spill_file;
+    ASSERT_TRUE(_manager->create_spill_file("query_implicit/sort-1", spill_file).ok());
+    SpillFileWriterSPtr writer;
+    ASSERT_TRUE(spill_file->create_writer(_runtime_state.get(), _profile.get(), writer).ok());
+    std::mt19937 rng(42);
+    auto block = _random_string_block(rng, 8, 100);
+    ASSERT_TRUE(writer->write_block(_runtime_state.get(), block).ok());
+
+    // Destruction must dispatch the S3 footer, upload and accounting hooks before the
+    // base destructor runs; no explicit close is issued here.
+    writer.reset();
+    ASSERT_TRUE(spill_file->ready_for_reading());
+    const auto object_bytes =
+            static_cast<int64_t>(_object(spill_root() + "/query_implicit/sort-1/0").size());
+    ASSERT_GT(object_bytes, 0);
+    ASSERT_EQ(_counter(profile::SPILL_REMOTE_UPLOAD_BYTES), object_bytes);
+    ASSERT_EQ(_manager->remote_spill_data_bytes(), object_bytes);
+    ASSERT_EQ(_data_dir->get_spill_data_bytes(), object_bytes);
+    ASSERT_EQ(_read_all(spill_file), _column_values(block));
+    spill_file.reset();
+    ASSERT_EQ(_manager->remote_spill_data_bytes(), 0);
+    ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
+}
 
 TEST_F(SpillFileS3Test, RemoteStoreLayout) {
     _create_manager();
