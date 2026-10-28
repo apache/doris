@@ -259,6 +259,9 @@ public:
                                                   size_t size, const CacheContext& context,
                                                   FileBlocks* blocks, bool* fully_covered);
 
+    /// Account a completed query disk hit that bypassed get_or_set, using complete block sizes.
+    void record_query_cache_hit(const FileBlocks& blocks);
+
     /**
      * record blocks read directly by CachedRemoteFileReader
      */
