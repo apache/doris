@@ -119,8 +119,34 @@ public class PluginDrivenExternalTable extends ExternalTable {
      */
     public Optional<ConnectorTableHandle> resolveConnectorTableHandle(
             ConnectorSession session, ConnectorMetadata metadata) {
+        PluginDrivenExternalCatalog owner = (PluginDrivenExternalCatalog) catalog;
+        Connector connector = owner.getConnector();
+        ExternalDatabase<?> database = getDb();
+        boolean invalidateDatabase = owner.getLowerCaseTableNames() != 0;
+        Optional<Runnable> observation = database.observeTableLookup(this, () -> {
+            try {
+                if (invalidateDatabase) {
+                    connector.invalidateDb(db.getRemoteName());
+                } else {
+                    connector.invalidateTable(db.getRemoteName(), getRemoteName());
+                }
+            } finally {
+                if (invalidateDatabase) {
+                    Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(
+                            owner.getId(), database.getId(), database.getFullName());
+                } else {
+                    Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTable(this);
+                }
+            }
+        });
         String dbName = db != null ? db.getRemoteName() : "";
-        return metadata.getTableHandle(session, dbName, getRemoteName());
+        Optional<ConnectorTableHandle> handle = metadata.getTableHandle(session, dbName, getRemoteName());
+        // A view has no table handle. Check live view existence before treating an empty handle as a
+        // dropped table; the cached isView flag can outlive a remote view deletion.
+        if (!handle.isPresent() && !metadata.viewExists(session, dbName, getRemoteName())) {
+            observation.ifPresent(Runnable::run);
+        }
+        return handle;
     }
 
     /**
@@ -719,6 +745,10 @@ public class PluginDrivenExternalTable extends ExternalTable {
         }
 
         List<Column> columns = ConnectorColumnConverter.convertColumns(mappedColumns);
+        // The display view is projected HERE, from the same mapped columns, so the read and display schemas
+        // always belong to one schema generation (a connector may deliberately read a column as nullable
+        // while its source contract declares it NOT NULL; only metadata statements show the latter).
+        List<Column> displayColumns = toDisplayColumns(columns, mappedColumns);
 
         // Identify partition columns from the connector's reserved PARTITION_COLUMNS_KEY property (a CSV of
         // RAW remote column names; producer: hive/hudi/iceberg/paimon/maxcompute). We keep two aligned
@@ -749,7 +779,40 @@ public class PluginDrivenExternalTable extends ExternalTable {
         }
         return new PluginDrivenSchemaCacheValue(columns, partitionColumns, partitionColumnRemoteNames,
                 tableSchema.getProperties(), tableSchema.getTableCapabilities(),
-                tableSchema.getWriteMetadataIdentity());
+                tableSchema.getWriteMetadataIdentity(), displayColumns);
+    }
+
+    /**
+     * Projects {@code readColumns} onto the nullability the connector's source declares
+     * ({@link ConnectorColumn#isSourceNullable()}), index-aligned with and the same size as {@code readColumns}
+     * (the converter maps connector columns 1:1 and in order). A column whose declared nullability equals its
+     * read nullability is shared, not copied, so a connector that declares no divergence — and every
+     * never-opted-in connector — keeps a display view that is literally the read schema. A copied column
+     * re-applies the one display marker {@link Column#Column(Column)} does not carry (the WITH_TIMEZONE
+     * "Extra" marker the connector declared), so a required TIMESTAMP WITH TIME ZONE column keeps showing it.
+     */
+    private static List<Column> toDisplayColumns(List<Column> readColumns, List<ConnectorColumn> connectorColumns) {
+        List<Column> displayColumns = new ArrayList<>(readColumns.size());
+        for (int i = 0; i < readColumns.size(); i++) {
+            Column readColumn = readColumns.get(i);
+            ConnectorColumn connectorColumn = connectorColumns.get(i);
+            boolean sourceNullable = connectorColumn.isSourceNullable();
+            if (sourceNullable == readColumn.isAllowNull()) {
+                displayColumns.add(readColumn);
+                continue;
+            }
+            Column displayColumn = new Column(readColumn);
+            displayColumn.setIsAllowNull(sourceNullable);
+            // Column's copy constructor does not carry `extraInfo`, so the WITH_TIMEZONE marker
+            // (ConnectorColumn.withTimeZone(), re-applied by ConnectorColumnConverter on the read column)
+            // has to be re-applied here as well — otherwise DESC would show "Extra: NONE" for exactly the
+            // required TZ columns this projection touches.
+            if (connectorColumn.isWithTimeZone()) {
+                displayColumn.setWithTZExtraInfo();
+            }
+            displayColumns.add(displayColumn);
+        }
+        return displayColumns;
     }
 
     @Override
@@ -883,6 +946,36 @@ public class PluginDrivenExternalTable extends ExternalTable {
     @Override
     public List<Column> getFullSchema() {
         return appendSyntheticWriteColumns(super.getFullSchema());
+    }
+
+    @Override
+    public List<Column> getBaseSchemaForDisplay() {
+        boolean showHidden = Util.showHiddenColumns();
+        if (!showHidden && needInternalHiddenColumns()) {
+            showHidden = true;
+        }
+        return getBaseSchemaForDisplay(showHidden);
+    }
+
+    /**
+     * The metadata view of this table's base schema: the same columns and order, with the nullability the
+     * connector's source declares. Mirrors {@link ExternalTable#getBaseSchema(boolean)} exactly — {@code full}
+     * only decides whether invisible columns are kept, and request-scoped synthetic write columns join the
+     * hidden view — but serves one schema-cache generation and never the read nullability.
+     */
+    @Override
+    public List<Column> getBaseSchemaForDisplay(boolean full) {
+        // ONE cache read: the columns and the declared-nullability projection were produced together at
+        // schema load, so this can never mix generations or hit the connector twice (which it would under
+        // a bypassed schema cache, e.g. a per-user delegated credential). Mirrors getWriteSchemaSnapshot().
+        List<Column> displayColumns = getSchemaCacheValue()
+                .map(value -> ((PluginDrivenSchemaCacheValue) value).getDisplayColumns())
+                .orElse(null);
+        if (displayColumns == null) {
+            return null;
+        }
+        List<Column> schema = appendSyntheticWriteColumns(displayColumns);
+        return full ? schema : schema.stream().filter(Column::isVisible).collect(Collectors.toList());
     }
 
     /**

@@ -66,7 +66,7 @@ class TColumn;
 //      |           +------------------------+|
 //      +-------------------------------------+
 
-enum TabletState {
+enum class TabletState {
     // Tablet is under alter table, rollup, clone
     TABLET_NOTREADY,
 
@@ -83,6 +83,12 @@ enum TabletState {
     // Files have been removed, tablet has been shutdown completely.
     TABLET_SHUTDOWN
 };
+
+inline constexpr TabletState TABLET_NOTREADY = TabletState::TABLET_NOTREADY;
+inline constexpr TabletState TABLET_RUNNING = TabletState::TABLET_RUNNING;
+inline constexpr TabletState TABLET_TOMBSTONED = TabletState::TABLET_TOMBSTONED;
+inline constexpr TabletState TABLET_STOPPED = TabletState::TABLET_STOPPED;
+inline constexpr TabletState TABLET_SHUTDOWN = TabletState::TABLET_SHUTDOWN;
 
 class DataDir;
 class TabletMeta;
@@ -282,12 +288,12 @@ public:
         _binlog_config = std::move(binlog_config);
     }
     TabletRolePB tablet_role() const { return _tablet_role; }
-    bool is_row_binlog_tablet() const {
-        return _tablet_role == TabletRolePB::TABLET_ROLE_ROW_BINLOG;
-    }
+    bool is_changelog_tablet() const { return _tablet_role == TabletRolePB::TABLET_ROLE_CHANGELOG; }
     void set_tablet_role(TabletRolePB tablet_role) { _tablet_role = tablet_role; }
-    int64_t binlog_tablet_id() const { return _binlog_tablet_id; }
-    void set_binlog_tablet_id(int64_t binlog_tablet_id) { _binlog_tablet_id = binlog_tablet_id; }
+    int64_t changelog_tablet_id() const { return _changelog_tablet_id; }
+    void set_changelog_tablet_id(int64_t changelog_tablet_id) {
+        _changelog_tablet_id = changelog_tablet_id;
+    }
 
     void set_compaction_policy(std::string compaction_policy) {
         _compaction_policy = compaction_policy;
@@ -386,7 +392,7 @@ private:
     TabletUid _tablet_uid;
     TabletTypePB _tablet_type = TabletTypePB::TABLET_TYPE_DISK;
 
-    TabletState _tablet_state = TABLET_NOTREADY;
+    TabletState _tablet_state = TabletState::TABLET_NOTREADY;
     // the reference of _schema may use in tablet, so here need keep
     // the lifetime of tablemeta and _schema is same with tablet
     TabletSchemaSPtr _schema;
@@ -416,7 +422,7 @@ private:
     // binlog config
     BinlogConfig _binlog_config {};
     TabletRolePB _tablet_role = TabletRolePB::TABLET_ROLE_DATA;
-    int64_t _binlog_tablet_id = 0;
+    int64_t _changelog_tablet_id = 0;
 
     // meta for compaction
     std::string _compaction_policy;

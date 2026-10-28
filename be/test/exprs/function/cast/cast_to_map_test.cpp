@@ -211,7 +211,8 @@ TEST_F(FunctionCastTest, test_cast_map_null_row_skips_hidden_entry_payload) {
             {std::move(from_column), from_type, "from"},
             {nullptr, to_type, "to"},
     };
-    ASSERT_TRUE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr));
+    ASSERT_TRUE(fn(ctx.get(), block.get_by_position(0), block.get_by_position(1), block.rows(),
+                   nullptr));
 
     const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
     EXPECT_FALSE(result.is_null_at(0));
@@ -243,7 +244,9 @@ TEST_F(FunctionCastTest, test_cast_map_visible_entry_still_fails) {
             {std::move(from_column), from_type, "from"},
             {nullptr, to_type, "to"},
     };
-    EXPECT_FALSE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr).ok());
+    EXPECT_FALSE(
+            fn(ctx.get(), block.get_by_position(0), block.get_by_position(1), block.rows(), nullptr)
+                    .ok());
 }
 
 // A key whose type does not change is passed through, while the value that does change still
@@ -271,7 +274,8 @@ TEST_F(FunctionCastTest, test_cast_map_unchanged_key_with_null_row) {
             {std::move(from_column), from_type, "from"},
             {nullptr, to_type, "to"},
     };
-    ASSERT_TRUE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr));
+    ASSERT_TRUE(fn(ctx.get(), block.get_by_position(0), block.get_by_position(1), block.rows(),
+                   nullptr));
 
     const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
     EXPECT_TRUE(result.is_null_at(0));
@@ -318,7 +322,8 @@ TEST_F(FunctionCastTest, test_from_string_deduplicates_nested_map_keys) {
                     {ColumnHelper::create_column<DataTypeString>({c.from}), from_type, "from"},
                     {nullptr, c.to_type, "to"},
             };
-            ASSERT_TRUE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr));
+            ASSERT_TRUE(fn(ctx.get(), block.get_by_position(0), block.get_by_position(1),
+                           block.rows(), nullptr));
             EXPECT_EQ(c.to_type->to_string(*block.get_by_position(1).column, 0), c.expected)
                     << "from: " << c.from << ", to: " << c.to_type->get_name()
                     << ", strict mode: " << is_strict_mode;

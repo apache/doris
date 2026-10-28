@@ -154,18 +154,15 @@ namespace doris::segment_v2 {
 
 namespace logical = index_query::logical;
 
-namespace {
-
-Status read_clucene_null_bitmap(InvertedIndexReader& reader, const IndexQueryContextPtr& context,
+Status read_clucene_null_bitmap(IndexFileReader& file_reader, const TabletIndex& index_meta,
+                                const io::IOContext* io_ctx,
                                 InvertedIndexQueryCacheHandle* cache_handle,
                                 lucene::store::Directory* dir) {
-    SCOPED_RAW_TIMER(&context->stats->inverted_index_query_null_bitmap_timer);
     lucene::store::IndexInput* null_bitmap_in = nullptr;
     bool owned_dir = false;
     try {
         // try to get query bitmap result from cache and return immediately on cache hit
-        auto index_file_key =
-                reader.get_index_file_reader()->get_index_file_cache_key(&reader.get_index_meta());
+        auto index_file_key = file_reader.get_index_file_cache_key(&index_meta);
         InvertedIndexQueryCache::CacheKey cache_key {
                 index_file_key, "", InvertedIndexQueryType::UNKNOWN_QUERY, "null_bitmap"};
         auto* cache = InvertedIndexQueryCache::instance();
@@ -175,14 +172,12 @@ Status read_clucene_null_bitmap(InvertedIndexReader& reader, const IndexQueryCon
 
         if (!dir) {
             // TODO: ugly code here, try to refact.
-            auto st = reader.get_index_file_reader()->init(config::inverted_index_read_buffer_size,
-                                                           context->io_ctx);
+            auto st = file_reader.init(config::inverted_index_read_buffer_size, io_ctx);
             if (!st.ok()) {
                 LOG(WARNING) << st;
                 return st;
             }
-            auto directory = DORIS_TRY(reader.get_index_file_reader()->open(
-                    &reader.get_index_meta(), context->io_ctx));
+            auto directory = DORIS_TRY(file_reader.open(&index_meta, io_ctx));
             dir = directory.release();
             owned_dir = true;
         }
@@ -217,6 +212,17 @@ Status read_clucene_null_bitmap(InvertedIndexReader& reader, const IndexQueryCon
     }
 
     return Status::OK();
+}
+
+namespace {
+
+Status read_clucene_null_bitmap(InvertedIndexReader& reader, const IndexQueryContextPtr& context,
+                                InvertedIndexQueryCacheHandle* cache_handle,
+                                lucene::store::Directory* dir) {
+    SCOPED_RAW_TIMER(&context->stats->inverted_index_query_null_bitmap_timer);
+    return segment_v2::read_clucene_null_bitmap(*reader.get_index_file_reader(),
+                                                reader.get_index_meta(), context->io_ctx,
+                                                cache_handle, dir);
 }
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity) Cache lookup and opening share this flow.
@@ -412,10 +418,9 @@ Status CluceneTextIndexReader::_run_leaf(const IndexQueryContextPtr& context,
                                          const logical::Node& leaf,
                                          const roaring::Roaring* candidates, bool scoring,
                                          std::shared_ptr<roaring::Roaring>* out) {
-    const bool publish_scores = scoring && leaf.as<logical::Expand>() == nullptr;
     auto result = std::make_shared<roaring::Roaring>();
     RETURN_IF_ERROR(run_clucene_leaf(context, StringUtil::string_to_wstring(column_name), leaf,
-                                     candidates, publish_scores,
+                                     candidates, scoring,
                                      static_cast<CluceneOpenedIndex&>(index).searcher, result));
     result->runOptimize();
     *out = std::move(result);

@@ -23,10 +23,14 @@
 
 #include <atomic>
 #include <barrier>
+#include <cmath>
 #include <future>
 #include <memory>
+#include <roaring/roaring.hh>
+#include <set>
 #include <string>
 #include <thread>
+#include <variant>
 #include <vector>
 
 #include "common/exception.h"
@@ -47,8 +51,10 @@
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_writer.h"
 #include "storage/index/inverted/analysis/analyzer/analyzer.h"
+#include "storage/index/inverted/common/inverted_index_cache.h"
 #include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/index/inverted/common/string_helper.h"
+#include "storage/index/inverted/query/spi/fake_index_source.h"
 #include "storage/index/inverted/reader/predicate_collector.h"
 #include "storage/index/inverted/snii/format/phrase_bigram.h"
 #include "storage/index/inverted/snii/query/bm25_scorer.h"
@@ -59,6 +65,7 @@
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_meta.h"
 #include "storage/rowset/rowset_reader.h"
+#include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_schema.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "util/defer_op.h"
@@ -67,6 +74,9 @@
 namespace doris {
 
 using collection_statistics_detail::add_term_doc_frequency;
+using collection_statistics_detail::exclude_hidden_docs;
+using collection_statistics_detail::exclude_hidden_term_docs;
+using collection_statistics_detail::sum_non_null_norm_lengths;
 using collection_statistics_detail::resolve_snii_scoring_segment;
 using collection_statistics_detail::SniiScoringSegmentStats;
 
@@ -322,11 +332,18 @@ protected:
         test_dir_ = "./collection_statistics_test_" +
                     std::to_string(::testing::UnitTest::GetInstance()->random_seed());
         ASSERT_TRUE(io::global_local_filesystem()->create_directory(test_dir_).ok());
+        // Merge-on-write collection reads the null bitmap through the query cache.
+        previous_query_cache_ = ExecEnv::GetInstance()->get_inverted_index_query_cache();
+        query_cache_.reset(
+                segment_v2::InvertedIndexQueryCache::create_global_cache(1024 * 1024, 1));
+        ExecEnv::GetInstance()->set_inverted_index_query_cache(query_cache_.get());
     }
 
     void TearDown() override {
         stats_.reset();
         runtime_state_.reset();
+        ExecEnv::GetInstance()->set_inverted_index_query_cache(previous_query_cache_);
+        query_cache_.reset();
         (void)io::global_local_filesystem()->delete_directory(test_dir_);
     }
 
@@ -441,8 +458,11 @@ protected:
         return tablet_schema;
     }
 
+    // Writes `rows`, the rows of `null_rows` as NULL whatever their value.
     Status write_legacy_v3_segment(const TabletSchemaSPtr& tablet_schema,
-                                   const std::string& segment_path) {
+                                   const std::string& segment_path, size_t column_ordinal = 0,
+                                   const std::vector<std::string>& rows = {"alpha beta"},
+                                   const std::set<size_t>& null_rows = {}) {
         std::vector<StorePath> paths;
         paths.emplace_back(test_dir_, 1024);
         auto tmp_file_dirs = std::make_unique<segment_v2::TmpFileDirs>(paths);
@@ -461,13 +481,21 @@ protected:
         segment_v2::IndexFileWriter file_writer(fs, index_path_prefix, "legacy_v3", 0,
                                                 InvertedIndexStorageFormatPB::V3,
                                                 std::move(compound_file));
-        const auto index_metas = tablet_schema->inverted_indexs(1);
+        const auto& column = tablet_schema->column(column_ordinal);
+        const auto index_metas = tablet_schema->inverted_indexs(column.unique_id());
         DORIS_CHECK(index_metas.size() == 1);
         std::unique_ptr<segment_v2::IndexColumnWriter> column_writer;
-        RETURN_IF_ERROR(segment_v2::IndexColumnWriter::create(
-                &tablet_schema->column(0), &column_writer, &file_writer, index_metas[0]));
-        std::vector<Slice> values {Slice("alpha beta")};
-        RETURN_IF_ERROR(column_writer->add_values("content", values.data(), values.size()));
+        RETURN_IF_ERROR(segment_v2::IndexColumnWriter::create(&column, &column_writer, &file_writer,
+                                                              index_metas[0]));
+        for (size_t row = 0; row < rows.size(); ++row) {
+            if (null_rows.contains(row)) {
+                RETURN_IF_ERROR(column_writer->add_nulls(1));
+            } else {
+                const Slice value(rows[row]);
+                RETURN_IF_ERROR(
+                        column_writer->add_values(reinterpret_cast<const uint8_t*>(&value), 1));
+            }
+        }
         RETURN_IF_ERROR(column_writer->finish());
         RETURN_IF_ERROR(file_writer.begin_close());
         return file_writer.finish_close();
@@ -667,6 +695,7 @@ protected:
         uint64_t sum_total_term_freq = 0;
         bool has_positions = true;
         bool has_norms = true;
+        bool is_analyzed = true;
         bool single_term_normalizer = false;
     };
 
@@ -676,8 +705,8 @@ protected:
         for (const auto& field : fields) {
             RETURN_IF_ERROR(statistics->admit_snii_scoring_segment(
                     field.field_name, field.index_doc_count, field.sum_total_term_freq,
-                    field.has_positions, field.has_norms, field.single_term_normalizer,
-                    segment_accumulator));
+                    field.has_positions, field.has_norms, segment_accumulator, field.is_analyzed,
+                    field.single_term_normalizer));
         }
         return Status::OK();
     }
@@ -720,6 +749,8 @@ protected:
     std::unique_ptr<CollectionStatistics> stats_;
     std::shared_ptr<MockRuntimeState> runtime_state_;
     std::string test_dir_;
+    segment_v2::InvertedIndexQueryCache* previous_query_cache_ = nullptr;
+    std::unique_ptr<segment_v2::InvertedIndexQueryCache> query_cache_;
 };
 
 TEST_F(CollectionStatisticsTest, CollectWithEmptyRowsetSplits) {
@@ -886,6 +917,426 @@ TEST_F(CollectionStatisticsTest, LegacyV3SegmentsUsePhysicalScoringStatistics) {
     expect_collected_term(L"1", L"alpha", 2);
 }
 
+TEST_F(CollectionStatisticsTest, MissingFieldIndexPreservesOtherFieldStatistics) {
+    auto schema = create_legacy_v3_schema();
+    TabletColumn other = schema->column(0);
+    other.set_unique_id(2);
+    other.set_name("other");
+    schema->append_column(other);
+    TabletIndex other_index = *schema->inverted_indexs(1).front();
+    other_index._index_id = 2;
+    other_index._col_unique_ids = {2};
+    schema->append_index(std::move(other_index));
+    const std::string first = test_dir_ + "/only_content.dat";
+    const std::string second = test_dir_ + "/only_other.dat";
+    ASSERT_TRUE(write_legacy_v3_segment(schema, first, 0).ok());
+    ASSERT_TRUE(write_legacy_v3_segment(schema, second, 1).ok());
+
+    auto meta = std::make_shared<collection_statistics::MockRowsetMeta>();
+    auto rowset = std::make_shared<collection_statistics::MockRowset>(schema, meta);
+    rowset->set_num_segments(2);
+    rowset->set_segment_path(0, first);
+    rowset->set_segment_path(1, second);
+    auto reader = std::make_shared<collection_statistics::MockRowsetReader>(rowset);
+    std::vector<RowSetSplits> splits {RowSetSplits(reader)};
+    TSearchClause content;
+    content.__set_clause_type("TERM");
+    content.__set_field_name("content");
+    content.__set_value("alpha");
+    TSearchClause other_clause = content;
+    other_clause.__set_field_name("other");
+    TSearchClause root;
+    root.__set_clause_type("OR");
+    root.__set_children({content, other_clause});
+    ASSERT_TRUE(stats_->collect(runtime_state_.get(), splits, schema, create_search_contexts(root),
+                                nullptr)
+                        .ok());
+    // Neither segment contains both indexes. Both existing fields must contribute exactly once,
+    // regardless of which missing index the unordered field iteration encounters first.
+    expect_collected_stats(L"1", 2, 2);
+    expect_collected_stats(L"2", 2, 2);
+    expect_collected_term(L"1", L"alpha", 1);
+    expect_collected_term(L"2", L"alpha", 1);
+}
+
+// A replica whose segment still holds a row that a later load overwrote must collect the same
+// statistics as a replica that compacted the row away, or the two score every row differently.
+TEST_F(CollectionStatisticsTest, HiddenRowsAreCollectedLikeCompactedAway) {
+    auto tablet_schema = create_legacy_v3_schema();
+    // Forty-five tokens: CLucene's norm holds lengths exactly only up to 40.
+    std::string overwritten;
+    for (int i = 0; i < 44; ++i) {
+        overwritten += "gamma ";
+    }
+    overwritten += "alpha";
+    const std::string uncompacted_path = test_dir_ + "/hidden_rows_uncompacted_0.dat";
+    const std::string compacted_path = test_dir_ + "/hidden_rows_compacted_0.dat";
+    ASSERT_TRUE(write_legacy_v3_segment(tablet_schema, uncompacted_path, 0,
+                                        {"alpha beta", overwritten, "beta gamma delta"})
+                        .ok());
+    ASSERT_TRUE(write_legacy_v3_segment(tablet_schema, compacted_path, 0,
+                                        {"alpha beta", "beta gamma delta"})
+                        .ok());
+
+    struct Collected {
+        uint64_t doc_count;
+        uint64_t token_count;
+        uint64_t alpha_doc_frequency;
+        uint64_t gamma_doc_frequency;
+        float avg_dl;
+        float alpha_idf;
+    };
+    // The delete bitmap's aggregation cache is keyed by tablet and rowset, and the mock rowsets
+    // share their ids, so each collection uses its own tablet id.
+    int64_t next_tablet_id = 9100;
+    auto collect = [&](const std::string& segment_path,
+                       const std::vector<uint32_t>& hidden_rows) -> Collected {
+        auto rowset_meta = std::make_shared<collection_statistics::MockRowsetMeta>();
+        auto rowset =
+                std::make_shared<collection_statistics::MockRowset>(tablet_schema, rowset_meta);
+        rowset->set_num_segments(1);
+        rowset->set_segment_path(0, segment_path);
+        auto reader = std::make_shared<collection_statistics::MockRowsetReader>(rowset);
+        std::vector<RowSetSplits> splits {RowSetSplits(reader)};
+
+        constexpr int64_t kVersion = 5;
+        MowHiddenRows hidden {.delete_bitmap = std::make_shared<DeleteBitmap>(next_tablet_id++),
+                              .version = kVersion};
+        for (const auto seg : rowset->segments()) {
+            for (const uint32_t row : hidden_rows) {
+                hidden.delete_bitmap->add(seg.delete_bitmap_key(kVersion), row);
+            }
+        }
+        CollectionStatistics stats;
+        const Status status =
+                stats.collect(runtime_state_.get(), splits, tablet_schema,
+                              create_match_expr_contexts("alpha gamma"), nullptr, &hidden);
+        EXPECT_TRUE(status.ok()) << status;
+        return {.doc_count = stats.get_doc_num(),
+                .token_count = stats.get_total_term_cnt_by_col(L"1"),
+                .alpha_doc_frequency = stats.get_term_doc_freq_by_col(L"1", L"alpha"),
+                .gamma_doc_frequency = stats.get_term_doc_freq_by_col(L"1", L"gamma"),
+                .avg_dl = stats.get_or_calculate_avg_dl(L"1"),
+                .alpha_idf = stats.get_or_calculate_idf(L"1", L"alpha")};
+    };
+
+    const Collected uncompacted = collect(uncompacted_path, {1});
+    const Collected compacted = collect(compacted_path, {});
+    EXPECT_EQ(uncompacted.doc_count, 2);
+    EXPECT_EQ(uncompacted.token_count, 5);
+    EXPECT_EQ(uncompacted.alpha_doc_frequency, 1);
+    EXPECT_EQ(uncompacted.gamma_doc_frequency, 1);
+    EXPECT_EQ(uncompacted.doc_count, compacted.doc_count);
+    EXPECT_EQ(uncompacted.token_count, compacted.token_count);
+    EXPECT_EQ(uncompacted.alpha_doc_frequency, compacted.alpha_doc_frequency);
+    EXPECT_EQ(uncompacted.gamma_doc_frequency, compacted.gamma_doc_frequency);
+    EXPECT_EQ(uncompacted.avg_dl, compacted.avg_dl);
+    EXPECT_EQ(uncompacted.alpha_idf, compacted.alpha_idf);
+
+    // Without the delete bitmap the overwritten row is counted.
+    auto rowset_meta = std::make_shared<collection_statistics::MockRowsetMeta>();
+    auto rowset = std::make_shared<collection_statistics::MockRowset>(tablet_schema, rowset_meta);
+    rowset->set_num_segments(1);
+    rowset->set_segment_path(0, uncompacted_path);
+    auto reader = std::make_shared<collection_statistics::MockRowsetReader>(rowset);
+    std::vector<RowSetSplits> splits {RowSetSplits(reader)};
+    ASSERT_TRUE(stats_->collect(runtime_state_.get(), splits, tablet_schema,
+                                create_match_expr_contexts("alpha gamma"), nullptr)
+                        .ok());
+    expect_collected_stats(L"1", 3, 50);
+    expect_collected_term(L"1", L"alpha", 2);
+}
+
+// A tablet whose rows were all deleted or overwritten still has segments to collect from, but no
+// document a query can match. Its statistics are empty, not missing.
+TEST_F(CollectionStatisticsTest, AllRowsHiddenCollectsEmptyStatistics) {
+    auto tablet_schema = create_legacy_v3_schema();
+    const std::string segment_path = test_dir_ + "/all_rows_hidden_0.dat";
+    ASSERT_TRUE(
+            write_legacy_v3_segment(tablet_schema, segment_path, 0, {"alpha beta", "alpha"}).ok());
+
+    auto rowset_meta = std::make_shared<collection_statistics::MockRowsetMeta>();
+    auto rowset = std::make_shared<collection_statistics::MockRowset>(tablet_schema, rowset_meta);
+    rowset->set_num_segments(1);
+    rowset->set_segment_path(0, segment_path);
+    auto reader = std::make_shared<collection_statistics::MockRowsetReader>(rowset);
+    std::vector<RowSetSplits> splits {RowSetSplits(reader)};
+
+    constexpr int64_t kVersion = 3;
+    MowHiddenRows hidden {.delete_bitmap = std::make_shared<DeleteBitmap>(9200),
+                          .version = kVersion};
+    for (const auto seg : rowset->segments()) {
+        hidden.delete_bitmap->add(seg.delete_bitmap_key(kVersion), 0);
+        hidden.delete_bitmap->add(seg.delete_bitmap_key(kVersion), 1);
+    }
+    const Status status = stats_->collect(runtime_state_.get(), splits, tablet_schema,
+                                          create_match_expr_contexts("alpha"), nullptr, &hidden);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(stats_->get_doc_num(), 0);
+    expect_collected_term(L"1", L"alpha", 0);
+    EXPECT_TRUE(std::isfinite(stats_->get_or_calculate_avg_dl(L"1")));
+    EXPECT_TRUE(std::isfinite(stats_->get_or_calculate_idf(L"1", L"alpha")));
+
+    // Without any collected segment the statistics are still reported missing.
+    CollectionStatistics nothing_collected;
+    EXPECT_THROW(nothing_collected.get_doc_num(), Exception);
+}
+
+// NULL rows have no tokens. A merge-on-write tablet, whose token count comes from the norms, counts
+// them as documents without tokens, as a table without a delete bitmap does.
+TEST_F(CollectionStatisticsTest, NullRowsCountAsDocumentsWithoutTokens) {
+    auto tablet_schema = create_legacy_v3_schema();
+    const std::string segment_path = test_dir_ + "/null_rows_0.dat";
+    ASSERT_TRUE(write_legacy_v3_segment(tablet_schema, segment_path, 0,
+                                        {"alpha beta", "", "alpha", "", "beta gamma delta"}, {1, 3})
+                        .ok());
+    auto collect = [&](const MowHiddenRows* hidden) {
+        auto rowset_meta = std::make_shared<collection_statistics::MockRowsetMeta>();
+        auto rowset =
+                std::make_shared<collection_statistics::MockRowset>(tablet_schema, rowset_meta);
+        rowset->set_num_segments(1);
+        rowset->set_segment_path(0, segment_path);
+        auto reader = std::make_shared<collection_statistics::MockRowsetReader>(rowset);
+        std::vector<RowSetSplits> splits {RowSetSplits(reader)};
+        CollectionStatistics stats;
+        const Status status = stats.collect(runtime_state_.get(), splits, tablet_schema,
+                                            create_match_expr_contexts("alpha"), nullptr, hidden);
+        EXPECT_TRUE(status.ok()) << status;
+        return std::make_pair(stats.get_doc_num(), stats.get_total_term_cnt_by_col(L"1"));
+    };
+
+    const auto without_bitmap = collect(nullptr);
+    EXPECT_EQ(without_bitmap.first, 5);
+    EXPECT_EQ(without_bitmap.second, 6);
+    MowHiddenRows nothing_hidden {.delete_bitmap = std::make_shared<DeleteBitmap>(9300),
+                                  .version = 2};
+    EXPECT_EQ(collect(&nothing_hidden), without_bitmap);
+
+    // A hidden NULL row leaves the document count and still adds no tokens.
+    MowHiddenRows null_hidden {.delete_bitmap = std::make_shared<DeleteBitmap>(9301), .version = 2};
+    auto rowset_meta = std::make_shared<collection_statistics::MockRowsetMeta>();
+    auto rowset = std::make_shared<collection_statistics::MockRowset>(tablet_schema, rowset_meta);
+    rowset->set_num_segments(1);
+    for (const auto seg : rowset->segments()) {
+        null_hidden.delete_bitmap->add(seg.delete_bitmap_key(2), 1);
+    }
+    EXPECT_EQ(collect(&null_hidden), std::make_pair(uint64_t {4}, uint64_t {6}));
+}
+
+namespace {
+
+// A cursor listing its documents in the given blocks, a pair standing for a dense range.
+class BlockListCursor final : public index_query::PostingsCursor {
+public:
+    using Block = std::variant<std::vector<uint32_t>, std::pair<uint32_t, uint32_t>>;
+
+    explicit BlockListCursor(std::vector<Block> blocks) : _blocks(std::move(blocks)) {}
+
+    uint32_t doc_freq() const override {
+        uint32_t docs = 0;
+        for (const Block& block : _blocks) {
+            if (const auto* listed = std::get_if<std::vector<uint32_t>>(&block)) {
+                docs += static_cast<uint32_t>(listed->size());
+            } else {
+                const auto& [begin, end] = std::get<std::pair<uint32_t, uint32_t>>(block);
+                docs += end - begin;
+            }
+        }
+        return docs;
+    }
+
+    Status next_block(index_query::PostingsBlock* block, bool* eof) override {
+        *block = {};
+        *eof = _next == _blocks.size();
+        if (*eof) {
+            return Status::OK();
+        }
+        const Block& next = _blocks[_next++];
+        if (const auto* docs = std::get_if<std::vector<uint32_t>>(&next)) {
+            block->docs = *docs;
+        } else {
+            const auto& [begin, end] = std::get<std::pair<uint32_t, uint32_t>>(next);
+            block->dense = true;
+            block->range_begin = begin;
+            block->range_end = end;
+        }
+        return Status::OK();
+    }
+
+    Status seek_block(uint32_t target, index_query::PostingsBlock* block, bool* eof) override {
+        ++seeks;
+        while (_next < _blocks.size() && last_doc(_blocks[_next]) < target) {
+            ++_next;
+        }
+        return next_block(block, eof);
+    }
+
+    Status shallow_seek(uint32_t /*target*/, bool* moved) override {
+        *moved = false;
+        return Status::OK();
+    }
+
+    index_query::BlockBound current_block_bound() const override { return {}; }
+
+    size_t seeks = 0;
+
+private:
+    static uint32_t last_doc(const Block& block) {
+        if (const auto* docs = std::get_if<std::vector<uint32_t>>(&block)) {
+            return docs->back();
+        }
+        return std::get<std::pair<uint32_t, uint32_t>>(block).second - 1;
+    }
+
+    std::vector<Block> _blocks;
+    size_t _next = 0;
+};
+
+} // namespace
+
+TEST(CollectionStatisticsHiddenRowsTest, CountListedDocsScansSparseAndDenseBlocks) {
+    BlockListCursor cursor({std::vector<uint32_t> {1, 4, 6}, std::pair<uint32_t, uint32_t> {10, 20},
+                            std::vector<uint32_t> {25, 30}, std::vector<uint32_t> {40, 41}});
+    const std::vector<uint32_t> docs {0, 4, 5, 12, 19, 20, 30, 31};
+    uint64_t listed = 0;
+    ASSERT_TRUE(index_query::count_listed_docs(cursor, docs, &listed).ok());
+    EXPECT_EQ(listed, 4); // 4, 12, 19 and 30.
+    // As many docs as postings: every block is decoded once, without seeking.
+    EXPECT_EQ(cursor.seeks, 0);
+}
+
+// Few docs among many postings: the cursor seeks to each doc instead of decoding every block.
+TEST(CollectionStatisticsHiddenRowsTest, CountListedDocsLeapsOverFewDocs) {
+    BlockListCursor cursor(
+            {std::vector<uint32_t> {1, 4, 6}, std::pair<uint32_t, uint32_t> {10, 5000},
+             std::vector<uint32_t> {6000, 7000}, std::vector<uint32_t> {8000, 8001}});
+    const std::vector<uint32_t> docs {4, 4999, 7500};
+    uint64_t listed = 0;
+    ASSERT_TRUE(index_query::count_listed_docs(cursor, docs, &listed).ok());
+    EXPECT_EQ(listed, 2); // 4 and 4999.
+    EXPECT_EQ(cursor.seeks, 3);
+}
+
+TEST(CollectionStatisticsHiddenRowsTest, CountListedDocsOfNothing) {
+    BlockListCursor cursor({std::vector<uint32_t> {1, 2}});
+    uint64_t listed = 7;
+    ASSERT_TRUE(index_query::count_listed_docs(cursor, {}, &listed).ok());
+    EXPECT_EQ(listed, 0);
+    BlockListCursor empty({});
+    const std::vector<uint32_t> docs {1, 2};
+    ASSERT_TRUE(index_query::count_listed_docs(empty, docs, &listed).ok());
+    EXPECT_EQ(listed, 0);
+    EXPECT_EQ(empty.seeks, 0);
+}
+
+// Scanning walks the wanted documents alongside the postings, however large their IDs, and stops
+// once every wanted document is passed.
+TEST(CollectionStatisticsHiddenRowsTest, CountListedDocsScansFarDocsWithoutWalkingEveryBlock) {
+    BlockListCursor cursor({std::vector<uint32_t> {3}, std::pair<uint32_t, uint32_t> {10, 20},
+                            std::vector<uint32_t> {9999999}, std::vector<uint32_t> {10000005}});
+    const std::vector<uint32_t> docs {3, 15, 19, 9999999};
+    uint64_t listed = 0;
+    ASSERT_TRUE(index_query::count_listed_docs(cursor, docs, &listed).ok());
+    EXPECT_EQ(listed, 4);
+    EXPECT_EQ(cursor.seeks, 0);
+
+    BlockListCursor far({std::vector<uint32_t> {1}});
+    const std::vector<uint32_t> far_docs {9999999};
+    ASSERT_TRUE(index_query::count_listed_docs(far, far_docs, &listed).ok());
+    EXPECT_EQ(listed, 0);
+}
+
+TEST(CollectionStatisticsHiddenRowsTest, ExcludeHiddenDocsSumsNormsOfReturnedRows) {
+    index_query::testing::FakeIndexSource source;
+    source.set_doc_count(4);
+    source.norms = {{0, 3}, {1, 5}, {2, 2}, {3, 7}};
+    uint64_t non_null_length_sum = 0;
+    ASSERT_TRUE(sum_non_null_norm_lengths(source, {}, &non_null_length_sum).ok());
+    EXPECT_EQ(non_null_length_sum, 17);
+    const roaring::Roaring no_nulls;
+    index_query::IndexScoringStats stats {
+            .doc_count = 4, .token_count = 1000, .has_positions = true, .has_norms = true};
+    const std::vector<uint32_t> hidden {1, 3};
+    ASSERT_TRUE(exclude_hidden_docs(source, hidden, no_nulls, non_null_length_sum, &stats).ok());
+    EXPECT_EQ(stats.doc_count, 2);
+    EXPECT_EQ(stats.token_count, 5);
+
+    // With nothing hidden the token count still comes from the norms, as on a replica that
+    // compacted the hidden rows away.
+    stats = {.doc_count = 4, .token_count = 1000, .has_positions = true, .has_norms = true};
+    ASSERT_TRUE(exclude_hidden_docs(source, {}, no_nulls, non_null_length_sum, &stats).ok());
+    EXPECT_EQ(stats.doc_count, 4);
+    EXPECT_EQ(stats.token_count, 17);
+}
+
+TEST(CollectionStatisticsHiddenRowsTest, ExcludeHiddenDocsWithoutNormsCountsOneTokenPerRow) {
+    index_query::testing::FakeIndexSource source;
+    source.set_doc_count(5);
+    index_query::IndexScoringStats stats {
+            .doc_count = 5, .token_count = 9, .has_positions = false, .has_norms = false};
+    const std::vector<uint32_t> hidden {0, 4};
+    roaring::Roaring nulls;
+    nulls.add(1);
+    ASSERT_TRUE(exclude_hidden_docs(source, hidden, nulls, 0, &stats).ok());
+    EXPECT_EQ(stats.doc_count, 3);
+    EXPECT_EQ(stats.token_count, 3);
+}
+
+TEST(CollectionStatisticsHiddenRowsTest, ExcludeHiddenDocsRejectsRowBeyondIndex) {
+    index_query::testing::FakeIndexSource source;
+    source.set_doc_count(2);
+    source.norms = {{0, 1}, {1, 1}};
+    index_query::IndexScoringStats stats {
+            .doc_count = 2, .token_count = 2, .has_positions = true, .has_norms = true};
+    const std::vector<uint32_t> hidden {2};
+    Status status = exclude_hidden_docs(source, hidden, roaring::Roaring {}, 2, &stats);
+    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_FILE_CORRUPTED) << status;
+    const std::vector<uint32_t> nulls {2};
+    uint64_t non_null_length_sum = 0;
+    status = sum_non_null_norm_lengths(source, nulls, &non_null_length_sum);
+    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_FILE_CORRUPTED) << status;
+}
+
+// A NULL row is a document without tokens, though its norm stands for one: it stays in the
+// document count and its length is left out, hidden or not.
+TEST(CollectionStatisticsHiddenRowsTest, ExcludeHiddenDocsLeavesOutLengthsOfNullRows) {
+    index_query::testing::FakeIndexSource source;
+    source.set_doc_count(5);
+    source.norms = {{0, 3}, {1, 5}, {2, 1}, {3, 7}, {4, 1}};
+    const std::vector<uint32_t> null_doc_ids {2, 4};
+    uint64_t non_null_length_sum = 0;
+    ASSERT_TRUE(sum_non_null_norm_lengths(source, null_doc_ids, &non_null_length_sum).ok());
+    EXPECT_EQ(non_null_length_sum, 15);
+    roaring::Roaring nulls;
+    nulls.addMany(null_doc_ids.size(), null_doc_ids.data());
+
+    index_query::IndexScoringStats stats {
+            .doc_count = 5, .token_count = 1000, .has_positions = true, .has_norms = true};
+    ASSERT_TRUE(exclude_hidden_docs(source, {}, nulls, non_null_length_sum, &stats).ok());
+    EXPECT_EQ(stats.doc_count, 5);
+    EXPECT_EQ(stats.token_count, 15);
+
+    stats = {.doc_count = 5, .token_count = 1000, .has_positions = true, .has_norms = true};
+    const std::vector<uint32_t> hidden {1, 2};
+    ASSERT_TRUE(exclude_hidden_docs(source, hidden, nulls, non_null_length_sum, &stats).ok());
+    EXPECT_EQ(stats.doc_count, 3);
+    EXPECT_EQ(stats.token_count, 10);
+}
+
+TEST(CollectionStatisticsHiddenRowsTest, ExcludeHiddenTermDocsTakesHiddenHoldersOnly) {
+    index_query::testing::FakeIndexSource source;
+    source.set_doc_count(6);
+    source.add("alpha", std::vector<uint32_t> {0, 1, 3, 5});
+    const std::vector<uint32_t> hidden {1, 2, 5};
+    uint64_t doc_frequency = 4;
+    ASSERT_TRUE(exclude_hidden_term_docs(source, "alpha", hidden, &doc_frequency).ok());
+    EXPECT_EQ(doc_frequency, 2);
+
+    uint64_t absent = 0;
+    ASSERT_TRUE(exclude_hidden_term_docs(source, "omega", hidden, &absent).ok());
+    EXPECT_EQ(absent, 0);
+}
+
 TEST_F(CollectionStatisticsTest, LegacyV3SkipsMissingSegmentAfterCollectingAvailableStatistics) {
     auto tablet_schema = create_legacy_v3_schema();
     const std::string first_segment_path = test_dir_ + "/legacy_v3_0.dat";
@@ -975,26 +1426,45 @@ TEST_F(CollectionStatisticsTest, LegacyV3RejectsSegmentWrittenWithoutNorms) {
     expect_no_collected_tokens(L"1");
 }
 
-// An index that is not analyzed never writes norms, and its scoring statistics are collected as
-// before.
-TEST_F(CollectionStatisticsTest, LegacyV3KeywordIndexWithoutNormsIsStillCollected) {
+TEST_F(CollectionStatisticsTest, LegacyV3KeywordIndexWithoutNormsCollectsScoring) {
     auto tablet_schema = create_legacy_v3_schema({});
     const std::string segment_path = test_dir_ + "/legacy_v3_keyword_0.dat";
     ASSERT_TRUE(write_legacy_v3_segment(tablet_schema, segment_path).ok());
 
+    const std::string second_path = test_dir_ + "/legacy_v3_keyword_1.dat";
+    ASSERT_TRUE(write_legacy_v3_segment(tablet_schema, second_path).ok());
+
     auto rowset_meta = std::make_shared<collection_statistics::MockRowsetMeta>();
     auto rowset = std::make_shared<collection_statistics::MockRowset>(tablet_schema, rowset_meta);
-    rowset->set_num_segments(1);
+    rowset->set_num_segments(2);
     rowset->set_segment_path(0, segment_path);
+    rowset->set_segment_path(1, second_path);
     auto reader = std::make_shared<collection_statistics::MockRowsetReader>(rowset);
     std::vector<RowSetSplits> splits {RowSetSplits(reader)};
 
-    const Status status = stats_->collect(runtime_state_.get(), splits, tablet_schema,
-                                          create_search_contexts("TERM", "alpha beta"), nullptr);
+    for (const auto* clause_type : {"TERM", "PHRASE", "EXACT"}) {
+        const Status status =
+                stats_->collect(runtime_state_.get(), splits, tablet_schema,
+                                create_search_contexts(clause_type, "alpha beta"), nullptr);
 
-    ASSERT_TRUE(status.ok()) << status;
-    expect_collected_stats(L"1", 1, 0);
-    expect_collected_term(L"1", L"alpha beta", 1);
+        ASSERT_TRUE(status.ok()) << status;
+        expect_collected_stats(L"1", 2, 2);
+        expect_collected_term(L"1", L"alpha beta", 2);
+        EXPECT_FLOAT_EQ(stats_->get_or_calculate_avg_dl(L"1"), 1.0F);
+    }
+}
+
+TEST_F(CollectionStatisticsTest, SniiKeywordStatsAllowMissingPositionsAndNorms) {
+    auto resolved = resolve_snii_scoring_segment(3, 3, false, false, false);
+    ASSERT_TRUE(resolved.has_value()) << resolved.error();
+    EXPECT_EQ(resolved->doc_count, 3);
+    EXPECT_EQ(resolved->token_count, 3);
+    SniiScoringFieldInput input(L"1", 3, 3, false);
+    input.has_positions = false;
+    input.is_analyzed = false;
+    ASSERT_TRUE(admit_snii_fields_for_test(stats_.get(), {input}).ok());
+    expect_collected_stats(L"1", 3, 3);
+    EXPECT_FLOAT_EQ(stats_->get_or_calculate_avg_dl(L"1"), 1.0F);
 }
 
 TEST_F(CollectionStatisticsTest, SniiScoringUsesPhysicalStatistics) {
@@ -1198,6 +1668,40 @@ protected:
     std::unique_ptr<TestableCollectionStatistics> stats_;
 };
 
+// Scanners of one tablet each copy the tablet's statistics, so they must score identically.
+TEST_F(CollectionStatisticsDetailedTest, CopyCollectedFromScoresLikeSource) {
+    stats_->set_total_num_docs(1000);
+    stats_->set_total_num_tokens(L"content", 5000);
+    stats_->set_term_doc_freq(L"content", L"jobs", 37);
+
+    CollectionStatistics copy;
+    copy.copy_collected_from(*stats_);
+
+    EXPECT_FLOAT_EQ(copy.get_or_calculate_idf(L"content", L"jobs"),
+                    stats_->get_or_calculate_idf(L"content", L"jobs"));
+    EXPECT_FLOAT_EQ(copy.get_or_calculate_avg_dl(L"content"),
+                    stats_->get_or_calculate_avg_dl(L"content"));
+
+    // The copy does not share the source's counters or derived caches.
+    stats_->set_term_doc_freq(L"content", L"jobs", 900);
+    CollectionStatistics recopied;
+    recopied.copy_collected_from(*stats_);
+    EXPECT_NE(recopied.get_or_calculate_idf(L"content", L"jobs"),
+              copy.get_or_calculate_idf(L"content", L"jobs"));
+}
+
+TEST(TabletCollectionStatisticsTest, CollectsOnceAndCopiesToEveryCaller) {
+    TabletCollectionStatistics tablet_statistics({}, nullptr);
+    auto tablet_schema = std::make_shared<TabletSchema>();
+
+    CollectionStatistics first;
+    CollectionStatistics second;
+    EXPECT_TRUE(
+            tablet_statistics.copy_to(nullptr, tablet_schema, {}, nullptr, nullptr, &first).ok());
+    EXPECT_TRUE(
+            tablet_statistics.copy_to(nullptr, tablet_schema, {}, nullptr, nullptr, &second).ok());
+}
+
 // SNII scoring requires only positions and norms; statistics come directly from the stats block.
 TEST(CollectionStatisticsSniiScoringTest, ResolveUsesPhysicalDocAndTokenCounts) {
     auto result = resolve_snii_scoring_segment(3, 7, /*has_positions=*/true, /*has_norms=*/true);
@@ -1230,9 +1734,10 @@ TEST(CollectionStatisticsSniiScoringTest, ResolveRejectsSegmentWithoutPositions)
 }
 
 TEST(CollectionStatisticsSniiScoringTest, ResolveAcceptsSingleTermNormalizerWithoutPositions) {
-    auto result = resolve_snii_scoring_segment(3, 2, /*has_positions=*/false,
-                                               /*has_norms=*/false,
-                                               /*single_term_normalizer=*/true);
+    auto result =
+            resolve_snii_scoring_segment(3, 2, /*has_positions=*/false,
+                                         /*has_norms=*/false,
+                                         /*is_analyzed=*/true, /*single_term_normalizer=*/true);
 
     ASSERT_TRUE(result.has_value()) << result.error();
     EXPECT_EQ(result->doc_count, 3U);
@@ -1939,7 +2444,9 @@ TEST_F(CollectionStatisticsTest, CollectSkipsIndexWithoutAnalyzer) {
     index_pb.set_index_name("kw_idx");
     index_pb.set_index_type(IndexType::INVERTED);
     index_pb.add_col_unique_id(kColUid);
-    // No "parser" property -> should_analyzer returns false
+    // An explicit keyword parser inherits phrase support but is still not analyzed.
+    (*index_pb.mutable_properties())["parser"] = "none";
+    (*index_pb.mutable_properties())["support_phrase"] = "true";
     TabletIndex index;
     index.init_from_pb(index_pb);
     tablet_schema->append_index(std::move(index));
@@ -2171,7 +2678,7 @@ TEST_F(CollectionStatisticsTest, CollectConvertsAnalyzerFailureToStatus) {
     EXPECT_TRUE(collect_infos.empty());
 }
 
-TEST_F(CollectionStatisticsTest, CollectPhrasePrefixExcludesScoringTail) {
+TEST_F(CollectionStatisticsTest, CollectPhrasePrefixRegistersTheTailForExpansion) {
     auto tablet_schema = create_tablet_schema_with_inverted_index();
     auto match_expr = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
     match_expr->set_opcode(TExprOpcode::MATCH_PHRASE_PREFIX);
@@ -2193,6 +2700,60 @@ TEST_F(CollectionStatisticsTest, CollectPhrasePrefixExcludesScoringTail) {
     ASSERT_EQ(collect_info.logical_scoring_leaves[0].clauses.size(), 2u);
     EXPECT_EQ(collect_info.logical_scoring_leaves[0].clauses[0].position, 1);
     EXPECT_EQ(collect_info.logical_scoring_leaves[0].clauses[1].position, 2);
+    // The tail is no scoring term: segments expand it, and the terms it expands to are scored.
+    ASSERT_EQ(collect_info.scoring_prefixes.size(), 1u);
+    EXPECT_EQ(collect_info.scoring_prefixes[0].prefix, "gamma");
+    EXPECT_EQ(collect_info.scoring_prefixes[0].max_expansions, 50);
+}
+
+TEST_F(CollectionStatisticsTest,
+       CollectPhrasePrefixUnderNoSessionLimitScoresTheDefaultNumberOfTerms) {
+    TQueryOptions query_options;
+    query_options.inverted_index_max_expansions = 0;
+    runtime_state_->set_query_options(query_options);
+    auto tablet_schema = create_tablet_schema_with_inverted_index();
+    auto match_expr = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
+    match_expr->set_opcode(TExprOpcode::MATCH_PHRASE_PREFIX);
+    match_expr->_children.push_back(
+            std::make_shared<collection_statistics::MockVSlotRef>("content", SlotId(1)));
+    match_expr->_children.push_back(
+            std::make_shared<collection_statistics::MockVLiteral>("alpha gamma"));
+
+    MatchPredicateCollector collector;
+    CollectInfoMap collect_infos;
+    auto status =
+            collector.collect(runtime_state_.get(), tablet_schema, match_expr, &collect_infos);
+
+    ASSERT_TRUE(status.ok()) << status.msg();
+    const auto& collect_info = collect_infos.begin()->second;
+    // A limit of 0 expands the query's prefix to every term, but the statistics are kept for the
+    // whole scan and copied to each scanner, so they keep a bounded number.
+    ASSERT_EQ(collect_info.scoring_prefixes.size(), 1u);
+    EXPECT_EQ(collect_info.scoring_prefixes[0].max_expansions, kDefaultScoringExpansions);
+}
+
+TEST_F(CollectionStatisticsTest, CollectRepeatedPhrasePrefixRegistersTheTailOnce) {
+    auto tablet_schema = create_tablet_schema_with_inverted_index();
+    MatchPredicateCollector collector;
+    CollectInfoMap collect_infos;
+    for (const char* query : {"alpha gamma", "beta gamma", "alpha gamma"}) {
+        auto match_expr =
+                std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
+        match_expr->set_opcode(TExprOpcode::MATCH_PHRASE_PREFIX);
+        match_expr->_children.push_back(
+                std::make_shared<collection_statistics::MockVSlotRef>("content", SlotId(1)));
+        match_expr->_children.push_back(
+                std::make_shared<collection_statistics::MockVLiteral>(query));
+        auto status =
+                collector.collect(runtime_state_.get(), tablet_schema, match_expr, &collect_infos);
+        ASSERT_TRUE(status.ok()) << status.msg();
+    }
+
+    ASSERT_EQ(collect_infos.size(), 1u);
+    const auto& collect_info = collect_infos.begin()->second;
+    EXPECT_EQ(collect_info.unique_terms, std::vector<std::string>({"alpha", "beta"}));
+    ASSERT_EQ(collect_info.scoring_prefixes.size(), 1u);
+    EXPECT_EQ(collect_info.scoring_prefixes[0].prefix, "gamma");
 }
 
 TEST_F(CollectionStatisticsTest, CollectSingleTermPhrasePrefixHasEmptyScoringLeaf) {
@@ -2214,6 +2775,8 @@ TEST_F(CollectionStatisticsTest, CollectSingleTermPhrasePrefixHasEmptyScoringLea
     EXPECT_TRUE(collect_info.unique_terms.empty());
     ASSERT_EQ(collect_info.logical_scoring_leaves.size(), 1u);
     EXPECT_TRUE(collect_info.logical_scoring_leaves[0].clauses.empty());
+    // A prefix alone scores a constant and needs no statistics.
+    EXPECT_TRUE(collect_info.scoring_prefixes.empty());
 }
 
 TEST_F(CollectionStatisticsTest, SearchMatchCollectsRawExecutionTerm) {
@@ -2377,7 +2940,7 @@ TEST_F(CollectionStatisticsTest, SearchArrayStringSelectsFulltextLeafIndex) {
     EXPECT_EQ(collect_infos.begin()->second.index_meta->index_id(), 20);
 }
 
-TEST_F(CollectionStatisticsTest, SearchExactIgnoresAnalyzedBindingHint) {
+TEST_F(CollectionStatisticsTest, SearchExactUsesKeywordIndexWithAnalyzedBindingHint) {
     auto tablet_schema = create_tablet_schema_with_keyword_and_fulltext_indexes();
     TSearchClause clause;
     clause.clause_type = "EXACT";
@@ -2397,8 +2960,8 @@ TEST_F(CollectionStatisticsTest, SearchExactIgnoresAnalyzedBindingHint) {
             runtime_state_.get(), create_search_contexts(std::move(clause), {std::move(binding)}),
             tablet_schema, &collect_infos);
 
-    ASSERT_TRUE(status.ok()) << status.msg();
-    ASSERT_EQ(collect_infos.size(), 1u);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(collect_infos.size(), 1U);
     ASSERT_NE(collect_infos.begin()->second.index_meta, nullptr);
     EXPECT_EQ(collect_infos.begin()->second.index_meta->index_id(), 10);
     EXPECT_EQ(collect_infos.begin()->second.unique_terms,
@@ -2775,6 +3338,57 @@ TEST_F(CollectionStatisticsTest, ScoringAnalyzerContextReportsWrongFamilyCompone
 
     const std::map<std::string, std::string> valid = {{"parser", "english"}};
     EXPECT_TRUE(analyzer_context_from_properties(valid).has_value());
+}
+
+TEST(SearchPredicateCollectorTest, MatchAllDoesNotRequireFieldStatistics) {
+    TSearchClause clause;
+    clause.clause_type = "MATCH_ALL_DOCS";
+    SearchPredicateCollector collector;
+    CollectInfoMap infos;
+    auto status = collector.collect_from_clause(clause, nullptr, nullptr, {}, &infos);
+    EXPECT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(infos.empty());
+}
+
+TEST(SearchPredicateCollectorTest, LucenePureExclusionAllowsFieldlessMatchAll) {
+    TSearchClause all;
+    all.clause_type = "MATCH_ALL_DOCS";
+    all.__set_occur(TSearchOccur::SHOULD);
+    TSearchClause excluded;
+    excluded.clause_type = "WILDCARD";
+    excluded.__set_field_name("body");
+    excluded.__set_value("hit*");
+    excluded.__set_occur(TSearchOccur::MUST_NOT);
+    TSearchClause root;
+    root.clause_type = "OCCUR_BOOLEAN";
+    root.__set_children({all, excluded});
+    SearchPredicateCollector collector;
+    CollectInfoMap infos;
+    auto status = collector.collect_from_clause(root, nullptr, nullptr, {}, &infos);
+    EXPECT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(infos.empty());
+}
+
+// With a limit of 1, segment A holding {rose} and segment B holding {red, rose} expand to rose and
+// to red. The tablet scores red alone, whichever segment is counted first: rose's document
+// frequency, which only segment A counted, would otherwise be too small.
+TEST(PrefixExpansionSetTest, KeepsTheSmallestTermsWhateverTheSegmentOrder) {
+    const std::wstring red = L"red";
+    const std::wstring rose = L"rose";
+    for (const bool a_first : {true, false}) {
+        PrefixExpansionSet merged(1);
+        for (const bool is_a : {a_first, !a_first}) {
+            merged.insert(is_a ? rose : red);
+        }
+        EXPECT_EQ(merged.terms(), std::set<std::wstring> {red}) << "a_first=" << a_first;
+    }
+
+    PrefixExpansionSet three(3);
+    for (const std::wstring term : {L"d", L"b", L"e", L"a", L"c", L"b"}) {
+        three.insert(term);
+    }
+    EXPECT_EQ(three.terms(), (std::set<std::wstring> {L"a", L"b", L"c"}));
+    EXPECT_EQ(three.limit(), 3);
 }
 
 } // namespace doris

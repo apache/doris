@@ -21,6 +21,7 @@
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
 
+#include <cstring>
 #include <iostream>
 
 #include "agent/be_exec_version_manager.h"
@@ -131,6 +132,14 @@ TEST_P(DataTypeHLLTest, SerializeDeserializeTest) {
         auto* column_res = assert_cast<ColumnHLL*>(column2.get());
         ASSERT_EQ(column->get_data()[i].to_string(), column_res->get_data()[i].to_string());
     }
+
+    auto column3 = dt_hll->create_column();
+    dt_hll->deserialize(buf.get(), buf.get() + size, &column3,
+                        BeExecVersionManager::get_newest_version());
+    for (size_t i = 0; i != rows_value; ++i) {
+        auto* column_res = assert_cast<ColumnHLL*>(column3.get());
+        ASSERT_EQ(column->get_data()[i].to_string(), column_res->get_data()[i].to_string());
+    }
     helper->serialize_deserialize_assert(hll_cols, {dt_hll});
     std::cout << "finish serialize deserialize test" << std::endl;
 }
@@ -154,6 +163,100 @@ TEST_P(DataTypeHLLTest, SerializeDeserializeAsStreamTest) {
         ASSERT_EQ(column_data->get_data()[i].to_string(), column_res->get_data()[i].to_string());
     }
     std::cout << "finish serialize deserialize as stream test" << std::endl;
+}
+
+TEST(DataTypeHLLBoundsTest, RejectTruncatedValue) {
+    auto dt_hll =
+            DataTypeFactory::instance().create_data_type(FieldType::OLAP_FIELD_TYPE_HLL, 0, 0);
+    std::vector<char> buf(sizeof(bool) + 2 * sizeof(size_t) + 2 * sizeof(size_t) + 1);
+    char* ptr = buf.data();
+    bool is_const = false;
+    memcpy(ptr, &is_const, sizeof(is_const));
+    ptr += sizeof(is_const);
+    size_t row_num = 1;
+    memcpy(ptr, &row_num, sizeof(row_num));
+    ptr += sizeof(row_num);
+    size_t saved_num = 1;
+    memcpy(ptr, &saved_num, sizeof(saved_num));
+    ptr += sizeof(saved_num);
+    size_t hll_size = HLL_COLUMN_DEFAULT_LEN;
+    memcpy(ptr, &hll_size, sizeof(hll_size));
+    ptr += sizeof(hll_size);
+    *ptr = HLL_DATA_FULL;
+
+    auto column = dt_hll->create_column();
+    EXPECT_THROW(dt_hll->deserialize(buf.data(), buf.data() + buf.size(), &column,
+                                     BeExecVersionManager::get_newest_version()),
+                 doris::Exception);
+}
+
+TEST(DataTypeHLLBoundsTest, RejectInconsistentRowCount) {
+    auto dt_hll =
+            DataTypeFactory::instance().create_data_type(FieldType::OLAP_FIELD_TYPE_HLL, 0, 0);
+    std::vector<char> buf(sizeof(bool) + 2 * sizeof(size_t));
+    char* ptr = buf.data();
+    bool is_const = false;
+    memcpy(ptr, &is_const, sizeof(is_const));
+    ptr += sizeof(is_const);
+    size_t row_num = 2;
+    memcpy(ptr, &row_num, sizeof(row_num));
+    ptr += sizeof(row_num);
+    size_t saved_num = 1;
+    memcpy(ptr, &saved_num, sizeof(saved_num));
+
+    auto column = dt_hll->create_column();
+    EXPECT_THROW(dt_hll->deserialize(buf.data(), buf.data() + buf.size(), &column,
+                                     BeExecVersionManager::get_newest_version()),
+                 doris::Exception);
+}
+
+TEST(DataTypeHLLBoundsTest, AcceptCompressedNullableHLL) {
+    auto dt_hll =
+            DataTypeFactory::instance().create_data_type(FieldType::OLAP_FIELD_TYPE_HLL, 0, 0);
+    auto dt_nullable = std::make_shared<DataTypeNullable>(dt_hll);
+
+    auto nested = dt_nullable->get_nested_type()->create_column();
+    nested->insert_many_defaults(257);
+    auto nullable = ColumnNullable::create(std::move(nested), ColumnUInt8::create(257, 0));
+
+    std::vector<char> buf(dt_nullable->get_uncompressed_serialized_bytes(
+            *nullable, BeExecVersionManager::get_newest_version()));
+    char* end = dt_nullable->serialize(*nullable, buf.data(),
+                                       BeExecVersionManager::get_newest_version());
+
+    auto decoded = dt_nullable->create_column();
+    dt_nullable->deserialize(buf.data(), end, &decoded, BeExecVersionManager::get_newest_version());
+    EXPECT_EQ(decoded->size(), 257);
+}
+
+TEST(DataTypeHLLBoundsTest, RejectInvalidCompressedNullMap) {
+    constexpr size_t nested_header_size = sizeof(bool) + 2 * sizeof(size_t);
+    constexpr size_t encoded_prefix_size = sizeof(size_t) + 1;
+    auto dt_hll =
+            DataTypeFactory::instance().create_data_type(FieldType::OLAP_FIELD_TYPE_HLL, 0, 0);
+    auto dt_nullable = std::make_shared<DataTypeNullable>(dt_hll);
+
+    std::vector<char> buf(
+            2 * sizeof(size_t) + sizeof(bool) + encoded_prefix_size + nested_header_size, 0);
+    char* ptr = buf.data();
+    bool is_const = false;
+    memcpy(ptr, &is_const, sizeof(is_const));
+    ptr += sizeof(is_const);
+    size_t row_num = 257;
+    memcpy(ptr, &row_num, sizeof(row_num));
+    ptr += sizeof(row_num);
+    size_t saved_num = 257;
+    memcpy(ptr, &saved_num, sizeof(saved_num));
+    ptr += sizeof(saved_num);
+    size_t encode_size = 1;
+    memcpy(ptr, &encode_size, sizeof(encode_size));
+    ptr += sizeof(encode_size);
+    *ptr = 0;
+
+    auto column = dt_nullable->create_column();
+    EXPECT_THROW(dt_nullable->deserialize(buf.data(), buf.data() + buf.size(), &column,
+                                          BeExecVersionManager::get_newest_version()),
+                 doris::Exception);
 }
 
 INSTANTIATE_TEST_SUITE_P(Params, DataTypeHLLTest, ::testing::Values(0, 1, 10, 100));

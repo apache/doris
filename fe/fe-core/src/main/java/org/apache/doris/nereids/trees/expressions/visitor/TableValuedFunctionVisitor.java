@@ -18,9 +18,9 @@
 package org.apache.doris.nereids.trees.expressions.visitor;
 
 import org.apache.doris.nereids.trees.expressions.functions.table.Backends;
-import org.apache.doris.nereids.trees.expressions.functions.table.Binlog;
 import org.apache.doris.nereids.trees.expressions.functions.table.Catalogs;
 import org.apache.doris.nereids.trees.expressions.functions.table.CdcStream;
+import org.apache.doris.nereids.trees.expressions.functions.table.Changelog;
 import org.apache.doris.nereids.trees.expressions.functions.table.File;
 import org.apache.doris.nereids.trees.expressions.functions.table.Frontends;
 import org.apache.doris.nereids.trees.expressions.functions.table.FrontendsDisks;
@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.functions.table.GroupCommit;
 import org.apache.doris.nereids.trees.expressions.functions.table.Hdfs;
 import org.apache.doris.nereids.trees.expressions.functions.table.Http;
 import org.apache.doris.nereids.trees.expressions.functions.table.HttpStream;
+import org.apache.doris.nereids.trees.expressions.functions.table.IndexDiskUsage;
 import org.apache.doris.nereids.trees.expressions.functions.table.Jobs;
 import org.apache.doris.nereids.trees.expressions.functions.table.Local;
 import org.apache.doris.nereids.trees.expressions.functions.table.MvInfos;
@@ -48,8 +49,8 @@ public interface TableValuedFunctionVisitor<R, C> {
         return visitTableValuedFunction(backends, context);
     }
 
-    default R visitBinlog(Binlog binlog, C context) {
-        return visitTableValuedFunction(binlog, context);
+    default R visitChangelog(Changelog changelog, C context) {
+        return visitTableValuedFunction(changelog, context);
     }
 
     default R visitCatalogs(Catalogs catalogs, C context) {
@@ -66,6 +67,10 @@ public interface TableValuedFunctionVisitor<R, C> {
 
     default R visitPartitions(Partitions partitions, C context) {
         return visitTableValuedFunction(partitions, context);
+    }
+
+    default R visitIndexDiskUsage(IndexDiskUsage indexDiskUsage, C context) {
+        return visitTableValuedFunction(indexDiskUsage, context);
     }
 
     default R visitPartitionValues(PartitionValues partitionValues, C context) {

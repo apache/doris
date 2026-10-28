@@ -118,6 +118,91 @@ suite("test_paimon_write_char_padding", "p0,external,paimon") {
             'changelog-producer' = 'full-compaction'
         );
 
+        DROP TABLE IF EXISTS paimon.${dbName}.t_char_orc_spark;
+        CREATE TABLE paimon.${dbName}.t_char_orc_spark (
+            c CHAR(3), v INT
+        ) USING paimon
+        TBLPROPERTIES (
+            'primary-key' = 'c',
+            'bucket' = '4',
+            'file.format' = 'orc'
+        );
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_char_orc_spark_one_bucket;
+        CREATE TABLE paimon.${dbName}.t_char_orc_spark_one_bucket (
+            c CHAR(3), v INT
+        ) USING paimon
+        TBLPROPERTIES (
+            'primary-key' = 'c',
+            'bucket' = '1',
+            'file.format' = 'orc'
+        );
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_char_orc_spark_dynamic;
+        CREATE TABLE paimon.${dbName}.t_char_orc_spark_dynamic (
+            c CHAR(3), v INT
+        ) USING paimon
+        TBLPROPERTIES (
+            'primary-key' = 'c',
+            'bucket' = '-1',
+            'dynamic-bucket.target-row-num' = '1',
+            'file.format' = 'orc'
+        );
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_char_orc_spark_merge;
+        CREATE TABLE paimon.${dbName}.t_char_orc_spark_merge (
+            c CHAR(3), v INT
+        ) USING paimon
+        TBLPROPERTIES (
+            'primary-key' = 'c',
+            'bucket' = '4',
+            'file.format' = 'orc'
+        );
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_char_orc_cross_partition;
+        CREATE TABLE paimon.${dbName}.t_char_orc_cross_partition (
+            c CHAR(3), v INT, p STRING
+        ) USING paimon
+        PARTITIONED BY (p)
+        TBLPROPERTIES (
+            'primary-key' = 'c',
+            'bucket' = '-1',
+            'file.format' = 'orc'
+        );
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_char_orc_partition_key_merge;
+        CREATE TABLE paimon.${dbName}.t_char_orc_partition_key_merge (
+            c CHAR(3), v INT, p CHAR(3)
+        ) USING paimon
+        PARTITIONED BY (p)
+        TBLPROPERTIES (
+            'primary-key' = 'c,p',
+            'bucket' = '1',
+            'file.format' = 'orc'
+        );
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_char_avro_level0_merge;
+        CREATE TABLE paimon.${dbName}.t_char_avro_level0_merge (
+            c CHAR(3), v INT
+        ) USING paimon
+        TBLPROPERTIES (
+            'primary-key' = 'c',
+            'bucket' = '1',
+            'file.format' = 'orc',
+            'file.format.per.level' = '0:avro'
+        );
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_char_orc_spark_rowkind;
+        CREATE TABLE paimon.${dbName}.t_char_orc_spark_rowkind (
+            c CHAR(3), rk STRING, v INT
+        ) USING paimon
+        TBLPROPERTIES (
+            'primary-key' = 'c',
+            'bucket' = '4',
+            'rowkind.field' = 'rk',
+            'file.format' = 'orc'
+        );
+
         DROP TABLE IF EXISTS paimon.${dbName}.t_char_rowkind_key;
         CREATE TABLE paimon.${dbName}.t_char_rowkind_key (
             c CHAR(3), rk STRING, v INT
@@ -229,6 +314,13 @@ suite("test_paimon_write_char_padding", "p0,external,paimon") {
         ) duplicate key(pos) distributed by hash(pos) buckets 1
         properties ('replication_num' = '1')
     """
+    sql """drop table if exists internal.${dbName}.char_orc_merge_source"""
+    sql """
+        create table internal.${dbName}.char_orc_merge_source (
+            c char(3), v int
+        ) duplicate key(c) distributed by hash(c) buckets 1
+        properties ('replication_num' = '1')
+    """
 
     try {
         // A primary key Doris writes is padded, and Spark's write of the same key replaces it.
@@ -265,41 +357,37 @@ suite("test_paimon_write_char_padding", "p0,external,paimon") {
             FROM t_char_map_avro
         """
 
-        // The writer takes a map key from the Arrow batch BE sends, where a ROW key holding a ROW is a columnar row
-        // that cannot be hashed, so keys are compared by their bytes: such a key is padded, and two keys that
-        // padding makes equal fail the row as above.
-        sql """INSERT INTO t_char_map_row_key VALUES (1, map(named_struct('c', 'k', 'r', named_struct('i', 1)), 7))"""
+        // SQL rejects complex MAP keys before the Paimon writer runs, even when padding would keep them distinct.
+        // PaimonWriteSchemaTest covers the writer's complex-key normalization directly; these statements check
+        // the SQL boundary and that rejected writes leave each table empty.
+        test {
+            sql """INSERT INTO t_char_map_row_key VALUES (1, map(named_struct('c', 'k', 'r', named_struct('i', 1)), 7))"""
+            exception "MAP key type must be a primitive type"
+        }
         test {
             sql """
                 INSERT INTO t_char_map_row_key VALUES (2, map(named_struct('c', 'k', 'r', named_struct('i', 1)), 1,
                     named_struct('c', 'k ', 'r', named_struct('i', 1)), 2))
             """
-            exception "into the same key"
+            exception "MAP key type must be a primitive type"
         }
-        order_qt_map_row_key_padded """
-            SELECT id, map_size(m), concat('[', struct_element(map_keys(m)[1], 'c'), ']'), map_values(m)[1]
-            FROM t_char_map_row_key
-        """
+        order_qt_map_row_key_rejected """SELECT count(*) FROM t_char_map_row_key"""
 
-        // Paimon compares maps regardless of the order of their entries, and its Avro reader keeps one of two keys
-        // whose nested maps differ only in that order, so such keys that padding makes equal fail the row too. A
-        // key holding a map is padded.
+        // A STRUCT containing a MAP is still a complex key, regardless of the nested entry order.
         test {
             sql """
                 INSERT INTO t_char_map_nested_map_key VALUES (1, map(named_struct('c', 'k', 'm', map('a', 1, 'b', 2)),
                     10, named_struct('c', 'k ', 'm', map('b', 2, 'a', 1)), 20))
             """
-            exception "into the same key"
+            exception "MAP key type must be a primitive type"
         }
-        sql """INSERT INTO t_char_map_nested_map_key VALUES (2, map(named_struct('c', 'k', 'm', map('a', 1)), 10))"""
-        order_qt_map_nested_map_key_padded """
-            SELECT id, map_size(m), concat('[', struct_element(map_keys(m)[1], 'c'), ']'), map_values(m)[1]
-            FROM t_char_map_nested_map_key
-        """
+        test {
+            sql """INSERT INTO t_char_map_nested_map_key VALUES (2, map(named_struct('c', 'k', 'm', map('a', 1)), 10))"""
+            exception "MAP key type must be a primitive type"
+        }
+        order_qt_map_nested_map_key_rejected """SELECT count(*) FROM t_char_map_nested_map_key"""
 
-        // Paimon compares a DOUBLE regardless of the bits of a NaN, and its Avro reader keeps one of two keys that
-        // differ only so, while a NaN cast at run time keeps its sign. So the keys (k, NaN) and (k , -NaN), which
-        // padding makes equal, fail the row too. A key holding a NaN is padded.
+        // Runtime NaN values do not bypass the key-type check in INSERT SELECT.
         sql """INSERT INTO internal.${dbName}.char_nan_source VALUES ('NaN', '-NaN')"""
         test {
             sql """
@@ -308,21 +396,18 @@ suite("test_paimon_write_char_padding", "p0,external,paimon") {
                     named_struct('c', 'k ', 'd', cast(neg AS DOUBLE)), 20)
                 FROM internal.${dbName}.char_nan_source
             """
-            exception "into the same key"
+            exception "MAP key type must be a primitive type"
         }
-        sql """
-            INSERT INTO t_char_map_nan_key
-            SELECT 2, map(named_struct('c', 'k', 'd', cast(neg AS DOUBLE)), 10) FROM internal.${dbName}.char_nan_source
-        """
-        order_qt_map_nan_key_padded """
-            SELECT id, map_size(m), concat('[', struct_element(map_keys(m)[1], 'c'), ']'),
-                struct_element(map_keys(m)[1], 'd'), map_values(m)[1]
-            FROM t_char_map_nan_key
-        """
+        test {
+            sql """
+                INSERT INTO t_char_map_nan_key
+                SELECT 2, map(named_struct('c', 'k', 'd', cast(neg AS DOUBLE)), 10) FROM internal.${dbName}.char_nan_source
+            """
+            exception "MAP key type must be a primitive type"
+        }
+        order_qt_map_nan_key_rejected """SELECT count(*) FROM t_char_map_nan_key"""
 
-        // Paimon's Avro reader keeps the last of the entries of a map whose keys are equal, so a nested map holding
-        // NaN -> 1 and -NaN -> 2 reads back as {NaN: 2}, and the keys (k, {NaN: 1, -NaN: 2}) and (k , {NaN: 2}),
-        // which padding then makes equal, fail the row too. Keys whose nested maps keep other last values are padded.
+        // Nesting those NaNs inside another MAP also fails at the outer STRUCT key.
         test {
             sql """
                 INSERT INTO t_char_map_nested_nan_key
@@ -330,20 +415,18 @@ suite("test_paimon_write_char_padding", "p0,external,paimon") {
                     named_struct('c', 'k ', 'm', map(cast(pos AS DOUBLE), 2)), 20)
                 FROM internal.${dbName}.char_nan_source
             """
-            exception "into the same key"
+            exception "MAP key type must be a primitive type"
         }
-        sql """
-            INSERT INTO t_char_map_nested_nan_key
-            SELECT 2, map(named_struct('c', 'k', 'm', map(cast(pos AS DOUBLE), 1, cast(neg AS DOUBLE), 2)), 10,
-                named_struct('c', 'k ', 'm', map(cast(pos AS DOUBLE), 1)), 20)
-            FROM internal.${dbName}.char_nan_source
-        """
-        order_qt_map_nested_nan_key_padded """
-            SELECT id, map_size(m),
-                array_join(array_sort(array_map(k -> concat('[', struct_element(k, 'c'), ']'), map_keys(m))), '|'),
-                array_join(array_sort(map_values(m)), '|')
-            FROM t_char_map_nested_nan_key
-        """
+        test {
+            sql """
+                INSERT INTO t_char_map_nested_nan_key
+                SELECT 2, map(named_struct('c', 'k', 'm', map(cast(pos AS DOUBLE), 1, cast(neg AS DOUBLE), 2)), 10,
+                    named_struct('c', 'k ', 'm', map(cast(pos AS DOUBLE), 1)), 20)
+                FROM internal.${dbName}.char_nan_source
+            """
+            exception "MAP key type must be a primitive type"
+        }
+        order_qt_map_nested_nan_key_rejected """SELECT count(*) FROM t_char_map_nested_nan_key"""
 
         // A partition value is padded whether it comes from the rows or from a static PARTITION clause, so a
         // second static overwrite of 'x' replaces the partition the first one wrote.
@@ -367,13 +450,152 @@ suite("test_paimon_write_char_padding", "p0,external,paimon") {
         sql """UPDATE t_char_pk SET v = 40 WHERE v = 4"""
         order_qt_dml_matches_unpadded_keys """SELECT concat('[', c, ']'), char_length(c), v FROM t_char_pk"""
 
-        // ORC pads every CHAR value it writes and strips the trailing spaces from one it reads, so only the
-        // partition values of an ORC table are padded: padding a key would only change its bucket, and the DELETE
-        // and UPDATE below, which read the keys back without the spaces, would hash other buckets and miss them.
+        // ORC pads every CHAR value it writes and strips the trailing spaces from one it reads, so Doris reads back
+        // 'k' for the 'k  ' that it, Spark and Flink write. Paimon puts a row in the bucket of its key as the writer
+        // holds it, and merges only the data files whose key ranges, kept as the writer held the keys, overlap.
+        // So the rows of an ORC table are padded whatever they do, and the DELETE and UPDATE below, which read the
+        // keys back without the spaces, write them padded and reach them.
         sql """INSERT INTO t_char_orc_bucketed VALUES ('k', 1), ('ab', 2), ('x', 3), ('m', 4), ('zz', 5), ('abc', 6)"""
         sql """DELETE FROM t_char_orc_bucketed WHERE v IN (1, 3, 4, 5)"""
         sql """UPDATE t_char_orc_bucketed SET v = v * 10 WHERE v IN (2, 6)"""
         order_qt_orc_dml_reaches_keys """SELECT concat('[', c, ']'), char_length(c), v FROM t_char_orc_bucketed"""
+
+        // The same reaches the padded keys Spark writes into ORC tables: written back unpadded, the key of a DELETE
+        // or UPDATE would hash another of 4 buckets, ask the dynamic bucket index for a key it does not hold, or, as
+        // the smallest key 'ab' of a one-bucket table, sort below the range ['ab ', 'x  '] of the file holding it.
+        // A key Doris writes again replaces the one Spark wrote.
+        spark_paimon_multi """
+            INSERT INTO paimon.${dbName}.t_char_orc_spark
+                VALUES ('k', 1), ('ab', 2), ('x', 3), ('m', 4), ('zz', 5), ('abc', 6);
+            INSERT INTO paimon.${dbName}.t_char_orc_spark_one_bucket VALUES ('k', 1), ('ab', 2), ('x', 3);
+            INSERT INTO paimon.${dbName}.t_char_orc_spark_dynamic
+                VALUES ('k', 1), ('ab', 2), ('x', 3), ('m', 4), ('zz', 5), ('abc', 6);
+            INSERT INTO paimon.${dbName}.t_char_orc_spark_merge VALUES ('k', 1), ('ab', 2);
+            INSERT INTO paimon.${dbName}.t_char_orc_spark_rowkind VALUES ('k', '+I', 1), ('ab', '+I', 2);
+        """
+        sql """refresh table t_char_orc_spark"""
+        sql """refresh table t_char_orc_spark_one_bucket"""
+        sql """refresh table t_char_orc_spark_dynamic"""
+        sql """refresh table t_char_orc_spark_merge"""
+        sql """refresh table t_char_orc_spark_rowkind"""
+        sql """DELETE FROM t_char_orc_spark WHERE v IN (1, 3, 4, 5)"""
+        sql """UPDATE t_char_orc_spark SET v = v * 10 WHERE v IN (2, 6)"""
+        order_qt_orc_spark_dml """SELECT concat('[', c, ']'), char_length(c), v FROM t_char_orc_spark"""
+        sql """INSERT INTO t_char_orc_spark VALUES ('ab', 7), ('k', 8)"""
+        order_qt_orc_spark_upsert """SELECT concat('[', c, ']'), char_length(c), v FROM t_char_orc_spark"""
+        sql """UPDATE t_char_orc_spark_one_bucket SET v = 20 WHERE c = 'ab'"""
+        order_qt_orc_spark_one_bucket_update """
+            SELECT concat('[', c, ']'), char_length(c), v FROM t_char_orc_spark_one_bucket
+        """
+        sql """DELETE FROM t_char_orc_spark_one_bucket WHERE c = 'ab'"""
+        order_qt_orc_spark_one_bucket_delete """
+            SELECT concat('[', c, ']'), char_length(c), v FROM t_char_orc_spark_one_bucket
+        """
+        sql """DELETE FROM t_char_orc_spark_dynamic WHERE v IN (1, 3, 4, 5)"""
+        sql """UPDATE t_char_orc_spark_dynamic SET v = v * 10 WHERE v IN (2, 6)"""
+        order_qt_orc_spark_dynamic_bucket """
+            SELECT concat('[', c, ']'), char_length(c), v FROM t_char_orc_spark_dynamic
+        """
+
+        // A '-D' row of a rowkind.field table carries the key Doris read back, and is padded on an ORC table too.
+        sql """INSERT INTO t_char_orc_spark_rowkind SELECT c, '-D', v FROM t_char_orc_spark_rowkind WHERE v = 1"""
+        order_qt_orc_spark_rowkind_delete """SELECT concat('[', c, ']'), rk, v FROM t_char_orc_spark_rowkind"""
+
+        // MERGE matches 'k' to the 'k  ' Spark wrote, as Doris reads it back as 'k', and inserts 'q' padded. A
+        // source key that ends with a space, 'ab ', matches none of the keys read back without their spaces, yet
+        // padding would make it the stored 'ab ' that MERGE did not match, so that MERGE fails and writes nothing.
+        sql """INSERT INTO internal.${dbName}.char_orc_merge_source VALUES ('k', 10), ('q', 30)"""
+        sql """
+            MERGE INTO t_char_orc_spark_merge t
+            USING internal.${dbName}.char_orc_merge_source s ON t.c = s.c
+            WHEN MATCHED THEN UPDATE SET v = s.v
+            WHEN NOT MATCHED THEN INSERT (c, v) VALUES (s.c, s.v)
+        """
+        order_qt_orc_spark_merge """SELECT concat('[', c, ']'), char_length(c), v FROM t_char_orc_spark_merge"""
+        sql """INSERT INTO internal.${dbName}.char_orc_merge_source VALUES ('ab ', 40)"""
+        test {
+            sql """
+                MERGE INTO t_char_orc_spark_merge t
+                USING internal.${dbName}.char_orc_merge_source s ON t.c = s.c
+                WHEN NOT MATCHED THEN INSERT (c, v) VALUES (s.c, s.v)
+            """
+            exception "rtrim(<key>)"
+        }
+        order_qt_orc_spark_merge_trailing_space_fails """
+            SELECT concat('[', c, ']'), char_length(c), v FROM t_char_orc_spark_merge
+        """
+
+        // Each writer of a cross-partition table bootstraps its global key index from the keys the files hold, which
+        // ORC gives back without the trailing spaces that the keys Doris and Spark write carry. The writer indexes
+        // them padded, so a key written again into another partition, 'k' written by Doris and 'm' by Spark, finds
+        // the stored row and deletes it from its old partition: each key keeps one row, in its last partition.
+        spark_paimon """INSERT INTO paimon.${dbName}.t_char_orc_cross_partition VALUES ('m', 1, 'p1')"""
+        sql """refresh table t_char_orc_cross_partition"""
+        sql """INSERT INTO t_char_orc_cross_partition VALUES ('k', 1, 'p1')"""
+        sql """INSERT INTO t_char_orc_cross_partition VALUES ('k', 2, 'p2'), ('m', 2, 'p2')"""
+        order_qt_orc_cross_partition_upsert """
+            SELECT concat('[', c, ']'), char_length(c), v, p FROM t_char_orc_cross_partition
+        """
+
+        // Paimon keeps a partition value in the partition, so Doris reads it back as it is stored, padded, from an ORC
+        // table too. MERGE does not match 'x' to the stored 'x  ', and padding 'x' would let it replace the row it did
+        // not match, so that MERGE fails as on a table that writes no ORC files; one that pads the partition key in
+        // the MERGE matches the row and updates it.
+        spark_paimon """INSERT INTO paimon.${dbName}.t_char_orc_partition_key_merge VALUES ('k', 1, 'x')"""
+        sql """refresh table t_char_orc_partition_key_merge"""
+        test {
+            sql """
+                MERGE INTO t_char_orc_partition_key_merge t
+                USING (SELECT 'k' AS c, 9 AS v, 'x' AS p) s ON t.c = s.c AND t.p = s.p
+                WHEN MATCHED THEN UPDATE SET v = s.v
+                WHEN NOT MATCHED THEN INSERT (c, v, p) VALUES (s.c, s.v, s.p)
+            """
+            exception "rpad(<key>, 3, ' ')"
+        }
+        sql """
+            MERGE INTO t_char_orc_partition_key_merge t
+            USING (SELECT 'k' AS c, 9 AS v, 'x' AS p) s ON t.c = s.c AND t.p = rpad(s.p, 3, ' ')
+            WHEN MATCHED THEN UPDATE SET v = s.v
+            WHEN NOT MATCHED THEN INSERT (c, v, p) VALUES (s.c, s.v, rpad(s.p, 3, ' '))
+        """
+        order_qt_orc_partition_key_merge """
+            SELECT concat('[', c, ']'), v, concat('[', p, ']') FROM t_char_orc_partition_key_merge
+        """
+
+        // A table that writes ORC files at some levels only, here all but level 0, which writes Avro, gives a key back
+        // padded from its Avro files and without its trailing spaces from its ORC files: 'q', whose two files the
+        // compaction merges into an ORC file (it would only move a single file up a level), comes back as 'q', and
+        // 'k', written after, as 'k  '. MERGE does not match 'k' to the stored 'k  ', nor 'q  ' to the stored 'q', and
+        // padding either would let it replace the row it did not match, so both fail; a key as long as the column,
+        // which padding does not change, is inserted, and 'k  ', which matches, is updated.
+        spark_paimon_multi """
+            INSERT INTO paimon.${dbName}.t_char_avro_level0_merge VALUES ('q', 0);
+            INSERT INTO paimon.${dbName}.t_char_avro_level0_merge VALUES ('q', 1);
+            CALL paimon.sys.compact(table => '${dbName}.t_char_avro_level0_merge');
+            INSERT INTO paimon.${dbName}.t_char_avro_level0_merge VALUES ('k', 2);
+        """
+        sql """refresh table t_char_avro_level0_merge"""
+        order_qt_avro_level0_keys_read_back """
+            SELECT concat('[', c, ']'), char_length(c), v FROM t_char_avro_level0_merge
+        """
+        for (String key : ["k", "q  "]) {
+            test {
+                sql """
+                    MERGE INTO t_char_avro_level0_merge t
+                    USING (SELECT '${key}' AS c, 9 AS v) s ON t.c = s.c
+                    WHEN MATCHED THEN UPDATE SET v = s.v
+                    WHEN NOT MATCHED THEN INSERT (c, v) VALUES (s.c, s.v)
+                """
+                exception "at some levels only"
+            }
+        }
+        sql """
+            MERGE INTO t_char_avro_level0_merge t
+            USING (SELECT 'k  ' AS c, 20 AS v UNION ALL SELECT 'abc', 30) s ON t.c = s.c
+            WHEN MATCHED THEN UPDATE SET v = s.v
+            WHEN NOT MATCHED THEN INSERT (c, v) VALUES (s.c, s.v)
+        """
+        order_qt_avro_level0_merge """SELECT concat('[', c, ']'), char_length(c), v FROM t_char_avro_level0_merge"""
 
         // BE cannot route a CHAR bucket key that the writer pads by Paimon's bucket, since it would hash the
         // unpadded value. Rows of one bucket would then reach several of the four writers, each would compact
@@ -394,8 +616,7 @@ suite("test_paimon_write_char_padding", "p0,external,paimon") {
             SELECT snapshot_id, commit_kind, changelog_record_count FROM t_char_bucketed\$snapshots
         """
 
-        // The writer leaves the CHAR bucket key of an ORC table unpadded, as ORC pads it itself, so BE routes the
-        // rows to the four bucket writers by the bytes the writer writes: each bucket still has one writer, and both
+        // The writer pads the CHAR bucket key of an ORC table too, so that table also gets one writer, and both
         // snapshots of the full-compaction table are committed.
         sql """set parallel_pipeline_task_num = 4"""
         qt_orc_bucketed_route_plan """

@@ -232,6 +232,26 @@ jobs:
         )
       )
     steps:
+      # Keep the trusted helper outside the PR checkout; capture the first API failure too.
+      - name: Checkout trusted GitHub API diagnostics
+        timeout-minutes: 2
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha || github.sha }}
+          persist-credentials: false
+          path: .review-api-source
+          sparse-checkout: .github/scripts/review_github_api.py
+          sparse-checkout-cone-mode: false
+
+      - name: Install GitHub API diagnostics
+        timeout-minutes: 1
+        run: |
+          install -m 700 .review-api-source/.github/scripts/review_github_api.py "$RUNNER_TEMP/review_github_api.py"
+          gh --version
+          printf 'REVIEW_GH_VERSION=%s\n' "$(gh --version | sed -n '1p')" >> "$GITHUB_ENV"
+          printf 'REVIEW_GH_HELPER=%s\n' "$RUNNER_TEMP/review_github_api.py" >> "$GITHUB_ENV"
+          printf 'REVIEW_GITHUB_DIAGNOSTICS_DIR=%s\n' "$RUNNER_TEMP/review-github-diagnostics" >> "$GITHUB_ENV"
+
       - name: Resolve review inputs
         id: review_inputs
         timeout-minutes: 2
@@ -255,7 +275,7 @@ jobs:
             MANAGE_STATUS="$INPUT_MANAGE_STATUS"
           elif [ "$EVENT_NAME" = "issue_comment" ]; then
             PR_NUMBER="$ISSUE_NUMBER"
-            PR_JSON="$(gh api "repos/${REPO}/pulls/${PR_NUMBER}")"
+            PR_JSON="$(python3 "$REVIEW_GH_HELPER" api "repos/${REPO}/pulls/${PR_NUMBER}")"
             HEAD_SHA="$(jq -er '.head.sha' <<<"$PR_JSON")"
             BASE_SHA="$(jq -er '.base.sha' <<<"$PR_JSON")"
             REVIEW_FOCUS="$(printf '%s' "${COMMENT_BODY#'/review'}" |
@@ -271,7 +291,7 @@ jobs:
           test -n "$BASE_SHA"
 
           if [ "$MANAGE_STATUS" = "true" ]; then
-            PR_JSON="${PR_JSON:-$(gh api "repos/${REPO}/pulls/${PR_NUMBER}")}"
+            PR_JSON="${PR_JSON:-$(python3 "$REVIEW_GH_HELPER" api "repos/${REPO}/pulls/${PR_NUMBER}")}"
             LIVE_HEAD_SHA="$(jq -er '.head.sha' <<<"$PR_JSON")"
             LIVE_BASE_SHA="$(jq -er '.base.sha' <<<"$PR_JSON")"
             if [ "$LIVE_HEAD_SHA" != "$HEAD_SHA" ] || [ "$LIVE_BASE_SHA" != "$BASE_SHA" ]; then
@@ -303,7 +323,7 @@ jobs:
           PR_NUMBER: ${{ steps.review_inputs.outputs.pr_number }}
           REPO: ${{ github.repository }}
         run: |
-          gh api "repos/${REPO}/statuses/${HEAD_SHA}" \
+          python3 "$REVIEW_GH_HELPER" api "repos/${REPO}/statuses/${HEAD_SHA}" \
             -X POST \
             -f state='pending' \
             -f context='code-review' \
@@ -311,7 +331,7 @@ jobs:
             -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
           source_context="code-review/source/automated/pr-${PR_NUMBER}/base-${BASE_SHA}"
-          gh api "repos/${REPO}/statuses/${HEAD_SHA}" \
+          python3 "$REVIEW_GH_HELPER" api "repos/${REPO}/statuses/${HEAD_SHA}" \
             -X POST \
             -f state='pending' \
             -f context="$source_context" \
@@ -451,7 +471,7 @@ jobs:
               exit 1
             fi
             if grep -Fxq "$invalid_object" "$invalid_listing"; then
-              echo "Skipping Codex auth ${candidate##*/}: refresh token was already used."
+              echo "Skipping Codex auth ${candidate##*/}: refresh token is marked invalid."
               rm -f "$candidate_auth"
               continue
             fi
@@ -464,12 +484,12 @@ jobs:
           done < <(shuf "$auth_candidates")
 
           if [ -z "$auth_object" ]; then
-            auth_failure_reason="No eligible Codex review credentials: all are usage-limited or have a reused refresh token."
+            auth_failure_reason="No eligible Codex review credentials: all are usage-limited or have an invalid refresh token."
             if [ -n "$earliest_retry_after_epoch" ]; then
               retry_at="$(date -u -d "@$earliest_retry_after_epoch" +%Y-%m-%dT%H:%M:%SZ)"
               auth_failure_reason="$auth_failure_reason Earliest usage-limit retry is $retry_at."
             fi
-            auth_failure_reason="$auth_failure_reason Credentials with reused refresh tokens must be replaced."
+            auth_failure_reason="$auth_failure_reason Credentials with invalid refresh tokens must be replaced."
             echo "failure_reason=$auth_failure_reason" >> "$GITHUB_OUTPUT"
             echo "::error::$auth_failure_reason"
             exit 1
@@ -560,7 +580,7 @@ jobs:
           MAX_THREADS=30
           MAX_BODY_CHARS=1200
 
-          if gh api --paginate --slurp repos/${REPO}/pulls/${PR_NUMBER}/comments > "$REVIEW_CONTEXT_DIR/pr_review_comments_pages.json" 2>"$REVIEW_CONTEXT_DIR/pr_review_comments_error.log" \
+          if python3 "$REVIEW_GH_HELPER" api --paginate --slurp repos/${REPO}/pulls/${PR_NUMBER}/comments > "$REVIEW_CONTEXT_DIR/pr_review_comments_pages.json" 2>"$REVIEW_CONTEXT_DIR/pr_review_comments_error.log" \
             && jq 'add | sort_by((.in_reply_to_id // .id), .id)' "$REVIEW_CONTEXT_DIR/pr_review_comments_pages.json" > "$REVIEW_CONTEXT_DIR/pr_review_comments.json" 2>>"$REVIEW_CONTEXT_DIR/pr_review_comments_error.log" \
             && jq -r '
               def shorten($limit):
@@ -639,7 +659,7 @@ jobs:
             exit 1
           fi
 
-          live_pr="$(gh api "repos/${REPO}/pulls/${PR_NUMBER}")"
+          live_pr="$(python3 "$REVIEW_GH_HELPER" api "repos/${REPO}/pulls/${PR_NUMBER}")"
           live_head_sha="$(jq -r '.head.sha' <<<"$live_pr")"
           live_base_sha="$(jq -r '.base.sha' <<<"$live_pr")"
           live_base_ref="$(jq -er '.base.ref' <<<"$live_pr")"
@@ -670,7 +690,7 @@ jobs:
           git diff --shortstat "$diff_range"
 
           helper="$RUNNER_TEMP/prepare_review_agents.py"
-          gh api \
+          python3 "$REVIEW_GH_HELPER" api \
             -H "Accept: application/vnd.github.raw" \
             "repos/${REPO}/contents/.github/scripts/prepare_review_agents.py?ref=${HELPER_REF}" \
             > "$helper"
@@ -875,7 +895,7 @@ jobs:
           review_step_started_at=$SECONDS
 
           for script in run_review_with_resume.py submit_review.py; do
-            gh api \
+            python3 "$REVIEW_GH_HELPER" api \
               -H "Accept: application/vnd.github.raw" \
               "repos/${REPO}/contents/.github/scripts/${script}?ref=${HELPER_REF}" \
               > "$RUNNER_TEMP/$script"
@@ -931,16 +951,28 @@ jobs:
               failure_reason="Codex exited with status $status"
             fi
 
-            # Only terminal auth errors and Codex's own stderr identify an invalid
-            # token. A tool result quoting this error must not quarantine credentials.
-            if grep -Fqi "Your access token could not be refreshed because your refresh token was already used." <<<"$failure_reason" || \
-               grep -Fxq "refresh_token_reused" <<<"$failure_reason" || \
-               { jq -r 'select(.type == "turn.failed" or .type == "error") | .error.code // .code // empty' \
-                   "$REVIEW_CONTEXT_DIR/codex-events.jsonl" | grep -Fx "refresh_token_reused" >/dev/null; } || \
-               grep -Eq '"code"[[:space:]]*:[[:space:]]*"refresh_token_reused"' "$REVIEW_CONTEXT_DIR/codex-stderr.log"; then
-              echo "auth_invalid_reason=refresh_token_reused" >> "$GITHUB_OUTPUT"
-              echo "::warning::Codex refresh token was already used; recording this credential version as invalid."
-            fi
+            # Only permanent refresh failures quarantine the selected token.
+            # Access-token 401/token_revoked alone can still recover by refresh;
+            # tool results quoting auth errors are not authentication evidence.
+            for auth_invalid_reason in refresh_token_reused refresh_token_invalidated; do
+              case "$auth_invalid_reason" in
+                refresh_token_reused)
+                  auth_invalid_message="Your access token could not be refreshed because your refresh token was already used." ;;
+                refresh_token_invalidated)
+                  auth_invalid_message="Your session has ended. Please log in again." ;;
+              esac
+              if grep -Fqi "$auth_invalid_message" <<<"$failure_reason" || \
+                 grep -Fxq "$auth_invalid_reason" <<<"$failure_reason" || \
+                 { jq -r 'select(.type == "turn.failed" or .type == "error") | .error.code // .code // empty' \
+                     "$REVIEW_CONTEXT_DIR/codex-events.jsonl" | grep -Fx "$auth_invalid_reason" >/dev/null; } || \
+                 grep -Eq "\"code\"[[:space:]]*:[[:space:]]*\"${auth_invalid_reason}\"" "$REVIEW_CONTEXT_DIR/codex-stderr.log" || \
+                 grep -Eq "ERROR codex_login::auth(::manager)?: Failed to refresh token .*error_code: Some\(\"${auth_invalid_reason}\"\)" \
+                   "$REVIEW_CONTEXT_DIR/codex-stderr.log"; then
+                echo "auth_invalid_reason=$auth_invalid_reason" >> "$GITHUB_OUTPUT"
+                echo "::warning::Codex refresh failed ($auth_invalid_reason); recording this credential version as invalid."
+                break
+              fi
+            done
 
             usage_limit_retry_after_epoch=""
             if grep -Fqi "You've hit your usage limit" <<<"$failure_reason"; then
@@ -997,20 +1029,25 @@ jobs:
 
       - name: Record invalid Codex auth
         id: auth_invalid_record
-        if: ${{ always() && steps.auth.outcome == 'success' && steps.review.outputs.auth_invalid_reason == 'refresh_token_reused' }}
+        if: ${{ always() && steps.auth.outcome == 'success' && contains(fromJSON('["refresh_token_reused","refresh_token_invalidated"]'), steps.review.outputs.auth_invalid_reason) }}
         timeout-minutes: 5
         env:
+          AUTH_INVALID_REASON: ${{ steps.review.outputs.auth_invalid_reason }}
           OSS_AK: ${{ secrets.OSS_AK }}
           OSS_SK: ${{ secrets.OSS_SK }}
           OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
         run: |
+          case "$AUTH_INVALID_REASON" in
+            refresh_token_reused|refresh_token_invalidated) ;;
+            *) echo "::error::Unsupported Codex auth invalidation reason."; exit 1 ;;
+          esac
           # Bind the marker to the selected snapshot, so a late failing job cannot
           # invalidate a replacement uploaded by another job or an operator.
           refresh_token_hash="$(<"$RUNNER_TEMP/codex-auth-refresh-token.sha256")"
           [[ "$refresh_token_hash" =~ ^[0-9a-f]{64}$ ]]
           invalid_file="$(mktemp "$RUNNER_TEMP/codex-auth-invalid.XXXXXX")"
-          jq -n --arg refresh_token_sha256 "$refresh_token_hash" \
-            '{version: 1, state: "auth_invalid", reason: "refresh_token_reused", refresh_token_sha256: $refresh_token_sha256}' \
+          jq -n --arg refresh_token_sha256 "$refresh_token_hash" --arg reason "$AUTH_INVALID_REASON" \
+            '{version: 1, state: "auth_invalid", reason: $reason, refresh_token_sha256: $refresh_token_sha256}' \
             > "$invalid_file"
 
           # A separate object per token is idempotent and cannot be overwritten by
@@ -1063,8 +1100,8 @@ jobs:
           recovery_msg="Please inspect the workflow logs and rerun the review after the underlying issue is resolved."
           if [ -n "$AUTH_FAILURE_REASON" ]; then
             error_msg="$AUTH_FAILURE_REASON"
-          elif [ "$AUTH_INVALID_REASON" = "refresh_token_reused" ]; then
-            error_msg="${REVIEW_FAILURE_REASON:-The selected Codex refresh token was already used.}"
+          elif [ "$AUTH_INVALID_REASON" = "refresh_token_reused" ] || [ "$AUTH_INVALID_REASON" = "refresh_token_invalidated" ]; then
+            error_msg="${REVIEW_FAILURE_REASON:-The selected Codex refresh token is invalid.}"
             if [ "$AUTH_INVALID_RECORD_OUTCOME" = "success" ]; then
               recovery_msg="This credential version is excluded from future reviews. Replace its refresh token to restore eligibility. Please trigger /review again; another configured account may be available."
             else
@@ -1083,7 +1120,7 @@ jobs:
           else
             error_msg="${REVIEW_FAILURE_REASON:-Review step was $REVIEW_OUTCOME (possibly timeout or cancelled)}"
           fi
-          gh pr comment "$PR_NUMBER" --body "$(cat <<EOF
+          python3 "$REVIEW_GH_HELPER" pr comment "$PR_NUMBER" --body "$(cat <<EOF
           Codex automated review failed and did not complete.
 
           Error: ${error_msg}
@@ -1155,7 +1192,7 @@ jobs:
           fi
 
           source_context="code-review/source/automated/pr-${PR_NUMBER}/base-${BASE_SHA}"
-          gh api "repos/${REPO}/statuses/${HEAD_SHA}" \
+          python3 "$REVIEW_GH_HELPER" api "repos/${REPO}/statuses/${HEAD_SHA}" \
             -X POST \
             -f state="${state}" \
             -f context="$source_context" \
@@ -1184,7 +1221,7 @@ jobs:
           fi
 
           helper="$RUNNER_TEMP/emit_litefuse_otel_io.py"
-          gh api \
+          python3 "$REVIEW_GH_HELPER" api \
             -H "Accept: application/vnd.github.raw" \
             "repos/${REPO}/contents/.github/scripts/emit_litefuse_otel_io.py?ref=${HELPER_REF}" \
             > "$helper"
@@ -1300,6 +1337,16 @@ jobs:
           OSS_AK: ${{ secrets.OSS_AK }}
           OSS_SK: ${{ secrets.OSS_SK }}
           OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
+
+      - name: Preserve GitHub API failure diagnostics
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/upload-artifact@v4
+        with:
+          name: github-api-errors-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/review-github-diagnostics/*.json
+          if-no-files-found: ignore
 
   aggregate-status:
     needs: code-review

@@ -543,7 +543,7 @@ ColumnReader::ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& 
           _opts(opts),
           _num_rows(num_rows),
           _file_reader(std::move(file_reader)),
-          _dict_encoding_type(UNKNOWN_DICT_ENCODING) {
+          _dict_encoding_type(DictEncodingType::UNKNOWN_DICT_ENCODING) {
     _meta_length = meta.length();
     _meta_type = (FieldType)meta.type();
     if (_meta_type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
@@ -2736,7 +2736,7 @@ Status StringFileColumnIterator::set_access_paths(
     RETURN_IF_ERROR(FileColumnIterator::set_access_paths(all_access_paths, predicate_access_paths));
     // OFFSET_ONLY mode is fundamentally incompatible with CHAR columns:
     // CHAR is stored padded to its declared length (see
-    // OlapColumnDataConvertorChar::clone_and_padding), so the per-row length
+    // StorageLayout<CHAR>::column_to_storage), so the per-row length
     // recorded in dict word info / page headers is always the padded length
     // (e.g. 25 for CHAR(25)) — never the logical length expected by length().
     // Recovering the logical length requires scanning the chars buffer with
@@ -2837,14 +2837,16 @@ Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {
         // because it will load the column's ordinal index and zonemap index and maybe other indices.
         // it has bad impact on primary key query. For example, select * from table where pk = 1, and
         // the table has 2000 columns.
-        if (dict_encoding_type == ColumnReader::UNKNOWN_DICT_ENCODING && opts.is_predicate_column) {
+        if (dict_encoding_type == ColumnReader::DictEncodingType::UNKNOWN_DICT_ENCODING &&
+            opts.is_predicate_column) {
             RETURN_IF_ERROR(seek_to_ordinal(_reader->num_rows() - 1));
             _is_all_dict_encoding = _page.is_dict_encoding;
-            _reader->set_dict_encoding_type(_is_all_dict_encoding
-                                                    ? ColumnReader::ALL_DICT_ENCODING
-                                                    : ColumnReader::PARTIAL_DICT_ENCODING);
+            _reader->set_dict_encoding_type(
+                    _is_all_dict_encoding ? ColumnReader::DictEncodingType::ALL_DICT_ENCODING
+                                          : ColumnReader::DictEncodingType::PARTIAL_DICT_ENCODING);
         } else {
-            _is_all_dict_encoding = dict_encoding_type == ColumnReader::ALL_DICT_ENCODING;
+            _is_all_dict_encoding =
+                    dict_encoding_type == ColumnReader::DictEncodingType::ALL_DICT_ENCODING;
         }
     }
     return Status::OK();
@@ -2921,6 +2923,34 @@ Status FileColumnIterator::_seek_to_pos_in_page(ParsedPage* page, ordinal_t offs
 Status FileColumnIterator::next_batch_of_zone_map(size_t* n, MutableColumnPtr& dst) {
     return _reader->next_batch_of_zone_map(n, dst);
 }
+
+namespace {
+
+// Runs `decode`, a page decoder call that appends values to the column it is given. The decoders
+// append to the column of the type, as ScalarColumnWriter::append peels the Nullable off before
+// the values reach a page, so a Nullable dst lends them its nested column and the rows they
+// append are marked not NULL here. A dictionary page decoder may replace the column it appends to
+// (a ColumnDictI32 becomes a ColumnString when a page falls back to plain encoding), and the
+// replacement goes back into dst.
+template <typename Decode>
+Status decode_values(MutableColumnPtr& dst, const Decode& decode) {
+    if (!is_column_nullable(*dst)) {
+        return decode(dst);
+    }
+    auto& nullable = static_cast<ColumnNullable&>(*dst);
+    MutableColumnPtr nested = nullable.get_nested_column_ptr();
+    const IColumn* const lent = nested.get();
+    const size_t rows = lent->size();
+    Status st = decode(nested);
+    nullable.push_false_to_nullmap(nested->size() - rows);
+    if (nested.get() != lent) {
+        ColumnPtr replacement = std::move(nested);
+        nullable.change_nested_column(replacement);
+    }
+    return st;
+}
+
+} // namespace
 
 Status FileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) {
     if (!need_to_read()) {
@@ -3002,7 +3032,9 @@ Status FileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool* ha
                 // we use num_rows only for CHECK
                 size_t num_rows = this_run;
                 if (!is_null) {
-                    RETURN_IF_ERROR(_page.data_decoder->next_batch(&num_rows, dst));
+                    RETURN_IF_ERROR(decode_values(dst, [&](MutableColumnPtr& values) {
+                        return _page.data_decoder->next_batch(&num_rows, values);
+                    }));
                     DCHECK_EQ(this_run, num_rows);
                 } else {
                     *has_null = true;
@@ -3019,7 +3051,9 @@ Status FileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool* ha
                 _current_ordinal += this_run;
             }
         } else {
-            RETURN_IF_ERROR(_page.data_decoder->next_batch(&nrows_to_read, dst));
+            RETURN_IF_ERROR(decode_values(dst, [&](MutableColumnPtr& values) {
+                return _page.data_decoder->next_batch(&nrows_to_read, values);
+            }));
             DCHECK_EQ(nrows_to_read, nrows_in_page);
 
             _page.offset_in_page += nrows_to_read;
@@ -3166,8 +3200,11 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
                         // so we need use `page_start_off_in_decoder` to calculate the actual offset in `data_decoder`
                         size_t page_start_off_in_decoder =
                                 _page.first_ordinal + _page.offset_in_page - origin_index;
-                        RETURN_IF_ERROR(_page.data_decoder->read_by_rowids(
-                                &rowids[offset], page_start_off_in_decoder, &read_count, dst));
+                        RETURN_IF_ERROR(decode_values(dst, [&](MutableColumnPtr& values) {
+                            return _page.data_decoder->read_by_rowids(&rowids[offset],
+                                                                      page_start_off_in_decoder,
+                                                                      &read_count, values);
+                        }));
                         DCHECK_EQ(read_count, this_read_count);
                     }
                 }
@@ -3186,8 +3223,10 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
             total_read_count += nrows_to_read;
             remaining -= nrows_to_read;
         } else {
-            RETURN_IF_ERROR(_page.data_decoder->read_by_rowids(
-                    &rowids[total_read_count], _page.first_ordinal, &nrows_to_read, dst));
+            RETURN_IF_ERROR(decode_values(dst, [&](MutableColumnPtr& values) {
+                return _page.data_decoder->read_by_rowids(
+                        &rowids[total_read_count], _page.first_ordinal, &nrows_to_read, values);
+            }));
             total_read_count += nrows_to_read;
             remaining -= nrows_to_read;
         }

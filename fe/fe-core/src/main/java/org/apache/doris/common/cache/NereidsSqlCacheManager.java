@@ -33,8 +33,11 @@ import org.apache.doris.common.ConfigBase.DefaultConfHandler;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.connector.spi.mvcc.ConnectorSqlCacheVersion;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.mvcc.MvccReadSelector;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
@@ -42,6 +45,7 @@ import org.apache.doris.nereids.SqlCacheContext.CacheKeyType;
 import org.apache.doris.nereids.SqlCacheContext.FullColumnName;
 import org.apache.doris.nereids.SqlCacheContext.FullTableName;
 import org.apache.doris.nereids.SqlCacheContext.ScanTable;
+import org.apache.doris.nereids.SqlCacheContext.TableReference;
 import org.apache.doris.nereids.SqlCacheContext.TableVersion;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundVariable;
@@ -67,6 +71,7 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.qe.cache.SqlCache;
+import org.apache.doris.qe.cache.SqlCacheVersionProvider;
 import org.apache.doris.rpc.RpcException;
 
 import com.github.benmanes.caffeine.cache.Cache;
@@ -128,8 +133,8 @@ public class NereidsSqlCacheManager {
         for (Entry<String, SqlCacheContext> kv : sqlCaches.asMap().entrySet()) {
             String key = kv.getKey();
             SqlCacheContext context = kv.getValue();
-            for (Entry<FullTableName, TableVersion> nameToVersion : context.getUsedTables().entrySet()) {
-                FullTableName tableName = nameToVersion.getKey();
+            for (Entry<TableReference, TableVersion> nameToVersion : context.getUsedTables().entrySet()) {
+                FullTableName tableName = nameToVersion.getKey().tableName;
                 TableVersion tableVersion = nameToVersion.getValue();
                 if (tableVersion.id == tableIf.getId()) {
                     invalidateKeys.add(key);
@@ -343,7 +348,7 @@ public class NereidsSqlCacheManager {
             if (privilegeChanged(connectContext, env, sqlCacheContext)) {
                 return invalidateCache(key);
             }
-            IsChanged tableIsChanged = tablesOrDataChanged(env, sqlCacheContext);
+            IsChanged tableIsChanged = tablesOrDataChanged(env, sqlCacheContext, connectContext.getStatementContext());
             if (tableIsChanged.changed) {
                 if (tableIsChanged.invalidCache) {
                     return invalidateCache(key);
@@ -429,7 +434,7 @@ public class NereidsSqlCacheManager {
         }
     }
 
-    private IsChanged tablesOrDataChanged(Env env, SqlCacheContext sqlCacheContext) {
+    private IsChanged tablesOrDataChanged(Env env, SqlCacheContext sqlCacheContext, StatementContext statement) {
         if (sqlCacheContext.hasUnsupportedTables()) {
             return IsChanged.CHANGED_AND_INVALIDATE_CACHE;
         }
@@ -437,13 +442,13 @@ public class NereidsSqlCacheManager {
         // the query maybe scan empty partition of the table, we should check these table version too,
         // but the table not exists in sqlCacheContext.getScanTables(), so we need check here.
         // check table type and version
-        for (Entry<FullTableName, TableVersion> scanTable : sqlCacheContext.getUsedTables().entrySet()) {
+        for (Entry<TableReference, TableVersion> scanTable : sqlCacheContext.getUsedTables().entrySet()) {
             TableVersion tableVersion = scanTable.getValue();
             if (tableVersion.type != TableType.OLAP && tableVersion.type != TableType.MATERIALIZED_VIEW
                     && tableVersion.type != TableType.PLUGIN_EXTERNAL_TABLE) {
                 return IsChanged.CHANGED_AND_INVALIDATE_CACHE;
             }
-            TableIf tableIf = findTableIf(env, scanTable.getKey());
+            TableIf tableIf = findTableIf(env, scanTable.getKey().tableName);
             if (tableIf == null) {
                 return IsChanged.CHANGED_AND_INVALIDATE_CACHE;
             } else if (tableIf.isTemporary()) {
@@ -472,6 +477,21 @@ public class NereidsSqlCacheManager {
                     if (gracePeriod > 0) {
                         return IsChanged.CHANGED_AND_INVALIDATE_CACHE;
                     }
+                }
+            } else if (tableVersion.sqlCacheVersion != null) {
+                MvccReadSelector selector = scanTable.getKey().selector;
+                Optional<MvccSnapshot> pin = Optional.empty();
+                if (!selector.isLatest()) {
+                    // Reuse the analyzer's resolver: snapshot existence, timestamp semantics, ref kind,
+                    // branch/tag movement and schema selection all remain owned by the existing MVCC path.
+                    statement.loadSnapshots(tableIf, selector.getTableSnapshot(), selector.getScanParams());
+                    pin = statement.getSnapshot(tableIf, selector.getTableSnapshot(), selector.getScanParams());
+                }
+                Optional<ConnectorSqlCacheVersion> current = ((SqlCacheVersionProvider) tableIf)
+                        .getSqlCacheVersion(pin);
+                if (!current.isPresent() || !tableVersion.sqlCacheVersion.getVersion()
+                        .equals(current.get().getVersion())) {
+                    return IsChanged.CHANGED_AND_INVALIDATE_CACHE;
                 }
             } else if (tableIf instanceof MTMVRelatedTableIf) {
                 // External MVCC table (flipped hive/iceberg/paimon/hudi): compare the stored data-version
@@ -578,7 +598,8 @@ public class NereidsSqlCacheManager {
      */
     private boolean tryLockTables(ConnectContext connectContext, Env env, SqlCacheContext sqlCacheContext) {
         StatementContext currentStatementContext = connectContext.getStatementContext();
-        for (FullTableName fullTableName : sqlCacheContext.getUsedTables().keySet()) {
+        for (TableReference reference : sqlCacheContext.getUsedTables().keySet()) {
+            FullTableName fullTableName = reference.tableName;
             TableIf tableIf = findTableIf(env, fullTableName);
             if (tableIf == null) {
                 return false;

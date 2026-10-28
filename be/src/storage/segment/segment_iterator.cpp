@@ -76,7 +76,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
-#include "storage/binlog.h"
+#include "storage/changelog.h"
 #include "storage/id_manager.h"
 #include "storage/index/ann/ann_index.h"
 #include "storage/index/ann/ann_index_iterator.h"
@@ -515,17 +515,22 @@ void SegmentIterator::_rebuild_scan_predicate_states() {
 
 void SegmentIterator::_mark_common_expr_states(const VExprSPtr& expr, bool runtime_generated) {
     if (expr->is_slot_ref()) {
-        const auto ordinal =
-                cast_set<ColumnId>(assert_cast<const VSlotRef*>(expr.get())->column_id());
-        DORIS_CHECK_LT(ordinal, _schema->num_block_columns());
-        _column_states[ordinal].has_common_expr = true;
-        _column_states[ordinal].has_runtime_common_expr |= runtime_generated;
-        _is_need_expr_eval = true;
+        _mark_common_expr_column(
+                cast_set<ColumnId>(assert_cast<const VSlotRef*>(expr.get())->column_id()),
+                runtime_generated);
         return;
     }
     if (expr->is_virtual_slot_ref()) {
-        const auto& virtual_expr =
-                assert_cast<const VirtualSlotRef*>(expr.get())->get_virtual_column_expr();
+        const auto* virtual_slot = assert_cast<const VirtualSlotRef*>(expr.get());
+        // The score of every row is prepared before the first batch is read, and Score() itself has
+        // no value, so an expression on the score reads the score column like a stored column.
+        if (_score_runtime != nullptr &&
+            cast_set<size_t>(virtual_slot->column_id()) == _score_runtime->get_dest_column_idx()) {
+            _mark_common_expr_column(cast_set<ColumnId>(virtual_slot->column_id()),
+                                     runtime_generated);
+            return;
+        }
+        const auto& virtual_expr = virtual_slot->get_virtual_column_expr();
         DORIS_CHECK(virtual_expr != nullptr);
         _mark_common_expr_states(virtual_expr, runtime_generated);
         return;
@@ -533,6 +538,13 @@ void SegmentIterator::_mark_common_expr_states(const VExprSPtr& expr, bool runti
     for (const auto& child : expr->children()) {
         _mark_common_expr_states(child, runtime_generated);
     }
+}
+
+void SegmentIterator::_mark_common_expr_column(ColumnId ordinal, bool runtime_generated) {
+    DORIS_CHECK_LT(ordinal, _schema->num_block_columns());
+    _column_states[ordinal].has_common_expr = true;
+    _column_states[ordinal].has_runtime_common_expr |= runtime_generated;
+    _is_need_expr_eval = true;
 }
 
 void SegmentIterator::_initialize_predicate_results() {
@@ -1429,24 +1441,36 @@ Status SegmentIterator::_apply_index_expr() {
 
     // Evaluate inverted index for virtual column MATCH expressions (projections).
     // Unlike common exprs which filter rows, these only compute index result bitmaps
-    // for later materialization via fast_execute().
-    for (auto& [cid, expr_ctx] : _virtual_column_exprs) {
-        if (_row_bitmap.isEmpty()) {
-            // Zero surviving rows: the projection column is never materialized,
-            // so its whole-segment index evaluation would be pure waste.
-            break;
-        }
-        if (expr_ctx->get_index_context() == nullptr) {
-            continue;
-        }
-        if (Status st = evaluate_with_candidate_policy(expr_ctx); !st.ok()) {
-            if (_downgrade_without_index(st) || st.code() == ErrorCode::NOT_IMPLEMENTED_ERROR) {
+    // for later materialization via fast_execute(). They must not add BM25 scores
+    // either: score() and its range filter only reflect the filtering conjuncts.
+    {
+        CollectionSimilarityPtr filter_similarity =
+                _index_query_context != nullptr
+                        ? std::exchange(_index_query_context->collection_similarity, nullptr)
+                        : nullptr;
+        DEFER({
+            if (_index_query_context != nullptr) {
+                _index_query_context->collection_similarity = filter_similarity;
+            }
+        });
+        for (auto& [cid, expr_ctx] : _virtual_column_exprs) {
+            if (_row_bitmap.isEmpty()) {
+                // Zero surviving rows: the projection column is never materialized,
+                // so its whole-segment index evaluation would be pure waste.
+                break;
+            }
+            if (expr_ctx->get_index_context() == nullptr) {
                 continue;
-            } else {
-                LOG(WARNING) << "failed to evaluate inverted index for virtual column expr: "
-                             << expr_ctx->root()->debug_string()
-                             << ", error msg: " << st.to_string();
-                return st;
+            }
+            if (Status st = evaluate_with_candidate_policy(expr_ctx); !st.ok()) {
+                if (_downgrade_without_index(st) || st.code() == ErrorCode::NOT_IMPLEMENTED_ERROR) {
+                    continue;
+                } else {
+                    LOG(WARNING) << "failed to evaluate inverted index for virtual column expr: "
+                                 << expr_ctx->root()->debug_string()
+                                 << ", error msg: " << st.to_string();
+                    return st;
+                }
             }
         }
     }
@@ -1551,7 +1575,6 @@ bool SegmentIterator::_count_on_index_fastpath_safe() const {
     // ranges): the fabricated [0, df) range only counts correctly against a
     // full [0, num_rows) bitmap.
     facts.row_bitmap_is_full = _row_bitmap.cardinality() == uint64_t(num_rows());
-    facts.record_rowids = _opts.record_rowids;
     facts.has_ann_topn = _opts.ann_topn_runtime != nullptr;
     facts.has_score_runtime = _score_runtime != nullptr;
     // Mirror of the _need_read_data preamble: rows must be emitted as defaults,
@@ -1611,7 +1634,6 @@ bool SegmentIterator::_should_engage_count_emit_shortcut(const Block* block) {
     facts.has_delete_predicates = _opts.delete_condition_predicates != nullptr &&
                                   _opts.delete_condition_predicates->num_of_column_predicate() > 0;
     facts.has_virtual_columns = !_virtual_column_exprs.empty();
-    facts.record_rowids = _opts.record_rowids || _schema->rowid_ordinal() >= 0;
     facts.has_read_limit = _opts.read_limit > 0;
     facts.read_orderby_key_reverse = _opts.read_orderby_key_reverse;
     facts.has_condition_cache_digest = _opts.condition_cache_digest != 0;
@@ -1783,13 +1805,13 @@ bool SegmentIterator::_need_read_data(ColumnId cid) {
         // occurring, return true here that column data needs to be read
         return true;
     }
-    // Row-binlog incremental reads force-push the TSO range predicate (see
+    // Changelog incremental reads force-push the TSO range predicate (see
     // OlapScanner::_init_tso_predicate), and the merge iterator uses the TSO column as its
-    // sequence sort key (BetaRowsetReader sets binlog_tso_idx). On a cross-version rowset
-    // (e.g. produced by binlog LMax quick-merge) the TSO zonemap can be always-true, so the
+    // sequence sort key (BetaRowsetReader sets changelog_tso_idx). On a cross-version rowset
+    // (e.g. produced by changelog LMax quick-merge) the TSO zonemap can be always-true, so the
     // pruning below would skip reading it and fill placeholder zeros, breaking the merge
     // ordering. The TSO column carries real values on disk, so force it to be read.
-    if (_opts.read_row_binlog && cid == _schema->tso_ordinal()) {
+    if (_opts.read_changelog && cid == _schema->tso_ordinal()) {
         return true;
     }
     const auto& column = *_schema->column(cid);
@@ -1889,6 +1911,13 @@ Status SegmentIterator::_init_column_iterators() {
         if (cid >= _schema->num_block_columns() && !_column_states[cid].has_delete_pred) {
             continue;
         }
+        if (_schema->column(cid)->name() == BeConsts::COMPACTION_ROWID_COL) {
+            // Compaction reads synthesize source locations rather than reading a stored column.
+            _column_iterators[cid].reset(
+                    new CompactionRowIdColumnIterator(_opts.rowset_id, _segment->id()));
+            continue;
+        }
+
         if (_schema->column(cid)->name().starts_with(BeConsts::GLOBAL_ROWID_COL)) {
             auto& id_file_map = _opts.runtime_state->get_id_file_map();
             uint32_t file_id = id_file_map->get_file_mapping_id(std::make_shared<FileMapping>(
@@ -3402,23 +3431,6 @@ void SegmentIterator::_convert_dict_code_for_predicate_if_necessary_impl(
     } else if (PredicateTypeTraits::is_bloom_filter(predicate.type())) {
         col_ptr->initialize_hash_values_for_runtime_filter();
     }
-}
-
-Status SegmentIterator::current_block_row_locations(std::vector<RowLocation>* block_row_locations) {
-    DCHECK(_opts.record_rowids);
-    DCHECK_GE(_block_rowids.size(), _selected_size);
-    block_row_locations->resize(_selected_size);
-    uint32_t sid = segment_id();
-    if (!_is_need_vec_eval && !_is_need_short_eval && !_is_need_expr_eval) {
-        for (auto i = 0; i < _selected_size; i++) {
-            (*block_row_locations)[i] = RowLocation(sid, _block_rowids[i]);
-        }
-    } else {
-        for (auto i = 0; i < _selected_size; i++) {
-            (*block_row_locations)[i] = RowLocation(sid, _block_rowids[_sel_rowid_idx[i]]);
-        }
-    }
-    return Status::OK();
 }
 
 Status SegmentIterator::_construct_compound_expr_context() {

@@ -30,11 +30,13 @@
 #include "core/data_type/data_type_struct.h"
 #include "exec/operator/olap_scan_operator.h"
 #include "exec/operator/scan_operator.h"
+#include "exec/scan/file_scan_range_utils.h"
 #include "exec/scan/file_scanner.h"
 #include "exec/scan/file_scanner_v2.h"
 #include "exec/scan/scanner_context.h"
 #include "format/format_common.h"
 #include "format/table/iceberg_scan_semantics.h"
+#include "format_v2/parquet/parquet_profile.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_manager.h"
 
@@ -68,6 +70,11 @@ int file_scanners_per_instance(RuntimeState* state) {
 }
 
 } // namespace
+
+FileScanLocalState::FileScanLocalState(RuntimeState* state, OperatorXBase* parent)
+        : ScanLocalState<FileScanLocalState>(state, parent) {}
+
+FileScanLocalState::~FileScanLocalState() = default;
 
 PushDownType FileScanLocalState::_should_push_down_binary_predicate(
         VectorizedFnCall* fn_call, VExprContext* expr_ctx, Field& constant_val,
@@ -149,11 +156,42 @@ bool FileScanLocalState::TEST_should_use_file_scanner_v2(const TQueryOptions& qu
 bool FileScanLocalState::should_use_file_scanner_v2(const TQueryOptions& query_options,
                                                     bool is_load,
                                                     const TFileScanRangeParams& scan_params) {
+    if (is_load) {
+        // ADBC and Fluss are query-only connectors. Their default Parquet format must not
+        // admit them to the ordinary file-load conversion path.
+        if (scan_params.__isset.table_format_params &&
+            (scan_params.table_format_params.table_format_type == "adbc" ||
+             scan_params.table_format_params.table_format_type == "fluss")) {
+            return false;
+        }
+        // Load planners omit query session options. Thrift's default makes an omitted V2
+        // option indistinguishable from false, so ingestion selects by format instead.
+        switch (scan_params.format_type) {
+        case TFileFormatType::FORMAT_PARQUET:
+        case TFileFormatType::FORMAT_ORC:
+        case TFileFormatType::FORMAT_JSON:
+        case TFileFormatType::FORMAT_CSV_PLAIN:
+        case TFileFormatType::FORMAT_CSV_GZ:
+        case TFileFormatType::FORMAT_CSV_BZ2:
+        case TFileFormatType::FORMAT_CSV_LZ4FRAME:
+        case TFileFormatType::FORMAT_CSV_LZ4BLOCK:
+        case TFileFormatType::FORMAT_CSV_LZOP:
+        case TFileFormatType::FORMAT_CSV_DEFLATE:
+        case TFileFormatType::FORMAT_CSV_SNAPPYBLOCK:
+        case TFileFormatType::FORMAT_PROTO:
+        case TFileFormatType::FORMAT_TEXT:
+        case TFileFormatType::FORMAT_WAL:
+        case TFileFormatType::FORMAT_ARROW:
+            return true;
+        default:
+            return false;
+        }
+    }
     // ADBC only has a FileScannerV2 reader, and enable_file_scanner_v2 is a session variable marked
     // fuzzy=true, so the regression harness flips it to false at random. Without letting adbc
     // through unconditionally, those queries land in v1, which has no "adbc" branch, and come back
-    // with an undiagnosable NotSupported -- showing up in CI as a random failure. This is the same
-    // mechanism as is_transactional_hive below, pointed the other way. Loads are left alone: there
+    // with an undiagnosable NotSupported -- showing up in CI as a random failure.
+    // Loads are left alone: there
     // is no ADBC load path, so widening the rule to cover them would only route them somewhere they
     // still cannot run.
     // Fluss is in the same position, and reaches this the same way: FlussScanPlanProvider stamps the
@@ -166,9 +204,6 @@ bool FileScanLocalState::should_use_file_scanner_v2(const TQueryOptions& query_o
          scan_params.table_format_params.table_format_type == "fluss")) {
         return true;
     }
-    const bool is_transactional_hive =
-            scan_params.__isset.table_format_params &&
-            scan_params.table_format_params.table_format_type == "transactional_hive";
     // Hybrid scans advertise native Parquet at scan level because ranges can arrive after the
     // scanner is selected; FORMAT_JNI alone does not imply that every range uses JNI.
     const bool is_hybrid_native_parquet = scan_params.format_type == TFileFormatType::FORMAT_JNI &&
@@ -188,8 +223,7 @@ bool FileScanLocalState::should_use_file_scanner_v2(const TQueryOptions& query_o
     // after scanner construction. Keep versioned Iceberg scans on V2 without eagerly listing
     // every file.
     return scanner_v2_requested && !is_load &&
-           scan_params.format_type != TFileFormatType::FORMAT_ES_HTTP &&
-           scan_params.format_type != TFileFormatType::FORMAT_LANCE && !is_transactional_hive;
+           scan_params.format_type != TFileFormatType::FORMAT_LANCE;
 }
 
 Status FileScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
@@ -212,6 +246,7 @@ Status FileScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     } else {
         scan_params = _split_source->get_params();
     }
+    RETURN_IF_ERROR(validate_file_scan_support(*scan_params));
     const bool is_load =
             state()->desc_tbl().get_tuple_descriptor(scan_params->src_tuple_id) != nullptr;
     // TODO: Use scanner v2 for all queries.
@@ -231,6 +266,10 @@ Status FileScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
         return Status::NotSupported(
                 "External VARIANT columns require FileScannerV2; the legacy file scanner does "
                 "not support VARIANT");
+    }
+    if (use_file_scanner_v2) {
+        _parquet_profile_cache =
+                std::make_unique<format::parquet::ParquetProfileCache>(_scanner_profile.get());
     }
     for (int i = 0; i < _max_scanners; ++i) {
         ScannerSPtr scanner;

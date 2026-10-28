@@ -194,8 +194,13 @@ public:
     // the term-anchor layout was built for (MATCH_PHRASE_PREFIX / prefix / range
     // queries). The visitor form avoids materializing all hits when callers only
     // need a bounded expansion.
-    Status visit_prefix_terms(std::string_view prefix, const PrefixHitVisitor& visitor,
-                              DictBlockCache* cache = nullptr) const;
+    // `accept_key`, when set, is a key-only predicate: a term it rejects is skipped before its
+    // dictionary entry body is decoded, so a caller that keeps few of the terms (a regexp or
+    // wildcard expansion over the whole dictionary) does not pay a body decode for every term.
+    Status visit_prefix_terms(
+            std::string_view prefix, const PrefixHitVisitor& visitor,
+            DictBlockCache* cache = nullptr,
+            const std::function<bool(std::string_view term)>& accept_key = {}) const;
     Status visit_term_range(std::string_view lower_inclusive,
                             std::optional<std::string_view> upper_exclusive,
                             const PrefixHitVisitor& visitor, DictBlockCache* cache = nullptr) const;

@@ -131,6 +131,17 @@ public class IcebergConnectorValidatePropertiesTest {
     }
 
     @Test
+    public void misspelledMetaCacheOptionRejectedThroughProvider() {
+        // The option must be known; an unknown entry stays accepted because a newer connector may read it.
+        Assertions.assertEquals(
+                "Unknown external meta cache property: meta.cache.iceberg.table.max-weigth",
+                rejectMessage(props("iceberg.catalog.type", "hms", "hive.metastore.uris", "thrift://h",
+                        "meta.cache.iceberg.table.max-weigth", "16MB")));
+        PROVIDER.validateProperties(props("iceberg.catalog.type", "hms", "hive.metastore.uris", "thrift://h",
+                "meta.cache.iceberg.schema.ttl-second", "0"));
+    }
+
+    @Test
     public void validMetaCacheKnobsAcceptedThroughProvider() {
         // ttl-second=-1 (no-expiration sentinel, min is -1), 0 (disable), capacity=0, boolean enable all pass.
         PROVIDER.validateProperties(props("iceberg.catalog.type", "hms", "hive.metastore.uris", "thrift://h",

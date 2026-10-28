@@ -27,6 +27,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.catalog.stream.OlapTableStream;
+import org.apache.doris.changelog.ChangelogUtils;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -1536,13 +1537,13 @@ public class MTMVTaskTest {
         MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
         Deencapsulation.setField(task, "dbId", 1L);
         Deencapsulation.setField(task, "mtmvId", 2L);
-        Deencapsulation.setField(task, "ivmFallbackReason", IvmFailureReason.BINLOG_NOT_ENABLED.name());
+        Deencapsulation.setField(task, "ivmFallbackReason", IvmFailureReason.CHANGELOG_NOT_ENABLED.name());
 
         List<TCell> cells = task.getTvfInfo("job").getColumnValue();
 
         int columnIndex = MTMVTask.COLUMN_TO_INDEX.get("ivmfallbackreason");
         Assertions.assertEquals(MTMVTask.SCHEMA.size(), cells.size());
-        Assertions.assertEquals(IvmFailureReason.BINLOG_NOT_ENABLED.name(), cells.get(columnIndex).getStringVal());
+        Assertions.assertEquals(IvmFailureReason.CHANGELOG_NOT_ENABLED.name(), cells.get(columnIndex).getStringVal());
     }
 
     @Test
@@ -1604,7 +1605,7 @@ public class MTMVTaskTest {
         try (MockedConstruction<IvmIncrRefreshManager> ignored = Mockito.mockConstruction(IvmIncrRefreshManager.class,
                 (mock, context) -> Mockito.when(mock.doRefresh(Mockito.any()))
                         .thenReturn(
-                        IvmIncrRefreshResult.fallback(IvmFailureReason.BINLOG_NOT_ENABLED, "no_binlog")))) {
+                        IvmIncrRefreshResult.fallback(IvmFailureReason.CHANGELOG_NOT_ENABLED, "no_changelog")))) {
             Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
             Object result = Deencapsulation.invoke(task, "executeIvmAttempt", refreshContext, request,
                     new ConnectContext(), Lists.newArrayList());
@@ -1612,7 +1613,7 @@ public class MTMVTaskTest {
             Mockito.verify(ignored.constructed().get(0)).doRefresh(Mockito.any());
         }
 
-        Assertions.assertEquals(IvmFailureReason.BINLOG_NOT_ENABLED.name(),
+        Assertions.assertEquals(IvmFailureReason.CHANGELOG_NOT_ENABLED.name(),
                 Deencapsulation.getField(task, "ivmFallbackReason"));
     }
 
@@ -1767,11 +1768,96 @@ public class MTMVTaskTest {
         try (MockedConstruction<IvmIncrRefreshManager> ignored = Mockito.mockConstruction(IvmIncrRefreshManager.class,
                 (mock, context) -> Mockito.when(mock.doRefresh(Mockito.any()))
                         .thenReturn(
-                        IvmIncrRefreshResult.fallback(IvmFailureReason.BINLOG_BROKEN, "broken baseline")))) {
+                        IvmIncrRefreshResult.fallback(IvmFailureReason.CHANGELOG_BROKEN, "broken baseline")))) {
             Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
             Object result = Deencapsulation.invoke(task, "executeIvmAttempt", refreshContext, request,
                     new ConnectContext(), Lists.newArrayList());
             Assertions.assertEquals("FALLBACK_TO_COMPLETE", result.toString());
+        }
+    }
+
+    /**
+     * The rebuild an incremental attempt runs first, for the MV partitions that need one, reads the tables the MV
+     * does not partition by through their streams at the offsets. An offset changelog.ttl_seconds has expired stops
+     * it the way it stops the delta, so the answer is the same: a request that may fall back goes to COMPLETE, the
+     * only attempt that resets the stream baselines.
+     */
+    @Test
+    public void testExpiredOffsetInTheRebuildBeforeTheDeltaFallsBackToComplete() throws Exception {
+        MTMVTask task = new MTMVTask(mtmv, relation, MTMVTaskContext.of(MTMVTaskTriggerMode.MANUAL, null,
+                RefreshMode.INCREMENTAL, true, null));
+
+        Object result = runIvmAttemptWhoseRebuildReadsAnExpiredOffset(task);
+
+        Assertions.assertEquals("FALLBACK_TO_COMPLETE", result.toString());
+        Assertions.assertEquals(IvmFailureReason.CHANGELOG_BROKEN.name(),
+                Deencapsulation.getField(task, "ivmFallbackReason"));
+    }
+
+    /** A request that may not fall back fails instead, with the reason it would have fallen back for. */
+    @Test
+    public void testExpiredOffsetInTheRebuildBeforeTheDeltaFailsAStrictRequest() {
+        MTMVTask task = new MTMVTask(mtmv, relation, MTMVTaskContext.of(MTMVTaskTriggerMode.MANUAL, null,
+                RefreshMode.INCREMENTAL, false, null));
+
+        JobException failure = Assertions.assertThrows(JobException.class,
+                () -> runIvmAttemptWhoseRebuildReadsAnExpiredOffset(task));
+
+        Assertions.assertTrue(failure.getMessage().contains("reason=" + IvmFailureReason.CHANGELOG_BROKEN));
+        Assertions.assertTrue(failure.getMessage().contains(ChangelogUtils.CHANGELOG_OFFSET_EXPIRED));
+        Assertions.assertEquals(IvmFailureReason.CHANGELOG_BROKEN.name(),
+                Deencapsulation.getField(task, "ivmFallbackReason"));
+    }
+
+    /**
+     * Runs the incremental attempt with p1 needing a rebuild and p2 caught up, the rebuild's read refused the way
+     * planning refuses a MIN_DELTA read from an expired offset. The delta must not be reached.
+     */
+    private Object runIvmAttemptWhoseRebuildReadsAnExpiredOffset(MTMVTask task) throws Exception {
+        Mockito.when(mtmv.isIvm()).thenReturn(true);
+        Mockito.when(mtmv.getName()).thenReturn("test_mv");
+        Mockito.when(mtmv.hasRefreshSnapshot()).thenReturn(true);
+        Mockito.when(mtmv.getRefreshPartitionNum()).thenReturn(1);
+        Mockito.when(mtmvPartitionInfo.getPctInfos()).thenReturn(Collections.emptyList());
+        Mockito.when(mtmv.getPartitionNames()).thenReturn(Sets.newHashSet(poneName, ptwoName));
+        Mockito.when(mtmv.getPartitionStates()).thenReturn(Maps.newHashMap(Map.of(
+                poneName, new MTMVPartitionState(1, 2),
+                ptwoName, new MTMVPartitionState(2, 2))));
+        MTMVRefreshContext refreshContext = Mockito.mock(MTMVRefreshContext.class);
+        Mockito.when(refreshContext.getByPartitionName(Mockito.anyString())).thenReturn(Collections.emptyMap());
+        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.generatePartitionSnapshots(
+                Mockito.same(refreshContext), Mockito.anySet(), Mockito.anySet()))
+                .thenReturn(Collections.emptyMap());
+        RuntimeException expired = Assertions.assertThrows(RuntimeException.class,
+                () -> ChangelogUtils.effectiveStartTso(99L, 100L, true));
+
+        ConnectContext mtmvCtx = new ConnectContext();
+        mtmvCtx.setQueryId(new TUniqueId(1L, 2L));
+        mtmvCtx.setThreadLocalInfo();
+        UpdateMvByPartitionCommand command = Mockito.mock(UpdateMvByPartitionCommand.class);
+        try (MockedStatic<MTMVPlanUtil> mtmvPlanUtilStatic = Mockito.mockStatic(MTMVPlanUtil.class);
+                MockedStatic<UpdateMvByPartitionCommand> updateMvStatic
+                        = Mockito.mockStatic(UpdateMvByPartitionCommand.class);
+                MockedConstruction<IvmIncrRefreshManager> delta
+                        = Mockito.mockConstruction(IvmIncrRefreshManager.class)) {
+            mtmvPlanUtilStatic.when(() -> MTMVPlanUtil.createMTMVContext(Mockito.eq(mtmv), Mockito.anyList()))
+                    .thenReturn(mtmvCtx);
+            updateMvStatic.when(() -> UpdateMvByPartitionCommand.from(
+                    Mockito.eq(mtmv), Mockito.anySet(), Mockito.anyMap(), Mockito.any(StatementContext.class)))
+                    .thenReturn(command);
+            mtmvPlanUtilStatic.when(() -> MTMVPlanUtil.executeCommand(
+                    Mockito.eq(mtmvCtx), Mockito.eq(command), Mockito.any(StatementContext.class),
+                    Mockito.anyString(), Mockito.any(Consumer.class))).thenThrow(expired);
+
+            Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
+            try {
+                return Deencapsulation.invoke(task, "executeIvmAttempt", refreshContext, request, mtmvCtx,
+                        Lists.newArrayList());
+            } finally {
+                Assertions.assertTrue(delta.constructed().isEmpty());
+            }
+        } finally {
+            ConnectContext.remove();
         }
     }
 
@@ -1792,7 +1878,7 @@ public class MTMVTaskTest {
         try (MockedConstruction<IvmIncrRefreshManager> ignored = Mockito.mockConstruction(IvmIncrRefreshManager.class,
                 (mock, context) -> Mockito.when(mock.doRefresh(Mockito.any()))
                         .thenReturn(
-                        IvmIncrRefreshResult.fallback(IvmFailureReason.BINLOG_NOT_ENABLED, "no_binlog")))) {
+                        IvmIncrRefreshResult.fallback(IvmFailureReason.CHANGELOG_NOT_ENABLED, "no_changelog")))) {
             Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
             Object result = Deencapsulation.invoke(task, "executeIvmAttempt", refreshContext, request,
                     new ConnectContext(), Lists.newArrayList());
@@ -1876,7 +1962,7 @@ public class MTMVTaskTest {
     @Test
     public void testOtherCompleteFallbackDoesNotCapturePlanSignature() throws Exception {
         MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
-        Deencapsulation.setField(task, "ivmFallbackReason", IvmFailureReason.BINLOG_BROKEN.name());
+        Deencapsulation.setField(task, "ivmFallbackReason", IvmFailureReason.CHANGELOG_BROKEN.name());
         IvmPlanSignature signature = new IvmPlanSignature("layout_s2", "signature_s2");
 
         executeCompleteRefresh(task, signature, signature);

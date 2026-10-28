@@ -35,6 +35,7 @@ import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Partitioning;
+import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
@@ -117,25 +118,121 @@ final class IcebergPartitionUtils {
 
     /**
      * Ordered, case-preserved, de-duplicated list of the identity partition column names across <b>all</b>
-     * partition specs of the table (mirrors legacy {@code IcebergUtils.getIdentityPartitionColumns}). This
-     * is the {@code path_partition_keys} payload: it tells FE which slots are partition columns so they are
-     * excluded from the file-decode set (the CI #968880 double-fill guard). Non-identity transforms
-     * (bucket/truncate/year/month/...) are excluded.
+     * partition specs of the table (mirrors legacy {@code IcebergUtils.getIdentityPartitionColumns}). Names
+     * are resolved by field id against the query's authoritative {@code scanSchema}, so current and pinned
+     * reads cannot mix schema generations. This is the {@code path_partition_keys} payload: it tells FE which
+     * slots are partition columns so they are excluded from the file-decode set (the CI #968880 double-fill
+     * guard). Non-identity transforms (bucket/truncate/year/month/...) are excluded.
      */
-    static List<String> getIdentityPartitionColumns(Table table) {
+    static List<String> getIdentityPartitionColumns(Table table, Schema scanSchema) {
         LinkedHashSet<String> partitionColumns = new LinkedHashSet<>();
         for (PartitionSpec spec : table.specs().values()) {
             for (PartitionField partitionField : spec.fields()) {
                 if (!partitionField.transform().isIdentity()) {
                     continue;
                 }
-                String columnName = table.schema().findColumnName(partitionField.sourceId());
+                String columnName =
+                        topLevelSourceColumnName(scanSchema, partitionField.sourceId());
                 if (columnName != null) {
                     partitionColumns.add(columnName);
                 }
             }
         }
         return new ArrayList<>(partitionColumns);
+    }
+
+    /**
+     * Rewrites a static-partition spec ({@code INSERT [OVERWRITE] ... PARTITION (col = val)}) so every key is the
+     * matching partition FIELD name, the identifier both downstream consumers address: the BE sink matches
+     * {@code static_partition_values} against {@code PartitionField#name()}, and the commit row filter resolves
+     * the field to its source column.
+     *
+     * <p>The engine's PARTITION clause names the identity partition's SOURCE column instead — the identifier Spark
+     * resolves for a static partition clause ({@code Analyzer.partitionColumnNames} takes the identity transform's
+     * field reference) and the one {@code SHOW CREATE TABLE} renders — so the two spellings must be bridged once,
+     * here, before either consumer sees the spec. A key that matches no field of the current spec is kept verbatim
+     * and left to the callers' fail-loud guards.</p>
+     */
+    static Map<String, String> toPartitionFieldKeys(Map<String, String> staticPartitions, Schema schema,
+            PartitionSpec spec) {
+        if (staticPartitions == null || staticPartitions.isEmpty() || spec == null) {
+            return staticPartitions;
+        }
+        Map<String, String> canonical = new HashMap<>(staticPartitions.size());
+        for (Map.Entry<String, String> entry : staticPartitions.entrySet()) {
+            canonical.put(toPartitionFieldName(schema, spec, entry.getKey()), entry.getValue());
+        }
+        return canonical;
+    }
+
+    /**
+     * The partition field a static-partition name addresses: the IDENTITY field over that top-level source column
+     * first, then a field with that name. The source lookup must win — a field may carry a name that collides with
+     * another column's name in a different case ({@code identity(other, "ID")} next to {@code identity(id,
+     * "id_identity")} is legal, because {@code PartitionSpec.Builder} checks names case-SENSITIVELY), and the
+     * engine's name is the source column it validated.
+     */
+    private static String toPartitionFieldName(Schema schema, PartitionSpec spec, String name) {
+        PartitionField identity = identityPartitionBySourceColumn(schema, spec, name);
+        if (identity != null) {
+            return identity.name();
+        }
+        for (PartitionField field : spec.fields()) {
+            if (field.name().equalsIgnoreCase(name)) {
+                return field.name();
+            }
+        }
+        return name;
+    }
+
+    /**
+     * The top-level column a partition field's source resolves to, or {@code null} when the source is a nested
+     * field. {@link NestedField#name()} is only the LEAF name, so a nested {@code payload.id} source must not be
+     * mistaken for the top-level column {@code id}: the engine can only materialize a top-level column.
+     */
+    static String topLevelSourceColumnName(Schema schema, int sourceId) {
+        NestedField column = schema.asStruct().field(sourceId);
+        return column == null ? null : column.name();
+    }
+
+    /** The spec's <em>identity</em> partition over the top-level column {@code name}, or null. */
+    static PartitionField identityPartitionBySourceColumn(Schema schema, PartitionSpec spec, String name) {
+        for (PartitionField field : spec.fields()) {
+            if (!field.transform().isIdentity()) {
+                continue;
+            }
+            String source = topLevelSourceColumnName(schema, field.sourceId());
+            if (source != null && source.equalsIgnoreCase(name)) {
+                return field;
+            }
+        }
+        return null;
+    }
+
+    /** Any partition field over the top-level column {@code name}, or null (used to report a non-identity one). */
+    static PartitionField partitionFieldBySourceColumn(Schema schema, PartitionSpec spec, String name) {
+        for (PartitionField field : spec.fields()) {
+            String source = topLevelSourceColumnName(schema, field.sourceId());
+            if (source != null && source.equalsIgnoreCase(name)) {
+                return field;
+            }
+        }
+        return null;
+    }
+
+    /** The top-level source columns of the spec's identity partitions, in field order. */
+    static List<String> identityPartitionSourceColumns(Schema schema, PartitionSpec spec) {
+        List<String> names = new ArrayList<>();
+        for (PartitionField field : spec.fields()) {
+            if (!field.transform().isIdentity()) {
+                continue;
+            }
+            String source = topLevelSourceColumnName(schema, field.sourceId());
+            if (source != null) {
+                names.add(source);
+            }
+        }
+        return names;
     }
 
     /**
@@ -154,11 +251,12 @@ final class IcebergPartitionUtils {
 
     /**
      * Per-file map of identity partition column (case-preserved) to serialized value, skipping non-identity
-     * transforms and BINARY/FIXED columns (utf8 round-trip would corrupt those). Order-preserving
-     * (LinkedHashMap, spec field order). Mirrors legacy {@code IcebergUtils.getIdentityPartitionInfoMap}.
+     * transforms and BINARY/FIXED columns (utf8 round-trip would corrupt those). Keys are resolved by field id
+     * against {@code scanSchema}, matching {@code path_partition_keys}. Order-preserving (LinkedHashMap, spec
+     * field order). Mirrors legacy {@code IcebergUtils.getIdentityPartitionInfoMap}.
      */
     static Map<String, String> getIdentityPartitionInfoMap(PartitionData partitionData,
-            PartitionSpec partitionSpec, Table table, ZoneId zone) {
+            PartitionSpec partitionSpec, Schema scanSchema, ZoneId zone) {
         Map<String, String> partitionInfoMap = new LinkedHashMap<>();
         List<NestedField> fields = partitionData.getPartitionType().asNestedType().fields();
         List<PartitionField> partitionFields = partitionSpec.fields();
@@ -176,7 +274,8 @@ final class IcebergPartitionUtils {
                 continue;
             }
 
-            String columnName = table.schema().findColumnName(partitionField.sourceId());
+            String columnName =
+                    topLevelSourceColumnName(scanSchema, partitionField.sourceId());
             if (columnName == null) {
                 continue;
             }
@@ -777,10 +876,15 @@ final class IcebergPartitionUtils {
     /** Cache-aware overload (PERF-02): see {@link #buildMvccPartitionView(Table, long, TableIdentifier,
      * IcebergPartitionCache)}. Keyed by the table's CURRENT snapshot id. */
     static List<ConnectorPartitionInfo> listPartitions(Table table, TableIdentifier id, IcebergPartitionCache cache) {
+        return listPartitions(table, -1L, id, cache);
+    }
+
+    static List<ConnectorPartitionInfo> listPartitions(Table table, long pinnedSnapshotId,
+            TableIdentifier id, IcebergPartitionCache cache) {
         if (table.spec().isUnpartitioned()) {
             return Collections.emptyList();
         }
-        Snapshot current = table.currentSnapshot();
+        Snapshot current = pinnedSnapshotId >= 0 ? table.snapshot(pinnedSnapshotId) : table.currentSnapshot();
         if (current == null) {
             return Collections.emptyList();
         }

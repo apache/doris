@@ -17,6 +17,23 @@
 
 #include <CLucene.h>
 #include <CLucene/index/MultiReader.h>
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow-field"
+#pragma clang diagnostic ignored "-Woverloaded-virtual"
+#pragma clang diagnostic ignored "-Winconsistent-missing-override"
+#pragma clang diagnostic ignored "-Wreorder-ctor"
+#pragma clang diagnostic ignored "-Wshorten-64-to-32"
+#elif defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Woverloaded-virtual"
+#endif
+#include <CLucene/index/_MultiSegmentReader.h>
+#ifdef __clang__
+#pragma clang diagnostic pop
+#elif defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 #include <gtest/gtest.h>
 
 #include <functional>
@@ -44,6 +61,7 @@
 #include "storage/index/inverted/query/engine/phrase_query/phrase_query.h"
 #include "storage/index/inverted/query/engine/term_query/term_query.h"
 #include "storage/index/inverted/query/exec/docid_sink.h"
+#include "storage/index/inverted/query/scoring/bm25_similarity.h"
 #include "storage/index/inverted/query/scoring/collection_similarity.h"
 #include "storage/index/inverted/reader/collection_statistics.h"
 #include "storage/index/inverted/snii/reader/snii_index_source.h"
@@ -81,7 +99,7 @@ public:
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());
     }
 
-private:
+protected:
     static void create_test_index(const std::string& dir, const std::vector<std::string>& docs,
                                   int32_t max_buffered_docs = 100,
                                   const std::string& field_name = "title",
@@ -249,6 +267,7 @@ static void check_native_posting_block(const index_query::PostingsBlock& block, 
     EXPECT_EQ(block.doc_at(0), doc);
     EXPECT_EQ(block.docs.front(), doc);
     EXPECT_EQ(block.freq_at(0), 1);
+    // These segments omit norms; crossing a partition must retain unit length.
     EXPECT_TRUE(block.norms.empty());
     EXPECT_EQ(block.norm_at(0), 1);
 }
@@ -408,6 +427,7 @@ TEST_F(MultiSegmentCollectorTest, PhraseCandidatesRemainValidAfterWeightDestruct
             auto scorer = weight->scorer(segment, "");
             weight.reset();
             ASSERT_EQ(scorer->doc(), 3);
+            // Materialized phrase postings retain the no-norm source's unit length.
             const float expected_score = scoring ? similarity->score(1.0F, 1) : 1.0F;
             EXPECT_FLOAT_EQ(scorer->score(), expected_score);
             EXPECT_EQ(scorer->seek(3), 3);
@@ -871,6 +891,46 @@ TEST_F(MultiSegmentCollectorTest, CollectDocSetWithSingleReaderBinding) {
 
     _CLDECDELETE(dir0);
     _CLDECDELETE(dir1);
+}
+
+// An index of several CLucene segments opens as a reader of several segments. Its norm length
+// sums are read per segment and equal those of the reader's combined norms.
+TEST_F(MultiSegmentCollectorTest, NormLengthSumsReadEachSegment) {
+    const std::string dir = kTestDir + "/segmented_norms";
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(dir).ok());
+    std::string long_doc;
+    for (int i = 0; i < 30; ++i) {
+        long_doc += "word ";
+    }
+    create_test_index(dir, {"a b", "c", long_doc, "d e f", "g", "h i"}, 2, "title", true);
+
+    auto reader = make_shared_reader(lucene::index::IndexReader::open(dir.c_str()));
+    auto* multi_segment = dynamic_cast<lucene::index::MultiSegmentReader*>(reader.get());
+    ASSERT_NE(multi_segment, nullptr);
+    ASSERT_EQ(multi_segment->getSubReaders()->length, 3);
+    auto source = clucene_index_source(reader, L"title", nullptr);
+    uint64_t all = 0;
+    ASSERT_TRUE(source->sum_norm_lengths(&all).ok());
+    const std::vector<uint32_t> docs {0, 2, 3, 5};
+    uint64_t some = 0;
+    ASSERT_TRUE(source->sum_norm_lengths_of(docs, &some).ok());
+
+    auto combined = make_shared_reader(lucene::index::IndexReader::open(dir.c_str()));
+    const uint8_t* norms = combined->norms(L"title");
+    ASSERT_NE(norms, nullptr);
+    const auto lengths = BM25Similarity::lucene_norm_lengths();
+    uint64_t expected_all = 0;
+    for (int32_t doc = 0; doc < combined->maxDoc(); ++doc) {
+        expected_all += static_cast<uint64_t>(lengths[norms[doc]]);
+    }
+    uint64_t expected_some = 0;
+    for (const uint32_t doc : docs) {
+        expected_some += static_cast<uint64_t>(lengths[norms[doc]]);
+    }
+    EXPECT_EQ(all, expected_all);
+    EXPECT_EQ(some, expected_some);
+    // Lengths below 24 are exact; the 30-token row reads back approximately.
+    EXPECT_EQ(expected_all - static_cast<uint64_t>(lengths[norms[2]]), 9);
 }
 
 } // namespace doris::segment_v2

@@ -57,7 +57,7 @@ import java.util.Map;
  */
 public class PluginDrivenScanNodeBatchModeTest {
 
-    private static final int THRESHOLD = 1024; // num_partitions_in_batch_mode default; pinned (it is fuzzy at runtime)
+    private static final int THRESHOLD = 1024; // Explicit threshold, independent of session defaults.
 
     private static SelectedPartitions pruned(int count) {
         Map<String, PartitionItem> items = new LinkedHashMap<>();
@@ -169,8 +169,38 @@ public class PluginDrivenScanNodeBatchModeTest {
         Mockito.doReturn(TPushAggOp.NONE).when(node).getPushDownAggNoGroupingOp();
         SessionVariable sv = Mockito.mock(SessionVariable.class);
         Mockito.when(sv.getNumPartitionsInBatchMode()).thenReturn(THRESHOLD);
+        Mockito.when(sv.getEnableExternalTableBatchMode()).thenReturn(true);
         Deencapsulation.setField(node, "sessionVariable", sv);
         return node;
+    }
+
+    @Test
+    void disabledBatchModeSkipsBothPartitionAndStreamingProviders() {
+        for (SelectedPartitions partitions : new SelectedPartitions[] {pruned(1), SelectedPartitions.NOT_PRUNED}) {
+            ConnectorScanPlanProvider provider = Mockito.mock(ConnectorScanPlanProvider.class);
+            PluginDrivenScanNode node = streamingNode(provider);
+            SessionVariable defaults = new SessionVariable();
+            defaults.enableExternalTableBatchMode = false;
+            defaults.numPartitionsInBatchMode = 1;
+            Deencapsulation.setField(node, "sessionVariable", defaults);
+            Deencapsulation.setField(node, "selectedPartitions", partitions);
+            Assertions.assertFalse(node.isBatchMode());
+            Mockito.verifyNoInteractions(provider);
+        }
+    }
+
+    @Test
+    void enabledBatchModeAcceptsOnePartitionThroughTheEngineGate() {
+        ConnectorScanPlanProvider provider = Mockito.mock(ConnectorScanPlanProvider.class);
+        Mockito.when(provider.supportsBatchScan(Mockito.any(), Mockito.any())).thenReturn(true);
+        PluginDrivenScanNode node = streamingNode(provider);
+        SessionVariable enabled = new SessionVariable();
+        enabled.numPartitionsInBatchMode = 1;
+        Deencapsulation.setField(node, "sessionVariable", enabled);
+        Deencapsulation.setField(node, "selectedPartitions", pruned(1));
+        Assertions.assertTrue(node.isBatchMode());
+        Mockito.verify(provider, Mockito.never()).streamingSplitEstimate(
+                Mockito.any(), Mockito.any(), Mockito.any(), Mockito.anyBoolean());
     }
 
     @Test

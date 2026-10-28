@@ -778,7 +778,7 @@ public class ColumnDefinition {
     }
 
     /**
-     * add hidden column __DORIS_ROW_LSN_COL__ for stable row identity on row-binlog tables.
+     * add hidden column __DORIS_ROW_LSN_COL__ for stable row identity on changelog tables.
      */
     public static ColumnDefinition newRowLsnColumnDefinition(AggregateType aggregateType) {
         ColumnDefinition columnDefinition = new ColumnDefinition(Column.ROW_LSN_COL, BigIntType.INSTANCE, false,

@@ -124,12 +124,13 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
             try {
                 StatementScopeIdGenerator.clear();
                 StatementContext statementContext = MemoTestUtils.createStatementContext(connectContext, sql);
-                PhysicalPlan plan = new NereidsPlanner(statementContext).planWithLock(
+                NereidsPlanner planner = new NereidsPlanner(statementContext);
+                PhysicalPlan plan = planner.planWithLock(
                         parser.parseSingle(sql),
                         PhysicalProperties.ANY
                 );
                 // Just to check whether translate will throw exception
-                new PhysicalPlanTranslator(new PlanTranslatorContext()).translatePlan(plan);
+                new PhysicalPlanTranslator(new PlanTranslatorContext(planner.getCascadesContext())).translatePlan(plan);
             } catch (Throwable t) {
                 throw new IllegalStateException("Test sql failed: " + t.getMessage() + ", sql:\n" + sql, t);
             }

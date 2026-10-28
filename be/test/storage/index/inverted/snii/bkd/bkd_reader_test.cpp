@@ -82,10 +82,7 @@ private:
     std::vector<uint8_t> bytes_;
 };
 
-// A whole container image, with a call counter. The counter is what makes
-// design 7.2's "zero IO" claim for the global-bounds fast reject and its
-// "O(touched leaves) positioned reads" cost model observable rather than
-// asserted in prose.
+// A counting FileReader measures reads for each query path.
 class CountingFileReader final : public io::FileReader {
 public:
     explicit CountingFileReader(std::vector<uint8_t> bytes) : bytes_(std::move(bytes)) {}
@@ -168,9 +165,7 @@ Status build_container(const std::vector<Point>& points, uint32_t points_per_lea
     return Status::OK();
 }
 
-// One opened index plus the reader it was opened over, kept together because the
-// FileReader must outlive the BkdReader (design 9: no reference counting, the
-// SNII segment reader owns the file).
+// Keep the FileReader alive for the borrowed BkdReader.
 struct OpenedIndex {
     std::unique_ptr<CountingFileReader> file;
     std::unique_ptr<BkdReader> reader;
@@ -310,7 +305,7 @@ TEST(BkdReaderTest, OpenReportsTheHeaderAndTheGlobalBounds) {
     // five leaves plus four split values cannot be free.
     EXPECT_GT(reader.memory_usage(), sizeof(BkdReader));
 
-    // bkd_index is read in full exactly once at open and never again (design 5.1).
+    // Opening reads bkd_index once.
     EXPECT_EQ(opened.file->reads(), 1U);
 }
 
@@ -319,9 +314,7 @@ TEST(BkdReaderTest, OpenRejectsSectionsThatRunPastTheEndOfTheFile) {
     ASSERT_TRUE(build_container({{1, 0}, {2, 1}}, 4, &container).ok());
     CountingFileReader file(container.image);
 
-    // The section table is on-disk metadata, so an impossible extent is damage to
-    // report (design 8) -- not something to assert on, and not something to hand
-    // to read_into as a multi-gigabyte allocation.
+    // Reject invalid on-disk section extents before reading.
     BkdSections beyond = container.sections;
     beyond.index_length = container.image.size() + 1;
     std::unique_ptr<BkdReader> reader;
@@ -496,9 +489,7 @@ TEST(BkdReaderTest, LowerAboveUpperIsAnEmptyIntervalNotAnError) {
     EXPECT_EQ(opened.file->reads(), reads_after_open);
 }
 
-// ---------------------------------------------------------------------------
-// IO cost (design 7.2)
-// ---------------------------------------------------------------------------
+// Leaf-read cost tests.
 
 TEST(BkdReaderTest, IntervalsEntirelyOutsideTheGlobalBoundsCostNoIo) {
     std::vector<Point> points;
@@ -517,8 +508,7 @@ TEST(BkdReaderTest, IntervalsEntirelyOutsideTheGlobalBoundsCostNoIo) {
             matches_brute_force(*opened.reader, points, Interval {false, 0, true, true, 0, false}));
     EXPECT_TRUE(matches_brute_force(*opened.reader, points,
                                     Interval {true, 39, false, false, 0, true}));
-    // Design 7.2: the global-bounds check is answered from the resident header,
-    // so a miss touches bkd_data zero times.
+    // A range outside global bounds reads no bkd_data.
     EXPECT_EQ(opened.file->reads(), reads_after_open);
 }
 
@@ -601,9 +591,7 @@ TEST(BkdReaderTest, DamagedLeafBytesDowngradeToAStatusInsteadOfCrashing) {
     }
     Container container;
     ASSERT_TRUE(build_container(points, 4, &container).ok());
-    // Leaves are read lazily, so they are outside the open-time validation: the
-    // damage can only be caught by the leaf decoder, and it must come back as a
-    // Status (design 8.3).
+    // A malformed leaf returns corruption when the leaf is read.
     for (size_t i = 0; i < 8; ++i) {
         container.image[container.data_begin + i] = 0xFF;
     }
@@ -644,9 +632,7 @@ TEST(BkdReaderTest, ScratchIsReusedAcrossQueriesWithoutChangingResults) {
     OpenedIndex opened;
     ASSERT_TRUE(open_index(points, 5, &opened).ok());
 
-    // Design 9: the per-query state is the caller's, so one scratch serves an
-    // arbitrary sequence of queries and the answers are unaffected by what ran
-    // before.
+    // Reusing scratch must not change later query results.
     BkdQueryScratch scratch;
     for (int64_t low = 0; low < 37; ++low) {
         const Interval interval = closed(low, low + 4);
@@ -667,9 +653,7 @@ TEST(BkdReaderTest, ConcurrentQueriesShareOneImmutableReader) {
     OpenedIndex opened;
     ASSERT_TRUE(open_index(points, 9, &opened).ok());
 
-    // Design 9: range() is const, every query keeps its state on its own stack, and
-    // there is no clone() -- so a searcher cache may hand the same object to
-    // concurrent queries with no locking at all.
+    // Concurrent range queries share one immutable reader.
     std::vector<std::thread> threads;
     std::atomic<int> failures {0};
     for (int t = 0; t < 4; ++t) {
@@ -694,9 +678,7 @@ TEST(BkdReaderTest, ConcurrentQueriesShareOneImmutableReader) {
     EXPECT_EQ(failures.load(), 0);
 }
 
-// ---------------------------------------------------------------------------
-// lookup_many (design 7.3)
-// ---------------------------------------------------------------------------
+// Multi-value lookup tests.
 
 namespace {
 
@@ -733,10 +715,7 @@ std::vector<Slice> slices_of(const std::vector<std::vector<uint8_t>>& encoded) {
 
 } // namespace
 
-// lookup_many exists to answer IN (...) in ONE pass instead of the N full
-// traversals the old implementation ran (design 7.3). It must agree exactly with
-// the union of the equality ranges it replaces -- that equivalence is the whole
-// contract, and the union is computed by the already-tested range().
+// Multi-value lookup must equal the union of equality ranges.
 TEST(BkdReaderTest, LookupManyEqualsTheUnionOfEqualityRanges) {
     for (const uint32_t points_per_leaf : {1U, 4U, 32U, 1024U}) {
         SCOPED_TRACE("points_per_leaf " + std::to_string(points_per_leaf));
@@ -831,9 +810,7 @@ TEST(BkdReaderTest, LookupManyOnAnEmptyIndexIsEmpty) {
     EXPECT_EQ(opened.file->reads(), before);
 }
 
-// ---------------------------------------------------------------------------
-// estimate_cardinality (design 7.4)
-// ---------------------------------------------------------------------------
+// Cardinality estimate tests.
 
 // The estimate feeds inverted_index_skip_threshold's bypass decision, so being
 // cheap matters as much as being close: it must read NOTHING.
@@ -852,15 +829,7 @@ TEST(BkdReaderTest, EstimateReadsNoData) {
     EXPECT_GT(estimate, 0U);
 }
 
-// Only the two boundary leaves are guessed at, and only when a bound actually
-// cuts into them. The old implementation estimated whole subtrees as FULL
-// leaves, which over-counted a sparse tail by multiples.
-//
-// The bound is 2 x ceil(points_per_leaf / 2), not points_per_leaf as design 7.4
-// states: halving is integer division, so a partial leaf of c points can be off
-// by ceil(c / 2) -- for c == 1 the guess is 0 while the truth is 1. With two
-// partial leaves that is 2 for a one-point leaf, which exceeds points_per_leaf.
-// The doc's figure is right only for even capacities.
+// Each partial boundary leaf contributes half its recorded count. For a one-point leaf, integer division gives zero, so two such leaves can each add one to the error.
 TEST(BkdReaderTest, EstimateErrorIsBoundedByOneLeaf) {
     for (const uint32_t points_per_leaf : {1U, 8U, 64U}) {
         SCOPED_TRACE("points_per_leaf " + std::to_string(points_per_leaf));

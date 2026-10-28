@@ -221,9 +221,6 @@ public class IcebergConnector implements Connector {
     // The value is pure metadata (no FileIO/credential), but under session=user it is an authorization-sensitive
     // projection (a shared hit would disclose one user's partitions), so it is disabled there (see constructor).
     private final IcebergPartitionCache partitionCache; // null under session=user
-    // PERF-03: cross-query inferred-file-format cache (the whole-table planFiles() fallback result, keyed by
-    // (table, snapshotId)). Same authorization-sensitive treatment as partitionCache: disabled under session=user.
-    private final IcebergFormatCache formatCache; // null under session=user
     // PERF-05: cross-query table-comment cache (value = the 'comment' property string). Built ONLY for a REST
     // vended-credentials catalog that is NOT session=user -- plain catalogs already reuse tableCache (PERF-01) for
     // the comment path, and session=user must stay live because the loadTable itself carries per-user
@@ -236,7 +233,7 @@ public class IcebergConnector implements Connector {
     // rebuild, not just the remote scan. Two typed fields because the two SPI hooks return structurally different
     // derived types and neither derives from the other; the shared raw PARTITIONS scan underneath is already
     // deduped by partitionCache, so two derived caches never double-scan remotely. Authorization-sensitive
-    // projection like partitionCache/formatCache: disabled (null) under iceberg.rest.session=user so a shared
+    // projection like partitionCache: disabled (null) under iceberg.rest.session=user so a shared
     // (no user dimension) hit cannot disclose one user's partition view; kept for every other flavor.
     private final ConnectorMetadataCache<ConnectorMvccPartitionView> // null under session=user
             mvccPartitionViewCache;
@@ -313,11 +310,6 @@ public class IcebergConnector implements Connector {
                 ? null
                 : new IcebergPartitionCache(
                         metaCache, cacheSpec("partition"));
-        // PERF-03: inferred-file-format cache. Same authorization-sensitive treatment as partitionCache (disabled
-        // under session=user, kept otherwise); readers already tolerate a null cache (resolveFileFormatName).
-        this.formatCache = isUserSessionEnabled()
-                ? null
-                : new IcebergFormatCache(metaCache, tableFactsCacheSpec);
         // PERF-05: table-comment cache, built ONLY for a REST vended-credentials catalog that is NOT session=user.
         // Plain catalogs (tableCache on) already serve the comment path from tableCache; session=user is excluded
         // because a shared comment cache would bypass the per-user loadTable authorization (a metadata disclosure).
@@ -811,11 +803,6 @@ public class IcebergConnector implements Connector {
         return partitionCache;
     }
 
-    /** Test-only: the cross-query inferred-file-format cache (PERF-03), or {@code null} for a session=user catalog. */
-    IcebergFormatCache formatCacheForTest() {
-        return formatCache;
-    }
-
     /** Test-only: the table-comment cache (PERF-05), or {@code null} unless vended-credentials and non-session. */
     IcebergCommentCache commentCacheForTest() {
         return commentCache;
@@ -840,7 +827,7 @@ public class IcebergConnector implements Connector {
         // threaded for parity with the legacy single per-catalog IcebergMetadataOps.
         return new IcebergScanPlanProvider(catalogProps,
                 this::newCatalogBackedOps, context, manifestCache,
-                tableCache, formatCache, catalogResourceTracker);
+                tableCache, catalogResourceTracker);
     }
 
     @Override
@@ -1083,16 +1070,13 @@ public class IcebergConnector implements Connector {
                         catalogOptions.get("client-pool-cache-keys")));
                 break;
             }
-            case IcebergCatalogProperties.TYPE_GLUE:
-                // Legacy IcebergGlueMetaStoreProperties builds the catalog with conf=null.
-                conf = null;
-                break;
             case IcebergCatalogProperties.TYPE_JDBC:
                 maybeRegisterJdbcDriver();
                 conf = IcebergCatalogFactory.buildHadoopConfiguration(properties, storageHadoopConfig);
                 break;
             default:
-                // rest / hadoop: a storage Configuration from the fe-filesystem-bound storage + raw
+                // rest / hadoop / glue: FileIO needs the bound storage configuration, including
+                // native GCS credentials when ResolvingFileIO falls back to HadoopFileIO, plus raw
                 // fs./dfs./hadoop. passthrough.
                 conf = IcebergCatalogFactory.buildHadoopConfiguration(properties, storageHadoopConfig);
                 break;

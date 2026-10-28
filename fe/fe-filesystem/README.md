@@ -141,6 +141,63 @@ At runtime, `DirectoryPluginRuntimeManager` creates an isolated `ClassLoader` pe
 `software.amazon.awssdk.*`, `org.apache.hadoop.*`) are loaded parent-first to avoid cross-
 ClassLoader cast failures.
 
+### Native object-storage identities and protocol adapters
+
+The credential path has three layers with one-way dependencies:
+
+```
+GCS plugin -> filesystem API identity description <- fe-storage-protocol -> fe-grpc / fe-thrift
+                                  ^                          ^
+                                  |                          |
+                                fe-core ---------------------+
+```
+
+The GCS plugin owns user property aliases, validation and authentication. It returns an immutable
+`GcpCredentialSpec` through `ObjectStorageAuthentication`. The shared API contains only data types;
+it imports no SDK or generated protocol classes. Resolved credentials and partial ALTER updates are
+separate values. An absent field stays absent, while an explicitly empty impersonation account clears
+that setting. HMAC and anonymous modes do not contain native credentials.
+
+The host-side `fe-storage-protocol` module converts those descriptions directly to Cloud protobuf and
+BE Thrift objects. It owns wire-schema mapping and depends on the filesystem API and generated
+protocol modules, never on filesystem plugin implementations. There is no intermediate serialization,
+reflection-based field mapping, or plugin-supplied wire codec. `fe-core` invokes the generic translator
+and attaches the result to its request envelopes without interpreting GCP fields.
+
+For SHOW CREATE and Cloud stages, the protocol adapter decodes a description and the owning plugin's
+`credentialToProperties()` restores user property names. Unknown wire providers, mismatched description
+types, and missing or ambiguous property owners fail explicitly.
+
+Adding a native wire variant requires a data description, a mapping in `fe-storage-protocol`, and
+matching BE/Cloud support. Filesystem plugins cannot independently extend the receiver's wire schema.
+The filesystem plugin API is 6.0 and connector plugin API is 15.0 because shared authentication types
+changed. Plugins must be rebuilt against the matching host APIs.
+
+Native OAuth accepts only the Google Storage service-base HTTPS endpoints recognized by
+`GcsEndpoint` (port 443, without a bucket, path, or query). Arbitrary S3-compatible endpoints
+and raw `fs.gs.auth.*` overrides are not supported in native mode. HMAC authentication retains
+its existing endpoint behavior. BE error-log downloads use IAM `signBlob`; FE presigned
+uploads remain unsupported with native OAuth.
+
+### Overlapping provider matches
+
+The binding registry preserves its existing provider order, explicit `fs.<x>.support` flags,
+multiple explicit bindings, and default HDFS binding. Routing uses the existing `supports()`,
+`supportsExplicit()` and `supportsGuess()` methods; there is no global validation or fallback hook.
+
+GCS recognizes its provider names, native credential keys, `gs://` locations and Google endpoints.
+S3 and MinIO exclude these GCS guesses in their own matching predicates. Explicit `provider=S3`
+or `fs.s3.support=true` retains S3 authentication, including at Google endpoints. This does not
+change the established HDFS, OSS, COS, OBS or Azure selection order.
+
+The S3-compatible plugins share pure GCS property recognition through `fe-filesystem-gcs-common`,
+which has no production dependencies and loads no Google credentials or SDKs. Credential validation
+runs when the selected provider binds its properties, including forced provider binding. S3, MinIO
+and Ozone reject native GCP keys instead of silently using their AWS/HMAC credential paths.
+
+Filesystem API 6.0 retains the native identity/property hooks described above, but removes the two
+routing hooks from the earlier feature draft. Plugins must be rebuilt against the matching host API.
+
 ### S3 Delegation Pattern
 
 Several cloud providers (OSS, COS, OBS) are S3-compatible. Instead of duplicating the S3

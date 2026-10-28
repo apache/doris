@@ -187,8 +187,8 @@ public class DropColumnOp extends AlterTableOp {
     }
 
     @Override
-    public boolean allowOpRowBinlog() {
-        // Drop column is considered safe for row binlog tables after whitelist
+    public boolean allowOnChangelogTable() {
+        // Drop column is considered safe for changelog tables after whitelist
         // check in schema change job.
         return true;
     }
