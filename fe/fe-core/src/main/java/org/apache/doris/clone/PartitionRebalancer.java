@@ -92,8 +92,8 @@ public class PartitionRebalancer extends Rebalancer {
         checkMovesCompleted(movesNeedCheck, toDeleteKeys);
 
         ClusterBalanceInfo clusterBalanceInfo = new ClusterBalanceInfo();
-        // We should assume the in-progress moves have been succeeded to avoid producing the same moves.
-        // Apply in-progress moves to current cluster stats, use TwoDimensionalGreedyAlgo.ApplyMove for simplicity.
+        // The load snapshot already assumes its in-progress moves have succeeded.
+        // Only moves selected after that snapshot still need to be applied.
         if (!buildClusterInfo(clusterStat, medium, movesInProgressList, clusterBalanceInfo, toDeleteKeys)) {
             return Lists.newArrayList();
         }
@@ -225,6 +225,10 @@ public class PartitionRebalancer extends Rebalancer {
             if (meta == null) {
                 // Move's tablet is invalid, need delete it
                 toDeleteKeys.add(move.tabletId);
+                continue;
+            }
+
+            if (clusterStat.isMoveIncluded(move)) {
                 continue;
             }
 
@@ -372,11 +376,12 @@ public class PartitionRebalancer extends Rebalancer {
         }
     }
 
-    public Map<Long, Pair<TabletMove, Long>> getMovesInProgress() {
+    public Map<Long, Pair<TabletMove, Long>> getMovesInProgress(Tag tag) {
         Map<Long, Pair<TabletMove, Long>> moves = Maps.newHashMap();
-        movesCacheMap.getCacheMap().values().forEach(
-                m -> m.values().forEach(cache -> moves.putAll(cache.get().asMap())));
-
+        Map<TStorageMedium, MovesCacheMap.MovesCache> mediumMap = movesCacheMap.getCacheMap().get(tag);
+        if (mediumMap != null) {
+            mediumMap.values().forEach(cache -> moves.putAll(cache.get().asMap()));
+        }
         return moves;
     }
 

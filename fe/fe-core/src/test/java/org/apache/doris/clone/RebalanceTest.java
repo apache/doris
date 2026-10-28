@@ -450,7 +450,8 @@ public class RebalanceTest {
         rebalancer.selectAlternativeTablets();
 
         // Verify: moves were generated (test is meaningful)
-        Map<Long, Pair<PartitionRebalancer.TabletMove, Long>> moves = rebalancer.getMovesInProgress();
+        Map<Long, Pair<PartitionRebalancer.TabletMove, Long>> moves =
+                rebalancer.getMovesInProgress(Tag.DEFAULT_BACKEND_TAG);
         Assertions.assertFalse(moves.isEmpty(), "Should generate moves for skewed SSD partition");
 
         // Verify: no move targets BE 20003 (HDD-only) or any of the HDD BEs from setUp (10001-10004)
