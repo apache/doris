@@ -30,6 +30,7 @@
 #include "common/check.h"
 #include "common/logging.h"
 #include "runtime/exec_env.h"
+#include "util/unaligned.h"
 
 namespace doris {
 namespace {
@@ -41,6 +42,15 @@ namespace {
 arrow::MemoryPool* doris_arrow_memory_pool() {
     auto* memory_pool = ExecEnv::GetInstance()->arrow_memory_pool();
     return memory_pool != nullptr ? memory_pool : arrow::default_memory_pool();
+}
+
+// Offset `row` of a LIST, LARGE_LIST or MAP parent. The offsets buffer may be misaligned (a Python
+// UDF hands one over), so it is read like the list and map serdes read it: value_offset() is an
+// aligned load of `Offset`, undefined there (UBSAN: load of misaligned address).
+template <typename Offset>
+int64_t load_offset(const Offset* raw_value_offsets, int64_t row) {
+    return unaligned_load<Offset>(reinterpret_cast<const uint8_t*>(raw_value_offsets) +
+                                  row * sizeof(Offset));
 }
 
 // Allocates a validity bitmap of `bit_length` bits from `pool`, with every slot NULL.
@@ -195,17 +205,17 @@ Status mask_arrow_child_slots_not_visible(const arrow::Array& parent, int child_
     std::shared_ptr<arrow::ArrayData> masked_child;
     switch (parent.type_id()) {
     case arrow::Type::LIST: {
-        const auto& list = static_cast<const arrow::ListArray&>(parent);
+        const auto* offsets = static_cast<const arrow::ListArray&>(parent).raw_value_offsets();
         RETURN_IF_ERROR(mask_unreferenced_slots(
-                parent, [&list](int64_t row) { return list.value_offset(row); }, 0, child, pool,
-                &masked_child));
+                parent, [offsets](int64_t row) { return load_offset(offsets, row); }, 0, child,
+                pool, &masked_child));
         break;
     }
     case arrow::Type::LARGE_LIST: {
-        const auto& list = static_cast<const arrow::LargeListArray&>(parent);
+        const auto* offsets = static_cast<const arrow::LargeListArray&>(parent).raw_value_offsets();
         RETURN_IF_ERROR(mask_unreferenced_slots(
-                parent, [&list](int64_t row) { return list.value_offset(row); }, 0, child, pool,
-                &masked_child));
+                parent, [offsets](int64_t row) { return load_offset(offsets, row); }, 0, child,
+                pool, &masked_child));
         break;
     }
     case arrow::Type::FIXED_SIZE_LIST: {
@@ -224,12 +234,12 @@ Status mask_arrow_child_slots_not_visible(const arrow::Array& parent, int child_
         // MapArray::SetData() aborts through ARROW_CHECK_OK(MapArray::ValidateChildData()) once
         // the entries struct or the keys may hold a NULL, so the entries that a map row hides
         // are marked NULL in the items alone. Entry j of the map is item slot entries.offset + j.
-        const auto& map = static_cast<const arrow::MapArray&>(parent);
+        const auto* offsets = static_cast<const arrow::MapArray&>(parent).raw_value_offsets();
         const auto& items = child->child_data[1];
         std::shared_ptr<arrow::ArrayData> masked_items;
         RETURN_IF_ERROR(mask_unreferenced_slots(
-                parent, [&map](int64_t row) { return map.value_offset(row); }, child->offset, items,
-                pool, &masked_items));
+                parent, [offsets](int64_t row) { return load_offset(offsets, row); }, child->offset,
+                items, pool, &masked_items));
         masked_child = child;
         if (masked_items != items) {
             masked_child = child->Copy();

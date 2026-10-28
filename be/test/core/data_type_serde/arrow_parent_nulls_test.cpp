@@ -21,6 +21,7 @@
 #include <gtest/gtest.h>
 
 #include <cstdint>
+#include <cstring>
 #include <memory>
 #include <optional>
 #include <string>
@@ -82,6 +83,16 @@ std::shared_ptr<arrow::Array> map_entries(const std::shared_ptr<arrow::Array>& i
             {arrow::field("key", arrow::utf8(), false), arrow::field("value", arrow::int32())});
     EXPECT_TRUE(entries.ok()) << entries.status().ToString();
     return std::move(entries).ValueOrDie();
+}
+
+// `offsets` copied to an odd address inside `storage`: offsets buffers from producers such as Python
+// UDFs are not always aligned to the offset width.
+template <typename Offset>
+std::shared_ptr<arrow::Buffer> misaligned_offsets(const std::vector<Offset>& offsets,
+                                                  std::vector<uint8_t>* storage) {
+    storage->assign(offsets.size() * sizeof(Offset) + 1, 0);
+    memcpy(storage->data() + 1, offsets.data(), offsets.size() * sizeof(Offset));
+    return arrow::Buffer::Wrap(storage->data() + 1, offsets.size() * sizeof(Offset));
 }
 
 } // namespace
@@ -263,6 +274,47 @@ TEST(ArrowParentNullsTest, MasksTheItemsOfNullMapRows) {
     rebuilt->child_data[0] = masked->data();
     const auto status = arrow::MakeArray(rebuilt)->ValidateFull();
     EXPECT_TRUE(status.ok()) << status.ToString();
+}
+
+// Rows [1, 2], NULL over {3, 4}, [5, 6] whose offsets buffer starts at an odd address. The masks
+// read such offsets without aligned loads; run with UBSan to catch an aligned one.
+TEST(ArrowParentNullsTest, MasksNullRowsBehindMisalignedOffsets) {
+    const auto child = int32_array({1, 2, 3, 4, 5, 6});
+    std::vector<uint8_t> list_storage;
+    std::vector<uint8_t> large_list_storage;
+    const std::vector<std::shared_ptr<arrow::Array>> lists {
+            arrow::MakeArray(arrow::ArrayData::Make(
+                    arrow::list(arrow::int32()), 3,
+                    {bitmap_of(0x05),
+                     misaligned_offsets(std::vector<int32_t> {0, 2, 4, 6}, &list_storage)},
+                    {child->data()}, 1)),
+            arrow::MakeArray(arrow::ArrayData::Make(
+                    arrow::large_list(arrow::int32()), 3,
+                    {bitmap_of(0x05),
+                     misaligned_offsets(std::vector<int64_t> {0, 2, 4, 6}, &large_list_storage)},
+                    {child->data()}, 1)),
+    };
+    for (const auto& parent : lists) {
+        SCOPED_TRACE(parent->type()->ToString());
+        std::shared_ptr<arrow::Array> masked;
+        ASSERT_TRUE(mask_arrow_child_slots_not_visible(*parent, 0, arrow::default_memory_pool(),
+                                                       &masked)
+                            .ok());
+        EXPECT_EQ((std::vector<bool> {false, false, true, true, false, false}), nulls_of(*masked));
+    }
+
+    // MAP rows {a: 1}, NULL over {b: 2}, {c: 3}.
+    std::vector<uint8_t> map_storage;
+    const auto entries = map_entries(int32_array({1, 2, 3}));
+    const auto map = arrow::MakeArray(arrow::ArrayData::Make(
+            arrow::map(arrow::utf8(), arrow::int32()), 3,
+            {bitmap_of(0x05), misaligned_offsets(std::vector<int32_t> {0, 1, 2, 3}, &map_storage)},
+            {entries->data()}, 1));
+    std::shared_ptr<arrow::Array> masked;
+    ASSERT_TRUE(mask_arrow_child_slots_not_visible(*map, 0, arrow::default_memory_pool(), &masked)
+                        .ok());
+    EXPECT_EQ((std::vector<bool> {false, true, false}),
+              nulls_of(*static_cast<const arrow::StructArray&>(*masked).field(1)));
 }
 
 // The slice [1, 3) of LIST rows [1], [2, 3], NULL over {4} keeps only child slots 1 and 2: slot 0
