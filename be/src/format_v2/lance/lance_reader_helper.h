@@ -283,6 +283,11 @@ public:
                                std::shared_ptr<arrow::Array>* normalized) const;
 
 private:
+    // Return the array this normalizer reads for child `child_idx` of `parent`.
+    Status _child_array_to_normalize(const arrow::Array& parent, size_t child_idx,
+                                     arrow::MemoryPool* memory_pool,
+                                     std::shared_ptr<arrow::Array>* child) const;
+
     std::string _field_name;
     std::shared_ptr<arrow::DataType> _storage_type;
     // decimal128(p, s) for a Decimal256 field with p <= 38, which Doris types DECIMAL32/64/128I
@@ -291,6 +296,9 @@ private:
     std::vector<LanceArrowArrayNormalizer> _child_normalizers;
     bool _unwrap_registered_extension = false;
     bool _convert_bfloat16 = false;
+    // Whether this field or one of its descendants narrows Decimal256 values with a cast that
+    // rejects a value outside the declared precision.
+    bool _narrows_decimal = false;
     bool _requires_special_handling = false;
 };
 

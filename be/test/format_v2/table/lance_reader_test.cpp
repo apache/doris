@@ -2780,6 +2780,34 @@ std::pair<size_t, size_t> map_range(const ColumnMap& map, size_t row) {
             static_cast<size_t>(offsets[row])};
 }
 
+// The scalar leaf of a column nested through ARRAY elements, MAP values and first STRUCT fields.
+const ColumnNullable& nested_leaf(const IColumn& column) {
+    const auto& nullable = assert_cast<const ColumnNullable&>(column);
+    const auto& nested = nullable.get_nested_column();
+    if (const auto* array = check_and_get_column<ColumnArray>(nested)) {
+        return nested_leaf(array->get_data());
+    }
+    if (const auto* map = check_and_get_column<ColumnMap>(nested)) {
+        return nested_leaf(map->get_values());
+    }
+    if (const auto* tuple = check_and_get_column<ColumnStruct>(nested)) {
+        return nested_leaf(tuple->get_column(0));
+    }
+    return nullable;
+}
+
+// The Arrow type of the same leaf: the element of a list, the item of a map, the first struct
+// field.
+std::shared_ptr<arrow::DataType> nested_leaf_type(const std::shared_ptr<arrow::DataType>& type) {
+    if (type->id() == arrow::Type::MAP) {
+        return nested_leaf_type(std::static_pointer_cast<arrow::MapType>(type)->item_type());
+    }
+    if (type->num_fields() == 0) {
+        return type;
+    }
+    return nested_leaf_type(type->field(0)->type());
+}
+
 // Wraps three Booleans, offset included, into three-row STRUCT<b>, LIST, MAP<STRING, BOOLEAN>,
 // STRUCT<s: STRUCT<b>> and STRUCT<l: LIST> arrays. Each starts at offset 0 and references exactly
 // its child; the list and map rows hold the values {0, 1}, {} and {2}.
@@ -3579,22 +3607,6 @@ TEST(LanceTableReaderTypeTest, IgnoresDate32PayloadHiddenByNullParents) {
                                     {parent_validity, offsets}, {(*struct_rows)->data()}, 1),
              make_nullable(std::make_shared<DataTypeArray>(struct_type))},
     };
-    // The DATE leaf under ARRAY, STRUCT and MAP, whose rows 0 and 2 are the visible dates.
-    std::function<const ColumnNullable&(const IColumn&)> date_leaf =
-            [&date_leaf](const IColumn& column) -> const ColumnNullable& {
-        const auto& nullable = assert_cast<const ColumnNullable&>(column);
-        const auto& nested = nullable.get_nested_column();
-        if (const auto* array = check_and_get_column<ColumnArray>(nested)) {
-            return date_leaf(array->get_data());
-        }
-        if (const auto* map = check_and_get_column<ColumnMap>(nested)) {
-            return date_leaf(map->get_values());
-        }
-        if (const auto* tuple = check_and_get_column<ColumnStruct>(nested)) {
-            return date_leaf(tuple->get_column(0));
-        }
-        return nullable;
-    };
     for (const auto& [data, doris_type] : cases) {
         const auto array = arrow::MakeArray(data);
         SCOPED_TRACE(array->type()->ToString());
@@ -3614,7 +3626,8 @@ TEST(LanceTableReaderTypeTest, IgnoresDate32PayloadHiddenByNullParents) {
         ASSERT_EQ(3, rows);
         const auto& values = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
         EXPECT_EQ((ColumnUInt8::Container {0, 1, 0}), values.get_null_map_data());
-        const auto& leaf = date_leaf(values);
+        // The DATE leaf under ARRAY, STRUCT and MAP, whose rows 0 and 2 are the visible dates.
+        const auto& leaf = nested_leaf(values);
         ASSERT_EQ(3, leaf.size());
         EXPECT_EQ("1970-01-01", date_type->to_string(leaf, 0));
         EXPECT_EQ("1970-01-02", date_type->to_string(leaf, 2));
@@ -3915,7 +3928,9 @@ TEST(LanceTableReaderTypeTest, NarrowsDecimal256LeavesInSlicedNestedArrays) {
 }
 
 // Verifies a value outside the declared precision fails with the field name instead of being
-// truncated: unscaled 10^18 does not fit decimal(18, 2), nor 10^38 decimal(38, 0).
+// truncated: unscaled 10^18 does not fit decimal(18, 2), nor 10^38 decimal(38, 0). The nested
+// case masks the NULL row 1 of a FIXED_SIZE_LIST, yet 10^18 in the visible row 2 must still fail;
+// a mask that also hid visible slots would let it through.
 TEST(LanceTableReaderTypeTest, RejectsDecimal256ValuesOutsideDeclaredPrecision) {
     const std::array<std::tuple<const char*, int32_t, int32_t, const char*>, 2> cases {{
             {"amount", 18, 2, "10000000000000000.00"},
@@ -3932,6 +3947,147 @@ TEST(LanceTableReaderTypeTest, RejectsDecimal256ValuesOutsideDeclaredPrecision) 
                 << status.to_string();
         EXPECT_NE(std::string::npos, status.to_string().find("does not fit in precision"))
                 << status.to_string();
+    }
+
+    // Rows [0.01], NULL over 0.02, [10000000000000000.00].
+    const auto list = arrow::MakeArray(arrow::ArrayData::Make(
+            arrow::fixed_size_list(arrow::field("item", arrow::decimal256(18, 2)), 1), 3,
+            {arrow::Buffer::FromVector(std::vector<uint8_t> {0x05})},
+            {make_decimal256_array(18, 2, {"0.01", "0.02", "10000000000000000.00"})->data()}, 1));
+    std::shared_ptr<arrow::Array> normalized;
+    const auto status = normalize_lance_arrow_array_for_test(arrow::field("amounts", list->type()),
+                                                             list, &normalized);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(std::string::npos, status.to_string().find("field 'item'")) << status.to_string();
+    EXPECT_NE(std::string::npos, status.to_string().find("does not fit in precision"))
+            << status.to_string();
+}
+
+// Verifies Decimal256 values that no visible row shows, under NULL fixed-size-list, list, struct
+// and map rows or under a list row that a slice leaves out, are not checked against the precision
+// when the leaf is narrowed to Decimal128. Arrow leaves the child values of a NULL row
+// unspecified, so unscaled 10^18 there must neither fail the batch nor reach the result, also
+// when the NULL list row holds a STRUCT child. Without the mask in the normalizer, every case
+// fails with "does not fit in precision 18".
+TEST(LanceTableReaderTypeTest, NarrowsDecimal256PayloadsHiddenByNullParents) {
+    const auto decimal_type = arrow::decimal256(18, 2);
+    // 0.01, 10000000000000000.00 (unscaled 10^18, outside precision 18), 0.02.
+    const auto decimals = make_decimal256_array(18, 2, {"0.01", "10000000000000000.00", "0.02"});
+    arrow::StringBuilder keys_builder;
+    ASSERT_TRUE(keys_builder.AppendValues({"a", "b", "c"}).ok());
+    std::shared_ptr<arrow::Array> keys;
+    ASSERT_TRUE(keys_builder.Finish(&keys).ok());
+    auto entries = arrow::StructArray::Make(
+            {keys, decimals},
+            {arrow::field("key", arrow::utf8(), false), arrow::field("value", decimal_type)});
+    ASSERT_TRUE(entries.ok()) << entries.status().ToString();
+    auto struct_rows = arrow::StructArray::Make({decimals}, {arrow::field("d", decimal_type)});
+    ASSERT_TRUE(struct_rows.ok()) << struct_rows.status().ToString();
+    // Validity 0b101: rows 0 and 2 are valid, row 1 is NULL and owns the child at index 1.
+    const auto parent_validity = arrow::Buffer::FromVector(std::vector<uint8_t> {0x05});
+    const auto offsets = arrow::Buffer::FromVector(std::vector<int32_t> {0, 1, 2, 3});
+    // The rows [10000000000000000.00], [0.01], [0.02], sliced to the last two below.
+    const auto sliced_decimals =
+            make_decimal256_array(18, 2, {"10000000000000000.00", "0.01", "0.02"});
+
+    const auto decimal_doris_type = nullable_type(TYPE_DECIMAL64, 18, 2);
+    const auto array_type = make_nullable(std::make_shared<DataTypeArray>(decimal_doris_type));
+    const auto struct_type = make_nullable(
+            std::make_shared<DataTypeStruct>(DataTypes {decimal_doris_type}, Strings {"d"}));
+    struct HiddenDecimalCase {
+        const char* name;
+        std::shared_ptr<arrow::Array> array;
+        DataTypePtr doris_type;
+        std::vector<uint8_t> null_map;
+        // The decimal leaf of the column; the slot of a NULL row is read as NULL.
+        std::vector<std::optional<std::string>> leaf;
+    };
+    const std::vector<std::optional<std::string>> leaf_under_null_row {"0.01", std::nullopt,
+                                                                       "0.02"};
+    const std::vector<HiddenDecimalCase> cases {
+            {"fixed_size_list",
+             arrow::MakeArray(arrow::ArrayData::Make(
+                     arrow::fixed_size_list(arrow::field("item", decimal_type), 1), 3,
+                     {parent_validity}, {decimals->data()}, 1)),
+             array_type,
+             {0, 1, 0},
+             leaf_under_null_row},
+            {"list",
+             arrow::MakeArray(
+                     arrow::ArrayData::Make(arrow::list(arrow::field("item", decimal_type)), 3,
+                                            {parent_validity, offsets}, {decimals->data()}, 1)),
+             array_type,
+             {0, 1, 0},
+             leaf_under_null_row},
+            {"struct",
+             arrow::MakeArray(
+                     arrow::ArrayData::Make(arrow::struct_({arrow::field("d", decimal_type)}), 3,
+                                            {parent_validity}, {decimals->data()}, 1)),
+             struct_type,
+             {0, 1, 0},
+             leaf_under_null_row},
+            {"map",
+             arrow::MakeArray(arrow::ArrayData::Make(arrow::map(arrow::utf8(), decimal_type), 3,
+                                                     {parent_validity, offsets},
+                                                     {(*entries)->data()}, 1)),
+             make_nullable(
+                     std::make_shared<DataTypeMap>(nullable_type(TYPE_STRING), decimal_doris_type)),
+             {0, 1, 0},
+             leaf_under_null_row},
+            {"list of structs",
+             arrow::MakeArray(arrow::ArrayData::Make(
+                     arrow::list(arrow::field("item", (*struct_rows)->type())), 3,
+                     {parent_validity, offsets}, {(*struct_rows)->data()}, 1)),
+             make_nullable(std::make_shared<DataTypeArray>(struct_type)),
+             {0, 1, 0},
+             leaf_under_null_row},
+            {"sliced list",
+             arrow::MakeArray(
+                     arrow::ArrayData::Make(arrow::list(arrow::field("item", decimal_type)), 3,
+                                            {nullptr, offsets}, {sliced_decimals->data()}, 0))
+                     ->Slice(1, 2),
+             array_type,
+             {0, 0},
+             {"0.01", "0.02"}},
+    };
+    for (const auto& test_case : cases) {
+        SCOPED_TRACE(test_case.name);
+        const auto& array = test_case.array;
+        // Full validation checks every Decimal256 value against the precision, the hidden 10^18
+        // included, so only the structure is validated here.
+        const auto validate_status = array->Validate();
+        ASSERT_TRUE(validate_status.ok()) << validate_status.ToString();
+        std::shared_ptr<arrow::Array> normalized;
+        const auto normalize_status = normalize_lance_arrow_array_for_test(
+                arrow::field("value", array->type()), array, &normalized);
+        ASSERT_TRUE(normalize_status.ok()) << normalize_status.to_string();
+        EXPECT_TRUE(nested_leaf_type(normalized->type())->Equals(arrow::decimal128(18, 2)))
+                << normalized->type()->ToString();
+
+        const auto schema = arrow::schema({arrow::field("value", array->type())});
+        const auto record_batch = arrow::RecordBatch::Make(schema, array->length(), {array});
+        const Columns columns {projected_column("value", test_case.doris_type)};
+        TQueryGlobals query_globals;
+        RuntimeState state(TQueryOptions(), query_globals);
+        Block block;
+        add_output_columns(&block, columns);
+        size_t rows = 0;
+        const auto status =
+                convert_record_batch_for_test(&state, columns, record_batch, &block, &rows);
+        ASSERT_TRUE(status.ok()) << status.to_string();
+        ASSERT_EQ(static_cast<size_t>(array->length()), rows);
+        const auto& values = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+        const auto& null_map = values.get_null_map_data();
+        EXPECT_EQ(test_case.null_map, std::vector<uint8_t>(null_map.begin(), null_map.end()));
+        const auto& leaf = nested_leaf(values);
+        ASSERT_EQ(test_case.leaf.size(), leaf.size());
+        for (size_t index = 0; index < leaf.size(); ++index) {
+            const auto& expected = test_case.leaf[index];
+            EXPECT_EQ(!expected.has_value(), leaf.is_null_at(index)) << index;
+            if (expected.has_value()) {
+                EXPECT_EQ(*expected, decimal_doris_type->to_string(leaf, index)) << index;
+            }
+        }
     }
 }
 
