@@ -17,7 +17,6 @@
 
 #include "format_v2/delimited_text/csv_reader.h"
 
-#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -87,23 +86,53 @@ public:
         return io::ObjStorageResponse::OK();
     }
 
-    MOCK_METHOD(io::ObjStorageUploadResult, create_multipart_upload, (const io::ObjStoragePath&),
-                (override));
-    MOCK_METHOD(io::ObjStorageResponse, put_object, (const io::ObjStoragePath&, std::string_view),
-                (override));
-    MOCK_METHOD(io::ObjStorageUploadResult, upload_part,
-                (const io::ObjStoragePath&, const std::string&, std::string_view, int), (override));
-    MOCK_METHOD(io::ObjStorageResponse, complete_multipart_upload,
-                (const io::ObjStoragePath&, const std::string&,
-                 const std::vector<io::ObjStorageCompletedPart>&),
-                (override));
-    MOCK_METHOD(io::ObjStorageResponse, delete_objects,
-                (const io::ObjStoragePath&, std::vector<std::string>), (override));
-    MOCK_METHOD(io::ObjStorageResponse, delete_object, (const io::ObjStoragePath&), (override));
-    MOCK_METHOD(std::string, generate_presigned_url, (const io::ObjStoragePath&, int64_t),
-                (override));
-    MOCK_METHOD(io::ObjStorageListPageResult, list_objects_page,
-                (const io::ObjStoragePath&, std::string_view), (override));
+    // Only HEAD and GET belong to this read test. Explicit overrides avoid generating unused
+    // gMock expectation helpers for this anonymous-namespace client.
+    io::ObjStorageUploadResult create_multipart_upload(const io::ObjStoragePath&) override {
+        return {.resp = unexpected_operation()};
+    }
+
+    io::ObjStorageResponse put_object(const io::ObjStoragePath&, std::string_view) override {
+        return unexpected_operation();
+    }
+
+    io::ObjStorageUploadResult upload_part(const io::ObjStoragePath&, const std::string&,
+                                           std::string_view, int) override {
+        return {.resp = unexpected_operation()};
+    }
+
+    io::ObjStorageResponse complete_multipart_upload(
+            const io::ObjStoragePath&, const std::string&,
+            const std::vector<io::ObjStorageCompletedPart>&) override {
+        return unexpected_operation();
+    }
+
+    io::ObjStorageResponse delete_objects(const io::ObjStoragePath&,
+                                          std::vector<std::string>) override {
+        return unexpected_operation();
+    }
+
+    io::ObjStorageResponse delete_object(const io::ObjStoragePath&) override {
+        return unexpected_operation();
+    }
+
+    std::string generate_presigned_url(const io::ObjStoragePath&, int64_t) override {
+        ADD_FAILURE() << "Unexpected signed URL request in CSV prefetch test";
+        return {};
+    }
+
+    io::ObjStorageListPageResult list_objects_page(const io::ObjStoragePath&,
+                                                   std::string_view) override {
+        return {.resp = unexpected_operation()};
+    }
+
+private:
+    static io::ObjStorageResponse unexpected_operation() {
+        ADD_FAILURE() << "Unexpected object storage operation in CSV prefetch test";
+        return {.status = {TStatusCode::NOT_IMPLEMENTED_ERROR,
+                           "CSV prefetch test only supports HEAD and GET"},
+                .http_code = 0};
+    }
 };
 
 TFileScanRangeParams csv_scan_params() {
