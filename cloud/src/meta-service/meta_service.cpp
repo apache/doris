@@ -188,15 +188,17 @@ bool MetaServiceProxy::check_request_instance_id(const ::google::protobuf::Messa
                                                  MetaServiceResponseStatus* status) {
     const auto* descriptor = req.GetDescriptor();
     const auto* reflection = req.GetReflection();
-    std::string instance_id =
-            reflection->GetString(req, descriptor->FindFieldByName("instance_id"));
+    // call_impl only checks requests with an instance_id field.
+    const auto* instance_id_field = descriptor->FindFieldByName("instance_id");
+    CHECK(instance_id_field != nullptr) << descriptor->name();
+    std::string instance_id = reflection->GetString(req, instance_id_field);
     const auto* cloud_unique_id_field = descriptor->FindFieldByName("cloud_unique_id");
-    if (instance_id.empty() || cloud_unique_id_field == nullptr) {
-        return true;
-    }
-    std::string cloud_unique_id = reflection->GetString(req, cloud_unique_id_field);
-    // Requests carrying only instance_id are kept for compatibility, e.g. FE alter_cluster.
-    if (cloud_unique_id.empty() ||
+    std::string cloud_unique_id = cloud_unique_id_field == nullptr
+                                          ? ""
+                                          : reflection->GetString(req, cloud_unique_id_field);
+    // Nothing to cross check without both fields. Requests naming an instance by instance_id only
+    // are still accepted for compatibility, e.g. FE alter_cluster and create_instance.
+    if (instance_id.empty() || cloud_unique_id.empty() ||
         get_instance_id(resource_mgr(), cloud_unique_id) == instance_id) {
         return true;
     }
