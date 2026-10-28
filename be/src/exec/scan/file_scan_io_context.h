@@ -29,6 +29,10 @@ inline void init_file_scan_io_context(RuntimeState* state, io::IOContext* io_ctx
     io_ctx->query_id = &state->query_id();
     if (state->query_options().query_type == TQueryType::SELECT) {
         io_ctx->reader_type = ReaderType::READER_QUERY;
+        // Missing options from an older FE must not enable a new remote-read policy.
+        io_ctx->enable_file_cache_io_adaptor =
+                state->query_options().__isset.enable_file_cache_io_adaptor &&
+                state->query_options().enable_file_cache_io_adaptor;
         if (auto* query_ctx = state->get_query_ctx(); query_ctx != nullptr) {
             io_ctx->remote_scan_cache_write_limiter = query_ctx->remote_scan_cache_write_limiter();
         }

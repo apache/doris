@@ -230,6 +230,7 @@ Status FileBlock::finalize() {
 }
 
 Status FileBlock::read(Slice buffer, size_t read_offset) {
+    TEST_SYNC_POINT("FileBlock::adaptor_benchmark_read");
     return _mgr->_storage->read(_key, read_offset, buffer);
 }
 
