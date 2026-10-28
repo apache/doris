@@ -158,6 +158,68 @@ public class SearchDslParserTest {
     }
 
     @Test
+    public void testBooleanKeywordAsFieldValue() {
+        // DORIS-23194: AND/OR/NOT are case-insensitive keywords, but in value position they are
+        // ordinary terms and must not be rejected by the parser.
+        String[][] cases = {
+                {"ch:AND", "AND"}, {"ch:and", "and"}, {"ch:And", "And"},
+                {"ch:OR", "OR"}, {"ch:or", "or"},
+                {"ch:NOT", "NOT"}, {"ch:not", "not"}};
+        for (String[] testCase : cases) {
+            QsPlan plan = SearchDslParser.parseDsl(testCase[0]);
+            Assertions.assertEquals(QsClauseType.TERM, plan.getRoot().getType(), testCase[0]);
+            Assertions.assertEquals("ch", plan.getRoot().getField(), testCase[0]);
+            Assertions.assertEquals(testCase[1], plan.getRoot().getValue(), testCase[0]);
+        }
+    }
+
+    @Test
+    public void testLowercaseBooleanOperators() {
+        // DORIS-23236: lowercase boolean operators must behave like their uppercase form.
+        QsPlan orPlan = SearchDslParser.parseDsl("ch:foo or ch:bar", "{\"mode\":\"standard\"}");
+        Assertions.assertEquals(QsClauseType.OR, orPlan.getRoot().getType());
+        Assertions.assertEquals(2, orPlan.getRoot().getChildren().size());
+
+        QsPlan andPlan = SearchDslParser.parseDsl("ch:foo and ch:bar", "{\"mode\":\"standard\"}");
+        Assertions.assertEquals(QsClauseType.AND, andPlan.getRoot().getType());
+        Assertions.assertEquals(2, andPlan.getRoot().getChildren().size());
+
+        QsPlan notPlan = SearchDslParser.parseDsl("ch:foo and not ch:bar", "{\"mode\":\"standard\"}");
+        Assertions.assertEquals(QsClauseType.AND, notPlan.getRoot().getType());
+        Assertions.assertEquals(QsClauseType.NOT, notPlan.getRoot().getChildren().get(1).getType());
+    }
+
+    @Test
+    public void testQuotedParenthesesInAnyAll() {
+        // DORIS-23236: parentheses inside a quoted value must not terminate ANY/ALL early.
+        QsPlan anyPlan = SearchDslParser.parseDsl(
+                "ch:ANY(\"All Quiet on the Western Front (2022 film)\")");
+        Assertions.assertEquals(QsClauseType.ANY, anyPlan.getRoot().getType());
+        Assertions.assertEquals("All Quiet on the Western Front (2022 film)",
+                anyPlan.getRoot().getValue());
+
+        QsPlan bothPlan = SearchDslParser.parseDsl(
+                "ch:ANY(\"All Quiet on the Western Front (2022 film)\") "
+                        + "or ch:ALL(\"F. Murray Abraham\")", "{\"mode\":\"standard\"}");
+        Assertions.assertEquals(QsClauseType.OR, bothPlan.getRoot().getType());
+        Assertions.assertEquals(2, bothPlan.getRoot().getChildren().size());
+        Assertions.assertEquals(QsClauseType.ANY, bothPlan.getRoot().getChildren().get(0).getType());
+        Assertions.assertEquals(QsClauseType.ALL, bothPlan.getRoot().getChildren().get(1).getType());
+    }
+
+    @Test
+    public void testEscapedCharactersInExactAndAny() {
+        // DORIS-23239: escapes are resolved before the term is looked up.
+        QsPlan exactPlan = SearchDslParser.parseDsl("ch:exact(ABC\\))");
+        Assertions.assertEquals(QsClauseType.EXACT, exactPlan.getRoot().getType());
+        Assertions.assertEquals("ABC)", exactPlan.getRoot().getValue());
+
+        QsPlan anyPlan = SearchDslParser.parseDsl("ch:any(\\\"ABC\\\")");
+        Assertions.assertEquals(QsClauseType.ANY, anyPlan.getRoot().getType());
+        Assertions.assertEquals("\"ABC\"", anyPlan.getRoot().getValue());
+    }
+
+    @Test
     public void testAndQuery() {
         String dsl = "title:hello AND content:world";
         QsPlan plan = SearchDslParser.parseDsl(dsl, "{\"mode\":\"standard\"}");
@@ -1181,13 +1243,12 @@ public class SearchDslParserTest {
 
     @Test
     public void testLowercaseAndOperator() {
-        // Lowercase 'and' is NOT an operator in ANTLR grammar (case-sensitive).
-        // With bareQuery rule, it's parsed as a bare term without field.
-        // Without default_field, bare term throws exception.
+        // Boolean operators are case-insensitive, matching Lucene/ES query string syntax.
         String dsl = "field:a and field:b";
-        Assertions.assertThrows(RuntimeException.class, () -> {
-            SearchDslParser.parseDsl(dsl);
-        });
+        QsPlan plan = SearchDslParser.parseDsl(dsl, "{\"mode\":\"standard\"}");
+
+        Assertions.assertEquals(QsClauseType.AND, plan.getRoot().getType());
+        Assertions.assertEquals(2, plan.getRoot().getChildren().size());
     }
 
     @Test
@@ -1203,13 +1264,12 @@ public class SearchDslParserTest {
 
     @Test
     public void testLowercaseOrOperator() {
-        // Lowercase 'or' is NOT an operator in ANTLR grammar (case-sensitive).
-        // With bareQuery rule, it's parsed as a bare term without field.
-        // Without default_field, bare term throws exception.
+        // Boolean operators are case-insensitive, matching Lucene/ES query string syntax.
         String dsl = "field:a or field:b";
-        Assertions.assertThrows(RuntimeException.class, () -> {
-            SearchDslParser.parseDsl(dsl);
-        });
+        QsPlan plan = SearchDslParser.parseDsl(dsl, "{\"mode\":\"standard\"}");
+
+        Assertions.assertEquals(QsClauseType.OR, plan.getRoot().getType());
+        Assertions.assertEquals(2, plan.getRoot().getChildren().size());
     }
 
     @Test
@@ -1224,13 +1284,11 @@ public class SearchDslParserTest {
 
     @Test
     public void testLowercaseNotOperator() {
-        // Lowercase 'not' is NOT an operator in ANTLR grammar (case-sensitive).
-        // With bareQuery rule, it's parsed as a bare term without field.
-        // Without default_field, bare term throws exception.
+        // Boolean operators are case-insensitive, matching Lucene/ES query string syntax.
         String dsl = "not field:spam";
-        Assertions.assertThrows(RuntimeException.class, () -> {
-            SearchDslParser.parseDsl(dsl);
-        });
+        QsPlan plan = SearchDslParser.parseDsl(dsl, "{\"mode\":\"standard\"}");
+
+        Assertions.assertEquals(QsClauseType.NOT, plan.getRoot().getType());
     }
 
     @Test
