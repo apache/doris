@@ -1110,7 +1110,7 @@ Status decode_csr_frame(const PrxFrameView& encoded, std::span<const uint32_t> d
                         bool decode_all_docs, bool all_docs_selected,
                         std::vector<uint32_t>* pos_flat, std::vector<uint32_t>* pos_off,
                         PrxDecodeStats* stats, PrxDecodedShape* shape,
-                        PrxCsrAllocationGate* allocation_gate) {
+                        PrxCsrAllocationGate* allocation_gate, ZstdDecompressor* zstd) {
     if (!decode_all_docs && allocation_gate != nullptr) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                 "prx: selective decode cannot use an allocation gate");
@@ -1125,7 +1125,9 @@ Status decode_csr_frame(const PrxFrameView& encoded, std::span<const uint32_t> d
 
     std::vector<uint8_t> local_decompressed;
     Slice plain = encoded.payload;
-    if (encoded.codec == PrxCodec::kZstd) {
+    if (encoded.codec == PrxCodec::kZstd && allocation_gate == nullptr && zstd != nullptr) {
+        RETURN_IF_ERROR(zstd->decompress(encoded.payload, encoded.uncompressed_length, &plain));
+    } else if (encoded.codec == PrxCodec::kZstd) {
         std::vector<uint8_t>* decompressed = &local_decompressed;
         if (allocation_gate != nullptr) {
             RETURN_IF_ERROR(allocation_gate->reserve_decompression(encoded.uncompressed_length,
@@ -1200,7 +1202,8 @@ Status read_prx_window_csr_impl(ByteSource* source, std::span<const uint32_t> do
     RETURN_IF_ERROR(decode_csr_frame(encoded, doc_ordinals, decode_all_docs, all_docs_selected,
                                      pos_flat, pos_off, stats,
                                      context == nullptr ? nullptr : context->shape,
-                                     context == nullptr ? nullptr : context->allocation_gate));
+                                     context == nullptr ? nullptr : context->allocation_gate,
+                                     context == nullptr ? nullptr : context->zstd));
     if (collect_stats) {
         // Exclude the logical-selection scan from decode timing.
         frame_stats.decode_ns = elapsed_ns(decode_start);

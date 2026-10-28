@@ -551,6 +551,8 @@ TEST(PrxPodTest, CodecSelectionMatrixMatchesCsrOracleAtLowAndHighTf) {
 // selections, and every result must equal the positions the window was built from.
 TEST(PrxPodTest, SelectivePlainDecodeMatchesInputForRandomWindows) {
     std::mt19937 rng(20261028);
+    // A reader-owned decompressor, shared by every window below as a cursor shares it.
+    doris::snii::ZstdDecompressor shared_zstd;
     for (int round = 0; round < 300; ++round) {
         const uint32_t doc_count = 1 + rng() % 400;
         const uint32_t style = rng() % 4;
@@ -595,6 +597,22 @@ TEST(PrxPodTest, SelectivePlainDecodeMatchesInputForRandomWindows) {
             std::vector<uint32_t> offsets;
             ByteSource source((Slice(encoded)));
             ASSERT_TRUE(read_prx_window_csr_selective(&source, ordinals, &flat, &offsets).ok());
+            EXPECT_EQ(flat, expected_flat);
+            EXPECT_EQ(offsets, expected_offsets);
+
+            // The same window through the shared decompressor, selectively and in full.
+            PrxDecodeContext context {.zstd = &shared_zstd};
+            ByteSource reused_source((Slice(encoded)));
+            ASSERT_TRUE(read_prx_window_csr_selective(&reused_source, ordinals, &flat, &offsets,
+                                                      &context)
+                                .ok());
+            EXPECT_EQ(flat, expected_flat);
+            EXPECT_EQ(offsets, expected_offsets);
+            std::vector<uint32_t> all(doc_count);
+            std::iota(all.begin(), all.end(), 0U);
+            ExpectedSelectiveCsr(docs, all, &expected_flat, &expected_offsets);
+            ByteSource full_source((Slice(encoded)));
+            ASSERT_TRUE(read_prx_window_csr(&full_source, &flat, &offsets, &context).ok());
             EXPECT_EQ(flat, expected_flat);
             EXPECT_EQ(offsets, expected_offsets);
         }

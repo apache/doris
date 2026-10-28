@@ -19,6 +19,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <vector>
 
 #include "common/status.h"
@@ -48,4 +49,52 @@ TEST(SniiZstd, EmptyInput) {
     ASSERT_TRUE(zstd_compress(Slice(in), 3, &comp).ok());
     ASSERT_TRUE(zstd_decompress(Slice(comp), 0, &decomp).ok());
     EXPECT_TRUE(decomp.empty());
+}
+
+namespace {
+std::vector<uint8_t> pattern(size_t n, int seed) {
+    std::vector<uint8_t> v(n);
+    for (size_t i = 0; i < n; ++i) {
+        v[i] = static_cast<uint8_t>((i * 31 + seed) % 13);
+    }
+    return v;
+}
+} // namespace
+
+// One decompressor serves frames that grow and shrink; every output equals its input.
+TEST(SniiZstdDecompressor, ReusedAcrossFramesOfDifferentSizes) {
+    ZstdDecompressor decompressor;
+    for (size_t n : {100UL, 5000UL, 300UL, 0UL, 20000UL, 7UL}) {
+        const std::vector<uint8_t> in = pattern(n, static_cast<int>(n));
+        std::vector<uint8_t> comp;
+        ASSERT_TRUE(zstd_compress(Slice(in), 3, &comp).ok());
+        Slice out;
+        ASSERT_TRUE(decompressor.decompress(Slice(comp), in.size(), &out).ok()) << n;
+        ASSERT_EQ(out.size(), in.size());
+        EXPECT_TRUE(std::equal(in.begin(), in.end(), out.data())) << n;
+    }
+}
+
+// The errors are the ones zstd_decompress reports, and a failed frame does not spoil the next one.
+TEST(SniiZstdDecompressor, ReportsCorruptionAndRecovers) {
+    const std::vector<uint8_t> in = pattern(1000, 3);
+    std::vector<uint8_t> comp;
+    ASSERT_TRUE(zstd_compress(Slice(in), 3, &comp).ok());
+    ZstdDecompressor decompressor;
+    Slice out;
+
+    const doris::Status wrong_length = decompressor.decompress(Slice(comp), in.size() - 1, &out);
+    EXPECT_TRUE(wrong_length.is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>())
+            << wrong_length.to_string();
+
+    std::vector<uint8_t> garbage = comp;
+    garbage[garbage.size() / 2] ^= 0xFF;
+    garbage.resize(garbage.size() - 3);
+    const doris::Status corrupt = decompressor.decompress(Slice(garbage), in.size(), &out);
+    EXPECT_TRUE(corrupt.is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>())
+            << corrupt.to_string();
+
+    ASSERT_TRUE(decompressor.decompress(Slice(comp), in.size(), &out).ok());
+    ASSERT_EQ(out.size(), in.size());
+    EXPECT_TRUE(std::equal(in.begin(), in.end(), out.data()));
 }
