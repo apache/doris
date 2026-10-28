@@ -112,6 +112,14 @@ public class MonitoredReentrantReadWriteLock extends ReentrantReadWriteLock {
             }
         }
 
+        @Override
+        public boolean tryLock() {
+            long startTime = System.nanoTime();
+            boolean acquired = super.tryLock();
+            monitor.afterTryLock(acquired, startTime);
+            return acquired;
+        }
+
         /**
          * Releases the write lock.
          * Records the time when the lock is released and logs the duration.
