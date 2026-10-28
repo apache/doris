@@ -25,6 +25,8 @@ import org.awaitility.Awaitility
 suite("test_bm25_score_replica_statistics", "p0") {
     def aliveBackends = sql_return_maparray("SHOW BACKENDS").findAll { it.Alive.toString() == "true" }
     def replicaNum = aliveBackends.size() >= 3 ? 3 : 1
+    sql "set enable_common_expr_pushdown = true"
+    sql "set enable_common_expr_pushdown_for_inverted_index = true"
 
     def createTable = { String name, String keys, int replicas ->
         sql "DROP TABLE IF EXISTS ${name}"
