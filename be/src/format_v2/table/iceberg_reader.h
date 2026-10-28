@@ -247,8 +247,9 @@ private:
         // persist field ids. In BY_NAME mode they are the fallback binding key.
         std::vector<std::string> field_names;
         // Table-side types of the keys, from the scan's schema metadata. They resolve table
-        // fields and build defaults for keys a data file lacks; they do not decide the
-        // comparison type.
+        // fields and build defaults for keys a data file lacks. The comparison type comes from
+        // the file types; a table type only lets a timestamptz key read as DATETIMEV2 compare
+        // as TIMESTAMPTZ.
         std::vector<DataTypePtr> key_types;
         // Types of the delete block columns: the delete file's own key types, or the comparison
         // types of a converted filter.

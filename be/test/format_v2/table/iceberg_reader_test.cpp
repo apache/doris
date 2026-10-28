@@ -90,6 +90,7 @@
 #include "util/debug_points.h"
 #include "util/defer_op.h"
 #include "util/hash_util.hpp"
+#include "util/timezone_utils.h"
 #include "util/url_coding.h"
 
 namespace doris::format {
@@ -1022,9 +1023,11 @@ void write_nested_key_value_orc_file(const std::string& file_path, const std::ve
     output.write(memory_stream.getData(), static_cast<std::streamsize>(memory_stream.getLength()));
 }
 
+// Writes the adjusted-UTC `event_time` (field id 0) and `id` (field id 1). With `int96`,
+// `event_time` is stored as INT96, as Spark and Hive write timestamps, which drops the annotation.
 void write_timestamp_int_parquet_file(const std::string& file_path,
                                       const std::vector<int64_t>& timestamps,
-                                      const std::vector<int32_t>& ids) {
+                                      const std::vector<int32_t>& ids, bool int96 = false) {
     ASSERT_EQ(timestamps.size(), ids.size());
     const auto timestamp_metadata = arrow::key_value_metadata({"PARQUET:field_id"}, {"0"});
     const auto id_metadata = arrow::key_value_metadata({"PARQUET:field_id"}, {"1"});
@@ -1045,9 +1048,13 @@ void write_timestamp_int_parquet_file(const std::string& file_path,
     builder.version(::parquet::ParquetVersion::PARQUET_2_6);
     builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
     builder.compression(::parquet::Compression::UNCOMPRESSED);
+    ::parquet::ArrowWriterProperties::Builder arrow_builder;
+    if (int96) {
+        arrow_builder.enable_force_write_int96_timestamps();
+    }
     PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out,
                                                       static_cast<int64_t>(timestamps.size()),
-                                                      builder.build()));
+                                                      builder.build(), arrow_builder.build()));
 }
 
 void write_iceberg_equality_delete_bigint_parquet_file(const std::string& file_path,
@@ -5030,23 +5037,29 @@ struct KeyDataFile {
 };
 
 // Reads each data file as one split of a single reader. Every split carries the same equality
-// delete file on `k` (field id 1) holding `delete_keys`, and `key_field` describes `k` in the
-// scan's schema metadata, as the FE sends it. Returns the surviving ids of each split.
+// delete file on `equality_field_id`, whose one column has the name and field id of `key_field`
+// and holds `delete_keys`; for a nested key that is a struct array whose child carries the key's
+// field id. `key_field` describes that column in the scan's schema metadata, as the FE sends it.
+// Returns the surviving ids of each split.
 Status read_ids_after_key_equality_delete(const std::string& test_name,
                                           const std::vector<KeyDataFile>& data_files,
                                           const std::shared_ptr<arrow::Array>& delete_keys,
                                           schema::external::TFieldPtr key_field,
-                                          std::vector<std::vector<int32_t>>* ids_per_split) {
+                                          std::vector<std::vector<int32_t>>* ids_per_split,
+                                          int32_t equality_field_id = 1) {
     const auto test_dir = std::filesystem::temp_directory_path() / test_name;
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
     const auto delete_file_path = (test_dir / "equality-delete.parquet").string();
+    const auto& delete_column = *key_field.field_ptr;
     write_parquet_table(
             delete_file_path,
-            arrow::Table::Make(arrow::schema({arrow::field("k", delete_keys->type(), true)
-                                                      ->WithMetadata(arrow::key_value_metadata(
-                                                              {"PARQUET:field_id"}, {"1"}))}),
-                               {delete_keys}));
+            arrow::Table::Make(
+                    arrow::schema({arrow::field(delete_column.name, delete_keys->type(), true)
+                                           ->WithMetadata(arrow::key_value_metadata(
+                                                   {"PARQUET:field_id"},
+                                                   {std::to_string(delete_column.id)}))}),
+                    {delete_keys}));
 
     std::vector<ColumnDefinition> projected_columns;
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
@@ -5069,7 +5082,8 @@ Status read_ids_after_key_equality_delete(const std::string& test_name,
         auto split_options = build_split_options(file_path);
         split_options.cache = &cache;
         split_options.current_range.__set_table_format_params(make_iceberg_table_format_desc(
-                file_path, {make_iceberg_equality_delete_file(delete_file_path, {1})}));
+                file_path,
+                {make_iceberg_equality_delete_file(delete_file_path, {equality_field_id})}));
         RETURN_IF_ERROR(reader.prepare_split(split_options));
         std::vector<int32_t> ids;
         bool eos = false;
@@ -5207,6 +5221,25 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteRejectsMicrosOutsideNanosecondRan
     EXPECT_NE(status.to_string().find("TIMESTAMP_NS overflow"), std::string::npos) << status;
 }
 
+// An equality delete file without rows deletes nothing, so the strict comparison casts that a
+// nonempty one needs must not fail the scan: DATE keys meeting TIMESTAMP_NS tombstones are cast to
+// TIMESTAMP_NS, which 1000-01-01 overflows, both as a key of the first file and as the initial
+// default for the second. Building a predicate for the empty file fails with
+// "TIMESTAMP_NS overflow".
+TEST(IcebergV2ReaderTest, IcebergEqualityDeleteSkipsEmptyDeleteFileBeforeKeyCasts) {
+    std::vector<std::vector<int32_t>> ids;
+    const auto status = read_ids_after_key_equality_delete(
+            "doris_iceberg_equality_delete_empty_delete_file",
+            {{.ids = {1, 2}, .keys = build_date32_keys({DAYS_1000_01_01, DAYS_2000_01_01})},
+             {.ids = {3}, .keys = nullptr}},
+            build_timestamp_keys(arrow::TimeUnit::NANO, {}),
+            external_schema_field("k", 1, {}, "1000-01-01",
+                                  external_primitive_type(TPrimitiveType::DATEV2), false, true),
+            &ids);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(ids, (std::vector<std::vector<int32_t>> {{1, 2}, {3}}));
+}
+
 // A data file without the key compares its initial default, typed by the table, against the
 // tombstones in the wider of the two types: INT default 5 matches the LONG tombstone 5.
 TEST(IcebergV2ReaderTest, IcebergEqualityDeleteWidensMissingKeyDefaultToTombstoneType) {
@@ -5234,6 +5267,43 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteMatchesNullMissingKeyUnderUnknown
             &ids);
     ASSERT_TRUE(status.ok()) << status;
     EXPECT_EQ(ids, (std::vector<std::vector<int32_t>> {std::vector<int32_t> {}}));
+}
+
+// The nested delete key `payload.k` (field id 3 under `payload`) holding `days` as DATE under
+// non-NULL parents.
+std::shared_ptr<arrow::Array> build_struct_date32_keys(
+        const std::vector<std::optional<int32_t>>& days) {
+    auto key_field = arrow::field("k", arrow::date32(), true)
+                             ->WithMetadata(arrow::key_value_metadata({"PARQUET:field_id"}, {"3"}));
+    auto keys = arrow::StructArray::Make({build_date32_keys(days)}, {key_field});
+    DORIS_CHECK(keys.ok());
+    return *keys;
+}
+
+// A missing struct whose initial default is `{}` takes each child's own default, so `payload.k`
+// without one is NULL, and it compares in the tombstones' type like a missing key without a
+// default. Here `k` is STRING, as the FE encodes Iceberg `unknown`, and DATE does not convert to
+// it. The NULL tombstone deletes every row and the DATE one none. Deciding NULL by the struct's
+// default alone compares STRING with DATE and fails the scan with NotSupported.
+TEST(IcebergV2ReaderTest, IcebergMissingWholeStructEqualityKeyComparesNullLeafInTombstoneType) {
+    const std::vector<std::pair<std::optional<int32_t>, std::vector<int32_t>>> cases {
+            {std::nullopt, {}}, {DAYS_2024_01_02, {1, 2, 3}}};
+    for (const auto& [tombstone, expected_ids] : cases) {
+        SCOPED_TRACE(tombstone.has_value() ? "DATE tombstone" : "NULL tombstone");
+        std::vector<std::vector<int32_t>> ids;
+        const auto status = read_ids_after_key_equality_delete(
+                "doris_iceberg_equality_delete_null_struct_default_leaf",
+                {{.ids = {1, 2, 3}, .keys = nullptr}}, build_struct_date32_keys({tombstone}),
+                external_struct_schema_field(
+                        "payload", 1,
+                        {external_schema_field("k", 3, {}, std::nullopt,
+                                               external_primitive_type(TPrimitiveType::STRING),
+                                               false, true)},
+                        true, "{}"),
+                &ids, 3);
+        ASSERT_TRUE(status.ok()) << status;
+        EXPECT_EQ(ids, (std::vector<std::vector<int32_t>> {expected_ids}));
+    }
 }
 
 // Keys whose types do not convert exactly in either direction fail the scan instead of being
@@ -5846,6 +5916,96 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeletePreservesTimestampTzAcrossDstFold
     EXPECT_EQ(read_iceberg_ids(&reader, projected_columns), std::vector<int32_t>({2}));
 
     ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+// Iceberg imports a Spark or Hive INT96 timestamp as timestamptz, but INT96 reads as DATETIMEV2
+// while the adjusted-UTC tombstone of the same field reads as TIMESTAMPTZ, and neither widens to
+// the other. They compare as TIMESTAMPTZ, the INT96 key converted in the session time zone as the
+// projection converts it, so the tombstone T1 deletes the row holding T1. This plan carries no
+// Parquet timestamp-semantics version, so INT96 also decodes in the session time zone; converting
+// it back in a zone other than Asia/Shanghai, such as UTC, would miss T1 by eight hours. Without
+// the TIMESTAMPTZ rule the split fails with NotSupported, with or without the key projected.
+TEST(IcebergV2ReaderTest, IcebergEqualityDeleteComparesInt96DataKeyAsTimestampTz) {
+    TimezoneUtils::load_timezones_to_cache();
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_equality_delete_int96_timestamp_tz_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    const auto delete_file_path = (test_dir / "equality-delete.parquet").string();
+    // 2024-01-01 00:00:00.123456 UTC and one second later.
+    constexpr int64_t T1_MICROS = 1'704'067'200'123'456L;
+    constexpr int64_t T2_MICROS = T1_MICROS + 1'000'000L;
+    write_timestamp_int_parquet_file(file_path, {T1_MICROS, T2_MICROS}, {1, 2}, true);
+    auto physical_reader = ::parquet::ParquetFileReader::OpenFile(file_path, false);
+    ASSERT_EQ(::parquet::Type::INT96,
+              physical_reader->metadata()->schema()->Column(0)->physical_type());
+    physical_reader->Close();
+    write_iceberg_timestamp_equality_delete_parquet_file(delete_file_path, 0, T1_MICROS,
+                                                         "event_time", true);
+
+    for (const bool project_key : {false, true}) {
+        SCOPED_TRACE(project_key ? "id and event_time projected" : "id projected");
+        std::vector<ColumnDefinition> projected_columns;
+        projected_columns.push_back(make_table_column(1, "id", std::make_shared<DataTypeInt32>()));
+        if (project_key) {
+            projected_columns.push_back(
+                    make_table_column(0, "event_time", std::make_shared<DataTypeTimeStampTz>(6)));
+        }
+        auto scan_params = make_local_parquet_scan_params();
+        scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+        scan_params.__set_enable_mapping_timestamp_tz(true);
+        scan_params.__set_current_schema_id(100);
+        scan_params.__set_history_schema_info({external_schema(
+                100,
+                {external_schema_field("event_time", 0, {}, std::nullopt,
+                                       external_primitive_type(TPrimitiveType::TIMESTAMPTZ, -1, 6)),
+                 external_schema_field("id", 1)})});
+
+        RuntimeProfile profile("test_profile");
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        state.set_timezone("Asia/Shanghai");
+        io::FileReaderStats file_reader_stats;
+        io::FileCacheStatistics file_cache_stats;
+        auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+        ShardedKVCache cache(1);
+        doris::format::iceberg::IcebergTableReader reader;
+        init_iceberg_reader(&reader, projected_columns, &scan_params, io_ctx, &state, &profile);
+
+        auto split_options = build_split_options(file_path);
+        split_options.cache = &cache;
+        split_options.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+                file_path, {make_iceberg_equality_delete_file(delete_file_path, {0})}));
+        ASSERT_TRUE(reader.prepare_split(split_options).ok());
+        std::vector<int32_t> ids;
+        std::vector<std::string> event_times;
+        bool eos = false;
+        while (!eos) {
+            Block block = build_table_block(projected_columns);
+            const auto status = reader.get_block(&block, &eos);
+            ASSERT_TRUE(status.ok()) << status;
+            if (block.rows() == 0) {
+                continue;
+            }
+            const auto& id_column =
+                    assert_cast<const ColumnInt32&>(expect_not_null_table_column(block, 0));
+            for (size_t row = 0; row < block.rows(); ++row) {
+                ids.push_back(id_column.get_element(row));
+                if (project_key) {
+                    event_times.push_back(projected_columns[1].type->to_string(
+                            *block.get_by_position(1).column, row));
+                }
+            }
+        }
+        EXPECT_EQ(ids, std::vector<int32_t>({2}));
+        if (project_key) {
+            // The projection converts the INT96 value back in the same zone, giving T2.
+            EXPECT_EQ(event_times, std::vector<std::string>({"2024-01-01 00:00:01.123456+00:00"}));
+        }
+        ASSERT_TRUE(reader.close().ok());
+    }
     std::filesystem::remove_all(test_dir);
 }
 

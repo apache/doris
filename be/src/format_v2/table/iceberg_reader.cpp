@@ -42,6 +42,7 @@
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/field.h"
 #include "exprs/vliteral.h"
@@ -915,6 +916,20 @@ private:
     std::string _expr_name;
 };
 
+// The struct element of `parent` that holds `child` on an equality key's path: matched by field id
+// when both carry one, otherwise by name.
+static size_t equality_delete_child_index(const format::ColumnDefinition& parent,
+                                          const format::ColumnDefinition& child) {
+    const auto child_it = std::ranges::find_if(parent.children, [&child](const auto& candidate) {
+        if (candidate.has_identifier_field_id() && child.has_identifier_field_id()) {
+            return candidate.get_identifier_field_id() == child.get_identifier_field_id();
+        }
+        return candidate.name == child.name;
+    });
+    DORIS_CHECK(child_it != parent.children.end());
+    return cast_set<size_t>(child_it - parent.children.begin());
+}
+
 static Status build_nested_equality_delete_key_expr(
         const std::vector<const format::ColumnDefinition*>& path, VExprSPtr root_expr,
         VExprSPtr* key_expr) {
@@ -939,16 +954,7 @@ static Status build_nested_equality_delete_key_expr(
                     "Iceberg equality delete field {} has non-struct ancestor {}", child->name,
                     parent->name);
         }
-        const auto child_it =
-                std::ranges::find_if(parent->children, [child](const auto& candidate) {
-                    if (candidate.has_identifier_field_id() && child->has_identifier_field_id()) {
-                        return candidate.get_identifier_field_id() ==
-                               child->get_identifier_field_id();
-                    }
-                    return candidate.name == child->name;
-                });
-        DORIS_CHECK(child_it != parent->children.end());
-        child_indexes.push_back(cast_set<size_t>(child_it - parent->children.begin()));
+        child_indexes.push_back(equality_delete_child_index(*parent, *child));
         expr_name += "." + child->name;
     }
     if (!child_indexes.empty()) {
@@ -972,6 +978,37 @@ static Status build_equality_delete_key_expr(
             VSlotRef::create_shared(cast_set<int>(block_position), cast_set<int>(block_position),
                                     -1, root->type, root->name);
     return build_nested_equality_delete_key_expr(path, std::move(root_expr), key_expr);
+}
+
+// Whether a missing key's default is NULL. `missing_path` runs from the missing root to the key,
+// and the root's initial default is walked down it with the key expression's child matching. The
+// root having a default is not enough: a missing `payload` defaulting to the struct `{}` takes
+// each child's own default, so payload.k is NULL when `k` has none.
+static Status equality_delete_default_leaf_is_null(
+        const std::vector<const format::ColumnDefinition*>& missing_path, bool* is_null) {
+    DORIS_CHECK(!missing_path.empty());
+    DORIS_CHECK(is_null != nullptr);
+    const auto* root = missing_path.front();
+    DORIS_CHECK(root != nullptr);
+    if (!root->initial_default_value.has_value()) {
+        *is_null = true;
+        return Status::OK();
+    }
+    std::deque<std::string> binary_storage;
+    Field root_default;
+    RETURN_IF_ERROR(
+            build_v2_initial_default_field(*root, root->type, &binary_storage, &root_default));
+    const Field* value = &root_default;
+    for (size_t index = 1; index < missing_path.size() && !value->is_null(); ++index) {
+        DORIS_CHECK(value->get_type() == TYPE_STRUCT);
+        const auto& children = value->get<TYPE_STRUCT>();
+        const size_t child_index =
+                equality_delete_child_index(*missing_path[index - 1], *missing_path[index]);
+        DORIS_CHECK(child_index < children.size());
+        value = &children[child_index];
+    }
+    *is_null = value->is_null();
+    return Status::OK();
 }
 
 static int equality_delete_integer_width(PrimitiveType type) {
@@ -1041,13 +1078,17 @@ static bool is_equality_delete_widening(const DataTypePtr& from, const DataTypeP
 // data file's key types, and neither side is narrowed. One scan-wide table type cannot serve: after
 // expireSnapshots().cleanExpiredMetadata(true) drops the schema of a schema-only INT -> LONG
 // promotion, the table type of a dropped key is INT while its tombstones are LONG, and casting
-// 4294967296 to INT yields NULL, which deletes the rows whose key is NULL.
+// 4294967296 to INT yields NULL, which deletes the rows whose key is NULL. `table_type` is the
+// key's type in the scan's schema metadata; it decides only how a timestamptz field read as
+// DATETIMEV2 compares.
 static Status equality_delete_comparison_type(int field_id, const DataTypePtr& delete_type,
                                               const DataTypePtr& data_type,
+                                              const DataTypePtr& table_type,
                                               const std::string& data_file_path,
                                               DataTypePtr* comparison_type) {
     DORIS_CHECK(delete_type != nullptr);
     DORIS_CHECK(data_type != nullptr);
+    DORIS_CHECK(table_type != nullptr);
     DORIS_CHECK(comparison_type != nullptr);
     if (is_equality_delete_widening(delete_type, data_type)) {
         *comparison_type = remove_nullable(data_type);
@@ -1055,6 +1096,23 @@ static Status equality_delete_comparison_type(int field_id, const DataTypePtr& d
     }
     if (is_equality_delete_widening(data_type, delete_type)) {
         *comparison_type = remove_nullable(delete_type);
+        return Status::OK();
+    }
+    const auto delete_value_type = remove_nullable(delete_type);
+    const auto data_value_type = remove_nullable(data_type);
+    const auto delete_primitive = delete_value_type->get_primitive_type();
+    const auto data_primitive = data_value_type->get_primitive_type();
+    // Parquet INT96 carries no instant annotation, so a timestamptz key in a Spark or Hive file
+    // that Iceberg imported reads as DATETIMEV2(6), while an adjusted-UTC tombstone of the same
+    // field, as a Flink upsert writes it, reads as TIMESTAMPTZ(6). Neither widens to the other.
+    // The projection converts that DATETIMEV2 to the table's TIMESTAMPTZ in the session time zone
+    // and the comparison cast does the same, so a tombstone matches exactly the value a query
+    // returns: in Asia/Shanghai the key 2024-01-01 08:00:00 compares as 2024-01-01 00:00:00 UTC.
+    if (remove_nullable(table_type)->get_primitive_type() == TYPE_TIMESTAMPTZ &&
+        ((delete_primitive == TYPE_DATETIMEV2 && data_primitive == TYPE_TIMESTAMPTZ) ||
+         (delete_primitive == TYPE_TIMESTAMPTZ && data_primitive == TYPE_DATETIMEV2))) {
+        *comparison_type = std::make_shared<DataTypeTimeStampTz>(
+                std::max(delete_value_type->get_scale(), data_value_type->get_scale()));
         return Status::OK();
     }
     // No promotion leads from one type to the other, so no third type compares them faithfully:
@@ -1682,16 +1740,18 @@ Status IcebergTableReader::_build_missing_equality_delete_key_expr(
     const auto* table_leaf = missing_path.back();
     DORIS_CHECK(table_leaf != nullptr);
     DORIS_CHECK(table_leaf->type != nullptr);
-    if (missing_root.initial_default_value.has_value()) {
+    bool default_is_null = false;
+    RETURN_IF_ERROR(equality_delete_default_leaf_is_null(missing_path, &default_is_null));
+    if (default_is_null) {
+        // A NULL default makes the key NULL in this file whatever its table type, so it is
+        // compared in the delete file's type, to which the table type need not convert: a dropped
+        // key whose retained schemas only typed it Iceberg `unknown` arrives as STRING, while its
+        // tombstones are, for example, DATE.
+        *comparison_type = remove_nullable(filter.delete_key_types[key_idx]);
+    } else {
         RETURN_IF_ERROR(equality_delete_comparison_type(
                 filter.field_ids[key_idx], filter.delete_key_types[key_idx], table_leaf->type,
-                _data_file_path(), comparison_type));
-    } else {
-        // Without an initial default the key is NULL in this file whatever its table type, so it
-        // is compared in the delete file's type, to which the table type need not convert: a
-        // dropped key whose retained schemas only typed it Iceberg `unknown` arrives as STRING,
-        // while its tombstones are, for example, DATE.
-        *comparison_type = remove_nullable(filter.delete_key_types[key_idx]);
+                table_leaf->type, _data_file_path(), comparison_type));
     }
     default_expr = cast_equality_delete_key(std::move(default_expr), *comparison_type);
     if (data_path.empty()) {
@@ -1718,6 +1778,14 @@ Status IcebergTableReader::_append_equality_delete_predicates(format::FileScanRe
     for (const auto& filter : _equality_delete_filters) {
         DCHECK_EQ(filter.field_ids.size(), filter.key_types.size());
         DCHECK_EQ(filter.field_ids.size(), filter.delete_key_types.size());
+        // A delete file without rows deletes nothing, but EqualityDeletePredicate evaluates its
+        // keys before it looks at the delete set, so the strict comparison casts would still run:
+        // a DATE key 1000-01-01 compared with an empty TIMESTAMP_NS delete file fails the scan
+        // with an overflow. It is skipped here rather than at load time, so the loaded filter
+        // still disables aggregate pushdown as before.
+        if (filter.delete_block.rows() == 0) {
+            continue;
+        }
         VExprSPtrs key_exprs;
         DataTypes comparison_types;
         bool has_missing_key = false;
@@ -1741,7 +1809,7 @@ Status IcebergTableReader::_append_equality_delete_predicates(format::FileScanRe
                         build_equality_delete_key_expr(data_path, block_position, &key_expr));
                 RETURN_IF_ERROR(equality_delete_comparison_type(
                         filter.field_ids[idx], filter.delete_key_types[idx], key_expr->data_type(),
-                        _data_file_path(), &comparison_type));
+                        filter.key_types[idx], _data_file_path(), &comparison_type));
                 key_expr = cast_equality_delete_key(std::move(key_expr), comparison_type);
             }
             key_exprs.push_back(std::move(key_expr));
