@@ -618,13 +618,26 @@ void with_binary_array(const arrow::Array& array, Fn&& fn) {
     }
 }
 
-// Arrow may omit the data buffer of a binary array whose values are all empty. Such rows are
-// rejected by the Variant validation that follows, so they must reach it rather than crash here.
-template <typename ArrowBinaryArray>
-const char* binary_data(const ArrowBinaryArray& array) {
-    return array.value_data() == nullptr
-                   ? nullptr
-                   : reinterpret_cast<const char*>(array.value_data()->data());
+// An encoded Variant value or metadata is never empty, but insert_encoded_rows asserts strictly
+// increasing offsets rather than reporting an empty entry. Client bytes are therefore checked here,
+// e.g. a dictionary entry "" must fail the load, not abort a debug BE.
+void check_not_empty(int64_t length, std::string_view what, int64_t index) {
+    if (length == 0) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Native Variant has an empty {} {}; encoded Variant bytes are never "
+                        "empty",
+                        what, index);
+    }
+}
+
+template <typename DictionaryValues>
+std::string_view metadata_dictionary_entry(const DictionaryValues& dictionary, int64_t entry) {
+    if (dictionary.IsNull(entry)) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Native Variant metadata dictionary entry {} is NULL", entry);
+    }
+    check_not_empty(dictionary.value_length(entry), "metadata dictionary entry", entry);
+    return dictionary.GetView(entry);
 }
 
 uint32_t checked_column_bytes(uint64_t bytes, std::string_view what) {
@@ -661,13 +674,16 @@ EncodedVariantValues encoded_variant_values(const arrow::StructArray& storage,
                 throw Exception(ErrorCode::INVALID_ARGUMENT,
                                 "Native Variant has a NULL value child at row {}", row);
             }
+            check_not_empty(values.value_length(row), "value at row", row);
             total += values.value_length(row);
         }
         result.offsets[row + 1] = checked_column_bytes(total, "value");
     }
     if (storage.null_count() == 0) {
-        const char* data = binary_data(values);
-        result.bytes = {data == nullptr ? nullptr : data + values.value_offset(0), total};
+        // Every row is non-empty, so the validated data buffer exists.
+        result.bytes = {
+                reinterpret_cast<const char*>(values.value_data()->data()) + values.value_offset(0),
+                total};
         return result;
     }
     result.spliced.resize(total);
@@ -762,7 +778,7 @@ void read_dictionary_metadata_variant_rows(ColumnVariantV2& result,
                                            .value_offsets = encoded_values.offsets};
     if (!first_id.has_value() || shared_id) {
         const std::string_view entry = first_id.has_value()
-                                               ? dictionary.GetView(*first_id)
+                                               ? metadata_dictionary_entry(dictionary, *first_id)
                                                : std::string_view(VARIANT_EMPTY_METADATA.data(),
                                                                   VARIANT_EMPTY_METADATA.size());
         const std::array<uint32_t, 2> metadata_offsets {
@@ -783,12 +799,15 @@ void read_dictionary_metadata_variant_rows(ColumnVariantV2& result,
     const int64_t entries = dictionary.length();
     DorisVector<uint32_t> metadata_offsets(entries + 1);
     const int64_t base = dictionary.value_offset(0);
+    for (int64_t entry = 0; entry < entries; ++entry) {
+        metadata_dictionary_entry(dictionary, entry);
+    }
     for (int64_t entry = 0; entry <= entries; ++entry) {
         metadata_offsets[entry] =
                 checked_column_bytes(dictionary.value_offset(entry) - base, "metadata");
     }
-    const char* data = binary_data(dictionary);
-    view.metadata_bytes = {data == nullptr ? nullptr : data + base, metadata_offsets.back()};
+    view.metadata_bytes = {reinterpret_cast<const char*>(dictionary.value_data()->data()) + base,
+                           metadata_offsets.back()};
     view.metadata_offsets = metadata_offsets;
     view.meta_ids = meta_ids;
     result.insert_encoded_rows(view);
@@ -814,10 +833,19 @@ void read_encoded_variant_arrow(ColumnVariantV2& result, const arrow::StructArra
     });
 }
 
-// One JSON document per row, parsed with the same options as parse_to_variant and JSON loads. A
-// NULL row is JSON null, the value a NOT NULL Variant column keeps for it.
+// Most JSON text read here was written by a Variant serde, for example into an aggregate state, so
+// it must read back every value a Variant can hold, including keys longer than the parse limit. A
+// CAST from a JSON string to ARRAY<VARIANT> or STRUCT also passes the elements it splits out, and
+// a JSON load and Arrow JSON text load parse a Variant document with the same options.
+JsonToVariantOptions serde_json_options() {
+    return {.max_json_key_length = std::numeric_limits<uint32_t>::max(),
+            .throw_on_invalid_json = false};
+}
+
+// One JSON document per row, parsed like the Variant column of a JSON load: text that is not JSON
+// is kept as a string. A NULL row is JSON null, the value a NOT NULL Variant column keeps for it.
 void read_json_variant_arrow(ColumnVariantV2& result, const arrow::Array& array) {
-    JsonStringToVariantEncoder encoder;
+    JsonStringToVariantEncoder encoder(serde_json_options());
     static constexpr std::string_view json_null = "null";
     with_binary_array(array, [&](const auto& text) {
         for (int64_t row = 0; row < text.length(); ++row) {
@@ -901,14 +929,6 @@ void require_jsonb_write(bool written, const char* operation) {
     if (!written) {
         throw Exception(ErrorCode::INVALID_ARGUMENT, "JSONB writer rejected {}", operation);
     }
-}
-
-// Most JSON text read here was written by a Variant serde, for example into an aggregate state, so
-// it must read back every value a Variant can hold, including keys longer than the parse limit. A
-// CAST from a JSON string to ARRAY<VARIANT> or STRUCT also passes the elements it splits out.
-JsonToVariantOptions serde_json_options() {
-    return {.max_json_key_length = std::numeric_limits<uint32_t>::max(),
-            .throw_on_invalid_json = false};
 }
 
 } // namespace

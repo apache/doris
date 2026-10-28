@@ -20,6 +20,8 @@
 //   arrow_variant_json_text.arrow   large_utf8 JSON text
 //   arrow_variant_binary.arrow      struct<value: large_binary, metadata: large_binary>
 //   arrow_variant_dictionary.arrow  struct<metadata: dictionary<int8, binary>, value: binary>
+//   arrow_variant_dictionary_entries.arrow  the same with two dictionary entries (int16 indices)
+// arrow_variant_empty_value.arrow has an empty value cell, which is not an encoded Variant.
 suite("test_arrow_stream_load_variant", "p0") {
     sql "DROP TABLE IF EXISTS test_arrow_stream_load_variant_json"
     sql """
@@ -48,7 +50,7 @@ suite("test_arrow_stream_load_variant", "p0") {
     }
     sql "sync"
     order_qt_json_text """
-        SELECT id, cast(v AS STRING), cast(v['name'] AS STRING), cast(v['n'] AS INT)
+        SELECT id, v IS NULL, cast(v AS STRING), cast(v['name'] AS STRING), cast(v['n'] AS INT)
         FROM test_arrow_stream_load_variant_json ORDER BY id
     """
 
@@ -79,7 +81,7 @@ suite("test_arrow_stream_load_variant", "p0") {
     }
     sql "sync"
     order_qt_binary """
-        SELECT id, cast(v AS STRING), cast(v['name'] AS STRING), cast(v['n'] AS INT)
+        SELECT id, v IS NULL, cast(v AS STRING), cast(v['name'] AS STRING), cast(v['n'] AS INT)
         FROM test_arrow_stream_load_variant_binary ORDER BY id
     """
 
@@ -110,7 +112,57 @@ suite("test_arrow_stream_load_variant", "p0") {
     }
     sql "sync"
     order_qt_dictionary """
-        SELECT id, cast(v AS STRING), cast(v['name'] AS STRING), cast(v['n'] AS INT)
+        SELECT id, v IS NULL, cast(v AS STRING), cast(v['name'] AS STRING), cast(v['n'] AS INT)
         FROM test_arrow_stream_load_variant_dictionary ORDER BY id
     """
+
+    sql "DROP TABLE IF EXISTS test_arrow_stream_load_variant_entries"
+    sql """
+        CREATE TABLE test_arrow_stream_load_variant_entries (
+            id INT,
+            v VARIANT
+        ) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ("replication_num" = "1")
+    """
+    streamLoad {
+        table "test_arrow_stream_load_variant_entries"
+        set 'format', 'arrow'
+        file 'arrow_variant_dictionary_entries.arrow'
+        time 10000
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(5, json.NumberTotalRows)
+            assertEquals(0, json.NumberFilteredRows)
+        }
+    }
+    sql "sync"
+    order_qt_dictionary_entries """
+        SELECT id, v IS NULL, cast(v AS STRING), cast(v['name'] AS STRING), cast(v['n'] AS INT)
+        FROM test_arrow_stream_load_variant_entries ORDER BY id
+    """
+
+    // Malformed binary fails the load with a validation error and loads nothing.
+    streamLoad {
+        table "test_arrow_stream_load_variant_entries"
+        set 'format', 'arrow'
+        file 'arrow_variant_empty_value.arrow'
+        time 10000
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("fail", json.Status.toLowerCase())
+            assertTrue(json.Message.contains("empty value"))
+        }
+    }
+    sql "sync"
+    order_qt_after_failed_load "SELECT count(*) FROM test_arrow_stream_load_variant_entries"
 }

@@ -429,7 +429,8 @@ Status ArrowStreamReader::_prepare_arrays() {
         std::shared_ptr<arrow::Array> array = _batch->column(_arrow_positions[id.value()]);
         // The VARIANT SerDe reads large_binary and dictionary-encoded metadata itself. Decoding
         // a metadata dictionary here would copy a batch's shared blob, often tens of KB, into
-        // every row and make the SerDe compare it row by row.
+        // every row and make the SerDe compare it row by row. A VARIANT nested in ARRAY, MAP or
+        // STRUCT is still normalized with its parent, which is correct but decodes the dictionary.
         if (remove_nullable(_file_slots[id.value()]->type())->get_primitive_type() !=
                     TYPE_VARIANT ||
             !DataTypeVariantV2SerDe::is_arrow_input_type(*array->type())) {

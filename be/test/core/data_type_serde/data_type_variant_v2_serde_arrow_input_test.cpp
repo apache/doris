@@ -229,16 +229,36 @@ TEST(DataTypeVariantV2SerdeArrowInputTest, JsonTextLoadsLikeJsonParse) {
     }
 }
 
-TEST(DataTypeVariantV2SerdeArrowInputTest, JsonTextNullRowIsVariantNullAndInvalidJsonFails) {
+TEST(DataTypeVariantV2SerdeArrowInputTest, JsonTextNullRowIsVariantNull) {
     auto column = ColumnVariantV2::create();
     auto array = text_array(arrow::utf8(), {R"({"a":1})", "", "7"}, {false, true, false});
     ASSERT_TRUE(read_arrow(*column, *array).ok());
     EXPECT_EQ(json_rows(*column), (std::vector<std::string> {R"({"a":1})", "null", "7"}));
+}
 
-    // A load rejects text that is not JSON instead of storing it as a string.
-    auto invalid = text_array(arrow::utf8(), {R"({"b":2})", "not-json"});
-    EXPECT_FALSE(read_arrow(*column, *invalid).ok());
-    EXPECT_EQ(column->size(), 3);
+TEST(DataTypeVariantV2SerdeArrowInputTest, JsonTextParsesLikeAJsonLoad) {
+    // A JSON load reads a Variant column through deserialize_column_from_json_vector: text that is
+    // not JSON stays a string, and keys longer than parse_to_variant's limit are kept.
+    const std::string long_key_json = R"({")" + std::string(300, 'k') + R"(":1})";
+    const std::vector<std::string> texts = {R"({"b":2})", "not-json", long_key_json,
+                                            "18446744073709551616"};
+    auto expected = ColumnVariantV2::create();
+    std::vector<Slice> slices;
+    for (const auto& text : texts) {
+        slices.emplace_back(text.data(), text.size());
+    }
+    uint64_t deserialized = 0;
+    DataTypeSerDe::FormatOptions options;
+    ASSERT_TRUE(
+            DataTypeVariantV2SerDe()
+                    .deserialize_column_from_json_vector(*expected, slices, &deserialized, options)
+                    .ok());
+
+    auto column = ColumnVariantV2::create();
+    auto array = text_array(arrow::utf8(), {texts[0], texts[1], texts[2], texts[3]});
+    ASSERT_TRUE(read_arrow(*column, *array).ok());
+    EXPECT_EQ(json_rows(*column), json_rows(*expected));
+    EXPECT_EQ(json_at(*column, 1), R"("not-json")");
 }
 
 TEST(DataTypeVariantV2SerdeArrowInputTest, BinaryStructShapesMatchJsonText) {
@@ -370,7 +390,23 @@ TEST(DataTypeVariantV2SerdeArrowInputTest, InvalidRowsFailWithoutAppending) {
     auto bad_entry =
             make_struct(dictionary_metadata<arrow::Int32Type>({metadata, "bad"}, {0, 1}),
                         binary_array<arrow::BinaryBuilder>({values[0], value_at(*scalar, 0)}));
-    for (const auto& array : {bad_value, null_child, bad_index, null_index, bad_entry}) {
+    // Empty Variant bytes behind a dictionary: insert_encoded_rows asserts strictly increasing
+    // offsets, so the reader must reject these itself rather than abort.
+    auto empty_value = make_struct(dictionary_metadata<arrow::Int32Type>({metadata}, {0, 0}),
+                                   binary_array<arrow::BinaryBuilder>({values[0], ""}));
+    auto empty_entry =
+            make_struct(dictionary_metadata<arrow::Int32Type>({""}, {0, 0}), value_array);
+    auto empty_unused_entry = make_struct(
+            dictionary_metadata<arrow::Int32Type>({metadata, "", metadata}, {0, 2}), value_array);
+    arrow::Int32Builder index_builder;
+    ASSERT_TRUE(index_builder.AppendValues({0, 1}).ok());
+    auto null_entry = make_struct(
+            std::make_shared<arrow::DictionaryArray>(
+                    arrow::dictionary(arrow::int32(), arrow::binary()), finish(index_builder),
+                    binary_array<arrow::BinaryBuilder>({metadata, metadata}, {false, true})),
+            value_array);
+    for (const auto& array : {bad_value, null_child, bad_index, null_index, bad_entry, empty_value,
+                              empty_entry, empty_unused_entry, null_entry}) {
         EXPECT_FALSE(read_arrow(*column, *array).ok()) << array->ToString();
         ASSERT_EQ(column->size(), 1);
         EXPECT_EQ(json_at(*column, 0), R"({"sentinel":1})");
