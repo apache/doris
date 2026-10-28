@@ -47,6 +47,7 @@
 #include "storage/index/zone_map/zone_map_index.h"
 #include "storage/olap_common.h"
 #include "storage/predicate/column_predicate.h"
+#include "storage/segment/column_iterator_options.h"
 #include "storage/segment/common.h"
 #include "storage/segment/page_handle.h" // for PageHandle
 #include "storage/segment/page_pointer.h"
@@ -97,25 +98,6 @@ struct ColumnReaderOptions {
     int be_exec_version = -1;
 
     TabletSchemaSPtr tablet_schema = nullptr;
-};
-
-struct ColumnIteratorOptions {
-    bool use_page_cache = false;
-    bool is_predicate_column = false;
-    // for page cache allocation
-    // page types are divided into DATA_PAGE & INDEX_PAGE
-    // INDEX_PAGE including index_page, dict_page and short_key_page
-    PageTypePB type = PageTypePB::UNKNOWN_PAGE_TYPE;
-    io::FileReader* file_reader = nullptr; // Ref
-    // reader statistics
-    OlapReaderStatistics* stats = nullptr; // Ref
-    io::IOContext io_ctx;
-    bool only_read_offsets = false;
-
-    void sanity_check() const {
-        CHECK_NOTNULL(file_reader);
-        CHECK_NOTNULL(stats);
-    }
 };
 
 class ColumnIterator;

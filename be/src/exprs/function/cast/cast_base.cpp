@@ -24,6 +24,7 @@
 #include "core/column/column_array.h"
 #include "core/column/column_map.h"
 #include "core/column/column_struct.h"
+#include "runtime/runtime_state.h"
 #include "util/jsonb_writer.h"
 namespace doris::CastWrapper {
 

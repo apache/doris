@@ -37,6 +37,7 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_date_or_datetime_v2.h" // IWYU pragma: keep
+#include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"

@@ -19,6 +19,7 @@
 
 #include <arrow/builder.h>
 #include <arrow/util/float16.h>
+#include <gen_cpp/types.pb.h>
 
 #include <bit>
 #include <cmath>
@@ -1998,6 +1999,175 @@ Status DataTypeNumberSerDe<T>::read_column_from_orc(IColumn& column,
                                                                          DecodedValueKind::DOUBLE);
     }
     return DataTypeSerDe::read_column_from_orc(column, view);
+}
+
+template <PrimitiveType T>
+Status DataTypeNumberSerDe<T>::read_column_from_pb(IColumn& column, const PValues& arg) const {
+    auto old_column_size = column.size();
+    if constexpr (T == TYPE_BOOLEAN) {
+        column.resize(old_column_size + arg.uint32_value_size());
+        auto& data = assert_cast<ColumnType&>(column).get_data();
+        for (int i = 0; i < arg.uint32_value_size(); ++i) {
+            data[old_column_size + i] =
+                    cast_set<typename PrimitiveTypeTraits<T>::CppType, uint32_t, false>(
+                            arg.uint32_value(i));
+        }
+    } else if constexpr (T == TYPE_DATEV2 || T == TYPE_IPV4) {
+        column.resize(old_column_size + arg.uint32_value_size());
+        auto& data = assert_cast<ColumnType&>(column).get_data();
+        for (int i = 0; i < arg.uint32_value_size(); ++i) {
+            data[old_column_size + i] = arg.uint32_value(i);
+        }
+    } else if constexpr (T == TYPE_TINYINT || T == TYPE_SMALLINT) {
+        column.resize(old_column_size + arg.int32_value_size());
+        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        for (int i = 0; i < arg.int32_value_size(); ++i) {
+            data[old_column_size + i] =
+                    cast_set<typename PrimitiveTypeTraits<T>::CppType, int32_t, false>(
+                            arg.int32_value(i));
+        }
+    } else if constexpr (T == TYPE_INT) {
+        column.resize(old_column_size + arg.int32_value_size());
+        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        for (int i = 0; i < arg.int32_value_size(); ++i) {
+            data[old_column_size + i] = arg.int32_value(i);
+        }
+    } else if constexpr (T == TYPE_DATETIMEV2) {
+        column.resize(old_column_size + arg.uint64_value_size());
+        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        for (int i = 0; i < arg.uint64_value_size(); ++i) {
+            data[old_column_size + i] =
+                    binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(arg.uint64_value(i));
+        }
+    } else if constexpr (T == TYPE_TIMESTAMPTZ) {
+        column.resize(old_column_size + arg.uint64_value_size());
+        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        for (int i = 0; i < arg.uint64_value_size(); ++i) {
+            data[old_column_size + i] = binary_cast<UInt64, TimestampTzValue>(arg.uint64_value(i));
+        }
+    } else if constexpr (T == TYPE_DATE || T == TYPE_DATETIME) {
+        column.resize(old_column_size + arg.int64_value_size());
+        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        for (int i = 0; i < arg.int64_value_size(); ++i) {
+            data[old_column_size + i] = binary_cast<Int64, VecDateTimeValue>(arg.int64_value(i));
+        }
+    } else if constexpr (T == TYPE_BIGINT) {
+        column.resize(old_column_size + arg.int64_value_size());
+        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        for (int i = 0; i < arg.int64_value_size(); ++i) {
+            data[old_column_size + i] = arg.int64_value(i);
+        }
+    } else if constexpr (T == TYPE_TIMESTAMP_NS) {
+        column.resize(old_column_size + arg.int64_value_size());
+        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        for (int i = 0; i < arg.int64_value_size(); ++i) {
+            data[old_column_size + i] = TimeStampNsValue(arg.int64_value(i));
+        }
+    } else if constexpr (T == TYPE_FLOAT) {
+        column.resize(old_column_size + arg.float_value_size());
+        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        for (int i = 0; i < arg.float_value_size(); ++i) {
+            data[old_column_size + i] = arg.float_value(i);
+        }
+    } else if constexpr (T == TYPE_DOUBLE || T == TYPE_TIMEV2) {
+        column.resize(old_column_size + arg.double_value_size());
+        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        for (int i = 0; i < arg.double_value_size(); ++i) {
+            data[old_column_size + i] = arg.double_value(i);
+        }
+    } else if constexpr (T == TYPE_LARGEINT) {
+        column.resize(old_column_size + arg.bytes_value_size());
+        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        for (int i = 0; i < arg.bytes_value_size(); ++i) {
+            data[old_column_size + i] = *(int128_t*)(arg.bytes_value(i).c_str());
+        }
+    } else {
+        return Status::NotSupported("unknown ColumnType for reading from pb");
+    }
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+Status DataTypeNumberSerDe<T>::write_column_to_pb(const IColumn& column, PValues& result,
+                                                  int64_t start, int64_t end) const {
+    auto row_count = cast_set<int>(end - start);
+    auto* ptype = result.mutable_type();
+    const auto* col = assert_cast<const ColumnType*>(&column);
+    if constexpr (T == TYPE_LARGEINT) {
+        ptype->set_id(PGenericType::INT128);
+        result.mutable_bytes_value()->Reserve(row_count);
+        for (size_t row_num = start; row_num < end; ++row_num) {
+            StringRef single_data = col->get_data_at(row_num);
+            result.add_bytes_value(single_data.data, single_data.size);
+        }
+        return Status::OK();
+    }
+    auto& data = col->get_data();
+    if constexpr (T == TYPE_BOOLEAN) {
+        ptype->set_id(PGenericType::UINT8);
+        auto* values = result.mutable_uint32_value();
+        values->Reserve(row_count);
+        values->Add(data.begin() + start, data.begin() + end);
+    } else if constexpr (T == TYPE_DATEV2) {
+        ptype->set_id(PGenericType::UINT32);
+        auto* values = result.mutable_uint32_value();
+        values->Reserve(row_count);
+        values->Add((uint32_t*)data.begin() + start, (uint32_t*)data.begin() + end);
+    } else if constexpr (T == TYPE_IPV4) {
+        ptype->set_id(PGenericType::UINT32);
+        auto* values = result.mutable_uint32_value();
+        values->Reserve(row_count);
+        values->Add(data.begin() + start, data.begin() + end);
+    } else if constexpr (T == TYPE_DATETIMEV2 || T == TYPE_TIMESTAMPTZ) {
+        ptype->set_id(PGenericType::UINT64);
+        auto* values = result.mutable_uint64_value();
+        values->Reserve(row_count);
+        values->Add((uint64_t*)data.begin() + start, (uint64_t*)data.begin() + end);
+    } else if constexpr (T == TYPE_TINYINT) {
+        ptype->set_id(PGenericType::INT8);
+        auto* values = result.mutable_int32_value();
+        values->Reserve(row_count);
+        values->Add(data.begin() + start, data.begin() + end);
+    } else if constexpr (T == TYPE_SMALLINT) {
+        ptype->set_id(PGenericType::INT16);
+        auto* values = result.mutable_int32_value();
+        values->Reserve(row_count);
+        values->Add(data.begin() + start, data.begin() + end);
+    } else if constexpr (T == TYPE_INT) {
+        ptype->set_id(PGenericType::INT32);
+        auto* values = result.mutable_int32_value();
+        values->Reserve(row_count);
+        values->Add(data.begin() + start, data.begin() + end);
+    } else if constexpr (T == TYPE_DATE || T == TYPE_DATETIME) {
+        ptype->set_id(PGenericType::INT64);
+        auto* values = result.mutable_int64_value();
+        values->Reserve(row_count);
+        values->Add((int64_t*)data.begin() + start, (int64_t*)data.begin() + end);
+    } else if constexpr (T == TYPE_BIGINT) {
+        ptype->set_id(PGenericType::INT64);
+        auto* values = result.mutable_int64_value();
+        values->Reserve(row_count);
+        values->Add(data.begin() + start, data.begin() + end);
+    } else if constexpr (T == TYPE_TIMESTAMP_NS) {
+        ptype->set_id(PGenericType::INT64);
+        auto* values = result.mutable_int64_value();
+        values->Reserve(row_count);
+        values->Add(reinterpret_cast<const int64_t*>(data.begin()) + start,
+                    reinterpret_cast<const int64_t*>(data.begin()) + end);
+    } else if constexpr (T == TYPE_FLOAT) {
+        ptype->set_id(PGenericType::FLOAT);
+        auto* values = result.mutable_float_value();
+        values->Reserve(row_count);
+        values->Add(data.begin() + start, data.begin() + end);
+    } else if constexpr (T == TYPE_DOUBLE || T == TYPE_TIMEV2) {
+        ptype->set_id(PGenericType::DOUBLE);
+        auto* values = result.mutable_double_value();
+        values->Reserve(row_count);
+        values->Add(data.begin() + start, data.begin() + end);
+    } else {
+        return Status::NotSupported("unknown ColumnType for writing to pb");
+    }
+    return Status::OK();
 }
 
 /// Explicit template instantiations - to avoid code bloat in headers.

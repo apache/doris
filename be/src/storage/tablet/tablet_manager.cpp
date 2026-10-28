@@ -85,7 +85,8 @@ bvar::Adder<int64_t> g_tablet_meta_schema_columns_count("tablet_meta_schema_colu
 TabletManager::TabletManager(StorageEngine& engine, int32_t tablet_map_lock_shard_size)
         : _engine(engine),
           _tablets_shards_size(tablet_map_lock_shard_size),
-          _tablets_shards_mask(tablet_map_lock_shard_size - 1) {
+          _tablets_shards_mask(tablet_map_lock_shard_size - 1),
+          _tablet_stat_list_cache(std::make_shared<std::vector<TTabletStat>>()) {
     CHECK_GT(_tablets_shards_size, 0);
     CHECK_EQ(_tablets_shards_size & _tablets_shards_mask, 0);
     _tablets_shards.resize(_tablets_shards_size);

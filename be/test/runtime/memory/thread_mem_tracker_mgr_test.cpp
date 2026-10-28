@@ -23,6 +23,7 @@
 #include "gtest/gtest_pred_impl.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
+#include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_group/workload_group_manager.h"
 #include "runtime/workload_management/resource_context.h"
 

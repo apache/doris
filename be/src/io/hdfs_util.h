@@ -30,11 +30,11 @@
 #include "io/fs/hdfs.h"
 #include "io/fs/path.h"
 
+namespace doris {
 namespace cloud {
 class HdfsVaultInfo;
 }
 
-namespace doris {
 class HDFSCommonBuilder;
 class THdfsParams;
 

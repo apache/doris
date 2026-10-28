@@ -67,13 +67,13 @@ static std::string FormatSubSecond(const system_clock::time_point& t, TimePrecis
     auto frac = t.time_since_epoch();
     if (p == TimePrecision::Millisecond) {
         auto subsec = duration_cast<milliseconds>(frac) % MILLIS_PER_SEC;
-        ss << "." << std::setfill('0') << std::setw(3) << abs(subsec.count());
+        ss << "." << std::setfill('0') << std::setw(3) << std::abs(subsec.count());
     } else if (p == TimePrecision::Microsecond) {
         auto subsec = duration_cast<microseconds>(frac) % MICROS_PER_SEC;
-        ss << "." << std::setfill('0') << std::setw(6) << abs(subsec.count());
+        ss << "." << std::setfill('0') << std::setw(6) << std::abs(subsec.count());
     } else if (p == TimePrecision::Nanosecond) {
         auto subsec = duration_cast<nanoseconds>(frac) % NANOS_PER_SEC;
-        ss << "." << std::setfill('0') << std::setw(9) << abs(subsec.count());
+        ss << "." << std::setfill('0') << std::setw(9) << std::abs(subsec.count());
     } else {
         // 1-second precision or unknown unit. Return empty string.
         DCHECK_EQ(TimePrecision::Second, p);

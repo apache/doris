@@ -19,6 +19,7 @@
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_date_time.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_timestamp_ns.h"
 #include "core/types.h"
 #include "exprs/function/date_time_transforms.h"
 #include "exprs/function/function_date_or_datetime_to_something.h"
