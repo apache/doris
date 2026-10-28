@@ -17,7 +17,7 @@
 
 #pragma once
 
-// Reading one Arrow Stream Load batch of semi-structured events into a VARIANT column, per input
+// Reading one Arrow Stream Load batch of JSON objects into a VARIANT column, per input
 // shape:
 //   JsonText             utf8, one JSON document per row, parsed on the BE.
 //   BinaryStruct         struct<metadata: binary, value: binary>, the batch's shared metadata
@@ -27,9 +27,8 @@
 //                        SerDe does not read itself.
 //   DictionaryDirect     that dictionary-encoded struct read without decoding.
 // The argument is the number of distinct keys in the batch, which sets the shared metadata size:
-// 128 keys give about 1.7 KB and 4096 keys about 64 KB, close to the batches of about 10 event
-// sources and of all sources described in apache/doris issue #68890. Every row holds 24 fields,
-// about 1.2 KB of JSON text.
+// 128 keys give about 1.7 KB, a batch with few distinct keys, and 4096 keys about 64 KB, a batch
+// whose rows draw on a wide key set. Every row holds 24 fields, about 1.2 KB of JSON text.
 
 #include <arrow/array/array_dict.h>
 #include <arrow/array/array_nested.h>
@@ -66,7 +65,7 @@ struct Batch {
     int64_t json_bytes = 0;
 };
 
-std::string event(int64_t row, int64_t keys) {
+std::string json_document(int64_t row, int64_t keys) {
     std::string json = "{";
     uint64_t state = static_cast<uint64_t>(row) * 0x9E3779B97F4A7C15ULL + 1;
     for (int field = 0; field < FIELDS_PER_ROW; ++field) {
@@ -112,7 +111,7 @@ const Batch& batch(int64_t keys) {
     arrow::StringBuilder text;
     JsonStringToVariantEncoder encoder;
     for (int64_t row = 0; row < ROWS; ++row) {
-        const std::string json = event(row, keys);
+        const std::string json = json_document(row, keys);
         result.json_bytes += json.size();
         check(text.Append(json));
         encoder.add_json({json.data(), json.size()});
