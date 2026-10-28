@@ -118,6 +118,12 @@ Status build_segment_zonemap_context(Segment* segment, const Schema& schema,
             continue;
         }
         const auto column_id = schema.column_id(cast_set<size_t>(slot_index));
+        // Single-version rowsets substitute the version after reading in 4.2. Its on-disk zone
+        // map holds only a placeholder, so it cannot prove that the expression will not match.
+        if (read_options.version.first == read_options.version.second &&
+            cast_set<int32_t>(column_id) == schema.version_col_idx()) {
+            continue;
+        }
         const auto* tablet_column = schema.column(column_id);
         DORIS_CHECK(tablet_column != nullptr);
         if (!segment->can_apply_predicate_safely(
