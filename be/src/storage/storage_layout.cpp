@@ -48,34 +48,14 @@ const uint8_t* BitCast<FT>::column_to_storage(const IColumn& column, size_t row_
 }
 
 template <FieldType FT>
-void BitCast<FT>::storage_to_column(const uint8_t* values, size_t n, IColumn& dst) {
-    dst.insert_many_raw_data(reinterpret_cast<const char*>(values), n);
-}
-
-template <FieldType FT>
 void repack_from_column(const IColumn& column, size_t row_pos, size_t n, uint8_t* dst) {
-    using StorageValue = typename StorageTypeTraits<FT>::StorageType;
+    using StorageValue = typename CppTypeTraits<FT>::CppType;
     using Column =
             typename PrimitiveTypeTraits<storage_field_type_to_primitive_type(FT)>::ColumnType;
     const auto& data = assert_cast<const Column&>(column).get_data();
     for (size_t i = 0; i < n; ++i) {
         const StorageValue value = StorageLayout<FT>::to_storage(data[row_pos + i]);
         memcpy(dst + i * sizeof(StorageValue), &value, sizeof(StorageValue));
-    }
-}
-
-// Appends n stored values of a repacked layout, each turned back into its PrimitiveValue.
-template <FieldType FT>
-void repack_to_column(const uint8_t* values, size_t n, IColumn& dst) {
-    using StorageValue = typename StorageTypeTraits<FT>::StorageType;
-    using Column =
-            typename PrimitiveTypeTraits<storage_field_type_to_primitive_type(FT)>::ColumnType;
-    auto& data = assert_cast<Column&>(dst).get_data();
-    data.reserve(data.size() + n);
-    for (size_t i = 0; i < n; ++i) {
-        StorageValue value;
-        memcpy(&value, values + i * sizeof(StorageValue), sizeof(StorageValue));
-        data.push_back_without_reserve(StorageLayout<FT>::to_primitive(value));
     }
 }
 
@@ -99,11 +79,6 @@ const uint8_t* FloatingPoint<FT>::column_to_storage(const IColumn& column, size_
         memcpy(bytes.data() + i * sizeof(StorageValue), &value, sizeof(StorageValue));
     }
     return bytes.data();
-}
-
-template <FieldType FT>
-void FloatingPoint<FT>::storage_to_column(const uint8_t* values, size_t n, IColumn& dst) {
-    dst.insert_many_raw_data(reinterpret_cast<const char*>(values), n);
 }
 
 const uint8_t* Bytes::column_to_storage(const IColumn& column, size_t row_pos, size_t n,
@@ -190,21 +165,6 @@ const uint8_t* StorageLayout<FieldType::OLAP_FIELD_TYPE_DECIMAL>::column_to_stor
     storage_layout_detail::repack_from_column<FieldType::OLAP_FIELD_TYPE_DECIMAL>(
             column, row_pos, n, buffers.bytes.data());
     return buffers.bytes.data();
-}
-
-void StorageLayout<FieldType::OLAP_FIELD_TYPE_DATE>::storage_to_column(const uint8_t* values,
-                                                                       size_t n, IColumn& dst) {
-    storage_layout_detail::repack_to_column<FieldType::OLAP_FIELD_TYPE_DATE>(values, n, dst);
-}
-
-void StorageLayout<FieldType::OLAP_FIELD_TYPE_DATETIME>::storage_to_column(const uint8_t* values,
-                                                                           size_t n, IColumn& dst) {
-    storage_layout_detail::repack_to_column<FieldType::OLAP_FIELD_TYPE_DATETIME>(values, n, dst);
-}
-
-void StorageLayout<FieldType::OLAP_FIELD_TYPE_DECIMAL>::storage_to_column(const uint8_t* values,
-                                                                          size_t n, IColumn& dst) {
-    storage_layout_detail::repack_to_column<FieldType::OLAP_FIELD_TYPE_DECIMAL>(values, n, dst);
 }
 
 const uint8_t* StorageLayout<FieldType::OLAP_FIELD_TYPE_CHAR>::column_to_storage(

@@ -46,10 +46,8 @@
 namespace doris {
 
 TEST(StorageLayoutTest, StorageValueSizeIsFieldTypeSize) {
-#define CHECK_SIZE(FT)                                               \
-    EXPECT_EQ(sizeof(StorageTypeTraits<FieldType::FT>::StorageType), \
-              field_type_size(FieldType::FT))                        \
-            << #FT;
+#define CHECK_SIZE(FT) \
+    EXPECT_EQ(sizeof(CppTypeTraits<FieldType::FT>::CppType), field_type_size(FieldType::FT)) << #FT;
     CHECK_SIZE(OLAP_FIELD_TYPE_BOOL)
     CHECK_SIZE(OLAP_FIELD_TYPE_TINYINT)
     CHECK_SIZE(OLAP_FIELD_TYPE_SMALLINT)
@@ -216,7 +214,7 @@ TEST(StorageLayoutTest, ColumnToStoragePreservesSource) {
     dates->insert_value(day);
     dates->insert_value(day);
     using DateLayout = StorageLayout<FieldType::OLAP_FIELD_TYPE_DATE>;
-    using StoredDate = StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>::StorageType;
+    using StoredDate = CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>::CppType;
     StorageBuffers date_buffers;
     const auto* date_out = DateLayout::column_to_storage(*dates, 0, 2, date_buffers);
     for (size_t i = 0; i < 2; ++i) {
@@ -230,7 +228,7 @@ namespace {
 
 template <FieldType FT>
 void expect_floating_point_range_views() {
-    using Value = typename StorageTypeTraits<FT>::StorageType;
+    using Value = typename CppTypeTraits<FT>::CppType;
     using UInt = std::conditional_t<sizeof(Value) == sizeof(uint32_t), uint32_t, uint64_t>;
     using Column =
             typename PrimitiveTypeTraits<storage_field_type_to_primitive_type(FT)>::ColumnType;
@@ -395,7 +393,7 @@ TEST(StorageLayoutTest, RuntimeTypeConvertsThroughItsLayout) {
     VecDateTimeValue day;
     ASSERT_TRUE(day.from_date_int64(20200101));
     dates->insert_value(day);
-    using StoredDate = StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>::StorageType;
+    using StoredDate = CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>::CppType;
     StoredDate stored;
     memcpy(&stored, column_to_storage(FieldType::OLAP_FIELD_TYPE_DATE, *dates, 0, 1, buffers),
            sizeof(stored));
@@ -409,110 +407,6 @@ TEST(StorageLayoutTest, RuntimeTypeConvertsThroughItsLayout) {
     // Whether CHAR is padded is the caller's choice, made through StorageLayout<CHAR>.
     EXPECT_THROW(column_to_storage(FieldType::OLAP_FIELD_TYPE_CHAR, *strings, 0, 1, buffers),
                  Exception);
-}
-
-TEST(StorageLayoutTest, ToPrimitiveInvertsToStorage) {
-    using DateLayout = StorageLayout<FieldType::OLAP_FIELD_TYPE_DATE>;
-    VecDateTimeValue day;
-    ASSERT_TRUE(day.from_date_int64(20200229));
-    const VecDateTimeValue read_day = DateLayout::to_primitive(DateLayout::to_storage(day));
-    EXPECT_EQ(read_day, day);
-    EXPECT_EQ(read_day.to_olap_date(), day.to_olap_date());
-    VecDateTimeValue last_day;
-    ASSERT_TRUE(last_day.from_date_int64(99991231));
-    EXPECT_EQ(DateLayout::to_primitive(DateLayout::to_storage(last_day)), last_day);
-
-    using DateTimeLayout = StorageLayout<FieldType::OLAP_FIELD_TYPE_DATETIME>;
-    VecDateTimeValue moment;
-    ASSERT_TRUE(moment.from_date_int64(20200101123045));
-    EXPECT_EQ(DateTimeLayout::to_primitive(DateTimeLayout::to_storage(moment)), moment);
-
-    using DecimalLayout = StorageLayout<FieldType::OLAP_FIELD_TYPE_DECIMAL>;
-    const DecimalV2Value amount(123, 456000000);
-    EXPECT_EQ(DecimalLayout::to_primitive(DecimalLayout::to_storage(amount)), amount);
-    const DecimalV2Value debt(-123, -456000000);
-    EXPECT_EQ(DecimalLayout::to_primitive(DecimalLayout::to_storage(debt)), debt);
-    const DecimalV2Value read_debt =
-            DecimalLayout::to_primitive(decimal12_t {.integer = -123, .fraction = -456000000});
-    EXPECT_EQ(read_debt.int_value(), -123);
-    EXPECT_EQ(read_debt.frac_value(), -456000000);
-
-    // Reading does not canonicalise: a stored NaN keeps its payload.
-    using FloatLayout = StorageLayout<FieldType::OLAP_FIELD_TYPE_FLOAT>;
-    const auto payload_nan = std::bit_cast<float>(0x7FC12345U);
-    EXPECT_EQ(std::bit_cast<uint32_t>(FloatLayout::to_primitive(payload_nan)), 0x7FC12345U);
-    EXPECT_EQ(FloatLayout::to_primitive(FloatLayout::to_storage(1.5F)), 1.5F);
-
-    DateV2Value<DateV2ValueType> date;
-    ASSERT_TRUE(date.from_date_int64(20200101));
-    EXPECT_EQ(
-            StorageLayout<FieldType::OLAP_FIELD_TYPE_DATEV2>::to_primitive(date.to_date_int_val()),
-            date);
-    EXPECT_EQ(StorageLayout<FieldType::OLAP_FIELD_TYPE_DECIMAL32>::to_primitive(-12345),
-              Decimal32(-12345));
-    EXPECT_EQ(StorageLayout<FieldType::OLAP_FIELD_TYPE_BOOL>::to_primitive(uint8_t(1)), UInt8(1));
-}
-
-TEST(StorageLayoutTest, StorageToColumnRepacksTheV1LayoutsFromUnalignedBytes) {
-    using DateLayout = StorageLayout<FieldType::OLAP_FIELD_TYPE_DATE>;
-    using DateTimeLayout = StorageLayout<FieldType::OLAP_FIELD_TYPE_DATETIME>;
-    using DecimalLayout = StorageLayout<FieldType::OLAP_FIELD_TYPE_DECIMAL>;
-
-    VecDateTimeValue day1;
-    VecDateTimeValue day2;
-    ASSERT_TRUE(day1.from_date_int64(20200101));
-    ASSERT_TRUE(day2.from_date_int64(20211231));
-    VecDateTimeValue moment;
-    ASSERT_TRUE(moment.from_date_int64(20200101123045));
-    const DecimalV2Value amount(-123, -456000000);
-
-    // A page holds the stored values after a header, so they are not aligned.
-    std::string page(1, 'h');
-    auto put = [&](const auto& value) {
-        page.append(reinterpret_cast<const char*>(&value), sizeof(value));
-    };
-    put(DateLayout::to_storage(day1));
-    put(DateLayout::to_storage(day2));
-    put(DateTimeLayout::to_storage(moment));
-    put(DecimalLayout::to_storage(amount));
-    const auto* stored = reinterpret_cast<const uint8_t*>(page.data()) + 1;
-
-    auto dates = ColumnDate::create();
-    dates->insert_value(day2);
-    DateLayout::storage_to_column(stored, 2, *dates);
-    ASSERT_EQ(dates->size(), 3);
-    EXPECT_EQ(dates->get_data()[1], day1);
-    EXPECT_EQ(dates->get_data()[2], day2);
-    stored += 2 * sizeof(uint24_t);
-
-    auto moments = ColumnDateTime::create();
-    DateTimeLayout::storage_to_column(stored, 1, *moments);
-    ASSERT_EQ(moments->size(), 1);
-    EXPECT_EQ(moments->get_data()[0], moment);
-    stored += sizeof(int64_t);
-
-    auto amounts = ColumnDecimal128V2::create(0, 9);
-    DecimalLayout::storage_to_column(stored, 1, *amounts);
-    ASSERT_EQ(amounts->size(), 1);
-    EXPECT_EQ(amounts->get_data()[0], amount);
-}
-
-TEST(StorageLayoutTest, StorageToColumnCopiesStoredValuesAsTheyAre) {
-    const float stored_floats[] = {1.5F, std::bit_cast<float>(0x7FC12345U)};
-    auto floats = ColumnFloat32::create();
-    StorageLayout<FieldType::OLAP_FIELD_TYPE_FLOAT>::storage_to_column(
-            reinterpret_cast<const uint8_t*>(stored_floats), 2, *floats);
-    ASSERT_EQ(floats->size(), 2);
-    EXPECT_EQ(floats->get_data()[0], 1.5F);
-    EXPECT_EQ(std::bit_cast<uint32_t>(floats->get_data()[1]), 0x7FC12345U);
-
-    const int32_t stored_decimals[] = {-12345, 67890};
-    auto decimals = ColumnDecimal32::create(0, 3);
-    StorageLayout<FieldType::OLAP_FIELD_TYPE_DECIMAL32>::storage_to_column(
-            reinterpret_cast<const uint8_t*>(stored_decimals), 2, *decimals);
-    ASSERT_EQ(decimals->size(), 2);
-    EXPECT_EQ(decimals->get_data()[0], Decimal32(-12345));
-    EXPECT_EQ(decimals->get_data()[1], Decimal32(67890));
 }
 
 TEST(StorageLayoutTest, ObjectBatchSerialisesEveryValue) {

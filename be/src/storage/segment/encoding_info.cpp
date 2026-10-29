@@ -151,9 +151,8 @@ struct TypeEncodingTraits<type, DICT_ENCODING, Slice> {
 };
 
 template <>
-struct TypeEncodingTraits<
-        FieldType::OLAP_FIELD_TYPE_DATE, FOR_ENCODING,
-        typename StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>::StorageType> {
+struct TypeEncodingTraits<FieldType::OLAP_FIELD_TYPE_DATE, FOR_ENCODING,
+                          typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>::CppType> {
     static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
         return FrameOfReferencePageBuilder<FieldType::OLAP_FIELD_TYPE_DATE>::create(builder, opts);
     }
@@ -165,9 +164,8 @@ struct TypeEncodingTraits<
 };
 
 template <>
-struct TypeEncodingTraits<
-        FieldType::OLAP_FIELD_TYPE_DATEV2, FOR_ENCODING,
-        typename StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_DATEV2>::StorageType> {
+struct TypeEncodingTraits<FieldType::OLAP_FIELD_TYPE_DATEV2, FOR_ENCODING,
+                          typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATEV2>::CppType> {
     static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
         return FrameOfReferencePageBuilder<FieldType::OLAP_FIELD_TYPE_DATEV2>::create(builder,
                                                                                       opts);
@@ -180,9 +178,8 @@ struct TypeEncodingTraits<
 };
 
 template <>
-struct TypeEncodingTraits<
-        FieldType::OLAP_FIELD_TYPE_DATETIMEV2, FOR_ENCODING,
-        typename StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>::StorageType> {
+struct TypeEncodingTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2, FOR_ENCODING,
+                          typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>::CppType> {
     static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
         return FrameOfReferencePageBuilder<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>::create(builder,
                                                                                           opts);
@@ -196,9 +193,8 @@ struct TypeEncodingTraits<
 };
 
 template <>
-struct TypeEncodingTraits<
-        FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ, FOR_ENCODING,
-        typename StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ>::StorageType> {
+struct TypeEncodingTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ, FOR_ENCODING,
+                          typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ>::CppType> {
     static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
         return FrameOfReferencePageBuilder<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ>::create(builder,
                                                                                            opts);

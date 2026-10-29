@@ -84,14 +84,13 @@ template <FieldType field_type, typename Enable = void>
 class KeyCoderTraits {};
 
 template <FieldType field_type>
-class KeyCoderTraits<
-        field_type,
-        typename std::enable_if<
-                IsIntegral<typename StorageTypeTraits<field_type>::StorageType>::value ||
-                IsDecimalNumber<typename StorageTypeTraits<field_type>::StorageType>>::type> {
+class KeyCoderTraits<field_type,
+                     typename std::enable_if<
+                             IsIntegral<typename CppTypeTraits<field_type>::CppType>::value ||
+                             IsDecimalNumber<typename CppTypeTraits<field_type>::CppType>>::type> {
 public:
-    using CppType = typename StorageTypeTraits<field_type>::StorageType;
-    using UnsignedCppType = typename StorageTypeTraits<field_type>::UnsignedStorageType;
+    using CppType = typename CppTypeTraits<field_type>::CppType;
+    using UnsignedCppType = typename CppTypeTraits<field_type>::UnsignedCppType;
 
     static void full_encode_ascending(const void* value, std::string* buf) {
         UnsignedCppType unsigned_val;
@@ -134,9 +133,9 @@ public:
 template <>
 class KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_DATE> {
 public:
-    using CppType = typename StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>::StorageType;
+    using CppType = typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>::CppType;
     using UnsignedCppType =
-            typename StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>::UnsignedStorageType;
+            typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>::UnsignedCppType;
 
 public:
     static void full_encode_ascending(const void* value, std::string* buf) {
@@ -168,9 +167,9 @@ public:
 template <>
 class KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_DATEV2> {
 public:
-    using CppType = typename StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_DATEV2>::StorageType;
+    using CppType = typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATEV2>::CppType;
     using UnsignedCppType =
-            typename StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_DATEV2>::UnsignedStorageType;
+            typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATEV2>::UnsignedCppType;
 
 public:
     static void full_encode_ascending(const void* value, std::string* buf) {
@@ -203,9 +202,9 @@ public:
 template <>
 class KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2> {
 public:
-    using CppType = typename StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>::StorageType;
+    using CppType = typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>::CppType;
     using UnsignedCppType =
-            typename StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>::UnsignedStorageType;
+            typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>::UnsignedCppType;
 
 public:
     static void full_encode_ascending(const void* value, std::string* buf) {
@@ -238,9 +237,9 @@ public:
 template <>
 class KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ> {
 public:
-    using CppType = typename StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ>::StorageType;
+    using CppType = typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ>::CppType;
     using UnsignedCppType =
-            typename StorageTypeTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ>::UnsignedStorageType;
+            typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ>::UnsignedCppType;
 
 public:
     static void full_encode_ascending(const void* value, std::string* buf) {
@@ -362,8 +361,8 @@ public:
 template <FieldType field_type>
 class KeyCoderTraitsForFloat {
 public:
-    using CppType = typename StorageTypeTraits<field_type>::StorageType;
-    using UnsignedCppType = typename StorageTypeTraits<field_type>::UnsignedStorageType;
+    using CppType = typename CppTypeTraits<field_type>::CppType;
+    using UnsignedCppType = typename CppTypeTraits<field_type>::UnsignedCppType;
 
     static UnsignedCppType encode_float(CppType value) {
         return sortable_float_bits(float_to_int_bits(value));

@@ -2924,34 +2924,6 @@ Status FileColumnIterator::next_batch_of_zone_map(size_t* n, MutableColumnPtr& d
     return _reader->next_batch_of_zone_map(n, dst);
 }
 
-namespace {
-
-// Runs `decode`, a page decoder call that appends values to the column it is given. The decoders
-// append to the column of the type, as ScalarColumnWriter::append peels the Nullable off before
-// the values reach a page, so a Nullable dst lends them its nested column and the rows they
-// append are marked not NULL here. A dictionary page decoder may replace the column it appends to
-// (a ColumnDictI32 becomes a ColumnString when a page falls back to plain encoding), and the
-// replacement goes back into dst.
-template <typename Decode>
-Status decode_values(MutableColumnPtr& dst, const Decode& decode) {
-    if (!is_column_nullable(*dst)) {
-        return decode(dst);
-    }
-    auto& nullable = static_cast<ColumnNullable&>(*dst);
-    MutableColumnPtr nested = nullable.get_nested_column_ptr();
-    const IColumn* const lent = nested.get();
-    const size_t rows = lent->size();
-    Status st = decode(nested);
-    nullable.push_false_to_nullmap(nested->size() - rows);
-    if (nested.get() != lent) {
-        ColumnPtr replacement = std::move(nested);
-        nullable.change_nested_column(replacement);
-    }
-    return st;
-}
-
-} // namespace
-
 Status FileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) {
     if (!need_to_read()) {
         DLOG(INFO) << "File column iterator column " << _column_name << " skip reading.";
@@ -3032,9 +3004,7 @@ Status FileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool* ha
                 // we use num_rows only for CHECK
                 size_t num_rows = this_run;
                 if (!is_null) {
-                    RETURN_IF_ERROR(decode_values(dst, [&](MutableColumnPtr& values) {
-                        return _page.data_decoder->next_batch(&num_rows, values);
-                    }));
+                    RETURN_IF_ERROR(_page.data_decoder->next_batch(&num_rows, dst));
                     DCHECK_EQ(this_run, num_rows);
                 } else {
                     *has_null = true;
@@ -3051,9 +3021,7 @@ Status FileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool* ha
                 _current_ordinal += this_run;
             }
         } else {
-            RETURN_IF_ERROR(decode_values(dst, [&](MutableColumnPtr& values) {
-                return _page.data_decoder->next_batch(&nrows_to_read, values);
-            }));
+            RETURN_IF_ERROR(_page.data_decoder->next_batch(&nrows_to_read, dst));
             DCHECK_EQ(nrows_to_read, nrows_in_page);
 
             _page.offset_in_page += nrows_to_read;
@@ -3200,11 +3168,8 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
                         // so we need use `page_start_off_in_decoder` to calculate the actual offset in `data_decoder`
                         size_t page_start_off_in_decoder =
                                 _page.first_ordinal + _page.offset_in_page - origin_index;
-                        RETURN_IF_ERROR(decode_values(dst, [&](MutableColumnPtr& values) {
-                            return _page.data_decoder->read_by_rowids(&rowids[offset],
-                                                                      page_start_off_in_decoder,
-                                                                      &read_count, values);
-                        }));
+                        RETURN_IF_ERROR(_page.data_decoder->read_by_rowids(
+                                &rowids[offset], page_start_off_in_decoder, &read_count, dst));
                         DCHECK_EQ(read_count, this_read_count);
                     }
                 }
@@ -3223,10 +3188,8 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
             total_read_count += nrows_to_read;
             remaining -= nrows_to_read;
         } else {
-            RETURN_IF_ERROR(decode_values(dst, [&](MutableColumnPtr& values) {
-                return _page.data_decoder->read_by_rowids(
-                        &rowids[total_read_count], _page.first_ordinal, &nrows_to_read, values);
-            }));
+            RETURN_IF_ERROR(_page.data_decoder->read_by_rowids(
+                    &rowids[total_read_count], _page.first_ordinal, &nrows_to_read, dst));
             total_read_count += nrows_to_read;
             remaining -= nrows_to_read;
         }

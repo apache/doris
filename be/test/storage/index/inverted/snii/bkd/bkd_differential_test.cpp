@@ -101,7 +101,7 @@ struct Dataset {
 // everything downstream is type-agnostic bytes.
 template <FieldType FT>
 struct ValueFactory {
-    using CppType = typename StorageTypeTraits<FT>::StorageType;
+    using CppType = typename CppTypeTraits<FT>::CppType;
 
     // A deterministic mapping from a rank to a value, injective wherever the
     // domain allows it. Narrow types (BOOL, TINYINT) wrap, which is a legitimate
@@ -158,7 +158,7 @@ struct ValueFactory {
 // construction, and that is asserted rather than assumed: a KeyCoder whose
 // output is not sizeof(CppType) would silently break INV-2 for every case below.
 template <FieldType FT>
-Bytes encode(const typename StorageTypeTraits<FT>::StorageType& value) {
+Bytes encode(const typename CppTypeTraits<FT>::CppType& value) {
     Bytes buf;
     get_key_coder(FT)->full_encode_ascending(&value, &buf);
     EXPECT_EQ(buf.size(), field_type_size(FT));
