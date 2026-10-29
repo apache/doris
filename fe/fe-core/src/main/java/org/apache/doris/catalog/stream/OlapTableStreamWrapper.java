@@ -48,6 +48,9 @@ public class OlapTableStreamWrapper extends OlapTable {
     private final OlapTableStream stream;
     private final OlapTable baseTable;
     protected final Map<Long, Pair<Long, Long>> outputUpdateMap;
+    // partition id -> keep-alive TSO with the offset it was taken against, for the selected partitions that have
+    // one; captured with the offsets
+    private final Map<Long, OlapTableStream.PartitionKeepAlive> keepAlives;
     private final KeysType keysType;
     private Map<Long, Cloud.TableStreamPartitionReadStatePB> cloudReadStates = ImmutableMap.of();
     private boolean cloudReadStatesInstalled;
@@ -65,6 +68,13 @@ public class OlapTableStreamWrapper extends OlapTable {
         this.baseTable = baseTable;
         this.keysType = baseTable.getKeysType();
         this.outputUpdateMap = buildOutputUpdateMap(selectedPartitionIds);
+        this.keepAlives = Maps.newHashMap();
+        for (Long partitionId : selectedPartitionIds) {
+            OlapTableStream.PartitionKeepAlive keepAlive = stream.getKeepAlive(partitionId);
+            if (keepAlive != null) {
+                keepAlives.put(partitionId, keepAlive);
+            }
+        }
         this.getOrCreatTableProperty().setEnableUniqueKeyMergeOnWrite(baseTable.getEnableUniqueKeyMergeOnWrite());
     }
 
@@ -202,6 +212,21 @@ public class OlapTableStreamWrapper extends OlapTable {
     @Override
     public List<Long> getPartitionIds() {
         return baseTable.getPartitionIds();
+    }
+
+    /**
+     * The keep-alive TSO of the partition when it was taken against the offset this read starts from, or null:
+     * the partition holds no change after that offset up to it (OlapTableStream.partitionKeepAlive). The offset
+     * is the stream's in shared-nothing mode and the one the installed Cloud read state carries in cloud mode.
+     */
+    public Long getKeepAliveTso(long partitionId) {
+        OlapTableStream.PartitionKeepAlive keepAlive = keepAlives.get(partitionId);
+        Pair<Long, Long> update = outputUpdateMap.get(partitionId);
+        if (keepAlive == null || update == null || update.first == null
+                || update.first.longValue() != keepAlive.getOffset()) {
+            return null;
+        }
+        return keepAlive.getKeepAliveTso();
     }
 
     public Map<Long, Pair<Long, Long>> getOutputUpdateMap() {

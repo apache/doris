@@ -3177,6 +3177,17 @@ public class Config extends ConfigBase {
             varType = VariableAnnotation.EXPERIMENTAL)
     public static int table_stream_partition_offset_cleanup_interval_second = 3600;
 
+    @ConfField(mutable = true, masterOnly = true, description = "Whether FE keeps the offsets of idle partitions of "
+            + "IVM streams from expiring with changelog.ttl_seconds, by recording that such a partition has no change "
+            + "after its offset. When disabled, no new keep-alive TSO is recorded, and the recorded ones still count.",
+            varType = VariableAnnotation.EXPERIMENTAL)
+    public static boolean enable_ivm_stream_keepalive = true;
+
+    @ConfField(mutable = true, masterOnly = true, description = "The interval at which FE checks the idle partitions "
+            + "of IVM streams for a keep-alive TSO, in seconds.",
+            varType = VariableAnnotation.EXPERIMENTAL)
+    public static int ivm_stream_keepalive_interval_second = 600;
+
     @ConfField(mutable = true, masterOnly = true,
             description = "Maximum number of Cloud Table Stream partitions consumed by one INSERT statement.",
             varType = VariableAnnotation.EXPERIMENTAL)

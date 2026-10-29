@@ -164,6 +164,7 @@ import org.apache.doris.mtmv.MTMVRefreshPartitionSnapshot;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVService;
 import org.apache.doris.mtmv.MTMVUtil;
+import org.apache.doris.mtmv.ivm.IvmStreamKeepAliveDaemon;
 import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.mysql.authenticate.AuthenticateType;
 import org.apache.doris.mysql.authenticate.AuthenticatorManager;
@@ -621,6 +622,8 @@ public class Env {
 
     private TableStreamManager tableStreamManager;
 
+    private IvmStreamKeepAliveDaemon ivmStreamKeepAliveDaemon;
+
     // if a config is relative to a daemon thread. record the relation here. we will proactively change interval of it.
     private final Map<String, Supplier<MasterDaemon>> configtoThreads = ImmutableMap
             .<String, Supplier<MasterDaemon>>builder()
@@ -906,6 +909,7 @@ public class Env {
         }
         this.tsoService = new TSOService();
         this.tableStreamManager = new TableStreamManager();
+        this.ivmStreamKeepAliveDaemon = new IvmStreamKeepAliveDaemon();
     }
 
     public static Map<String, Long> getSessionReportTimeMap() {
@@ -2078,6 +2082,7 @@ public class Env {
         }
         streamLoadRecordMgr.start();
         tableStreamManager.start();
+        ivmStreamKeepAliveDaemon.start();
         tabletLoadIndexRecorderMgr.start();
         new InternalSchemaInitializer().start();
         getRefreshManager().start();

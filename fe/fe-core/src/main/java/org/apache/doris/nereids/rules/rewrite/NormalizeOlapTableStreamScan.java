@@ -171,7 +171,7 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
                                                OlapTable baseTable, Map<Long, Pair<Long, Long>> offsetMap,
                                                BaseTableStream.StreamScanType streamScanType, List<Slot> originSlots,
                                                List<Slot> notVirtualSlots, boolean isIncremental) {
-        offsetMap = applyChangelogTtl(cascadesContext, baseTable, offsetMap, streamScanType);
+        offsetMap = applyChangelogTtl(cascadesContext, scan.getTable(), baseTable, offsetMap, streamScanType);
         // remap scan from changelog
         Map<Long, Long> visibleVersions = scan.getTable().hasCloudReadStates()
                 ? scan.getTable().getCloudVisibleVersions(selectedPartitionIds)
@@ -231,8 +231,9 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
         return new LogicalProject<>(project, plan);
     }
 
-    private Map<Long, Pair<Long, Long>> applyChangelogTtl(CascadesContext cascadesContext, OlapTable table,
-            Map<Long, Pair<Long, Long>> offsetMap, BaseTableStream.StreamScanType scanType) {
+    private Map<Long, Pair<Long, Long>> applyChangelogTtl(CascadesContext cascadesContext,
+            OlapTableStreamWrapper streamWrapper, OlapTable table, Map<Long, Pair<Long, Long>> offsetMap,
+            BaseTableStream.StreamScanType scanType) {
         if (!table.hasChangelogTtl()) {
             return offsetMap;
         }
@@ -247,8 +248,16 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
                 || cascadesContext.getStatementContext().isIvmMTMVRewrite();
         return offsetMap.entrySet().stream().collect(Collectors.toMap(Map.Entry::getKey, entry -> {
             Pair<Long, Long> range = entry.getValue();
-            return Pair.of(ChangelogUtils.effectiveStartTso(range.first, cutoffTso,
-                    range.first != null && rejectExpiredStart), range.second);
+            Long start = range.first;
+            // A partition with a keep-alive TSO holds no change after the offset up to it, so the read starting
+            // after the keep-alive TSO reads what the read from the offset does, and only the changelog after
+            // the keep-alive TSO has to be retained. Only an IVM stream records one (IvmStreamKeepAliveDaemon).
+            Long keepAliveTso = streamWrapper.getKeepAliveTso(entry.getKey());
+            if (start != null && keepAliveTso != null) {
+                start = Math.max(start, TSOTimestamp.toExclusiveBound(keepAliveTso));
+            }
+            return Pair.of(ChangelogUtils.effectiveStartTso(start, cutoffTso,
+                    start != null && rejectExpiredStart), range.second);
         }));
     }
 

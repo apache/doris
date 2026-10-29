@@ -40,7 +40,10 @@ import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
+import org.apache.doris.tso.TSOService;
+import org.apache.doris.tso.TSOTimestamp;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
@@ -54,6 +57,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -64,6 +68,9 @@ import java.util.concurrent.locks.LockSupport;
 public class TableStreamManager extends MasterDaemon implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(TableStreamManager.class);
     private static final String BASE_TABLE_NOT_FOUND_STALE_REASON = "Base table does not exist";
+    // The most partitions one MetaService read of a keep-alive round asks for; one INSERT may consume as many
+    // (cloud_table_stream_max_partitions_per_insert).
+    private static final int CLOUD_KEEP_ALIVE_BATCH_PARTITIONS = 10000;
 
     @FunctionalInterface
     public interface StreamConsumptionSelector {
@@ -281,6 +288,313 @@ public class TableStreamManager extends MasterDaemon implements Writable, GsonPo
         return Optional.of(editLogItem);
     }
 
+    /**
+     * Records a keep-alive TSO for the partitions of an IVM stream whose offsets stay where the partitions were
+     * last consumed while the partitions are not written, so that a read of such a partition does not take its
+     * offset for expired once the partition is written again (F-2). A partition qualifies when the base table
+     * applies changelog.ttl_seconds, the stream has a real offset for it past the initial snapshot, nothing is
+     * committed to the partition after that offset, and the newer of the offset and its keep-alive TSO is older
+     * than half the TTL.
+     *
+     * <p>The keep-alive TSO is taken from the TSO service while the base table read lock is held. A commit takes
+     * its TSO inside the base table write lock, so every commit the partition has not had yet gets a larger one,
+     * and the partition holds no change in (offset, keep-alive TSO]. Locks are taken in the order
+     * {@link #cleanupStalePartitionOffsets(OlapTableStream)} takes them.
+     */
+    public Optional<EditLogItem> keepAliveIdlePartitions(OlapTableStream stream) {
+        if (!stream.tryReadLock(Table.TRY_LOCK_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("skip keeping stream {} alive because stream read lock is busy", stream.getName());
+            }
+            return Optional.empty();
+        }
+        // stream read lock is held
+        OlapTable baseTable;
+        Map<Long, Long> offsets;
+        Map<Long, Long> effectiveOffsets = new HashMap<>();
+        try {
+            if (stream.isDisabled() || stream.isStale()) {
+                return Optional.empty();
+            }
+            baseTable = stream.getBaseTableNullable();
+            if (baseTable == null) {
+                return Optional.empty();
+            }
+            offsets = stream.getConsumedPartitionOffsets();
+            offsets.forEach((partitionId, offset) -> effectiveOffsets.put(partitionId,
+                    OlapTableStream.effectiveOffset(offset, stream.getKeepAlive(partitionId))));
+        } finally {
+            stream.readUnlock();
+        }
+        // stream read lock is released
+        if (offsets.isEmpty()) {
+            return Optional.empty();
+        }
+        while (DebugPointUtil.getDebugParamOrDefault(
+                "TableStreamManager.keepAliveIdlePartitions.blockBeforeBaseTableLock", -1L) == stream.getId()) {
+            LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(10));
+        }
+        if (!baseTable.tryReadLock(Table.TRY_LOCK_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("skip keeping stream {} alive because base table {} read lock is busy",
+                        stream.getName(), baseTable.getName());
+            }
+            return Optional.empty();
+        }
+        Map<Long, Long> keptAlive = new HashMap<>();
+        long keepAliveTso;
+        EditLogItem editLogItem;
+        try {
+            if (baseTable.isDropped || !baseTable.hasChangelogTtl()) {
+                return Optional.empty();
+            }
+            long renewCutoffTso = keepAliveRenewCutoffTso(baseTable.getChangelogConfig().getTtlSeconds());
+            Set<Long> idle = new HashSet<>();
+            for (Map.Entry<Long, Long> entry : offsets.entrySet()) {
+                Partition partition = baseTable.getPartition(entry.getKey());
+                // A commit after the offset shows in the partition TSO once it is visible, and in the next
+                // version from the moment it is committed.
+                if (partition != null && effectiveOffsets.get(entry.getKey()) <= renewCutoffTso
+                        && partition.getTso() <= entry.getValue()
+                        && partition.getNextVersion() == partition.getVisibleVersion() + 1) {
+                    idle.add(entry.getKey());
+                }
+            }
+            if (idle.isEmpty()) {
+                return Optional.empty();
+            }
+            keepAliveTso = Env.getCurrentEnv().getTSOService().getTSO();
+            if (!stream.tryWriteLockIfExist(Table.TRY_LOCK_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("skip keeping stream {} alive because it is busy or dropped", stream.getName());
+                }
+                return Optional.empty();
+            }
+            try {
+                if (stream.isDisabled() || stream.isStale()) {
+                    return Optional.empty();
+                }
+                for (Long partitionId : idle) {
+                    // A consumption between the two stream locks moved the offset, and the partition waits for
+                    // the next round.
+                    if (offsets.get(partitionId).equals(stream.getPartitionOffset(partitionId))) {
+                        keptAlive.put(partitionId, offsets.get(partitionId));
+                    }
+                }
+                if (keptAlive.isEmpty()) {
+                    return Optional.empty();
+                }
+                stream.unprotectedKeepAlive(keptAlive, keepAliveTso);
+                editLogItem = Env.getCurrentEnv().getEditLog().logTableStreamCleanup(
+                        TableStreamCleanupInfo.ofKeepAlive(new TableStreamCleanupInfo.PartitionKeepAliveEntry(
+                                stream.getDatabase().getId(), stream.getId(), keptAlive, keepAliveTso)));
+            } finally {
+                stream.writeUnlock();
+            }
+        } finally {
+            baseTable.readUnlock();
+        }
+        LOG.info("kept {} idle partition offsets of stream {}.{} ({}) alive up to tso {}",
+                keptAlive.size(), stream.getDatabase().getFullName(), stream.getName(), stream.getId(),
+                keepAliveTso);
+        return Optional.of(editLogItem);
+    }
+
+    // Renewed once less than half the TTL is left: the newer of the offset and the keep-alive TSO would have
+    // expired under half the TTL. A TTL longer than the clock has run never expires anything, and this cutoff is
+    // 0 then.
+    private static long keepAliveRenewCutoffTso(long ttlSeconds) {
+        return TSOTimestamp.calculateCutoff(TSOTimestamp.composePhysicalTimestamp(System.currentTimeMillis()),
+                ttlSeconds / 2);
+    }
+
+    /**
+     * The cloud mode counterpart of {@link #keepAliveIdlePartitions(OlapTableStream)}, for the IVM streams of one
+     * round, whose offsets live in MetaService and are read from it in batches.
+     *
+     * <p>The keep-alive TSO is the committed TSO watermark, taken before any of the offsets is read. Every commit
+     * at or below the watermark has finished by then, so a read made afterwards shows all of them, and a commit
+     * that lands later gets a larger TSO. A partition whose offset is at its end in that read thus holds no change
+     * in (offset, watermark], for good. A partition qualifies on what shared-nothing mode checks, as MetaService
+     * reports it -- a real offset past the initial snapshot, at the end of the partition, whose newer of it and its
+     * keep-alive TSO is older than half the TTL -- when the watermark is past that newer one. The keep-alive TSO is
+     * recorded in FE metadata with the offset it was taken against, as in shared-nothing mode, and counts only for
+     * a read from that offset: an offset MetaService no longer reports, after a consumption or a restore, leaves it
+     * out.
+     */
+    public List<EditLogItem> keepAliveIdleCloudPartitions(List<OlapTableStream> streams) {
+        return keepAliveIdleCloudPartitions(streams, CLOUD_KEEP_ALIVE_BATCH_PARTITIONS);
+    }
+
+    @VisibleForTesting
+    List<EditLogItem> keepAliveIdleCloudPartitions(List<OlapTableStream> streams, int batchPartitions) {
+        List<CloudKeepAliveSnapshot> snapshots = new ArrayList<>();
+        for (OlapTableStream stream : streams) {
+            snapshotForCloudKeepAlive(stream).ifPresent(snapshots::add);
+        }
+        if (snapshots.isEmpty()) {
+            return Collections.emptyList();
+        }
+        TSOService.TSOStatusSnapshot tsoStatus = Env.getCurrentEnv().getTSOService().getStatusSnapshot();
+        if (!tsoStatus.isInitialized() || tsoStatus.getCommittedTso() <= 0) {
+            LOG.info("skip keeping IVM stream offsets alive because the committed TSO is not available");
+            return Collections.emptyList();
+        }
+        long keepAliveTso = tsoStatus.getCommittedTso();
+        List<EditLogItem> editLogItems = new ArrayList<>();
+        // One MetaService read covers the offsets and versions it is asked for in one transaction, so a round is
+        // read in batches of about as many partitions as one INSERT may consume.
+        List<CloudKeepAliveSnapshot> batch = new ArrayList<>();
+        int partitionsInBatch = 0;
+        for (CloudKeepAliveSnapshot snapshot : snapshots) {
+            if (!batch.isEmpty() && partitionsInBatch + snapshot.partitionIds.size() > batchPartitions) {
+                keepAliveCloudBatch(batch, keepAliveTso, editLogItems);
+                batch = new ArrayList<>();
+                partitionsInBatch = 0;
+            }
+            batch.add(snapshot);
+            partitionsInBatch += snapshot.partitionIds.size();
+        }
+        if (!batch.isEmpty()) {
+            keepAliveCloudBatch(batch, keepAliveTso, editLogItems);
+        }
+        return editLogItems;
+    }
+
+    private Optional<CloudKeepAliveSnapshot> snapshotForCloudKeepAlive(OlapTableStream stream) {
+        if (!stream.tryReadLock(Table.TRY_LOCK_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("skip keeping stream {} alive because stream read lock is busy", stream.getName());
+            }
+            return Optional.empty();
+        }
+        // stream read lock is held
+        OlapTable baseTable;
+        Map<Long, OlapTableStream.PartitionKeepAlive> keepAlives;
+        try {
+            if (stream.isDisabled() || stream.isStale()) {
+                return Optional.empty();
+            }
+            baseTable = stream.getBaseTableNullable();
+            if (baseTable == null) {
+                return Optional.empty();
+            }
+            keepAlives = stream.getKeepAlives();
+        } finally {
+            stream.readUnlock();
+        }
+        // stream read lock is released
+        if (!baseTable.tryReadLock(Table.TRY_LOCK_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("skip keeping stream {} alive because base table {} read lock is busy",
+                        stream.getName(), baseTable.getName());
+            }
+            return Optional.empty();
+        }
+        try {
+            if (baseTable.isDropped || !baseTable.hasChangelogTtl() || baseTable.getPartitionIds().isEmpty()) {
+                return Optional.empty();
+            }
+            Cloud.TableStreamIdentityPB identity = Cloud.TableStreamIdentityPB.newBuilder()
+                    .setBaseDbId(stream.getBaseTableInfo().getDbId())
+                    .setBaseTableId(stream.getBaseTableInfo().getTableId())
+                    .setStreamDbId(stream.getDatabase().getId())
+                    .setStreamId(stream.getId())
+                    .build();
+            return Optional.of(new CloudKeepAliveSnapshot(stream, identity,
+                    new LinkedHashSet<>(baseTable.getPartitionIds()), baseTable.getChangelogConfig().getTtlSeconds(),
+                    keepAlives));
+        } finally {
+            baseTable.readUnlock();
+        }
+    }
+
+    private void keepAliveCloudBatch(List<CloudKeepAliveSnapshot> batch, long keepAliveTso,
+            List<EditLogItem> editLogItems) {
+        while (batch.stream().anyMatch(snapshot -> snapshot.stream.getId() == DebugPointUtil.getDebugParamOrDefault(
+                "TableStreamManager.keepAliveIdleCloudPartitions.blockBeforeReadStates", -1L))) {
+            LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(10));
+        }
+        Map<Cloud.TableStreamIdentityPB, Set<Long>> requestedPartitions = new LinkedHashMap<>();
+        batch.forEach(snapshot -> requestedPartitions.put(snapshot.identity, snapshot.partitionIds));
+        Map<Cloud.TableStreamIdentityPB, Map<Long, Cloud.TableStreamPartitionReadStatePB>> readStates;
+        try {
+            readStates = CloudTableStreamReadStateHelper.getReadStates(requestedPartitions);
+        } catch (UserException e) {
+            LOG.warn("skip keeping {} IVM streams alive because their Cloud read states are unavailable",
+                    batch.size(), e);
+            return;
+        }
+        for (CloudKeepAliveSnapshot snapshot : batch) {
+            keepAliveCloudPartitions(snapshot, readStates.get(snapshot.identity), keepAliveTso)
+                    .ifPresent(editLogItems::add);
+        }
+    }
+
+    private Optional<EditLogItem> keepAliveCloudPartitions(CloudKeepAliveSnapshot snapshot,
+            Map<Long, Cloud.TableStreamPartitionReadStatePB> readStates, long keepAliveTso) {
+        // As of now rather than of the snapshot: the read may have waited.
+        long renewCutoffTso = keepAliveRenewCutoffTso(snapshot.ttlSeconds);
+        Map<Long, Long> idle = new HashMap<>();
+        readStates.forEach((partitionId, state) -> {
+            Preconditions.checkState(state.hasOffsetState() && state.hasEndTso(),
+                    "Incomplete Cloud Table Stream read state for partition %s", partitionId);
+            // The sentinel offset of a partition that was empty when the stream was created is not a real one.
+            if (state.getOffsetState() != Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_CONSUMED
+                    || !state.hasOffsetTso() || state.getOffsetTso() <= 0
+                    || state.getOffsetTso() != state.getEndTso()) {
+                return;
+            }
+            long effectiveOffset = OlapTableStream.effectiveOffset(state.getOffsetTso(),
+                    snapshot.keepAlives.get(partitionId));
+            if (effectiveOffset <= renewCutoffTso && effectiveOffset < keepAliveTso) {
+                idle.put(partitionId, state.getOffsetTso());
+            }
+        });
+        if (idle.isEmpty()) {
+            return Optional.empty();
+        }
+        OlapTableStream stream = snapshot.stream;
+        if (!stream.tryWriteLockIfExist(Table.TRY_LOCK_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("skip keeping stream {} alive because it is busy or dropped", stream.getName());
+            }
+            return Optional.empty();
+        }
+        EditLogItem editLogItem;
+        try {
+            if (stream.isDisabled() || stream.isStale()) {
+                return Optional.empty();
+            }
+            stream.unprotectedKeepAlive(idle, keepAliveTso);
+            editLogItem = Env.getCurrentEnv().getEditLog().logTableStreamCleanup(
+                    TableStreamCleanupInfo.ofKeepAlive(new TableStreamCleanupInfo.PartitionKeepAliveEntry(
+                            stream.getDatabase().getId(), stream.getId(), idle, keepAliveTso)));
+        } finally {
+            stream.writeUnlock();
+        }
+        LOG.info("kept {} idle partition offsets of stream {}.{} ({}) alive up to tso {}",
+                idle.size(), stream.getDatabase().getFullName(), stream.getName(), stream.getId(), keepAliveTso);
+        return Optional.of(editLogItem);
+    }
+
+    private static class CloudKeepAliveSnapshot {
+        private final OlapTableStream stream;
+        private final Cloud.TableStreamIdentityPB identity;
+        private final Set<Long> partitionIds;
+        private final long ttlSeconds;
+        private final Map<Long, OlapTableStream.PartitionKeepAlive> keepAlives;
+
+        private CloudKeepAliveSnapshot(OlapTableStream stream, Cloud.TableStreamIdentityPB identity,
+                Set<Long> partitionIds, long ttlSeconds, Map<Long, OlapTableStream.PartitionKeepAlive> keepAlives) {
+            this.stream = stream;
+            this.identity = identity;
+            this.partitionIds = partitionIds;
+            this.ttlSeconds = ttlSeconds;
+            this.keepAlives = keepAlives;
+        }
+    }
+
     public void replayTableStreamCleanup(TableStreamCleanupInfo info) {
         if (info == null) {
             return;
@@ -288,7 +602,34 @@ public class TableStreamManager extends MasterDaemon implements Writable, GsonPo
         for (TableStreamCleanupInfo.PartitionOffsetPruneEntry entry : info.getEntries()) {
             replayPrunePartitionOffset(entry);
         }
+        for (TableStreamCleanupInfo.PartitionKeepAliveEntry entry : info.getKeepAliveEntries()) {
+            replayKeepAlive(entry);
+        }
         removeStaleDbAndStream(info.getStaleDbIds(), info.getStaleStreamIds());
+    }
+
+    private void replayKeepAlive(TableStreamCleanupInfo.PartitionKeepAliveEntry entry) {
+        Optional<Database> db = Env.getCurrentInternalCatalog().getDb(entry.getDbId());
+        if (!db.isPresent()) {
+            LOG.info("skip replay keeping partition offsets alive because db {} does not exist", entry.getDbId());
+            return;
+        }
+        Optional<Table> table = db.get().getTable(entry.getStreamId());
+        if (!table.isPresent() || !(table.get() instanceof OlapTableStream)) {
+            LOG.info("skip replay keeping partition offsets alive because stream {}.{} does not exist",
+                    entry.getDbId(), entry.getStreamId());
+            return;
+        }
+        OlapTableStream stream = (OlapTableStream) table.get();
+        if (!stream.writeLockIfExist()) {
+            LOG.warn("stream {}.{} write lock acquire failed", db.get().getFullName(), stream.getName());
+            return;
+        }
+        try {
+            stream.unprotectedKeepAlive(entry.getPartitionOffsets(), entry.getKeepAliveTso());
+        } finally {
+            stream.writeUnlock();
+        }
     }
 
     private void replayPrunePartitionOffset(TableStreamCleanupInfo.PartitionOffsetPruneEntry entry) {

@@ -56,9 +56,17 @@ public class OlapTableStream extends BaseTableStream {
     @SerializedName("hpt")
     private Map<Long, Long> historicalPartitionTSO;
 
-    // for persist
+    // The keep-alive TSO K of a partition, with the offset C it was taken against: the partition is known to hold
+    // no change in (C, K], so the changelog a read from C needs is only the part after K. It counts only for a
+    // read from C, so an offset that moved, or one that is not what it was taken against (a cloud offset lives in
+    // MetaService), leaves it out. Only the partitions of an IVM stream have one (IvmStreamKeepAliveDaemon).
+    @SerializedName("pka")
+    private Map<Long, PartitionKeepAlive> partitionKeepAlive;
+
+    // for persist; an image written before the keep-alive TSO has no "pka"
     public OlapTableStream() {
         super();
+        this.partitionKeepAlive = new HashMap<>();
     }
 
     public OlapTableStream(long id, String streamName, TableIf baseTable) {
@@ -67,6 +75,7 @@ public class OlapTableStream extends BaseTableStream {
         this.partitionOffset = new HashMap<>();
         this.partitionConsumptionTime = new HashMap<>();
         this.historicalPartitionTSO = new HashMap<>();
+        this.partitionKeepAlive = new HashMap<>();
     }
 
     public OlapTableStream(String streamName, TableIf baseTable) {
@@ -289,6 +298,58 @@ public class OlapTableStream extends BaseTableStream {
         return offset != null && offset > 0;
     }
 
+    /** The consumption offset of the partition, or null when the stream has none for it. */
+    public Long getPartitionOffset(long partitionId) {
+        return partitionOffset.get(partitionId);
+    }
+
+    /** The partitions with a consumption baseline -- a real offset, past the initial snapshot -- and their offsets. */
+    Map<Long, Long> getConsumedPartitionOffsets() {
+        Map<Long, Long> offsets = new HashMap<>();
+        partitionOffset.forEach((partitionId, offset) -> {
+            if (hasConsumedData(partitionId) && !hasHistoricalData(partitionId)) {
+                offsets.put(partitionId, offset);
+            }
+        });
+        return offsets;
+    }
+
+    /** The keep-alive TSO of the partition with the offset it was taken against, or null when it has none. */
+    public PartitionKeepAlive getKeepAlive(long partitionId) {
+        return partitionKeepAlive.get(partitionId);
+    }
+
+    /** A copy of the keep-alive TSOs of the partitions that have one, with the offsets they were taken against. */
+    Map<Long, PartitionKeepAlive> getKeepAlives() {
+        return new HashMap<>(partitionKeepAlive);
+    }
+
+    /**
+     * Records that the partitions hold no change after the given offsets up to {@code keepAliveTso}. One taken
+     * against another offset is replaced, and one taken against the same offset only grows.
+     */
+    void unprotectedKeepAlive(Map<Long, Long> partitionOffsets, long keepAliveTso) {
+        Preconditions.checkState(isWriteLockHeldByCurrentThread(),
+                "unprotectedKeepAlive must be called with write lock held");
+        partitionOffsets.forEach((partitionId, offset) -> {
+            PartitionKeepAlive recorded = partitionKeepAlive.get(partitionId);
+            if (recorded == null || recorded.getOffset() != offset || recorded.getKeepAliveTso() < keepAliveTso) {
+                partitionKeepAlive.put(partitionId, new PartitionKeepAlive(offset, keepAliveTso));
+            }
+        });
+    }
+
+    /**
+     * Where a read from {@code offset} needs the changelog from: after the keep-alive TSO taken against that
+     * offset, when it is the newer of the two, and from the offset otherwise.
+     */
+    public static long effectiveOffset(long offset, PartitionKeepAlive keepAlive) {
+        if (keepAlive == null || keepAlive.getOffset() != offset) {
+            return offset;
+        }
+        return Math.max(offset, keepAlive.getKeepAliveTso());
+    }
+
     public Pair<Long, Long> getStreamUpdate(Long partitionId) {
         // if partition has historical data, return <historical tso, current tso>
         // otherwise, return <current consumed tso, current tso>
@@ -341,6 +402,11 @@ public class OlapTableStream extends BaseTableStream {
                 }
             }
         }
+        for (Long partitionId : partitionKeepAlive.keySet()) {
+            if (!validPartitionIds.contains(partitionId)) {
+                stalePartitionIds.add(partitionId);
+            }
+        }
         return stalePartitionIds;
     }
 
@@ -353,6 +419,29 @@ public class OlapTableStream extends BaseTableStream {
             if (historicalPartitionTSO != null) {
                 historicalPartitionTSO.remove(partitionId);
             }
+            partitionKeepAlive.remove(partitionId);
+        }
+    }
+
+    /** A keep-alive TSO K with the offset C it was taken against: the partition holds no change in (C, K]. */
+    public static class PartitionKeepAlive {
+        @SerializedName("o")
+        private long offset;
+
+        @SerializedName("k")
+        private long keepAliveTso;
+
+        public PartitionKeepAlive(long offset, long keepAliveTso) {
+            this.offset = offset;
+            this.keepAliveTso = keepAliveTso;
+        }
+
+        public long getOffset() {
+            return offset;
+        }
+
+        public long getKeepAliveTso() {
+            return keepAliveTso;
         }
     }
 }
