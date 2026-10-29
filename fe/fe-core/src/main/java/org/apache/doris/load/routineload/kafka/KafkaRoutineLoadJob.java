@@ -57,6 +57,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.resource.computegroup.ComputeGroupBindingUtil;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TFileCompressType;
@@ -452,6 +453,21 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     private boolean updateKafkaPartitions() throws UserException {
+        // The metadata request goes to the backends of the declared compute group, and after RESUME it runs
+        // before any task, so check the group here as RoutineLoadTaskScheduler does before each task. A
+        // dropped group would otherwise pause the job with "no alive backends" and the Kafka advice below.
+        try {
+            ComputeGroupBindingUtil.checkComputeGroupBeforeTask(getUserIdentity(), getDeclaredComputeGroup());
+        } catch (UserException e) {
+            LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
+                    .add("error_msg", e.getMessage())
+                    .build());
+            if (this.state == JobState.NEED_SCHEDULE) {
+                unprotectUpdateState(JobState.PAUSED, new ErrorReason(e.getErrorCode(), e.getMessage()),
+                        false /* not replay */);
+            }
+            return false;
+        }
         try {
             this.newCurrentKafkaPartition = getAllKafkaPartitions();
         } catch (Exception e) {

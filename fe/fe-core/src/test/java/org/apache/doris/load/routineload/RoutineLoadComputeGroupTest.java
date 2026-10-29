@@ -533,6 +533,39 @@ public class RoutineLoadComputeGroupTest {
     }
 
     /**
+     * RESUME leaves the job in NEED_SCHEDULE, and the scheduler refreshes the topic's partitions before it creates
+     * any task. That metadata request goes to the backends of the declared group, so it runs the same check first.
+     */
+    @Test
+    public void testDroppedComputeGroupPausesJobBeforeKafkaMetadataRequest() throws UserException {
+        enterCloudMode(true, Lists.newArrayList("cg_live"));
+
+        RecordingKafkaRoutineLoadJob job = new RecordingKafkaRoutineLoadJob();
+        Deencapsulation.setField(job, "state", RoutineLoadJob.JobState.NEED_SCHEDULE);
+        Deencapsulation.setField(job, "userIdentity", UserIdentity.ADMIN);
+        Map<String, String> jobProperties = Maps.newHashMap();
+        jobProperties.put(RoutineLoadJob.COMPUTE_GROUP, "cg_dropped");
+        Deencapsulation.setField(job, "jobProperties", jobProperties);
+
+        try (MockedStatic<KafkaUtil> kafkaUtil = Mockito.mockStatic(KafkaUtil.class)) {
+            // what the request reports for a group without backends
+            kafkaUtil.when(() -> KafkaUtil.getAllKafkaPartitions(Mockito.any(), Mockito.any(), Mockito.any(),
+                    Mockito.any())).thenThrow(new LoadException("failed to get info: no alive backends"));
+
+            RoutineLoadJob routineLoadJob = job;
+            Assertions.assertFalse(routineLoadJob.refreshKafkaPartitions(false));
+
+            kafkaUtil.verifyNoInteractions();
+        }
+        Assertions.assertEquals(RoutineLoadJob.JobState.PAUSED, job.newState);
+        Assertions.assertTrue(job.pauseMsg.contains("Compute group 'cg_dropped' not found."), job.pauseMsg);
+        Assertions.assertFalse(job.pauseMsg.contains("Kafka properties"),
+                "the operator must not be sent to check the Kafka properties for a dropped group");
+        Assertions.assertTrue(ScheduleRule.isNeedAutoSchedule(job),
+                "a dropped group must still auto resume once it is back");
+    }
+
+    /**
      * A revoked privilege is not transient, so the job must stop instead of flapping.
      *
      * <p>Pausing with the default INTERNAL_ERR would let {@link ScheduleRule} auto resume the job
@@ -634,6 +667,12 @@ public class RoutineLoadComputeGroupTest {
             this.pauseCode = reason == null ? null : reason.getCode();
             this.state = jobState;
             this.pauseReason = reason;
+        }
+
+        // the partition refresh changes the state without the write lock wrapper
+        @Override
+        protected void unprotectUpdateState(JobState jobState, ErrorReason reason, boolean isReplay) {
+            updateState(jobState, reason, isReplay);
         }
     }
 

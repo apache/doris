@@ -99,7 +99,9 @@ suite("test_routine_load_compute_group", "p0") {
     String kafka_port = context.config.otherConfigs.get("kafka_port")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     def kafka_broker = "${externalEnvIp}:${kafka_port}"
-    def topic = "test_routine_load_compute_group"
+    // A topic of its own on each run: the job reads from OFFSET_BEGINNING and the count below is exact, so
+    // records left by an earlier run against the same broker would be counted too.
+    def topic = "test_routine_load_compute_group_${UUID.randomUUID()}".toString()
 
     def props = new Properties()
     props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "${kafka_broker}".toString())
