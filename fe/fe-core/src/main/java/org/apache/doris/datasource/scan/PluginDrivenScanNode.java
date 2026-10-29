@@ -2086,7 +2086,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     }
 
     /**
-     * Asynchronously generates splits in batches of {@code num_partitions_in_batch_mode} partitions,
+     * Asynchronously generates splits in connector-sized partition batches,
      * streaming each batch into {@link #splitAssignment}. Mirrors legacy
      * {@code MaxComputeScanNode.startSplit}: one read session per partition batch (built by the
      * connector via {@link ConnectorScanPlanProvider#planScanForPartitionBatch}) on the shared
@@ -2142,9 +2142,12 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             sources = Collections.singletonList(createStreamingBatchSource(scanProvider,
                     request.withRequiredPartitions(requiredPartitions), summaryProfile));
         } else {
+            int partitionCount = selectedPartitions.selectedPartitions.size();
+            int batchSize = onPluginClassLoader(scanProvider, () -> scanProvider.partitionBatchSize(
+                    connectorSession, partitionCount, Config.external_scan_split_threads));
             sources = createPartitionBatchSources(scanProvider, request,
                     new ArrayList<>(selectedPartitions.selectedPartitions.keySet()),
-                    sessionVariable.getNumPartitionsInBatchMode(), Config.external_scan_split_threads);
+                    batchSize, Config.external_scan_split_threads);
         }
         startSplitProducers(scanProvider, sources,
                 summaryProfile == null ? null : summaryProfile.getExecutionSummary());
@@ -2277,7 +2280,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     private SplitProducer.BatchSource createStreamingBatchSource(ConnectorScanPlanProvider scanProvider,
             ConnectorScanRequest request, SummaryProfile summaryProfile) {
         RuntimeProfile generationProfile = new RuntimeProfile("Split Generation " + getId());
-        generationProfile.addInfoString("BatchSize", String.valueOf(sessionVariable.getSplitBatchSize()));
+        generationProfile.addInfoString("BatchSize", String.valueOf(splitAssignment.getSplitBatchSize()));
         generationProfile.addInfoString("QueueCapacity", String.valueOf(sessionVariable.getSplitQueueCapacity()));
         Counter generatedSplits = generationProfile.addCounter("GeneratedSplits", TUnit.UNIT,
                 RuntimeProfile.ROOT_COUNTER);

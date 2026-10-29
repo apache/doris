@@ -20,6 +20,7 @@
 #include <gen_cpp/PlanNodes_types.h>
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <memory>
 #include <optional>
 #include <string>
@@ -585,6 +586,18 @@ TEST(FileScannerV2Test, LegacyCountExemptionRequiresMetadataCountOnEveryRange) {
 
     LocalSplitSourceConnector invalid({scan_range(4), scan_range(-1)}, 2);
     EXPECT_FALSE(invalid.all_ranges_have_table_level_row_count());
+}
+
+TEST(FileScannerV2Test, RemoteSplitSourceStopsLocallyWithoutQueryCancellation) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RemoteSplitSourceConnector source(&state, nullptr, 1, 1, 1);
+    std::atomic_bool scanner_stop {true};
+    bool has_next = true;
+    TFileRangeDesc range;
+
+    ASSERT_FALSE(state.is_cancelled());
+    ASSERT_TRUE(source.get_next(&has_next, &range, &scanner_stop).ok());
+    EXPECT_FALSE(has_next);
 }
 
 TEST(FileScannerV2Test, JniCompatibilityShapesUseV2Scanner) {

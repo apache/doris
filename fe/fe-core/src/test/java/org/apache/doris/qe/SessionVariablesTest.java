@@ -257,6 +257,10 @@ public class SessionVariablesTest extends TestWithFeService {
     public void testExternalTableBatchModeDefaultsAndFuzzyAttribute() throws Exception {
         SessionVariable sessionVar = new SessionVariable();
         Assertions.assertTrue(sessionVar.getEnableExternalTableBatchMode());
+        Assertions.assertEquals(1, sessionVar.getNumPartitionsInBatchMode());
+        Assertions.assertEquals(1, sessionVar.getNumFilesInBatchMode());
+        Assertions.assertEquals(8, sessionVar.getSplitBatchSize());
+        Assertions.assertEquals(1024, sessionVar.getSplitQueueCapacity());
 
         Field field = SessionVariable.class.getDeclaredField("enableExternalTableBatchMode");
         VarAttrDef.VarAttr varAttr = field.getAnnotation(VarAttrDef.VarAttr.class);
@@ -481,7 +485,10 @@ public class SessionVariablesTest extends TestWithFeService {
     @Test
     public void testSplitBatchAndQueueLimitsUseTheirOwnVariableCheckers() throws Exception {
         SessionVariable variable = new SessionVariable();
-        for (String name : new String[] {SessionVariable.SPLIT_BATCH_SIZE, SessionVariable.SPLIT_QUEUE_CAPACITY}) {
+        Assertions.assertEquals(16, variable.getSplitPartitionBatchSize());
+        Assertions.assertEquals(1024, variable.getSplitQueueCapacity());
+        for (String name : new String[] {SessionVariable.SPLIT_BATCH_SIZE,
+                SessionVariable.SPLIT_PARTITION_BATCH_SIZE, SessionVariable.SPLIT_QUEUE_CAPACITY}) {
             Field field = VariableMgr.getVarContext(name).getField();
             for (int value : new int[] {1, 9}) {
                 VariableMgr.setVar(variable, new SetVar(SetType.SESSION, name, new IntLiteral(value)));

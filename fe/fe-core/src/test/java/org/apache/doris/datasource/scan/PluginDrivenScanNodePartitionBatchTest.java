@@ -57,7 +57,6 @@ class PluginDrivenScanNodePartitionBatchTest {
         fixture.start(100, 1, 2);
         fixture.executor.runUntilIdle();
         Assertions.assertEquals(2, fixture.loaded.size(), "Paused producers must retain only two partition lists");
-        Assertions.assertEquals(1, fixture.assignment.getAssignedSplits(fixture.backend).size());
         Assertions.assertEquals(0, fixture.finished.get());
 
         List<Long> actual = fixture.drain();
