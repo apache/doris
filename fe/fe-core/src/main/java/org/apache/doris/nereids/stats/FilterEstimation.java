@@ -184,14 +184,19 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         // instead of duplicating a domain-only variant of the visitor.
         Statistics estimated = estimate(predicate, estimationBasis);
         double estimatedRowCount = estimated.getRowCount();
+        ColumnStatistic constrainedColumn = estimated.findColumnStatistics(slot);
+        Preconditions.checkState(constrainedColumn != null,
+                "column constraints must preserve statistics for slot: %s", slot);
         if (estimatedRowCount <= 0) {
+            if (predicate instanceof IsNull && ((IsNull) predicate).child().equals(slot)) {
+                // 分区证明所有选中行都是 NULL；过期的 numNulls=0 不能推翻这个精确值域。
+                return new ColumnStatisticBuilder(constrainedColumn, scanRowCount)
+                        .setNdv(0).setNumNulls(scanRowCount).build();
+            }
             // Stale column statistics may contradict the partition proof. They cannot invalidate the
             // selected scan row count, so retain this column's existing statistics.
             return currentColumnStats;
         }
-        ColumnStatistic constrainedColumn = estimated.findColumnStatistics(slot);
-        Preconditions.checkState(constrainedColumn != null,
-                "column constraints must preserve statistics for slot: %s", slot);
 
         ColumnStatisticBuilder columnBuilder = new ColumnStatisticBuilder(constrainedColumn, scanRowCount);
         if (constrainedColumn.isUnKnown) {
@@ -555,6 +560,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         Statistics filterStatistics = context.statistics.withSel(selectivity);
 
         filterStatistics.addColumnStats(cp.left(), filterKeyColStatsBuilder.build());
+        context.addKeyIfSlot(cp.left());
         filterStatistics.normalizeColumnStatistics(context.statistics.getRowCount(), true);
         return filterStatistics;
     }

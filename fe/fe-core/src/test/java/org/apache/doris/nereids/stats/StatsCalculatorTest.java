@@ -38,8 +38,11 @@ import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
+import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -225,6 +228,79 @@ public class StatsCalculatorTest {
 
         Assertions.assertEquals(1000, filtered.getRowCount(), 0.001);
         Assertions.assertEquals(1, filtered.findColumnStatistics(partitionSlot).ndv, 0.001);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testAppliedRangeOnlyOrBoundsGroupCount(boolean inclusive) {
+        LogicalOlapScan scan = PlanConstructor.newDpHyperLogicalOlapScan(0, "t1", 0);
+        SlotReference partitionSlot = (SlotReference) scan.getOutput().get(0);
+        Expression lowerPartition = inclusive
+                ? new LessThanEqual(partitionSlot, new IntegerLiteral(0))
+                : new LessThan(partitionSlot, new IntegerLiteral(1));
+        Expression upperPartition = inclusive
+                ? new GreaterThanEqual(partitionSlot, new IntegerLiteral(1000))
+                : new GreaterThan(partitionSlot, new IntegerLiteral(999));
+        ColumnStatistic tableStats = new ColumnStatisticBuilder(500_500)
+                .setNdv(1001)
+                .setMinValue(0)
+                .setMaxValue(1000)
+                .setNumNulls(0)
+                .build();
+        Statistics input = new StatisticsBuilder()
+                .setRowCount(1000)
+                .putColumnStatistics(partitionSlot, new ColumnStatisticBuilder(tableStats, 1000)
+                        .setNdv(1000).build())
+                .setHasSelectedPartitionRowCount(true)
+                .build();
+        StatsCalculator calculator = new StatsCalculator((CascadesContext) null);
+        for (Expression predicate : ImmutableList.of(new Or(lowerPartition, upperPartition),
+                new Or(upperPartition, lowerPartition))) {
+            LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(ImmutableSet.of(predicate),
+                    withPartitionPruningProof(scan, predicate));
+            Statistics filtered = calculator.computeFilter(filter, input);
+            ColumnStatistic column = filtered.findColumnStatistics(partitionSlot);
+            Assertions.assertEquals(1000, filtered.getRowCount(), 0.001);
+            Assertions.assertTrue(filtered.hasSelectedPartitionRowCount());
+            Assertions.assertEquals(1000, column.count, 0.001);
+            Assertions.assertEquals(2, column.ndv, 0.01);
+            Assertions.assertEquals(0, column.numNulls, 0.001);
+            LogicalAggregate<LogicalFilter<LogicalOlapScan>> aggregate = new LogicalAggregate<>(
+                    ImmutableList.of(partitionSlot), ImmutableList.of(partitionSlot), filter);
+            Assertions.assertEquals(2, calculator.computeAggregate(aggregate, filtered).getRowCount(), 0.01);
+        }
+    }
+
+    @Test
+    public void testAppliedIsNullKeepsProvenDomainWithStaleStatistics() {
+        LogicalOlapScan scan = PlanConstructor.newDpHyperLogicalOlapScan(0, "t1", 0);
+        SlotReference partitionSlot = (SlotReference) scan.getOutput().get(0);
+        IsNull predicate = new IsNull(partitionSlot);
+        ColumnStatistic tableStats = new ColumnStatisticBuilder(100_000)
+                .setNdv(10_000)
+                .setNumNulls(0)
+                .setMinValue(1)
+                .setMaxValue(10_000)
+                .build();
+        Statistics input = new StatisticsBuilder()
+                .setRowCount(1000)
+                .putColumnStatistics(partitionSlot, new ColumnStatisticBuilder(tableStats, 1000)
+                        .setNdv(1000).build())
+                .setHasSelectedPartitionRowCount(true)
+                .build();
+        LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(ImmutableSet.of(predicate),
+                withPartitionPruningProof(scan, predicate));
+        StatsCalculator calculator = new StatsCalculator((CascadesContext) null);
+        Statistics filtered = calculator.computeFilter(filter, input);
+        ColumnStatistic column = filtered.findColumnStatistics(partitionSlot);
+        Assertions.assertEquals(1000, filtered.getRowCount(), 0.001);
+        Assertions.assertTrue(filtered.hasSelectedPartitionRowCount());
+        Assertions.assertEquals(1000, column.count, 0.001);
+        Assertions.assertEquals(0, column.ndv, 0.001);
+        Assertions.assertEquals(1000, column.numNulls, 0.001);
+        LogicalAggregate<LogicalFilter<LogicalOlapScan>> aggregate = new LogicalAggregate<>(
+                ImmutableList.of(partitionSlot), ImmutableList.of(partitionSlot), filter);
+        Assertions.assertEquals(1, calculator.computeAggregate(aggregate, filtered).getRowCount(), 0.001);
     }
 
     private LogicalOlapScan withPartitionPruningProof(LogicalOlapScan scan, Expression predicate) {

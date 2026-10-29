@@ -369,7 +369,7 @@ public class LogicalOlapScanTest {
                 .getPartitionPrunablePredicates().isPresent());
 
         OlapTableStream stream = Mockito.mock(OlapTableStream.class);
-        LogicalOlapTableStreamScan streamScan = (LogicalOlapTableStreamScan) scan.withPreSnapshot(Optional.of(stream));
+        LogicalOlapTableStreamScan streamScan = (LogicalOlapTableStreamScan) scan.withSnapshot(true, stream);
         streamScan = streamScan.withSelectedPartitionIds(ImmutableList.of(1L), true)
                 .withPartitionPrunablePredicates(Optional.of(proof));
         Assertions.assertFalse(streamScan.withSelectedPartitionIds(ImmutableList.of(1L, 2L))
@@ -389,7 +389,7 @@ public class LogicalOlapScanTest {
         Assertions.assertFalse(scan.withPartitionPruned(false).getPartitionPrunablePredicates().isPresent());
 
         OlapTableStream stream = Mockito.mock(OlapTableStream.class);
-        LogicalOlapTableStreamScan streamScan = (LogicalOlapTableStreamScan) scan.withPreSnapshot(Optional.of(stream));
+        LogicalOlapTableStreamScan streamScan = (LogicalOlapTableStreamScan) scan.withSnapshot(true, stream);
         streamScan = streamScan.withSelectedPartitionIds(ImmutableList.of(), true)
                 .withPartitionPrunablePredicates(Optional.of(proof));
         Assertions.assertTrue(streamScan.getPartitionPrunablePredicates().isPresent());
