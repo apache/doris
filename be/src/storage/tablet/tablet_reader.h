@@ -296,6 +296,11 @@ protected:
 
     Status _init_delete_condition(const ReaderParams& read_params);
 
+    // Fill the compaction filter after merging by key/sequence. Both horizontal and vertical
+    // readers must keep unexpired delete signs so a late lower-sequence write stays rejected.
+    void _fill_delete_sign_filter(const MutableColumns& columns, size_t rows,
+                                  uint8_t* filter) const;
+
     const BaseTabletSPtr& tablet() { return _tablet; }
 
     // The read schema shared by the caller, TabletReader, VCollect and each rowset reader.
@@ -319,6 +324,10 @@ protected:
     // for agg query, we don't need to finalize when scan agg object data
     ReaderType _reader_type = ReaderType::READER_QUERY;
     bool _delete_sign_available = false;
+    // Snapshot the retention decision once per reader; publishing new versions while scanning
+    // must not make otherwise identical rows expire in different blocks.
+    bool _retain_sequence_delete_sign = false;
+    int64_t _delete_sign_version_cutoff = 0;
     bool _filter_delete = false;
     bool _direct_mode = false;
 

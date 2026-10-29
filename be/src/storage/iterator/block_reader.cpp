@@ -817,21 +817,12 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
     } while (target_block_row < batch_max_rows());
 
     if (_delete_sign_available) {
-        int delete_sign_idx = _read_schema->delete_sign_ordinal();
-        DORIS_CHECK_GT(delete_sign_idx, 0);
-        DORIS_CHECK_LT(delete_sign_idx, static_cast<int>(target_columns.size()));
         auto delete_filter_column = IColumn::mutate(std::move(_delete_filter_column));
         reinterpret_cast<ColumnUInt8*>(delete_filter_column.get())->resize(target_block_row);
 
         auto* __restrict filter_data =
                 reinterpret_cast<ColumnUInt8*>(delete_filter_column.get())->get_data().data();
-        auto* __restrict delete_data =
-                reinterpret_cast<ColumnInt8*>(target_columns[delete_sign_idx].get())
-                        ->get_data()
-                        .data();
-        for (int i = 0; i < target_block_row; ++i) {
-            filter_data[i] = delete_data[i] == 0;
-        }
+        _fill_delete_sign_filter(target_columns, target_block_row, filter_data);
         auto target_columns_size = target_columns.size();
         _delete_filter_column = std::move(delete_filter_column);
         ColumnWithTypeAndName column_with_type_and_name {_delete_filter_column,

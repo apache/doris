@@ -20,6 +20,8 @@
 #include <gen_cpp/olap_file.pb.h>
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <limits>
 #include <map>
 #include <memory>
 #include <set>
@@ -28,13 +30,20 @@
 #include <utility>
 #include <vector>
 
+#include "cloud/cloud_storage_engine.h"
+#include "cloud/cloud_tablet.h"
+#include "cloud/config.h"
+#include "common/config.h"
+#include "core/column/column_vector.h"
 #include "storage/delete/delete_handler.h"
+#include "storage/merger.h"
 #include "storage/rowset/rowset_meta.h"
 #include "storage/schema.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_schema.h"
+#include "storage/utils.h"
 
 namespace doris {
 
@@ -271,5 +280,217 @@ TEST_F(TabletReaderTest, storage_topn_without_orderby_key_columns_fails) {
     init_tablet(engine, plain_reader, KeysType::UNIQUE_KEYS, /*enable_mow=*/false);
     st = plain_reader._init_orderby_keys_param(TabletReader::ReaderParams {});
     EXPECT_TRUE(st.ok()) << st;
+}
+
+class SequenceDeleteSignRetentionTest : public TabletReaderTest {
+protected:
+    void SetUp() override {
+        _old_gap = config::sequence_delete_sign_retention_version_gap;
+        _old_prune = config::enable_prune_delete_sign_when_base_compaction;
+        _old_cloud_unique_id = config::cloud_unique_id;
+        _old_deploy_mode = config::deploy_mode;
+        config::cloud_unique_id = "sequence-retention-test";
+        config::deploy_mode = "cloud";
+        config::sequence_delete_sign_retention_version_gap = 10;
+        config::enable_prune_delete_sign_when_base_compaction = true;
+    }
+
+    void TearDown() override {
+        config::sequence_delete_sign_retention_version_gap = _old_gap;
+        config::enable_prune_delete_sign_when_base_compaction = _old_prune;
+        config::cloud_unique_id = _old_cloud_unique_id;
+        config::deploy_mode = _old_deploy_mode;
+    }
+
+    static TabletSchemaSPtr sequence_schema(bool with_version = true, bool with_sequence = true) {
+        TabletSchemaPB pb;
+        pb.set_keys_type(KeysType::UNIQUE_KEYS);
+        auto add_column = [&pb](const std::string& name, const std::string& type, bool key) {
+            auto* col = pb.add_column();
+            col->set_unique_id(pb.column_size());
+            col->set_name(name);
+            col->set_type(type);
+            col->set_is_key(key);
+            col->set_is_nullable(false);
+        };
+        add_column("k1", "INT", true);
+        add_column("v1", "INT", false);
+        if (with_sequence) {
+            pb.set_sequence_col_idx(pb.column_size());
+            add_column(SEQUENCE_COL, "BIGINT", false);
+        }
+        if (with_version) {
+            pb.set_version_col_idx(pb.column_size());
+            add_column(VERSION_COL, "BIGINT", false);
+        }
+        pb.set_delete_sign_idx(pb.column_size());
+        add_column(DELETE_SIGN, "TINYINT", false);
+        auto schema = std::make_shared<TabletSchema>();
+        schema->init_from_pb(pb);
+        return schema;
+    }
+
+    static void init_reader(CloudStorageEngine& engine, TabletReader& reader, ReaderType type,
+                            const TabletSchemaSPtr& schema, bool mow = true,
+                            int64_t max_version = 100) {
+        auto meta = std::make_shared<TabletMeta>();
+        meta->mutable_tablet_schema()->copy_from(*schema);
+        meta->set_enable_unique_key_merge_on_write(mow);
+        auto rowset = std::make_shared<RowsetMeta>();
+        rowset->set_version(Version(max_version, max_version));
+        rowset->set_tablet_schema(schema);
+        ASSERT_TRUE(meta->add_rs_meta(rowset).ok());
+        auto tablet = std::make_shared<CloudTablet>(engine, std::move(meta));
+        tablet->_max_version = max_version;
+        reader._tablet = std::move(tablet);
+        reader._tablet_schema = schema;
+        reader._read_schema = std::make_shared<ReadSchema>(schema->columns());
+        TabletReader::ReaderParams params;
+        params.reader_type = type;
+        // Newer published rowsets can be outside the compaction inputs. Using the input
+        // end instead of the tablet maximum would incorrectly retain versions 89 and 90.
+        params.version = Version(0, max_version - 5);
+        ASSERT_TRUE(reader._init_delete_condition(params).ok());
+    }
+
+    static std::vector<uint8_t> filter_rows(const TabletReader& reader) {
+        // The equality boundary is 100 - 10 = 90. Unknown versions must be retained,
+        // and live rows must survive even when their version is older than the cutoff.
+        const std::vector<int64_t> versions = {89, 90, 91, 0, -1, 1};
+        MutableColumns columns;
+        for (size_t i = 0; i < reader._read_schema->num_block_columns(); ++i) {
+            if (std::cmp_equal(i, reader._read_schema->delete_sign_ordinal())) {
+                auto column = ColumnInt8::create();
+                column->get_data().assign(versions.size(), int8_t {1});
+                column->get_data().back() = 0;
+                columns.emplace_back(std::move(column));
+            } else if (std::cmp_equal(i, reader._read_schema->version_ordinal()) ||
+                       std::cmp_equal(i, reader._read_schema->sequence_ordinal())) {
+                auto column = ColumnInt64::create();
+                for (auto version : versions) {
+                    column->insert_value(version);
+                }
+                columns.emplace_back(std::move(column));
+            } else {
+                auto column = ColumnInt32::create();
+                column->resize(versions.size());
+                columns.emplace_back(std::move(column));
+            }
+        }
+        std::vector<uint8_t> filter(versions.size());
+        reader._fill_delete_sign_filter(columns, versions.size(), filter.data());
+        return filter;
+    }
+
+private:
+    int64_t _old_gap = 0;
+    bool _old_prune = true;
+    std::string _old_cloud_unique_id;
+    std::string _old_deploy_mode;
+};
+
+TEST_F(SequenceDeleteSignRetentionTest, retains_until_exact_version_gap) {
+    CloudStorageEngine engine({});
+    for (auto type : {ReaderType::READER_BASE_COMPACTION, ReaderType::READER_FULL_COMPACTION,
+                      ReaderType::READER_COLD_DATA_COMPACTION}) {
+        TabletReader reader;
+        init_reader(engine, reader, type, sequence_schema());
+        ASSERT_TRUE(reader._delete_sign_available);
+        EXPECT_EQ(std::vector<uint8_t>({0, 0, 1, 1, 1, 1}), filter_rows(reader));
+    }
+}
+
+TEST_F(SequenceDeleteSignRetentionTest, snapshots_config_and_local_published_version) {
+    CloudStorageEngine engine({});
+    TabletReader reader;
+    init_reader(engine, reader, ReaderType::READER_BASE_COMPACTION, sequence_schema());
+    auto rowset = std::make_shared<RowsetMeta>();
+    rowset->set_version(Version(200, 200));
+    ASSERT_TRUE(reader._tablet->tablet_meta()->add_rs_meta(rowset).ok());
+    std::static_pointer_cast<CloudTablet>(reader._tablet)->_max_version = 200;
+    config::sequence_delete_sign_retention_version_gap = 0;
+    EXPECT_EQ(std::vector<uint8_t>({0, 0, 1, 1, 1, 1}), filter_rows(reader));
+
+    config::sequence_delete_sign_retention_version_gap = 10;
+    TabletReader later_reader;
+    init_reader(engine, later_reader, ReaderType::READER_BASE_COMPACTION, sequence_schema(), true,
+                200);
+    EXPECT_EQ(std::vector<uint8_t>({0, 0, 0, 1, 1, 1}), filter_rows(later_reader));
+}
+
+TEST_F(SequenceDeleteSignRetentionTest, preserves_legacy_pruning_and_checksum_behavior) {
+    CloudStorageEngine engine({});
+    config::sequence_delete_sign_retention_version_gap = 0;
+    TabletReader disabled;
+    init_reader(engine, disabled, ReaderType::READER_BASE_COMPACTION, sequence_schema());
+    EXPECT_EQ(std::vector<uint8_t>({0, 0, 0, 0, 0, 1}), filter_rows(disabled));
+
+    config::sequence_delete_sign_retention_version_gap = 10;
+    TabletReader checksum;
+    init_reader(engine, checksum, ReaderType::READER_CHECKSUM, sequence_schema());
+    EXPECT_EQ(std::vector<uint8_t>({0, 0, 0, 0, 0, 1}), filter_rows(checksum));
+    TabletReader mor;
+    init_reader(engine, mor, ReaderType::READER_BASE_COMPACTION, sequence_schema(), false);
+    EXPECT_EQ(std::vector<uint8_t>({0, 0, 0, 0, 0, 1}), filter_rows(mor));
+    TabletReader no_sequence;
+    init_reader(engine, no_sequence, ReaderType::READER_BASE_COMPACTION,
+                sequence_schema(true, false));
+    EXPECT_EQ(std::vector<uint8_t>({0, 0, 0, 0, 0, 1}), filter_rows(no_sequence));
+
+    config::cloud_unique_id.clear();
+    config::deploy_mode = "local";
+    TabletReader local;
+    init_reader(engine, local, ReaderType::READER_BASE_COMPACTION, sequence_schema());
+    EXPECT_EQ(std::vector<uint8_t>({0, 0, 0, 0, 0, 1}), filter_rows(local));
+    config::cloud_unique_id = "sequence-retention-test";
+    config::deploy_mode = "cloud";
+
+    config::enable_prune_delete_sign_when_base_compaction = false;
+    TabletReader no_pruning;
+    init_reader(engine, no_pruning, ReaderType::READER_BASE_COMPACTION, sequence_schema());
+    EXPECT_FALSE(no_pruning._delete_sign_available);
+    EXPECT_FALSE(no_pruning._retain_sequence_delete_sign);
+}
+
+TEST_F(SequenceDeleteSignRetentionTest, retains_legacy_delete_signs_without_version_column) {
+    CloudStorageEngine engine({});
+    TabletReader reader;
+    init_reader(engine, reader, ReaderType::READER_BASE_COMPACTION, sequence_schema(false));
+    EXPECT_EQ(std::vector<uint8_t>({1, 1, 1, 1, 1, 1}), filter_rows(reader));
+}
+
+TEST_F(SequenceDeleteSignRetentionTest, validates_config_and_handles_large_gap) {
+    ASSERT_FALSE(config::set_config("sequence_delete_sign_retention_version_gap", "-1").ok());
+    EXPECT_EQ(10, config::sequence_delete_sign_retention_version_gap);
+    ASSERT_TRUE(config::set_config("sequence_delete_sign_retention_version_gap",
+                                   std::to_string(std::numeric_limits<int64_t>::max()))
+                        .ok());
+    CloudStorageEngine engine({});
+    TabletReader reader;
+    init_reader(engine, reader, ReaderType::READER_BASE_COMPACTION, sequence_schema());
+    EXPECT_EQ(std::vector<uint8_t>({1, 1, 1, 1, 1, 1}), filter_rows(reader));
+}
+
+TEST_F(SequenceDeleteSignRetentionTest, vertical_key_group_includes_version_once) {
+    for (bool with_version : {false, true}) {
+        auto schema = sequence_schema(with_version);
+        std::vector<std::vector<uint32_t>> groups;
+        std::vector<uint32_t> cluster_key_indices;
+        Merger::vertical_split_columns(*schema, &groups, &cluster_key_indices, 1);
+        ASSERT_FALSE(groups.empty());
+        ReadSchema key_schema(project_columns_by_ordinal(schema->columns(), groups.front()));
+        EXPECT_GE(key_schema.sequence_ordinal(), 0);
+        EXPECT_GE(key_schema.delete_sign_ordinal(), 0);
+        EXPECT_EQ(with_version, key_schema.version_ordinal() >= 0);
+        std::vector<uint32_t> all_columns;
+        for (const auto& group : groups) {
+            all_columns.insert(all_columns.end(), group.begin(), group.end());
+        }
+        std::ranges::sort(all_columns);
+        ASSERT_EQ(schema->num_columns(), all_columns.size());
+        for (size_t i = 0; i < all_columns.size(); ++i) {
+            EXPECT_EQ(i, all_columns[i]);
+        }
+    }
 }
 } // namespace doris
