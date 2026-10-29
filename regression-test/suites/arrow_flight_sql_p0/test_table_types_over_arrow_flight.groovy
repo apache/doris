@@ -15,7 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.flight.CallOption
+import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.flight.CallOptions
+import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.flight.FlightClient
+import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.flight.Location
+import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.flight.sql.FlightSqlClient
+import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.memory.RootAllocator
+import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.vector.types.pojo.ArrowType
 import org.apache.doris.regression.util.JdbcUtils
+
+import java.util.concurrent.TimeUnit
 
 suite("test_table_types_over_arrow_flight", "arrow_flight_sql") {
     def flightConn = context.getArrowFlightSqlConnection()
@@ -77,4 +86,45 @@ suite("test_table_types_over_arrow_flight", "arrow_flight_sql") {
     assertEquals([], getTables(["SYSTEM VIEW"]))
     assertEquals([], getTables(["UNKNOWN"]))
     assertEquals([view], getTables(["UNKNOWN", "VIEW", "VIEW"]))
+
+    // The same RPCs from a plain Flight SQL client, called repeatedly: GetFlightInfo carries the
+    // GetTableTypes schema and one endpoint, DoGet returns the same sorted types every time, and
+    // the session still answers a query afterwards.
+    def config = context.config.otherConfigs
+    def location = Location.forGrpcInsecure(config.get("extArrowFlightSqlHost"),
+            Integer.parseInt(config.get("extArrowFlightSqlPort")))
+    new RootAllocator().withCloseable { allocator ->
+        FlightClient.builder(allocator, location).build().withCloseable { flight ->
+            def token = flight.authenticateBasicToken(config.get("extArrowFlightSqlUser"),
+                    config.get("extArrowFlightSqlPassword")).get()
+            CallOption[] options = [token, CallOptions.timeout(30, TimeUnit.SECONDS)]
+            def client = new FlightSqlClient(flight)
+            3.times {
+                def info = client.getTableTypes(options)
+                assertEquals(["table_type"], info.getSchema().getFields()*.getName())
+                assertEquals(new ArrowType.Utf8(), info.getSchema().getFields()[0].getType())
+                assertFalse(info.getSchema().getFields()[0].isNullable())
+                assertEquals(1, info.getEndpoints().size())
+                def types = []
+                flight.getStream(info.getEndpoints()[0].getTicket(), options).withCloseable { stream ->
+                    assertEquals(info.getSchema(), stream.getSchema())
+                    while (stream.next()) {
+                        def root = stream.getRoot()
+                        for (int row = 0; row < root.getRowCount(); ++row) {
+                            types.add(root.getVector("table_type").getObject(row).toString())
+                        }
+                    }
+                }
+                assertEquals(["BASE TABLE", "SYSTEM VIEW", "VIEW"], types)
+            }
+            def info = client.execute("SHOW VARIABLES LIKE 'query_timeout'", options)
+            int rows = 0
+            flight.getStream(info.getEndpoints()[0].getTicket(), options).withCloseable { stream ->
+                while (stream.next()) {
+                    rows += stream.getRoot().getRowCount()
+                }
+            }
+            assertEquals(1, rows)
+        }
+    }
 }

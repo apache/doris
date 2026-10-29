@@ -22,11 +22,17 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.qe.ConnectContext;
 
+import org.apache.arrow.flight.FlightClient;
+import org.apache.arrow.flight.FlightInfo;
 import org.apache.arrow.flight.FlightProducer.CallContext;
 import org.apache.arrow.flight.FlightProducer.ServerStreamListener;
+import org.apache.arrow.flight.FlightServer;
+import org.apache.arrow.flight.FlightStream;
 import org.apache.arrow.flight.Location;
+import org.apache.arrow.flight.sql.FlightSqlClient;
 import org.apache.arrow.flight.sql.FlightSqlProducer.Schemas;
 import org.apache.arrow.memory.BufferAllocator;
+import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -46,6 +52,48 @@ public class FlightSqlTableTypesTest {
     @Test
     public void releasesBuffersWhenSendingFails() throws Exception {
         checkStream(true);
+    }
+
+    // GetFlightInfo and DoGet through a real Flight SQL server, on repeated calls: the info carries the
+    // GetTableTypes schema and one endpoint, and the stream returns the same sorted types every time.
+    @Test
+    public void tableTypesAreSortedAndStableThroughFlightRpc() throws Exception {
+        boolean previous = FeConstants.runningUnitTest;
+        FeConstants.runningUnitTest = true;
+        ConnectContext ctx = ConnectContext.forFlight("metadata-token");
+        try {
+            FlightSessionsManager sessions = Mockito.mock(FlightSessionsManager.class);
+            Mockito.when(sessions.getConnectContext(Mockito.anyString())).thenReturn(ctx);
+            Location location = Location.forGrpcInsecure("127.0.0.1", 0);
+            try (DorisFlightSqlProducer producer = new DorisFlightSqlProducer(location, sessions);
+                    RootAllocator allocator = new RootAllocator();
+                    FlightServer server = FlightServer.builder(allocator, location, producer).build().start();
+                    FlightClient client = FlightClient.builder(allocator,
+                            Location.forGrpcInsecure("127.0.0.1", server.getPort())).build()) {
+                FlightSqlClient sql = new FlightSqlClient(client);
+                for (int iteration = 0; iteration < 3; ++iteration) {
+                    FlightInfo info = sql.getTableTypes();
+                    Assertions.assertEquals(Schemas.GET_TABLE_TYPES_SCHEMA, info.getSchema());
+                    Assertions.assertEquals(1, info.getEndpoints().size());
+                    List<String> types = new ArrayList<>();
+                    try (FlightStream stream = client.getStream(info.getEndpoints().get(0).getTicket())) {
+                        Assertions.assertEquals(info.getSchema(), stream.getSchema());
+                        while (stream.next()) {
+                            VectorSchemaRoot root = stream.getRoot();
+                            for (int row = 0; row < root.getRowCount(); ++row) {
+                                types.add(root.getVector("table_type").getObject(row).toString());
+                            }
+                        }
+                    }
+                    Assertions.assertEquals(Arrays.asList("BASE TABLE", "SYSTEM VIEW", "VIEW"), types);
+                }
+                // GetFlightInfo answers from the static schema; only each DoGet resolves the session.
+                Mockito.verify(sessions, Mockito.times(3)).getConnectContext(Mockito.anyString());
+            }
+        } finally {
+            ctx.getFlightSqlChannel().close();
+            FeConstants.runningUnitTest = previous;
+        }
     }
 
     private void checkStream(boolean failSend) throws Exception {
