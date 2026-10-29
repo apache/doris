@@ -210,6 +210,31 @@ const char* deserialize_const_flag_and_row_num(const char* buf, MutableColumnPtr
     return buf;
 }
 
+const char* deserialize_const_flag_and_row_num(const char* buf, const char* end,
+                                               MutableColumnPtr* column,
+                                               size_t* real_have_saved_num) {
+    if (end != nullptr) {
+        constexpr size_t header_size = sizeof(bool) + 2 * sizeof(size_t);
+        if (end < buf || static_cast<size_t>(end - buf) < header_size) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Malformed column: missing serialized header");
+        }
+        uint8_t flag = unaligned_load<uint8_t>(buf);
+        if (flag > 1) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT, "Malformed column: invalid const flag {}",
+                            flag);
+        }
+        size_t rows = unaligned_load<size_t>(buf + sizeof(bool));
+        size_t saved = unaligned_load<size_t>(buf + sizeof(bool) + sizeof(size_t));
+        if (saved != (flag != 0 ? 1 : rows)) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Malformed column: inconsistent row count {}, saved count {}", rows,
+                            saved);
+        }
+    }
+    return deserialize_const_flag_and_row_num(buf, column, real_have_saved_num);
+}
+
 FieldWithDataType IDataType::get_field_with_data_type(const IColumn& column, size_t row_num) const {
     return FieldWithDataType {.field = column[row_num],
                               .base_scalar_type_id = get_primitive_type()};

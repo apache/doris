@@ -29,14 +29,19 @@
 #include "agent/be_exec_version_manager.h"
 #include "core/block/block.h"
 #include "core/column/column.h"
+#include "core/column/column_array.h"
 #include "core/column/column_const.h"
+#include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
 #include "core/data_type/common_data_type_serder_test.h"
 #include "core/data_type/common_data_type_test.h"
 #include "core/data_type/data_type.h"
+#include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_struct.h"
 #include "core/field.h"
 #include "core/types.h"
 #include "util/unaligned.h"
@@ -469,6 +474,120 @@ INSTANTIATE_TEST_SUITE_P(
                                              BeExecVersionManager::get_newest_version()),
                            ::testing::Values(size_t {0}, size_t {1}, size_t {512}),
                            ::testing::Bool()));
+
+class NestedHLLSerdeTest : public ::testing::TestWithParam<std::tuple<int, int>> {
+public:
+    static void reject(const DataTypePtr& type, int version, const char* begin, const char* end) {
+        auto decoded = type->create_column();
+        EXPECT_THROW(type->deserialize(begin, end, &decoded, version), doris::Exception);
+    }
+
+    static MutableColumnPtr nullable_hll_column() {
+        auto column = ColumnHLL::create();
+        column->insert_default();
+        return ColumnNullable::create(std::move(column), ColumnUInt8::create(1, 0));
+    }
+
+    static std::pair<DataTypePtr, MutableColumnPtr> make_column(int wrapper) {
+        DataTypePtr hll = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeHLL>());
+        if (wrapper == 0) {
+            return {std::make_shared<DataTypeArray>(hll),
+                    ColumnArray::create(nullable_hll_column(),
+                                        ColumnArray::ColumnOffsets::create(1, 1))};
+        }
+        if (wrapper == 1) {
+            return {std::make_shared<DataTypeMap>(hll, hll),
+                    ColumnMap::create(nullable_hll_column(), nullable_hll_column(),
+                                      ColumnMap::COffsets::create(1, 1))};
+        }
+        DataTypePtr type = std::make_shared<DataTypeStruct>(DataTypes {hll, hll});
+        auto column = type->create_column();
+        column->insert_default();
+        if (wrapper == 2) {
+            return {type, std::move(column)};
+        }
+        type = std::make_shared<DataTypeNullable>(type);
+        column = ColumnNullable::create(std::move(column), ColumnUInt8::create(1, 0));
+        type = std::make_shared<DataTypeMap>(hll, type);
+        column = ColumnMap::create(nullable_hll_column(), std::move(column),
+                                   ColumnMap::COffsets::create(1, 1));
+        column = ColumnNullable::create(std::move(column), ColumnUInt8::create(1, 0));
+        type = std::make_shared<DataTypeArray>(type);
+        column = ColumnArray::create(std::move(column), ColumnArray::ColumnOffsets::create(1, 1));
+        type = std::make_shared<DataTypeNullable>(type);
+        column = ColumnNullable::create(std::move(column), ColumnUInt8::create(1, 0));
+        return {type, std::move(column)};
+    }
+
+    static void check_const_round_trips(const DataTypePtr& type, const MutableColumnPtr& column,
+                                        int version) {
+        for (size_t rows : {size_t {0}, size_t {1}, size_t {512}}) {
+            SCOPED_TRACE(rows);
+            auto constant = ColumnConst::create(column->get_ptr(), rows);
+            std::vector<char> buf(type->get_uncompressed_serialized_bytes(*constant, version));
+            const char* end = type->serialize(*constant, buf.data(), version);
+            auto decoded = type->create_column();
+            EXPECT_EQ(type->deserialize(buf.data(), end, &decoded, version), end);
+            EXPECT_EQ(decoded->size(), rows);
+            std::vector<char> restored(type->get_uncompressed_serialized_bytes(*decoded, version));
+            const char* restored_end = type->serialize(*decoded, restored.data(), version);
+            EXPECT_EQ(std::string(buf.data(), end - buf.data()),
+                      std::string(restored.data(), restored_end - restored.data()));
+            auto trusted = type->create_column();
+            EXPECT_EQ(type->deserialize(buf.data(), &trusted, version), end);
+            EXPECT_EQ(trusted->size(), rows);
+        }
+    }
+};
+
+TEST_P(NestedHLLSerdeTest, BoundedRoundTripAndTruncatedHLL) {
+    const int version = std::get<0>(GetParam());
+    const int wrapper = std::get<1>(GetParam());
+    auto [type, column] = make_column(wrapper);
+    check_const_round_trips(type, column, version);
+    std::vector<char> buf(type->get_uncompressed_serialized_bytes(*column, version));
+    auto* end = type->serialize(*column, buf.data(), version);
+    buf.resize(end - buf.data());
+    for (size_t cut = 0; cut < buf.size(); ++cut) {
+        SCOPED_TRACE(cut);
+        reject(type, version, buf.data(), buf.data() + cut);
+    }
+    reject(type, version, buf.data() + 1, buf.data());
+    if (wrapper < 2) {
+        auto oversized = buf;
+        size_t offset = version >= USE_CONST_SERDE ? sizeof(bool) : 0;
+        unaligned_store<size_t>(oversized.data() + offset, std::numeric_limits<size_t>::max());
+        if (version >= USE_CONST_SERDE) {
+            unaligned_store<size_t>(oversized.data() + offset + sizeof(size_t),
+                                    std::numeric_limits<size_t>::max());
+        }
+        reject(type, version, oversized.data(), oversized.data() + oversized.size());
+    }
+    PBlock pblock;
+    pblock.set_be_exec_version(version);
+    auto* meta = pblock.add_column_metas();
+    type->to_pb_column_meta(meta);
+    meta->set_name("nested");
+    pblock.set_column_values(std::string(buf.data(), buf.size()));
+    size_t bytes = 0;
+    int64_t decompress_time = 0;
+    Block valid;
+    ASSERT_TRUE(valid.deserialize(pblock, &bytes, &decompress_time).ok());
+    EXPECT_EQ(valid.rows(), 1);
+    // Every fixture ends in one empty HLL. Claim a FULL value while providing only its tag.
+    ASSERT_GE(buf.size(), sizeof(size_t) + 1);
+    unaligned_store<size_t>(buf.data() + buf.size() - 1 - sizeof(size_t), HLL_COLUMN_DEFAULT_LEN);
+    buf.back() = HLL_DATA_FULL;
+    pblock.set_column_values(std::string(buf.data(), buf.size()));
+    Block malformed;
+    EXPECT_FALSE(malformed.deserialize(pblock, &bytes, &decompress_time).ok());
+}
+
+INSTANTIATE_TEST_SUITE_P(
+        WireLayouts, NestedHLLSerdeTest,
+        ::testing::Combine(::testing::Values(USE_CONST_SERDE - 1,
+                                             BeExecVersionManager::get_newest_version()),
+                           ::testing::Values(0, 1, 2, 3)));
 
 INSTANTIATE_TEST_SUITE_P(Params, DataTypeHLLTest, ::testing::Values(0, 1, 10, 100));
 

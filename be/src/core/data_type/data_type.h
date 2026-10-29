@@ -241,6 +241,9 @@ char* serialize_const_flag_and_row_num(const IColumn** column, char* buf,
                                        size_t* real_need_copy_num);
 const char* deserialize_const_flag_and_row_num(const char* buf, MutableColumnPtr* column,
                                                size_t* real_have_saved_num);
+const char* deserialize_const_flag_and_row_num(const char* buf, const char* end,
+                                               MutableColumnPtr* column,
+                                               size_t* real_have_saved_num);
 
 #include "common/compile_check_end.h"
 } // namespace doris

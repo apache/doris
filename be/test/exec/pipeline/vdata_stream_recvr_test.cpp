@@ -67,6 +67,14 @@ public:
                                                        is_merging);
     }
 
+    void expect_empty_queue_accounting(VDataStreamRecvr::SenderQueue* sender) {
+        EXPECT_TRUE(sender->_block_queue.empty());
+        EXPECT_TRUE(sender->_pending_closures.empty());
+        EXPECT_EQ(_mock_counter->current_value(), 0);
+        EXPECT_EQ(sender->_queue_mem_tracker->consumption(), 0);
+        EXPECT_EQ(recvr->_mem_tracker->consumption(), 0);
+    }
+
     std::shared_ptr<MockVDataStreamRecvr> recvr;
 
     std::unique_ptr<RuntimeProfile::HighWaterMarkCounter> _mock_counter;
@@ -512,10 +520,36 @@ TEST_P(DataStreamRecvrCallbackTest, PendingCallbackDetachedBeforeConcurrentAddAn
     EXPECT_TRUE(sender->_pending_closures.empty());
     EXPECT_TRUE(sender->_is_cancelled);
     recvr->close();
+    expect_empty_queue_accounting(sender);
     EXPECT_EQ(callback_counts, expected_counts);
 }
 
 INSTANTIATE_TEST_SUITE_P(BlockDecodeResults, DataStreamRecvrCallbackTest, ::testing::Bool());
+
+TEST_F(DataStreamRecvrTest, CloseReleasesQueuedLocalAndRemoteAccounting) {
+    create_recvr(1, false);
+    recvr->always_exceeds_limit = true;
+    auto* sender = recvr->sender_queues().back();
+    auto local = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3});
+    sender->add_block(&local, true);
+    MockClosure closure;
+    int callback_count = 0;
+    closure._cb = [&]() { ++callback_count; };
+    google::protobuf::Closure* done = &closure;
+    ASSERT_TRUE(
+            sender->add_block(DataStreamRecvrCallbackTest::make_valid_pblock(), 1, 1, &done, 0, 0));
+    ASSERT_EQ(done, nullptr);
+    ASSERT_EQ(sender->_block_queue.size(), 2);
+    ASSERT_GT(_mock_counter->current_value(), 0);
+    ASSERT_GT(sender->_queue_mem_tracker->consumption(), 0);
+    recvr->close();
+    expect_empty_queue_accounting(sender);
+    EXPECT_EQ(callback_count, 1);
+    sender->close();
+    recvr->close();
+    expect_empty_queue_accounting(sender);
+    EXPECT_EQ(callback_count, 1);
+}
 
 TEST_F(DataStreamRecvrTest, TestRemoteMultiSender) {
     create_recvr(3, false);

@@ -336,6 +336,12 @@ void VDataStreamRecvr::SenderQueue::close() {
     }
     _pending_closures.clear();
     // Delete any batches queued in _block_queue
+    int64_t queued_bytes = 0;
+    for (const auto& item : _block_queue) {
+        queued_bytes += static_cast<int64_t>(item.block_byte_size());
+    }
+    _recvr->_memory_used_counter->update(-queued_bytes);
+    sub_blocks_memory_usage(queued_bytes);
     _block_queue.clear();
 }
 

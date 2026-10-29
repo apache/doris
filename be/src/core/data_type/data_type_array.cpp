@@ -138,52 +138,46 @@ char* DataTypeArray::serialize(const IColumn& column, char* buf, int be_exec_ver
 
 const char* DataTypeArray::deserialize(const char* buf, MutableColumnPtr* column,
                                        int be_exec_version) const {
-    if (be_exec_version >= USE_CONST_SERDE) {
-        auto* origin_column = column->get();
-        size_t real_have_saved_num = 0;
-        buf = deserialize_const_flag_and_row_num(buf, column, &real_have_saved_num);
+    return deserialize(buf, nullptr, column, be_exec_version);
+}
 
-        auto* data_column = assert_cast<ColumnArray*>(origin_column);
-
-        // offsets
-        auto offsets_column = std::move(*data_column->get_offsets_ptr()).mutate();
-        auto& offsets = assert_cast<ColumnArray::ColumnOffsets&>(*offsets_column).get_data();
-        offsets.resize(real_have_saved_num);
-        memcpy(offsets.data(), buf, sizeof(ColumnArray::Offset64) * real_have_saved_num);
-        buf += sizeof(ColumnArray::Offset64) * real_have_saved_num;
-        // children
-        auto nested_column = std::move(*data_column->get_data_ptr()).mutate();
-        buf = get_nested_type()->deserialize(buf, &nested_column, be_exec_version);
-        auto typed_offsets_column = ColumnArray::ColumnOffsets::cast_to_column_mutptr(
-                assert_cast<ColumnArray::ColumnOffsets*, TypeCheckOnRelease::DISABLE>(
-                        offsets_column.get()));
-        offsets_column = nullptr;
-        data_column->get_offsets_ptr() = std::move(typed_offsets_column);
-        data_column->get_data_ptr() = std::move(nested_column);
-        return buf;
-    } else {
-        auto* data_column = assert_cast<ColumnArray*>(column->get());
-
-        // row num
-        auto row_num = unaligned_load<ColumnArray::Offset64>(buf);
-        buf += sizeof(ColumnArray::Offset64);
-        // offsets
-        auto offsets_column = std::move(*data_column->get_offsets_ptr()).mutate();
-        auto& offsets = assert_cast<ColumnArray::ColumnOffsets&>(*offsets_column).get_data();
-        offsets.resize(row_num);
-        memcpy(offsets.data(), buf, sizeof(ColumnArray::Offset64) * row_num);
-        buf += sizeof(ColumnArray::Offset64) * row_num;
-        // children
-        auto nested_column = std::move(*data_column->get_data_ptr()).mutate();
-        buf = get_nested_type()->deserialize(buf, &nested_column, be_exec_version);
-        auto typed_offsets_column = ColumnArray::ColumnOffsets::cast_to_column_mutptr(
-                assert_cast<ColumnArray::ColumnOffsets*, TypeCheckOnRelease::DISABLE>(
-                        offsets_column.get()));
-        offsets_column = nullptr;
-        data_column->get_offsets_ptr() = std::move(typed_offsets_column);
-        data_column->get_data_ptr() = std::move(nested_column);
-        return buf;
+const char* DataTypeArray::deserialize(const char* buf, const char* end, MutableColumnPtr* column,
+                                       int be_exec_version) const {
+    if (end != nullptr && end < buf) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT, "Malformed array column: invalid input range");
     }
+    auto* origin_column = column->get();
+    size_t rows = 0;
+    if (be_exec_version >= USE_CONST_SERDE) {
+        buf = deserialize_const_flag_and_row_num(buf, end, column, &rows);
+    } else {
+        if (end != nullptr && static_cast<size_t>(end - buf) < sizeof(ColumnArray::Offset64)) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Malformed array column: missing serialized row count");
+        }
+        rows = unaligned_load<ColumnArray::Offset64>(buf);
+        buf += sizeof(ColumnArray::Offset64);
+    }
+    // Check before multiplication and allocation, including the legacy offset layout.
+    if (end != nullptr && rows > static_cast<size_t>(end - buf) / sizeof(ColumnArray::Offset64)) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Malformed array column: offsets exceed input");
+    }
+    auto* data_column = assert_cast<ColumnArray*>(origin_column);
+    auto offsets_column = std::move(*data_column->get_offsets_ptr()).mutate();
+    auto& offsets = assert_cast<ColumnArray::ColumnOffsets&>(*offsets_column).get_data();
+    offsets.resize(rows);
+    memcpy(offsets.data(), buf, sizeof(ColumnArray::Offset64) * rows);
+    buf += sizeof(ColumnArray::Offset64) * rows;
+    auto nested_column = std::move(*data_column->get_data_ptr()).mutate();
+    buf = get_nested_type()->deserialize(buf, end, &nested_column, be_exec_version);
+    auto typed_offsets_column = ColumnArray::ColumnOffsets::cast_to_column_mutptr(
+            assert_cast<ColumnArray::ColumnOffsets*, TypeCheckOnRelease::DISABLE>(
+                    offsets_column.get()));
+    offsets_column = nullptr;
+    data_column->get_offsets_ptr() = std::move(typed_offsets_column);
+    data_column->get_data_ptr() = std::move(nested_column);
+    return buf;
 }
 
 void DataTypeArray::to_pb_column_meta(PColumnMeta* col_meta) const {

@@ -105,27 +105,7 @@ const char* DataTypeHLL::deserialize(const char* buf, const char* end, MutableCo
     size_t real_have_saved_num = 0;
     auto* origin_column = column->get();
     if (be_exec_version >= USE_CONST_SERDE) {
-        constexpr size_t header_size = sizeof(bool) + 2 * sizeof(size_t);
-        if (end != nullptr) {
-            if (static_cast<size_t>(end - buf) < header_size) {
-                throw Exception(ErrorCode::INVALID_ARGUMENT,
-                                "Malformed HLL column: missing serialized header");
-            }
-            uint8_t is_const_flag = unaligned_load<uint8_t>(buf);
-            if (is_const_flag > 1) {
-                throw Exception(ErrorCode::INVALID_ARGUMENT,
-                                "Malformed HLL column: invalid const flag {}", is_const_flag);
-            }
-            bool is_const = is_const_flag != 0;
-            size_t row_num = unaligned_load<size_t>(buf + sizeof(bool));
-            size_t saved_num = unaligned_load<size_t>(buf + sizeof(bool) + sizeof(size_t));
-            if (saved_num != (is_const ? 1 : row_num)) {
-                throw Exception(ErrorCode::INVALID_ARGUMENT,
-                                "Malformed HLL column: inconsistent row count {}, saved count {}",
-                                row_num, saved_num);
-            }
-        }
-        buf = deserialize_const_flag_and_row_num(buf, column, &real_have_saved_num);
+        buf = deserialize_const_flag_and_row_num(buf, end, column, &real_have_saved_num);
     } else {
         if (end != nullptr && static_cast<size_t>(end - buf) < sizeof(size_t)) {
             throw Exception(ErrorCode::INVALID_ARGUMENT,
