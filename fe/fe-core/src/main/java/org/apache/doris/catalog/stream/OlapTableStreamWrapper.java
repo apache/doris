@@ -18,6 +18,7 @@
 package org.apache.doris.catalog.stream;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
@@ -25,6 +26,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.statistics.analysis.TableStatsMeta;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.tso.TSOTimestamp;
@@ -48,6 +50,10 @@ public class OlapTableStreamWrapper extends OlapTable {
     private final OlapTableStream stream;
     private final OlapTable baseTable;
     protected final Map<Long, Pair<Long, Long>> outputUpdateMap;
+    // The row counts the stream had recorded when the offsets above were read. The two have to
+    // describe the same moment: an offset advance between them would pair the range of the old
+    // offset with the counters of the new one, and the estimate of the range would read as empty.
+    private Map<Long, PartitionStreamState> partitionStreamStates;
     private final KeysType keysType;
     private Map<Long, Cloud.TableStreamPartitionReadStatePB> cloudReadStates = ImmutableMap.of();
     private boolean cloudReadStatesInstalled;
@@ -64,8 +70,29 @@ public class OlapTableStreamWrapper extends OlapTable {
         this.stream = stream;
         this.baseTable = baseTable;
         this.keysType = baseTable.getKeysType();
-        this.outputUpdateMap = buildOutputUpdateMap(selectedPartitionIds);
+        stream.readLock();
+        try {
+            this.outputUpdateMap = buildOutputUpdateMap(selectedPartitionIds);
+            this.partitionStreamStates = snapshotPartitionStreamStates(selectedPartitionIds);
+        } finally {
+            stream.readUnlock();
+        }
         this.getOrCreatTableProperty().setEnableUniqueKeyMergeOnWrite(baseTable.getEnableUniqueKeyMergeOnWrite());
+    }
+
+    /**
+     * The row counts the stream recorded for the given partitions, read under the stream lock so
+     * that they describe the same moment as the offsets of the same call.
+     */
+    private Map<Long, PartitionStreamState> snapshotPartitionStreamStates(Collection<Long> partitionIds) {
+        ImmutableMap.Builder<Long, PartitionStreamState> states = ImmutableMap.builder();
+        for (Long partitionId : partitionIds) {
+            PartitionStreamState state = stream.getPartitionStreamState(partitionId);
+            if (state != null) {
+                states.put(partitionId, state);
+            }
+        }
+        return states.build();
     }
 
     public Map<Long, Pair<Long, Long>> buildOutputUpdateMap(List<Long> selectedPartitionIds) {
@@ -103,15 +130,21 @@ public class OlapTableStreamWrapper extends OlapTable {
                         "Cloud Table Stream offset exceeds the statement end TSO");
             }
         }
-        cloudReadStates = immutableReadStates;
-        cloudReadStatesInstalled = true;
-        outputUpdateMap.clear();
-        cloudReadStates.forEach((partitionId, state) -> {
-            if (state.getVisibleVersion() > Partition.PARTITION_INIT_VERSION) {
-                Long startTso = state.hasOffsetTso() ? state.getOffsetTso() : null;
-                outputUpdateMap.put(partitionId, Pair.of(startTso, state.getEndTso()));
-            }
-        });
+        stream.readLock();
+        try {
+            cloudReadStates = immutableReadStates;
+            cloudReadStatesInstalled = true;
+            outputUpdateMap.clear();
+            cloudReadStates.forEach((partitionId, state) -> {
+                if (state.getVisibleVersion() > Partition.PARTITION_INIT_VERSION) {
+                    Long startTso = state.hasOffsetTso() ? state.getOffsetTso() : null;
+                    outputUpdateMap.put(partitionId, Pair.of(startTso, state.getEndTso()));
+                }
+            });
+            partitionStreamStates = snapshotPartitionStreamStates(outputUpdateMap.keySet());
+        } finally {
+            stream.readUnlock();
+        }
     }
 
     public boolean hasCloudReadStates() {
@@ -363,6 +396,114 @@ public class OlapTableStreamWrapper extends OlapTable {
                 // historicalTso is an inclusive upper bound; shift to the half-open exclusive end.
                 .collect(Collectors.toMap(Map.Entry::getKey,
                         s -> Pair.of(null, TSOTimestamp.toExclusiveBound(s.getValue().first))));
+    }
+
+    /**
+     * Per-partition estimate of the rows a changelog read of {@code offsetMap} returns, which the
+     * callers hand to the wrapper the read is planned over. See {@link PartitionStreamState} for
+     * the rules and for why every answer errs on the large side.
+     *
+     * <p>{@code offsetMap} is the one the scan uses, after the changelog TTL adjustment, so the
+     * estimate describes the range the scan actually reads.
+     */
+    public Map<Long, Long> estimateChangelogRead(List<Long> partitionIds,
+            Map<Long, Pair<Long, Long>> offsetMap) {
+        long tableRowCount = getBaseTableRowCount();
+        Map<Long, Long> estimates = Maps.newHashMapWithExpectedSize(partitionIds.size());
+        for (Long partitionId : partitionIds) {
+            estimates.put(partitionId, estimatePartitionChangelogRead(partitionId, offsetMap, tableRowCount));
+        }
+        return estimates;
+    }
+
+    /**
+     * Per-partition estimate of the rows a snapshot read answers with: the image at the stream
+     * offset. A duplicate key image only grows, so the current rows bound it; a unique or
+     * aggregating one also holds the rows deleted after the offset, which the change rows of the
+     * range bound.
+     */
+    public Map<Long, Long> estimateSnapshotRead(List<Long> partitionIds) {
+        long tableRowCount = getBaseTableRowCount();
+        boolean appendOnly = keysType == KeysType.DUP_KEYS;
+        Map<Long, Long> estimates = Maps.newHashMapWithExpectedSize(partitionIds.size());
+        for (Long partitionId : partitionIds) {
+            PartitionStreamState state = partitionStreamStates.get(partitionId);
+            long storedBaseRowCount = state == null
+                    ? PartitionStreamState.UNKNOWN_ROW_COUNT : state.getBaseRowCount();
+            long delta = appendOnly ? PartitionStreamState.UNKNOWN_ROW_COUNT
+                    : changelogDeltaOf(partitionId, state);
+            estimates.put(partitionId, PartitionStreamState.estimateSnapshotRead(appendOnly, storedBaseRowCount,
+                    getBaseRowCount(partitionId), delta, tableRowCount));
+        }
+        return estimates;
+    }
+
+    private long estimatePartitionChangelogRead(long partitionId, Map<Long, Pair<Long, Long>> offsetMap,
+            long tableRowCount) {
+        Partition basePartition = baseTable.getPartition(partitionId);
+        if (basePartition == null || !basePartition.hasData()) {
+            // Nothing was ever written, so the read returns nothing whatever the counters say.
+            return 1;
+        }
+        PartitionStreamState state = partitionStreamStates.get(partitionId);
+        long storedChangelogRowCount = state == null
+                ? PartitionStreamState.UNKNOWN_ROW_COUNT : state.getChangelogRowCount();
+        long startTso = PartitionStreamState.UNKNOWN_ROW_COUNT;
+        long endTso = PartitionStreamState.UNKNOWN_ROW_COUNT;
+        Pair<Long, Long> range = offsetMap.get(partitionId);
+        if (range == null) {
+            range = outputUpdateMap.get(partitionId);
+        }
+        if (range != null) {
+            startTso = range.first == null ? PartitionStreamState.UNKNOWN_ROW_COUNT : range.first;
+            endTso = range.second == null ? PartitionStreamState.UNKNOWN_ROW_COUNT : range.second;
+        }
+        return PartitionStreamState.estimateChangelogRead(startTso, endTso, storedChangelogRowCount,
+                getChangelogRowCount(partitionId), getBaseRowCount(partitionId), tableRowCount);
+    }
+
+    private long changelogDeltaOf(long partitionId, PartitionStreamState state) {
+        long storedChangelogRowCount = state == null
+                ? PartitionStreamState.UNKNOWN_ROW_COUNT : state.getChangelogRowCount();
+        Pair<Long, Long> range = outputUpdateMap.get(partitionId);
+        long startTso = range == null || range.first == null
+                ? PartitionStreamState.UNKNOWN_ROW_COUNT : range.first;
+        long endTso = range == null || range.second == null
+                ? PartitionStreamState.UNKNOWN_ROW_COUNT : range.second;
+        return PartitionStreamState.changelogDelta(startTso, endTso, storedChangelogRowCount,
+                getChangelogRowCount(partitionId));
+    }
+
+    private long getBaseTableRowCount() {
+        long rowCount = baseTable.getRowCountForIndex(baseTable.getBaseIndexId(), false);
+        if (rowCount > 0) {
+            return rowCount;
+        }
+        // The backends have not reported the tablets yet. The statistics record of the table is
+        // kept up to date by the loads themselves, so it answers for the table as a whole: that
+        // over-estimates a partition of a partitioned table, which is the safe direction.
+        TableStatsMeta tableStatsMeta = Env.getCurrentEnv().getAnalysisManager()
+                .findTableStatsStatus(baseTable.getId());
+        if (tableStatsMeta != null) {
+            long recorded = tableStatsMeta.getRowCountWithDeltaRows(baseTable, baseTable.getBaseIndexId());
+            if (recorded > 0) {
+                return recorded;
+            }
+        }
+        return rowCount;
+    }
+
+    private long getBaseRowCount(long partitionId) {
+        long rowCount = baseTable.getRowCountForPartitionIndex(partitionId, baseTable.getBaseIndexId(), false);
+        return rowCount > 0 ? rowCount : getBaseTableRowCount();
+    }
+
+    private long getChangelogRowCount(long partitionId) {
+        if (!baseTable.hasChangelog()) {
+            return PartitionStreamState.UNKNOWN_ROW_COUNT;
+        }
+        return baseTable.getRowCountForPartitionIndex(partitionId,
+                baseTable.getChangelogIndexMeta().getIndexId(), false);
     }
 
     /**

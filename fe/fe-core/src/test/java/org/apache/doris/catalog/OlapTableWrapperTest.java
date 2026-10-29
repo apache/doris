@@ -186,4 +186,92 @@ public class OlapTableWrapperTest {
             mockedPartition.verifyNoInteractions();
         }
     }
+
+    @Test
+    public void testRowCountIsDelegatedToTheWrappedTable() {
+        OlapTable table = newTestTable(BinlogTestUtils.newTestChangelogConfig(false, false));
+        long partitionId = 200L;
+        long rowCount = 42L;
+        MaterializedIndex baseIndex = new MaterializedIndex(table.getBaseIndexId(), null);
+        baseIndex.setRowCount(rowCount);
+        baseIndex.setRowCountReported(true);
+        table.addPartition(new Partition(partitionId, "p1", baseIndex, new RandomDistributionInfo(32)));
+
+        OlapTableWrapper wrapper = new OlapTableWrapper(table);
+
+        // The wrapper owns no partitions, so the inherited implementations would answer 0 and the
+        // statistics calculator would raise that to one row.
+        Assertions.assertEquals(rowCount, wrapper.getRowCountForIndex(table.getBaseIndexId(), true));
+        Assertions.assertEquals(rowCount,
+                wrapper.getRowCountForPartitionIndex(partitionId, table.getBaseIndexId(), true));
+        Assertions.assertEquals(table.getPartitionNum(), wrapper.getPartitionNum());
+    }
+
+    @Test
+    public void testPartitionItemLookupIsDelegatedToTheWrappedTable() throws Exception {
+        OlapTable table = Mockito.spy(newTestTable(BinlogTestUtils.newTestChangelogConfig(false, false)));
+        PartitionItem item = Mockito.mock(PartitionItem.class);
+        Mockito.doReturn(item).when(table).getPartitionItemOrAnalysisException("p1");
+
+        OlapTableWrapper wrapper = new OlapTableWrapper(table);
+
+        // The inherited implementation reads the wrapper's own partition name map, which is empty,
+        // and answers "partition not found" for every name.
+        Assertions.assertSame(item, wrapper.getPartitionItemOrAnalysisException("p1"));
+    }
+
+    @Test
+    public void testChangelogWrapperWithoutAnEstimateFallsBackToTheChangelogRows() {
+        ChangelogConfig changelogConfig = BinlogTestUtils.newTestChangelogConfig(true, true);
+        changelogConfig.setTtlSeconds(10);
+        OlapTable table = newTestTable(changelogConfig);
+        long partitionId = 300L;
+        MaterializedIndex baseIndex = new MaterializedIndex(table.getBaseIndexId(), null);
+        baseIndex.setRowCount(42L);
+        baseIndex.setRowCountReported(true);
+        MaterializedIndex changelogIndex = new MaterializedIndex(table.getChangelogIndexMeta().getIndexId(), null);
+        changelogIndex.setRowCount(7L);
+        changelogIndex.setRowCountReported(true);
+        Partition partition = new Partition(partitionId, "p1", baseIndex, new RandomDistributionInfo(32));
+        partition.createRollupIndex(changelogIndex);
+        table.addPartition(partition);
+
+        OlapChangelogTableWrapper wrapper = new OlapChangelogTableWrapper(table);
+
+        // A stream read hands the changer rows of its range to the wrapper. Without one -- a
+        // changelog read which is not a stream read, or a stream partition without a record -- the
+        // row count of the changelog index answers: the whole changelog over-estimates a delta, but
+        // a value of the right order of magnitude keeps the read from looking like an empty one.
+        Assertions.assertEquals(7L, wrapper.getRowCountForIndex(wrapper.getBaseIndexId(), true));
+        Assertions.assertEquals(7L, wrapper.getRowCountForPartitionIndex(partitionId, wrapper.getBaseIndexId(), true));
+    }
+
+    @Test
+    public void testRowCountEstimateOverridesTheRowsOfTheWrappedTable() {
+        OlapTable table = newTestTable(BinlogTestUtils.newTestChangelogConfig(false, false));
+        long partitionId = 200L;
+        long otherPartitionId = 201L;
+        MaterializedIndex baseIndex = new MaterializedIndex(table.getBaseIndexId(), null);
+        baseIndex.setRowCount(42L);
+        baseIndex.setRowCountReported(true);
+        table.addPartition(new Partition(partitionId, "p1", baseIndex, new RandomDistributionInfo(32)));
+        MaterializedIndex otherIndex = new MaterializedIndex(table.getBaseIndexId(), null);
+        otherIndex.setRowCount(42L);
+        otherIndex.setRowCountReported(true);
+        table.addPartition(new Partition(otherPartitionId, "p2", otherIndex, new RandomDistributionInfo(32)));
+
+        // What a stream read is about to return: the change rows of an offset range, which neither
+        // the changelog index nor the table reports.
+        OlapTableWrapper wrapper = new OlapTableWrapper(table, Collections.emptyMap(), Collections.emptyMap(),
+                ImmutableMap.of(partitionId, 3L));
+
+        Assertions.assertEquals(3L, wrapper.getRowCountEstimate());
+        Assertions.assertEquals(3L, wrapper.getRowCountForIndex(table.getBaseIndexId(), true));
+        Assertions.assertEquals(3L, wrapper.getRowCountForPartitionIndex(partitionId, table.getBaseIndexId(), true));
+        // A partition the caller did not estimate answers with the rows of the wrapped table.
+        Assertions.assertEquals(42L,
+                wrapper.getRowCountForPartitionIndex(otherPartitionId, table.getBaseIndexId(), true));
+        // A wrapper without an estimate keeps the delegation #69850 introduced.
+        Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT, new OlapTableWrapper(table).getRowCountEstimate());
+    }
 }

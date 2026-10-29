@@ -38,6 +38,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -76,6 +77,30 @@ public class OlapTableStream extends BaseTableStream {
 
         public Long getHistoricalTso() {
             return historicalTso;
+        }
+    }
+
+    // Estimates are local to this FE metadata instance; image/replay never restores their validity.
+    private final transient Map<Long, org.apache.doris.catalog.stream.PartitionStreamState> rowCountStates =
+            new HashMap<>();
+
+    public org.apache.doris.catalog.stream.PartitionStreamState getPartitionStreamState(long partitionId) {
+        return rowCountStates.get(partitionId);
+    }
+
+    public void unprotectedRecordPartitionStreamStates(Collection<Long> partitionIds) {
+        OlapTable baseTable = getBaseTableNullable();
+        if (baseTable == null) {
+            return;
+        }
+        for (Long partitionId : partitionIds) {
+            Partition partition = baseTable.getPartition(partitionId);
+            if (partition != null) {
+                rowCountStates.put(partitionId, new org.apache.doris.catalog.stream.PartitionStreamState(
+                        baseTable.getRowCountForPartitionIndex(partitionId,
+                                baseTable.getChangelogIndexMeta().getIndexId(), false),
+                        baseTable.getRowCountForPartitionIndex(partitionId, baseTable.getBaseIndexId(), false)));
+            }
         }
     }
 
@@ -165,6 +190,7 @@ public class OlapTableStream extends BaseTableStream {
                     .forEach(p -> partitionStates.put(p.getId(),
                             new PartitionStreamState(null, -1, p.getTso())));
         }
+        unprotectedRecordPartitionStreamStates(baseTable.getPartitionIds());
     }
 
     public static OlapTableStream read(DataInput in) throws IOException {
@@ -322,6 +348,7 @@ public class OlapTableStream extends BaseTableStream {
         for (Map.Entry<Long, Long> entry : next.entrySet()) {
             partitionStates.put(entry.getKey(), new PartitionStreamState(entry.getValue(), ts, null));
         }
+        unprotectedRecordPartitionStreamStates(next.keySet());
     }
 
     Set<Long> unprotectedCollectStalePartitionOffsetIds(Set<Long> validPartitionIds) {
@@ -341,6 +368,7 @@ public class OlapTableStream extends BaseTableStream {
                 "unprotectedPrunePartitionOffsets must be called with write lock held");
         for (Long partitionId : partitionIds) {
             partitionStates.remove(partitionId);
+            rowCountStates.remove(partitionId);
         }
     }
 }
