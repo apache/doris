@@ -28,6 +28,7 @@
 #include "cloud/cloud_tablet.h"
 #include "common/status.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "storage/changelog.h"
 #include "storage/olap_common.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset.h"
@@ -351,6 +352,18 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
         return status;
     }
 
+    std::shared_ptr<const changelog::ResolvedChangelogLayout> changelog_layout;
+    if (attach_changelog.rowset != nullptr) {
+        if (attach_changelog.column_mappings == nullptr) {
+            return Status::InvalidArgument("cloud txn {} tablet {} misses changelog mappings",
+                                           transaction_id, _tablet_id);
+        }
+        RETURN_IF_ERROR(changelog::resolve_layout(
+                rowset->tablet_schema()->copy_without_variant_extracted_columns(),
+                attach_changelog.rowset->tablet_schema()->copy_without_variant_extracted_columns(),
+                *attach_changelog.column_mappings, &changelog_layout));
+    }
+
     rowset->set_version(Version(version, version));
     if (rowset->tablet_schema()->is_tso_enabled() && rowset->commit_tso().start_tso() == -1) {
         DORIS_CHECK_EQ(rowset->commit_tso().end_tso(), -1);
@@ -406,14 +419,15 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
 
         if (invisible_rowsets == nullptr) {
             status = CloudTablet::update_delete_bitmap(tablet, &txn_info, transaction_id,
-                                                       txn_expiration);
+                                                       txn_expiration, nullptr, changelog_layout);
         } else {
             txn_info.is_txn_load = true;
             txn_info.invisible_rowsets = *invisible_rowsets;
             txn_info.lock_id = _transaction_id;
             txn_info.next_visible_version = _version;
             status = CloudTablet::update_delete_bitmap(tablet, &txn_info, transaction_id,
-                                                       txn_expiration, tablet_delete_bitmap);
+                                                       txn_expiration, tablet_delete_bitmap,
+                                                       changelog_layout);
         }
     }
     if (status != Status::OK()) {

@@ -22,6 +22,9 @@
 
 namespace doris {
 struct RowsetWriterContext;
+namespace changelog {
+struct ResolvedChangelogLayout;
+}
 
 namespace segment_v2 {
 
@@ -37,7 +40,7 @@ bool changelog_needs_historical_lookup(const RowsetWriterContext& context);
 
 // Context for each flush that the base stage works out once and passes to
 // derive(): the changelog/source schemas, the consumed LSN range, row count, and
-// column layout [keys..., AFTER..., (BEFORE...), TSO, LSN, OP].
+// explicit source/target CID layout resolved when the writer was prepared.
 struct ChangelogDeriveContext {
     TabletSchemaSPtr changelog_schema;
     TabletSchemaSPtr source_schema;
@@ -46,10 +49,7 @@ struct ChangelogDeriveContext {
     uint32_t changelog_tso_cid = 0;
     uint32_t changelog_lsn_cid = 0;
     uint32_t changelog_op_cid = 0;
-    uint32_t normal_col_start = 0;
-    uint32_t before_col_start = 0;
-    std::vector<uint32_t> normal_source_cids;
-    std::vector<uint32_t> value_source_cids;
+    const changelog::ResolvedChangelogLayout* layout = nullptr;
     bool write_before = false;
 };
 

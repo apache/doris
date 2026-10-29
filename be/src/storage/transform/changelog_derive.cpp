@@ -20,6 +20,8 @@
 #include <algorithm>
 #include <optional>
 #include <span>
+#include <unordered_map>
+#include <unordered_set>
 
 #include "common/cast_set.h"
 #include "core/assert_cast.h"
@@ -27,6 +29,7 @@
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
+#include "gen_cpp/Descriptors_types.h"
 #include "storage/changelog.h"
 #include "storage/key/row_key_encoder.h"
 #include "storage/mow/historical_row_fetcher.h"
@@ -37,12 +40,198 @@
 #include "storage/transform/transform_util.h"
 #include "util/time.h"
 
+namespace doris::changelog {
+
+Status validate_mapping(const PChangelogWriteColumnMappings& mapping) {
+    if (!mapping.has_need_historical_value()) {
+        return Status::InvalidArgument("changelog mapping misses need_historical_value");
+    }
+    std::unordered_set<int32_t> source_uids;
+    std::unordered_set<int32_t> target_uids;
+    for (const auto& entry : mapping.entries()) {
+        if (!entry.has_source_column_unique_id() || !entry.has_current_column_unique_id()) {
+            return Status::InvalidArgument("changelog mapping misses source/current UID");
+        }
+        if (!source_uids.insert(entry.source_column_unique_id()).second ||
+            !target_uids.insert(entry.current_column_unique_id()).second) {
+            return Status::InvalidArgument("duplicate changelog source/current UID");
+        }
+        if (entry.has_before_column_unique_id() &&
+            (!mapping.need_historical_value() ||
+             !target_uids.insert(entry.before_column_unique_id()).second)) {
+            return Status::InvalidArgument("invalid or duplicate changelog before UID");
+        }
+    }
+    return Status::OK();
+}
+
+Status mapping_from_thrift(const TChangelogWriteColumnMappings& input,
+                           PChangelogWriteColumnMappings* output) {
+    if (!input.__isset.entries || !input.__isset.need_historical_value) {
+        return Status::InvalidArgument("changelog mapping misses entries/historical flag");
+    }
+    output->Clear();
+    output->set_need_historical_value(input.need_historical_value);
+    for (const auto& entry : input.entries) {
+        if (!entry.__isset.source_column_unique_id || !entry.__isset.current_column_unique_id) {
+            return Status::InvalidArgument("changelog mapping misses source/current UID");
+        }
+        auto* encoded = output->add_entries();
+        encoded->set_source_column_unique_id(entry.source_column_unique_id);
+        encoded->set_current_column_unique_id(entry.current_column_unique_id);
+        if (entry.__isset.before_column_unique_id) {
+            encoded->set_before_column_unique_id(entry.before_column_unique_id);
+        }
+    }
+    return validate_mapping(*output);
+}
+
+namespace {
+bool same_type_shape(const TabletColumn& source, const TabletColumn& target, bool top_level) {
+    if (source.type() != target.type() || source.length() != target.length() ||
+        source.get_subtype_count() != target.get_subtype_count() ||
+        (source.is_nullable() && !target.is_nullable()) ||
+        (!top_level && source.is_nullable() != target.is_nullable())) {
+        return false;
+    }
+    // INT columns built from PB and Thrift can carry different unused precision/scale
+    // defaults (-1 versus 0). Compare these attributes only for types that use them.
+    switch (source.type()) {
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL:
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL32:
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL64:
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL128I:
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL256:
+        if (source.precision() != target.precision() || source.frac() != target.frac()) {
+            return false;
+        }
+        break;
+    case FieldType::OLAP_FIELD_TYPE_DATETIMEV2:
+    case FieldType::OLAP_FIELD_TYPE_TIMEV2:
+    case FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ:
+        if (source.frac() != target.frac()) {
+            return false;
+        }
+        break;
+    default:
+        break;
+    }
+    for (uint32_t i = 0; i < source.get_subtype_count(); ++i) {
+        if (!same_type_shape(source.get_sub_column(i), target.get_sub_column(i), false)) {
+            return false;
+        }
+    }
+    return true;
+}
+} // namespace
+
+Status resolve_layout(const TabletSchemaSPtr& source, const TabletSchemaSPtr& target,
+                      const PChangelogWriteColumnMappings& mapping,
+                      std::shared_ptr<const ResolvedChangelogLayout>* result) {
+    RETURN_IF_ERROR(validate_mapping(mapping));
+    if (source == nullptr || target == nullptr) {
+        return Status::InvalidArgument("changelog layout requires source and target schemas");
+    }
+    auto layout = std::make_shared<ResolvedChangelogLayout>();
+    layout->source_schema = source;
+    layout->target_schema = target;
+    layout->need_historical_value = mapping.need_historical_value();
+    const int tso = target->changelog_tso_col_idx();
+    const int lsn = target->changelog_lsn_col_idx();
+    const int op = target->changelog_op_col_idx();
+    if (tso < 0 || lsn < 0 || op < 0) {
+        return Status::InvalidArgument("changelog schema misses its hidden columns");
+    }
+    layout->tso_cid = tso;
+    layout->lsn_cid = lsn;
+    layout->op_cid = op;
+    if (target->column(tso).type() != FieldType::OLAP_FIELD_TYPE_BIGINT ||
+        !target->column(tso).is_nullable() ||
+        target->column(lsn).type() != FieldType::OLAP_FIELD_TYPE_BIGINT ||
+        target->column(lsn).is_nullable() ||
+        target->column(op).type() != FieldType::OLAP_FIELD_TYPE_BIGINT) {
+        return Status::InvalidArgument("invalid changelog system column types");
+    }
+    std::unordered_map<int32_t, uint32_t> source_cids;
+    std::unordered_map<int32_t, uint32_t> target_cids;
+    for (uint32_t cid = 0; cid < source->num_columns(); ++cid) {
+        const auto& column = source->column(cid);
+        // Hidden non-key execution columns (delete sign, sequence, TSO) have
+        // no changelog image and are outside the mapping's source namespace.
+        if (!column.visible() && !column.is_key()) {
+            continue;
+        }
+        if (!source_cids.emplace(column.unique_id(), cid).second) {
+            return Status::InvalidArgument("duplicate source schema UID");
+        }
+    }
+    for (uint32_t cid = 0; cid < target->num_columns(); ++cid) {
+        if (!target_cids.emplace(target->column(cid).unique_id(), cid).second) {
+            return Status::InvalidArgument("duplicate changelog schema UID");
+        }
+    }
+    std::unordered_set<uint32_t> mapped_source;
+    std::unordered_set<uint32_t> mapped_target = {layout->tso_cid, layout->lsn_cid, layout->op_cid};
+    for (const auto& entry : mapping.entries()) {
+        auto src = source_cids.find(entry.source_column_unique_id());
+        auto dst = target_cids.find(entry.current_column_unique_id());
+        if (src == source_cids.end() || dst == target_cids.end()) {
+            return Status::InvalidArgument("unknown changelog source/current UID: {}/{}",
+                                           entry.source_column_unique_id(),
+                                           entry.current_column_unique_id());
+        }
+        const auto& source_col = source->column(src->second);
+        const auto& target_col = target->column(dst->second);
+        if ((!source_col.visible() && !source_col.is_key()) ||
+            source_col.is_key() != target_col.is_key() ||
+            !same_type_shape(source_col, target_col, !source_col.is_key()) ||
+            !mapped_target.insert(dst->second).second) {
+            return Status::InvalidArgument("invalid changelog current mapping for UID {}",
+                                           entry.source_column_unique_id());
+        }
+        mapped_source.insert(src->second);
+        layout->current_source_cids.push_back(src->second);
+        layout->current_target_cids.push_back(dst->second);
+        layout->current_nullable_widening.push_back(!source_col.is_nullable() &&
+                                                    target_col.is_nullable());
+        const bool needs_before = mapping.need_historical_value() && !source_col.is_key();
+        if (entry.has_before_column_unique_id() != needs_before) {
+            return Status::InvalidArgument("incomplete changelog before mapping for UID {}",
+                                           entry.source_column_unique_id());
+        }
+        if (needs_before) {
+            auto before = target_cids.find(entry.before_column_unique_id());
+            if (before == target_cids.end() || !mapped_target.insert(before->second).second) {
+                return Status::InvalidArgument("unknown or reused changelog before UID {}",
+                                               entry.before_column_unique_id());
+            }
+            const auto& before_col = target->column(before->second);
+            if (before_col.is_key() || !before_col.is_nullable() ||
+                !same_type_shape(source_col, before_col, true)) {
+                return Status::InvalidArgument("invalid changelog before type for UID {}",
+                                               entry.before_column_unique_id());
+            }
+            layout->before_source_cids.push_back(src->second);
+            layout->before_target_cids.push_back(before->second);
+        }
+    }
+    for (uint32_t cid = 0; cid < source->num_columns(); ++cid) {
+        const auto& col = source->column(cid);
+        if ((col.visible() || col.is_key()) && !mapped_source.contains(cid)) {
+            return Status::InvalidArgument("unmapped changelog source UID {}", col.unique_id());
+        }
+    }
+    if (mapped_target.size() != target->num_columns()) {
+        return Status::InvalidArgument("unmapped changelog target columns");
+    }
+    *result = std::move(layout);
+    return Status::OK();
+}
+} // namespace doris::changelog
+
 namespace doris::segment_v2 {
 
 namespace {
-
-// Number of changelog system columns: TSO, LSN, op.
-constexpr uint32_t CHANGELOG_COLNUM = 3;
 
 // Runs the primary-key historical lookup over `block`'s source key (+seq)
 // columns, leaving the planned reads and the op for each row in `retriever` for
@@ -84,16 +273,12 @@ Status setup_retriever_and_lookup(TransformExecContext& ctx,
 // reads. No-op when the source schema has no value columns. The retriever is
 // not const: reading BEFORE also loads the old delete signs it keeps.
 Status fill_before_columns(Block& out, const TabletSchema& changelog_schema,
-                           PrimaryKeyModelRowRetriever* retriever, uint32_t before_col_start,
+                           PrimaryKeyModelRowRetriever* retriever,
+                           const std::vector<uint32_t>& before_cids,
                            const std::vector<uint32_t>& value_source_cids, size_t num_rows) {
     size_t value_column_num = value_source_cids.size();
     if (value_column_num == 0) {
         return Status::OK();
-    }
-    std::vector<uint32_t> before_cids;
-    for (uint32_t cid = before_col_start;
-         cid < before_col_start + cast_set<uint32_t>(value_column_num); ++cid) {
-        before_cids.emplace_back(cid);
     }
     Block before_block = changelog_schema.create_storage_block(before_cids);
     DCHECK(retriever != nullptr);
@@ -161,8 +346,7 @@ void fill_changelog_system_columns(Block& out, const TabletSchema& changelog_sch
     }
 }
 
-// Shared setup step: work out the changelog schema layout and consume this
-// segment's LSN range (exactly once).
+// Borrow the prepared layout and consume this segment's LSN range exactly once.
 Status resolve_changelog_context(TransformExecContext& ctx, const Block* block,
                                  ChangelogDeriveContext* c) {
     c->changelog_schema = ctx.tablet_schema;
@@ -178,6 +362,9 @@ Status resolve_changelog_context(TransformExecContext& ctx, const Block* block,
                 "changelog derive needs the source tablet to look history up, tablet_id={}",
                 ctx.rowset_ctx->tablet_id);
     }
+    if (cfg.layout == nullptr) {
+        return Status::InvalidArgument("changelog derive requires a resolved column mapping");
+    }
     c->num_rows = block->rows();
 
     // the LSN range for each row was registered per segment id before this
@@ -190,52 +377,13 @@ Status resolve_changelog_context(TransformExecContext& ctx, const Block* block,
     ctx.rowset_ctx->remove_segment_allocated_lsns(ctx.segment_id);
     CHECK(c->lsn_ids->size() >= c->num_rows) << c->lsn_ids->size() << " vs " << c->num_rows;
 
-    // Preserve the source writer's layout: system columns may be a prefix or
-    // suffix, and source hidden non-key columns are omitted while hidden keys
-    // remain part of the normal row image.
-    int tso_col_id = c->changelog_schema->changelog_tso_col_idx();
-    int lsn_col_id = c->changelog_schema->changelog_lsn_col_idx();
-    int op_col_id = c->changelog_schema->changelog_op_col_idx();
-    // The three positions are derived from the column names, so a schema whose hidden columns
-    // carry other names has none of them. Example: a load into a changelog tablet created by a
-    // build that named them differently. Fail that load instead of aborting the BE.
-    if (tso_col_id < 0 || lsn_col_id < 0 || op_col_id < 0) {
-        return Status::InternalError<false>(
-                "changelog schema misses its hidden columns: {}={}, {}={}, {}={}, tablet_id={}",
-                CHANGELOG_TSO_COL, tso_col_id, CHANGELOG_LSN_COL, lsn_col_id, CHANGELOG_OP_COL,
-                op_col_id, ctx.rowset_ctx->tablet_id);
-    }
-    c->changelog_tso_cid = cast_set<uint32_t>(tso_col_id);
-    c->changelog_lsn_cid = cast_set<uint32_t>(lsn_col_id);
-    c->changelog_op_cid = cast_set<uint32_t>(op_col_id);
-    c->normal_col_start = tso_col_id == 0 ? CHANGELOG_COLNUM : 0;
-    for (uint32_t cid = 0; cid < c->source_schema->num_columns(); ++cid) {
-        const auto& column = c->source_schema->column(cid);
-        if (column.visible() || column.is_key()) {
-            c->normal_source_cids.emplace_back(cid);
-        }
-        if (column.visible() && !column.is_key()) {
-            c->value_source_cids.emplace_back(cid);
-        }
-    }
-    c->before_col_start = c->normal_col_start + cast_set<uint32_t>(c->normal_source_cids.size());
-    c->write_before = cfg.write_before;
-    // The schema must carry exactly the BEFORE columns this flush fills: one per
-    // source value column when write_before is on, none otherwise. Too few and
-    // the BEFORE fill would write over the TSO/LSN columns; too many and those
-    // columns would stay empty in an otherwise full block, leaving the writer a
-    // block whose columns hold different row counts.
-    const size_t expected_before_columns = c->write_before ? c->value_source_cids.size() : 0;
-    const size_t expected_columns =
-            c->normal_source_cids.size() + expected_before_columns + CHANGELOG_COLNUM;
-    if (c->changelog_schema->num_columns() != expected_columns) {
-        return Status::InternalError<false>(
-                "changelog schema does not match the derived block: num_columns={}, expected={} "
-                "(normal={}, before={}, system={}), write_before={}, tablet_id={}",
-                c->changelog_schema->num_columns(), expected_columns, c->normal_source_cids.size(),
-                expected_before_columns, CHANGELOG_COLNUM, c->write_before,
-                ctx.rowset_ctx->tablet_id);
-    }
+    c->layout = cfg.layout.get();
+    c->changelog_schema = c->layout->target_schema;
+    c->source_schema = c->layout->source_schema;
+    c->changelog_tso_cid = c->layout->tso_cid;
+    c->changelog_lsn_cid = c->layout->lsn_cid;
+    c->changelog_op_cid = c->layout->op_cid;
+    c->write_before = c->layout->need_historical_value;
     return Status::OK();
 }
 
@@ -268,21 +416,22 @@ Status emit_changelog_block(const ChangelogDeriveContext& c, const Block* after_
                 c.changelog_schema->num_columns());
     }
     // key + AFTER columns: COW pointers of the source-layout visible columns
-    for (size_t ordinal = 0; ordinal < c.normal_source_cids.size(); ++ordinal) {
-        const uint32_t source_cid = c.normal_source_cids[ordinal];
+    for (size_t ordinal = 0; ordinal < c.layout->current_source_cids.size(); ++ordinal) {
+        const uint32_t source_cid = c.layout->current_source_cids[ordinal];
         ColumnPtr after_column = after_src->get_by_position(source_cid).column;
         // The changelog schema declares every AFTER value column nullable and `out` keeps that
         // type when a column is replaced, so a NOT NULL source column is wrapped to match it; a
         // nullable ARRAY, MAP or STRUCT writer would refuse it otherwise. Keys keep their own
         // nullability.
-        if (!c.source_schema->column(source_cid).is_key()) {
+        if (c.layout->current_nullable_widening[ordinal]) {
             after_column = make_nullable(after_column);
         }
-        out.replace_by_position(c.normal_col_start + ordinal, std::move(after_column));
+        out.replace_by_position(c.layout->current_target_cids[ordinal], std::move(after_column));
     }
     if (c.write_before) {
-        RETURN_IF_ERROR(fill_before_columns(out, *c.changelog_schema, retriever, c.before_col_start,
-                                            c.value_source_cids, c.num_rows));
+        RETURN_IF_ERROR(fill_before_columns(out, *c.changelog_schema, retriever,
+                                            c.layout->before_target_cids,
+                                            c.layout->before_source_cids, c.num_rows));
     }
     // An insert whose old row is a tombstone is an append, not an update. Run
     // this after the BEFORE read, which already loaded the old delete signs.
@@ -310,7 +459,7 @@ bool changelog_needs_historical_lookup(const RowsetWriterContext& context) {
     const bool is_partial_update = cfg.source.partial_update_info != nullptr &&
                                    cfg.source.partial_update_info->is_partial_update() &&
                                    is_source_direct_write;
-    return is_partial_update || cfg.write_before;
+    return is_partial_update || (cfg.layout != nullptr && cfg.layout->need_historical_value);
 }
 
 Status ChangelogDeriveStage::apply(TransformExecContext& ctx, Block* block) const {

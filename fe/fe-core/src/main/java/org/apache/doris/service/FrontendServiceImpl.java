@@ -336,6 +336,8 @@ import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
 import org.apache.doris.transaction.TransactionStatus;
 import org.apache.doris.transaction.TxnCommitAttachment;
+import org.apache.doris.transaction.TxnWriteSchemaSnapshot;
+import org.apache.doris.transaction.TxnWriteSchemaSnapshotCodec;
 import org.apache.doris.transaction.WriteBlockAllocatingTransaction;
 
 import com.google.common.base.Joiner;
@@ -1527,10 +1529,21 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isSetToken()) {
             txnCoord.isFromInternal = true;
         }
-        long txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
-                db.getId(), Lists.newArrayList(table.getId()), request.getLabel(), request.getRequestId(),
-                txnCoord,
-                TransactionState.LoadJobSourceType.BACKEND_STREAMING, -1, timeoutSecond);
+        long txnId;
+        if (request.isSetTxnInsertSchemaVersions()) {
+            if (!request.isSetTableId() || request.getTableId() != table.getId()) {
+                throw new AnalysisException("Target table changed before transaction begin");
+            }
+            org.apache.doris.alter.ChangelogColumnIdPreparer.ensureReady(db, table);
+            txnId = Env.getCurrentGlobalTransactionMgr().beginTransactionForValues(
+                    db.getId(), table.getId(), request.getLabel(), request.getRequestId(), txnCoord,
+                    TransactionState.LoadJobSourceType.BACKEND_STREAMING, timeoutSecond,
+                    request.getTxnInsertSchemaVersions());
+        } else {
+            txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
+                    db.getId(), Lists.newArrayList(table.getId()), request.getLabel(), request.getRequestId(),
+                    txnCoord, TransactionState.LoadJobSourceType.BACKEND_STREAMING, -1, timeoutSecond);
+        }
         TLoadTxnBeginResult result = new TLoadTxnBeginResult();
         result.setTxnId(txnId).setDbId(db.getId());
         return result;
@@ -2364,8 +2377,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     private long beginRemoteTxnImpl(TBeginRemoteTxnRequest request)
-            throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException, DuplicatedRequestException,
-            QuotaExceedException, MetaNotFoundException {
+            throws UserException {
 
         String fullDbName = request.getDb();
         Database db = Env.getCurrentInternalCatalog().getDbNullable(fullDbName);
@@ -2377,6 +2389,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         TableIf tableIf = db.getTableOrMetaException(request.getTbl(), TableType.OLAP);
         OlapTable table = (OlapTable) tableIf;
+        org.apache.doris.alter.ChangelogColumnIdPreparer.ensureReady(db, table);
 
         long timeoutMs = request.getTimeoutMs();
         long timeoutSecond = timeoutMs > 0 ? TimeUnit.MILLISECONDS.toSeconds(timeoutMs)
@@ -2438,6 +2451,30 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         TableIf tableIf = db.getTableOrMetaException(request.getTbl(), TableType.OLAP);
         OlapTable table = (OlapTable) tableIf;
+        // Ordinary tables accept legacy remote commits without a write schema.
+        // An explicitly supplied snapshot is always validated.
+        if (request.isSetWriteSchemas() || table.hasChangelog()) {
+            try {
+                if (!request.isSetWriteSchemas() || request.getWriteSchemasSize() != 1) {
+                    throw new UserException("Remote commit requires exactly one prepared table schema");
+                }
+                TxnWriteSchemaSnapshot snapshot = TxnWriteSchemaSnapshotCodec.fromThrift(
+                        request.getWriteSchemas().get(0), table.getId(), table.getBaseIndexId());
+                if (!Config.isCloudMode()) {
+                    TransactionState state = Env.getCurrentGlobalTransactionMgr().getTransactionState(
+                            db.getId(), request.getTxnId());
+                    if (state == null) {
+                        throw new UserException("Missing remote transaction " + request.getTxnId());
+                    }
+                    if (!state.getTableIdList().contains(table.getId())) {
+                        throw new UserException("Remote transaction does not include the target table");
+                    }
+                    state.installRemoteWriteSchemas(Collections.singletonList(snapshot));
+                }
+            } catch (IllegalArgumentException | IllegalStateException e) {
+                throw new UserException("Invalid remote write schema: " + e.getMessage(), e);
+            }
+        }
         return Env.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
                 db, Lists.newArrayList(table),
                 request.getTxnId(),

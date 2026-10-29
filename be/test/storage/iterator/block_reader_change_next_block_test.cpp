@@ -354,12 +354,13 @@ ReadSchemaSPtr make_read_schema(const std::vector<std::string>& names = {
 // Wire a BlockReader as if init() had already completed for a changelog change
 // scan over the fixed 6-column schema, then plug in the fake merge iterator.
 void configure_reader(BlockReader& reader, std::shared_ptr<Block> source, size_t batch_size,
-                      TabletSchemaSPtr schema = make_test_tablet_schema()) {
+                      TabletSchemaSPtr schema = make_test_tablet_schema(),
+                      ReadSchema::ChangelogValueColumnPairs pairs = {{1, 2}}) {
     config::enable_adaptive_batch_size = false;
     reader._reader_context.batch_size = batch_size;
 
-    // The physical tablet schema supplies stable unique ids for AFTER/BEFORE pairing. The fake
-    // source block supplies the materialized types used by this read schema.
+    // The fixture supplies explicit pairs as Scanner does. The fake source block supplies
+    // materialized types, independently of the names stored in the tablet schema.
     reader._tablet_schema = std::move(schema);
     ASSERT_EQ(reader._tablet_schema->num_columns(), source->columns());
     std::vector<DataTypePtr> read_types;
@@ -371,9 +372,9 @@ void configure_reader(BlockReader& reader, std::shared_ptr<Block> source, size_t
             std::make_shared<ReadSchema>(reader._tablet_schema->columns(), std::move(read_types));
     EXPECT_TRUE(read_schema
                         ->init_from_tablet_schema(*reader._tablet_schema,
-                                                  /*merge_by_sequence_mapping=*/false,
-                                                  /*map_changelog_columns=*/true)
+                                                  /*merge_by_sequence_mapping=*/false)
                         .ok());
+    ASSERT_TRUE(read_schema->init_changelog_column_mappings(*reader._tablet_schema, pairs).ok());
     reader._read_schema = std::move(read_schema);
 
     reader._next_row.block = source;
@@ -457,6 +458,7 @@ protected:
 TEST_F(BlockReaderChangeNextBlockTest, ChangelogSchemaWithoutBeforeUsesCurrentColumn) {
     auto read_schema = make_read_schema({"key", "val", CHANGELOG_TSO_COL, CHANGELOG_OP_COL});
 
+    ASSERT_TRUE(read_schema->init_changelog_column_mappings({}, 2, -1, 3).ok());
     EXPECT_EQ(VAL_IDX, read_schema->before_column_ordinal(VAL_IDX));
 }
 
@@ -464,6 +466,7 @@ TEST_F(BlockReaderChangeNextBlockTest, ChangelogSchemaDoesNotRequireLsn) {
     auto read_schema = make_read_schema({"key", "val", changelog::build_before_column_name("val"),
                                          CHANGELOG_TSO_COL, CHANGELOG_OP_COL});
 
+    ASSERT_TRUE(read_schema->init_changelog_column_mappings({{1, 2}}, 3, -1, 4).ok());
     EXPECT_EQ(-1, read_schema->lsn_ordinal());
     EXPECT_EQ(2, read_schema->before_column_ordinal(VAL_IDX));
 }
@@ -580,7 +583,7 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaNoOpWithCollidingBeforeNameIsSkip
             {{"v", FieldType::OLAP_FIELD_TYPE_BIGINT},
              {changelog::build_before_column_name("v"), FieldType::OLAP_FIELD_TYPE_BIGINT}});
     BlockReader reader;
-    configure_reader(reader, source, 16, std::move(schema));
+    configure_reader(reader, source, 16, std::move(schema), {{1, 3}, {2, 4}});
 
     bool eof = false;
     Block output = source->clone_empty();
@@ -823,7 +826,8 @@ void configure_two_value_reader(BlockReader& reader, std::shared_ptr<Block> sour
                                 size_t batch_size = 16) {
     configure_reader(reader, source, batch_size,
                      make_test_tablet_schema({{"val", FieldType::OLAP_FIELD_TYPE_BIGINT},
-                                              {"val2", FieldType::OLAP_FIELD_TYPE_BIGINT}}));
+                                              {"val2", FieldType::OLAP_FIELD_TYPE_BIGINT}}),
+                     {{1, 3}, {2, 4}});
 }
 
 TEST_F(BlockReaderChangeNextBlockTest, MinDeltaNoOpUpdateComparesAllValueColumns) {
@@ -993,7 +997,7 @@ TEST_F(BlockReaderChangeNextBlockTest, DetailUsesOrdinalBeforePairWhenNamesColli
             {{"v", FieldType::OLAP_FIELD_TYPE_BIGINT},
              {changelog::build_before_column_name("v"), FieldType::OLAP_FIELD_TYPE_BIGINT}});
     BlockReader reader;
-    configure_reader(reader, source, 16, std::move(schema));
+    configure_reader(reader, source, 16, std::move(schema), {{1, 3}, {2, 4}});
 
     bool eof = false;
     Block output = source->clone_empty();

@@ -401,7 +401,7 @@ protected:
                                             ColumnId hidden_column_id) {
         auto read_schema = std::make_shared<ReadSchema>(project_columns_by_ordinal(
                 tablet_schema->columns(), std::vector<ColumnId> {0, hidden_column_id}));
-        EXPECT_TRUE(read_schema->init_from_tablet_schema(*tablet_schema, false, false).ok());
+        EXPECT_TRUE(read_schema->init_from_tablet_schema(*tablet_schema, false).ok());
         RowsetReaderContext reader_context;
         reader_context.read_schema = read_schema;
         RowsetReaderSharedPtr reader;
@@ -589,8 +589,7 @@ TEST_F(OrderedDataCompactionTest, test_01) {
     reader_context.read_schema = read_schema;
     EXPECT_TRUE(read_schema
                         ->init_from_tablet_schema(*tablet_schema,
-                                                  /*merge_by_sequence_mapping=*/false,
-                                                  /*map_changelog_columns=*/false)
+                                                  /*merge_by_sequence_mapping=*/false)
                         .ok());
     RowsetReaderSharedPtr output_rs_reader;
     LOG(INFO) << "create rowset reader in test";

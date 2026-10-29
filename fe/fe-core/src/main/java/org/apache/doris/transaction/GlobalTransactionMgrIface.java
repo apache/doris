@@ -187,6 +187,29 @@ public interface GlobalTransactionMgrIface extends Writable {
 
     public TransactionState getTransactionState(long dbId, long transactionId);
 
+    default void registerWriteSchema(long dbId, long writeTxnId, TxnWriteSchemaSnapshot snapshot)
+            throws UserException {
+        TransactionState state = getTransactionState(dbId, writeTxnId);
+        if (state == null) {
+            throw new UserException("Cannot register write schema for missing transaction " + writeTxnId);
+        }
+        try {
+            state.registerWriteSchema(writeTxnId, snapshot);
+        } catch (IllegalStateException | IllegalArgumentException e) {
+            throw new UserException(e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Begin a VALUES transaction with a master-owned write snapshot.
+     * Callers must prepare changelog column identities before acquiring catalog locks.
+     */
+    default long beginTransactionForValues(long dbId, long tableId, String label, TUniqueId requestId,
+            TxnCoordinator coordinator, LoadJobSourceType sourceType, long timeoutSecond,
+            Map<Long, Integer> schemaVersions) throws UserException {
+        throw new UserException("Master-owned VALUES preparation requires shared-nothing transactions");
+    }
+
     public Long getTransactionIdByLabel(Long dbId, String label, List<TransactionStatus> statusList)
             throws UserException;
 

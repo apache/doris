@@ -199,15 +199,8 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
             if (state == null) {
                 throw new AnalysisException("txn does not exist: " + txnId);
             }
-            addTableIndexes(state);
-            if (physicalOlapTableSink.isPartialUpdate()) {
-                state.setSchemaForPartialUpdate((OlapTable) table);
-            }
+            state.registerWriteSchema(txnId, olapTableSink.getWriteSchemaSnapshot());
         }
-    }
-
-    protected void addTableIndexes(TransactionState state) {
-        state.addTableIndexes((OlapTable) table);
     }
 
     protected void abortTransactionOnFail() throws Exception {

@@ -20,7 +20,9 @@ package org.apache.doris.task;
 import org.apache.doris.thrift.TPartitionVersionInfo;
 import org.apache.doris.thrift.TPublishVersionRequest;
 import org.apache.doris.thrift.TTaskType;
+import org.apache.doris.transaction.ChangelogWriteMapping;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import lombok.Getter;
@@ -30,11 +32,46 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 public class PublishVersionTask extends AgentTask {
     private static final Logger LOG = LogManager.getLogger(PublishVersionTask.class);
 
+    /** Partition and immutable write snapshot captured together while processing a tablet report. */
+    public static final class RepublishInfo {
+        private final TPartitionVersionInfo partitionVersionInfo;
+        private final Map<Long, ChangelogWriteMapping> mappings;
+
+        public RepublishInfo(TPartitionVersionInfo partitionVersionInfo, Map<Long, ChangelogWriteMapping> mappings) {
+            this.partitionVersionInfo = partitionVersionInfo.deepCopy();
+            this.mappings = ImmutableMap.copyOf(mappings);
+        }
+
+        public TPartitionVersionInfo getPartitionVersionInfo() {
+            return partitionVersionInfo.deepCopy();
+        }
+
+        public Map<Long, ChangelogWriteMapping> getMappings() {
+            return mappings;
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            if (!(other instanceof RepublishInfo)) {
+                return false;
+            }
+            RepublishInfo info = (RepublishInfo) other;
+            return partitionVersionInfo.equals(info.partitionVersionInfo) && mappings.equals(info.mappings);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(partitionVersionInfo, mappings);
+        }
+    }
+
+    private Map<Long, ChangelogWriteMapping> changelogWriteMappings = ImmutableMap.of();
     private long transactionId;
     @Getter
     private List<TPartitionVersionInfo> partitionVersionInfos;
@@ -69,7 +106,12 @@ public class PublishVersionTask extends AgentTask {
         TPublishVersionRequest publishVersionRequest = new TPublishVersionRequest(transactionId,
                 partitionVersionInfos);
         publishVersionRequest.setBaseTabletIds(baseTabletsIds);
+        publishVersionRequest.setChangelogColumnMappings(ChangelogWriteMapping.toThrift(changelogWriteMappings));
         return publishVersionRequest;
+    }
+
+    public void setChangelogWriteMappings(Map<Long, ChangelogWriteMapping> mappings) {
+        changelogWriteMappings = ImmutableMap.copyOf(mappings);
     }
 
     public void setBaseTabletsIds(Set<Long> rollupTabletIds) {

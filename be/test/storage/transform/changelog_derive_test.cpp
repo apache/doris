@@ -334,6 +334,7 @@ TEST_F(ChangelogDeriveTest, PlainAppendAndDeleteWithAfterAndLsn) {
     cfg.write_before = false; // no PU, no BEFORE -> plain derive
     register_segment_lsns(rwc, 2);
 
+    ASSERT_TRUE(testutil::resolve_test_changelog_layout(rwc).ok());
     auto chain = build_transform_chain(rwc);
     EXPECT_EQ(chain.stage_names(), (std::vector<std::string_view> {"PlainChangelogDerive"}));
 
@@ -402,6 +403,7 @@ TEST_F(ChangelogDeriveTest, PlainNoDeleteSignColumnAllAppend) {
     cfg.write_before = false;
     register_segment_lsns(rwc, 2);
 
+    ASSERT_TRUE(testutil::resolve_test_changelog_layout(rwc).ok());
     auto chain = build_transform_chain(rwc);
     EXPECT_EQ(chain.stage_names(), (std::vector<std::string_view> {"PlainChangelogDerive"}));
 
@@ -503,6 +505,7 @@ TEST_F(ChangelogDeriveTest, PlainMapsHiddenKeysAndSkipsHiddenNonKeys) {
         }
     }
 
+    ASSERT_TRUE(testutil::resolve_test_changelog_layout(rwc).ok());
     auto chain = build_transform_chain(rwc);
     TransformExecContext ctx = exec_ctx(changelog_schema, &rwc);
     ASSERT_TRUE(chain.apply(ctx, &block).ok());
@@ -580,6 +583,7 @@ TEST_F(ChangelogDeriveTest, MowUpdateAndAppendTakesHistoryV2) {
     cfg.write_before = false;
     register_segment_lsns(rwc, 2);
 
+    ASSERT_TRUE(testutil::resolve_test_changelog_layout(rwc).ok());
     auto chain = build_transform_chain(rwc);
     EXPECT_EQ(chain.stage_names(), (std::vector<std::string_view> {"MowChangelogDerive"}));
 
@@ -720,6 +724,7 @@ TEST_F(ChangelogDeriveTest, MowHiddenKeyColumnIsPartOfTheProbeKey) {
     cfg.write_before = false;
     register_segment_lsns(rwc, 1);
 
+    ASSERT_TRUE(testutil::resolve_test_changelog_layout(rwc).ok());
     auto chain = build_transform_chain(rwc);
     TransformExecContext ctx = exec_ctx(changelog_schema, &rwc);
     ctx.tablet = probe_tablet;
@@ -799,6 +804,7 @@ TEST_F(ChangelogDeriveTest, MowPartialUpdateWithBeforeImage) {
     cfg.write_before = true;
     register_segment_lsns(rwc, 2);
 
+    ASSERT_TRUE(testutil::resolve_test_changelog_layout(rwc).ok());
     auto chain = build_transform_chain(rwc);
     EXPECT_EQ(chain.stage_names(), (std::vector<std::string_view> {"MowChangelogDerive"}));
 
@@ -895,6 +901,7 @@ TEST_F(ChangelogDeriveTest, MowInsertAfterDeletedHistoryRowIsAppend) {
     cfg.write_before = false;
     register_segment_lsns(rwc, 2);
 
+    ASSERT_TRUE(testutil::resolve_test_changelog_layout(rwc).ok());
     auto chain = build_transform_chain(rwc);
     TransformExecContext ctx = exec_ctx(changelog_schema, &rwc);
     ctx.tablet = probe_tablet;
@@ -982,6 +989,7 @@ TEST_F(ChangelogDeriveTest, MowLooksUpHistoryInBaseTabletNotChangelogTablet) {
     cfg.write_before = false;
     register_segment_lsns(rwc, 1);
 
+    ASSERT_TRUE(testutil::resolve_test_changelog_layout(rwc).ok());
     auto chain = build_transform_chain(rwc);
     TransformExecContext ctx = exec_ctx(changelog_schema, &rwc);
     ctx.tablet = changelog_tablet; // NOT the tablet holding the history
@@ -1058,6 +1066,7 @@ TEST_F(ChangelogDeriveTest, MowDeleteExistingAndNewKey) {
     cfg.write_before = false;
     register_segment_lsns(rwc, 2);
 
+    ASSERT_TRUE(testutil::resolve_test_changelog_layout(rwc).ok());
     auto chain = build_transform_chain(rwc);
     EXPECT_EQ(chain.stage_names(), (std::vector<std::string_view> {"MowChangelogDerive"}));
 
@@ -1153,6 +1162,7 @@ TEST_F(ChangelogDeriveTest, MowBeforeImageMirrorsHistory) {
                         .ok());
     cfg.source.partial_update_info = pui;
 
+    ASSERT_TRUE(testutil::resolve_test_changelog_layout(rwc).ok());
     auto chain = build_transform_chain(rwc); // write_before -> MoW derive
     EXPECT_EQ(chain.stage_names(), (std::vector<std::string_view> {"MowChangelogDerive"}));
 
@@ -1265,6 +1275,7 @@ TEST_F(ChangelogDeriveTest, MowBeforeNoopZeroValueColumns) {
     cfg.write_before = true;
     register_segment_lsns(rwc, 2);
 
+    ASSERT_TRUE(testutil::resolve_test_changelog_layout(rwc).ok());
     auto chain = build_transform_chain(rwc);
     EXPECT_EQ(chain.stage_names(), (std::vector<std::string_view> {"MowChangelogDerive"}));
 
@@ -1354,6 +1365,7 @@ TEST_F(ChangelogDeriveTest, MowSeqSourceSeqLosesStillReadsHistory) {
     cfg.write_before = false;
     register_segment_lsns(rwc, 2);
 
+    ASSERT_TRUE(testutil::resolve_test_changelog_layout(rwc).ok());
     auto chain = build_transform_chain(rwc);
     EXPECT_EQ(chain.stage_names(), (std::vector<std::string_view> {"MowChangelogDerive"}));
 
@@ -1438,6 +1450,7 @@ TEST_F(ChangelogDeriveTest, MowMaterializesFlexiblePartialUpdate) {
     cfg.write_before = false;
     register_segment_lsns(rwc, 1);
 
+    ASSERT_TRUE(testutil::resolve_test_changelog_layout(rwc).ok());
     auto chain = build_transform_chain(rwc);
     EXPECT_EQ(chain.stage_names(), (std::vector<std::string_view> {"MowChangelogDerive"}));
 
@@ -1502,6 +1515,7 @@ TEST_F(ChangelogDeriveTest, MowFixedPartialUpdateRejectsBadWidth) {
     cfg.source.mow_context = mow;
     cfg.write_before = false;
 
+    ASSERT_TRUE(testutil::resolve_test_changelog_layout(rwc).ok());
     auto chain = build_transform_chain(rwc);
     EXPECT_EQ(chain.stage_names(), (std::vector<std::string_view> {"MowChangelogDerive"}));
 
@@ -1595,6 +1609,7 @@ TEST_F(ChangelogDeriveTest, RejectsNegativeSegmentId) {
     cfg.write_before = false;
     register_segment_lsns(rwc, 1);
 
+    ASSERT_TRUE(testutil::resolve_test_changelog_layout(rwc).ok());
     auto chain = build_transform_chain(rwc);
     EXPECT_EQ(chain.stage_names(), (std::vector<std::string_view> {"PlainChangelogDerive"}));
 
@@ -1634,18 +1649,7 @@ TEST_F(ChangelogDeriveTest, RejectsSchemaAndWriteBeforeDisagreement) {
     cfg.write_before = true; // the schema has no BEFORE columns
     register_segment_lsns(rwc, 1);
 
-    auto chain = build_transform_chain(rwc);
-    TransformExecContext ctx = exec_ctx(changelog_schema, &rwc);
-    ctx.tablet = tablets.changelog;
-    ctx.mow_context = cfg.source.mow_context;
-
-    Block block = source_schema->create_storage_block();
-    for (size_t cid = 0; cid < source_schema->num_columns(); ++cid) {
-        block.get_by_position(cid).column->assert_mutable()->insert_default();
-    }
-    auto st = chain.apply(ctx, &block);
-    EXPECT_FALSE(st.ok());
-    EXPECT_NE(st.to_string().find("does not match the derived block"), std::string::npos) << st;
+    EXPECT_FALSE(testutil::resolve_test_changelog_layout(rwc).ok());
 }
 
 // The TSO/LSN/OP positions come from the column names. A changelog schema whose
@@ -1680,19 +1684,172 @@ TEST_F(ChangelogDeriveTest, RejectsSchemaWithoutHiddenColumns) {
     cfg.write_before = false;
     register_segment_lsns(rwc, 1);
 
-    auto chain = build_transform_chain(rwc);
-    EXPECT_EQ(chain.stage_names(), (std::vector<std::string_view> {"PlainChangelogDerive"}));
-
-    TransformExecContext ctx = exec_ctx(changelog_schema, &rwc);
-    ctx.tablet = tablets.changelog;
-
-    Block block = source_schema->create_storage_block();
-    for (size_t cid = 0; cid < source_schema->num_columns(); ++cid) {
-        block.get_by_position(cid).column->assert_mutable()->insert_default();
-    }
-    auto st = chain.apply(ctx, &block);
+    auto st = testutil::resolve_test_changelog_layout(rwc);
     EXPECT_FALSE(st.ok());
     EXPECT_NE(st.to_string().find("misses its hidden columns"), std::string::npos) << st;
+}
+
+// The wire mapping is independent of both names and target physical order.
+TEST_F(ChangelogDeriveTest, ResolveExplicitInterleavedMapping) {
+    auto source = create_changelog_pu_source_schema();
+    auto target = create_changelog_before_schema();
+    PChangelogWriteColumnMappings mapping;
+    mapping.set_need_historical_value(true);
+    for (int cid = 0; cid < 3; ++cid) {
+        auto* entry = mapping.add_entries();
+        entry->set_source_column_unique_id(source->column(cid).unique_id());
+        entry->set_current_column_unique_id(target->column(cid).unique_id());
+        if (cid > 0) {
+            entry->set_before_column_unique_id(target->column(cid + 2).unique_id());
+        }
+    }
+    TabletSchemaPB target_pb;
+    target->to_schema_pb(&target_pb);
+    target_pb.mutable_column()->SwapElements(1, 4);
+    auto reordered = std::make_shared<TabletSchema>();
+    reordered->init_from_pb(target_pb);
+    std::shared_ptr<const changelog::ResolvedChangelogLayout> layout;
+    ASSERT_TRUE(changelog::resolve_layout(source, reordered, mapping, &layout).ok());
+    EXPECT_EQ(layout->current_target_cids, (std::vector<uint32_t> {0, 4, 2}));
+    EXPECT_EQ(layout->before_target_cids, (std::vector<uint32_t> {3, 1}));
+    EXPECT_TRUE(layout->need_historical_value);
+    auto invalid = mapping;
+    invalid.mutable_entries(1)->set_current_column_unique_id(99999);
+    EXPECT_FALSE(changelog::resolve_layout(source, reordered, invalid, &layout).ok());
+    invalid = mapping;
+    invalid.mutable_entries(1)->set_current_column_unique_id(
+            invalid.entries(0).current_column_unique_id());
+    EXPECT_FALSE(changelog::resolve_layout(source, reordered, invalid, &layout).ok());
+    invalid = mapping;
+    invalid.mutable_entries(0)->clear_source_column_unique_id();
+    EXPECT_FALSE(changelog::resolve_layout(source, reordered, invalid, &layout).ok());
+    invalid = mapping;
+    invalid.set_need_historical_value(false);
+    EXPECT_FALSE(changelog::resolve_layout(source, reordered, invalid, &layout).ok());
+    invalid = mapping;
+    invalid.clear_need_historical_value();
+    EXPECT_FALSE(changelog::resolve_layout(source, reordered, invalid, &layout).ok());
+}
+
+TEST_F(ChangelogDeriveTest, ResolveRejectsShapeAndNullableNarrowing) {
+    auto source = create_changelog_pu_source_schema();
+    auto target = create_changelog_before_schema();
+    auto mapping = testutil::create_changelog_mapping(*source, *target, true);
+    TabletSchemaPB pb;
+    target->to_schema_pb(&pb);
+    pb.mutable_column(1)->set_is_nullable(false);
+    auto invalid_target = std::make_shared<TabletSchema>();
+    invalid_target->init_from_pb(pb);
+    std::shared_ptr<const changelog::ResolvedChangelogLayout> layout;
+    EXPECT_FALSE(changelog::resolve_layout(source, invalid_target, mapping, &layout).ok());
+    pb.Clear();
+    target->to_schema_pb(&pb);
+    pb.mutable_column(1)->set_type("BIGINT");
+    invalid_target->init_from_pb(pb);
+    EXPECT_FALSE(changelog::resolve_layout(source, invalid_target, mapping, &layout).ok());
+    pb.Clear();
+    source->to_schema_pb(&pb);
+    pb.mutable_column(1)->set_is_nullable(false);
+    auto nonnullable_source = std::make_shared<TabletSchema>();
+    nonnullable_source->init_from_pb(pb);
+    ASSERT_TRUE(changelog::resolve_layout(nonnullable_source, target, mapping, &layout).ok());
+    EXPECT_TRUE(layout->current_nullable_widening[1]);
+    EXPECT_FALSE(layout->current_nullable_widening[0]);
+    pb.Clear();
+    target->to_schema_pb(&pb);
+    pb.mutable_column(0)->set_is_nullable(true);
+    auto nullable_key_target = std::make_shared<TabletSchema>();
+    nullable_key_target->init_from_pb(pb);
+    EXPECT_FALSE(changelog::resolve_layout(source, nullable_key_target, mapping, &layout).ok());
+}
+
+TEST_F(ChangelogDeriveTest, ResolveIgnoresUnusedIntegerPrecisionAndScale) {
+    auto source = create_changelog_pu_source_schema();
+    auto target = create_changelog_before_schema();
+    TabletSchemaPB pb;
+    source->to_schema_pb(&pb);
+    pb.mutable_column(1)->set_precision(0);
+    pb.mutable_column(1)->set_frac(0);
+    source->init_from_pb(pb);
+    const auto mapping = testutil::create_changelog_mapping(*source, *target, true);
+    std::shared_ptr<const changelog::ResolvedChangelogLayout> layout;
+    auto status = changelog::resolve_layout(source, target, mapping, &layout);
+    ASSERT_TRUE(status.ok()) << status;
+}
+
+TEST_F(ChangelogDeriveTest, ResolvePreservesDecimalAndDatetimeScaleChecks) {
+    for (bool decimal : {true, false}) {
+        SCOPED_TRACE(decimal ? "DECIMAL32" : "DATETIMEV2");
+        auto source = create_changelog_pu_source_schema();
+        auto target = create_changelog_before_schema();
+        TabletSchemaPB source_pb;
+        TabletSchemaPB target_pb;
+        source->to_schema_pb(&source_pb);
+        target->to_schema_pb(&target_pb);
+        auto set_type = [decimal](ColumnPB* column) {
+            column->set_type(decimal ? "DECIMAL32" : "DATETIMEV2");
+            column->set_length(decimal ? 4 : 8);
+            column->set_precision(9);
+            column->set_frac(2);
+        };
+        set_type(source_pb.mutable_column(1));
+        set_type(target_pb.mutable_column(1));
+        set_type(target_pb.mutable_column(3));
+        source->init_from_pb(source_pb);
+        target->init_from_pb(target_pb);
+        const auto mapping = testutil::create_changelog_mapping(*source, *target, true);
+        std::shared_ptr<const changelog::ResolvedChangelogLayout> layout;
+        auto status = changelog::resolve_layout(source, target, mapping, &layout);
+        ASSERT_TRUE(status.ok()) << status;
+        target_pb.mutable_column(1)->set_frac(3);
+        target->init_from_pb(target_pb);
+        EXPECT_FALSE(changelog::resolve_layout(source, target, mapping, &layout).ok());
+        target_pb.mutable_column(1)->set_frac(2);
+        target_pb.mutable_column(3)->set_frac(3);
+        target->init_from_pb(target_pb);
+        EXPECT_FALSE(changelog::resolve_layout(source, target, mapping, &layout).ok());
+        if (decimal) {
+            target_pb.mutable_column(3)->set_frac(2);
+            target_pb.mutable_column(1)->set_precision(8);
+            target->init_from_pb(target_pb);
+            EXPECT_FALSE(changelog::resolve_layout(source, target, mapping, &layout).ok());
+        }
+    }
+}
+
+TEST_F(ChangelogDeriveTest, PlainInterleavedTargetPreservesValues) {
+    auto source = create_changelog_pu_source_schema();
+    auto tablets = create_changelog_tablets(8991, TKeysType::DUP_KEYS, false);
+    TabletSchemaPB pb;
+    tablets.changelog->tablet_schema()->to_schema_pb(&pb);
+    pb.mutable_column()->SwapElements(1, 4); // v1 crosses a system column
+    auto target = std::make_shared<TabletSchema>();
+    target->init_from_pb(pb);
+    RowsetWriterContext context;
+    context.tablet_schema = target;
+    context.write_type = DataWriteType::TYPE_DIRECT;
+    context.write_changelog_opt().enable = true;
+    auto& cfg = context.write_changelog_opt().write_changelog_config();
+    cfg.source.tablet_schema = source;
+    ASSERT_TRUE(testutil::resolve_test_changelog_layout(context).ok());
+    register_segment_lsns(context, 1);
+    Block block = source->create_storage_block();
+    block.get_by_position(0).column->assert_mutable()->insert(Field::create_field<TYPE_INT>(7));
+    block.get_by_position(1).column->assert_mutable()->insert(Field::create_field<TYPE_INT>(11));
+    block.get_by_position(2).column->assert_mutable()->insert(Field::create_field<TYPE_INT>(13));
+    block.get_by_position(3).column->assert_mutable()->insert_default();
+    auto ctx = exec_ctx(target, &context);
+    auto chain = build_transform_chain(context);
+    ASSERT_EQ(chain.stage_names(), (std::vector<std::string_view> {"PlainChangelogDerive"}));
+    ASSERT_TRUE(chain.apply(ctx, &block).ok());
+    ASSERT_EQ(block.columns(), target->num_columns());
+    ASSERT_FALSE(block.get_by_position(4).column->is_null_at(0));
+    ASSERT_FALSE(block.get_by_position(2).column->is_null_at(0));
+    EXPECT_EQ(read_int(block, 4, 0), 11);
+    EXPECT_EQ(read_int(block, 2, 0), 13);
+    EXPECT_EQ(read_int(block, 0, 0), 7);
+    EXPECT_EQ(read_op(block, target->changelog_op_col_idx(), 0),
+              static_cast<int64_t>(ChangelogOp::APPEND));
 }
 
 } // namespace doris

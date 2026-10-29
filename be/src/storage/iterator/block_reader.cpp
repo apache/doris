@@ -555,19 +555,18 @@ Status BlockReader::init(const ReaderParams& read_params) {
     SCOPED_RAW_TIMER(&_stats.tablet_reader_init_timer_ns);
     RETURN_IF_ERROR(TabletReader::init(read_params));
 
-    // A changelog scan maps the before-image columns; every other read of this reader, which is
-    // the one that merges rows across rowsets, builds the sequence mapping instead.
-    const bool map_changelog_columns =
+    // Scanner already resolved changelog pairs. Other merge reads may need a sequence mapping.
+    const bool is_changelog_merge_scan =
             read_params.changelog_scan_type == TChangelogScanType::MIN_DELTA ||
             read_params.changelog_scan_type == TChangelogScanType::DETAIL;
     const bool merge_by_sequence_mapping =
-            !map_changelog_columns && _tablet_schema->has_seq_map() &&
+            !is_changelog_merge_scan && _tablet_schema->has_seq_map() &&
             _tablet_schema->keys_type() == UNIQUE_KEYS && !_direct_mode &&
             !(read_params.reader_type == ReaderType::READER_QUERY &&
               _tablet->enable_unique_key_merge_on_write());
-    RETURN_IF_ERROR(_read_schema->init_from_tablet_schema(
-            *_tablet_schema, merge_by_sequence_mapping, map_changelog_columns));
-    if (map_changelog_columns) {
+    RETURN_IF_ERROR(
+            _read_schema->init_from_tablet_schema(*_tablet_schema, merge_by_sequence_mapping));
+    if (is_changelog_merge_scan) {
         _min_delta_value_compare_unsupported = false;
     }
 

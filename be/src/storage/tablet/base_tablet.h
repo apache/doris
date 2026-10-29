@@ -38,6 +38,9 @@
 #include "util/bthread_shared_mutex.h"
 
 namespace doris {
+namespace changelog {
+struct ResolvedChangelogLayout;
+}
 struct RowSetSplits;
 struct RowsetWriterContext;
 class RowsetWriter;
@@ -284,9 +287,10 @@ public:
             const Rowset& rowset, std::shared_ptr<PartialUpdateInfo> partial_update_info,
             int64_t txn_expiration = 0) = 0;
 
-    static Status update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInfo* txn_info,
-                                       int64_t txn_id, int64_t txn_expiration = 0,
-                                       DeleteBitmapPtr tablet_delete_bitmap = nullptr);
+    static Status update_delete_bitmap(
+            const BaseTabletSPtr& self, TabletTxnInfo* txn_info, int64_t txn_id,
+            int64_t txn_expiration = 0, DeleteBitmapPtr tablet_delete_bitmap = nullptr,
+            std::shared_ptr<const changelog::ResolvedChangelogLayout> changelog_layout = nullptr);
     virtual Status save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,
                                       DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer,
                                       const RowsetIdUnorderedSet& cur_rowset_ids,

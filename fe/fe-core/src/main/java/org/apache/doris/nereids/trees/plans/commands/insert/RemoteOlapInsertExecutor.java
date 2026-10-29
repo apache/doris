@@ -51,10 +51,14 @@ import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.TransactionStatus;
+import org.apache.doris.transaction.TxnWriteSchemaSnapshot;
+import org.apache.doris.transaction.TxnWriteSchemaSnapshotCodec;
 
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import java.util.Collections;
 
 /**
  * Remote executor for Doris Catalog remote insert.
@@ -65,8 +69,9 @@ import org.apache.logging.log4j.Logger;
  * defined in {@link AbstractInsertExecutor}.
  */
 public class RemoteOlapInsertExecutor extends OlapInsertExecutor {
-
     private static final Logger LOG = LogManager.getLogger(RemoteOlapInsertExecutor.class);
+
+    private TxnWriteSchemaSnapshot writeSchemaSnapshot;
 
     public RemoteOlapInsertExecutor(ConnectContext ctx, RemoteOlapTable table,
             String labelName, org.apache.doris.nereids.NereidsPlanner planner,
@@ -141,6 +146,7 @@ public class RemoteOlapInsertExecutor extends OlapInsertExecutor {
                     false,
                     isStrictMode,
                     timeout, olapInsertCtx);
+            writeSchemaSnapshot = remoteOlapTableSink.getWriteSchemaSnapshot();
 
             if (fragment.getPlanRoot() instanceof ExchangeNode
                     && fragment.getDataPartition().getType() == TPartitionType.OLAP_TABLE_SINK_HASH_PARTITIONED) {
@@ -195,6 +201,9 @@ public class RemoteOlapInsertExecutor extends OlapInsertExecutor {
 
         TCommitRemoteTxnRequest request = new TCommitRemoteTxnRequest();
         request.setTxnId(txnId);
+        request.setWriteSchemas(Collections.singletonList(
+                TxnWriteSchemaSnapshotCodec.toThrift(writeSchemaSnapshot)
+                        .setTableId(((RemoteOlapTable) table).getRemoteTableId())));
         request.setCatalog(database.getCatalog().getName());
         request.setDb(database.getFullName());
         request.setTbl(table.getName());

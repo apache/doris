@@ -165,6 +165,11 @@ public class Alter {
         Env.getCurrentInternalCatalog().checkAvailableCapacity(db);
 
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP);
+        try {
+            ChangelogColumnIdPreparer.ensureReady(db, olapTable);
+        } catch (UserException e) {
+            throw new DdlException("Failed to prepare changelog column identities", e);
+        }
         ((MaterializedViewHandler) materializedViewHandler).processCreateMaterializedView(command, db, olapTable);
     }
 
@@ -664,6 +669,7 @@ public class Alter {
             case MATERIALIZED_VIEW:
             case OLAP:
                 OlapTable olapTable = (OlapTable) tableIf;
+                ChangelogColumnIdPreparer.ensureReady((Database) dbIf, olapTable);
                 needProcessOutsideTableLock = processAlterOlapTable(command, olapTable, alterOps, (Database) dbIf);
                 break;
             case ODBC:

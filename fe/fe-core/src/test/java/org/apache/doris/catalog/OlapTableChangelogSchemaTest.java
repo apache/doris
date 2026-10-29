@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.binlog.BinlogTestUtils;
 import org.apache.doris.thrift.TStorageType;
+import org.apache.doris.transaction.ChangelogWriteMapping;
 
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
@@ -59,6 +60,21 @@ public class OlapTableChangelogSchemaTest {
             table.setChangelogIndexMeta(changelogIndexMeta, "changelog");
         }
         return table;
+    }
+
+    @Test
+    public void testChangelogWriteMappingWithoutLightSchemaChange() {
+        OlapTable table = newTestTable(BinlogTestUtils.newTestChangelogConfig(true, true));
+        table.setEnableLightSchemaChange(false);
+        table.initSchemaColumnUniqueId();
+        Assertions.assertFalse(table.getEnableLightSchemaChange());
+        List<Column> source = table.getBaseSchema(true);
+        Assertions.assertTrue(source.get(0).getUniqueId() >= 0);
+        Assertions.assertNotEquals(source.get(0).getUniqueId(), source.get(1).getUniqueId());
+        ChangelogWriteMapping mapping = ChangelogWriteMapping.fromColumns(source,
+                table.getChangelogIndexMeta().getSchema(true), true);
+        Assertions.assertEquals(2, mapping.toThrift().getEntriesSize());
+        Assertions.assertTrue(mapping.toThrift().getEntries().get(1).isSetBeforeColumnUniqueId());
     }
 
     @Test

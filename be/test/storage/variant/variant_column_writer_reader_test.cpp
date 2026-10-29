@@ -1494,8 +1494,7 @@ protected:
         reader_context.read_schema = read_schema;
         EXPECT_TRUE(read_schema
                             ->init_from_tablet_schema(*_tablet_schema,
-                                                      /*merge_by_sequence_mapping=*/false,
-                                                      /*map_changelog_columns=*/false)
+                                                      /*merge_by_sequence_mapping=*/false)
                             .ok());
         RETURN_IF_ERROR(reader->init(&reader_context));
 

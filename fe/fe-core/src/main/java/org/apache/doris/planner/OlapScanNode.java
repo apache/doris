@@ -81,6 +81,8 @@ import org.apache.doris.resource.BackendSelectionManager;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TChangelogReadColumnMappings;
+import org.apache.doris.thrift.TChangelogReadColumnPair;
 import org.apache.doris.thrift.TChangelogScanType;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TExplainLevel;
@@ -1436,6 +1438,7 @@ public class OlapScanNode extends ScanNode {
         msg.olap_scan_node.setIndexesDesc(indexDesc);
         if (olapTable instanceof OlapChangelogTableWrapper) {
             msg.olap_scan_node.setReadChangelog(true);
+            msg.olap_scan_node.setChangelogColumnMappings(buildChangelogReadColumnMappings());
         }
         if (selectedIndexId != -1) {
             msg.olap_scan_node.setSchemaVersion(olapTable.getIndexSchemaVersion(selectedIndexId));
@@ -2019,6 +2022,32 @@ public class OlapScanNode extends ScanNode {
             return changeTimestamp;
         }
         throw new ParseException("Invalid timestamp:" + ts);
+    }
+
+    private TChangelogReadColumnMappings buildChangelogReadColumnMappings() {
+        OlapChangelogTableWrapper wrapper = (OlapChangelogTableWrapper) olapTable;
+        TChangelogScanType scanType = parseChangelogScanType(scanParams, wrapper.getOriginTable());
+        List<TChangelogReadColumnPair> pairs = new ArrayList<>();
+        if (scanType == TChangelogScanType.DETAIL || scanType == TChangelogScanType.MIN_DELTA) {
+            Map<Integer, SlotDescriptor> slotsByUid = desc.getSlots().stream()
+                    .filter(slot -> slot.getColumn() != null)
+                    .collect(Collectors.toMap(slot -> slot.getColumn().getUniqueId(), slot -> slot));
+            for (Pair<Column, Column> columns : wrapper.getChangelogReadColumnPairs()) {
+                SlotDescriptor current = slotsByUid.get(columns.first.getUniqueId());
+                SlotDescriptor before = slotsByUid.get(columns.second.getUniqueId());
+                if (scanType == TChangelogScanType.MIN_DELTA || current != null || before != null) {
+                    Preconditions.checkState(current != null && before != null,
+                            "Incomplete changelog pair in final scan tuple: %s", columns.first.getName());
+                    TChangelogReadColumnPair pair = new TChangelogReadColumnPair();
+                    pair.setCurrentSlotId(current.getId().asInt());
+                    pair.setBeforeSlotId(before.getId().asInt());
+                    pairs.add(pair);
+                }
+            }
+        }
+        TChangelogReadColumnMappings mappings = new TChangelogReadColumnMappings();
+        mappings.setPairs(pairs);
+        return mappings;
     }
 
     public static TChangelogScanType parseChangelogScanType(TableScanParams scanParams, OlapTable olapTable)

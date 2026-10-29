@@ -126,6 +126,8 @@ public class InternalCatalogTest {
     public void testAddPartitionRejectsAnObsoleteRetentionSnapshot() throws Exception {
         OlapTable table = db.getOlapTableOrDdlException(TABLE_NAME);
         table.setChangelogConfig(new ChangelogConfig(true, 60, false));
+        // This case exercises retention changes, not legacy column identity preparation.
+        table.initSchemaColumnUniqueId();
         catalog.afterTabletCreation = () -> {
             table.writeLock();
             try {

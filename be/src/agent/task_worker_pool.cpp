@@ -2186,8 +2186,13 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
     }
 
     for (auto& item : discontinuous_version_tablets) {
-        _engine.add_async_publish_task(item.partition_id, item.tablet_id, item.publish_version,
-                                       publish_version_req.transaction_id, false, item.commit_tso);
+        auto enqueue_status = _engine.add_async_publish_task(
+                item.partition_id, item.tablet_id, item.publish_version,
+                publish_version_req.transaction_id, false, item.commit_tso, item.column_mappings);
+        if (!enqueue_status.ok()) {
+            status = std::move(enqueue_status);
+            error_tablet_ids.insert(item.tablet_id);
+        }
     }
     TFinishTaskRequest finish_task_request;
     if (!status.ok()) [[unlikely]] {

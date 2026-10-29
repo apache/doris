@@ -176,7 +176,11 @@ public:
         meta->set_num_rows(static_cast<int64_t>(_rows.size()));
         meta->set_rowset_type(BETA_ROWSET);
         _rowset = std::make_shared<FakeRowset>(nullptr, meta);
-        _read_schema = std::make_shared<ReadSchema>(make_changelog_schema()->columns());
+        auto schema = make_changelog_schema();
+        _read_schema = std::make_shared<ReadSchema>(schema->columns());
+        EXPECT_TRUE(
+                _read_schema->init_changelog_column_mappings(*schema, {{VAL_IDX, BEFORE_VAL_IDX}})
+                        .ok());
     }
 
     Status init(RowsetReaderContext*, const RowSetSplits&) override { return Status::OK(); }
@@ -251,11 +255,12 @@ void configure_two_rowset_merge(BlockReader& reader, std::vector<Row> rowset0_ro
     reader._reader_type = ReaderType::READER_BASE_COMPACTION;
 
     reader._tablet_schema = make_changelog_schema();
-    // Identity read schema over the full changelog layout. ReadSchema derives num_key_columns()
-    // from is_key() and tso_ordinal() from the CHANGELOG_TSO_COL name, which Level1Iterator::init()
-    // uses to pick the TSO as the merge sequence column, and which
-    // _validate_merge_compare_contract() checks for the leading key prefix.
+    // Scanner supplies pairs and resolves the system-column UIDs before merge initialization.
     reader._read_schema = std::make_shared<ReadSchema>(reader._tablet_schema->columns());
+    ASSERT_TRUE(reader._read_schema
+                        ->init_changelog_column_mappings(*reader._tablet_schema,
+                                                         {{VAL_IDX, BEFORE_VAL_IDX}})
+                        .ok());
 
     // Mirror BlockReader::_init_collect_iter: init the collect iterator (force_merge=true,
     // as a MIN_DELTA stream does), add one child per rowset, then build the heap.
