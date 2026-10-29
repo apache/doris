@@ -35,7 +35,7 @@ public:
     }
 
     Status get_const_col(VExprContext* context,
-                         std::shared_ptr<ColumnPtrWrapper>* column_wrapper) override {
+                         std::shared_ptr<ConstantExprResult>* column_wrapper) override {
         *column_wrapper = _mock_const_expr_col;
         return Status::OK();
     }
@@ -54,7 +54,7 @@ public:
     }
 
     void set_const_expr_col(ColumnPtr col) {
-        _mock_const_expr_col = std::make_shared<ColumnPtrWrapper>(col);
+        _mock_const_expr_col = std::make_shared<ConstantExprResult>(col);
     }
 
     static std::shared_ptr<MockFnCall> create(const std::string& fn_name) {
@@ -65,7 +65,7 @@ public:
 
 private:
     const std::string _name = "MockFnCall";
-    std::shared_ptr<ColumnPtrWrapper> _mock_const_expr_col;
+    std::shared_ptr<ConstantExprResult> _mock_const_expr_col;
     bool _mock_is_constant = false;
 };
 
