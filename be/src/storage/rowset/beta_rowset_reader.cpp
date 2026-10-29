@@ -345,7 +345,12 @@ Status BetaRowsetReader::_init_iterator() {
         if (_read_options.changelog_tso_idx != -1) {
             sequence_loc = _read_options.changelog_tso_idx;
         }
-        _iterator = new_merge_iterator(std::move(iterators), sequence_loc, _read_context->is_unique,
+        // Only a merge by the whole key may drop the older versions of a key. A storage TopN merges
+        // by its ORDER BY key prefix, on which rows of different keys compare equal, and it only
+        // reads merge-on-write tables, whose delete bitmap already filters the older versions.
+        const bool drop_older_versions =
+                _read_context->is_unique && _read_context->read_orderby_key_columns == nullptr;
+        _iterator = new_merge_iterator(std::move(iterators), sequence_loc, drop_older_versions,
                                        _read_context->read_orderby_key_reverse,
                                        _read_context->merged_rows, _read_context->read_schema,
                                        _read_options.changelog_tso_idx != -1);
