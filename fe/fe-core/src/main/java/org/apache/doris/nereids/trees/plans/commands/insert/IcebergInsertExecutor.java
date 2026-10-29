@@ -54,7 +54,8 @@ public class IcebergInsertExecutor extends BaseExternalTableInsertExecutor {
     @Override
     protected void beforeExec() throws UserException {
         IcebergTransaction transaction = (IcebergTransaction) transactionManager.getTransaction(txnId);
-        transaction.beginInsert((IcebergExternalTable) table, targetIcebergTable, insertCtx);
+        transaction.beginInsert((IcebergExternalTable) table, targetIcebergTable, insertCtx,
+                ctx.getSessionVariable().getIcebergPartitionOverwriteMode());
     }
 
     @Override
@@ -75,10 +76,12 @@ public class IcebergInsertExecutor extends BaseExternalTableInsertExecutor {
 
     @Override
     public boolean shouldExecuteEmptyInsert() {
+        // An overwrite still has side effects with no source rows. The transaction decides whether
+        // to clear the whole table, delete explicit partitions, or preserve a partitioned dynamic table.
         return emptyInsert
                 && insertCtx.filter(IcebergInsertCommandContext.class::isInstance)
                         .map(IcebergInsertCommandContext.class::cast)
-                        .map(IcebergInsertCommandContext::isStaticPartitionOverwrite)
+                        .map(IcebergInsertCommandContext::isOverwrite)
                         .orElse(false);
     }
 

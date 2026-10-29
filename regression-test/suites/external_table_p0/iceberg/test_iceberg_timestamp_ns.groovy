@@ -19,6 +19,9 @@ suite("test_iceberg_timestamp_ns", "p0,external,iceberg") {
     if (!context.config.otherConfigs.get("enableIcebergTest")?.equalsIgnoreCase("true")) {
         return
     }
+
+    // Preserve this suite's dynamic overwrite expectations after the default changes to static.
+    sql """ set iceberg_partition_overwrite_mode = 'dynamic' """
     String host = context.config.otherConfigs.get("externalEnvIp")
     // Use the existing HDFS fixture so metadata defaults are not rescaled by the older REST server.
     String hdfsPort = context.config.otherConfigs.get("hive2HdfsPort")

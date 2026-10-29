@@ -3940,6 +3940,19 @@ public class SessionVariable implements Serializable, Writable {
                     "Enable merge partitioning for Iceberg UPDATE/DELETE (INSERT by partition columns, "
                             + "DELETE by row_id)."})
     public boolean enableIcebergMergePartitioning = true;
+
+    public static final String ICEBERG_PARTITION_OVERWRITE_MODE = "iceberg_partition_overwrite_mode";
+    public static final String ICEBERG_PARTITION_OVERWRITE_MODE_DYNAMIC = "dynamic";
+    public static final String ICEBERG_PARTITION_OVERWRITE_MODE_STATIC = "static";
+    @VariableMgr.VarAttr(name = ICEBERG_PARTITION_OVERWRITE_MODE, needForward = true,
+            checker = "checkIcebergPartitionOverwriteMode", setter = "setIcebergPartitionOverwriteMode",
+            description = {"Scope of INSERT OVERWRITE on an Iceberg table when no PARTITION clause is given. "
+                    + "'static' (default, matching Spark's partitionOverwriteMode=static) overwrites the whole "
+                    + "table, including data written under older partition specs. 'dynamic' replaces only "
+                    + "the partitions the new data lands in, preserving the previous Doris behavior."},
+            options = {ICEBERG_PARTITION_OVERWRITE_MODE_STATIC, ICEBERG_PARTITION_OVERWRITE_MODE_DYNAMIC})
+    public String icebergPartitionOverwriteMode = ICEBERG_PARTITION_OVERWRITE_MODE_STATIC;
+
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
 
@@ -5649,6 +5662,30 @@ public class SessionVariable implements Serializable, Writable {
     public void checkInsertVisibleTimeoutReturnMode(String mode) {
         // Reuse the parser so validation stays consistent with assignment and enum access.
         parseInsertVisibleTimeoutReturnMode(mode);
+    }
+
+    public String getIcebergPartitionOverwriteMode() {
+        return icebergPartitionOverwriteMode;
+    }
+
+    public void checkIcebergPartitionOverwriteMode(String mode) {
+        parseIcebergPartitionOverwriteMode(mode);
+    }
+
+    public void setIcebergPartitionOverwriteMode(String mode) {
+        icebergPartitionOverwriteMode = parseIcebergPartitionOverwriteMode(mode);
+    }
+
+    private static String parseIcebergPartitionOverwriteMode(String mode) {
+        if (mode != null) {
+            String normalized = mode.trim().toLowerCase(Locale.ROOT);
+            if (ICEBERG_PARTITION_OVERWRITE_MODE_DYNAMIC.equals(normalized)
+                    || ICEBERG_PARTITION_OVERWRITE_MODE_STATIC.equals(normalized)) {
+                return normalized;
+            }
+        }
+        throw new UnsupportedOperationException(
+                "iceberg_partition_overwrite_mode must be 'dynamic' or 'static', but was: " + mode);
     }
 
     // Parse the stored string case-insensitively and expose the enum only to business logic.
