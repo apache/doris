@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import groovy.json.JsonSlurper
 import org.awaitility.Awaitility
 
 import static java.util.concurrent.TimeUnit.SECONDS
@@ -62,10 +63,24 @@ suite("test_streaming_mysql_job_sc_advanced", "p0,external,mysql,external_docker
         def waitForCommit = { long previous ->
             Awaitility.await().atMost(180, SECONDS).pollInterval(1, SECONDS).until({ succeedCount() > previous })
         }
-        def waitForPause = { String reason ->
+        def waitForPause = { String reason, List<String> details ->
             Awaitility.await().atMost(180, SECONDS).pollInterval(1, SECONDS).until({
                 def rows = sql """SELECT Status, ErrorMsg FROM jobs("type"="insert") WHERE Name='${jobName}'"""
-                rows.size() == 1 && rows[0][0] == "PAUSED" && rows[0][1].toString().contains(reason)
+                if (rows.size() != 1 || rows[0][0] != "PAUSED") {
+                    return false
+                }
+                def rawError = rows[0][1].toString()
+                def error = new JsonSlurper().parseText(rawError)
+                return (error.code == "CANNOT_RESUME_ERR"
+                        && rawError.contains(" -> ")
+                        && error.msg.contains("[SCHEMA_CHANGE_UNSUPPORTED]")
+                        && error.msg.contains(reason)
+                        && error.msg.contains("Table: ${mysqlDb}.${table1} -> ${currentDb}.${table1}")
+                        && error.msg.contains("Source DDL: [ALTER TABLE")
+                        && error.msg.contains("Review and adjust the target schema as needed.")
+                        && error.msg.contains("RESUME confirms acceptance of unsupported changes for this recovery round.")
+                        && !error.msg.contains("age -> age)")
+                        && details.every { error.msg.contains(it) })
             })
         }
 
@@ -161,13 +176,15 @@ suite("test_streaming_mysql_job_sc_advanced", "p0,external,mysql,external_docker
                    (first_col, name, after_name, age, city, mixed_col) VALUES ('X', 'E1', 9, 5, 'sh', 100)"""
         }
 
-        waitForPause("SCHEMA_CHANGE_UNSUPPORTED")
+        def mixedDdlDetails = ["MODIFY COLUMN is not supported (age)",
+                "ADD COLUMN mixed_col INT", "MODIFY COLUMN age BIGINT"]
+        waitForPause("SCHEMA_CHANGE_UNSUPPORTED", mixedDdlDetails)
         qt_mixed_paused """SELECT Status FROM jobs("type"="insert") WHERE Name='${jobName}'"""
         qt_mixed_not_applied """SELECT COUNT(*) FROM information_schema.columns
             WHERE table_schema='${currentDb}' AND table_name='${table1}' AND column_name='mixed_col'"""
         qt_mixed_row_not_written "SELECT COUNT(*) FROM ${table1} WHERE name='E1'"
         sql "RESUME JOB WHERE jobname='${jobName}'"
-        waitForPause("missing columns")
+        waitForPause("Doris target:", mixedDdlDetails + ["missing columns [mixed_col]"])
         qt_missing_column_pause """SELECT Status FROM jobs("type"="insert") WHERE Name='${jobName}'"""
         sql "ALTER TABLE ${table1} ADD COLUMN mixed_col INT NULL"
         long beforeMixedResume = succeedCount()
@@ -191,7 +208,8 @@ suite("test_streaming_mysql_job_sc_advanced", "p0,external,mysql,external_docker
                    (first_col, name, after_name, age, city, mixed_col) VALUES ('M', 'F1', 10, 6, 'sz', 200)"""
         }
 
-        waitForPause("SCHEMA_CHANGE_UNSUPPORTED")
+        waitForPause("SCHEMA_CHANGE_UNSUPPORTED",
+                ["MODIFY COLUMN is not supported (age)", "MODIFY COLUMN age SMALLINT"])
         qt_modify_paused """SELECT Status FROM jobs("type"="insert") WHERE Name='${jobName}'"""
         long beforeModifyResume = succeedCount()
         sql "RESUME JOB WHERE jobname='${jobName}'"
@@ -213,7 +231,8 @@ suite("test_streaming_mysql_job_sc_advanced", "p0,external,mysql,external_docker
                    (first_col, name, after_name, age2, city, mixed_col) VALUES ('R', 'G1', 11, 7, 'bj', 300)"""
         }
 
-        waitForPause("SCHEMA_CHANGE_UNSUPPORTED")
+        waitForPause("SCHEMA_CHANGE_UNSUPPORTED",
+                ["CHANGE COLUMN is not supported (age -> age2)", "CHANGE COLUMN age age2 INT"])
         qt_rename_paused """SELECT Status FROM jobs("type"="insert") WHERE Name='${jobName}'"""
         // Keep age available for DML replayed from the last committed offset.
         sql "ALTER TABLE ${table1} ADD COLUMN age2 INT NULL"
@@ -236,7 +255,8 @@ suite("test_streaming_mysql_job_sc_advanced", "p0,external,mysql,external_docker
             sql """INSERT INTO ${mysqlDb}.${table1}
                 (first_col, name, after_name, age2, city, mixed_col) VALUES ('S', 'H1', 12, 8, 'cd', 400)"""
         }
-        waitForPause("SCHEMA_CHANGE_UNSUPPORTED")
+        waitForPause("SCHEMA_CHANGE_UNSUPPORTED",
+                ["MODIFY COLUMN is not supported (age2)", "COMMENT 'comment only'"])
         qt_column_comment_paused """SELECT Status FROM jobs("type"="insert") WHERE Name='${jobName}'"""
         long beforeCommentResume = succeedCount()
         sql "RESUME JOB WHERE jobname='${jobName}'"

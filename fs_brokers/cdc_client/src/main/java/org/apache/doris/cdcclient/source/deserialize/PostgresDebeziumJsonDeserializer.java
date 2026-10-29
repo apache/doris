@@ -141,12 +141,13 @@ public class PostgresDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
             return DeserializeResult.schemaChange(Collections.emptyList(), updatedSchemas);
         }
 
+        String db = context.get(Constants.DORIS_TARGET_DB);
         Set<String> excludedCols =
                 excludeColumnsCache.getOrDefault(tableId.table(), Collections.emptySet());
         String unsupportedReason =
                 unsupportedChangeReason(stored.getTable(), freshTable, excludedCols);
         if (unsupportedReason != null) {
-            return unsupportedSchemaChange(updatedSchemas, unsupportedReason);
+            return unsupportedSchemaChange(db, updatedSchemas, unsupportedReason);
         }
 
         List<Column> added = new ArrayList<>();
@@ -169,11 +170,11 @@ public class PostgresDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
         dropped.removeIf(excludedCols::contains);
         if (hasAddedAndDropped && (!added.isEmpty() || !dropped.isEmpty())) {
             return unsupportedSchemaChange(
+                    db,
                     updatedSchemas,
                     "Cannot distinguish a column rename from simultaneous ADD/DROP");
         }
 
-        String db = context.get(Constants.DORIS_TARGET_DB);
         List<SchemaChangeOperation> schemaChanges = new ArrayList<>();
         String targetTable = resolveTargetTable(tableId.table());
 
@@ -212,8 +213,9 @@ public class PostgresDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
     }
 
     private DeserializeResult unsupportedSchemaChange(
-            Map<TableId, TableChanges.TableChange> updatedSchemas, String reason) {
-        return DeserializeResult.unsupportedSchemaChange(reason, tableSchemas, updatedSchemas);
+            String targetDb, Map<TableId, TableChanges.TableChange> updatedSchemas, String reason) {
+        return DeserializeResult.unsupportedSchemaChange(
+                reason, tableSchemas, updatedSchemas, targetDb, targetTableMappingsCache, null);
     }
 
     private static String unsupportedChangeReason(
