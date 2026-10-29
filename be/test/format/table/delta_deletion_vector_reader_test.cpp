@@ -152,6 +152,17 @@ TEST(DeltaDeletionVectorReaderTest, DecodesInlineZ85) {
     EXPECT_TRUE(deletion_vector.contains(uint64_t {34}));
 }
 
+TEST(DeltaDeletionVectorReaderTest, DecodesSqlRegressionFixture) {
+    // The SQL regression uses this fixed native bitmap array to delete physical rows 0 and 2.
+    DeletionVector deletion_vector;
+    ASSERT_TRUE(decode_delta_inline_deletion_vector("^9>0=0rr916AwakiXQKl0rr91000315c8Xg00062", 32,
+                                                    2, &deletion_vector)
+                        .ok());
+    EXPECT_EQ(deletion_vector.cardinality(), 2);
+    EXPECT_TRUE(deletion_vector.contains(uint64_t {0}));
+    EXPECT_TRUE(deletion_vector.contains(uint64_t {2}));
+}
+
 TEST(DeltaDeletionVectorReaderTest, RejectsCorruptSidecarAndCardinality) {
     roaring::Roaring bitmap;
     bitmap.add(1);

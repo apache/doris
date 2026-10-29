@@ -60,6 +60,7 @@
 #include "format_v2/jni/max_compute_jni_reader.h"
 #include "format_v2/jni/trino_connector_jni_reader.h"
 #include "format_v2/table/adbc_reader.h"
+#include "format_v2/table/delta_reader.h"
 #include "format_v2/table/es_reader.h"
 #include "format_v2/table/fluss_hybrid_reader.h"
 #include "format_v2/table/hive_reader.h"
@@ -786,8 +787,10 @@ Status FileScannerV2::_create_table_reader_for_format(
         return Status::OK();
     }
     const auto table_format = table_format_name(range);
-    if (table_format == "NotSet" || table_format == "tvf" || table_format == "delta") {
+    if (table_format == "NotSet" || table_format == "tvf") {
         *reader = std::make_unique<format::TableReader>();
+    } else if (table_format == "delta") {
+        *reader = format::delta::DeltaTableReader::create_unique();
     } else if (table_format == "hive") {
         *reader = format::hive::HiveReader::create_unique();
     } else if (table_format == "iceberg") {

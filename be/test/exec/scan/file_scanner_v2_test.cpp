@@ -51,6 +51,7 @@
 #include "exprs/vslot_ref.h"
 #include "format/table/iceberg_scan_semantics.h"
 #include "format_v2/expr/cast.h"
+#include "format_v2/table/delta_reader.h"
 #include "format_v2/table/fluss_hybrid_reader.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "util/timezone_utils.h"
@@ -718,6 +719,28 @@ TEST(FileScannerV2Test, EveryFlussRangeGetsTheOneHybridReader) {
             range_with_format("fluss_union", TFileFormatType::FORMAT_PARQUET),
             &from_retired_format);
     EXPECT_TRUE(retired.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << retired;
+}
+
+TEST(FileScannerV2Test, DeltaRangesCreateDedicatedTableReader) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("file_scanner_v2_delta_reader");
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    FileScannerV2 scanner(&state, &profile, nullptr);
+    scanner._params = &params;
+
+    std::unique_ptr<format::TableReader> reader;
+    ASSERT_TRUE(scanner._create_table_reader_for_format(
+                               range_with_format("delta", TFileFormatType::FORMAT_PARQUET), &reader)
+                        .ok());
+    const format::TableReader& delta_reader = *reader;
+    EXPECT_TRUE(typeid(delta_reader) == typeid(format::delta::DeltaTableReader));
+
+    ASSERT_TRUE(scanner._create_table_reader_for_format(
+                               range_with_format("tvf", TFileFormatType::FORMAT_PARQUET), &reader)
+                        .ok());
+    const format::TableReader& generic_reader = *reader;
+    EXPECT_TRUE(typeid(generic_reader) == typeid(format::TableReader));
 }
 
 TEST(FileScannerV2Test, TimestampPartitionUsesSessionTimezone) {

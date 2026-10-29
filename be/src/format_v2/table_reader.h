@@ -407,6 +407,15 @@ protected:
     virtual Status _parse_deletion_vector_file(const TTableFormatFileDesc& t_desc,
                                                DeleteFileDesc* desc, bool* has_delete_file);
 
+    // Called only on a decoded-vector cache miss. Table formats may supply an inline vector;
+    // file-backed vectors share the base I/O, profiling and format-specific decode hook.
+    virtual Status _load_deletion_vector(const TTableFormatFileDesc& t_desc,
+                                         const DeleteFileDesc& desc,
+                                         DeletionVector* deletion_vector);
+    virtual Status _decode_deletion_vector(const char* buf, size_t buffer_size,
+                                           const DeleteFileDesc& desc,
+                                           DeletionVector* deletion_vector);
+
     // Advance to the next reader. This closes the current reader first and then opens the next
     // concrete reader. Subclasses should not duplicate this loop.
     Status create_next_reader(bool* eos);
