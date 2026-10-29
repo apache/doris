@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.CalendarAddSubMonotonic;
+import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
@@ -36,6 +37,8 @@ import org.apache.doris.nereids.types.TimeStampTzType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.Arrays;
 import java.util.List;
 
@@ -78,6 +81,83 @@ class CalendarAddSubMonotonicTest {
         SlotReference date = new SlotReference("dt", DateTimeV2Type.SYSTEM_DEFAULT);
         Assertions.assertFalse(new MonthsAdd(date, new SlotReference("months", IntegerType.INSTANCE)).isMonotonic(
                 new DateTimeV2Literal("2023-01-29 00:00:00"), new DateTimeV2Literal("2023-01-29 23:59:59")));
+    }
+
+    @Test
+    void testClampedRangeBoundsPreserveTypesAndPrecision() {
+        List<DateLiteral> inputs = calendarLiterals("2023-01-28 10:00:00.123456");
+        List<DateLiteral> outputs = calendarLiterals("2023-02-28 10:00:00.123456");
+        List<DateLiteral> clampedInputs = calendarLiterals("2023-01-31 10:00:00.123456");
+        for (int i = 0; i < inputs.size(); i++) {
+            CalendarAddSubMonotonic function = new MonthsAdd(
+                    new SlotReference("dt", inputs.get(i).getDataType()), new IntegerLiteral(1));
+            DateLiteral output = outputs.get(i);
+            Literal lower = function.getRangeLowerBound(inputs.get(i), output);
+            Literal upper = function.getRangeUpperBound(clampedInputs.get(i), output);
+            Assertions.assertEquals(output.getDataType(), lower.getDataType());
+            Assertions.assertEquals(output.getDataType(), upper.getDataType());
+            Assertions.assertEquals(output.toJavaDateType().with(LocalTime.MIN),
+                    ((DateLiteral) lower).toJavaDateType());
+            int maxNano = output instanceof TimeStampNsLiteral ? 999999999 : 999999000;
+            Assertions.assertEquals(output.toJavaDateType().with(LocalTime.of(23, 59, 59, maxNano)),
+                    ((DateLiteral) upper).toJavaDateType());
+            // The last source day has no later day that can reset its lower bound's clock.
+            Assertions.assertSame(output, function.getRangeLowerBound(clampedInputs.get(i), output));
+            // The first day mapping to the last destination day has no earlier collapsed day.
+            Assertions.assertSame(output, function.getRangeUpperBound(inputs.get(i), output));
+        }
+    }
+
+    @Test
+    void testOrdinaryMonthBoundariesKeepExactBounds() {
+        List<DateLiteral> inputs = calendarLiterals("2023-01-01 10:00:00.123456");
+        List<DateLiteral> outputs = calendarLiterals("2023-02-01 10:00:00.123456");
+        for (int i = 0; i < inputs.size(); i++) {
+            CalendarAddSubMonotonic function = new MonthsAdd(
+                    new SlotReference("dt", inputs.get(i).getDataType()), new IntegerLiteral(1));
+            Assertions.assertTrue(function.canEvaluateRange());
+            Assertions.assertSame(outputs.get(i), function.getRangeLowerBound(inputs.get(i), outputs.get(i)));
+            Assertions.assertSame(outputs.get(i), function.getRangeUpperBound(inputs.get(i), outputs.get(i)));
+        }
+    }
+
+    @Test
+    void testRangeEnclosesMonthEndAndLeapDayValues() {
+        String[][] ranges = {
+                {"2023-01-28T10:00:00", "2023-01-31T23:00:00"},
+                {"2023-01-27T00:00:00", "2023-01-31T00:00:00"},
+                {"2023-03-28T10:00:00", "2023-03-31T23:00:00"},
+                {"2024-02-28T10:00:00", "2024-02-29T23:00:00"},
+                {"2023-01-01T00:00:00", "2024-01-01T00:00:00"}
+        };
+        for (String[] range : ranges) {
+            LocalDateTime start = LocalDateTime.parse(range[0]);
+            LocalDateTime end = LocalDateTime.parse(range[1]);
+            for (int months : new int[] {-12, -3, -1, 0, 1, 3, 12}) {
+                for (int type = 0; type < 3; type++) {
+                    DateLiteral inputLower = calendarLiterals(start.toString()).get(type);
+                    DateLiteral inputUpper = calendarLiterals(end.toString()).get(type);
+                    DateLiteral outputLower = calendarLiterals(start.plusMonths(months).toString()).get(type);
+                    DateLiteral outputUpper = calendarLiterals(end.plusMonths(months).toString()).get(type);
+                    CalendarAddSubMonotonic function = new MonthsAdd(
+                            new SlotReference("dt", inputLower.getDataType()), new IntegerLiteral(months));
+                    LocalDateTime lower = ((DateLiteral) function.getRangeLowerBound(
+                            inputLower, outputLower)).toJavaDateType();
+                    LocalDateTime upper = ((DateLiteral) function.getRangeUpperBound(
+                            inputUpper, outputUpper)).toJavaDateType();
+                    for (LocalDateTime value = start; !value.isAfter(end); value = value.plusHours(1)) {
+                        LocalDateTime shifted = value.plusMonths(months);
+                        Assertions.assertFalse(shifted.isBefore(lower));
+                        Assertions.assertFalse(shifted.isAfter(upper));
+                    }
+                }
+            }
+        }
+    }
+
+    private List<DateLiteral> calendarLiterals(String value) {
+        return Arrays.asList(new DateTimeV2Literal(DateTimeV2Type.MAX, value),
+                new TimeStampNsLiteral(value), new TimestampTzLiteral(TimeStampTzType.of(6), value));
     }
 
     private List<CalendarAddSubMonotonic> calendarFunctions(SlotReference date) {

@@ -17,7 +17,14 @@
 
 package org.apache.doris.nereids.trees.expressions.functions;
 
+import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
+
+import java.time.LocalDateTime;
+import java.time.LocalTime;
 
 /** Monotonicity of date arithmetic that can clamp the day to the end of a month. */
 public interface CalendarAddSubMonotonic extends DateAddSubMonotonic {
@@ -25,7 +32,40 @@ public interface CalendarAddSubMonotonic extends DateAddSubMonotonic {
     default boolean isMonotonic(Literal lower, Literal upper) {
         // Clamping consecutive dates to the same date resets the time at midnight. DATE has no
         // time part, and within one input day the calendar adjustment preserves the time order.
-        return DateAddSubMonotonic.super.isMonotonic(lower, upper)
+        return canEvaluateRange()
                 && (child(0).getDataType().isDateV2Type() || MonotonicityUtils.isWithinSameDay(lower, upper));
+    }
+
+    /** The date part remains non-decreasing even when clamping resets the time part. */
+    default boolean canEvaluateRange() {
+        return MonotonicityUtils.hasConstantOtherArguments(this, 0);
+    }
+
+    /** Later input days can map to this output date with an earlier time. */
+    default Literal getRangeLowerBound(DateLiteral input, DateLiteral output) {
+        if (input.getDay() < input.toJavaDateType().toLocalDate().lengthOfMonth()
+                && output.getDay() == output.toJavaDateType().toLocalDate().lengthOfMonth()) {
+            return withTime(output, LocalTime.MIN);
+        }
+        return output;
+    }
+
+    /** Earlier input days can map to a clamped output date with a later time. */
+    default Literal getRangeUpperBound(DateLiteral input, DateLiteral output) {
+        if (output.getDay() < input.getDay()) {
+            return withTime(output, LocalTime.MAX);
+        }
+        return output;
+    }
+
+    private static Literal withTime(DateLiteral output, LocalTime time) {
+        LocalDateTime dateTime = output.toJavaDateType().with(time);
+        if (output instanceof TimeStampNsLiteral) {
+            return TimeStampNsLiteral.fromJavaDateType(dateTime);
+        }
+        if (output instanceof TimestampTzLiteral) {
+            return TimestampTzLiteral.fromJavaDateType(dateTime, ((TimestampTzLiteral) output).getScale());
+        }
+        return DateTimeV2Literal.fromJavaDateType(dateTime, ((DateTimeV2Literal) output).getDataType().getScale());
     }
 }

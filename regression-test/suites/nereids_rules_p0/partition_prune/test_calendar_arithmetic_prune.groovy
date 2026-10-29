@@ -36,6 +36,16 @@ suite("test_calendar_arithmetic_prune") {
             ('2023-01-29 00:00:00'), ('2023-03-29 00:00:00'),
             ('2023-05-31 00:00:00'), ('2024-02-29 00:00:00')"""
 
+        // Cross-day inputs still have useful bounds even when the time part is not monotonic.
+        explain {
+            sql "select d from calendar_add_sub_prune where months_add(d, 1) > '2024-03-15 00:00:00'"
+            contains "partitions=1/4 (p_leap)"
+        }
+        explain {
+            sql "select d from calendar_add_sub_prune where years_add(d, 1) > '2024-02-29 00:00:00'"
+            contains "partitions=3/4 (p_sub,p_quarter,p_leap)"
+        }
+
         "order_qt_${typeIndex}_months_add" """
             select d, months_add(d, 1) from calendar_add_sub_prune
             where months_add(d, 1) < '2023-02-28 10:00:00'

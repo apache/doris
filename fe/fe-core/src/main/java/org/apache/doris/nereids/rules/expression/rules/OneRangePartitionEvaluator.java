@@ -40,10 +40,12 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.CalendarAddSubMonotonic;
 import org.apache.doris.nereids.trees.expressions.functions.Monotonic;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.MaxLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -1039,7 +1041,9 @@ public class OneRangePartitionEvaluator<K>
         Literal lower = span.hasLowerBound() ? span.lowerEndpoint().getValue() : null;
         Literal upper = span.hasUpperBound() && !(span.upperEndpoint().getValue() instanceof MaxLiteral)
                 ? span.upperEndpoint().getValue() : null;
-        if (!func.isMonotonic(lower, upper)) {
+        boolean monotonic = func.isMonotonic(lower, upper);
+        if (!monotonic && !(func instanceof CalendarAddSubMonotonic
+                && ((CalendarAddSubMonotonic) func).canEvaluateRange())) {
             return result;
         }
         Expression lowerValue = lower != null ? FoldConstantRuleOnFE.evaluate(func.withConstantArgs(lower),
@@ -1048,6 +1052,16 @@ public class OneRangePartitionEvaluator<K>
                 expressionRewriteContext) : null;
         if (!checkFoldConstantValueIsValid(lowerValue, upperValue)) {
             return result;
+        }
+
+        if (!monotonic) {
+            // Calendar arithmetic preserves date order. Enclose the time values of dates that
+            // collapse at month end instead of treating the whole function as monotonic.
+            CalendarAddSubMonotonic calendar = (CalendarAddSubMonotonic) func;
+            lowerValue = lower == null ? null
+                    : calendar.getRangeLowerBound((DateLiteral) lower, (DateLiteral) lowerValue);
+            upperValue = upper == null ? null
+                    : calendar.getRangeUpperBound((DateLiteral) upper, (DateLiteral) upperValue);
         }
 
         if (!func.isPositive()) {

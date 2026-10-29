@@ -45,8 +45,13 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsAdd;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -81,6 +86,38 @@ public class PartitionPrunerTest extends TestWithFeService {
         canBePrunedOutMethod = clazz.getDeclaredMethod("canBePrunedOut", Expression.class, OnePartitionEvaluator.class);
         canBePrunedOutMethod.setAccessible(true);
         cascadesContext = createCascadesContext("select * from t1");
+    }
+
+    @Test
+    public void testCalendarRangeBoundsRetainSafePartitionPruning() throws Exception {
+        SlotReference date = new SlotReference("dt", DateTimeV2Type.SYSTEM_DEFAULT);
+        Expression month = new MonthsAdd(date, new IntegerLiteral(1));
+        Expression year = new YearsAdd(date, new IntegerLiteral(1));
+        assertCalendarRangePruned(date, "2023-01-28 10:00:00", "2023-01-31 23:59:59",
+                new LessThan(month, new DateTimeV2Literal("2023-02-28 10:00:00")), false);
+        assertCalendarRangePruned(date, "2023-01-27 00:00:00", "2023-01-31 00:00:00",
+                new GreaterThan(month, new DateTimeV2Literal("2023-02-28 12:00:00")), false);
+        assertCalendarRangePruned(date, "2017-01-01 00:00:00", "2018-01-01 00:00:00",
+                new GreaterThan(year, new DateTimeV2Literal("2019-01-01 00:00:00")), true);
+        assertCalendarRangePruned(date, "2018-01-01 00:00:00", "2019-01-01 00:00:00",
+                new GreaterThan(year, new DateTimeV2Literal("2019-01-01 00:00:00")), false);
+        assertCalendarRangePruned(date, "2023-01-01 00:00:00", "2023-02-01 00:00:00",
+                new EqualTo(month, new DateTimeV2Literal("2023-11-15 10:00:00")), true);
+        assertCalendarRangePruned(date, "2023-10-01 00:00:00", "2023-11-01 00:00:00",
+                new EqualTo(month, new DateTimeV2Literal("2023-11-15 10:00:00")), false);
+    }
+
+    private void assertCalendarRangePruned(SlotReference date, String lower, String upper,
+            Expression predicate, boolean expectedPruned) throws Exception {
+        List<Column> columns = ImmutableList.of(new Column("dt", PrimitiveType.DATETIMEV2));
+        PartitionKey lowerKey = PartitionKey.createPartitionKey(ImmutableList.of(new PartitionValue(lower)), columns);
+        PartitionKey upperKey = PartitionKey.createPartitionKey(ImmutableList.of(new PartitionValue(upper)), columns);
+        OneRangePartitionEvaluator<String> evaluator = new OneRangePartitionEvaluator<>(
+                "p1", ImmutableList.of(date), new RangePartitionItem(Range.closedOpen(lowerKey, upperKey)),
+                cascadesContext, 0);
+        Pair<Boolean, Boolean> result =
+                (Pair<Boolean, Boolean>) canBePrunedOutMethod.invoke(null, predicate, evaluator);
+        Assertions.assertEquals(expectedPruned, result.first, predicate.toSql());
     }
 
     // test canBePrunedOut res
