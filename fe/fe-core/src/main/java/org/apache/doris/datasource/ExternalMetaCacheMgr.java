@@ -21,10 +21,13 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.cache.NereidsSortedPartitionsCacheManager;
+import org.apache.doris.common.util.FairTaskExecutor;
 import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.cache.MetaCache;
+import org.apache.doris.connector.cache.MetaCacheCleanup;
 import org.apache.doris.connector.cache.MetaCacheGovernance;
+import org.apache.doris.connector.spi.ConnectorTaskScheduler;
 import org.apache.doris.datasource.doris.DorisExternalMetaCache;
 import org.apache.doris.datasource.doris.RemoteDorisExternalCatalog;
 import org.apache.doris.datasource.metacache.ExternalCatalogMetaCache;
@@ -34,6 +37,7 @@ import org.apache.doris.datasource.metacache.MetaCacheEntryInvalidation;
 import org.apache.doris.datasource.metacache.MetaCacheEntryStats;
 import org.apache.doris.datasource.mvcc.PluginDrivenPartitionView;
 import org.apache.doris.fs.FileSystemCache;
+import org.apache.doris.nereids.util.MoreFieldsThread;
 
 import com.github.benmanes.caffeine.cache.stats.CacheStats;
 import com.google.common.collect.Maps;
@@ -90,6 +94,8 @@ public class ExternalMetaCacheMgr {
     private ExecutorService fileListingExecutor;
     // This executor is used to schedule the getting split tasks
     private ExecutorService scheduleExecutor;
+    private FairTaskExecutor splitTaskExecutor;
+    private FairTaskExecutor metadataTaskExecutor;
     private final Map<String, ExternalMetaCache> cacheTypes = Maps.newConcurrentMap();
 
     // all catalogs could share the same fsCache.
@@ -98,6 +104,9 @@ public class ExternalMetaCacheMgr {
     private ExternalRowCountCache rowCountCache;
 
     public ExternalMetaCacheMgr(boolean isCheckpointCatalog) {
+        // The cache module is parent-first across connector plugins, so resource cleanup shares one FE owner.
+        MetaCacheCleanup.configureResourceReclaimer((description, cleanup) -> ExternalResourceReclaimer.getInstance()
+                .submit(description, cleanup));
         MetaCacheGovernance.configureGlobalMaxWeight(configuredGlobalMaxWeight());
         rowCountRefreshExecutor = newThreadPool(isCheckpointCatalog,
                 Config.max_external_cache_loader_thread_pool_size,
@@ -154,6 +163,32 @@ public class ExternalMetaCacheMgr {
 
     public ExecutorService getFileListingExecutor() {
         return fileListingExecutor;
+    }
+
+    public synchronized FairTaskExecutor getQueryTaskExecutor(ConnectorTaskScheduler.Stage stage) {
+        if (stage == ConnectorTaskScheduler.Stage.SPLIT) {
+            if (splitTaskExecutor == null) {
+                splitTaskExecutor = newFairTaskExecutor("SplitTask", Config.external_scan_split_threads);
+            }
+            return splitTaskExecutor;
+        }
+        if (metadataTaskExecutor == null) {
+            metadataTaskExecutor = newFairTaskExecutor("MetadataTask", Config.external_scan_metadata_threads);
+        }
+        return metadataTaskExecutor;
+    }
+
+    private FairTaskExecutor newFairTaskExecutor(String name, int threads) {
+        java.util.concurrent.atomic.AtomicInteger sequence = new java.util.concurrent.atomic.AtomicInteger();
+        FairTaskExecutor executor = new FairTaskExecutor(threads, task -> {
+            Thread worker = new MoreFieldsThread(task);
+            worker.setName(name + "-" + sequence.incrementAndGet());
+            worker.setDaemon(true);
+            worker.setContextClassLoader(ExternalMetaCacheMgr.class.getClassLoader());
+            return worker;
+        });
+        ThreadPoolManager.registerFairTaskExecutorMetric(name, executor);
+        return executor;
     }
 
     public ExecutorService getScheduleExecutor() {

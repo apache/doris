@@ -43,6 +43,7 @@ import java.util.OptionalLong;
 import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executor;
@@ -181,6 +182,23 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
 
     public V getWithPublicationAction(K key, ScopePath path, Function<K, V> loader,
             BiConsumer<V, Consumer<Runnable>> publicationCoordinator) {
+        return getWithPublicationAction(key, path, loader, publicationCoordinator,
+                Function.identity(), this::awaitLoad);
+    }
+
+    /**
+     * Runs an elected loader on the caller, but returns without waiting when another caller owns the load.
+     * The returned stage cannot complete or cancel the shared load. Completion callbacks must stay short:
+     * they may execute on the elected loader before its publication lease is released.
+     */
+    public CompletionStage<V> getOrLoadFuture(K key, ScopePath path, Function<K, V> loader) {
+        return getWithPublicationAction(key, path, loader, (loaded, commit) -> commit.accept(NO_OP),
+                CompletableFuture::completedFuture, CompletableFuture::minimalCompletionStage);
+    }
+
+    private <R> R getWithPublicationAction(K key, ScopePath path, Function<K, V> loader,
+            BiConsumer<V, Consumer<Runnable>> publicationCoordinator, Function<V, R> loadedResult,
+            Function<CompletableFuture<V>, R> sharedResult) {
         Objects.requireNonNull(key, "key can not be null");
         Objects.requireNonNull(path, "path can not be null");
         Function<K, V> loadFunction = Objects.requireNonNull(loader, "loader can not be null");
@@ -206,14 +224,14 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
                     notifyDiscarded(key, loaded);
                 }
             }
-            return loaded;
+            return loadedResult.apply(loaded);
         }
 
         VersionedValue<K, V> presentVersioned = currentVersionedValue(key, path);
         if (presentVersioned != null) {
             recordAccess(true);
             scheduleRefresh(key, path, loader, presentVersioned);
-            return presentVersioned.value;
+            return loadedResult.apply(presentVersioned.value);
         }
         recordAccess(false);
         try (PublicationLease<K, V> lease = acquirePublicationLease(key, path, true)) {
@@ -221,7 +239,7 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
             CompletableFuture<V> ownLoad = new CompletableFuture<>();
             CompletableFuture<V> existingLoad = inFlightLoads.putIfAbsent(loadAddress, ownLoad);
             if (existingLoad != null) {
-                return awaitLoad(existingLoad);
+                return sharedResult.apply(existingLoad);
             }
             try {
                 afterLoadElection.run();
@@ -237,7 +255,7 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
                 if (electedValuePresent) {
                     VersionedValue<K, V> present = electedValue.get();
                     ownLoad.complete(present.value);
-                    return present.value;
+                    return loadedResult.apply(present.value);
                 }
                 V loaded = loadAndRecord(key, loadFunction);
                 if (loaded != null) {
@@ -261,7 +279,7 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
                     }
                 }
                 ownLoad.complete(loaded);
-                return loaded;
+                return loadedResult.apply(loaded);
             } catch (RuntimeException | Error throwable) {
                 ownLoad.completeExceptionally(throwable);
                 throw throwable;

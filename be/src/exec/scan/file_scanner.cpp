@@ -504,7 +504,7 @@ Status FileScanner::_open_impl(RuntimeState* state) {
     if (_local_state) {
         _condition_cache_digest = _local_state->get_condition_cache_digest();
     }
-    RETURN_IF_ERROR(_split_source->get_next(&_first_scan_range, &_current_range));
+    RETURN_IF_ERROR(_split_source->get_next(&_first_scan_range, &_current_range, &_should_stop));
     if (_first_scan_range) {
         RETURN_IF_ERROR(_init_expr_ctxes());
         if (_state->query_options().enable_runtime_filter_partition_prune &&
@@ -1032,7 +1032,7 @@ Status FileScanner::_get_next_reader() {
         _src_block_init = false;
         bool has_next = _first_scan_range;
         if (!_first_scan_range) {
-            RETURN_IF_ERROR(_split_source->get_next(&has_next, &_current_range));
+            RETURN_IF_ERROR(_split_source->get_next(&has_next, &_current_range, &_should_stop));
         }
         _first_scan_range = false;
         if (!has_next || _should_stop) {

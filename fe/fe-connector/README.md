@@ -120,6 +120,9 @@ tests and embedded use.
 
 ## Reading the API
 
+For the scan task scheduler SPI, admission, cancellation and configuration, see
+[Cooperative external scan scheduling](docs/scan-task-scheduling.md).
+
 This document never lists SPI methods. The truth lives in code, behind four
 mechanisms:
 

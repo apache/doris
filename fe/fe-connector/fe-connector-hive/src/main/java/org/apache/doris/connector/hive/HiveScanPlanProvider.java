@@ -25,6 +25,7 @@ import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
+import org.apache.doris.connector.spi.ConnectorTaskScheduler;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
@@ -82,6 +83,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
     /** Maximum number of partitions to list from HMS. */
     private static final int MAX_PARTITIONS = 100000;
     private static final int DEFAULT_BATCH_THRESHOLD = 1024;
+    private static final int DEFAULT_PARTITION_BATCH_SIZE = 16;
 
     /**
      * Session variable gating the OpenX-JSON "read the whole JSON row into one CSV column" mode (legacy
@@ -213,6 +215,12 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     @Override
+    public int partitionBatchSize(ConnectorSession session, int partitionCount, int parallelism) {
+        int configured = sessionInt(session, "split_partition_batch_size", DEFAULT_PARTITION_BATCH_SIZE);
+        return Math.min(configured, (partitionCount - 1) / parallelism + 1);
+    }
+
+    @Override
     public long streamingSplitEstimate(ConnectorSession session, ConnectorTableHandle handle,
             Optional<ConnectorExpression> filter, boolean countPushdown) {
         HiveTableHandle hiveHandle = (HiveTableHandle) handle;
@@ -274,6 +282,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
 
     private final class HiveSplitSource implements ConnectorSplitSource {
         private final HiveTableHandle handle;
+        private final ConnectorTaskScheduler scheduler;
         private final FileSystem fs;
         private final HiveFileFormat tableFormat;
         private final boolean isLzo;
@@ -292,6 +301,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         HiveSplitSource(ConnectorSession session, HiveTableHandle handle, List<String> requiredPartitions) {
             rejectTransactionalRead(handle);
             this.handle = handle;
+            this.scheduler = session.getTaskScheduler(ConnectorTaskScheduler.Stage.SPLIT);
             this.partitionNames = requiredPartitions.isEmpty() ? null : requiredPartitions;
             this.fs = storage().getFileSystem(session);
             this.tableFormat = HiveFileFormat.detect(handle.getInputFormat(), handle.getSerializationLib(),
@@ -300,13 +310,16 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             this.splittable = tableFormat.isSplittable() && !isLzo;
             this.targetSplitSize = getTargetSplitSize(session);
             this.partitionBatchSize = Math.max(1,
-                    sessionInt(session, "num_partitions_in_batch_mode", DEFAULT_BATCH_THRESHOLD));
+                    sessionInt(session, "split_partition_batch_size", DEFAULT_PARTITION_BATCH_SIZE));
             recordPruningProfile(handle);
         }
 
         @Override
         public boolean hasNext() {
-            while (!closed) {
+            // Empty partitions can keep hasNext() inside the source for many directory requests.
+            // Observe query cleanup here, before advancing to another listing, rather than waiting
+            // for the producer to regain control and close this source after its active read.
+            while (!closed && !scheduler.isClosed()) {
                 if (ranges.hasNext()) {
                     return true;
                 }

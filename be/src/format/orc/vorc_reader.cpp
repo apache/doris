@@ -100,6 +100,7 @@
 #include "storage/id_manager.h"
 #include "storage/segment/column_reader.h"
 #include "storage/utils.h"
+#include "util/debug_points.h"
 #include "util/slice.h"
 #include "util/timezone_utils.h"
 #include "util/unaligned.h"
@@ -2301,6 +2302,25 @@ void OrcReader::_filter_rows_by_condition_cache(size_t* read_rows, bool* eof) {
     }
 }
 
+bool OrcReader::_seek_to_read_one_line() {
+    if (_read_by_rows) {
+        if (_row_ids.empty()) {
+            return false;
+        }
+        DBUG_EXECUTE_IF("OrcReader::rowid_seek.inject_error", {
+            // Unit tests inject a specific seek exception through the callback. The SQL
+            // regression uses the point without a callback and keeps the default failure.
+            if (dp->callback.has_value()) {
+                DBUG_RUN_CALLBACK();
+            }
+            throw orc::ParseError("injected ORC RowID seek failure");
+        });
+        _row_reader->seekToRow(_row_ids.front());
+        _row_ids.pop_front();
+    }
+    return true;
+}
+
 Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eof) {
     if (_io_ctx && _io_ctx->should_stop) {
         *eof = true;
@@ -2326,9 +2346,27 @@ Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eo
         }
     }
 
-    if (!_seek_to_read_one_line()) {
-        *eof = true;
-        return Status::OK();
+    // RowID seeks can perform I/O before either nextBatch exception boundary below.
+    // Translate their ORC exceptions here so an external row-fetch worker returns an error.
+    try {
+        if (!_seek_to_read_one_line()) {
+            *eof = true;
+            *read_rows = 0;
+            return Status::OK();
+        }
+    } catch (const Exception&) {
+        // Keep Doris errors (including memory limits) on the existing worker exception path.
+        throw;
+    } catch (const std::exception& e) {
+        const std::string err_msg = e.what();
+        if (_io_ctx && _io_ctx->should_stop && err_msg == "stop") {
+            block->clear_column_data();
+            *eof = true;
+            *read_rows = 0;
+            return Status::OK();
+        }
+        return Status::InternalError("Orc row reader seek failed. file = {}, reason = {}",
+                                     _file_description.path, err_msg);
     }
 
     if (_lazy_read_ctx.can_lazy_read) {

@@ -19,7 +19,35 @@
 #include "exprs/hybrid_set.h"
 #include "runtime/runtime_profile.h"
 
+namespace doris::schema::external {
+class TField;
+} // namespace doris::schema::external
+
 namespace doris {
+
+// The type an equality-delete key is compared in: the field's type in the scan schema (`field`, which
+// is null when the plan carries no schema), as in the V2 reader. Data files are read in that type, so
+// an equality delete written before a type promotion is widened to it rather than the data narrowed
+// to the delete file's type. Example: `id` promoted from INT to BIGINT, a data file written after the
+// promotion holds 4294967296, and a delete file written before it holds the NULL key. Narrowed to
+// INT, 4294967296 became NULL and was deleted by that NULL key; widened, the delete key is compared
+// as BIGINT and deletes only rows whose id is NULL. STRING / VARBINARY keys keep `delete_key_type`:
+// they match by their bytes whatever the two sides were read as.
+DataTypePtr equality_delete_key_type(const schema::external::TField* field,
+                                     const DataTypePtr& delete_key_type);
+
+// Iceberg BINARY / FIXED keys are read as VARBINARY and string keys as STRING, and the delete file and
+// the data file may carry the same key in different ones of these classes (a delete block holding
+// STRING bytes for a VARBINARY data column, say). Keys of these types therefore match by their bytes.
+bool is_equality_delete_byte_type(const DataTypePtr& type);
+
+// Widens an equality-delete key read in `column_type` to `key_type`, the type the key is compared in.
+// A file written before an Iceberg type promotion holds the key in the old type: the INT key of a
+// column since promoted to BIGINT becomes BIGINT here. Iceberg's promotions (INT to BIGINT, FLOAT to
+// DOUBLE, a wider DECIMAL precision) only widen, so every value is kept. Returns `column` itself when
+// the types are equal.
+Status widen_equality_delete_key(ColumnPtr column, const DataTypePtr& column_type,
+                                 const DataTypePtr& key_type, ColumnPtr* result);
 
 /**
  * Support Iceberg equality delete.
